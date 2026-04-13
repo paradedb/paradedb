@@ -837,11 +837,7 @@ mod tests {
         }
     }
 
-    // This test launches parallel workers via DSM which doesn't work correctly
-    // inside the pg_test transaction harness (DSM resource ownership errors).
-    // It should be run manually against a real cluster.
     #[pgrx::pg_test]
-    #[ignore = "DSM parallel workers require a real cluster, not pg_test harness"]
     fn test_dsm_gather_execution() {
         let total_participants = 2; // Leader + 1 Worker
         let process = DsmTestProcess::new(total_participants);
@@ -1027,5 +1023,10 @@ mod tests {
                 })
                 .await;
         });
+
+        // Clean up: clear the global DSM mesh and drain the launched process
+        // to properly release DSM resources before the test transaction rolls back.
+        crate::postgres::customscan::joinscan::exchange::clear_dsm_mesh();
+        for _ in launched {}
     }
 }

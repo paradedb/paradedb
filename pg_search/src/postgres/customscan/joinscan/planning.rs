@@ -46,7 +46,7 @@ use crate::postgres::customscan::CustomScan;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_collect_vars, expr_contains_any_operator};
-use crate::postgres::var::fieldname_from_var;
+use crate::postgres::var::{fieldname_from_var, unwrap_order_preserving};
 use crate::query::SearchQueryInput;
 
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
@@ -1802,6 +1802,11 @@ impl JoinSortExprKind {
         output_rtis: &[pg_sys::Index],
         pathkey_equivalence_member: bool,
     ) -> Self {
+        // Strip order-preserving wrappers (e.g. `id + 0`, RelabelType, CoerceToDomain)
+        // so that the expression reaches the pattern-matching below in canonical form.
+        let check_expr =
+            unwrap_order_preserving(check_expr as *mut pg_sys::Node) as *mut pg_sys::Expr;
+
         if let Some(nt) = nodecast!(NullTest, T_NullTest, check_expr) {
             let inner_expr = strip_wrappers((*nt).arg.cast()).cast::<pg_sys::Expr>();
             let nulltesttype = if (*nt).nulltesttype == pg_sys::NullTestType::IS_NULL {

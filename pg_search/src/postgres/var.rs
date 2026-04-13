@@ -27,6 +27,145 @@ use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use std::sync::OnceLock;
 
+/// Operator OIDs from pg_catalog, stable across PG14–PG18.
+/// Source: `SELECT oid, oprcode FROM pg_operator WHERE …`
+mod op_oids {
+    use pgrx::pg_sys::Oid;
+    pub const INT4PL: Oid = Oid::from_u32(551);
+    pub const INT8PL: Oid = Oid::from_u32(684);
+    pub const FLOAT4PL: Oid = Oid::from_u32(586);
+    pub const FLOAT8PL: Oid = Oid::from_u32(591);
+    pub const NUMERIC_ADD: Oid = Oid::from_u32(1758);
+    pub const INT4MI: Oid = Oid::from_u32(555);
+    pub const INT8MI: Oid = Oid::from_u32(688);
+    pub const INT4MUL: Oid = Oid::from_u32(514);
+    pub const INT8MUL: Oid = Oid::from_u32(686);
+    pub const INT4DIV: Oid = Oid::from_u32(528);
+}
+
+/// Strip wrappers from `expr` that do not affect row ordering.
+///
+/// Returns a pointer to the first inner node whose shape the rest of
+/// the planner recognizes (typically a `Var`). If no wrapper can be
+/// safely removed, returns `expr` unchanged.
+///
+/// Safe to call with a null pointer; returns null in that case.
+pub(crate) unsafe fn unwrap_order_preserving(mut expr: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    if expr.is_null() {
+        return expr;
+    }
+    loop {
+        match (*expr).type_ {
+            pg_sys::NodeTag::T_RelabelType => {
+                expr = (*(expr as *mut pg_sys::RelabelType)).arg as *mut pg_sys::Node;
+            }
+            pg_sys::NodeTag::T_CoerceToDomain => {
+                expr = (*(expr as *mut pg_sys::CoerceToDomain)).arg as *mut pg_sys::Node;
+            }
+            pg_sys::NodeTag::T_OpExpr => match try_unwrap_identity_opexpr(expr as *mut pg_sys::OpExpr) {
+                Some(inner) => expr = inner,
+                None => return expr,
+            },
+            _ => return expr,
+        }
+    }
+}
+
+/// Attempt to unwrap an `OpExpr` of the shape `Var <op> Const` or `Const <op> Var`
+/// where the operator is a known identity operation (e.g. `+ 0`, `* 1`).
+unsafe fn try_unwrap_identity_opexpr(op: *mut pg_sys::OpExpr) -> Option<*mut pg_sys::Node> {
+    // Must have exactly two args.
+    let args = (*op).args;
+    let args_list = PgList::<pg_sys::Node>::from_pg(args);
+    if args_list.len() != 2 {
+        return None;
+    }
+    let left = args_list.get_ptr(0)? as *mut pg_sys::Node;
+    let right = args_list.get_ptr(1)? as *mut pg_sys::Node;
+
+    // Match "Var-side <op> Const" or "Const <op> Var-side".
+    // The "var side" is the non-Const operand — it may itself be a wrapped Var.
+    let (var_side, const_side, const_on_right) = match ((*left).type_, (*right).type_) {
+        (pg_sys::NodeTag::T_Const, _) => (right, left as *mut pg_sys::Const, false),
+        (_, pg_sys::NodeTag::T_Const) => (left, right as *mut pg_sys::Const, true),
+        _ => return None,
+    };
+
+    // Operator OID + identity-value check.
+    if !is_identity_operation((*op).opno, const_side, const_on_right) {
+        return None;
+    }
+    Some(var_side)
+}
+
+/// Check whether the given operator OID combined with the constant value
+/// forms an identity operation that preserves row ordering.
+///
+/// `const_on_right` indicates whether the constant is the right operand.
+/// For non-commutative operators like `-` and `/`, the constant must be on the right.
+unsafe fn is_identity_operation(
+    opno: pg_sys::Oid,
+    konst: *mut pg_sys::Const,
+    const_on_right: bool,
+) -> bool {
+    if konst.is_null() || (*konst).constisnull {
+        return false;
+    }
+
+    match opno {
+        // Addition: identity element is 0, commutative (either side)
+        op_oids::INT4PL => {
+            i32::from_datum((*konst).constvalue, false) == Some(0)
+        }
+        op_oids::INT8PL => {
+            i64::from_datum((*konst).constvalue, false) == Some(0)
+        }
+        op_oids::FLOAT4PL => {
+            f32::from_datum((*konst).constvalue, false) == Some(0.0)
+        }
+        op_oids::FLOAT8PL => {
+            f64::from_datum((*konst).constvalue, false) == Some(0.0)
+        }
+        op_oids::NUMERIC_ADD => {
+            // For numeric, extract as string and check for zero
+            numeric_const_is_zero(konst)
+        }
+
+        // Subtraction: identity element is 0, but only when const is on the right
+        // (0 - id inverts ordering)
+        op_oids::INT4MI => {
+            const_on_right && i32::from_datum((*konst).constvalue, false) == Some(0)
+        }
+        op_oids::INT8MI => {
+            const_on_right && i64::from_datum((*konst).constvalue, false) == Some(0)
+        }
+
+        // Multiplication: identity element is 1, commutative (either side)
+        op_oids::INT4MUL => {
+            i32::from_datum((*konst).constvalue, false) == Some(1)
+        }
+        op_oids::INT8MUL => {
+            i64::from_datum((*konst).constvalue, false) == Some(1)
+        }
+
+        // Division: identity element is 1, only when const is on the right
+        op_oids::INT4DIV => {
+            const_on_right && i32::from_datum((*konst).constvalue, false) == Some(1)
+        }
+
+        _ => false,
+    }
+}
+
+/// Check if a numeric `Const` node represents zero.
+unsafe fn numeric_const_is_zero(konst: *mut pg_sys::Const) -> bool {
+    let numeric: Option<pgrx::AnyNumeric> = FromDatum::from_datum((*konst).constvalue, false);
+    match numeric {
+        Some(n) => n == pgrx::AnyNumeric::from(0i32),
+        None => false,
+    }
+}
+
 #[derive(Clone, Copy)]
 pub enum VarContext {
     Planner(*mut pg_sys::PlannerInfo),

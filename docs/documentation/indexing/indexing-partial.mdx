@@ -19,19 +19,16 @@ WHERE description IS NOT NULL;
 ```
 
 ```python Django
-class Meta:
-    indexes = [
-        BM25Index(
-            fields={
-                "id": {},
-                "description": {},
-                "category": {},
-            },
-            key_field="id",
-            name="search_idx",
-            condition=Q(description__isnull=False),
-        ),
-    ]
+BM25Index(
+    fields={
+        "id": {},
+        "description": {},
+        "category": {},
+    },
+    key_field="id",
+    name="search_idx",
+    condition=Q(description__isnull=False),
+)
 ```
 
 ```python SQLAlchemy

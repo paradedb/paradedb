@@ -15,18 +15,15 @@ WITH (key_field='id');
 ```
 
 ```python Django
-class Meta:
-    indexes = [
-        BM25Index(
-            fields={
-                "id": {},
-                "description": {},
-                "category": {},
-            },
-            key_field="id",
-            name="search_idx",
-        ),
-    ]
+BM25Index(
+    fields={
+        "id": {},
+        "description": {},
+        "category": {},
+    },
+    key_field="id",
+    name="search_idx",
+)
 ```
 
 ```python SQLAlchemy
@@ -69,18 +66,15 @@ WITH (key_field='id');
 ```
 
 ```python Django
-class Meta:
-    indexes = [
-        BM25Index(
-            fields={
-                "id": {},
-                "description": {"tokenizer": "icu"},
-                "category": {},
-            },
-            key_field="id",
-            name="search_idx",
-        ),
-    ]
+BM25Index(
+    fields={
+        "id": {},
+        "description": {"tokenizer": "icu"},
+        "category": {},
+    },
+    key_field="id",
+    name="search_idx",
+)
 ```
 
 ```python SQLAlchemy
@@ -123,23 +117,20 @@ WITH (key_field='id');
 ```
 
 ```python Django
-class Meta:
-    indexes = [
-        BM25Index(
-            fields={
-                "id": {},
-                "description": {},
-                "category": {},
-                "rating": {},
-                "in_stock": {},
-                "created_at": {},
-                "metadata": {},
-                "weight_range": {},
-            },
-            key_field="id",
-            name="search_idx",
-        ),
-    ]
+BM25Index(
+    fields={
+        "id": {},
+        "description": {},
+        "category": {},
+        "rating": {},
+        "in_stock": {},
+        "created_at": {},
+        "metadata": {},
+        "weight_range": {},
+    },
+    key_field="id",
+    name="search_idx",
+)
 ```
 
 ```python SQLAlchemy
@@ -216,22 +207,19 @@ WITH (key_field='id');
 ```
 
 ```python Django
-class Meta:
-    indexes = [
-        BM25Index(
-            fields={
-                "id": {},
-                "description": {
-                    "tokenizer": "simple",
-                    "filters": ["stemmer"],
-                    "stemmer": "english",
-                },
-                "category": {},
-            },
-            key_field="id",
-            name="search_idx",
-        ),
-    ]
+BM25Index(
+    fields={
+        "id": {},
+        "description": {
+            "tokenizer": "simple",
+            "filters": ["stemmer"],
+            "stemmer": "english",
+        },
+        "category": {},
+    },
+    key_field="id",
+    name="search_idx",
+)
 ```
 
 ```python SQLAlchemy

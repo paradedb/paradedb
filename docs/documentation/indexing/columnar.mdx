@@ -17,18 +17,15 @@ WITH (key_field = 'id');
 ```
 
 ```python Django
-class Meta:
-    indexes = [
-        BM25Index(
-            fields={
-                "id": {},
-                "description": {},
-                "rating": {},
-            },
-            key_field="id",
-            name="search_idx",
-        ),
-    ]
+BM25Index(
+    fields={
+        "id": {},
+        "description": {},
+        "rating": {},
+    },
+    key_field="id",
+    name="search_idx",
+)
 ```
 
 ```python SQLAlchemy
@@ -67,21 +64,18 @@ WITH (key_field = 'id');
 ```
 
 ```python Django
-class Meta:
-    indexes = [
-        BM25Index(
-            fields={
-                "id": {},
-                "description": {
-                    "tokenizer": "unicode_words",
-                    "named_args": {"columnar": True},
-                },
-                "rating": {},
-            },
-            key_field="id",
-            name="search_idx",
-        ),
-    ]
+BM25Index(
+    fields={
+        "id": {},
+        "description": {
+            "tokenizer": "unicode_words",
+            "named_args": {"columnar": True},
+        },
+        "rating": {},
+    },
+    key_field="id",
+    name="search_idx",
+)
 ```
 
 ```python SQLAlchemy

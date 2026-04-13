@@ -15,17 +15,14 @@ WITH (key_field='id');
 ```
 
 ```python Django
-class Meta:
-    indexes = [
-        BM25Index(
-            fields={
-                "id": {},
-                "metadata": {},
-            },
-            key_field="id",
-            name="search_idx",
-        ),
-    ]
+BM25Index(
+    fields={
+        "id": {},
+        "metadata": {},
+    },
+    key_field="id",
+    name="search_idx",
+)
 ```
 
 ```python SQLAlchemy
@@ -70,20 +67,17 @@ WITH (key_field='id');
 ```
 
 ```python Django
-class Meta:
-    indexes = [
-        BM25Index(
-            fields={
-                "id": {},
-                "metadata": {
-                    "tokenizer": "ngram",
-                    "args": [2, 3],
-                },
-            },
-            key_field="id",
-            name="search_idx",
-        ),
-    ]
+BM25Index(
+    fields={
+        "id": {},
+        "metadata": {
+            "tokenizer": "ngram",
+            "args": [2, 3],
+        },
+    },
+    key_field="id",
+    name="search_idx",
+)
 ```
 
 ```python SQLAlchemy
@@ -124,24 +118,21 @@ WITH (key_field='id');
 ```
 
 ```python Django
-class Meta:
-    indexes = [
-        BM25Index(
-            fields={
-                "id": {},
-                "metadata": {
-                    "json_keys": {
-                        "color": {
-                            "tokenizer": "ngram",
-                            "args": [2, 3],
-                        },
-                    },
+BM25Index(
+    fields={
+        "id": {},
+        "metadata": {
+            "json_keys": {
+                "color": {
+                    "tokenizer": "ngram",
+                    "args": [2, 3],
                 },
             },
-            key_field="id",
-            name="search_idx",
-        ),
-    ]
+        },
+    },
+    key_field="id",
+    name="search_idx",
+)
 ```
 
 ```python SQLAlchemy

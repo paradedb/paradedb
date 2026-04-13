@@ -71,7 +71,7 @@ use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
 use tantivy::index::SegmentId;
 
-use crate::api::{OrderByFeature, SortDirection};
+use crate::api::{NullTestKind, OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::datafusion::memory::create_memory_pool;
 use crate::postgres::customscan::joinscan::build::{
@@ -766,6 +766,50 @@ fn resolve_distinct_col(
     }
 }
 
+/// Resolve a non-NullTest `OrderByFeature` to a DataFusion `Expr`.
+fn resolve_orderby_feature(
+    feature: &OrderByFeature,
+    join_clause: &JoinCSClause,
+    distinct_col_map: &DistinctColMap,
+) -> Expr {
+    match feature {
+        OrderByFeature::Score { rti } => {
+            if !distinct_col_map.is_empty() {
+                resolve_distinct_col(distinct_col_map, true, 0, 0, "")
+            } else {
+                join_clause
+                    .plan
+                    .sources()
+                    .iter()
+                    .find(|s| s.scan_info.heap_rti == *rti)
+                    .map(|source| make_source_score_col(source))
+                    .unwrap_or_else(|| col("unknown_score"))
+            }
+        }
+        OrderByFeature::Field { name, rti } => join_clause
+            .plan
+            .sources()
+            .iter()
+            .find(|s| s.contains_rti(*rti))
+            .map(|source| make_source_col(source, name.as_ref()))
+            .unwrap_or_else(|| {
+                pgrx::warning!("JoinScan: could not find source for RTI {rti} when building sort expression for field '{name}'");
+                col(name.as_ref())
+            }),
+        OrderByFeature::Var { rti, attno, .. } => {
+            if !distinct_col_map.is_empty() {
+                resolve_distinct_col(distinct_col_map, false, *rti, *attno, "")
+            } else {
+                resolve_var_to_df_col(join_clause, *rti, *attno)
+                    .unwrap_or_else(|| col("unknown_col"))
+            }
+        }
+        OrderByFeature::NullTest { .. } => {
+            unreachable!("NullTest is handled by apply_sort directly")
+        }
+    }
+}
+
 /// Apply the join clause's `ORDER BY` to the data frame, choosing column
 /// references from `distinct_col_map` when DISTINCT is active and from the
 /// per-source resolution paths otherwise.
@@ -781,44 +825,17 @@ fn apply_sort(
     let mut sort_exprs = Vec::new();
     for info in &join_clause.order_by {
         let expr = match &info.feature {
-            OrderByFeature::Score { rti } => {
-                if !distinct_col_map.is_empty() {
-                    resolve_distinct_col(distinct_col_map, true, 0, 0, "")
-                } else {
-                    // TODO: this heap_rti lookup has the same collision
-                    // risk as the partitioning check fixed above — if a
-                    // NOT IN subquery source shares the same RTI as the
-                    // outer table, the wrong score column could be
-                    // selected. Low risk since ORDER BY scores typically
-                    // reference outer-query tables. Fix by switching
-                    // OrderByFeature::Score to carry plan_position.
-                    join_clause
-                        .plan
-                        .sources()
-                        .iter()
-                        .find(|s| s.scan_info.heap_rti == *rti)
-                        .map(|source| make_source_score_col(source))
-                        .unwrap_or_else(|| col("unknown_score"))
+            OrderByFeature::NullTest {
+                inner,
+                nulltesttype,
+            } => {
+                let inner_expr = resolve_orderby_feature(inner, join_clause, distinct_col_map);
+                match nulltesttype {
+                    NullTestKind::IsNull => inner_expr.is_null(),
+                    NullTestKind::IsNotNull => inner_expr.is_not_null(),
                 }
             }
-            OrderByFeature::Field { name, rti } => join_clause
-                .plan
-                .sources()
-                .iter()
-                .find(|s| s.contains_rti(*rti))
-                .map(|source| make_source_col(source, name.as_ref()))
-                .unwrap_or_else(|| {
-                    pgrx::warning!("JoinScan: could not find source for RTI {rti} when building sort expression for field '{name}'");
-                    col(name.as_ref())
-                }),
-            OrderByFeature::Var { rti, attno, .. } => {
-                if !distinct_col_map.is_empty() {
-                    resolve_distinct_col(distinct_col_map, false, *rti, *attno, "")
-                } else {
-                    resolve_var_to_df_col(join_clause, *rti, *attno)
-                        .unwrap_or_else(|| col("unknown_col"))
-                }
-            }
+            other => resolve_orderby_feature(other, join_clause, distinct_col_map),
         };
 
         let asc = matches!(
@@ -992,9 +1009,22 @@ fn build_source_df<'a>(
                             }
                         }
                     }
-                    OrderByFeature::Score { .. } => {
-                        // Score is not a late-materialized column, skip
-                    }
+                    OrderByFeature::Score { .. } => {}
+                    OrderByFeature::NullTest { inner, .. } => match inner.as_ref() {
+                        OrderByFeature::Field { name, rti } => {
+                            if source.contains_rti(*rti) {
+                                required_early.insert(name.as_ref().to_string());
+                            }
+                        }
+                        OrderByFeature::Var { rti, attno, .. } => {
+                            if source.contains_rti(*rti) {
+                                if let Some(col_name) = source.column_name(*attno) {
+                                    required_early.insert(col_name);
+                                }
+                            }
+                        }
+                        _ => {}
+                    },
                 }
             }
         }

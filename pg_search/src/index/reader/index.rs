@@ -910,6 +910,10 @@ impl SearchIndexReader {
                 // TODO: See method docs.
                 self.top_by_score_in_segments(segment_ids, *direction, n, offset, aux_collector)
             }
+            OrderByInfo {
+                feature: OrderByFeature::NullTest { .. },
+                ..
+            } => unreachable!("NullTest ORDER BY is only used in JoinScan"),
         }
     }
 
@@ -1386,6 +1390,10 @@ impl SearchIndexReader {
                     feature: OrderByFeature::Var { .. },
                     ..
                 } => unimplemented!("Sorting by variable is not supported in raw index search"),
+                OrderByInfo {
+                    feature: OrderByFeature::NullTest { .. },
+                    ..
+                } => unreachable!("NullTest ORDER BY is only used in JoinScan"),
             }
         }
 

@@ -163,6 +163,7 @@ use self::scan_state::{
     build_joinscan_logical_plan, build_physical_plan, build_task_context,
     create_datafusion_session_context, JoinScanState, SessionContextProfile,
 };
+use crate::api::HashSet;
 use crate::api::OrderByFeature;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexManifest;
@@ -185,7 +186,6 @@ use datafusion::physical_plan::displayable;
 use datafusion::physical_plan::metrics::MetricValue;
 use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
 use futures::StreamExt;
-use crate::api::HashSet;
 use pgrx::{pg_guard, pg_sys, PgList};
 use std::ffi::{c_void, CStr};
 
@@ -264,10 +264,7 @@ impl JoinDeclineReason {
 /// Recursively walk an expression tree and collect the `plan_id` of every
 /// `T_SubPlan` node found at any depth.  Uses Postgres's
 /// `expression_tree_walker` so it handles all node types automatically.
-unsafe fn collect_all_subplan_ids_from_expr(
-    node: *mut pg_sys::Node,
-    ids: &mut HashSet<i32>,
-) {
+unsafe fn collect_all_subplan_ids_from_expr(node: *mut pg_sys::Node, ids: &mut HashSet<i32>) {
     if node.is_null() {
         return;
     }
@@ -288,10 +285,7 @@ unsafe fn collect_all_subplan_ids_from_expr(
         pg_sys::expression_tree_walker(node, Some(walker), context)
     }
 
-    walker(
-        node,
-        ids as *mut HashSet<i32> as *mut std::ffi::c_void,
-    );
+    walker(node, ids as *mut HashSet<i32> as *mut std::ffi::c_void);
 }
 
 /// Collect all SubPlan `plan_id`s present in `baserestrictinfo` of the

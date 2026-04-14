@@ -655,6 +655,11 @@ pub struct JoinNode {
     pub equi_keys: Vec<JoinKeyPair>,
     /// Any remaining non-equi join conditions.
     pub filter: Option<JoinLevelExpr>,
+    /// The `plan_id` of the PostgreSQL SubPlan that this join was extracted
+    /// from, if any.  Set for Semi/Anti/LeftMark joins created by
+    /// `wrap_with_semi_anti` and `wrap_with_mark_filter`; `None` for joins
+    /// that come from the normal join-hook path or path reconstruction.
+    pub subplan_id: Option<i32>,
 }
 
 /// A filter node in the relational plan tree.

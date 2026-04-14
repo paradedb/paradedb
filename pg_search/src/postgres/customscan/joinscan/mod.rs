@@ -163,6 +163,7 @@ use self::scan_state::{
     build_joinscan_logical_plan, build_physical_plan, build_task_context,
     create_datafusion_session_context, JoinScanState, SessionContextProfile,
 };
+use crate::api::HashSet;
 use crate::api::OrderByFeature;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexManifest;
@@ -185,7 +186,7 @@ use datafusion::physical_plan::displayable;
 use datafusion::physical_plan::metrics::MetricValue;
 use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
 use futures::StreamExt;
-use pgrx::{pg_sys, PgList};
+use pgrx::{pg_guard, pg_sys, PgList};
 use std::ffi::{c_void, CStr};
 
 #[derive(Default)]
@@ -258,6 +259,133 @@ impl JoinDeclineReason {
             }
         }
     }
+}
+
+/// Recursively walk an expression tree and collect the `plan_id` of every
+/// `T_SubPlan` node found at any depth.  Uses Postgres's
+/// `expression_tree_walker` so it handles all node types automatically.
+unsafe fn collect_all_subplan_ids_from_expr(node: *mut pg_sys::Node, ids: &mut HashSet<i32>) {
+    if node.is_null() {
+        return;
+    }
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut std::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+        if (*node).type_ == pg_sys::NodeTag::T_SubPlan {
+            let subplan = node as *mut pg_sys::SubPlan;
+            let ids = &mut *(context as *mut HashSet<i32>);
+            ids.insert((*subplan).plan_id);
+        }
+        pg_sys::expression_tree_walker(node, Some(walker), context)
+    }
+
+    walker(node, ids as *mut HashSet<i32> as *mut std::ffi::c_void);
+}
+
+/// Collect all SubPlan `plan_id`s present in `baserestrictinfo` of the
+/// given base relations.
+unsafe fn collect_all_subplan_ids_from_baserestrictinfo(
+    root: *mut pg_sys::PlannerInfo,
+    absorbed_rtis: &[pg_sys::Index],
+) -> HashSet<i32> {
+    let mut all_ids = HashSet::default();
+    for rti in absorbed_rtis {
+        let rel = pg_sys::find_base_rel(root, *rti as i32);
+        let ri_list = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
+        for ri in ri_list.iter_ptr() {
+            let clause = (*ri).clause as *mut pg_sys::Node;
+            collect_all_subplan_ids_from_expr(clause, &mut all_ids);
+        }
+    }
+    all_ids
+}
+
+/// Collect the `plan_id`s of SubPlans that JoinScan absorbed into
+/// Semi/Anti/LeftMark join nodes in the `RelNode` tree.
+fn collect_absorbed_subplan_ids(plan: &RelNode) -> HashSet<i32> {
+    let mut ids = HashSet::default();
+    walk_relnode_for_subplan_ids(plan, &mut ids);
+    ids
+}
+
+fn walk_relnode_for_subplan_ids(node: &RelNode, ids: &mut HashSet<i32>) {
+    match node {
+        RelNode::Join(j) => {
+            if let Some(plan_id) = j.subplan_id {
+                ids.insert(plan_id);
+            }
+            walk_relnode_for_subplan_ids(&j.left, ids);
+            walk_relnode_for_subplan_ids(&j.right, ids);
+        }
+        RelNode::Filter(f) => walk_relnode_for_subplan_ids(&f.input, ids),
+        RelNode::Scan(_) => {}
+    }
+}
+
+/// Check whether it is safe to push LIMIT into the JoinScan plan.
+///
+/// Returns `true` when ALL of:
+/// 1. JoinScan absorbed every base relation in the query (no outer
+///    relations that could add post-filters above JoinScan).
+/// 2. Every SubPlan in `baserestrictinfo` of absorbed relations was also
+///    absorbed into the `RelNode` tree (Semi/Anti/LeftMark joins).
+///    Un-absorbed SubPlans would become Postgres post-filters above
+///    the capped output.
+/// 3. No volatile functions in `baserestrictinfo` of absorbed relations
+///    (volatile functions can never be pushed into Tantivy).
+unsafe fn is_limit_pushdown_safe(
+    root: *mut pg_sys::PlannerInfo,
+    join_clause: &JoinCSClause,
+) -> bool {
+    let absorbed_rtis: Vec<pg_sys::Index> = join_clause
+        .plan
+        .sources()
+        .iter()
+        .map(|s| s.scan_info.heap_rti)
+        .collect();
+
+    // 1. Did JoinScan absorb ALL base relations?
+    #[cfg(feature = "pg15")]
+    let all_rels = (*root).all_baserels;
+    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+    let all_rels = (*root).all_query_rels;
+
+    let mut absorbed_bms: *mut pg_sys::Bitmapset = std::ptr::null_mut();
+    for rti in &absorbed_rtis {
+        absorbed_bms = pg_sys::bms_add_member(absorbed_bms, *rti as i32);
+    }
+    if !pg_sys::bms_is_subset(all_rels, absorbed_bms) {
+        return false;
+    }
+
+    // 2. Every SubPlan in baserestrictinfo must have been absorbed.
+    let all_subplan_ids = collect_all_subplan_ids_from_baserestrictinfo(root, &absorbed_rtis);
+    let absorbed_subplan_ids = collect_absorbed_subplan_ids(&join_clause.plan);
+    for id in &all_subplan_ids {
+        if !absorbed_subplan_ids.contains(id) {
+            return false;
+        }
+    }
+
+    // 3. No volatile functions (these can never be absorbed).
+    for rti in &absorbed_rtis {
+        let rel = pg_sys::find_base_rel(root, *rti as i32);
+        let ri_list = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
+        for ri in ri_list.iter_ptr() {
+            let clause = (*ri).clause as *mut pg_sys::Node;
+            if pg_sys::contain_volatile_functions(clause) {
+                return false;
+            }
+        }
+    }
+
+    true
 }
 
 /// Try to create JoinScan `CustomPath`s for a single base relation that contains
@@ -446,6 +574,26 @@ impl JoinScan {
                 );
             }
             join_clause = join_clause.with_forced_partitioning(0);
+        }
+
+        // Safety check: bail out if LIMIT pushdown is unsafe due to
+        // un-absorbed relations, un-absorbed SubPlans, or volatile functions.
+        if join_clause.limit_offset.limit.is_some() && !is_limit_pushdown_safe(root, &join_clause) {
+            let aliases: Vec<String> = join_clause
+                .plan
+                .sources()
+                .iter()
+                .map(|s| {
+                    RelationAlias::new(s.scan_info.alias.as_deref())
+                        .warning_context(s.scan_info.heaprelid)
+                })
+                .collect();
+            JoinScan::add_planner_warning(
+                "JoinScan not used: LIMIT pushdown unsafe (un-absorbed \
+                 relations, SubPlans, or volatile functions)",
+                &aliases,
+            );
+            return None;
         }
 
         Some((join_clause, limit_offset))
@@ -858,232 +1006,36 @@ impl CustomScan for JoinScan {
 
         unsafe {
             // For joins, we need to set custom_scan_tlist to describe the output columns.
-            // Create a fresh copy of the target list to avoid corrupting the original
+            // Create a fresh copy of the target list to avoid corrupting the original.
             let original_tlist = node.scan.plan.targetlist;
             let copied_tlist = pg_sys::copyObjectImpl(original_tlist.cast()).cast::<pg_sys::List>();
             let tlist = PgList::<pg_sys::TargetEntry>::from_pg(copied_tlist);
 
             // For join custom scans, PostgreSQL doesn't pass clauses via the usual parameter.
-            // We stored the restrictlist in custom_private during create_custom_path
+            // We stored the restrictlist in custom_private during create_custom_path.
             //
             // Note: We do NOT add restrictlist clauses to custom_exprs because setrefs would try
             // to resolve their Vars using the child plans' target lists, which may not have all
             // the needed columns. Instead, we keep the restrictlist in custom_private and handle
-            // join condition evaluation manually during execution using the original Var references.
+            // join condition evaluation manually during execution using the original Var
+            // references.
 
-            // Extract the column mappings from the ORIGINAL targetlist (before we add restrictlist Vars).
-            // The original_tlist has the SELECT's output columns, which is what ps_ResultTupleSlot is based on.
-            // We store this mapping in PrivateData so build_result_tuple can use it during execution.
-            let mut output_columns = Vec::new();
+            // Extract the column mappings from the ORIGINAL targetlist (before we add restrictlist
+            // Vars). The original_tlist has the SELECT's output columns, which is what
+            // ps_ResultTupleSlot is based on. We store this mapping in PrivateData so
+            // build_result_tuple can use it during execution.
             let mut private_data = PrivateData::from(node.custom_private);
             let original_entries = PgList::<pg_sys::TargetEntry>::from_pg(original_tlist);
 
-            for te in original_entries.iter_ptr() {
-                if (*(*te).expr).type_ == pg_sys::NodeTag::T_Var {
-                    let var = (*te).expr as *mut pg_sys::Var;
-                    let rti = (*var).varno as pg_sys::Index;
-                    let attno = (*var).varattno;
-                    if let Some(plan_position) =
-                        private_data
-                            .join_clause
-                            .plan_position(root.into(), rti, attno)
-                    {
-                        output_columns.push(privdat::OutputColumnInfo::Var {
-                            plan_position,
-                            rti,
-                            original_attno: attno,
-                        });
-                    } else {
-                        // Var references a relation pruned by an internal Semi/Anti
-                        // join (e.g., the inner side of a flattened EXISTS).
-                        // PostgreSQL's reltarget may include these Vars even though
-                        // they are not accessible after the Semi/Anti. Emit NULL;
-                        // the parent plan will not read this position.
-                        output_columns.push(privdat::OutputColumnInfo::Pruned);
-                    }
-                } else {
-                    let mut found_score = false;
-                    for source in private_data.join_clause.plan.sources() {
-                        if expr_uses_scores_from_source((*te).expr.cast(), source) {
-                            let rti = get_score_func_rti((*te).expr.cast()).unwrap_or(0);
-                            output_columns.push(privdat::OutputColumnInfo::Score {
-                                plan_position: source.plan_position,
-                                rti,
-                            });
-                            found_score = true;
-                            break;
-                        }
-                    }
-                    if !found_score {
-                        output_columns.push(privdat::OutputColumnInfo::Pruned);
-                    }
-                }
-            }
+            private_data.output_columns =
+                compute_output_columns(&private_data.join_clause, original_tlist, root);
 
-            private_data.output_columns = output_columns;
+            build_output_projection(&mut private_data, &original_entries, root);
 
-            let parse = (*root).parse;
-            let distinct_list_len =
-                if private_data.join_clause.has_distinct && !(*parse).distinctClause.is_null() {
-                    PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause)
-                        .iter_ptr()
-                        .count()
-                } else {
-                    0
-                };
-
-            // Custom scan tlist can be shorter than parse DISTINCT (parent evaluates some exprs).
-            // Then DataFusion GROUP BY can't match all pathkeys; defer DISTINCT and sort only by
-            // parse sortClause inside JoinScan.
-            //
-            // Limitation: if distinctClause and scan tlist happen to have equal length but
-            // contain different expressions, this heuristic won't fire and the non-deferred
-            // path runs.  In practice the scan tlist is a strict subset of distinctClause
-            // columns, so a length mismatch is the reliable signal for "extra" expressions.
-            let scan_tlist_len = original_entries.len();
-            let defer_distinct_to_parent =
-                private_data.join_clause.has_distinct && distinct_list_len > scan_tlist_len;
-
-            if defer_distinct_to_parent {
-                private_data.join_clause.has_distinct = false;
-                let output_rtis = private_data.join_clause.plan.output_rtis();
-                let current_sources = private_data.join_clause.plan.sources();
-                private_data.join_clause.order_by =
-                    extract_orderby_from_parse_sort_clause(root, &current_sources, &output_rtis)
-                        .unwrap_or_else(|| {
-                            let sort_count = if (*parse).sortClause.is_null() {
-                                0
-                            } else {
-                                PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause)
-                                    .iter_ptr()
-                                    .count()
-                            };
-                            panic!(
-                                "JoinScan: ORDER BY from sortClause failed after DISTINCT/tlist \
-                             mismatch (sortClause has {} entries, scan_tlist_len={}, \
-                             distinct_list_len={})",
-                                sort_count, scan_tlist_len, distinct_list_len
-                            )
-                        });
-                // Non-Var, non-score expressions have rti=0, attno=0 here.  That is safe:
-                // has_distinct is cleared above, so DataFusion skips GROUP BY and
-                // build_projection_expr yields NULL for these slots.  build_result_tuple
-                // also treats rti=0 as NULL.  Postgres re-evaluates the real expressions
-                // on top of the result slot, so the NULLs are overwritten.
-                private_data.join_clause.output_projection = Some(
-                    private_data
-                        .output_columns
-                        .iter()
-                        .map(build::ChildProjection::from)
-                        .collect(),
-                );
-            } else {
-                // Build output_projection, enriching expression entries with metadata
-                // when DISTINCT is active.
-                //
-                // TODO(#4604): This is the second call to distinct_columns_are_fast_fields
-                // in the same planning phase (first in validate_and_build_clause). Both
-                // calls walk the same parse tree. Consider caching the result in a
-                // planning-phase-scoped structure to avoid redundant work.
-                let distinct_entries = if private_data.join_clause.has_distinct {
-                    let all_sources = private_data.join_clause.plan.sources();
-                    distinct_columns_are_fast_fields(root, &all_sources)
-                } else {
-                    None
-                };
-
-                // Map ResolvedExpr to output columns by walking the parse tree's
-                // target list (which has original expressions and valid ressortgroupref).
-                // For ALL entries (Column, Score, Expression), use the parse-tree
-                // varnos so that distinct_col_map keys are consistent with
-                // extract_orderby's pathkey varnos.
-                let mut entry_by_output_idx: crate::api::HashMap<usize, &planning::ResolvedExpr> =
-                    Default::default();
-                if let Some(ref entries) = distinct_entries {
-                    let parse_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
-                    let distinct_list =
-                        PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause);
-
-                    for (clause_ptr, entry) in distinct_list.iter_ptr().zip(entries.iter()) {
-                        let tle_ref = (*clause_ptr).tleSortGroupRef;
-                        if let Some(parse_te) = parse_tlist
-                            .iter_ptr()
-                            .find(|te| (**te).ressortgroupref == tle_ref)
-                        {
-                            let output_idx = ((*parse_te).resno - 1) as usize;
-                            if output_idx < private_data.output_columns.len() {
-                                entry_by_output_idx.insert(output_idx, entry);
-                            }
-                        }
-                    }
-                }
-
-                // Key `entry_by_output_idx` by each scan tlist entry's `resno`, not list position.
-                let scan_target_entries: Vec<*mut pg_sys::TargetEntry> =
-                    original_entries.iter_ptr().collect();
-                private_data.join_clause.output_projection = Some(
-                    private_data
-                        .output_columns
-                        .iter()
-                        .zip(scan_target_entries.iter().copied())
-                        .map(|(info, te)| {
-                            let output_idx = ((*te).resno - 1) as usize;
-                            match entry_by_output_idx.get(&output_idx) {
-                                Some(planning::ResolvedExpr::Expression {
-                                    expr_node,
-                                    input_vars,
-                                    result_type,
-                                }) => {
-                                    let expr_string = {
-                                        let node_str = pg_sys::nodeToString((*expr_node).cast());
-                                        std::ffi::CStr::from_ptr(node_str)
-                                            .to_string_lossy()
-                                            .into_owned()
-                                    };
-                                    let primary_rti = input_vars.first().map_or(0, |v| v.rti);
-                                    build::ChildProjection::Expression {
-                                        rti: primary_rti,
-                                        pg_expr_string: expr_string,
-                                        input_vars: input_vars.clone(),
-                                        result_type_oid: *result_type,
-                                    }
-                                }
-                                Some(planning::ResolvedExpr::Column { rti, attno }) => {
-                                    build::ChildProjection::Column {
-                                        rti: *rti,
-                                        attno: *attno,
-                                    }
-                                }
-                                Some(planning::ResolvedExpr::Score { rti }) => {
-                                    build::ChildProjection::Score { rti: *rti }
-                                }
-                                Some(planning::ResolvedExpr::IndexedExpression { rti }) => {
-                                    let attno = match info {
-                                        privdat::OutputColumnInfo::Var {
-                                            original_attno, ..
-                                        } => *original_attno,
-                                        _ => 0,
-                                    };
-                                    build::ChildProjection::IndexedExpression { rti: *rti, attno }
-                                }
-                                None => info.into(),
-                            }
-                        })
-                        .collect(),
-                );
-            }
-
-            // Add heap condition clauses to custom_exprs so they get transformed by set_customscan_references.
-            // The Vars in these expressions will be converted to INDEX_VAR references into custom_scan_tlist.
-            let path_private_full = PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
-            let mut custom_exprs_list = PgList::<pg_sys::Node>::from_pg(node.custom_exprs);
-            // Skip index 0 (PrivateData)
-            for i in 1..path_private_full.len() {
-                if let Some(node_ptr) = path_private_full.get_ptr(i) {
-                    custom_exprs_list.push(node_ptr);
-                }
-            }
-            node.custom_exprs = custom_exprs_list.into_pg();
+            // Add heap condition clauses to custom_exprs so they get transformed by
+            // set_customscan_references. The Vars in these expressions will be converted to
+            // INDEX_VAR references into custom_scan_tlist.
+            node.custom_exprs = splice_path_private_into_list(node.custom_exprs, best_path);
 
             // Collect all required fields for execution
             collect_required_fields(
@@ -1092,31 +1044,11 @@ impl CustomScan for JoinScan {
                 node.custom_exprs,
             );
 
-            // Build, serialize and store the logical plan
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .build()
-                .expect("Failed to create tokio runtime");
-            let logical_plan = runtime
-                .block_on(build_joinscan_logical_plan(
-                    &private_data.join_clause,
-                    &private_data,
-                    node.custom_exprs,
-                ))
-                .expect("Failed to build DataFusion logical plan");
-            private_data.logical_plan = Some(
-                serialize_logical_plan(&logical_plan)
-                    .expect("Failed to serialize DataFusion logical plan"),
-            );
+            bake_logical_plan(&mut private_data, node.custom_exprs);
 
-            // Convert PrivateData back to a list and preserve the restrictlist
-            let mut new_private = PgList::<pg_sys::Node>::from_pg(PrivateData::into(private_data));
-            let path_private_full = PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
-            for i in 1..path_private_full.len() {
-                if let Some(node_ptr) = path_private_full.get_ptr(i) {
-                    new_private.push(node_ptr);
-                }
-            }
-            node.custom_private = new_private.into_pg();
+            // Convert PrivateData back to a list and preserve the restrictlist.
+            let private_list = PrivateData::into(private_data);
+            node.custom_private = splice_path_private_into_list(private_list, best_path);
 
             // Set custom_scan_tlist with all needed columns
             node.custom_scan_tlist = tlist.into_pg();
@@ -1246,8 +1178,8 @@ impl CustomScan for JoinScan {
                                 )
                             }
                         }
-                        OrderByFeature::Score { .. } => {
-                            format!("pdb.score() {}", oi.direction.as_ref())
+                        other => {
+                            format!("{other} {}", oi.direction.as_ref())
                         }
                     })
                     .collect::<Vec<_>>()
@@ -1480,6 +1412,266 @@ impl CustomScan for JoinScan {
     }
 }
 
+/// Walk a target list and classify each entry into the corresponding
+/// [`privdat::OutputColumnInfo`]: a `Var` resolves to a plan position via the
+/// join clause, a `paradedb.score()` call becomes a `Score` sentinel, and any
+/// expression that cannot be located emits `Pruned` so the parent plan slot
+/// stays NULL.
+unsafe fn compute_output_columns(
+    join_clause: &JoinCSClause,
+    original_tlist: *mut pg_sys::List,
+    root: *mut pg_sys::PlannerInfo,
+) -> Vec<privdat::OutputColumnInfo> {
+    let mut output_columns = Vec::new();
+    let original_entries = PgList::<pg_sys::TargetEntry>::from_pg(original_tlist);
+
+    for te in original_entries.iter_ptr() {
+        if (*(*te).expr).type_ == pg_sys::NodeTag::T_Var {
+            let var = (*te).expr as *mut pg_sys::Var;
+            let rti = (*var).varno as pg_sys::Index;
+            let attno = (*var).varattno;
+            if let Some(plan_position) = join_clause.plan_position(root.into(), rti, attno) {
+                output_columns.push(privdat::OutputColumnInfo::Var {
+                    plan_position,
+                    rti,
+                    original_attno: attno,
+                });
+            } else {
+                // Var references a relation pruned by an internal Semi/Anti
+                // join (e.g., the inner side of a flattened EXISTS).
+                // PostgreSQL's reltarget may include these Vars even though
+                // they are not accessible after the Semi/Anti. Emit NULL;
+                // the parent plan will not read this position.
+                output_columns.push(privdat::OutputColumnInfo::Pruned);
+            }
+        } else {
+            let mut found_score = false;
+            for source in join_clause.plan.sources() {
+                if expr_uses_scores_from_source((*te).expr.cast(), source) {
+                    let rti = get_score_func_rti((*te).expr.cast()).unwrap_or(0);
+                    output_columns.push(privdat::OutputColumnInfo::Score {
+                        plan_position: source.plan_position,
+                        rti,
+                    });
+                    found_score = true;
+                    break;
+                }
+            }
+            if !found_score {
+                output_columns.push(privdat::OutputColumnInfo::Pruned);
+            }
+        }
+    }
+
+    output_columns
+}
+
+/// Build `private_data.join_clause.output_projection` from the scan target
+/// list, picking one of two strategies:
+///
+/// 1. **Defer to parent** when the parse-tree DISTINCT clause is wider than
+///    the scan target list. JoinScan strips DISTINCT, sorts by the parse
+///    `sortClause`, and emits a passthrough projection so the parent plan can
+///    re-evaluate the missing expressions.
+/// 2. **Normal** when DISTINCT (if any) fits inside the scan target list.
+///    Project each output column with metadata enriched from
+///    `distinct_columns_are_fast_fields` so GROUP BY column matching works
+///    against parse-tree varnos.
+unsafe fn build_output_projection(
+    private_data: &mut PrivateData,
+    original_entries: &PgList<pg_sys::TargetEntry>,
+    root: *mut pg_sys::PlannerInfo,
+) {
+    let parse = (*root).parse;
+    let scan_tlist_len = original_entries.len();
+    let distinct_list_len =
+        if private_data.join_clause.has_distinct && !(*parse).distinctClause.is_null() {
+            PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause)
+                .iter_ptr()
+                .count()
+        } else {
+            0
+        };
+
+    // Custom scan tlist can be shorter than parse DISTINCT (parent evaluates some exprs).
+    // Then DataFusion GROUP BY can't match all pathkeys; defer DISTINCT and sort only by
+    // parse sortClause inside JoinScan.
+    //
+    // Limitation: if distinctClause and scan tlist happen to have equal length but
+    // contain different expressions, this heuristic won't fire and the non-deferred
+    // path runs.  In practice the scan tlist is a strict subset of distinctClause
+    // columns, so a length mismatch is the reliable signal for "extra" expressions.
+    let defer_distinct_to_parent =
+        private_data.join_clause.has_distinct && distinct_list_len > scan_tlist_len;
+
+    if defer_distinct_to_parent {
+        private_data.join_clause.has_distinct = false;
+        let output_rtis = private_data.join_clause.plan.output_rtis();
+        let current_sources = private_data.join_clause.plan.sources();
+        private_data.join_clause.order_by =
+            extract_orderby_from_parse_sort_clause(root, &current_sources, &output_rtis)
+                .unwrap_or_else(|| {
+                    let sort_count = if (*parse).sortClause.is_null() {
+                        0
+                    } else {
+                        PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause)
+                            .iter_ptr()
+                            .count()
+                    };
+                    panic!(
+                        "JoinScan: ORDER BY from sortClause failed after DISTINCT/tlist \
+                     mismatch (sortClause has {} entries, scan_tlist_len={}, \
+                     distinct_list_len={})",
+                        sort_count, scan_tlist_len, distinct_list_len
+                    )
+                });
+        // Non-Var, non-score expressions have rti=0, attno=0 here.  That is safe:
+        // has_distinct is cleared above, so DataFusion skips GROUP BY and
+        // build_projection_expr yields NULL for these slots.  build_result_tuple
+        // also treats rti=0 as NULL.  Postgres re-evaluates the real expressions
+        // on top of the result slot, so the NULLs are overwritten.
+        private_data.join_clause.output_projection = Some(
+            private_data
+                .output_columns
+                .iter()
+                .map(build::ChildProjection::from)
+                .collect(),
+        );
+        return;
+    }
+
+    // Normal path: build output_projection, enriching expression entries with
+    // metadata when DISTINCT is active.
+    //
+    // TODO(#4604): This is the second call to distinct_columns_are_fast_fields
+    // in the same planning phase (first in validate_and_build_clause). Both
+    // calls walk the same parse tree. Consider caching the result in a
+    // planning-phase-scoped structure to avoid redundant work.
+    let distinct_entries = if private_data.join_clause.has_distinct {
+        let all_sources = private_data.join_clause.plan.sources();
+        distinct_columns_are_fast_fields(root, &all_sources)
+    } else {
+        None
+    };
+
+    // Map ResolvedExpr to output columns by walking the parse tree's
+    // target list (which has original expressions and valid ressortgroupref).
+    // For ALL entries (Column, Score, Expression), use the parse-tree
+    // varnos so that distinct_col_map keys are consistent with
+    // extract_orderby's pathkey varnos.
+    let mut entry_by_output_idx: crate::api::HashMap<usize, &planning::ResolvedExpr> =
+        Default::default();
+    if let Some(ref entries) = distinct_entries {
+        let parse_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+        let distinct_list = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause);
+
+        for (clause_ptr, entry) in distinct_list.iter_ptr().zip(entries.iter()) {
+            let tle_ref = (*clause_ptr).tleSortGroupRef;
+            if let Some(parse_te) = parse_tlist
+                .iter_ptr()
+                .find(|te| (**te).ressortgroupref == tle_ref)
+            {
+                let output_idx = ((*parse_te).resno - 1) as usize;
+                if output_idx < private_data.output_columns.len() {
+                    entry_by_output_idx.insert(output_idx, entry);
+                }
+            }
+        }
+    }
+
+    // Key `entry_by_output_idx` by each scan tlist entry's `resno`, not list position.
+    let scan_target_entries: Vec<*mut pg_sys::TargetEntry> = original_entries.iter_ptr().collect();
+    private_data.join_clause.output_projection = Some(
+        private_data
+            .output_columns
+            .iter()
+            .zip(scan_target_entries.iter().copied())
+            .map(|(info, te)| {
+                let output_idx = ((*te).resno - 1) as usize;
+                match entry_by_output_idx.get(&output_idx) {
+                    Some(planning::ResolvedExpr::Expression {
+                        expr_node,
+                        input_vars,
+                        result_type,
+                    }) => {
+                        let expr_string = {
+                            let node_str = pg_sys::nodeToString((*expr_node).cast());
+                            std::ffi::CStr::from_ptr(node_str)
+                                .to_string_lossy()
+                                .into_owned()
+                        };
+                        let primary_rti = input_vars.first().map_or(0, |v| v.rti);
+                        build::ChildProjection::Expression {
+                            rti: primary_rti,
+                            pg_expr_string: expr_string,
+                            input_vars: input_vars.clone(),
+                            result_type_oid: *result_type,
+                        }
+                    }
+                    Some(planning::ResolvedExpr::Column { rti, attno }) => {
+                        build::ChildProjection::Column {
+                            rti: *rti,
+                            attno: *attno,
+                        }
+                    }
+                    Some(planning::ResolvedExpr::Score { rti }) => {
+                        build::ChildProjection::Score { rti: *rti }
+                    }
+                    Some(planning::ResolvedExpr::IndexedExpression { rti }) => {
+                        let attno = match info {
+                            privdat::OutputColumnInfo::Var { original_attno, .. } => {
+                                *original_attno
+                            }
+                            _ => 0,
+                        };
+                        build::ChildProjection::IndexedExpression { rti: *rti, attno }
+                    }
+                    None => info.into(),
+                }
+            })
+            .collect(),
+    );
+}
+
+/// Build the DataFusion logical plan for the JoinScan, serialize it, and store
+/// the bytes inside `private_data.logical_plan` so the executor can rehydrate
+/// it during scan startup.
+fn bake_logical_plan(private_data: &mut PrivateData, custom_exprs: *mut pg_sys::List) {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("Failed to create tokio runtime");
+    let logical_plan = runtime
+        .block_on(build_joinscan_logical_plan(
+            &private_data.join_clause,
+            &*private_data,
+            custom_exprs,
+        ))
+        .expect("Failed to build DataFusion logical plan");
+    private_data.logical_plan = Some(
+        serialize_logical_plan(&logical_plan).expect("Failed to serialize DataFusion logical plan"),
+    );
+}
+
+/// Append every entry in `best_path.custom_private` (skipping index 0, which
+/// holds the serialized `PrivateData`) onto `list`. Used twice in
+/// `plan_custom_path`: once to splice the trailing restrictlist clauses onto
+/// `node.custom_exprs`, and once to preserve them when re-serializing
+/// `PrivateData` back into `node.custom_private`.
+unsafe fn splice_path_private_into_list(
+    list: *mut pg_sys::List,
+    best_path: *mut pg_sys::CustomPath,
+) -> *mut pg_sys::List {
+    let mut combined = PgList::<pg_sys::Node>::from_pg(list);
+    let path_private_full = PgList::<pg_sys::Node>::from_pg((*best_path).custom_private);
+    // Skip index 0 (PrivateData)
+    for i in 1..path_private_full.len() {
+        if let Some(node_ptr) = path_private_full.get_ptr(i) {
+            combined.push(node_ptr);
+        }
+    }
+    combined.into_pg()
+}
+
 impl JoinScan {
     /// Body of [`<Self as CustomScan>::create_custom_path`] in `?`-style.
     /// The Ok variant returns the assembled `CustomPath` plus the alias list
@@ -1546,6 +1738,7 @@ impl JoinScan {
             right: inner_node,
             equi_keys: join_conditions.equi_keys,
             filter: None,
+            subplan_id: None,
         }));
 
         let unsupported = plan.unsupported_join_types();

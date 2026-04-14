@@ -158,24 +158,24 @@ FROM documents
 WHERE title ||| 'sheriff'
 ORDER BY pdb.score(id) DESC, id
 LIMIT 2;
-                                                                                                                                                                    QUERY PLAN                                                                                                                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                       QUERY PLAN                                                                                                                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Base Scan) on documents
-         Filter: ((NOT document_has_tags(id)) OR EXISTS(SubPlan 1))
-         Table: documents
-         Index: documents_bm25
-         Exec Method: TopKScanExecState
-         Scores: true
-            TopK Order By: pdb.score() desc, id asc
-            TopK Limit: 2
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"title","value":"sheriff","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"field_filters":[{"heap_filter":"check_org_access(org_id)"}]}}]}}
-         SubPlan 1
-           ->  Nested Loop
-                 ->  Function Scan on unnest tag_id
-                 ->  Index Scan using access_tags_pkey on access_tags
-                       Index Cond: (id = tag_id.tag_id)
-                       Filter: check_org_access(org_id)
+   ->  Sort
+         Sort Key: (pdb.score(documents.id)) DESC, documents.id
+         ->  Custom Scan (ParadeDB Base Scan) on documents
+               Filter: ((NOT document_has_tags(id)) OR EXISTS(SubPlan 1))
+               Table: documents
+               Index: documents_bm25
+               Exec Method: NormalScanExecState
+               Scores: true
+               Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"match":{"field":"title","value":"sheriff","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}]}},"field_filters":[{"heap_filter":"check_org_access(org_id)"}]}}]}}
+               SubPlan 1
+                 ->  Nested Loop
+                       ->  Function Scan on unnest tag_id
+                       ->  Index Scan using access_tags_pkey on access_tags
+                             Index Cond: (id = tag_id.tag_id)
+                             Filter: check_org_access(org_id)
 (16 rows)
 
 SELECT id

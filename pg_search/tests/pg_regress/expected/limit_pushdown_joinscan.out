@@ -1,0 +1,309 @@
+-- Tests for LIMIT pushdown suppression in JoinScan when non-pushable
+-- post-filters exist. JoinScan bails out entirely when unsafe, letting
+-- Postgres fall back to its native join plan.
+--
+-- Issue #4718: Anti-join + LIMIT produces fewer rows than correct when
+-- JoinScan absorbs the LIMIT but Postgres applies a post-filter above
+-- the scan.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_custom_scan = on;
+SET paradedb.enable_join_custom_scan = on;
+-- ============================================================
+-- Shared setup
+-- ============================================================
+DROP TABLE IF EXISTS lj_excluded_contacts CASCADE;
+DROP TABLE IF EXISTS lj_departments CASCADE;
+DROP TABLE IF EXISTS lj_job_openings CASCADE;
+DROP TABLE IF EXISTS lj_excluded_emails CASCADE;
+DROP TABLE IF EXISTS lj_people CASCADE;
+DROP TABLE IF EXISTS lj_companies CASCADE;
+CREATE TABLE lj_companies (
+    id BIGINT PRIMARY KEY,
+    name TEXT NOT NULL
+) WITH (autovacuum_enabled = false);
+CREATE TABLE lj_people (
+    id BIGINT PRIMARY KEY,
+    company_id BIGINT,
+    name TEXT NOT NULL,
+    dept_id BIGINT,
+    email TEXT NOT NULL,
+    seniority_slug TEXT NOT NULL
+) WITH (autovacuum_enabled = false);
+CREATE TABLE lj_excluded_emails (
+    id BIGINT PRIMARY KEY,
+    company_id BIGINT NOT NULL
+) WITH (autovacuum_enabled = false);
+CREATE TABLE lj_job_openings (
+    id BIGINT PRIMARY KEY,
+    company_id BIGINT NOT NULL
+) WITH (autovacuum_enabled = false);
+CREATE TABLE lj_departments (
+    id BIGINT PRIMARY KEY,
+    active BOOLEAN NOT NULL
+) WITH (autovacuum_enabled = false);
+CREATE TABLE lj_excluded_contacts (
+    id BIGINT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    email TEXT NOT NULL
+) WITH (autovacuum_enabled = false);
+-- Populate companies: 100 companies
+INSERT INTO lj_companies SELECT i, 'company_' || i FROM generate_series(1, 100) i;
+-- Populate people: 2 people per company (first 180 have company_id, rest NULL)
+INSERT INTO lj_people
+SELECT i,
+       CASE WHEN i <= 180 THEN ((i-1) % 100) + 1 ELSE NULL END,
+       'person_' || i,
+       ((i-1) % 5) + 1,
+       'person_' || i || '@example.com',
+       CASE (i % 4)
+           WHEN 0 THEN 'manager'
+           WHEN 1 THEN 'director'
+           WHEN 2 THEN 'individual_contributor'
+           WHEN 3 THEN 'executive'
+       END
+FROM generate_series(1, 200) i;
+-- Excluded emails: exclude 3 companies (company 1, 2, 3)
+INSERT INTO lj_excluded_emails SELECT i, i FROM generate_series(1, 3) i;
+-- Job openings: 50 companies have openings
+INSERT INTO lj_job_openings SELECT i, i FROM generate_series(1, 50) i;
+-- Departments: only 3 out of 5 are active
+INSERT INTO lj_departments SELECT i, (i <= 3) FROM generate_series(1, 5) i;
+-- Excluded contacts for Test 13
+INSERT INTO lj_excluded_contacts
+SELECT i, 1, 'person_' || i || '@example.com'
+FROM generate_series(1, 10) i;
+-- BM25 indexes — only on tables that JoinScan should absorb.
+-- lj_excluded_emails and lj_job_openings intentionally have NO BM25 index
+-- so JoinScan cannot absorb them and must bail out for Tests 8, 9, 12.
+CREATE INDEX lj_companies_bm25 ON lj_companies
+USING bm25 (id, name)
+WITH (key_field = 'id');
+CREATE INDEX lj_people_bm25 ON lj_people
+USING bm25 (id, company_id, name, dept_id, email, seniority_slug)
+WITH (key_field = 'id', numeric_fields = '{"company_id": {"fast": true}, "dept_id": {"fast": true}}');
+-- No BM25 index on lj_excluded_contacts — must remain non-BM25 for Test 13.
+ANALYZE;
+-- ============================================================
+-- Test 8: Anti-join + LIMIT (Issue #4718 reproducer)
+-- ============================================================
+-- NOT EXISTS creates a SubPlan. lj_excluded_emails has no BM25 index,
+-- so JoinScan cannot absorb it and must bail out.
+-- Expected: 26 rows. JoinScan absent from EXPLAIN.
+SELECT count(*) FROM (
+    SELECT c.id, c.name FROM lj_companies c
+    WHERE c.id @@@ paradedb.all()
+      AND NOT EXISTS (
+          SELECT 1 FROM lj_excluded_emails e
+          WHERE e.company_id = c.id
+      )
+    ORDER BY c.name ASC
+    LIMIT 26
+) sub;
+ count 
+-------
+    26
+(1 row)
+
+-- Verify JoinScan is NOT used (bailed out)
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT c.id, c.name FROM lj_companies c
+WHERE c.id @@@ paradedb.all()
+  AND NOT EXISTS (
+      SELECT 1 FROM lj_excluded_emails e
+      WHERE e.company_id = c.id
+  )
+ORDER BY c.name ASC
+LIMIT 26;
+                              QUERY PLAN                              
+----------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: c.name
+         ->  Hash Anti Join
+               Hash Cond: (c.id = e.company_id)
+               ->  Custom Scan (ParadeDB Base Scan) on lj_companies c
+                     Table: lj_companies
+                     Index: lj_companies_bm25
+                     Exec Method: NormalScanExecState
+                     Scores: false
+                     Full Index Scan: true
+                     Tantivy Query: {"with_index":{"query":"all"}}
+               ->  Hash
+                     ->  Seq Scan on lj_excluded_emails e
+(14 rows)
+
+-- ============================================================
+-- Test 9: Semi-join + non-BM25 outer predicate + LIMIT
+-- ============================================================
+-- JoinScan activates for the c JOIN p pair (both have BM25 indexes,
+-- join key company_id is fast, ORDER BY c.id is fast).  But the
+-- IN (SELECT company_id FROM lj_job_openings) SubPlan is on c's
+-- baserestrictinfo and lj_job_openings has no BM25 index, so JoinScan
+-- cannot absorb it.  Our safety check detects the un-absorbed SubPlan
+-- and bails out.
+SELECT count(*) FROM (
+    SELECT c.id FROM lj_companies c
+    JOIN lj_people p ON c.id = p.company_id
+    WHERE c.id @@@ paradedb.all()
+      AND c.id IN (SELECT company_id FROM lj_job_openings)
+    ORDER BY c.id ASC
+    LIMIT 26
+) sub;
+WARNING:  JoinScan not used: LIMIT pushdown unsafe (un-absorbed relations, SubPlans, or volatile functions) (tables: c, p)
+WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: c, p)
+ count 
+-------
+    26
+(1 row)
+
+-- ============================================================
+-- Test 10: OR-wrapped SubPlan on absorbed relation
+-- ============================================================
+-- The SubPlan is nested inside an OR, so extract_subplan_id returns
+-- None. Conservative behavior: bail out.
+SELECT count(*) FROM (
+    SELECT c.id, p.name FROM lj_companies c
+    JOIN lj_people p ON c.id = p.company_id
+    WHERE c.id @@@ paradedb.all()
+      AND (p.dept_id IS NULL
+           OR p.dept_id IN (
+               SELECT id FROM lj_departments WHERE active))
+    ORDER BY c.id ASC
+    LIMIT 26
+) sub;
+WARNING:  JoinScan not used: LIMIT pushdown unsafe (un-absorbed relations, SubPlans, or volatile functions) (tables: c, p)
+WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: c, p)
+ count 
+-------
+    26
+(1 row)
+
+-- ============================================================
+-- Test 11: All-absorbed + LIMIT regression
+-- ============================================================
+-- Simple join with no SubPlans. Both tables have BM25 indexes,
+-- join key (company_id) is a fast field, ORDER BY c.id is a fast
+-- field. JoinScan SHOULD activate and use TopK(fetch=N).
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT c.id, p.name FROM lj_companies c
+JOIN lj_people p ON c.id = p.company_id
+WHERE c.id @@@ paradedb.all()
+ORDER BY c.id ASC
+LIMIT 26;
+                                                              QUERY PLAN                                                               
+---------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Custom Scan (ParadeDB Join Scan)
+         Relation Tree: p INNER c
+         Join Cond: c.id = p.company_id
+         Limit: 26
+         Order By: c.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
+           :   SortExec: TopK(fetch=26), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[p, c]
+           :       ProjectionExec: expr=[ctid_0@2 as ctid_0, ctid_1@0 as ctid_1, id@1 as id]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, company_id@1)], projection=[ctid_1@0, id@1, ctid_0@2]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":"all"}}
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(16 rows)
+
+-- ============================================================
+-- Test 12: LIMIT + OFFSET with outer predicates
+-- ============================================================
+-- NOT EXISTS against non-BM25 table + LIMIT + OFFSET. JoinScan
+-- should bail out.
+SELECT count(*) FROM (
+    SELECT c.id FROM lj_companies c
+    WHERE c.id @@@ paradedb.all()
+      AND NOT EXISTS (
+          SELECT 1 FROM lj_excluded_emails e
+          WHERE e.company_id = c.id
+      )
+    ORDER BY c.name ASC
+    LIMIT 26 OFFSET 10
+) sub;
+ count 
+-------
+    26
+(1 row)
+
+-- ============================================================
+-- Test 13: Combined anti-join + OR SubPlan + seniority filter
+-- ============================================================
+-- Real-world pattern: multiple unsafe predicates in one query.
+-- NOT EXISTS against non-BM25 lj_excluded_contacts, plus an OR-wrapped
+-- SubPlan (company_id IN (SELECT ...)). JoinScan should bail out.
+SELECT count(*) FROM (
+    SELECT p.id
+    FROM lj_people p
+    WHERE p.id @@@ paradedb.all()
+      AND p.seniority_slug IN ('manager', 'director')
+      AND NOT EXISTS (
+          SELECT ec.id FROM lj_excluded_contacts ec
+          WHERE ec.user_id = 1
+            AND ec.email = p.email
+      )
+      AND (p.company_id IS NULL
+           OR p.company_id IN (
+               SELECT c.id FROM lj_companies c
+           ))
+    ORDER BY p.id DESC
+    LIMIT 26
+) sub;
+WARNING:  JoinScan not used: LIMIT pushdown unsafe (un-absorbed relations, SubPlans, or volatile functions) (tables: c, p)
+ count 
+-------
+    26
+(1 row)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT p.id
+FROM lj_people p
+WHERE p.id @@@ paradedb.all()
+  AND p.seniority_slug IN ('manager', 'director')
+  AND NOT EXISTS (
+      SELECT ec.id FROM lj_excluded_contacts ec
+      WHERE ec.user_id = 1
+        AND ec.email = p.email
+  )
+  AND (p.company_id IS NULL
+       OR p.company_id IN (
+           SELECT c.id FROM lj_companies c
+       ))
+ORDER BY p.id DESC
+LIMIT 26;
+WARNING:  JoinScan not used: LIMIT pushdown unsafe (un-absorbed relations, SubPlans, or volatile functions) (tables: c, p)
+                                                                                                                    QUERY PLAN                                                                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Sort
+         Sort Key: p.id DESC
+         ->  Hash Right Anti Join
+               Hash Cond: (ec.email = p.email)
+               ->  Seq Scan on lj_excluded_contacts ec
+                     Filter: (user_id = 1)
+               ->  Hash
+                     ->  Custom Scan (ParadeDB Base Scan) on lj_people p
+                           Filter: ((company_id IS NULL) OR (ANY (company_id = (hashed SubPlan 1).col1)))
+                           Table: lj_people
+                           Index: lj_people_bm25
+                           Exec Method: NormalScanExecState
+                           Scores: false
+                           Full Index Scan: true
+                           Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":"all"}}]}},"field_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
+                           SubPlan 1
+                             ->  Seq Scan on lj_companies c
+(18 rows)
+
+-- ============================================================
+-- Cleanup
+-- ============================================================
+DROP TABLE IF EXISTS lj_excluded_contacts CASCADE;
+DROP TABLE IF EXISTS lj_departments CASCADE;
+DROP TABLE IF EXISTS lj_job_openings CASCADE;
+DROP TABLE IF EXISTS lj_excluded_emails CASCADE;
+DROP TABLE IF EXISTS lj_people CASCADE;
+DROP TABLE IF EXISTS lj_companies CASCADE;

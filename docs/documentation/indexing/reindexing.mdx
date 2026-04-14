@@ -57,9 +57,12 @@ idx = Index(
     postgresql_concurrently=True,
 )
 
-with engine.begin() as conn:
+with engine.connect() as conn:
+    conn = conn.execution_options(isolation_level="AUTOCOMMIT")
     idx.create(conn)
 ```
+
+<!-- TODO: rails doesn't support concurrent index creation right now -->
 
 ```ruby Rails
 ActiveRecord::Base.connection.add_bm25_index(
@@ -71,7 +74,6 @@ ActiveRecord::Base.connection.add_bm25_index(
   },
   key_field: :id,
   name: :search_idx_v2,
-  algorithm: :concurrently
 )
 ```
 

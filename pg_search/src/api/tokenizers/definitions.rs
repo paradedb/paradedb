@@ -561,6 +561,25 @@ pub(crate) mod pdb {
     );
 
     define_tokenizer_type!(
+        EdgeNgram,
+        SearchTokenizer::EdgeNgram {
+            min_gram: 1,
+            max_gram: 2,
+            token_chars: vec!["letter".to_string(), "digit".to_string()],
+            filters: SearchTokenizerFilters::default(),
+        },
+        tokenize_edge_ngram,
+        json_to_edge_ngram,
+        jsonb_to_edge_ngram,
+        uuid_to_edge_ngram,
+        text_array_to_edge_ngram,
+        varchar_array_to_edge_ngram,
+        "edge_ngram",
+        preferred = false,
+        custom_typmod = false
+    );
+
+    define_tokenizer_type!(
         Regex,
         SearchTokenizer::RegexTokenizer {
             pattern: ".*".to_string(),

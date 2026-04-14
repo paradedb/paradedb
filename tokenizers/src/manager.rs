@@ -18,6 +18,7 @@
 
 use std::fmt::Write;
 
+use crate::edge_ngram::{EdgeNgramTokenizer, TokenCharClass};
 use crate::icu::ICUTokenizer;
 use crate::ngram::NgramTokenizer;
 use crate::{
@@ -380,6 +381,12 @@ pub enum SearchTokenizer {
         positions: bool,
         filters: SearchTokenizerFilters,
     },
+    EdgeNgram {
+        min_gram: usize,
+        max_gram: usize,
+        token_chars: Vec<String>,
+        filters: SearchTokenizerFilters,
+    },
     ChineseLindera(SearchTokenizerFilters),
     JapaneseLindera(SearchTokenizerFilters),
     KoreanLindera(SearchTokenizerFilters),
@@ -471,6 +478,22 @@ impl SearchTokenizer {
                     filters,
                 })
             }
+            "edge_ngram" => {
+                let min_gram: usize =
+                    value.get("min_gram").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
+                let max_gram: usize =
+                    value.get("max_gram").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
+                let token_chars: Vec<String> = value
+                    .get("token_chars")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or_else(|| vec!["letter".to_string(), "digit".to_string()]);
+                Ok(SearchTokenizer::EdgeNgram {
+                    min_gram,
+                    max_gram,
+                    token_chars,
+                    filters,
+                })
+            }
             "chinese_lindera" => Ok(SearchTokenizer::ChineseLindera(filters)),
             "japanese_lindera" => Ok(SearchTokenizer::JapaneseLindera(filters)),
             "korean_lindera" => Ok(SearchTokenizer::KoreanLindera(filters)),
@@ -552,6 +575,23 @@ impl SearchTokenizer {
                     .unwrap_or_else(|e| panic!("{}", e)),
                 filters
             ),
+            SearchTokenizer::EdgeNgram {
+                min_gram,
+                max_gram,
+                token_chars,
+                filters,
+            } => {
+                let classes = token_chars
+                    .iter()
+                    .map(|s| s.parse::<TokenCharClass>())
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap_or_else(|e| panic!("{}", e));
+                add_filters!(
+                    EdgeNgramTokenizer::new(*min_gram, *max_gram, classes)
+                        .unwrap_or_else(|e| panic!("{}", e)),
+                    filters
+                )
+            }
             SearchTokenizer::ChineseCompatible(filters) => {
                 add_filters!(ChineseTokenizer, filters)
             }
@@ -625,6 +665,7 @@ impl SearchTokenizer {
             SearchTokenizer::ChineseCompatible(filters) => filters,
             SearchTokenizer::SourceCode(filters) => filters,
             SearchTokenizer::Ngram { filters, .. } => filters,
+            SearchTokenizer::EdgeNgram { filters, .. } => filters,
             SearchTokenizer::ChineseLindera(filters) => filters,
             SearchTokenizer::JapaneseLindera(filters) => filters,
             SearchTokenizer::KoreanLindera(filters) => filters,
@@ -694,6 +735,19 @@ impl SearchTokenizer {
                 let positions_suffix = if *positions { "_positions:true" } else { "" };
                 format!(
                     "ngram_mingram:{min_gram}_maxgram:{max_gram}_prefixonly:{prefix_only}{positions_suffix}{filters_suffix}"
+                )
+            }
+            SearchTokenizer::EdgeNgram {
+                min_gram,
+                max_gram,
+                token_chars,
+                filters: _,
+            } => {
+                let mut tc_sorted = token_chars.clone();
+                tc_sorted.sort();
+                let tc = tc_sorted.join(",");
+                format!(
+                    "edge_ngram_mingram:{min_gram}_maxgram:{max_gram}_tokenchars:{tc}{filters_suffix}"
                 )
             }
             SearchTokenizer::ChineseLindera(_filters) => format!("chinese_lindera{filters_suffix}"),

@@ -1,5 +1,5 @@
 -- string ff
-SELECT name, COUNT(*) FROM badges WHERE tag_based GROUP BY name ORDER BY name;
+SELECT name, COUNT(*) FROM badges WHERE name === 'Question' GROUP BY name ORDER BY name;
 
 -- aggregate custom scan
 SET paradedb.enable_aggregate_custom_scan TO on; SELECT name, COUNT(*) FROM badges WHERE tag_based GROUP BY name;

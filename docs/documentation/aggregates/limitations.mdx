@@ -66,7 +66,7 @@ If your query does not contain a ParadeDB operator, a way to "force" aggregate p
 
 ## Join Support
 
-Aggregate pushdown works across joins as well as single tables. When every participating table has a BM25 index and the custom aggregate scan is enabled, ParadeDB lifts the aggregate into Apache DataFusion and computes the result directly from the index fast fields — no row materialization from the heap.
+Aggregate pushdown works across joins as well as single tables. When every participating table has a BM25 index and the custom aggregate scan is enabled, ParadeDB computes the result directly from the index's columnar storage, without scanning the underlying table rows.
 
 ```sql
 SET paradedb.enable_aggregate_custom_scan TO on;
@@ -88,16 +88,16 @@ The following join shapes are supported:
 ParadeDB falls back to native Postgres execution when any of the following are true:
 
 - One or more tables in the join lacks a BM25 index
-- The join has no equi-join key (e.g. `CROSS JOIN`)
-- Join keys, `GROUP BY` columns, or aggregate arguments are not fast fields
+- The join has no equality join condition (e.g. `CROSS JOIN`)
+- Join keys, `GROUP BY` columns, or aggregate arguments are not indexed columns
 - The query uses window functions (`OVER ...`), `ROLLUP`, `CUBE`, `GROUPING SETS`, `LATERAL`, or `DISTINCT ON`
 - `GROUP BY` uses a scalar function like `date_trunc(...)` or `lower(...)` (JSON sub-field access via `->>` is supported)
 - The aggregate argument is wrapped in an expression such as `COALESCE(...)` or a cast
 
-When a fallback happens, the query still runs correctly through Postgres' native planner — ParadeDB simply does not accelerate it.
+When a fallback happens, the query still runs correctly through Postgres' native planner. ParadeDB simply does not accelerate it.
 
 <Note>
-  Aggregate-on-join execution is currently single-threaded. Parallel execution is on the [roadmap](/welcome/roadmap).
+  Aggregate pushdown across joins is currently single-threaded. Parallel execution is on the [roadmap](/welcome/roadmap).
 </Note>
 
 ## NUMERIC Columns

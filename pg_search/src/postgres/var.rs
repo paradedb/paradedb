@@ -98,15 +98,15 @@ mod identity_ops {
         })
     }
 }
-
-/// Strip wrappers from `expr` that do not affect row ordering.
+/// Strip identity wrappers from `expr`: `RelabelType`, `CoerceToDomain`,
+/// and `OpExpr` where the operator is a known identity operation
+/// (e.g. `+ 0`, `- 0`, `* 1`, `/ 1` against pg_catalog numeric types).
 ///
-/// Returns a pointer to the first inner node whose shape the rest of
-/// the planner recognizes (typically a `Var`). If no wrapper can be
-/// safely removed, returns `expr` unchanged.
+/// Returns the innermost non-identity node (typically a `Var`).
+/// If nothing can be safely stripped, returns `expr` unchanged.
 ///
 /// Safe to call with a null pointer; returns null in that case.
-pub(crate) unsafe fn unwrap_order_preserving(mut expr: *mut pg_sys::Node) -> *mut pg_sys::Node {
+pub(crate) unsafe fn strip_identity_wrappers(mut expr: *mut pg_sys::Node) -> *mut pg_sys::Node {
     loop {
         if expr.is_null() {
             return expr;

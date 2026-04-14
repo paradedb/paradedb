@@ -34,7 +34,7 @@ use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::{
-    fieldname_from_var, find_one_var_and_fieldname, unwrap_order_preserving, VarContext,
+    fieldname_from_var, find_one_var_and_fieldname, strip_identity_wrappers, VarContext,
 };
 use crate::schema::{SearchField, SearchIndexSchema};
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList};
@@ -196,7 +196,7 @@ pub unsafe fn analyze_sort_expression(
 ) -> Option<(SortExpressionType, *mut pg_sys::Var, Option<FieldName>)> {
     // Strip order-preserving wrappers (e.g. `id + 0`, RelabelType, CoerceToDomain)
     // so that the expression reaches the pattern-matching below in canonical form.
-    let node = unwrap_order_preserving(node);
+    let node = strip_identity_wrappers(node);
 
     if let Some(var) = extract_score_var(node) {
         return Some((SortExpressionType::Score, var, None));

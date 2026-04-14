@@ -46,7 +46,7 @@ use crate::postgres::customscan::CustomScan;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_collect_vars, expr_contains_any_operator};
-use crate::postgres::var::{fieldname_from_var, unwrap_order_preserving};
+use crate::postgres::var::{fieldname_from_var, strip_identity_wrappers};
 use crate::query::SearchQueryInput;
 
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
@@ -1310,11 +1310,11 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
             let expr = (*member).em_expr;
             // Chain strip_wrappers (for PlaceHolderVar/RelabelType) then
             // unwrap_order_preserving (for identity OpExpr like `id + 0`).
-            let mut expr = unwrap_order_preserving(strip_wrappers(expr.cast()));
+            let mut expr = strip_identity_wrappers(strip_wrappers(expr.cast()));
 
             // Unwrap NullTest to inspect the inner expression
             if let Some(nt) = nodecast!(NullTest, T_NullTest, expr) {
-                expr = unwrap_order_preserving(strip_wrappers((*nt).arg.cast()));
+                expr = strip_identity_wrappers(strip_wrappers((*nt).arg.cast()));
             }
 
             if sources
@@ -1807,7 +1807,7 @@ impl JoinSortExprKind {
         // Strip order-preserving wrappers (e.g. `id + 0`, RelabelType, CoerceToDomain)
         // so that the expression reaches the pattern-matching below in canonical form.
         let check_expr =
-            unwrap_order_preserving(check_expr as *mut pg_sys::Node) as *mut pg_sys::Expr;
+            strip_identity_wrappers(check_expr as *mut pg_sys::Node) as *mut pg_sys::Expr;
 
         if let Some(nt) = nodecast!(NullTest, T_NullTest, check_expr) {
             let inner_expr = strip_wrappers((*nt).arg.cast()).cast::<pg_sys::Expr>();

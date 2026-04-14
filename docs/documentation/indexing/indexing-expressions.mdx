@@ -20,8 +20,6 @@ WITH (key_field='id');
 ```python Django
 from django.db import connection, models
 from django.db.models import F, Func, Value
-
-from myapp.models import MockItem
 from paradedb.indexes import BM25Index, IndexExpression
 
 with connection.schema_editor() as schema_editor:
@@ -121,8 +119,6 @@ WITH (key_field='id');
 ```python Django
 from django.db import connection
 from django.db.models import F
-
-from myapp.models import MockItem
 from paradedb.indexes import BM25Index, IndexExpression
 
 with connection.schema_editor() as schema_editor:

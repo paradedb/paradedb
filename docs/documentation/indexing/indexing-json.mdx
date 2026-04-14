@@ -16,8 +16,6 @@ WITH (key_field='id');
 
 ```python Django
 from django.db import connection
-
-from myapp.models import MockItem
 from paradedb.indexes import BM25Index
 
 with connection.schema_editor() as schema_editor:
@@ -83,8 +81,6 @@ WITH (key_field='id');
 
 ```python Django
 from django.db import connection
-
-from myapp.models import MockItem
 from paradedb.indexes import BM25Index
 
 with connection.schema_editor() as schema_editor:
@@ -149,8 +145,6 @@ WITH (key_field='id');
 
 ```python Django
 from django.db import connection
-
-from myapp.models import MockItem
 from paradedb.indexes import BM25Index
 
 with connection.schema_editor() as schema_editor:

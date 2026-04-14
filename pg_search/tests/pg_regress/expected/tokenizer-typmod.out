@@ -216,31 +216,31 @@ SELECT 'Running Shoes.  olé'::pdb.ngram('min=2', 'max=3', 'lowercase=false', 's
 (1 row)
 
 SELECT 'Quick Fox'::pdb.edge_ngram(2, 5)::text[];
-            text
+            text            
 ----------------------------
  {qu,qui,quic,quick,fo,fox}
 (1 row)
 
 SELECT 'Quick Fox'::pdb.edge_ngram(1, 2)::text[];
-    text
+    text     
 -------------
  {q,qu,f,fo}
 (1 row)
 
 SELECT 'Quick Fox'::pdb.edge_ngram(2, 5, 'lowercase=false')::text[];
-            text
+            text            
 ----------------------------
  {Qu,Qui,Quic,Quick,Fo,Fox}
 (1 row)
 
 SELECT 'Quick-Fox'::pdb.edge_ngram(2, 5, 'token_chars=letter,digit,punctuation')::text[];
-        text
+        text         
 ---------------------
  {qu,qui,quic,quick}
 (1 row)
 
 SELECT 'Quick Fox'::pdb.edge_ngram('min=2', 'max=5')::text[];
-            text
+            text            
 ----------------------------
  {qu,qui,quic,quick,fo,fox}
 (1 row)
@@ -250,14 +250,13 @@ CREATE TABLE edge_ngram_e2e (id serial8 NOT NULL PRIMARY KEY, name text);
 INSERT INTO edge_ngram_e2e (name) VALUES ('PostgreSQL'), ('ParadeDB'), ('Paragraph');
 CREATE INDEX idx_edge_ngram_e2e ON edge_ngram_e2e USING bm25 (id, (name::pdb.edge_ngram(2, 10))) WITH (key_field = 'id');
 SELECT name FROM edge_ngram_e2e WHERE name @@@ 'par' ORDER BY name;
-    name
+    name    
 ------------
  ParadeDB
  Paragraph
 (2 rows)
 
 DROP TABLE edge_ngram_e2e;
-
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=arabic')::text[];
         text         
 ---------------------
@@ -478,8 +477,8 @@ CREATE INDEX idxtokenizer_typmod_display ON tokenizer_typmod_display USING bm25
     )
     WITH (key_field = 'id');
 SELECT indexdef from pg_indexes where indexname = 'idxtokenizer_typmod_display';
-                                                                                                                                                                                                                                                                                                                                                                                                                                                      indexdef
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                                                                                                   indexdef                                                                                                                                                                                                                                                                                                                                                                                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  CREATE INDEX idxtokenizer_typmod_display ON public.tokenizer_typmod_display USING bm25 (id, description, ((description)::pdb.chinese_compatible('alias=chinese_compatible')), ((description)::pdb.literal('alias=literal')), ((description)::pdb.jieba('alias=jieba')), ((description)::pdb.lindera('chinese', 'alias=lindera_chinese')), ((description)::pdb.lindera('japanese', 'alias=lindera_japanese')), ((description)::pdb.lindera('korean', 'alias=lindera_korean')), ((description)::pdb.ngram('3', '5', 'alias=ngram')), ((description)::pdb.edge_ngram('2', '5', 'alias=edge_ngram')), ((description)::pdb.regex_pattern('is|a', 'alias=regex')), ((description)::pdb.simple('alias=simple')), ((description)::pdb.whitespace('alias=whitespace')), ((description)::pdb.source_code('alias=source_code')), ((description)::pdb.literal_normalized('alias=literal_normalized'))) WITH (key_field=id)
 (1 row)
 

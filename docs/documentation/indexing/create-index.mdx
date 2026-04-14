@@ -7,10 +7,6 @@ canonical: https://docs.paradedb.com/documentation/indexing/create-index
 Before a table can be searched, it must be indexed. ParadeDB uses a custom index type called the BM25 index.
 The following code block creates a BM25 index over several columns in the `mock_items` table.
 
-If you followed the [getting started guide](/documentation/getting-started/environment) for Django, SQLAlchemy, or Rails,
-the ORM snippets below can be pasted into your Python shell or Rails console to replace the existing `search_idx` with the version shown in each example.
-For a repeatable production setup, apply the same index definition through your ORM's migration system.
-
 <CodeGroup>
 ```sql SQL
 CREATE INDEX search_idx ON mock_items
@@ -75,8 +71,36 @@ ActiveRecord::Base.connection.add_bm25_index(
 
 <Note>
   See the [getting started guide](/documentation/getting-started/environment)
-  for more detail on how to set up your ORM's migration system to create
-  indexes.
+  for more detail on how to set up your ORM to run index creation commands.
+</Note>
+
+<Note>
+You'll need to drop the existing `search_idx` before you can create a new one:
+
+<CodeGroup>
+
+```sql SQL
+DROP INDEX search_idx;
+```
+
+```python Django
+with connection.cursor() as cursor:
+    cursor.execute("DROP INDEX search_idx")
+```
+
+```python SQLAlchemy
+from sqlalchemy import text
+
+with engine.begin() as conn:
+    conn.execute(text("DROP INDEX search_idx"))
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.remove_bm25_index(:mock_items, name: :search_idx)
+```
+
+</CodeGroup>
+
 </Note>
 
 By default, text columns are tokenized using the [unicode](/documentation/tokenizers/available-tokenizers/unicode) tokenizer, which splits text according to the

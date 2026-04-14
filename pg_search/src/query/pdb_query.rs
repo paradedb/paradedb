@@ -42,7 +42,7 @@ use tantivy::schema::{FieldType, OwnedValue};
 use tantivy::{Searcher, Term};
 use tokenizers::SearchTokenizer;
 
-use super::ltree_str_to_facet;
+use super::dot_path_to_facet;
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn to_search_query_input(field: FieldName, query: pdb::Query) -> SearchQueryInput {
@@ -1798,14 +1798,12 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
         // If conversion fails, fall through to standard parsing (will likely error)
     }
 
-    if let Some(search_field) = schema.search_field(field) {
-        if matches!(search_field.field_entry().field_type(), FieldType::Facet(_)) {
-            let facet = ltree_str_to_facet(query_string.trim());
-            return Ok(Box::new(TermQuery::new(
-                Term::from_facet(search_field.field(), &facet),
-                IndexRecordOption::Basic.into(),
-            )));
-        }
+    if matches!(search_field.field_entry().field_type(), FieldType::Facet(_)) {
+        let facet = dot_path_to_facet(query_string.trim());
+        return Ok(Box::new(TermQuery::new(
+            Term::from_facet(search_field.field(), &facet),
+            IndexRecordOption::Basic.into(),
+        )));
     }
 
     let mut parser = parser();

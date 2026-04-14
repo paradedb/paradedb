@@ -18,7 +18,7 @@
 use crate::api::tokenizers::type_is_tokenizer;
 use crate::nodecast;
 use crate::postgres::catalog::is_citext_oid;
-use crate::postgres::catalog::type_is_ltree;
+use crate::postgres::catalog::{facet_encoded_str_to_ltree_text, is_ltree_oid};
 use crate::postgres::datetime::{datetime_components_to_tantivy_date, MICROSECONDS_IN_SECOND};
 use crate::postgres::jsonb_support::jsonb_datum_to_serde_json_value;
 use crate::postgres::range::RangeToTantivyValue;
@@ -109,20 +109,16 @@ impl TantivyValue {
                 if is_citext_oid(*custom) {
                     return Ok(String::try_from(self)?.into_datum());
                 }
-                if type_is_ltree(*custom) {
-                    // Convert Facet back to ltree dot-separated text, then use PG's input function
+                if is_ltree_oid(*custom) {
+                    // Convert Facet back to ltree dot-separated text, then use PG's input function.
+                    // Two read paths are possible:
+                    //   - Stored-fields path returns `OwnedValue::Facet` with the parsed structure.
+                    //   - Fast-field (columnar) path returns `OwnedValue::Str` with the raw
+                    //     null-byte-separated internal Tantivy representation (e.g. `\0Top\0Science`).
+                    // `facet_encoded_str_to_ltree_text` handles both cases uniformly.
                     let ltree_text = match self.0 {
                         OwnedValue::Facet(ref facet) => facet.to_path().join("."),
-                        OwnedValue::Str(ref s) => {
-                            // Facet field reads may return the facet-encoded string (null-byte separated
-                            // with a leading null byte). We need to strip the leading null, then replace interior
-                            // null bytes with dots to reconstruct the dot-separated ltree path.
-                            if s.contains('\0') {
-                                s.trim_start_matches('\0').replace('\0', ".")
-                            } else {
-                                s.clone()
-                            }
-                        }
+                        OwnedValue::Str(ref s) => facet_encoded_str_to_ltree_text(s),
                         _ => return Err(TantivyValueError::InvalidOid),
                     };
 
@@ -361,7 +357,7 @@ impl TantivyValue {
                 String::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
             ),
 
-            PgOid::Custom(custom) if type_is_ltree(*custom) => {
+            PgOid::Custom(custom) if is_ltree_oid(*custom) => {
                 // ltree is an extension type - we need to use PostgreSQL's output function
                 // to convert it to its text representation, then store as a Tantivy Facet
                 let mut typoutput: pg_sys::Oid = pg_sys::InvalidOid;

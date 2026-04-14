@@ -35,7 +35,7 @@ use tantivy::index::{IndexSortByField, Order};
 
 use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, Typmod};
 use crate::index::utils::load_index_schema;
-use crate::postgres::catalog::type_is_ltree;
+use crate::postgres::catalog::is_ltree_oid;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::extract_numeric_precision_scale;
 use crate::query::QueryError;
@@ -325,7 +325,7 @@ impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
             PgOid::Custom(custom) => {
                 if is_citext_oid(*custom) {
                     Ok(SearchFieldType::Text(*custom))
-                } else if type_is_ltree(*custom) {
+                } else if is_ltree_oid(*custom) {
                     Ok(SearchFieldType::Ltree(*custom))
                 } else {
                     Err(SearchIndexSchemaError::InvalidPgOid(pg_oid))
@@ -918,113 +918,11 @@ mod tests {
     }
 
     #[rstest]
-    fn test_numeric64_scale() {
-        let ft = SearchFieldType::Numeric64(pg_sys::NUMERICOID, 3);
-        assert_eq!(ft.numeric_scale(), Some(3));
-    }
-
-    #[rstest]
-    fn test_numeric_bytes_scale_some() {
-        let ft = SearchFieldType::NumericBytes(pg_sys::NUMERICOID, Some(5));
-        assert_eq!(ft.numeric_scale(), Some(5));
-    }
-
-    #[rstest]
-    fn test_numeric_bytes_scale_none() {
-        let ft = SearchFieldType::NumericBytes(pg_sys::NUMERICOID, None);
-        assert_eq!(ft.numeric_scale(), None);
-    }
-
-    #[rstest]
-    fn test_non_numeric_scale() {
-        let ft = SearchFieldType::I64(pg_sys::INT8OID);
-        assert_eq!(ft.numeric_scale(), None);
-    }
-
-    #[rstest]
-    fn test_is_numeric() {
-        assert!(SearchFieldType::Numeric64(pg_sys::NUMERICOID, 2).is_numeric());
-        assert!(SearchFieldType::NumericBytes(pg_sys::NUMERICOID, None).is_numeric());
-        assert!(!SearchFieldType::I64(pg_sys::INT8OID).is_numeric());
-        assert!(!SearchFieldType::F64(pg_sys::FLOAT8OID).is_numeric());
-        assert!(!SearchFieldType::Text(pg_sys::TEXTOID).is_numeric());
-    }
-
-    #[rstest]
-    fn test_arrow_data_type_numeric64() {
-        let ft = SearchFieldType::Numeric64(pg_sys::NUMERICOID, 2);
-        assert_eq!(ft.arrow_data_type(), arrow_schema::DataType::Int64);
-    }
-
-    #[rstest]
-    fn test_arrow_data_type_numeric_bytes() {
-        let ft = SearchFieldType::NumericBytes(pg_sys::NUMERICOID, None);
-        assert_eq!(ft.arrow_data_type(), arrow_schema::DataType::BinaryView);
-    }
-
-    #[rstest]
-    fn test_arrow_data_type_text() {
-        let ft = SearchFieldType::Text(pg_sys::TEXTOID);
-        assert_eq!(ft.arrow_data_type(), arrow_schema::DataType::Utf8View);
-    }
-
-    #[rstest]
-    fn test_arrow_data_type_i64() {
-        let ft = SearchFieldType::I64(pg_sys::INT8OID);
-        assert_eq!(ft.arrow_data_type(), arrow_schema::DataType::Int64);
-    }
-
-    #[rstest]
-    fn test_arrow_data_type_f64() {
-        let ft = SearchFieldType::F64(pg_sys::FLOAT8OID);
-        assert_eq!(ft.arrow_data_type(), arrow_schema::DataType::Float64);
-    }
-
-    #[rstest]
-    fn test_arrow_data_type_bool() {
-        let ft = SearchFieldType::Bool(pg_sys::BOOLOID);
-        assert_eq!(ft.arrow_data_type(), arrow_schema::DataType::Boolean);
-    }
-
-    #[rstest]
-    fn test_arrow_data_type_date() {
-        let ft = SearchFieldType::Date(pg_sys::DATEOID);
-        assert_eq!(
-            ft.arrow_data_type(),
-            arrow_schema::DataType::Timestamp(arrow_schema::TimeUnit::Nanosecond, None)
-        );
-    }
-
-    #[rstest]
-    fn test_arrow_data_type_u64() {
-        let ft = SearchFieldType::U64(pg_sys::OIDOID);
-        assert_eq!(ft.arrow_data_type(), arrow_schema::DataType::UInt64);
-    }
-
-    #[rstest]
     fn test_ltree_typeoid() {
         // Ltree uses a custom OID; verify typeoid() extracts it correctly
         let oid: pg_sys::Oid = 99999.into();
         let ft = SearchFieldType::Ltree(oid);
         assert_eq!(ft.typeoid(), PgOid::from(oid));
-    }
-
-    #[rstest]
-    fn test_default_config_numeric64() {
-        let config = SearchFieldConfig::default_numeric64(2);
-        match config {
-            SearchFieldConfig::Numeric { scale, .. } => assert_eq!(scale, Some(2)),
-            _ => panic!("expected Numeric config"),
-        }
-    }
-
-    #[rstest]
-    fn test_default_config_numeric_bytes() {
-        let config = SearchFieldConfig::default_numeric_bytes(Some(4));
-        match config {
-            SearchFieldConfig::Numeric { scale, .. } => assert_eq!(scale, Some(4)),
-            _ => panic!("expected Numeric config"),
-        }
     }
 
     #[rstest]

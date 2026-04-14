@@ -16,7 +16,8 @@ INSERT INTO array_demo (categories) VALUES
 
 <CodeGroup>
 ```sql SQL
-CREATE INDEX ON array_demo USING bm25 (id, categories)
+CREATE INDEX search_idx ON array_demo
+USING bm25 (id, categories)
 WITH (key_field = 'id');
 ```
 
@@ -35,7 +36,7 @@ with connection.schema_editor() as schema_editor:
                 "categories": {},
             },
             key_field="id",
-            name="array_demo_bm25_idx",
+            name="search_idx",
         ),
     )
 ```
@@ -47,7 +48,7 @@ from models import ArrayDemo
 from paradedb.sqlalchemy import indexing
 
 idx = Index(
-    "array_demo_bm25_idx",
+    "search_idx",
     indexing.BM25Field(ArrayDemo.id),
     indexing.BM25Field(ArrayDemo.categories),
     postgresql_using="bm25",
@@ -66,7 +67,7 @@ ActiveRecord::Base.connection.add_bm25_index(
     categories: {}
   },
   key_field: :id,
-  name: :array_demo_bm25_idx
+  name: :search_idx
 )
 ```
 
@@ -109,7 +110,7 @@ with connection.schema_editor() as schema_editor:
                 "categories": {"tokenizer": "literal"},
             },
             key_field="id",
-            name="array_demo_bm25_idx",
+            name="search_idx",
         ),
     )
 ```
@@ -121,7 +122,7 @@ from models import ArrayDemo
 from paradedb.sqlalchemy import indexing
 
 idx = Index(
-    "array_demo_bm25_idx",
+    "search_idx",
     indexing.BM25Field(ArrayDemo.id),
     indexing.BM25Field(
         ArrayDemo.categories,
@@ -143,7 +144,7 @@ ActiveRecord::Base.connection.add_bm25_index(
     categories: { tokenizer: :literal }
   },
   key_field: :id,
-  name: :array_demo_bm25_idx
+  name: :search_idx
 )
 ```
 

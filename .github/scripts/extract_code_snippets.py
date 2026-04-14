@@ -20,16 +20,6 @@ IGNORED_CODEGROUPS = {
     # not SQL vs ORMs
     "documentation__tokenizers__available-tokenizers__lindera__group-001",
 }
-IGNORED_DOCS = {
-    Path("documentation/indexing/columnar.mdx"),
-    Path("documentation/indexing/create-index.mdx"),
-    Path("documentation/indexing/indexing-arrays.mdx"),
-    Path("documentation/indexing/indexing-composite.mdx"),
-    Path("documentation/indexing/indexing-expressions.mdx"),
-    Path("documentation/indexing/indexing-json.mdx"),
-    Path("documentation/indexing/indexing-partial.mdx"),
-    Path("documentation/indexing/reindexing.mdx"),
-}
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent
 DOCS_ROOT = REPO_ROOT / "docs"
@@ -103,10 +93,7 @@ def main() -> int:
     output_dirs = build_output_dirs()
 
     docs = sorted(
-        path
-        for path in DOCS_ROOT.rglob("*.mdx")
-        if "legacy" not in path.parts
-        and path.relative_to(DOCS_ROOT) not in IGNORED_DOCS
+        path for path in DOCS_ROOT.rglob("*.mdx") if "legacy" not in path.parts
     )
     if not docs:
         print(f"No .mdx files found under {DOCS_ROOT}", file=sys.stderr)

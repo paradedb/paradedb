@@ -1,1 +1,1 @@
-SELECT id, title, tags, post_type_id, creation_date, pdb.agg('{"value_count": {"field": "owner_display_name"}}'::jsonb) OVER () FROM stackoverflow_posts WHERE body ||| 'javascript' ORDER BY creation_date DESC LIMIT 10;
+SELECT id, title, tags, post_type_id, creation_date, pdb.agg('{"value_count": {"field": "owner_display_name"}}') OVER () FROM stackoverflow_posts WHERE body ||| 'javascript' ORDER BY creation_date DESC LIMIT 10;

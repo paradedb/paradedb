@@ -43,8 +43,15 @@ INSERT INTO funding_rounds (id, company_id, amount, round_type) VALUES
 (105, 4, 500000, 'seed'),
 (106, 5, 3000000, 'series_a');
 
-CREATE INDEX companies_bm25_idx ON companies USING bm25 (id, name, description)
-WITH (key_field = 'id');
+-- Add a BIGINT column for int8 operator coverage
+ALTER TABLE companies ADD COLUMN big_id BIGINT;
+UPDATE companies SET big_id = id;
+
+CREATE INDEX companies_bm25_idx ON companies USING bm25 (id, name, description, big_id)
+WITH (
+    key_field = 'id',
+    numeric_fields = '{"big_id": {"fast": true}}'
+);
 
 CREATE INDEX funding_rounds_bm25_idx ON funding_rounds
 USING bm25 (id, company_id, amount, (round_type::pdb.literal))
@@ -243,6 +250,98 @@ WHERE c.id IN (
 )
 AND c.description @@@ 'technology'
 ORDER BY (c.id + 0)::int4 DESC
+LIMIT 10;
+
+-- =============================================================================
+-- Type coverage — JoinScan
+-- =============================================================================
+
+-- int8: big_id + 0::bigint
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.name
+FROM companies c
+WHERE c.id IN (
+    SELECT fr.company_id
+    FROM funding_rounds fr
+    WHERE fr.round_type @@@ 'seed'
+)
+AND c.description @@@ 'technology'
+ORDER BY c.big_id + 0::bigint DESC
+LIMIT 10;
+
+-- int8: big_id * 1::bigint
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.name
+FROM companies c
+WHERE c.id IN (
+    SELECT fr.company_id
+    FROM funding_rounds fr
+    WHERE fr.round_type @@@ 'seed'
+)
+AND c.description @@@ 'technology'
+ORDER BY c.big_id * 1::bigint DESC
+LIMIT 10;
+
+-- const-on-left: 0 + id (commutative, should unwrap)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.name
+FROM companies c
+WHERE c.id IN (
+    SELECT fr.company_id
+    FROM funding_rounds fr
+    WHERE fr.round_type @@@ 'seed'
+)
+AND c.description @@@ 'technology'
+ORDER BY 0 + c.id DESC
+LIMIT 10;
+
+-- const-on-left: 1 * id (commutative, should unwrap)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.name
+FROM companies c
+WHERE c.id IN (
+    SELECT fr.company_id
+    FROM funding_rounds fr
+    WHERE fr.round_type @@@ 'seed'
+)
+AND c.description @@@ 'technology'
+ORDER BY 1 * c.id DESC
+LIMIT 10;
+
+-- =============================================================================
+-- Type coverage — BaseScan (single-table, no join)
+-- =============================================================================
+
+-- int4: id + 0
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.name
+FROM companies c
+WHERE c.description @@@ 'technology'
+ORDER BY c.id + 0 DESC
+LIMIT 10;
+
+-- int4: id * 1
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.name
+FROM companies c
+WHERE c.description @@@ 'technology'
+ORDER BY c.id * 1 DESC
+LIMIT 10;
+
+-- int8: big_id + 0::bigint
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.name
+FROM companies c
+WHERE c.description @@@ 'technology'
+ORDER BY c.big_id + 0::bigint DESC
+LIMIT 10;
+
+-- const-on-left: 0 + id (commutative)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.name
+FROM companies c
+WHERE c.description @@@ 'technology'
+ORDER BY 0 + c.id DESC
 LIMIT 10;
 
 -- =============================================================================

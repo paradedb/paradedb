@@ -34,8 +34,14 @@ INSERT INTO funding_rounds (id, company_id, amount, round_type) VALUES
 (104, 3, 10000000, 'series_b'),
 (105, 4, 500000, 'seed'),
 (106, 5, 3000000, 'series_a');
-CREATE INDEX companies_bm25_idx ON companies USING bm25 (id, name, description)
-WITH (key_field = 'id');
+-- Add a BIGINT column for int8 operator coverage
+ALTER TABLE companies ADD COLUMN big_id BIGINT;
+UPDATE companies SET big_id = id;
+CREATE INDEX companies_bm25_idx ON companies USING bm25 (id, name, description, big_id)
+WITH (
+    key_field = 'id',
+    numeric_fields = '{"big_id": {"fast": true}}'
+);
 CREATE INDEX funding_rounds_bm25_idx ON funding_rounds
 USING bm25 (id, company_id, amount, (round_type::pdb.literal))
 WITH (
@@ -401,6 +407,244 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
 ----+-------------
   1 | TechStartup
 (1 row)
+
+-- =============================================================================
+-- Type coverage — JoinScan
+-- =============================================================================
+-- int8: big_id + 0::bigint
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.name
+FROM companies c
+WHERE c.id IN (
+    SELECT fr.company_id
+    FROM funding_rounds fr
+    WHERE fr.round_type @@@ 'seed'
+)
+AND c.description @@@ 'technology'
+ORDER BY c.big_id + 0::bigint DESC
+LIMIT 10;
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: c.id, c.name, ((c.big_id + '0'::bigint))
+   ->  Result
+         Output: c.id, c.name, (c.big_id + '0'::bigint)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: c.id, c.name, c.big_id
+               Relation Tree: c SEMI fr
+               Join Cond: c.id = fr.company_id
+               Limit: 10
+               Order By: c.big_id desc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, big_id@2 as col_3, ctid_0@0 as ctid_0]
+                 :   SortExec: TopK(fetch=10), expr=[big_id@2 DESC], preserve_partitioning=[false]
+                 :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
+                 :       VisibilityFilterExec: tables=[c]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+                 :       CooperativeExec
+                 :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
+
+-- int8: big_id * 1::bigint
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.name
+FROM companies c
+WHERE c.id IN (
+    SELECT fr.company_id
+    FROM funding_rounds fr
+    WHERE fr.round_type @@@ 'seed'
+)
+AND c.description @@@ 'technology'
+ORDER BY c.big_id * 1::bigint DESC
+LIMIT 10;
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: c.id, c.name, ((c.big_id * '1'::bigint))
+   ->  Result
+         Output: c.id, c.name, (c.big_id * '1'::bigint)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: c.id, c.name, c.big_id
+               Relation Tree: c SEMI fr
+               Join Cond: c.id = fr.company_id
+               Limit: 10
+               Order By: c.big_id desc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, big_id@2 as col_3, ctid_0@0 as ctid_0]
+                 :   SortExec: TopK(fetch=10), expr=[big_id@2 DESC], preserve_partitioning=[false]
+                 :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
+                 :       VisibilityFilterExec: tables=[c]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+                 :       CooperativeExec
+                 :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
+
+-- const-on-left: 0 + id (commutative, should unwrap)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.name
+FROM companies c
+WHERE c.id IN (
+    SELECT fr.company_id
+    FROM funding_rounds fr
+    WHERE fr.round_type @@@ 'seed'
+)
+AND c.description @@@ 'technology'
+ORDER BY 0 + c.id DESC
+LIMIT 10;
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: c.id, c.name, ((0 + c.id))
+   ->  Result
+         Output: c.id, c.name, (0 + c.id)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: c.id, c.name
+               Relation Tree: c SEMI fr
+               Join Cond: c.id = fr.company_id
+               Limit: 10
+               Order By: c.id desc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
+                 :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
+                 :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
+                 :       VisibilityFilterExec: tables=[c]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+                 :       CooperativeExec
+                 :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
+
+-- const-on-left: 1 * id (commutative, should unwrap)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.name
+FROM companies c
+WHERE c.id IN (
+    SELECT fr.company_id
+    FROM funding_rounds fr
+    WHERE fr.round_type @@@ 'seed'
+)
+AND c.description @@@ 'technology'
+ORDER BY 1 * c.id DESC
+LIMIT 10;
+WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: c.id, c.name, ((1 * c.id))
+   ->  Result
+         Output: c.id, c.name, (1 * c.id)
+         ->  Custom Scan (ParadeDB Join Scan)
+               Output: c.id, c.name
+               Relation Tree: c SEMI fr
+               Join Cond: c.id = fr.company_id
+               Limit: 10
+               Order By: c.id desc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
+                 :   SortExec: TopK(fetch=10), expr=[id@1 DESC], preserve_partitioning=[false]
+                 :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@1, company_id@0)]
+                 :       VisibilityFilterExec: tables=[c]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+                 :       CooperativeExec
+                 :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"round_type","query_string":"seed","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
+
+-- =============================================================================
+-- Type coverage — BaseScan (single-table, no join)
+-- =============================================================================
+-- int4: id + 0
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.name
+FROM companies c
+WHERE c.description @@@ 'technology'
+ORDER BY c.id + 0 DESC
+LIMIT 10;
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, ((id + 0))
+   ->  Custom Scan (ParadeDB Base Scan) on public.companies c
+         Output: id, name, (id + 0)
+         Table: companies
+         Index: companies_bm25_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: id desc
+            TopK Limit: 10
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+-- int4: id * 1
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.name
+FROM companies c
+WHERE c.description @@@ 'technology'
+ORDER BY c.id * 1 DESC
+LIMIT 10;
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, ((id * 1))
+   ->  Custom Scan (ParadeDB Base Scan) on public.companies c
+         Output: id, name, (id * 1)
+         Table: companies
+         Index: companies_bm25_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: id desc
+            TopK Limit: 10
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+-- int8: big_id + 0::bigint
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.name
+FROM companies c
+WHERE c.description @@@ 'technology'
+ORDER BY c.big_id + 0::bigint DESC
+LIMIT 10;
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, ((big_id + '0'::bigint))
+   ->  Custom Scan (ParadeDB Base Scan) on public.companies c
+         Output: id, name, (big_id + '0'::bigint)
+         Table: companies
+         Index: companies_bm25_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: big_id desc
+            TopK Limit: 10
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
+
+-- const-on-left: 0 + id (commutative)
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.id, c.name
+FROM companies c
+WHERE c.description @@@ 'technology'
+ORDER BY 0 + c.id DESC
+LIMIT 10;
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: id, name, ((0 + id))
+   ->  Custom Scan (ParadeDB Base Scan) on public.companies c
+         Output: id, name, (0 + id)
+         Table: companies
+         Index: companies_bm25_idx
+         Exec Method: TopKScanExecState
+         Scores: false
+            TopK Order By: id desc
+            TopK Limit: 10
+         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
+(11 rows)
 
 -- =============================================================================
 -- TEST 8: Non-identity expression should NOT activate JoinScan

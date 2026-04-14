@@ -8,10 +8,10 @@
 SET paradedb.enable_aggregate_custom_scan TO off; SELECT COUNT(*)
 FROM files f
 JOIN pages p ON f.id = p."fileId"
-WHERE f.content @@@ 'Section';
+WHERE f.content ||| 'Section';
 
 -- DataFusion aggregate scan
 SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(*)
 FROM files f
 JOIN pages p ON f.id = p."fileId"
-WHERE f.content @@@ 'Section';
+WHERE f.content ||| 'Section';

@@ -1,1 +1,1 @@
-SELECT * FROM benchmark_logs WHERE id @@@ paradedb.term('metadata.label', 'critical system alert') AND id @@@ paradedb.range('metadata.value', int4range(10, NULL, '[)')) AND message @@@ 'research' LIMIT 10;
+SELECT * FROM benchmark_logs WHERE id @@@ pdb.parse('metadata.label:"critical system alert"') AND id @@@ pdb.parse('metadata.value:[10 TO *]') AND message ||| 'research' LIMIT 10;

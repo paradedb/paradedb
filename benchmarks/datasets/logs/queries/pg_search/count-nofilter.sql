@@ -1,5 +1,5 @@
 -- numeric fast field
-SELECT COUNT(*) FROM benchmark_logs WHERE id @@@ paradedb.all();
+SELECT COUNT(*) FROM benchmark_logs WHERE id @@@ pdb.all();
 
 -- aggregate with mvcc
 SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.all(), agg=>'{"count": { "value_count": { "field": "ctid" }}}', solve_mvcc=>true);
@@ -8,7 +8,7 @@ SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.al
 SELECT * FROM paradedb.aggregate(index=>'benchmark_logs_idx', query=>paradedb.all(), agg=>'{"count": { "value_count": { "field": "ctid" }}}', solve_mvcc=>false);
 
 -- aggregate custom scan
-SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(*) FROM benchmark_logs WHERE id @@@ paradedb.all();
+SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(*) FROM benchmark_logs WHERE id @@@ pdb.all();
 
 -- pdb.agg without GROUP BY
-SELECT pdb.agg('{"value_count": {"field": "ctid"}}'::jsonb) FROM benchmark_logs WHERE id @@@ paradedb.all();
+SELECT pdb.agg('{"value_count": {"field": "ctid"}}'::jsonb) FROM benchmark_logs WHERE id @@@ pdb.all();

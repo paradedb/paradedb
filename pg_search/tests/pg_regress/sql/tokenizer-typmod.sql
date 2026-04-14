@@ -47,9 +47,17 @@ SELECT 'Running Shoes.  olé'::pdb.ngram('min=2', 'max=3', 'lowercase=false', 's
 
 SELECT 'Quick Fox'::pdb.edge_ngram(2, 5)::text[];
 SELECT 'Quick Fox'::pdb.edge_ngram(1, 2)::text[];
-SELECT 'Quick Fox'::pdb.edge_ngram(2, 5, 'lowercase=true')::text[];
+SELECT 'Quick Fox'::pdb.edge_ngram(2, 5, 'lowercase=false')::text[];
 SELECT 'Quick-Fox'::pdb.edge_ngram(2, 5, 'token_chars=letter,digit,punctuation')::text[];
 SELECT 'Quick Fox'::pdb.edge_ngram('min=2', 'max=5')::text[];
+
+-- End-to-end: create index, insert, search
+DROP TABLE IF EXISTS edge_ngram_e2e;
+CREATE TABLE edge_ngram_e2e (id serial8 NOT NULL PRIMARY KEY, name text);
+INSERT INTO edge_ngram_e2e (name) VALUES ('PostgreSQL'), ('ParadeDB'), ('Paragraph');
+CREATE INDEX idx_edge_ngram_e2e ON edge_ngram_e2e USING bm25 (id, (name::pdb.edge_ngram(2, 10))) WITH (key_field = 'id');
+SELECT name FROM edge_ngram_e2e WHERE name @@@ 'par' ORDER BY name;
+DROP TABLE edge_ngram_e2e;
 
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=arabic')::text[];
 SELECT 'Novinka počasí funguje.'::pdb.simple('stemmer=czech')::text[];

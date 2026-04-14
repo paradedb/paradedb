@@ -41,8 +41,8 @@ SELECT 'this is a test.'::pdb.ngram(3, 5)::text[];
 (1 row)
 
 SELECT 'this is a test.'::pdb.edge_ngram(2, 4)::text[];
-              text
----------------------------------
+             text
+------------------------------
  {th,thi,this,is,te,tes,test}
 (1 row)
 

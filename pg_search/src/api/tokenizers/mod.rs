@@ -101,6 +101,12 @@ fn tokenizer_from_name(name: &str) -> Option<SearchTokenizer> {
             positions: false,
             filters: SearchTokenizerFilters::default(),
         },
+        "edge_ngram" => SearchTokenizer::EdgeNgram {
+            min_gram: 0,
+            max_gram: 0,
+            token_chars: vec![],
+            filters: SearchTokenizerFilters::default(),
+        },
         "whitespace" => SearchTokenizer::WhiteSpace(SearchTokenizerFilters::default()),
         "literal" => SearchTokenizer::Keyword,
         "literal_normalized" => {

@@ -604,7 +604,8 @@ impl SearchTokenizer {
                     .collect::<Result<Vec<_>, _>>()
                     .unwrap_or_else(|e| panic!("{}", e));
                 add_filters!(
-                    EdgeNgramTokenizer::new(*min_gram, *max_gram, classes),
+                    EdgeNgramTokenizer::new(*min_gram, *max_gram, classes)
+                        .unwrap_or_else(|e| panic!("{}", e)),
                     filters
                 )
             }
@@ -805,7 +806,9 @@ impl SearchTokenizer {
                 token_chars,
                 filters: _,
             } => {
-                let tc = token_chars.join(",");
+                let mut tc_sorted = token_chars.clone();
+                tc_sorted.sort();
+                let tc = tc_sorted.join(",");
                 format!(
                     "edge_ngram_mingram:{min_gram}_maxgram:{max_gram}_tokenchars:{tc}{filters_suffix}"
                 )

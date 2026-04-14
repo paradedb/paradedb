@@ -217,33 +217,46 @@ SELECT 'Running Shoes.  olé'::pdb.ngram('min=2', 'max=3', 'lowercase=false', 's
 
 SELECT 'Quick Fox'::pdb.edge_ngram(2, 5)::text[];
             text
------------------------------
+----------------------------
  {qu,qui,quic,quick,fo,fox}
 (1 row)
 
 SELECT 'Quick Fox'::pdb.edge_ngram(1, 2)::text[];
-   text
------------
+    text
+-------------
  {q,qu,f,fo}
 (1 row)
 
-SELECT 'Quick Fox'::pdb.edge_ngram(2, 5, 'lowercase=true')::text[];
+SELECT 'Quick Fox'::pdb.edge_ngram(2, 5, 'lowercase=false')::text[];
             text
------------------------------
- {qu,qui,quic,quick,fo,fox}
+----------------------------
+ {Qu,Qui,Quic,Quick,Fo,Fox}
 (1 row)
 
 SELECT 'Quick-Fox'::pdb.edge_ngram(2, 5, 'token_chars=letter,digit,punctuation')::text[];
-          text
--------------------------
+        text
+---------------------
  {qu,qui,quic,quick}
 (1 row)
 
 SELECT 'Quick Fox'::pdb.edge_ngram('min=2', 'max=5')::text[];
             text
------------------------------
+----------------------------
  {qu,qui,quic,quick,fo,fox}
 (1 row)
+
+DROP TABLE IF EXISTS edge_ngram_e2e;
+CREATE TABLE edge_ngram_e2e (id serial8 NOT NULL PRIMARY KEY, name text);
+INSERT INTO edge_ngram_e2e (name) VALUES ('PostgreSQL'), ('ParadeDB'), ('Paragraph');
+CREATE INDEX idx_edge_ngram_e2e ON edge_ngram_e2e USING bm25 (id, (name::pdb.edge_ngram(2, 10))) WITH (key_field = 'id');
+SELECT name FROM edge_ngram_e2e WHERE name @@@ 'par' ORDER BY name;
+    name
+------------
+ ParadeDB
+ Paragraph
+(2 rows)
+
+DROP TABLE edge_ngram_e2e;
 
 SELECT 'Running Shoes.  olé'::pdb.simple('stemmer=arabic')::text[];
         text         

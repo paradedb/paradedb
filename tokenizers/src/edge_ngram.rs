@@ -70,14 +70,26 @@ pub struct EdgeNgramTokenizer {
 }
 
 impl EdgeNgramTokenizer {
-    pub fn new(min_gram: usize, max_gram: usize, token_chars: Vec<TokenCharClass>) -> Self {
-        assert!(min_gram >= 1, "min_gram must be >= 1");
-        assert!(max_gram >= min_gram, "max_gram must be >= min_gram");
-        Self {
+    pub fn new(
+        min_gram: usize,
+        max_gram: usize,
+        token_chars: Vec<TokenCharClass>,
+    ) -> tantivy::Result<Self> {
+        if min_gram < 1 {
+            return Err(tantivy::TantivyError::InvalidArgument(
+                "min_gram must be >= 1".to_string(),
+            ));
+        }
+        if max_gram < min_gram {
+            return Err(tantivy::TantivyError::InvalidArgument(
+                "max_gram must be >= min_gram".to_string(),
+            ));
+        }
+        Ok(Self {
             min_gram,
             max_gram,
             token_chars,
-        }
+        })
     }
 }
 
@@ -238,7 +250,8 @@ mod tests {
     #[test]
     fn test_basic() {
         let mut tok =
-            EdgeNgramTokenizer::new(2, 5, vec![TokenCharClass::Letter, TokenCharClass::Digit]);
+            EdgeNgramTokenizer::new(2, 5, vec![TokenCharClass::Letter, TokenCharClass::Digit])
+                .unwrap();
         assert_eq!(
             collect_text(&mut tok, "Quick Fox"),
             vec!["Qu", "Qui", "Quic", "Quick", "Fo", "Fox"]
@@ -248,7 +261,8 @@ mod tests {
     #[test]
     fn test_defaults() {
         let mut tok =
-            EdgeNgramTokenizer::new(1, 2, vec![TokenCharClass::Letter, TokenCharClass::Digit]);
+            EdgeNgramTokenizer::new(1, 2, vec![TokenCharClass::Letter, TokenCharClass::Digit])
+                .unwrap();
         assert_eq!(
             collect_text(&mut tok, "Quick Fox"),
             vec!["Q", "Qu", "F", "Fo"]
@@ -257,19 +271,19 @@ mod tests {
 
     #[test]
     fn test_words_shorter_than_min_gram_skipped() {
-        let mut tok = EdgeNgramTokenizer::new(3, 5, vec![TokenCharClass::Letter]);
+        let mut tok = EdgeNgramTokenizer::new(3, 5, vec![TokenCharClass::Letter]).unwrap();
         assert_eq!(collect_text(&mut tok, "I am here"), vec!["her", "here"]);
     }
 
     #[test]
     fn test_empty_input() {
-        let mut tok = EdgeNgramTokenizer::new(1, 3, vec![TokenCharClass::Letter]);
+        let mut tok = EdgeNgramTokenizer::new(1, 3, vec![TokenCharClass::Letter]).unwrap();
         assert_eq!(collect_text(&mut tok, ""), Vec::<String>::new());
     }
 
     #[test]
     fn test_unicode() {
-        let mut tok = EdgeNgramTokenizer::new(1, 3, vec![TokenCharClass::Letter]);
+        let mut tok = EdgeNgramTokenizer::new(1, 3, vec![TokenCharClass::Letter]).unwrap();
         assert_eq!(collect_text(&mut tok, "café"), vec!["c", "ca", "caf"]);
     }
 
@@ -279,7 +293,8 @@ mod tests {
             2,
             5,
             vec![TokenCharClass::Letter, TokenCharClass::Punctuation],
-        );
+        )
+        .unwrap();
         // Hyphen is ASCII punctuation, so "Quick-Fox" is one word
         assert_eq!(
             collect_text(&mut tok, "Quick-Fox"),
@@ -290,7 +305,8 @@ mod tests {
     #[test]
     fn test_digits_as_tokens() {
         let mut tok =
-            EdgeNgramTokenizer::new(1, 3, vec![TokenCharClass::Letter, TokenCharClass::Digit]);
+            EdgeNgramTokenizer::new(1, 3, vec![TokenCharClass::Letter, TokenCharClass::Digit])
+                .unwrap();
         assert_eq!(
             collect_text(&mut tok, "abc 123"),
             vec!["a", "ab", "abc", "1", "12", "123"]
@@ -299,7 +315,7 @@ mod tests {
 
     #[test]
     fn test_positions() {
-        let mut tok = EdgeNgramTokenizer::new(2, 4, vec![TokenCharClass::Letter]);
+        let mut tok = EdgeNgramTokenizer::new(2, 4, vec![TokenCharClass::Letter]).unwrap();
         let tokens = collect_tokens(&mut tok, "hello world");
         // All grams from "hello" share position 0, all from "world" share position 1
         assert_eq!(
@@ -317,7 +333,7 @@ mod tests {
 
     #[test]
     fn test_offsets() {
-        let mut tok = EdgeNgramTokenizer::new(2, 3, vec![TokenCharClass::Letter]);
+        let mut tok = EdgeNgramTokenizer::new(2, 3, vec![TokenCharClass::Letter]).unwrap();
         let mut stream = tok.token_stream("hi world");
         assert!(stream.advance());
         assert_eq!(stream.token().text, "hi");
@@ -337,13 +353,13 @@ mod tests {
 
     #[test]
     fn test_max_gram_clamped_to_word_length() {
-        let mut tok = EdgeNgramTokenizer::new(1, 10, vec![TokenCharClass::Letter]);
+        let mut tok = EdgeNgramTokenizer::new(1, 10, vec![TokenCharClass::Letter]).unwrap();
         assert_eq!(collect_text(&mut tok, "hi"), vec!["h", "hi"]);
     }
 
     #[test]
     fn test_only_delimiters() {
-        let mut tok = EdgeNgramTokenizer::new(1, 3, vec![TokenCharClass::Letter]);
+        let mut tok = EdgeNgramTokenizer::new(1, 3, vec![TokenCharClass::Letter]).unwrap();
         assert_eq!(collect_text(&mut tok, "123 !@#"), Vec::<String>::new());
     }
 }

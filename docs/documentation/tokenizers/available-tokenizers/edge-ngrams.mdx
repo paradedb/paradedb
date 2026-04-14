@@ -48,23 +48,3 @@ SELECT 'Quick-Fox'::pdb.edge_ngram(2,5,'token_chars=letter,digit,punctuation')::
  {qu,qui,quic,quick}
 (1 row)
 ```
-
-## Search-as-you-Type
-
-A common pattern is to use edge ngrams at index time for autocomplete, combined with a different tokenizer at
-[search time](/documentation/tokenizers/search-tokenizer) so that the query string is not itself split into edge
-ngrams:
-
-```sql
-CREATE TABLE products (id SERIAL PRIMARY KEY, name TEXT);
-INSERT INTO products (name) VALUES ('PostgreSQL'), ('ParadeDB'), ('Paragraph');
-
-CREATE INDEX ON products
-USING bm25 (id, (name::pdb.edge_ngram(2,10,'alias=edge')))
-WITH (key_field='id');
-
--- Matches "ParadeDB" and "Paragraph" using the edge ngram index
-SELECT * FROM products WHERE (name::pdb.unicode_words('alias=edge')) @@@ 'Par';
-
-DROP TABLE products;
-```

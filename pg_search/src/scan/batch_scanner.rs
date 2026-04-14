@@ -332,6 +332,14 @@ impl Scanner {
         // It is NOT placed in SearchIndexScore — the score carries only `bm25`.
         let ctids: Vec<u64> = if self.defer_visibility {
             // defer_visibility=true always uses DeferredCtid, never WhichFastField::Ctid.
+            // A physical Ctid column in this path indicates a planning bug.
+            debug_assert!(
+                !self
+                    .which_fast_fields
+                    .iter()
+                    .any(|f| matches!(f, WhichFastField::Ctid)),
+                "defer_visibility=true but WhichFastField::Ctid is present — planning bug"
+            );
             // No real ctid lookup needed — an empty vec is correct here.
             vec![]
         } else {

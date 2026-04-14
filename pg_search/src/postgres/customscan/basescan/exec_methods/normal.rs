@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::fast_fields_helper::FFType;
+use crate::index::fast_fields_helper::{resolve_ctid, FFType};
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
@@ -23,7 +23,6 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::u64_to_item_pointer;
 use pgrx::itemptr::item_pointer_get_block_number;
 use pgrx::pg_sys;
-use tantivy::SegmentOrdinal;
 
 pub struct NormalScanExecState {
     can_use_visibility_map: bool,
@@ -34,7 +33,7 @@ pub struct NormalScanExecState {
 
     did_query: bool,
     /// Cached per-segment ctid fast-field reader.
-    ctid_cache: Option<(SegmentOrdinal, FFType)>,
+    ctid_cache: Option<(tantivy::SegmentOrdinal, FFType)>,
 }
 
 impl Default for NormalScanExecState {
@@ -99,28 +98,8 @@ impl ExecMethod for NormalScanExecState {
 
             // we have a row, and we're set up such that we can check it with the visibility map
             Some((scored, doc_address)) if self.can_use_visibility_map => unsafe {
-                let seg_ord = doc_address.segment_ord;
-                if self.ctid_cache.as_ref().is_none_or(|(o, _)| *o != seg_ord) {
-                    self.ctid_cache = Some((
-                        seg_ord,
-                        FFType::new_ctid(
-                            state
-                                .search_reader
-                                .as_ref()
-                                .unwrap()
-                                .searcher()
-                                .segment_reader(seg_ord)
-                                .fast_fields(),
-                        ),
-                    ));
-                }
-                let ctid = self
-                    .ctid_cache
-                    .as_ref()
-                    .unwrap()
-                    .1
-                    .as_u64(doc_address.doc_id)
-                    .expect("ctid should be present");
+                let searcher = state.search_reader.as_ref().unwrap().searcher();
+                let ctid = resolve_ctid(&mut self.ctid_cache, searcher, doc_address);
 
                 let mut tid = pg_sys::ItemPointerData::default();
                 u64_to_item_pointer(ctid, &mut tid);
@@ -154,28 +133,8 @@ impl ExecMethod for NormalScanExecState {
 
             // otherwise we'll always fetch from the heap
             Some((scored, doc_address)) => {
-                let seg_ord = doc_address.segment_ord;
-                if self.ctid_cache.as_ref().is_none_or(|(o, _)| *o != seg_ord) {
-                    self.ctid_cache = Some((
-                        seg_ord,
-                        FFType::new_ctid(
-                            state
-                                .search_reader
-                                .as_ref()
-                                .unwrap()
-                                .searcher()
-                                .segment_reader(seg_ord)
-                                .fast_fields(),
-                        ),
-                    ));
-                }
-                let ctid = self
-                    .ctid_cache
-                    .as_ref()
-                    .unwrap()
-                    .1
-                    .as_u64(doc_address.doc_id)
-                    .expect("ctid should be present");
+                let searcher = state.search_reader.as_ref().unwrap().searcher();
+                let ctid = resolve_ctid(&mut self.ctid_cache, searcher, doc_address);
                 ExecState::FromHeap {
                     ctid,
                     score: scored.bm25,

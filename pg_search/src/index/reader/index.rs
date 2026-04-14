@@ -106,7 +106,6 @@ impl TopKSearchResults {
     }
 
     fn new_for_score(
-        _searcher: &Searcher,
         results: impl IntoIterator<Item = (Score, DocAddress)>,
         aggregation_results: Option<IntermediateAggregationResults>,
     ) -> Self {
@@ -127,10 +126,9 @@ impl TopKSearchResults {
     ///
     /// TODO: We could in theory actually render that field using a virtual tuple (for the right
     /// query), similar to what we do in fast-fields execution.
-    fn new_for_discarded_field<T>(searcher: &Searcher, results: TopKWithAggregate<T>) -> Self {
+    fn new_for_discarded_field<T>(results: TopKWithAggregate<T>) -> Self {
         let (results, aggregation_results) = results;
         Self::new_for_score(
-            searcher,
             results
                 .into_iter()
                 .map(|((_, score), doc)| (score.unwrap_or(1.0), doc)),
@@ -743,64 +741,58 @@ impl SearchIndexReader {
                     .expect("sort field should exist in index schema");
                 let order: ComparatorEnum = (*direction).into();
                 match field.field_entry().field_type().value_type() {
-                    tantivy::schema::Type::Str => TopKSearchResults::new_for_discarded_field(
-                        &self.searcher,
-                        self.top_in_segments(
+                    tantivy::schema::Type::Str => {
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByString::for_field(sort_field), order),
                             erased_features,
                             n,
                             offset,
                             aux_collector,
-                        ),
-                    ),
-                    tantivy::schema::Type::U64 => TopKSearchResults::new_for_discarded_field(
-                        &self.searcher,
-                        self.top_in_segments(
+                        ))
+                    }
+                    tantivy::schema::Type::U64 => {
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByStaticFastValue::<u64>::for_field(sort_field), order),
                             erased_features,
                             n,
                             offset,
                             aux_collector,
-                        ),
-                    ),
-                    tantivy::schema::Type::I64 => TopKSearchResults::new_for_discarded_field(
-                        &self.searcher,
-                        self.top_in_segments(
+                        ))
+                    }
+                    tantivy::schema::Type::I64 => {
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByStaticFastValue::<i64>::for_field(sort_field), order),
                             erased_features,
                             n,
                             offset,
                             aux_collector,
-                        ),
-                    ),
-                    tantivy::schema::Type::F64 => TopKSearchResults::new_for_discarded_field(
-                        &self.searcher,
-                        self.top_in_segments(
+                        ))
+                    }
+                    tantivy::schema::Type::F64 => {
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByStaticFastValue::<f64>::for_field(sort_field), order),
                             erased_features,
                             n,
                             offset,
                             aux_collector,
-                        ),
-                    ),
-                    tantivy::schema::Type::Bool => TopKSearchResults::new_for_discarded_field(
-                        &self.searcher,
-                        self.top_in_segments(
+                        ))
+                    }
+                    tantivy::schema::Type::Bool => {
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByStaticFastValue::<bool>::for_field(sort_field), order),
                             erased_features,
                             n,
                             offset,
                             aux_collector,
-                        ),
-                    ),
-                    tantivy::schema::Type::Date => TopKSearchResults::new_for_discarded_field(
-                        &self.searcher,
-                        self.top_in_segments(
+                        ))
+                    }
+                    tantivy::schema::Type::Date => {
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (
                                 SortByStaticFastValue::<DateTime>::for_field(sort_field),
@@ -810,19 +802,18 @@ impl SearchIndexReader {
                             n,
                             offset,
                             aux_collector,
-                        ),
-                    ),
-                    tantivy::schema::Type::Bytes => TopKSearchResults::new_for_discarded_field(
-                        &self.searcher,
-                        self.top_in_segments(
+                        ))
+                    }
+                    tantivy::schema::Type::Bytes => {
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByBytes::for_field(sort_field), order),
                             erased_features,
                             n,
                             offset,
                             aux_collector,
-                        ),
-                    ),
+                        ))
+                    }
                     tantivy::schema::Type::Facet => {
                         unimplemented!("Cannot sort by facet field")
                     }
@@ -852,7 +843,6 @@ impl SearchIndexReader {
                     aux_collector,
                 );
                 TopKSearchResults::new_for_score(
-                    &self.searcher,
                     top_docs.into_iter().map(|((f, _), doc)| (f, doc)),
                     aggregation_results,
                 )
@@ -1057,7 +1047,6 @@ impl SearchIndexReader {
                     self.collect_maybe_auxiliary(segment_ids, top_docs_collector, aux_collector);
 
                 TopKSearchResults::new_for_score(
-                    &self.searcher,
                     top_docs
                         .into_iter()
                         .map(|(score, doc_address)| (score.score, doc_address)),
@@ -1072,7 +1061,7 @@ impl SearchIndexReader {
                 let (top_docs, aggregation_results) =
                     self.collect_maybe_auxiliary(segment_ids, top_docs_collector, aux_collector);
 
-                TopKSearchResults::new_for_score(&self.searcher, top_docs, aggregation_results)
+                TopKSearchResults::new_for_score(top_docs, aggregation_results)
             }
         }
     }

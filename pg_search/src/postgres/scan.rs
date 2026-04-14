@@ -17,7 +17,7 @@
 
 use crate::api::operator::searchqueryinput_typoid;
 use crate::api::HashSet;
-use crate::index::fast_fields_helper::{FFHelper, FFType};
+use crate::index::fast_fields_helper::{resolve_ctid, FFHelper, FFType};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{MultiSegmentSearchResults, SearchIndexReader};
 use crate::postgres::rel::PgSearchRelation;
@@ -27,7 +27,6 @@ use crate::query::SearchQueryInput;
 use pgrx::pg_sys::IndexScanDesc;
 use pgrx::*;
 use tantivy::index::SegmentId;
-use tantivy::SegmentOrdinal;
 
 pub struct Bm25ScanState {
     fast_fields: FFHelper,
@@ -39,7 +38,7 @@ pub struct Bm25ScanState {
     ambulkdelete_epoch: u32,
     /// Cached per-segment ctid fast-field reader. Avoids re-opening the column
     /// reader for every row returned from the same segment.
-    ctid_cache: Option<(SegmentOrdinal, FFType)>,
+    ctid_cache: Option<(tantivy::SegmentOrdinal, FFType)>,
 }
 
 #[pg_guard]
@@ -307,26 +306,8 @@ pub unsafe extern "C-unwind" fn amgettuple(
             }
             Some((_scored, doc_address)) => {
                 // Fetch the real ctid from the fast-field reader, caching per segment.
-                let seg_ord = doc_address.segment_ord;
-                if state.ctid_cache.as_ref().is_none_or(|(o, _)| *o != seg_ord) {
-                    state.ctid_cache = Some((
-                        seg_ord,
-                        FFType::new_ctid(
-                            state
-                                .reader
-                                .searcher()
-                                .segment_reader(seg_ord)
-                                .fast_fields(),
-                        ),
-                    ));
-                }
-                let ctid = state
-                    .ctid_cache
-                    .as_ref()
-                    .unwrap()
-                    .1
-                    .as_u64(doc_address.doc_id)
-                    .expect("ctid should be present");
+                let searcher = state.reader.searcher();
+                let ctid = resolve_ctid(&mut state.ctid_cache, searcher, doc_address);
 
                 let ipd = &mut (*scan).xs_heaptid;
                 crate::postgres::utils::u64_to_item_pointer(ctid, ipd);
@@ -422,22 +403,10 @@ pub unsafe extern "C-unwind" fn amgetbitmap(
         // Clone the Searcher (cheap Arc clone) to avoid holding a borrow on
         // `state.results` while also needing to look up `state.ctid_cache`.
         let searcher = state.reader.searcher().clone();
-        let mut ctid_cache: Option<(SegmentOrdinal, FFType)> = None;
+        let mut ctid_cache: Option<(tantivy::SegmentOrdinal, FFType)> = None;
         if let Some(search_results) = state.results.as_mut() {
             for (_scored, doc_address) in search_results {
-                let seg_ord = doc_address.segment_ord;
-                if ctid_cache.as_ref().is_none_or(|(o, _)| *o != seg_ord) {
-                    ctid_cache = Some((
-                        seg_ord,
-                        FFType::new_ctid(searcher.segment_reader(seg_ord).fast_fields()),
-                    ));
-                }
-                let ctid = ctid_cache
-                    .as_ref()
-                    .unwrap()
-                    .1
-                    .as_u64(doc_address.doc_id)
-                    .expect("ctid should be present");
+                let ctid = resolve_ctid(&mut ctid_cache, &searcher, doc_address);
 
                 let mut ipd = pg_sys::ItemPointerData::default();
                 crate::postgres::utils::u64_to_item_pointer(ctid, &mut ipd);

@@ -19,7 +19,7 @@ use std::cell::RefCell;
 
 use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
-use crate::index::fast_fields_helper::FFType;
+use crate::index::fast_fields_helper::{resolve_ctid, FFType};
 use crate::index::reader::index::{
     SearchIndexReader, TopKAuxiliaryCollector, TopKSearchResults, MAX_TOPK_FEATURES,
 };
@@ -463,27 +463,8 @@ impl ExecMethod for TopKScanExecState {
                 }
                 Some((scored, doc_address)) => {
                     self.nresults += 1;
-                    let seg_ord = doc_address.segment_ord;
-                    if self.ctid_cache.as_ref().is_none_or(|(o, _)| *o != seg_ord) {
-                        self.ctid_cache = Some((
-                            seg_ord,
-                            FFType::new_ctid(
-                                self.search_reader
-                                    .as_ref()
-                                    .unwrap()
-                                    .searcher()
-                                    .segment_reader(seg_ord)
-                                    .fast_fields(),
-                            ),
-                        ));
-                    }
-                    let ctid = self
-                        .ctid_cache
-                        .as_ref()
-                        .unwrap()
-                        .1
-                        .as_u64(doc_address.doc_id)
-                        .expect("ctid should be present");
+                    let searcher = self.search_reader.as_ref().unwrap().searcher();
+                    let ctid = resolve_ctid(&mut self.ctid_cache, searcher, doc_address);
                     return ExecState::FromHeap {
                         ctid,
                         score: scored.bm25,

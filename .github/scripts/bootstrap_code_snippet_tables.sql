@@ -24,4 +24,3 @@ INSERT INTO array_demo (categories) VALUES
     ('{"food","groceries and produce"}'),
     ('{"electronics","computers"}'),
     ('{"books","fiction","mystery"}');
-

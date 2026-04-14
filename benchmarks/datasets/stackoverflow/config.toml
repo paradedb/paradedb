@@ -6,19 +6,7 @@ s3_base_path = "s3://paradedb-ci-benchmarks/datasets/stackoverflow"
 name = "stackoverflow_posts"
 
 [[tables]]
-name = "comments"
-parent = "stackoverflow_posts"
-parent_join_col = "id"
-join_col = "post_id"
-
-[[tables]]
-name = "users"
+name = "badges"
 parent = "stackoverflow_posts"
 parent_join_col = "owner_user_id"
-join_col = "id"
-
-[[tables]]
-name = "badges"
-parent = "users"
-parent_join_col = "id"
 join_col = "user_id"

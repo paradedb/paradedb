@@ -16,3 +16,9 @@ name = "users"
 parent = "stackoverflow_posts"
 parent_join_col = "owner_user_id"
 join_col = "id"
+
+[[tables]]
+name = "badges"
+parent = "users"
+parent_join_col = "id"
+join_col = "user_id"

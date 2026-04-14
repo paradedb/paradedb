@@ -52,3 +52,12 @@ CREATE TABLE users (
     profile_image_url VARCHAR,
     website_url VARCHAR
 );
+
+CREATE TABLE badges (
+    id INTEGER PRIMARY KEY,
+    name VARCHAR,
+    date TIMESTAMP,
+    user_id INTEGER,
+    class INTEGER,
+    tag_based BOOLEAN
+);

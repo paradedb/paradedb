@@ -1,14 +1,14 @@
 -- string ff
-SELECT profile_image_url, COUNT(*) FROM users WHERE about_me @@@ 'javascript' GROUP BY profile_image_url ORDER BY profile_image_url;
+SELECT name, COUNT(*) FROM badges WHERE id @@@ paradedb.term('tag_based', true) GROUP BY name ORDER BY name;
 
 -- aggregate with mvcc
-SELECT * FROM paradedb.aggregate(index=>'users_idx', query=>paradedb.term('about_me', 'javascript'), agg=>'{"buckets": { "terms": { "field": "profile_image_url" }}}', solve_mvcc=>true);
+SELECT * FROM paradedb.aggregate(index=>'badges_idx', query=>paradedb.term('tag_based', true), agg=>'{"buckets": { "terms": { "field": "name" }}}', solve_mvcc=>true);
 
 -- aggregate without mvcc
-SELECT * FROM paradedb.aggregate(index=>'users_idx', query=>paradedb.term('about_me', 'javascript'), agg=>'{"buckets": { "terms": { "field": "profile_image_url" }}}', solve_mvcc=>false);
+SELECT * FROM paradedb.aggregate(index=>'badges_idx', query=>paradedb.term('tag_based', true), agg=>'{"buckets": { "terms": { "field": "name" }}}', solve_mvcc=>false);
 
 -- aggregate custom scan
-SET paradedb.enable_aggregate_custom_scan TO on; SELECT profile_image_url, COUNT(*) FROM users WHERE about_me @@@ 'javascript' GROUP BY profile_image_url;
+SET paradedb.enable_aggregate_custom_scan TO on; SELECT name, COUNT(*) FROM badges WHERE id @@@ paradedb.term('tag_based', true) GROUP BY name;
 
 -- pdb.agg with GROUP BY
-SELECT profile_image_url, pdb.agg('{"terms": {"field": "profile_image_url"}}'::jsonb) FROM users WHERE about_me @@@ 'javascript' GROUP BY profile_image_url;
+SELECT name, pdb.agg('{"terms": {"field": "name"}}'::jsonb) FROM badges WHERE id @@@ paradedb.term('tag_based', true) GROUP BY name;

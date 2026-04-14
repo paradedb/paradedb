@@ -1,14 +1,14 @@
 -- string ff
-SELECT location, COUNT(*) FROM users WHERE about_me @@@ 'javascript' GROUP BY location ORDER BY location;
+SELECT profile_image_url, COUNT(*) FROM users WHERE about_me @@@ 'javascript' GROUP BY profile_image_url ORDER BY profile_image_url;
 
 -- aggregate with mvcc
-SELECT * FROM paradedb.aggregate(index=>'users_idx', query=>paradedb.term('about_me', 'javascript'), agg=>'{"buckets": { "terms": { "field": "location" }}}', solve_mvcc=>true);
+SELECT * FROM paradedb.aggregate(index=>'users_idx', query=>paradedb.term('about_me', 'javascript'), agg=>'{"buckets": { "terms": { "field": "profile_image_url" }}}', solve_mvcc=>true);
 
 -- aggregate without mvcc
-SELECT * FROM paradedb.aggregate(index=>'users_idx', query=>paradedb.term('about_me', 'javascript'), agg=>'{"buckets": { "terms": { "field": "location" }}}', solve_mvcc=>false);
+SELECT * FROM paradedb.aggregate(index=>'users_idx', query=>paradedb.term('about_me', 'javascript'), agg=>'{"buckets": { "terms": { "field": "profile_image_url" }}}', solve_mvcc=>false);
 
 -- aggregate custom scan
-SET paradedb.enable_aggregate_custom_scan TO on; SELECT location, COUNT(*) FROM users WHERE about_me @@@ 'javascript' GROUP BY location;
+SET paradedb.enable_aggregate_custom_scan TO on; SELECT profile_image_url, COUNT(*) FROM users WHERE about_me @@@ 'javascript' GROUP BY profile_image_url;
 
 -- pdb.agg with GROUP BY
-SELECT location, pdb.agg('{"terms": {"field": "location"}}'::jsonb) FROM users WHERE about_me @@@ 'javascript' GROUP BY location;
+SELECT profile_image_url, pdb.agg('{"terms": {"field": "profile_image_url"}}'::jsonb) FROM users WHERE about_me @@@ 'javascript' GROUP BY profile_image_url;

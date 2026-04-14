@@ -41,6 +41,9 @@ operations = [
 ```
 
 ```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing
+
 idx = Index(
     "search_idx_v2",
     indexing.BM25Field(MockItem.id),

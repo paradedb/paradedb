@@ -23,8 +23,6 @@ WITH (key_field = 'id');
 
 ```python Django
 from django.db import connection
-
-from myapp.models import ArrayDemo
 from paradedb.indexes import BM25Index
 
 with connection.schema_editor() as schema_editor:
@@ -43,8 +41,6 @@ with connection.schema_editor() as schema_editor:
 
 ```python SQLAlchemy
 from sqlalchemy import Index
-
-from models import ArrayDemo
 from paradedb.sqlalchemy import indexing
 
 idx = Index(
@@ -91,7 +87,8 @@ Text arrays can be [tokenized](/documentation/tokenizers/overview) and [filtered
 
 <CodeGroup>
 ```sql SQL
-CREATE INDEX ON array_demo USING bm25 (id, (categories::pdb.literal))
+CREATE INDEX search_idx ON array_demo
+USING bm25 (id, (categories::pdb.literal))
 WITH (key_field = 'id');
 ```
 
@@ -117,8 +114,6 @@ with connection.schema_editor() as schema_editor:
 
 ```python SQLAlchemy
 from sqlalchemy import Index
-
-from models import ArrayDemo
 from paradedb.sqlalchemy import indexing
 
 idx = Index(

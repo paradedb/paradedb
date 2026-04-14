@@ -181,11 +181,14 @@ while IFS= read -r snippet_file; do
   rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
   drop_snippet_indexes
-  create_snippet_indexes
+
+  if ! grep -Fq 'idx.create' "$snippet_file"; then
+    create_snippet_indexes
+  fi
 
   if {
     cat <<PY
-from sqlalchemy_snippet_harness import MockItem, Order, engine
+from sqlalchemy_snippet_harness import MockItem, Order, ArrayDemo, engine
 
 # Source: $rel_snippet
 PY

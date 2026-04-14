@@ -1,5 +1,9 @@
 -- Test ltree type support in BM25 indexes
 -- ltree is a PostgreSQL extension type for hierarchical tree-like structures
+-- NOTE: @@@ on an ltree (Facet) field is PREFIX/HIERARCHICAL matching, not exact matching.
+-- Querying 'Top.Science.Biology' returns all rows whose path starts with that prefix,
+-- including children like 'Top.Science.Biology.Botany'. This differs from PostgreSQL's
+-- native `ltree = 'Top.Science.Biology'` operator, which performs exact matching only.
 CREATE EXTENSION IF NOT EXISTS ltree;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;

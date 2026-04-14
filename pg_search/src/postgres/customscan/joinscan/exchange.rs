@@ -512,7 +512,6 @@ impl PhysicalOptimizerRule for EnforceDsmShuffle {
     }
 }
 
-#[cfg(any(test, feature = "pg_test"))]
 pub fn collect_dsm_exchanges(plan: Arc<dyn ExecutionPlan>, sources: &mut Vec<StreamSource>) {
     if let Some(exchange) = plan.as_any().downcast_ref::<DsmExchangeExec>() {
         sources.push(StreamSource {

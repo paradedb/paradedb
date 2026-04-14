@@ -1466,7 +1466,33 @@ impl JoinScan {
             total_participants: nlaunched,
         });
 
-        // Step 3: Deserialize logical plan.
+        // Step 3: Broadcast the logical plan bytes to workers.
+        // Workers will independently build their own physical plans (with their
+        // own participant_index in MppParticipantConfig), so we don't need to
+        // serialize custom physical plan nodes.
+        for (i, reader_mutex) in mux_readers.iter().enumerate() {
+            if i == 0 {
+                continue; // Skip self (leader)
+            }
+            let mut reader = reader_mutex.lock();
+            reader
+                .send_control_message_variable(128, plan_bytes)
+                .expect("MPP: failed to broadcast logical plan to worker");
+        }
+
+        // Step 4: Register the DSM mesh for the leader.
+        let transport = TransportMesh {
+            mux_writers,
+            mux_readers,
+            bridge,
+        };
+        let mesh = exchange::DsmMesh {
+            transport,
+            registry: parking_lot::Mutex::new(exchange::StreamRegistry::default()),
+        };
+        exchange::register_dsm_mesh(mesh);
+
+        // Step 5: Build the leader's own physical plan.
         let planstate = state.planstate();
         let index_segment_ids =
             Self::build_index_segment_ids(state, join_clause, &join_clause.plan.sources());
@@ -1481,53 +1507,21 @@ impl JoinScan {
         )
         .expect("MPP: failed to deserialize logical plan");
 
-        // Step 4: Build physical plan (optimizer injects EnforceDsmShuffle + EnforceSanitization).
         let plan = runtime
             .block_on(build_physical_plan(&ctx, logical_plan))
             .expect("MPP: failed to create physical plan");
 
-        // Step 5: Serialize physical plan for broadcast.
-        let physical_plan_bytes =
-            datafusion_proto::bytes::physical_plan_to_bytes_with_extension_codec(
-                plan.clone(),
-                &crate::scan::codec::PgSearchPhysicalCodec,
-            )
-            .expect("MPP: failed to serialize physical plan");
-
-        // Step 6: Broadcast plan to workers via control channels.
-        for (i, reader_mutex) in mux_readers.iter().enumerate() {
-            if i == 0 {
-                continue; // Skip self (leader)
-            }
-            let mut reader = reader_mutex.lock();
-            reader
-                .send_control_message_variable(128, &physical_plan_bytes)
-                .expect("MPP: failed to broadcast plan to worker");
+        // Step 6: Register the leader's DsmExchangeExec nodes as stream sources.
+        let mut sources = Vec::new();
+        exchange::collect_dsm_exchanges(plan.clone(), &mut sources);
+        for source in sources {
+            exchange::register_stream_source(
+                source,
+                crate::postgres::customscan::joinscan::transport::ParticipantId(0),
+            );
         }
 
-        // Step 7: Register the DSM mesh for the leader.
-        let transport = TransportMesh {
-            mux_writers,
-            mux_readers,
-            bridge,
-        };
-        let mesh = exchange::DsmMesh {
-            transport,
-            registry: parking_lot::Mutex::new(exchange::StreamRegistry::default()),
-        };
-        exchange::register_dsm_mesh(mesh);
-
-        // Step 8: Serialize/deserialize round-trip on the leader so that stream
-        // sources get registered in the leader's StreamRegistry.
-        let codec = crate::scan::codec::PgSearchPhysicalCodec;
-        let plan = datafusion_proto::bytes::physical_plan_from_bytes_with_extension_codec(
-            &physical_plan_bytes,
-            &ctx.task_ctx(),
-            &codec,
-        )
-        .expect("MPP: leader plan deserialization failed");
-
-        // Step 9: Spawn control service and execute.
+        // Step 7: Spawn control service and execute.
         let local_set = tokio::task::LocalSet::new();
         let task_ctx = build_task_context(
             &ctx,

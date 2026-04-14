@@ -61,7 +61,6 @@ use crate::postgres::customscan::joinscan::transport::{
     MultiplexedDsmReader, MultiplexedDsmWriter, ParticipantId, SignalBridge, TransportLayout,
 };
 use crate::postgres::locks::Spinlock;
-use crate::scan::codec::PgSearchPhysicalCodec;
 use parking_lot::Mutex;
 use std::sync::Arc;
 
@@ -259,19 +258,40 @@ impl ParallelWorker for JoinWorker<'_> {
         };
         exchange::register_dsm_mesh(mesh);
 
+        // Workers receive the logical plan bytes and independently build their
+        // own physical plan (with their participant_index). This avoids needing
+        // to serialize all custom physical plan nodes.
         let ctx = create_datafusion_session_context(SessionContextProfile::JoinMpp {
             participant_index,
             total_participants: launched_participants,
         });
 
-        let codec = PgSearchPhysicalCodec;
-        let _ = physical_plan_from_bytes_with_extension_codec(&plan_slice, &ctx.task_ctx(), &codec)
-            .expect("Failed to parse physical plan");
+        let logical_plan =
+            crate::scan::codec::deserialize_logical_plan(&plan_slice, &ctx.task_ctx())
+                .expect("Worker: failed to deserialize logical plan");
+
+        let plan = runtime
+            .block_on(super::scan_state::build_physical_plan(&ctx, logical_plan))
+            .expect("Worker: failed to create physical plan");
+
+        // Walk the physical plan tree to find DsmExchangeExec nodes and register
+        // them as stream sources in the local StreamRegistry.
+        let mut sources = Vec::new();
+        exchange::collect_dsm_exchanges(plan.clone(), &mut sources);
+        for source in sources {
+            exchange::register_stream_source(
+                source,
+                crate::postgres::customscan::joinscan::transport::ParticipantId(
+                    participant_index as u16,
+                ),
+            );
+        }
 
         let task_ctx = ctx.task_ctx();
 
         // The Worker Loop:
-        // 1. Deserializing the plan populated the local StreamRegistry via the physical codec.
+        // 1. Building the physical plan and calling collect_dsm_exchanges populated
+        //    the local StreamRegistry.
         // 2. Start the "Listener" (Control Service) to accept incoming RPC calls (StartStream).
         // 3. Park the main thread and wait for session termination.
         runtime.block_on(async {
@@ -308,7 +328,6 @@ impl ParallelWorker for JoinWorker<'_> {
 impl JoinWorker<'_> {}
 
 use datafusion::physical_plan::ExecutionPlan;
-use datafusion_proto::bytes::physical_plan_from_bytes_with_extension_codec;
 
 /// The result of launching parallel join workers.
 pub type LaunchedJoinWorkers = (

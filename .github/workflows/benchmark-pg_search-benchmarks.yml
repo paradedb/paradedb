@@ -310,7 +310,66 @@ jobs:
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
 
-      # Keep logs 100M as a synthetic large-scale benchmark
+      - name: Benchmark "logs" Dataset (10k rows)
+        if: >-
+          github.event_name != 'pull_request' ||
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs"]'), github.event.label.name)
+        uses: ./.github/actions/benchmark-queries
+        with:
+          dataset: logs
+          rows: 10000
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+          fail_on_error: ${{ inputs.fail_on_error || true }}
+
+      - name: Benchmark "logs" Dataset (100k rows)
+        if: >-
+          github.event_name != 'pull_request' ||
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs"]'), github.event.label.name)
+        uses: ./.github/actions/benchmark-queries
+        with:
+          dataset: logs
+          rows: 100000
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+          fail_on_error: ${{ inputs.fail_on_error || true }}
+
+      - name: Benchmark "logs" Dataset (1m rows)
+        if: >-
+          github.event_name != 'pull_request' ||
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs"]'), github.event.label.name)
+        uses: ./.github/actions/benchmark-queries
+        with:
+          dataset: logs
+          rows: 1000000
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+          fail_on_error: ${{ inputs.fail_on_error || true }}
+
+      - name: Benchmark "logs" Dataset (10m rows)
+        if: >-
+          github.event_name != 'pull_request' ||
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs"]'), github.event.label.name)
+        uses: ./.github/actions/benchmark-queries
+        with:
+          dataset: logs
+          rows: 10000000
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+          fail_on_error: ${{ inputs.fail_on_error || true }}
+
       - name: Benchmark "logs" Dataset (100M rows)
         if: >-
           github.event_name != 'pull_request' ||

@@ -196,7 +196,7 @@ pub unsafe fn analyze_sort_expression(
 ) -> Option<(SortExpressionType, *mut pg_sys::Var, Option<FieldName>)> {
     // Strip order-preserving wrappers (e.g. `id + 0`, RelabelType, CoerceToDomain)
     // so that the expression reaches the pattern-matching below in canonical form.
-    let node = unsafe { unwrap_order_preserving(node) };
+    let node = unwrap_order_preserving(node);
 
     if let Some(var) = extract_score_var(node) {
         return Some((SortExpressionType::Score, var, None));

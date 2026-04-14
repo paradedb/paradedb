@@ -1310,21 +1310,21 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
             let expr = (*member).em_expr;
             // Chain strip_wrappers (for PlaceHolderVar/RelabelType) then
             // unwrap_order_preserving (for identity OpExpr like `id + 0`).
-            let mut check_expr = unwrap_order_preserving(strip_wrappers(expr.cast()));
+            let mut expr = unwrap_order_preserving(strip_wrappers(expr.cast()));
 
             // Unwrap NullTest to inspect the inner expression
-            if let Some(nt) = nodecast!(NullTest, T_NullTest, check_expr) {
-                check_expr = strip_wrappers((*nt).arg.cast());
+            if let Some(nt) = nodecast!(NullTest, T_NullTest, expr) {
+                expr = unwrap_order_preserving(strip_wrappers((*nt).arg.cast()));
             }
 
             if sources
                 .iter()
-                .any(|s| is_score_func_recursive(check_expr.cast(), s))
+                .any(|s| is_score_func_recursive(expr.cast(), s))
             {
                 continue 'pathkey;
             }
 
-            if let Some(var) = nodecast!(Var, T_Var, check_expr) {
+            if let Some(var) = nodecast!(Var, T_Var, expr) {
                 let varno = (*var).varno as pg_sys::Index;
                 let varattno = (*var).varattno;
 
@@ -1350,7 +1350,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                         continue;
                     };
                     if find_matching_fast_field(
-                        expr as *mut pg_sys::Node,
+                        expr,
                         &index_rel.index_expressions(),
                         schema,
                         source.scan_info.heap_rti,

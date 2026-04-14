@@ -19,6 +19,7 @@ use crate::api::FieldName;
 use crate::api::HashSet;
 use crate::customscan::operator_oid;
 use crate::nodecast;
+use crate::postgres::var::identity_ops::IdentityOp;
 use pgrx::pg_sys::NodeTag::{T_CoerceViaIO, T_Const, T_OpExpr, T_RelabelType, T_Var};
 use pgrx::pg_sys::{expression_tree_walker, CoerceViaIO, Const, OpExpr, RelabelType, Var};
 use pgrx::PgOid;
@@ -27,20 +28,75 @@ use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use std::sync::OnceLock;
 
-/// Operator OIDs from pg_catalog, stable across PG14–PG18.
-/// Source: `SELECT oid, oprcode FROM pg_operator WHERE …`
-mod op_oids {
+/// Operator OIDs
+mod identity_ops {
+    use crate::api::HashMap;
+    use crate::postgres::customscan::operator_oid;
     use pgrx::pg_sys::Oid;
-    pub const INT4PL: Oid = Oid::from_u32(551);
-    pub const INT8PL: Oid = Oid::from_u32(684);
-    pub const FLOAT4PL: Oid = Oid::from_u32(586);
-    pub const FLOAT8PL: Oid = Oid::from_u32(591);
-    pub const NUMERIC_ADD: Oid = Oid::from_u32(1758);
-    pub const INT4MI: Oid = Oid::from_u32(555);
-    pub const INT8MI: Oid = Oid::from_u32(688);
-    pub const INT4MUL: Oid = Oid::from_u32(514);
-    pub const INT8MUL: Oid = Oid::from_u32(686);
-    pub const INT4DIV: Oid = Oid::from_u32(528);
+    use std::sync::OnceLock;
+    use strum::Display;
+
+    #[derive(Copy, Clone, Debug, Display)]
+    pub enum IdentityOp {
+        Add,
+        Sub,
+        Mul,
+        Div,
+    }
+
+    static IDENTITY_OPS: OnceLock<HashMap<Oid, IdentityOp>> = OnceLock::new();
+
+    pub unsafe fn lookup() -> &'static HashMap<Oid, IdentityOp> {
+        IDENTITY_OPS.get_or_init(|| {
+            let mut map = HashMap::default();
+
+            // +(T, T) → Add (identity: 0, either side)
+            for sig in [
+                "+(int4,int4)",
+                "+(int8,int8)",
+                "+(float4,float4)",
+                "+(float8,float8)",
+                "+(numeric,numeric)",
+            ] {
+                map.insert(operator_oid(sig), IdentityOp::Add);
+            }
+
+            // -(T, T) → Sub (identity: 0, right side only)
+            for sig in [
+                "-(int4,int4)",
+                "-(int8,int8)",
+                "-(float4,float4)",
+                "-(float8,float8)",
+                "-(numeric,numeric)",
+            ] {
+                map.insert(operator_oid(sig), IdentityOp::Sub);
+            }
+
+            // *(T, T) → Mul (identity: 1, either side)
+            for sig in [
+                "*(int4,int4)",
+                "*(int8,int8)",
+                "*(float4,float4)",
+                "*(float8,float8)",
+                "*(numeric,numeric)",
+            ] {
+                map.insert(operator_oid(sig), IdentityOp::Mul);
+            }
+
+            // /(T, T) → Div (identity: 1, right side only)
+            for sig in [
+                "/(int4,int4)",
+                "/(int8,int8)",
+                "/(float4,float4)",
+                "/(float8,float8)",
+                "/(numeric,numeric)",
+            ] {
+                map.insert(operator_oid(sig), IdentityOp::Div);
+            }
+
+            map
+        })
+    }
 }
 
 /// Strip wrappers from `expr` that do not affect row ordering.
@@ -51,10 +107,10 @@ mod op_oids {
 ///
 /// Safe to call with a null pointer; returns null in that case.
 pub(crate) unsafe fn unwrap_order_preserving(mut expr: *mut pg_sys::Node) -> *mut pg_sys::Node {
-    if expr.is_null() {
-        return expr;
-    }
     loop {
+        if expr.is_null() {
+            return expr;
+        }
         match (*expr).type_ {
             pg_sys::NodeTag::T_RelabelType => {
                 expr = (*(expr as *mut pg_sys::RelabelType)).arg as *mut pg_sys::Node;
@@ -88,6 +144,7 @@ unsafe fn try_unwrap_identity_opexpr(op: *mut pg_sys::OpExpr) -> Option<*mut pg_
     // Match "Var-side <op> Const" or "Const <op> Var-side".
     // The "var side" is the non-Const operand — it may itself be a wrapped Var.
     let (var_side, const_side, const_on_right) = match ((*left).type_, (*right).type_) {
+        (pg_sys::NodeTag::T_Const, pg_sys::NodeTag::T_Const) => return None,
         (pg_sys::NodeTag::T_Const, _) => (right, left as *mut pg_sys::Const, false),
         (_, pg_sys::NodeTag::T_Const) => (left, right as *mut pg_sys::Const, true),
         _ => return None,
@@ -114,41 +171,29 @@ unsafe fn is_identity_operation(
         return false;
     }
 
-    match opno {
-        // Addition: identity element is 0, commutative (either side)
-        op_oids::INT4PL => i32::from_datum((*konst).constvalue, false) == Some(0),
-        op_oids::INT8PL => i64::from_datum((*konst).constvalue, false) == Some(0),
-        op_oids::FLOAT4PL => f32::from_datum((*konst).constvalue, false) == Some(0.0),
-        op_oids::FLOAT8PL => f64::from_datum((*konst).constvalue, false) == Some(0.0),
-        op_oids::NUMERIC_ADD => {
-            // For numeric, extract as string and check for zero
-            numeric_const_is_zero(konst)
+    let Some(&op) = identity_ops::lookup().get(&opno) else {
+        return false;
+    };
+
+    let const_is = |expected: i64| -> bool {
+        let datum = (*konst).constvalue;
+        let typoid = (*konst).consttype;
+        match typoid {
+            pg_sys::INT4OID => i32::from_datum(datum, false) == Some(expected as i32),
+            pg_sys::INT8OID => i64::from_datum(datum, false) == Some(expected),
+            pg_sys::FLOAT4OID => f32::from_datum(datum, false) == Some(expected as f32),
+            pg_sys::FLOAT8OID => f64::from_datum(datum, false) == Some(expected as f64),
+            _ => false,
         }
+    };
 
-        // Subtraction: identity element is 0, but only when const is on the right
-        // (0 - id inverts ordering)
-        op_oids::INT4MI => const_on_right && i32::from_datum((*konst).constvalue, false) == Some(0),
-        op_oids::INT8MI => const_on_right && i64::from_datum((*konst).constvalue, false) == Some(0),
-
-        // Multiplication: identity element is 1, commutative (either side)
-        op_oids::INT4MUL => i32::from_datum((*konst).constvalue, false) == Some(1),
-        op_oids::INT8MUL => i64::from_datum((*konst).constvalue, false) == Some(1),
-
-        // Division: identity element is 1, only when const is on the right
-        op_oids::INT4DIV => {
-            const_on_right && i32::from_datum((*konst).constvalue, false) == Some(1)
-        }
-
-        _ => false,
-    }
-}
-
-/// Check if a numeric `Const` node represents zero.
-unsafe fn numeric_const_is_zero(konst: *mut pg_sys::Const) -> bool {
-    let numeric: Option<pgrx::AnyNumeric> = FromDatum::from_datum((*konst).constvalue, false);
-    match numeric {
-        Some(n) => n == pgrx::AnyNumeric::from(0i32),
-        None => false,
+    // Note: -0.0 == 0.0 in IEEE 754, so float_col + (-0.0) also gets
+    // unwrapped. This is correct — adding -0.0 is an identity operation.
+    match op {
+        IdentityOp::Add => const_is(0),
+        IdentityOp::Sub => const_on_right && const_is(0),
+        IdentityOp::Mul => const_is(1),
+        IdentityOp::Div => const_on_right && const_is(1),
     }
 }
 

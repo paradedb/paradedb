@@ -1,6 +1,3 @@
-DROP INDEX IF EXISTS orders_idx;
-DROP INDEX IF EXISTS search_idx;
-
 CREATE INDEX search_idx ON mock_items
 USING bm25 (
   id,

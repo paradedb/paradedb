@@ -172,7 +172,7 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
 
         let sql = format!(
             "CREATE TABLE sampled_{name} AS \
-             SELECT c.* \
+             SELECT distinct c.* \
              FROM read_parquet('{glob}') c \
              WHERE c.\"{jk}\" IN 
                 (SELECT {pk} from sampled_{parent})",

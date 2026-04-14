@@ -31,7 +31,7 @@ use super::predicate::find_base_info_recursive;
 use super::privdat::{OutputColumnInfo, PrivateData};
 
 use crate::api::operator::anyelement_query_input_opoid;
-use crate::api::{OrderByFeature, OrderByInfo, SortDirection};
+use crate::api::{NullTestKind, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
@@ -374,6 +374,7 @@ unsafe fn wrap_with_semi_anti(
         let equi_keys =
             extract_equi_keys_from_subplan(subplan, inner_root, &current_node, &inner_node);
 
+        let plan_id = (*subplan).plan_id;
         let join_node = JoinNode {
             join_type: if is_anti {
                 JoinType::Anti
@@ -384,6 +385,7 @@ unsafe fn wrap_with_semi_anti(
             right: inner_node,
             equi_keys: equi_keys.clone(),
             filter: None,
+            subplan_id: Some(plan_id),
         };
 
         all_keys.extend(equi_keys);
@@ -426,12 +428,14 @@ unsafe fn wrap_with_mark_filter(
         // Both `IN (...) OR IS NULL` and `NOT IN (...) OR IS NULL` use LeftMark;
         // the anti vs non-anti distinction is carried through `or_ext.is_anti`
         // and applied at filter-evaluation time as a mark-check inversion.
+        let plan_id = (*or_ext.subplan).plan_id;
         let join_node = JoinNode {
             join_type: JoinType::LeftMark,
             left: current_node,
             right: inner_node,
             equi_keys: equi_keys.clone(),
             filter: None,
+            subplan_id: Some(plan_id),
         };
 
         all_keys.extend(equi_keys);
@@ -573,6 +577,7 @@ unsafe fn collect_join_sources_join_rel(
             right: inner_node,
             equi_keys: join_conditions.equi_keys.clone(),
             filter: None,
+            subplan_id: None,
         };
 
         keys.extend(join_conditions.equi_keys);
@@ -1049,25 +1054,23 @@ pub(super) unsafe fn collect_required_fields(
                 }) = output_columns.get(idx)
                 {
                     if *original_attno > 0 {
-                        for source in &mut plan_sources {
-                            ensure_column(source, *rti, *original_attno);
-                        }
+                        ensure_column_in_all_sources(&mut plan_sources, *rti, *original_attno);
                     }
                 }
             } else {
-                for source in &mut plan_sources {
-                    ensure_column(source, var.rti, var.attno);
-                }
+                ensure_column_in_all_sources(&mut plan_sources, var.rti, var.attno);
             }
         }
     }
 
     for info in &join_clause.order_by {
-        match &info.feature {
+        let feature = match &info.feature {
+            OrderByFeature::NullTest { inner, .. } => inner.as_ref(),
+            other => other,
+        };
+        match feature {
             OrderByFeature::Var { rti, attno, .. } => {
-                for source in &mut plan_sources {
-                    ensure_column(source, *rti, *attno);
-                }
+                ensure_column_in_all_sources(&mut plan_sources, *rti, *attno);
             }
             OrderByFeature::Field {
                 name: name_wrapper,
@@ -1117,9 +1120,7 @@ pub(super) unsafe fn collect_required_fields(
         for proj in projections {
             if let super::build::ChildProjection::Expression { input_vars, .. } = proj {
                 for var_info in input_vars {
-                    for source in &mut plan_sources {
-                        ensure_column(source, var_info.rti, var_info.attno);
-                    }
+                    ensure_column_in_all_sources(&mut plan_sources, var_info.rti, var_info.attno);
                 }
             }
         }
@@ -1130,6 +1131,20 @@ pub(super) unsafe fn collect_required_fields(
 unsafe fn ensure_column(source: &mut JoinSource, rti: pg_sys::Index, attno: pg_sys::AttrNumber) {
     if source.contains_rti(rti) {
         ensure_field(source, attno);
+    }
+}
+
+/// Broadcast [`ensure_column`] across every source in the plan. Each source
+/// only acts on the call when its `contains_rti(rti)` is true, so this is the
+/// idiomatic way to "make sure this `(rti, attno)` reference can be resolved
+/// regardless of which source actually owns it" in `collect_required_fields`.
+unsafe fn ensure_column_in_all_sources(
+    sources: &mut [&mut JoinSource],
+    rti: pg_sys::Index,
+    attno: pg_sys::AttrNumber,
+) {
+    for source in sources {
+        ensure_column(source, rti, attno);
     }
 }
 
@@ -1293,7 +1308,12 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
 
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
-            let check_expr = strip_wrappers(expr.cast());
+            let mut check_expr = strip_wrappers(expr.cast());
+
+            // Unwrap NullTest to inspect the inner expression
+            if let Some(nt) = nodecast!(NullTest, T_NullTest, check_expr) {
+                check_expr = strip_wrappers((*nt).arg.cast());
+            }
 
             if sources
                 .iter()
@@ -1782,6 +1802,31 @@ impl JoinSortExprKind {
         output_rtis: &[pg_sys::Index],
         pathkey_equivalence_member: bool,
     ) -> Self {
+        if let Some(nt) = nodecast!(NullTest, T_NullTest, check_expr) {
+            let inner_expr = strip_wrappers((*nt).arg.cast()).cast::<pg_sys::Expr>();
+            let nulltesttype = if (*nt).nulltesttype == pg_sys::NullTestType::IS_NULL {
+                NullTestKind::IsNull
+            } else {
+                NullTestKind::IsNotNull
+            };
+            return match Self::classify(
+                inner_expr,
+                direction,
+                sources,
+                output_rtis,
+                pathkey_equivalence_member,
+            ) {
+                Self::Resolved(inner_info) => Self::Resolved(OrderByInfo {
+                    feature: OrderByFeature::NullTest {
+                        inner: Box::new(inner_info.feature),
+                        nulltesttype,
+                    },
+                    direction,
+                }),
+                other => other,
+            };
+        }
+
         for source in sources.iter() {
             if is_score_func_recursive(check_expr.cast(), source) {
                 if !output_rtis.contains(&source.scan_info.heap_rti) {
@@ -1985,8 +2030,16 @@ pub(super) unsafe fn extract_orderby(
 
             match JoinSortExprKind::classify(check_expr, direction, sources, output_rtis, true) {
                 JoinSortExprKind::Resolved(info) => {
-                    result.push(info);
-                    pathkey_resolved = true;
+                    // For DISTINCT queries, NullTest pathkeys come from the
+                    // DISTINCT target list — they are handled by the GROUP BY,
+                    // not the sort. Acknowledge the pathkey but don't add it to
+                    // the ORDER BY list.
+                    if has_distinct && matches!(info.feature, OrderByFeature::NullTest { .. }) {
+                        pathkey_resolved = true;
+                    } else {
+                        result.push(info);
+                        pathkey_resolved = true;
+                    }
                 }
                 JoinSortExprKind::SkipMember => continue,
                 JoinSortExprKind::NoMatch => {}

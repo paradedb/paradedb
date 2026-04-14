@@ -310,7 +310,7 @@ jobs:
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
 
-      - name: Benchmark "logs" Dataset (10k rows)
+      - name: Benchmark "logs" Dataset (10K rows)
         if: >-
           github.event_name != 'pull_request' ||
           contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs"]'), github.event.label.name)
@@ -325,7 +325,7 @@ jobs:
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
 
-      - name: Benchmark "logs" Dataset (100k rows)
+      - name: Benchmark "logs" Dataset (100K rows)
         if: >-
           github.event_name != 'pull_request' ||
           contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs"]'), github.event.label.name)
@@ -340,7 +340,7 @@ jobs:
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
 
-      - name: Benchmark "logs" Dataset (1m rows)
+      - name: Benchmark "logs" Dataset (1M rows)
         if: >-
           github.event_name != 'pull_request' ||
           contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs"]'), github.event.label.name)
@@ -355,7 +355,7 @@ jobs:
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
 
-      - name: Benchmark "logs" Dataset (10m rows)
+      - name: Benchmark "logs" Dataset (10M rows)
         if: >-
           github.event_name != 'pull_request' ||
           contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-logs"]'), github.event.label.name)

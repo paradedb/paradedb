@@ -706,10 +706,18 @@ impl JoinScan {
         }
 
         if nworkers > 0 {
-            custom_path.path.parallel_aware = true;
+            // When MPP is enabled, the JoinScan manages its own parallelism via
+            // launch_join_workers() — it must NOT be wrapped in PostgreSQL's Gather
+            // node, because PG's parallel workers would then try to launch nested
+            // workers (which PG forbids). So we set parallel_workers = 0 and
+            // parallel_aware = false to prevent Gather, but keep parallel_safe = true.
+            let use_mpp = crate::gucs::enable_mpp_join();
+            if !use_mpp {
+                custom_path.path.parallel_aware = true;
+                custom_path.path.parallel_workers =
+                    nworkers.try_into().expect("nworkers should be a valid i32");
+            }
             custom_path.path.parallel_safe = true;
-            custom_path.path.parallel_workers =
-                nworkers.try_into().expect("nworkers should be a valid i32");
         }
 
         Some(custom_path)
@@ -1299,7 +1307,7 @@ impl CustomScan for JoinScan {
                 let use_mpp = crate::gucs::enable_mpp_join() && join_clause.planned_workers > 0;
 
                 if use_mpp {
-                    JoinScan::exec_mpp_path(state, runtime, &join_clause, &plan_bytes);
+                    JoinScan::exec_mpp_path(state, &join_clause, &plan_bytes);
                 } else {
                     // Deserialize the logical plan and convert to execution plan
                     let planstate = state.planstate();
@@ -1419,12 +1427,17 @@ impl JoinScan {
     #[allow(unused_variables, dead_code)]
     unsafe fn exec_mpp_path(
         state: &mut CustomScanStateWrapper<JoinScan>,
-        runtime: tokio::runtime::Runtime,
         join_clause: &build::JoinCSClause,
         plan_bytes: &bytes::Bytes,
     ) {
         use crate::postgres::customscan::joinscan::exchange;
         use crate::postgres::customscan::joinscan::transport::TransportMesh;
+
+        // MPP needs tokio IO for Unix Domain Socket signaling in the transport layer.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
 
         let nworkers = join_clause.planned_workers;
 

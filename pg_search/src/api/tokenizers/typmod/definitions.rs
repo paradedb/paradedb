@@ -51,6 +51,14 @@ pub struct NgramTypmod {
     pub filters: SearchTokenizerFilters,
 }
 
+// for pdb.edge_ngram
+pub struct EdgeNgramTypmod {
+    pub min_gram: usize,
+    pub max_gram: usize,
+    pub token_chars: Vec<String>,
+    pub filters: SearchTokenizerFilters,
+}
+
 // for pdb.regex_pattern
 pub struct RegexTypmod {
     pub pattern: regex::Regex,
@@ -119,6 +127,41 @@ impl TypmodRules for NgramTypmod {
             ),
             rule!("prefix_only", ValueConstraint::Boolean),
             rule!("positions", ValueConstraint::Boolean),
+        ]
+    }
+}
+
+impl TypmodRules for EdgeNgramTypmod {
+    fn rules() -> Vec<PropertyRule> {
+        vec![
+            rule!(
+                "min",
+                ValueConstraint::Integer {
+                    min: Some(1),
+                    max: None,
+                },
+                required,
+                positional = 0
+            ),
+            rule!(
+                "max",
+                ValueConstraint::Integer {
+                    min: Some(1),
+                    max: None,
+                },
+                required,
+                positional = 1
+            ),
+            rule!(
+                "token_chars",
+                ValueConstraint::StringChoiceMultiple(vec![
+                    "letter",
+                    "digit",
+                    "whitespace",
+                    "punctuation",
+                    "symbol"
+                ])
+            ),
         ]
     }
 }
@@ -232,6 +275,34 @@ impl TryFrom<i32> for NgramTypmod {
             max_gram,
             prefix_only,
             positions,
+            filters,
+        })
+    }
+}
+
+impl TryFrom<i32> for EdgeNgramTypmod {
+    type Error = typmod::Error;
+
+    fn try_from(typmod: i32) -> Result<Self, Self::Error> {
+        let parsed = Self::parsed(typmod)?;
+        let filters = SearchTokenizerFilters::from(&parsed);
+        let min_gram = parsed
+            .try_get("min", 0)
+            .and_then(|p| p.as_usize())
+            .ok_or(typmod::Error::MissingKey("min"))?;
+        let max_gram = parsed
+            .try_get("max", 1)
+            .and_then(|p| p.as_usize())
+            .ok_or(typmod::Error::MissingKey("max"))?;
+        let token_chars = parsed
+            .get("token_chars")
+            .and_then(|p| p.as_str())
+            .map(|s| s.split(',').map(|c| c.trim().to_string()).collect())
+            .unwrap_or_else(|| vec!["letter".to_string(), "digit".to_string()]);
+        Ok(EdgeNgramTypmod {
+            min_gram,
+            max_gram,
+            token_chars,
             filters,
         })
     }

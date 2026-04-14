@@ -15,36 +15,53 @@ WITH (key_field='id');
 ```
 
 ```python Django
-BM25Index(
-    fields={
-        "id": {},
-        "metadata": {},
-    },
-    key_field="id",
-    name="search_idx",
-)
+from django.db import connection
+
+from myapp.models import MockItem
+from paradedb.indexes import BM25Index
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        MockItem,
+        BM25Index(
+            fields={
+                "id": {},
+                "metadata": {},
+            },
+            key_field="id",
+            name="search_idx",
+        ),
+    )
 ```
 
 ```python SQLAlchemy
-Index(
+from sqlalchemy import Index
+
+from models import MockItem
+from paradedb.sqlalchemy import indexing
+
+idx = Index(
     "search_idx",
     indexing.BM25Field(MockItem.id),
     indexing.BM25Field(MockItem.metadata_),
     postgresql_using="bm25",
     postgresql_with={"key_field": "id"},
 )
+
+with engine.begin() as conn:
+    idx.create(conn)
 ```
 
 ```ruby Rails
-class MockItemIndex < ParadeDB::Index
-  self.table_name = :mock_items
-  self.key_field = :id
-  self.index_name = :search_idx
-  self.fields = {
-    id: nil,
-    metadata: nil
-  }
-end
+ActiveRecord::Base.connection.add_bm25_index(
+  :mock_items,
+  fields: {
+    id: {},
+    metadata: {}
+  },
+  key_field: :id,
+  name: :search_idx
+)
 ```
 
 </CodeGroup>
@@ -67,21 +84,35 @@ WITH (key_field='id');
 ```
 
 ```python Django
-BM25Index(
-    fields={
-        "id": {},
-        "metadata": {
-            "tokenizer": "ngram",
-            "args": [2, 3],
-        },
-    },
-    key_field="id",
-    name="search_idx",
-)
+from django.db import connection
+
+from myapp.models import MockItem
+from paradedb.indexes import BM25Index
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        MockItem,
+        BM25Index(
+            fields={
+                "id": {},
+                "metadata": {
+                    "tokenizer": "ngram",
+                    "args": [2, 3],
+                },
+            },
+            key_field="id",
+            name="search_idx",
+        ),
+    )
 ```
 
 ```python SQLAlchemy
-Index(
+from sqlalchemy import Index
+
+from models import MockItem
+from paradedb.sqlalchemy import indexing
+
+idx = Index(
     "search_idx",
     indexing.BM25Field(MockItem.id),
     indexing.BM25Field(
@@ -91,18 +122,21 @@ Index(
     postgresql_using="bm25",
     postgresql_with={"key_field": "id"},
 )
+
+with engine.begin() as conn:
+    idx.create(conn)
 ```
 
 ```ruby Rails
-class MockItemIndex < ParadeDB::Index
-  self.table_name = :mock_items
-  self.key_field = :id
-  self.index_name = :search_idx
-  self.fields = {
-    id: nil,
+ActiveRecord::Base.connection.add_bm25_index(
+  :mock_items,
+  fields: {
+    id: {},
     metadata: { tokenizer: :ngram, named_args: { min: 2, max: 3 } }
-  }
-end
+  },
+  key_field: :id,
+  name: :search_idx
+)
 ```
 
 </CodeGroup>
@@ -118,25 +152,39 @@ WITH (key_field='id');
 ```
 
 ```python Django
-BM25Index(
-    fields={
-        "id": {},
-        "metadata": {
-            "json_keys": {
-                "color": {
-                    "tokenizer": "ngram",
-                    "args": [2, 3],
+from django.db import connection
+
+from myapp.models import MockItem
+from paradedb.indexes import BM25Index
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        MockItem,
+        BM25Index(
+            fields={
+                "id": {},
+                "metadata": {
+                    "json_keys": {
+                        "color": {
+                            "tokenizer": "ngram",
+                            "args": [2, 3],
+                        },
+                    },
                 },
             },
-        },
-    },
-    key_field="id",
-    name="search_idx",
-)
+            key_field="id",
+            name="search_idx",
+        ),
+    )
 ```
 
 ```python SQLAlchemy
-Index(
+from sqlalchemy import Index
+
+from models import MockItem
+from paradedb.sqlalchemy import expr, indexing
+
+idx = Index(
     "search_idx",
     indexing.BM25Field(MockItem.id),
     indexing.BM25Field(
@@ -146,18 +194,21 @@ Index(
     postgresql_using="bm25",
     postgresql_with={"key_field": "id"},
 )
+
+with engine.begin() as conn:
+    idx.create(conn)
 ```
 
 ```ruby Rails
-class MockItemIndex < ParadeDB::Index
-  self.table_name = :mock_items
-  self.key_field = :id
-  self.index_name = :search_idx
-  self.fields = {
-    id: nil,
+ActiveRecord::Base.connection.add_bm25_index(
+  :mock_items,
+  fields: {
+    id: {},
     "metadata->>'color'" => { tokenizer: :ngram, named_args: { min: 2, max: 3 } }
-  }
-end
+  },
+  key_field: :id,
+  name: :search_idx
+)
 ```
 
 </CodeGroup>

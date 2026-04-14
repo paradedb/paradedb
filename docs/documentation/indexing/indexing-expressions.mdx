@@ -18,29 +18,44 @@ WITH (key_field='id');
 ```
 
 ```python Django
-BM25Index(
-    fields={"id": {}},
-    expressions=[
-        IndexExpression(
-            Func(
-                F("description"),
-                Value(" "),
-                F("category"),
-                template="(%(expressions)s)",
-                arg_joiner=" || ",
-                output_field=models.TextField(),
-            ),
-            alias="description_concat",
-            tokenizer="simple",
+from django.db import connection, models
+from django.db.models import F, Func, Value
+
+from myapp.models import MockItem
+from paradedb.indexes import BM25Index, IndexExpression
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        MockItem,
+        BM25Index(
+            fields={"id": {}},
+            expressions=[
+                IndexExpression(
+                    Func(
+                        F("description"),
+                        Value(" "),
+                        F("category"),
+                        template="(%(expressions)s)",
+                        arg_joiner=" || ",
+                        output_field=models.TextField(),
+                    ),
+                    alias="description_concat",
+                    tokenizer="simple",
+                ),
+            ],
+            key_field="id",
+            name="search_idx",
         ),
-    ],
-    key_field="id",
-    name="search_idx",
-)
+    )
 ```
 
 ```python SQLAlchemy
-Index(
+from sqlalchemy import Index
+
+from models import MockItem
+from paradedb.sqlalchemy import indexing
+
+idx = Index(
     "search_idx",
     indexing.BM25Field(MockItem.id),
     indexing.BM25Field(
@@ -50,21 +65,24 @@ Index(
     postgresql_using="bm25",
     postgresql_with={"key_field": "id"},
 )
+
+with engine.begin() as conn:
+    idx.create(conn)
 ```
 
 ```ruby Rails
-class MockItemIndex < ParadeDB::Index
-  self.table_name = :mock_items
-  self.key_field = :id
-  self.index_name = :search_idx
-  self.fields = {
-    id: nil,
-    "(description || ' ' || category)": {
+ActiveRecord::Base.connection.add_bm25_index(
+  :mock_items,
+  fields: {
+    id: {},
+    "(description || ' ' || category)" => {
       tokenizer: :simple,
       alias: "description_concat"
     }
-  }
-end
+  },
+  key_field: :id,
+  name: :search_idx
+)
 ```
 
 </CodeGroup>
@@ -103,21 +121,36 @@ WITH (key_field='id');
 ```
 
 ```python Django
-BM25Index(
-    fields={"id": {}, "description": {}},
-    expressions=[
-        IndexExpression(
-            F("rating") + 1,
-            alias="rating",
+from django.db import connection
+from django.db.models import F
+
+from myapp.models import MockItem
+from paradedb.indexes import BM25Index, IndexExpression
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        MockItem,
+        BM25Index(
+            fields={"id": {}, "description": {}},
+            expressions=[
+                IndexExpression(
+                    F("rating") + 1,
+                    alias="rating",
+                ),
+            ],
+            key_field="id",
+            name="search_idx",
         ),
-    ],
-    key_field="id",
-    name="search_idx",
-)
+    )
 ```
 
 ```python SQLAlchemy
-Index(
+from sqlalchemy import Index
+
+from models import MockItem
+from paradedb.sqlalchemy import indexing, pdb
+
+idx = Index(
     "search_idx",
     indexing.BM25Field(MockItem.id),
     indexing.BM25Field(MockItem.description),
@@ -127,19 +160,22 @@ Index(
     postgresql_using="bm25",
     postgresql_with={"key_field": "id"},
 )
+
+with engine.begin() as conn:
+    idx.create(conn)
 ```
 
 ```ruby Rails
-class MockItemIndex < ParadeDB::Index
-  self.table_name = :mock_items
-  self.key_field = :id
-  self.index_name = :search_idx
-  self.fields = {
-    id: nil,
-    description: nil,
-    "(rating + 1)": { alias: "rating" }
-  }
-end
+ActiveRecord::Base.connection.add_bm25_index(
+  :mock_items,
+  fields: {
+    id: {},
+    description: {},
+    "(rating + 1)" => { alias: "rating" }
+  },
+  key_field: :id,
+  name: :search_idx
+)
 ```
 
 </CodeGroup>

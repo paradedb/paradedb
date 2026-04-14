@@ -21,36 +21,53 @@ WITH (key_field = 'id');
 ```
 
 ```python Django
-BM25Index(
-    fields={
-        "id": {},
-        "categories": {},
-    },
-    key_field="id",
-    name="array_demo_bm25_idx",
-)
+from django.db import connection
+
+from myapp.models import ArrayDemo
+from paradedb.indexes import BM25Index
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        ArrayDemo,
+        BM25Index(
+            fields={
+                "id": {},
+                "categories": {},
+            },
+            key_field="id",
+            name="array_demo_bm25_idx",
+        ),
+    )
 ```
 
 ```python SQLAlchemy
-Index(
+from sqlalchemy import Index
+
+from models import ArrayDemo
+from paradedb.sqlalchemy import indexing
+
+idx = Index(
     "array_demo_bm25_idx",
     indexing.BM25Field(ArrayDemo.id),
     indexing.BM25Field(ArrayDemo.categories),
     postgresql_using="bm25",
     postgresql_with={"key_field": "id"},
 )
+
+with engine.begin() as conn:
+    idx.create(conn)
 ```
 
 ```ruby Rails
-class ArrayDemoIndex < ParadeDB::Index
-  self.table_name = :array_demo
-  self.key_field = :id
-  self.index_name = :array_demo_bm25_idx
-  self.fields = {
-    id: nil,
-    categories: nil
-  }
-end
+ActiveRecord::Base.connection.add_bm25_index(
+  :array_demo,
+  fields: {
+    id: {},
+    categories: {}
+  },
+  key_field: :id,
+  name: :array_demo_bm25_idx
+)
 ```
 
 </CodeGroup>
@@ -78,18 +95,32 @@ WITH (key_field = 'id');
 ```
 
 ```python Django
-BM25Index(
-    fields={
-        "id": {},
-        "categories": {"tokenizer": "literal"},
-    },
-    key_field="id",
-    name="array_demo_bm25_idx",
-)
+from django.db import connection
+
+from myapp.models import ArrayDemo
+from paradedb.indexes import BM25Index
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        ArrayDemo,
+        BM25Index(
+            fields={
+                "id": {},
+                "categories": {"tokenizer": "literal"},
+            },
+            key_field="id",
+            name="array_demo_bm25_idx",
+        ),
+    )
 ```
 
 ```python SQLAlchemy
-Index(
+from sqlalchemy import Index
+
+from models import ArrayDemo
+from paradedb.sqlalchemy import indexing
+
+idx = Index(
     "array_demo_bm25_idx",
     indexing.BM25Field(ArrayDemo.id),
     indexing.BM25Field(
@@ -99,18 +130,21 @@ Index(
     postgresql_using="bm25",
     postgresql_with={"key_field": "id"},
 )
+
+with engine.begin() as conn:
+    idx.create(conn)
 ```
 
 ```ruby Rails
-class ArrayDemoIndex < ParadeDB::Index
-  self.table_name = :array_demo
-  self.key_field = :id
-  self.index_name = :array_demo_bm25_idx
-  self.fields = {
-    id: nil,
+ActiveRecord::Base.connection.add_bm25_index(
+  :array_demo,
+  fields: {
+    id: {},
     categories: { tokenizer: :literal }
-  }
-end
+  },
+  key_field: :id,
+  name: :array_demo_bm25_idx
+)
 ```
 
 </CodeGroup>

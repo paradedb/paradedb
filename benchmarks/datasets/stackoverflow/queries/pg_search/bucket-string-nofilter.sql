@@ -11,4 +11,4 @@ SELECT * FROM paradedb.aggregate(index=>'badges_idx', query=>paradedb.all(), agg
 SET paradedb.enable_aggregate_custom_scan TO on; SELECT name, COUNT(*) FROM badges WHERE id @@@ pdb.all() GROUP BY name;
 
 -- pdb.agg with GROUP BY
-SELECT name, pdb.agg('{"terms": {"field": "name"}}'::jsonb) FROM badges WHERE id @@@ pdb.all() GROUP BY name;
+SELECT name, pdb.agg('{"value_count": {"field": "name"}}'::jsonb) FROM badges WHERE id @@@ pdb.all() GROUP BY name;

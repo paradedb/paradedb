@@ -14,4 +14,4 @@ SELECT * FROM paradedb.aggregate(index=>'stackoverflow_posts_idx', query=>parade
 SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(*) FROM (SELECT post_type_id FROM stackoverflow_posts WHERE body ||| 'javascript' GROUP BY post_type_id);
 
 -- pdb.agg without GROUP BY
-SELECT pdb.agg('{"terms": {"field": "post_type_id"}}'::jsonb) FROM stackoverflow_posts WHERE body ||| 'javascript';
+SELECT pdb.agg('{"value_count": {"field": "post_type_id"}}'::jsonb) FROM stackoverflow_posts WHERE body ||| 'javascript';

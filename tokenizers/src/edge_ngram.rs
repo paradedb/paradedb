@@ -120,9 +120,8 @@ pub struct EdgeNgramTokenStream<'a> {
     token: Token,
     // Scanning state: byte offset in the input where we look for the next word
     scan_offset: usize,
-    // Current word we're emitting grams for (byte range in input)
+    // Current word we're emitting grams for
     word_start: usize,
-    word_end: usize,
     word_char_count: usize,
     // How many chars of the current word we've emitted so far
     current_gram_chars: usize,
@@ -145,7 +144,6 @@ impl Tokenizer for EdgeNgramTokenizer {
             token: Token::default(),
             scan_offset: 0,
             word_start: 0,
-            word_end: 0,
             word_char_count: 0,
             current_gram_chars: 0,
             in_word: false,
@@ -182,7 +180,6 @@ impl EdgeNgramTokenStream<'_> {
             offset += c.len_utf8();
             self.word_char_count += 1;
         }
-        self.word_end = offset;
         self.scan_offset = offset;
         true
     }
@@ -302,8 +299,11 @@ mod tests {
 
     #[test]
     fn test_unicode() {
-        let mut tok = EdgeNgramTokenizer::new(1, 3, vec![TokenCharClass::Letter]).unwrap();
-        assert_eq!(collect_text(&mut tok, "café"), vec!["c", "ca", "caf"]);
+        let mut tok = EdgeNgramTokenizer::new(1, 4, vec![TokenCharClass::Letter]).unwrap();
+        assert_eq!(
+            collect_text(&mut tok, "café"),
+            vec!["c", "ca", "caf", "café"]
+        );
     }
 
     #[test]

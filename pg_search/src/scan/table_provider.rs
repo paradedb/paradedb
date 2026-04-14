@@ -749,11 +749,8 @@ impl TableProvider for PgSearchTableProvider {
         let parallel_state = self.parallel_state;
         let canonical_segment_ids = self.canonical_segment_ids.clone();
 
-        pgrx::warning!("MPP scan(): opening relations heap={heap_relid:?} index={index_relid:?}");
         let heap_rel = PgSearchRelation::open(heap_relid);
-        pgrx::warning!("MPP scan(): heap opened");
         let index_rel = PgSearchRelation::open(index_relid);
-        pgrx::warning!("MPP scan(): index opened");
 
         // Solve runtime Postgres expressions (prepared-statement params, etc.) here in scan()
         // rather than earlier because each process (leader and workers) independently

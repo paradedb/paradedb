@@ -235,15 +235,12 @@ impl ParallelWorker for JoinWorker<'_> {
             .unwrap();
 
         let session_id = uuid::Uuid::from_bytes(self.config.session_id);
-        pgrx::warning!("MPP Worker {participant_index}: creating SignalBridge");
         let bridge = runtime
             .block_on(SignalBridge::new(participant_id, session_id))
             .expect("Failed to initialize SignalBridge");
         let bridge = Arc::new(bridge);
-        pgrx::warning!("MPP Worker {participant_index}: SignalBridge created");
 
         let layout = TransportLayout::new(self.config.ring_buffer_size, self.config.control_size);
-        pgrx::warning!("MPP Worker {participant_index}: initializing TransportMesh");
         let transport = unsafe {
             TransportMesh::init(
                 self.ring_buffer_ptr,
@@ -279,7 +276,6 @@ impl ParallelWorker for JoinWorker<'_> {
             total_participants: launched_participants,
         });
 
-        pgrx::warning!("MPP Worker {participant_index}: deserializing logical plan");
         let logical_plan =
             crate::scan::codec::deserialize_logical_plan(&plan_slice, &ctx.task_ctx())
                 .expect("Worker: failed to deserialize logical plan");
@@ -290,7 +286,6 @@ impl ParallelWorker for JoinWorker<'_> {
         let plan = runtime
             .block_on(super::scan_state::build_physical_plan(&ctx, logical_plan))
             .expect("Worker: failed to create physical plan");
-        pgrx::warning!("MPP Worker {participant_index}: physical plan built");
 
         // Walk the physical plan tree to find DsmExchangeExec nodes and register
         // them as stream sources in the local StreamRegistry.
@@ -320,7 +315,6 @@ impl ParallelWorker for JoinWorker<'_> {
             let local = tokio::task::LocalSet::new();
 
             // Start the control service to listen for stream requests
-            pgrx::warning!("MPP Worker {participant_index}: spawning control service");
             exchange::spawn_control_service(&local, task_ctx.clone());
             pgrx::warning!(
                 "MPP Worker {participant_index}: control service spawned, parking thread"

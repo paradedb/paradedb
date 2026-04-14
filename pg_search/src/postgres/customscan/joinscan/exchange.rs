@@ -271,10 +271,9 @@ pub fn spawn_control_service(local_set: &LocalSet, task_ctx: Arc<TaskContext>) {
                 bridge.register_waker(cx.waker().clone(), None);
                 let mut work_done = false;
 
-                for (idx, mux) in mux_writers.iter().enumerate() {
+                for mux in &mux_writers {
                     let mut guard = mux.lock();
                     while let Some((msg_type, payload)) = guard.read_control_frame() {
-                        pgrx::warning!("MPP ControlService: received msg_type={msg_type} from writer {idx}, payload_len={}", payload.len());
                         work_done = true;
                         if let Some(msg) = ControlMessage::try_from_frame(msg_type, &payload) {
                             match msg {
@@ -891,15 +890,7 @@ impl DsmExchangeExec {
                                         "MPP: failed to send StartStream to participant {partition}: {e}"
                                     );
                                 });
-                            pgrx::warning!("MPP Gather: StartStream sent to partition {partition}");
-                        } else {
-                            pgrx::warning!(
-                                "MPP Gather: partition {partition} out of range (readers: {})",
-                                mesh.transport.mux_readers.len()
-                            );
                         }
-                    } else {
-                        pgrx::warning!("MPP Gather: DSM mesh not registered!");
                     }
                 }
 

@@ -1440,6 +1440,7 @@ impl JoinScan {
             .unwrap();
 
         let nworkers = join_clause.planned_workers;
+        pgrx::warning!("MPP: exec_mpp_path entered, nworkers={nworkers}");
 
         // Step 1: Launch workers and initialize transport mesh.
         let Some((
@@ -1460,12 +1461,15 @@ impl JoinScan {
             panic!("MPP: failed to launch parallel workers");
         };
 
+        pgrx::warning!("MPP: workers launched, nlaunched={nlaunched}");
+
         // Step 2: Build MPP session context with actual participant count.
         let ctx = create_datafusion_session_context(SessionContextProfile::JoinMpp {
             participant_index: 0, // Leader is always participant 0
             total_participants: nlaunched,
         });
 
+        pgrx::warning!("MPP: session context created");
         // Step 3: Broadcast the logical plan bytes to workers.
         // Workers will independently build their own physical plans (with their
         // own participant_index in MppParticipantConfig), so we don't need to
@@ -1480,6 +1484,7 @@ impl JoinScan {
                 .expect("MPP: failed to broadcast logical plan to worker");
         }
 
+        pgrx::warning!("MPP: plan broadcast complete");
         // Step 4: Register the DSM mesh for the leader.
         let transport = TransportMesh {
             mux_writers,
@@ -1507,9 +1512,11 @@ impl JoinScan {
         )
         .expect("MPP: failed to deserialize logical plan");
 
+        pgrx::warning!("MPP: logical plan deserialized, building physical plan");
         let plan = runtime
             .block_on(build_physical_plan(&ctx, logical_plan))
             .expect("MPP: failed to create physical plan");
+        pgrx::warning!("MPP: physical plan built");
 
         // Step 6: Register the leader's DsmExchangeExec nodes as stream sources.
         let mut sources = Vec::new();
@@ -1530,12 +1537,15 @@ impl JoinScan {
             pg_sys::hash_mem_multiplier,
         );
 
+        pgrx::warning!("MPP: spawning control service and executing");
         exchange::spawn_control_service(&local_set, task_ctx.clone());
 
         let stream = runtime.block_on(local_set.run_until(async {
+            pgrx::warning!("MPP: executing plan partition 0");
             plan.execute(0, task_ctx)
                 .expect("MPP: failed to execute plan")
         }));
+        pgrx::warning!("MPP: plan execution started, streaming results");
 
         // Retain plan for EXPLAIN ANALYZE.
         state.custom_state_mut().physical_plan = Some(plan.clone());

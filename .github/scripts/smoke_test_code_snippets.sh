@@ -9,6 +9,7 @@ SQL_DIR="${VERIFY_DIR}/sql"
 DJANGO_DIR="${VERIFY_DIR}/django"
 RAILS_DIR="${VERIFY_DIR}/rails"
 SQLALCHEMY_DIR="${VERIFY_DIR}/sqlalchemy"
+RESET_INDEXES_SQL="${SCRIPT_DIR}/reset_code_snippet_indexes.sql"
 PARADEDB_HOST="${PARADEDB_HOST:-localhost}"
 PARADEDB_PORT="${PARADEDB_PORT:-28818}"
 PARADEDB_DATABASE="${PARADEDB_DATABASE:-postgres}"
@@ -71,6 +72,10 @@ run_psql_file() {
   fi
 }
 
+reset_snippet_indexes() {
+  run_psql_file "$RESET_INDEXES_SQL"
+}
+
 echo "Creating temporary Python environment for Python snippet verification..."
 python3 -m venv "$PYTHON_ENV_DIR"
 
@@ -96,7 +101,7 @@ sql_fail_count=0
 while IFS= read -r snippet_file; do
   rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
-  if run_psql_file "$snippet_file"; then
+  if reset_snippet_indexes && run_psql_file "$snippet_file"; then
     echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
     sql_pass_count=$((sql_pass_count + 1))
   else
@@ -111,7 +116,7 @@ django_fail_count=0
 while IFS= read -r snippet_file; do
   rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
-  if {
+  if reset_snippet_indexes && {
     cat "${SCRIPT_DIR}/django_snippet_harness.py"
     cat <<PY
 
@@ -135,7 +140,7 @@ rails_fail_count=0
 while IFS= read -r snippet_file; do
   rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
-  if {
+  if reset_snippet_indexes && {
     cat "${SCRIPT_DIR}/rails_snippet_harness.rb"
     cat <<RUBY
 
@@ -161,7 +166,7 @@ sqlalchemy_fail_count=0
 while IFS= read -r snippet_file; do
   rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
-  if {
+  if reset_snippet_indexes && {
     cat <<PY
 from sqlalchemy_snippet_harness import MockItem, Order, engine
 

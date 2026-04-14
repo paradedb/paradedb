@@ -9,3 +9,6 @@ SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(*) FROM (SELECT se
 
 -- pdb.agg without GROUP BY
 SELECT pdb.agg('{"value_count": {"field": "severity"}}') FROM benchmark_logs WHERE message ||| 'research';
+
+-- pdb.agg without GROUP BY (mvcc disabled)
+SELECT pdb.agg('{"value_count": {"field": "severity"}}', false) FROM benchmark_logs WHERE message ||| 'research';

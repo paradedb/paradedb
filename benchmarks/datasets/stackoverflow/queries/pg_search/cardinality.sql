@@ -9,3 +9,6 @@ SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(*) FROM (SELECT po
 
 -- pdb.agg without GROUP BY
 SELECT pdb.agg('{"value_count": {"field": "post_type_id"}}') FROM stackoverflow_posts WHERE body ||| 'javascript';
+
+-- pdb.agg without GROUP BY (mvcc disabled)
+SELECT pdb.agg('{"value_count": {"field": "post_type_id"}}', false) FROM stackoverflow_posts WHERE body ||| 'javascript';

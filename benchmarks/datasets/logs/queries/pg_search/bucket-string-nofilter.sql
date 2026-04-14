@@ -6,3 +6,6 @@ SET paradedb.enable_aggregate_custom_scan TO on; SELECT country, COUNT(*) FROM b
 
 -- pdb.agg with GROUP BY
 SELECT country, pdb.agg('{"value_count": {"field": "country"}}') FROM benchmark_logs WHERE id @@@ pdb.all() GROUP BY country;
+
+-- pdb.agg with GROUP BY (mvcc disabled)
+SELECT country, pdb.agg('{"value_count": {"field": "country"}}', false) FROM benchmark_logs WHERE id @@@ pdb.all() GROUP BY country;

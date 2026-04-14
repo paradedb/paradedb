@@ -1443,7 +1443,7 @@ impl MultiplexedDsmReader {
     }
 
     /// Signals the writer to start producing data for a stream.
-    pub(super) fn start_stream(&mut self, stream_id: PhysicalStreamId) -> std::io::Result<()> {
+    pub fn start_stream(&mut self, stream_id: PhysicalStreamId) -> std::io::Result<()> {
         self.send_control_message(0, stream_id)
     }
 

@@ -1540,18 +1540,41 @@ impl JoinScan {
         pgrx::warning!("MPP: spawning control service and executing");
         exchange::spawn_control_service(&local_set, task_ctx.clone());
 
-        let stream = runtime.block_on(local_set.run_until(async {
+        // Collect ALL results inside run_until so the LocalSet continues to drive
+        // the control service while the stream is being polled. The control service
+        // must remain active to respond to worker RPCs (StartStream, etc.).
+        use futures::StreamExt;
+        let batches: Vec<arrow_array::RecordBatch> = runtime.block_on(local_set.run_until(async {
             pgrx::warning!("MPP: executing plan partition 0");
-            plan.execute(0, task_ctx)
-                .expect("MPP: failed to execute plan")
+            let mut stream = plan
+                .execute(0, task_ctx)
+                .expect("MPP: failed to execute plan");
+            pgrx::warning!("MPP: collecting results from stream");
+            let mut batches = Vec::new();
+            while let Some(batch) = stream.next().await {
+                match batch {
+                    Ok(b) => batches.push(b),
+                    Err(e) => panic!("MPP: stream error: {e}"),
+                }
+            }
+            pgrx::warning!("MPP: collected {} batches", batches.len());
+            batches
         }));
-        pgrx::warning!("MPP: plan execution started, streaming results");
+
+        // Create a stream from the collected batches for the exec_custom_scan loop.
+        let schema = plan.schema();
+        let batch_stream = futures::stream::iter(batches.into_iter().map(Ok));
+        let stream: datafusion::execution::SendableRecordBatchStream = Box::pin(
+            datafusion::physical_plan::stream::RecordBatchStreamAdapter::new(
+                schema.clone(),
+                batch_stream,
+            ),
+        );
 
         // Retain plan for EXPLAIN ANALYZE.
         state.custom_state_mut().physical_plan = Some(plan.clone());
 
         // Map CTID columns to their schema positions.
-        let schema = plan.schema();
         for (i, field) in schema.fields().iter().enumerate() {
             if let Ok(ctid_col) = build::CtidColumn::try_from(field.name().as_str()) {
                 let plan_position = ctid_col.plan_position();

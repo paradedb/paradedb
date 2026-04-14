@@ -225,6 +225,10 @@ impl ParallelWorker for JoinWorker<'_> {
             worker_number as usize
         };
         let participant_id = ParticipantId(participant_index as u16);
+        pgrx::warning!(
+            "MPP Worker {participant_index}: starting, total_participants={}",
+            self.config.total_participants
+        );
 
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -232,24 +236,34 @@ impl ParallelWorker for JoinWorker<'_> {
             .unwrap();
 
         let session_id = uuid::Uuid::from_bytes(self.config.session_id);
+        pgrx::warning!("MPP Worker {participant_index}: creating SignalBridge");
         let bridge = runtime
             .block_on(SignalBridge::new(participant_id, session_id))
             .expect("Failed to initialize SignalBridge");
         let bridge = Arc::new(bridge);
+        pgrx::warning!("MPP Worker {participant_index}: SignalBridge created");
 
         let layout = TransportLayout::new(self.config.ring_buffer_size, self.config.control_size);
+        pgrx::warning!("MPP Worker {participant_index}: initializing TransportMesh");
         let transport = unsafe {
             TransportMesh::init(
                 self.ring_buffer_ptr,
                 layout,
                 participant_id,
-                self.config.total_participants, // Use Max/Configured participants for layout
+                self.config.total_participants,
                 bridge.clone(),
             )
         };
+        pgrx::warning!(
+            "MPP Worker {participant_index}: TransportMesh initialized, waiting for broadcast plan"
+        );
 
         // Wait for the plan via the control channel.
         let plan_slice = runtime.block_on(transport.wait_for_broadcast_plan());
+        pgrx::warning!(
+            "MPP Worker {participant_index}: broadcast plan received ({} bytes)",
+            plan_slice.len()
+        );
 
         // Register the DSM mesh for this worker process.
         let mesh = exchange::DsmMesh {
@@ -266,18 +280,27 @@ impl ParallelWorker for JoinWorker<'_> {
             total_participants: launched_participants,
         });
 
+        pgrx::warning!("MPP Worker {participant_index}: deserializing logical plan");
         let logical_plan =
             crate::scan::codec::deserialize_logical_plan(&plan_slice, &ctx.task_ctx())
                 .expect("Worker: failed to deserialize logical plan");
+        pgrx::warning!(
+            "MPP Worker {participant_index}: logical plan deserialized, building physical plan"
+        );
 
         let plan = runtime
             .block_on(super::scan_state::build_physical_plan(&ctx, logical_plan))
             .expect("Worker: failed to create physical plan");
+        pgrx::warning!("MPP Worker {participant_index}: physical plan built");
 
         // Walk the physical plan tree to find DsmExchangeExec nodes and register
         // them as stream sources in the local StreamRegistry.
         let mut sources = Vec::new();
         exchange::collect_dsm_exchanges(plan.clone(), &mut sources);
+        pgrx::warning!(
+            "MPP Worker {participant_index}: found {} DsmExchangeExec nodes",
+            sources.len()
+        );
         for source in sources {
             exchange::register_stream_source(
                 source,
@@ -298,7 +321,11 @@ impl ParallelWorker for JoinWorker<'_> {
             let local = tokio::task::LocalSet::new();
 
             // Start the control service to listen for stream requests
+            pgrx::warning!("MPP Worker {participant_index}: spawning control service");
             exchange::spawn_control_service(&local, task_ctx.clone());
+            pgrx::warning!(
+                "MPP Worker {participant_index}: control service spawned, parking thread"
+            );
 
             let mut sigterm =
                 tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())

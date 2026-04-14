@@ -132,7 +132,7 @@ pub fn is_ltree_oid(oid: pg_sys::Oid) -> bool {
 /// reader) back to a dot-separated ltree path string.
 /// Tantivy's stored-fields reader returns `OwnedValue::Facet`, but the fast-field (columnar)
 /// reader returns the raw internal representation as `OwnedValue::Str` with null-byte separators
-/// and a leading null byte (e.g. `\0Top\0Science\0Biology`). 
+/// and a leading null byte (e.g. `\0Top\0Science\0Biology`).
 // This helper handles both cases by
 /// stripping the leading null and replacing interior null bytes with dots.
 pub fn facet_encoded_str_to_ltree_text(s: &str) -> String {

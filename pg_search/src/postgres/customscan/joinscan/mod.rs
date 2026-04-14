@@ -1585,6 +1585,13 @@ impl JoinScan {
             }
         }
 
+        // Clean up: clear the DSM mesh and destroy the parallel context.
+        // We must NOT call wait_for_finish() because workers are in an async
+        // loop that only exits on SIGTERM. DestroyParallelContext sends SIGTERM
+        // and waits for workers to exit.
+        exchange::clear_dsm_mesh();
+        process.destroy();
+
         state.custom_state_mut().runtime = Some(runtime);
         state.custom_state_mut().datafusion_stream = Some(stream);
     }

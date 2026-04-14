@@ -49,7 +49,6 @@
 //! of background workers and manually coordinates them via a unified DataFusion plan.
 
 use crate::launch_parallel_process;
-use crate::parallel_worker::builder::ParallelProcessMessageQueue;
 use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::{
     ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
@@ -331,15 +330,27 @@ impl ParallelWorker for JoinWorker<'_> {
                 tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
                     .expect("Failed to create SIGTERM listener");
 
+            // Drive the control service for a short time to process any pending RPCs,
+            // then exit. The leader will drain all data before destroying the parallel
+            // context, so by the time we get here all RPCs should be completed.
+            // Use a polling loop with interrupt checks instead of parking indefinitely.
             local
                 .run_until(async move {
-                    tokio::select! {
-                        _ = futures::future::pending::<()>() => {
-                            // Should not be reachable
-                        }
-                        _ = sigterm.recv() => {
-                            // Normal exit on SIGTERM
-                            pgrx::warning!("JoinWorker: SIGTERM received, shutting down");
+                    loop {
+                        // Yield to let the control service process any pending RPCs.
+                        tokio::task::yield_now().await;
+                        // Check if PostgreSQL wants us to exit.
+                        // In a parallel worker context, the postmaster sends SIGTERM
+                        // via DestroyParallelContext.
+                        tokio::select! {
+                            biased;
+                            _ = sigterm.recv() => {
+                                pgrx::warning!("JoinWorker: SIGTERM received, shutting down");
+                                break;
+                            }
+                            _ = tokio::task::yield_now() => {
+                                // Continue polling
+                            }
                         }
                     }
                 })
@@ -358,7 +369,7 @@ use datafusion::physical_plan::ExecutionPlan;
 
 /// The result of launching parallel join workers.
 pub type LaunchedJoinWorkers = (
-    ParallelProcessMessageQueue,
+    crate::parallel_worker::builder::ParallelProcessFinish,
     Option<Arc<dyn ExecutionPlan>>,
     Vec<Arc<Mutex<MultiplexedDsmWriter>>>,
     Vec<Arc<Mutex<MultiplexedDsmReader>>>,
@@ -469,7 +480,7 @@ pub fn launch_join_workers(
         let mux_readers = transport.mux_readers.clone();
 
         Some((
-            launched.into_iter(),
+            launched,
             None, // Leader plan is not built yet
             mux_writers,
             mux_readers,

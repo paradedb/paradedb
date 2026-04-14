@@ -274,6 +274,17 @@ impl ParallelProcessFinish {
         Some(messages)
     }
 
+    /// Destroy the parallel context, terminating workers via SIGTERM.
+    /// Does not wait for message queue responses.
+    pub fn destroy(self) {
+        unsafe {
+            let pcxt = self.launcher.pcxt.as_ptr();
+            drop(self.launcher);
+            pg_sys::DestroyParallelContext(pcxt);
+            pg_sys::ExitParallelMode();
+        }
+    }
+
     pub fn wait_for_finish(mut self) -> Vec<(usize, Vec<u8>)> {
         unsafe {
             let pcxt = self.launcher.pcxt.as_ptr();

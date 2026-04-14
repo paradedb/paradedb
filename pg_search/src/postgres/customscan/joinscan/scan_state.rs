@@ -241,7 +241,7 @@ impl CustomScanState for JoinScanState {
 /// that follow it; AggregateScan needs only a single `FilterPushdown` post-pass.
 /// Exposing the difference as an explicit profile keeps the choice grep-able
 /// from the call site.
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum SessionContextProfile {
     /// JoinScan execution: enables `topk_dynamic_filter_pushdown`, includes
     /// `SegmentedTopKRule`, and adds the trailing `FilterPushdown` passes that

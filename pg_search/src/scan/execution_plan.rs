@@ -53,12 +53,11 @@ use datafusion::physical_plan::{
 };
 use futures::Stream;
 
-use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
+use crate::index::fast_fields_helper::FFHelper;
 use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::query::SearchQueryInput;
-use crate::scan::info::ScanInfo;
 use crate::scan::late_materialization::DeferredField;
 use crate::scan::pre_filter::{collect_filters, PreFilter};
 use crate::scan::Scanner;
@@ -122,12 +121,6 @@ pub struct PgSearchScanPlan {
     pub indexrelid: u32,
     /// The JoinScan source identity when visibility is deferred.
     deferred_ctid_plan_position: Option<usize>,
-    /// Scan metadata carried through physical plan for MPP serialization.
-    /// `None` for BaseScan (single-table scans); `Some` for JoinScan sources
-    /// so the codec can reconstruct the plan on parallel workers.
-    pub scan_info: Option<ScanInfo>,
-    /// Fast field specification carried through physical plan for MPP serialization.
-    pub fields: Option<Vec<WhichFastField>>,
 }
 
 impl std::fmt::Debug for PgSearchScanPlan {
@@ -200,17 +193,7 @@ impl PgSearchScanPlan {
             ffhelper,
             indexrelid,
             deferred_ctid_plan_position,
-            scan_info: None,
-            fields: None,
         }
-    }
-
-    /// Attach scan metadata for MPP physical plan serialization.
-    #[allow(dead_code)]
-    pub fn with_scan_info(mut self, scan_info: ScanInfo, fields: Vec<WhichFastField>) -> Self {
-        self.scan_info = Some(scan_info);
-        self.fields = Some(fields);
-        self
     }
 
     pub fn has_deferred_fields(&self) -> bool {
@@ -482,8 +465,6 @@ impl ExecutionPlan for PgSearchScanPlan {
                 ffhelper: self.ffhelper.clone(),
                 indexrelid: self.indexrelid,
                 deferred_ctid_plan_position: self.deferred_ctid_plan_position,
-                scan_info: self.scan_info.clone(),
-                fields: self.fields.clone(),
             });
             Ok(
                 FilterPushdownPropagation::with_parent_pushdown_result(filters)

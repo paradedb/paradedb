@@ -1280,7 +1280,6 @@ impl CustomScan for JoinScan {
         unsafe {
             if state.custom_state().datafusion_stream.is_none() {
                 let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
                     .build()
                     .unwrap();
                 let join_clause = state.custom_state().join_clause.clone();

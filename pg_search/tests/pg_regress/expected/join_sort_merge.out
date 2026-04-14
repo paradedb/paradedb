@@ -355,8 +355,8 @@ ORDER BY t1.val ASC
 LIMIT 10;
                                                                                                                                 QUERY PLAN                                                                                                                                
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=10 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=10 loops=1)
+ Limit (actual rows=10.00 loops=1)
+   ->  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
          Relation Tree: t2 INNER t1
          Join Cond: t1.id = t2.t1_id
          Limit: 10
@@ -474,8 +474,8 @@ ORDER BY t1.val DESC NULLS FIRST, t1.id
 LIMIT 25;
                                                                                                                                                                           QUERY PLAN                                                                                                                                                                          
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=25 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=25 loops=1)
+ Limit (actual rows=25.00 loops=1)
+   ->  Custom Scan (ParadeDB Join Scan) (actual rows=25.00 loops=1)
          Relation Tree: t2 INNER t1
          Join Cond: t1.id = t2.t1_id
          Limit: 25

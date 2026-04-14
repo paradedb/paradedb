@@ -26,12 +26,12 @@ LIMIT 1;
                                                                                                  QUERY PLAN                                                                                                  
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   InitPlan 1 (returns $0)
+   InitPlan 1
      ->  Result
    ->  Result
-         One-Time Filter: $0
+         One-Time Filter: (InitPlan 1).col1
          ->  Custom Scan (ParadeDB Base Scan) on animals
-               Filter: $0
+               Filter: (InitPlan 1).col1
                Table: animals
                Index: animals_idx
                Exec Method: TopKScanExecState
@@ -59,12 +59,12 @@ LIMIT 1;
                                                                                                  QUERY PLAN                                                                                                  
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   InitPlan 1 (returns $0)
+   InitPlan 1
      ->  Result
    ->  Result
-         One-Time Filter: $0
+         One-Time Filter: (InitPlan 1).col1
          ->  Custom Scan (ParadeDB Base Scan) on animals
-               Filter: $0
+               Filter: (InitPlan 1).col1
                Table: animals
                Index: animals_idx
                Exec Method: TopKScanExecState
@@ -103,12 +103,12 @@ LIMIT 1;
                                                                                                  QUERY PLAN                                                                                                  
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   InitPlan 1 (returns $0)
+   InitPlan 1
      ->  Result
    ->  Result
-         One-Time Filter: $0
+         One-Time Filter: (InitPlan 1).col1
          ->  Custom Scan (ParadeDB Base Scan) on animals
-               Filter: $0
+               Filter: (InitPlan 1).col1
                Table: animals
                Index: animals_idx
                Exec Method: TopKScanExecState
@@ -139,14 +139,14 @@ LIMIT 1;
                                                                                                  QUERY PLAN                                                                                                  
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   InitPlan 1 (returns $0)
+   InitPlan 1
      ->  Limit
            ->  Seq Scan on config
                  Filter: (name = 'enabled'::text)
    ->  Result
-         One-Time Filter: $0
+         One-Time Filter: (InitPlan 1).col1
          ->  Custom Scan (ParadeDB Base Scan) on animals
-               Filter: $0
+               Filter: (InitPlan 1).col1
                Table: animals
                Index: animals_idx
                Exec Method: TopKScanExecState

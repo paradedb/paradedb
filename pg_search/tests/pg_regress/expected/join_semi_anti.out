@@ -169,7 +169,7 @@ AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
 WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: table_a, table_b)
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: UNIQUEINNER, UNIQUEOUTER) (tables: table_a, table_b)
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: table_a, table_b)
                                                                                       QUERY PLAN                                                                                      
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -182,7 +182,7 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
                Hash Cond: (table_a.id = table_b.a_id)
                ->  Custom Scan (ParadeDB Base Scan) on public.table_a
                      Output: table_a.id, table_a.category
-                     Filter: (NOT (hashed SubPlan 1))
+                     Filter: (NOT (ANY (table_a.id = (hashed SubPlan 1).col1)))
                      Table: table_a
                      Index: table_a_idx
                      Exec Method: NormalScanExecState
@@ -219,7 +219,7 @@ AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
 WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: table_a, table_b)
-WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: UNIQUEINNER, UNIQUEOUTER) (tables: table_a, table_b)
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: table_a, table_b)
  id  |    category     
 -----+-----------------
   10 | target_category

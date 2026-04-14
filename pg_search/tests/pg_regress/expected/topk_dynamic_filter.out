@@ -153,8 +153,8 @@ ORDER BY p.id
 LIMIT 3;
                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                    
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=3 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=3 loops=1)
+ Limit (actual rows=3.00 loops=1)
+   ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
          Relation Tree: s INNER p
          Join Cond: p.supplier_id = s.id
          Limit: 3
@@ -472,8 +472,8 @@ ORDER BY f.title ASC
 LIMIT 3;
                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                          
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=3 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=3 loops=1)
+ Limit (actual rows=3.00 loops=1)
+   ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
          Relation Tree: d INNER f
          Join Cond: f.document_id = d.id
          Limit: 3
@@ -519,8 +519,8 @@ ORDER BY f.title ASC
 LIMIT 3;
                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                          
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit (actual rows=3 loops=1)
-   ->  Custom Scan (ParadeDB Join Scan) (actual rows=3 loops=1)
+ Limit (actual rows=3.00 loops=1)
+   ->  Custom Scan (ParadeDB Join Scan) (actual rows=3.00 loops=1)
          Relation Tree: d INNER f
          Join Cond: f.document_id = d.id
          Limit: 3

@@ -15,6 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use icu_properties::props::GeneralCategory;
+use icu_properties::CodePointMapData;
 use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,12 +49,29 @@ impl TokenCharClass {
             Self::Letter => c.is_alphabetic(),
             Self::Digit => c.is_numeric(),
             Self::Whitespace => c.is_whitespace(),
-            Self::Punctuation => c.is_ascii_punctuation(),
-            Self::Symbol => {
-                !c.is_alphabetic()
-                    && !c.is_numeric()
-                    && !c.is_whitespace()
-                    && !c.is_ascii_punctuation()
+            Self::Punctuation | Self::Symbol => {
+                let gc = CodePointMapData::<GeneralCategory>::new();
+                let cat = gc.get(c);
+                match self {
+                    Self::Punctuation => matches!(
+                        cat,
+                        GeneralCategory::ConnectorPunctuation
+                            | GeneralCategory::DashPunctuation
+                            | GeneralCategory::ClosePunctuation
+                            | GeneralCategory::FinalPunctuation
+                            | GeneralCategory::InitialPunctuation
+                            | GeneralCategory::OtherPunctuation
+                            | GeneralCategory::OpenPunctuation
+                    ),
+                    Self::Symbol => matches!(
+                        cat,
+                        GeneralCategory::CurrencySymbol
+                            | GeneralCategory::ModifierSymbol
+                            | GeneralCategory::MathSymbol
+                            | GeneralCategory::OtherSymbol
+                    ),
+                    _ => unreachable!(),
+                }
             }
         }
     }

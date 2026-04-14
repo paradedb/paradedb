@@ -34,10 +34,8 @@ SELECT 'Quick Fox'::pdb.edge_ngram(2,5)::text[];
 
 By default, the edge ngram tokenizer treats letters and digits as token content and everything else (spaces,
 punctuation, symbols) as word delimiters. You can customize this with `token_chars`, which accepts a comma-separated
-list of character classes: `letter`, `digit`, `whitespace`, `punctuation`, `symbol`.
-
-Note that `punctuation` only matches ASCII punctuation characters. Unicode punctuation (em-dash, guillemets, etc.)
-is not included and will act as a word delimiter. This differs from Elasticsearch, which uses Unicode categories.
+list of character classes: `letter`, `digit`, `whitespace`, `punctuation`, `symbol`. Character classification uses
+Unicode general categories, matching Elasticsearch's behavior.
 
 For example, including `punctuation` keeps hyphens as part of words:
 

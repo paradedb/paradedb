@@ -998,7 +998,12 @@ impl AggregateScan {
             // rather than planning time. This avoids needing to serialize planned_workers
             // in the private data.
             let mpp_workers = if crate::gucs::enable_mpp_join() {
-                let max_workers = unsafe { pg_sys::max_parallel_workers_per_gather as usize };
+                // Both GUCs must allow parallelism. max_parallel_workers_per_gather
+                // caps workers for this query; max_parallel_workers is a global cap
+                // that ParallelProcessBuilder also checks — if it's 0, DSM init will
+                // fail, so we skip MPP upfront.
+                let max_workers = (unsafe { pg_sys::max_parallel_workers_per_gather as usize })
+                    .min(unsafe { pg_sys::max_parallel_workers as usize });
                 max_workers.min(4) // Cap at 4 for now
             } else {
                 0

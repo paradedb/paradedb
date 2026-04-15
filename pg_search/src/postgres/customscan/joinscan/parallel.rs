@@ -391,14 +391,13 @@ pub fn launch_join_workers(
 
     let session_id = uuid::Uuid::new_v4();
 
-    // Allocate 128MB ring buffers per worker.
-    // TODO: This is temporary! Should implement support for reconstructing a larger buffer without
-    // needing this much dedicated space.
-    let ring_buffer_size = 128 * 1024 * 1024;
-    // We increase the control buffer size to 4MB (from 64KB) to accommodate serialized plans
-    // sent via BroadcastPlan.
-    let control_size = 4 * 1024 * 1024;
-    // Data Header + Data + Control Header + Control Data + padding
+    // Ring buffer size per connection. Smaller buffers reduce DSM allocation
+    // overhead (the biggest component of launch cost) at the expense of more
+    // frequent flushes for large result sets.
+    let ring_buffer_size = 4 * 1024 * 1024; // 4MB per connection
+                                            // Control buffer for plan broadcast and StartStream/CancelStream messages.
+    let control_size = 256 * 1024; // 256KB (plans are typically <10KB)
+                                   // Data Header + Data + Control Header + Control Data + padding
     let layout = TransportLayout::new(ring_buffer_size, control_size);
     let region_size = layout.total_size();
 

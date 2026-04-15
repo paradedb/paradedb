@@ -1445,6 +1445,8 @@ impl JoinScan {
         use crate::postgres::customscan::joinscan::exchange;
         use crate::postgres::customscan::joinscan::transport::TransportMesh;
 
+        let t0 = std::time::Instant::now();
+
         // MPP needs tokio IO for Unix Domain Socket signaling in the transport layer.
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -1472,12 +1474,14 @@ impl JoinScan {
             panic!("MPP: failed to launch parallel workers");
         };
 
+        let t1 = t0.elapsed();
         // Step 2: Build MPP session context with actual participant count.
         let ctx = create_datafusion_session_context(SessionContextProfile::JoinMpp {
             participant_index: 0, // Leader is always participant 0
             total_participants: nlaunched,
         });
 
+        let t2 = t0.elapsed();
         // Step 3: Broadcast the logical plan bytes to workers.
         // Workers will independently build their own physical plans (with their
         // own participant_index in MppParticipantConfig), so we don't need to
@@ -1492,6 +1496,7 @@ impl JoinScan {
                 .expect("MPP: failed to broadcast logical plan to worker");
         }
 
+        let t3 = t0.elapsed();
         // Step 4: Register the DSM mesh for the leader.
         let transport = TransportMesh {
             mux_writers,
@@ -1504,6 +1509,7 @@ impl JoinScan {
         };
         exchange::register_dsm_mesh(mesh);
 
+        let t4 = t0.elapsed();
         // Step 5: Build the leader's own physical plan.
         let planstate = state.planstate();
         let index_segment_ids =
@@ -1523,6 +1529,7 @@ impl JoinScan {
             .block_on(build_physical_plan(&ctx, logical_plan))
             .expect("MPP: failed to create physical plan");
 
+        let t5 = t0.elapsed();
         // Step 6: Register the leader's DsmExchangeExec nodes as stream sources.
         let mut sources = Vec::new();
         exchange::collect_dsm_exchanges(plan.clone(), &mut sources);
@@ -1533,6 +1540,16 @@ impl JoinScan {
             );
         }
 
+        let t6 = t0.elapsed();
+        pgrx::warning!(
+            "MPP timing: launch={:.1}ms ctx={:.1}ms broadcast={:.1}ms mesh={:.1}ms plan={:.1}ms sources={:.1}ms",
+            t1.as_secs_f64() * 1000.0,
+            (t2 - t1).as_secs_f64() * 1000.0,
+            (t3 - t2).as_secs_f64() * 1000.0,
+            (t4 - t3).as_secs_f64() * 1000.0,
+            (t5 - t4).as_secs_f64() * 1000.0,
+            (t6 - t5).as_secs_f64() * 1000.0,
+        );
         // Step 7: Spawn control service and execute.
         let local_set = tokio::task::LocalSet::new();
         let task_ctx = build_task_context(

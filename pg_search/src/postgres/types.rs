@@ -17,7 +17,7 @@
 
 use crate::api::tokenizers::type_is_tokenizer;
 use crate::nodecast;
-use crate::postgres::catalog::is_citext_oid;
+use crate::postgres::catalog::{is_citext_oid, is_pgvector_oid};
 use crate::postgres::datetime::{datetime_components_to_tantivy_date, MICROSECONDS_IN_SECOND};
 use crate::postgres::jsonb_support::jsonb_datum_to_serde_json_value;
 use crate::postgres::range::RangeToTantivyValue;
@@ -330,6 +330,12 @@ impl TantivyValue {
                 String::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
             ),
 
+            PgOid::Custom(custom) if is_pgvector_oid(*custom) => {
+                let floats = extract_pgvector_floats_from_datum(datum);
+                let bytes: Vec<u8> = floats.iter().flat_map(|f| f.to_le_bytes()).collect();
+                Ok(TantivyValue(OwnedValue::Bytes(bytes)))
+            }
+
             PgOid::Custom(custom) => {
                 if is_citext_oid(*custom) {
                     return TantivyValue::try_from(
@@ -348,6 +354,24 @@ impl TantivyValue {
     ) -> Result<Self, TantivyValueError> {
         Self::try_from_datum(any_element.datum(), PgOid::from_untagged(any_element.oid()))
     }
+}
+
+/// Extract f32 values from a pgvector datum.
+/// pgvector's internal layout: varlena header, then int16 dim, int16 unused, then float4[dim].
+/// Extract f32 values from a pgvector datum.
+/// pgvector's internal layout after varlena header: int16 dim, int16 unused, float4[dim].
+pub unsafe fn extract_pgvector_floats_from_datum(datum: Datum) -> Vec<f32> {
+    let ptr = datum.cast_mut_ptr::<pg_sys::varlena>();
+    let detoasted = pg_sys::pg_detoast_datum(ptr);
+    let data = pgrx::varlena::vardata_any(detoasted);
+    let dim = *(data as *const i16) as usize;
+    let floats_ptr = (data as *const u8).add(4) as *const f32;
+    let slice = std::slice::from_raw_parts(floats_ptr, dim);
+    let result = slice.to_vec();
+    if detoasted != ptr {
+        pg_sys::pfree(detoasted as *mut std::ffi::c_void);
+    }
+    result
 }
 
 impl fmt::Display for TantivyValue {

@@ -99,6 +99,13 @@ pub fn is_citext_oid(oid: pg_sys::Oid) -> bool {
     cid != pg_sys::Oid::INVALID && oid == cid
 }
 
+pub fn is_pgvector_oid(oid: pg_sys::Oid) -> bool {
+    static VECTOR_OID: OnceLock<pg_sys::Oid> = OnceLock::new();
+    let vid = *VECTOR_OID
+        .get_or_init(|| lookup_typoid(c"public", c"vector").unwrap_or(pg_sys::Oid::INVALID));
+    vid != pg_sys::Oid::INVALID && oid == vid
+}
+
 /// Helper function to lookup a function's [`pg_sys::Oid`] by name, argument types, and namespace
 pub fn lookup_procoid(
     namespace: &CStr,

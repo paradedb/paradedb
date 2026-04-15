@@ -281,6 +281,7 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
             SearchFieldType::NumericBytes(..) => {
                 builder.add_bytes_field(name.as_ref(), config.clone())
             }
+            SearchFieldType::Vector(_, dims) => builder.add_vector_field(name.as_ref(), dims),
         };
     }
 
@@ -309,7 +310,71 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
         docstore_compress_dedicated_thread: false,
         ..IndexSettings::default()
     };
-    let _ = Index::create(directory, schema, settings)?;
+
+    // Collect vector fields for plugin registration
+    let vector_fields: Vec<_> = unsafe { extract_field_attributes(index_relation.as_ptr()) }
+        .into_iter()
+        .filter_map(|(name, attr)| {
+            if let SearchFieldType::Vector(_, dims) = attr.tantivy_type {
+                let field = schema.get_field(name.as_ref()).ok()?;
+                Some((field, dims))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if vector_fields.is_empty() {
+        let _ = Index::create(directory, schema.clone(), settings)?;
+    } else {
+        use std::sync::Arc;
+        use tantivy::vector::bqvec::BqVecPlugin;
+        use tantivy::vector::cluster::kmeans::KMeansConfig;
+        use tantivy::vector::cluster::plugin::{ClusterConfig, ClusterFieldConfig, ClusterPlugin};
+        use tantivy::vector::rabitq::rotation::{DynamicRotator, RotatorType};
+        use tantivy::vector::rabitq::Metric;
+        use tantivy::IndexBuilder;
+
+        let field_configs: Vec<ClusterFieldConfig> = vector_fields
+            .iter()
+            .map(|&(field, dims)| {
+                let rotator = Arc::new(DynamicRotator::new(dims, RotatorType::FhtKacRotator, 42));
+                let padded_dims = rotator.padded_dim();
+                let ex_bits = 2; // default: 1-bit binary + 2-bit extended
+                ClusterFieldConfig {
+                    field,
+                    dims,
+                    padded_dims,
+                    ex_bits,
+                    metric: Metric::L2,
+                    rotator,
+                    rotator_seed: 42,
+                }
+            })
+            .collect();
+
+        let cluster_config = ClusterConfig {
+            fields: field_configs,
+            clustering_threshold: 1000,
+            num_clusters_fn: Arc::new(|n| (n as f64 / 250.0).ceil() as usize),
+            kmeans: KMeansConfig::default(),
+            sample_ratio: 0.1,
+            sample_cap: 65536,
+            sampler_factory: Arc::new(crate::vector::NoopSamplerFactory),
+        };
+
+        let bqvec_plugin = BqVecPlugin::builder().build();
+
+        let index_builder = IndexBuilder::new()
+            .schema(schema.clone())
+            .settings(settings)
+            .plugin(Arc::new(ClusterPlugin::new(cluster_config)))
+            .plugin(Arc::new(bqvec_plugin));
+
+        let dir: Box<dyn tantivy::directory::Directory> = directory.into();
+        let _ = index_builder.create(dir)?;
+    }
+
     Ok(())
 }
 

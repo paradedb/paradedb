@@ -21,7 +21,7 @@ pub mod range;
 
 use crate::api::FieldName;
 use crate::api::HashMap;
-use crate::postgres::catalog::is_citext_oid;
+use crate::postgres::catalog::{is_citext_oid, is_pgvector_oid};
 use crate::postgres::options::{BM25IndexOptions, SortByDirection, SortByField};
 pub use crate::postgres::utils::{convert_pg_date_string, FieldSource};
 use crate::postgres::utils::{resolve_base_type, ExtractedFieldAttribute};
@@ -70,6 +70,8 @@ pub enum SearchFieldType {
     /// NUMERIC with precision > 18 or unlimited: stored as lexicographically sortable bytes.
     /// The Option<i16> is the scale (number of decimal places), or None for unlimited precision.
     NumericBytes(pg_sys::Oid, Option<i16>),
+    /// Dense vector field (pgvector type). The usize is the number of dimensions.
+    Vector(pg_sys::Oid, usize),
 }
 
 impl SearchFieldType {
@@ -101,6 +103,7 @@ impl SearchFieldType {
             SearchFieldType::Json(_) => SearchFieldConfig::default_json(),
             SearchFieldType::Date(_) => SearchFieldConfig::default_date(),
             SearchFieldType::Range(_) => SearchFieldConfig::default_range(),
+            SearchFieldType::Vector(_, dims) => SearchFieldConfig::default_vector(*dims),
         }
     }
 
@@ -119,6 +122,7 @@ impl SearchFieldType {
             SearchFieldType::Range(oid) => *oid,
             SearchFieldType::Numeric64(oid, _) => *oid,
             SearchFieldType::NumericBytes(oid, _) => *oid,
+            SearchFieldType::Vector(oid, _) => *oid,
         }
         .into()
     }
@@ -181,6 +185,9 @@ impl SearchFieldType {
 
             // NumericBytes is stored as BinaryView
             SearchFieldType::NumericBytes(..) => arrow_schema::DataType::BinaryView,
+
+            // Vector is not stored in Arrow columnar format
+            SearchFieldType::Vector(..) => arrow_schema::DataType::BinaryView,
         }
     }
 }
@@ -316,6 +323,11 @@ impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
             PgOid::Custom(tokenizer_oid) if type_is_tokenizer(*tokenizer_oid) => Ok(
                 SearchFieldType::Tokenized(*tokenizer_oid, typmod, inner_typoid),
             ),
+
+            PgOid::Custom(custom) if is_pgvector_oid(*custom) => {
+                let dims = if typmod > 0 { typmod as usize } else { 0 };
+                Ok(SearchFieldType::Vector(*custom, dims))
+            }
 
             PgOid::Custom(custom) => {
                 if is_citext_oid(*custom) {

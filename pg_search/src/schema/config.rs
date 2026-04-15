@@ -99,6 +99,15 @@ pub enum SearchFieldConfig {
         #[serde(default = "default_as_true")]
         fast: bool,
     },
+    Vector {
+        dims: usize,
+        #[serde(default = "default_vector_metric")]
+        metric: String,
+    },
+}
+
+fn default_vector_metric() -> String {
+    "l2".to_string()
 }
 
 impl SearchFieldConfig {
@@ -289,6 +298,13 @@ impl SearchFieldConfig {
 
     pub fn default_range() -> Self {
         Self::from_json(json!({"Json": {"fast": true}}))
+    }
+
+    pub fn default_vector(dims: usize) -> Self {
+        Self::Vector {
+            dims,
+            metric: default_vector_metric(),
+        }
     }
 }
 

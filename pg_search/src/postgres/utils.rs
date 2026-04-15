@@ -832,8 +832,14 @@ pub unsafe fn row_to_search_document<'a>(
             {
                 document.add_field_value(search_field.field(), &OwnedValue::from(value));
             }
+        } else if matches!(search_field.field_type(), SearchFieldType::Vector(..)) {
+            let vec =
+                unsafe { crate::postgres::types::extract_pgvector_floats_from_datum(actual_datum) };
+            document.add_leaf_field_value(
+                search_field.field(),
+                tantivy::schema::document::ReferenceValueLeaf::Vector(&vec),
+            );
         } else {
-            // Check for NUMERIC field types that need special handling
             let tv = match search_field.field_type() {
                 SearchFieldType::Numeric64(_, scale) => {
                     TantivyValue::try_from_numeric_i64(actual_datum, scale)

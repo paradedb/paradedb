@@ -37,8 +37,8 @@ mod typmod;
 use crate::schema::{IndexRecordOption, SearchFieldConfig};
 
 pub use crate::api::tokenizers::typmod::{
-    AliasTypmod, GenericTypmod, JiebaTypmod, LinderaTypmod, NgramTypmod, RegexTypmod, Typmod,
-    UncheckedTypmod, UnicodeWordsTypmod,
+    AliasTypmod, EdgeNgramTypmod, GenericTypmod, JiebaTypmod, LinderaTypmod, NgramTypmod,
+    RegexTypmod, Typmod, UncheckedTypmod, UnicodeWordsTypmod,
 };
 
 // if a ::pdb.<tokenizer> cast is used, ie ::pdb.simple, ::pdb.lindera, etc.
@@ -99,6 +99,12 @@ fn tokenizer_from_name(name: &str) -> Option<SearchTokenizer> {
             max_gram: 0,
             prefix_only: false,
             positions: false,
+            filters: SearchTokenizerFilters::default(),
+        },
+        "edge_ngram" => SearchTokenizer::EdgeNgram {
+            min_gram: 0,
+            max_gram: 0,
+            token_chars: vec![],
             filters: SearchTokenizerFilters::default(),
         },
         "whitespace" => SearchTokenizer::WhiteSpace(SearchTokenizerFilters::default()),
@@ -171,6 +177,23 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
             }
             if let Some(v) = parsed.get("positions").and_then(|p| p.as_bool()) {
                 *positions = v;
+            }
+            *filters = SearchTokenizerFilters::from(parsed);
+        }
+        SearchTokenizer::EdgeNgram {
+            min_gram,
+            max_gram,
+            token_chars,
+            filters,
+        } => {
+            if let Some(v) = parsed.try_get("min", 0).and_then(|p| p.as_usize()) {
+                *min_gram = v;
+            }
+            if let Some(v) = parsed.try_get("max", 1).and_then(|p| p.as_usize()) {
+                *max_gram = v;
+            }
+            if let Some(s) = parsed.get("token_chars").and_then(|p| p.as_str()) {
+                *token_chars = s.split(',').map(|c| c.trim().to_string()).collect();
             }
             *filters = SearchTokenizerFilters::from(parsed);
         }
@@ -352,6 +375,20 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             *prefix_only = ngram_typmod.prefix_only;
             *positions = ngram_typmod.positions;
             *filters = ngram_typmod.filters;
+        }
+        SearchTokenizer::EdgeNgram {
+            min_gram,
+            max_gram,
+            token_chars,
+            filters,
+        } => {
+            let edge_ngram_typmod = EdgeNgramTypmod::try_from(typmod).unwrap_or_else(|e| {
+                panic!("{}", e);
+            });
+            *min_gram = edge_ngram_typmod.min_gram;
+            *max_gram = edge_ngram_typmod.max_gram;
+            *token_chars = edge_ngram_typmod.token_chars;
+            *filters = edge_ngram_typmod.filters;
         }
         SearchTokenizer::RegexTokenizer { pattern, filters } => {
             let regex_typmod = RegexTypmod::try_from(typmod).unwrap_or_else(|e| {

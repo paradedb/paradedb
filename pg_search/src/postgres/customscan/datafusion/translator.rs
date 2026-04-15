@@ -21,7 +21,7 @@ use datafusion::logical_expr::{col, lit, BinaryExpr, Expr, Operator};
 use datafusion::prelude::DataFrame;
 use pgrx::{pg_sys, PgList};
 
-use crate::api::HashMap;
+use crate::api::{HashMap, HashSet};
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelExpr, JoinLevelSearchPredicate, JoinNode, JoinSource, JoinType as PgJoinType,
     RelationAlias,
@@ -351,6 +351,63 @@ impl<'a> PredicateTranslator<'a> {
     }
 }
 
+/// Translate a `JoinLevelExpr` predicate into a DataFusion filter expression
+/// and apply it to `df`. This is the shared spine of the `RelNode::Filter`
+/// arm in JoinScan's and AggregateScan's `build_relnode_df` recursions —
+/// both modules previously inlined the same translate-and-filter sequence.
+///
+/// `handle_mark` controls JoinScan-specific cleanup: when `true`, a
+/// `MarkOrNull` predicate triggers a post-filter projection that drops the
+/// synthetic `mark` column from the schema. AggregateScan never produces
+/// `MarkOrNull` predicates and passes `false`.
+#[allow(clippy::too_many_arguments)]
+pub fn apply_join_level_filter(
+    mut df: DataFrame,
+    predicate: &JoinLevelExpr,
+    translated_exprs: &[Expr],
+    ctid_map: &HashMap<pg_sys::Index, Expr>,
+    join_level_predicates: &[JoinLevelSearchPredicate],
+    deferred_positions: &HashSet<usize>,
+    sources: &[&JoinSource],
+    handle_mark: bool,
+) -> Result<DataFrame> {
+    let filter_expr = unsafe {
+        PredicateTranslator::translate_join_level_expr(
+            predicate,
+            translated_exprs,
+            ctid_map,
+            join_level_predicates,
+            deferred_positions,
+            sources,
+        )
+    }
+    .ok_or_else(|| {
+        DataFusionError::Internal(format!(
+            "Failed to translate join level expression tree: {:?}",
+            predicate
+        ))
+    })?;
+
+    df = df.filter(filter_expr)?;
+
+    // For MarkOrNull filters in JoinScan, drop the synthetic "mark" column
+    // post-filter so it doesn't leak into the projection.
+    if handle_mark && matches!(predicate, JoinLevelExpr::MarkOrNull { .. }) {
+        let schema = df.schema().clone();
+        let proj_cols: Vec<Expr> = schema
+            .columns()
+            .into_iter()
+            .filter(|c| c.name != "mark")
+            .map(col)
+            .collect();
+        if !proj_cols.is_empty() {
+            df = df.select(proj_cols)?;
+        }
+    }
+
+    Ok(df)
+}
+
 /// Creates a DataFusion column expression with a bare table reference.
 /// This is preferred over `datafusion::logical_expr::col()` because `col()` parses the input string,
 pub fn make_col(relation: &str, name: &str) -> Expr {
@@ -455,10 +512,22 @@ pub fn build_equi_join_exprs(join: &JoinNode) -> Result<Vec<Expr>> {
     Ok(on)
 }
 
-fn make_source_col(source: &JoinSource, field_name: &str) -> Expr {
+/// Build a DataFusion column expression for a `(source, field_name)` pair.
+///
+/// The execution alias is built from the source's optional alias and its
+/// `plan_position` (the DFS index assigned by `JoinCSClause::new`). Both
+/// JoinScan and AggregateScan use this exact pattern; sharing it keeps the
+/// alias-construction policy in one place.
+pub fn make_source_col(source: &JoinSource, field_name: &str) -> Expr {
     let alias =
         RelationAlias::new(source.scan_info.alias.as_deref()).execution(source.plan_position);
     make_col(&alias, field_name)
+}
+
+/// Build a DataFusion column expression for the synthetic score column on the
+/// given source. Equivalent to `make_source_col(source, SCORE_COL_NAME)`.
+pub fn make_source_score_col(source: &JoinSource) -> Expr {
+    make_source_col(source, SCORE_COL_NAME)
 }
 
 pub struct CombinedMapper<'a> {

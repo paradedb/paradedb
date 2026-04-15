@@ -68,7 +68,6 @@ pub fn create_aggregate_session_context() -> SessionContext {
 }
 
 /// Create an MPP-aware aggregate session context for parallel execution.
-#[allow(dead_code)]
 pub fn create_mpp_aggregate_session_context(
     participant_index: usize,
     total_participants: usize,

@@ -23,9 +23,11 @@ use tantivy::schema::{
     BytesOptions, DateOptions, DateTimePrecision, IpAddrOptions, JsonObjectOptions, NumericOptions,
     TextFieldIndexing, TextOptions,
 };
+use tantivy::Bm25Params;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
 
-#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+// Eq intentionally omitted: f32 (k1/b) does not implement Eq.
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]
 // TODO: re-enable this once we are okay with a breaking change
 // #[serde(deny_unknown_fields)]
 pub enum SearchFieldConfig {
@@ -46,6 +48,10 @@ pub enum SearchFieldConfig {
         normalizer: SearchNormalizer,
         #[serde(default)]
         column: Option<String>,
+        #[serde(default)]
+        k1: Option<f32>,
+        #[serde(default)]
+        b: Option<f32>,
     },
     Inet {
         #[serde(default = "default_as_true")]
@@ -72,6 +78,10 @@ pub enum SearchFieldConfig {
         normalizer: SearchNormalizer,
         #[serde(default)]
         column: Option<String>,
+        #[serde(default)]
+        k1: Option<f32>,
+        #[serde(default)]
+        b: Option<f32>,
     },
     Range {
         #[serde(default = "default_as_true")]
@@ -292,6 +302,20 @@ impl SearchFieldConfig {
     }
 }
 
+fn apply_bm25(mut idx: TextFieldIndexing, k1: Option<f32>, b: Option<f32>) -> TextFieldIndexing {
+    if k1.is_some() || b.is_some() {
+        let d = Bm25Params::default();
+        idx = idx.set_bm25_params(Bm25Params::new(k1.unwrap_or(d.k1()), b.unwrap_or(d.b())));
+    }
+    idx
+}
+
+fn validate_bm25_indexed(indexed: bool, k1: Option<f32>, b: Option<f32>) {
+    if !indexed && (k1.is_some() || b.is_some()) {
+        panic!("BM25 parameters k1/b require an indexed field");
+    }
+}
+
 impl From<SearchFieldConfig> for TextOptions {
     fn from(config: SearchFieldConfig) -> Self {
         let mut text_options = TextOptions::default();
@@ -303,8 +327,11 @@ impl From<SearchFieldConfig> for TextOptions {
                 tokenizer,
                 record,
                 normalizer,
+                k1,
+                b,
                 ..
             } => {
+                validate_bm25_indexed(indexed, k1, b);
                 if fast {
                     text_options = text_options.set_fast(Some(normalizer.name()));
                 }
@@ -313,7 +340,7 @@ impl From<SearchFieldConfig> for TextOptions {
                         .set_index_option(record.into())
                         .set_fieldnorms(fieldnorms)
                         .set_tokenizer(&tokenizer.name());
-
+                    let text_field_indexing = apply_bm25(text_field_indexing, k1, b);
                     text_options = text_options.set_indexing_options(text_field_indexing);
                 }
             }
@@ -402,8 +429,11 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
                 tokenizer,
                 record,
                 normalizer,
+                k1,
+                b,
                 ..
             } => {
+                validate_bm25_indexed(indexed, k1, b);
                 if fast {
                     json_options = json_options.set_fast(Some(normalizer.name()));
                 }
@@ -415,7 +445,7 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
                         .set_index_option(record.into())
                         .set_fieldnorms(fieldnorms)
                         .set_tokenizer(&tokenizer.name());
-
+                    let text_field_indexing = apply_bm25(text_field_indexing, k1, b);
                     json_options = json_options.set_indexing_options(text_field_indexing);
                 }
             }

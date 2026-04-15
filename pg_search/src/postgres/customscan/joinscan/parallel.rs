@@ -335,7 +335,7 @@ impl ParallelWorker for JoinWorker<'_> {
                         tokio::select! {
                             biased;
                             _ = sigterm.recv() => {
-                                pgrx::warning!("JoinWorker: SIGTERM received, shutting down");
+                                crate::mpp_log!("JoinWorker: SIGTERM received, shutting down");
                                 break;
                             }
                             _ = tokio::task::yield_now() => {

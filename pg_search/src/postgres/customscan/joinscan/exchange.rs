@@ -215,11 +215,13 @@ impl Drop for SignalOnDrop {
 }
 
 pub fn trigger_stream(physical_stream_id: PhysicalStreamId, context: Arc<TaskContext>) {
+    crate::mpp_log!("MPP exchange: trigger_stream({physical_stream_id:?})");
     let mut guard = DSM_MESH.lock();
     let mesh = guard.as_mut().expect("DSM mesh not registered");
     let mut registry = mesh.registry.lock();
 
     if registry.running_tasks.contains_key(&physical_stream_id) {
+        crate::mpp_log!("MPP exchange: stream {physical_stream_id:?} already running, skipping");
         return;
     }
 
@@ -299,9 +301,11 @@ pub fn spawn_control_service(local_set: &LocalSet, task_ctx: Arc<TaskContext>) {
                         if let Some(msg) = ControlMessage::try_from_frame(msg_type, &payload) {
                             match msg {
                                 ControlMessage::StartStream(id) => {
+                                    crate::mpp_log!("MPP ControlService: StartStream({id:?})");
                                     trigger_stream(id, task_ctx.clone());
                                 }
                                 ControlMessage::CancelStream(id) => {
+                                    crate::mpp_log!("MPP ControlService: CancelStream({id:?})");
                                     // Mark stream as cancelled in the transport layer
                                     guard.mark_stream_cancelled(id);
                                     // Cancel the execution task

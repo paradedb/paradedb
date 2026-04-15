@@ -44,6 +44,12 @@ static ENABLE_JOIN_CUSTOM_SCAN: GucSetting<bool> = GucSetting::<bool>::new(false
 /// Default is `false` (experimental).
 static ENABLE_MPP_JOIN: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+/// Enables verbose debug logging for the MPP execution path.
+/// When enabled, pgrx::warning! messages are emitted at each step of the MPP
+/// lifecycle: worker launch, plan broadcast, exchange setup, data flow, cleanup.
+/// Default is `false`.
+static MPP_DEBUG: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// Allows the user to toggle the use of the custom scan without use of the `@@@` operator. The
 /// default is `false`.
 static ENABLE_CUSTOM_SCAN_WITHOUT_OPERATOR: GucSetting<bool> = GucSetting::<bool>::new(false);
@@ -182,6 +188,15 @@ pub fn init() {
         c"Enable MPP (plan partitioning) execution for parallel JoinScan",
         c"When enabled, JoinScan uses hash-partitioned MPP execution instead of broadcast join. Default is false (experimental).",
         &ENABLE_MPP_JOIN,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.mpp_debug",
+        c"Enable verbose debug logging for MPP execution",
+        c"When enabled, emits WARNING messages at each step of MPP lifecycle: worker launch, plan broadcast, exchange setup, data flow. Default is false.",
+        &MPP_DEBUG,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -436,6 +451,10 @@ pub fn enable_join_custom_scan() -> bool {
 
 pub fn enable_mpp_join() -> bool {
     ENABLE_MPP_JOIN.get()
+}
+
+pub fn mpp_debug() -> bool {
+    MPP_DEBUG.get()
 }
 
 pub fn enable_custom_scan_without_operator() -> bool {
@@ -712,4 +731,15 @@ mod tests {
             Some(NonZeroUsize::new(1000).unwrap())
         );
     }
+}
+
+/// Emit a warning message only when `paradedb.mpp_debug` is enabled.
+/// Zero-cost when disabled — the format arguments are not evaluated.
+#[macro_export]
+macro_rules! mpp_log {
+    ($($arg:tt)*) => {
+        if $crate::gucs::mpp_debug() {
+            pgrx::warning!($($arg)*);
+        }
+    };
 }

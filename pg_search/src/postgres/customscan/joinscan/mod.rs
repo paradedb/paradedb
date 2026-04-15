@@ -1452,6 +1452,7 @@ impl JoinScan {
             .unwrap();
 
         let nworkers = join_clause.planned_workers;
+        crate::mpp_log!("MPP JoinScan: exec_mpp_path entered, nworkers={nworkers}");
 
         // Step 1: Launch workers and initialize transport mesh.
         let Some((
@@ -1472,6 +1473,7 @@ impl JoinScan {
             panic!("MPP: failed to launch parallel workers");
         };
 
+        crate::mpp_log!("MPP JoinScan: {nlaunched} participants launched");
         // Step 2: Build MPP session context with actual participant count.
         let ctx = create_datafusion_session_context(SessionContextProfile::JoinMpp {
             participant_index: 0, // Leader is always participant 0
@@ -1492,6 +1494,10 @@ impl JoinScan {
                 .expect("MPP: failed to broadcast logical plan to worker");
         }
 
+        crate::mpp_log!(
+            "MPP JoinScan: plan broadcast complete ({} bytes)",
+            plan_bytes.len()
+        );
         // Step 4: Register the DSM mesh for the leader.
         let transport = TransportMesh {
             mux_writers,

@@ -346,7 +346,6 @@ impl CustomScan for AggregateScan {
                     batch_row_idx: 0,
                     mpp_local_set: None,
                     mpp_process: None,
-                    planned_workers: 0, // TODO: set from planner
                 });
                 builder.build()
             }
@@ -995,7 +994,16 @@ impl AggregateScan {
 
         // First call: build and execute the DataFusion plan
         if df_state.runtime.is_none() {
-            let use_mpp = crate::gucs::enable_mpp_join() && df_state.planned_workers > 0;
+            // For AggregateScan, compute worker count at execution time from GUCs
+            // rather than planning time. This avoids needing to serialize planned_workers
+            // in the private data.
+            let mpp_workers = if crate::gucs::enable_mpp_join() {
+                let max_workers = unsafe { pg_sys::max_parallel_workers_per_gather as usize };
+                max_workers.min(4) // Cap at 4 for now
+            } else {
+                0
+            };
+            let use_mpp = mpp_workers > 0;
 
             let runtime = if use_mpp {
                 tokio::runtime::Builder::new_current_thread()
@@ -1009,7 +1017,7 @@ impl AggregateScan {
             };
 
             let ctx = if use_mpp {
-                let nworkers = df_state.planned_workers;
+                let nworkers = mpp_workers;
                 let total =
                     crate::postgres::customscan::joinscan::scan_state::compute_total_participants(
                         nworkers,
@@ -1048,7 +1056,7 @@ impl AggregateScan {
                 };
                 use crate::scan::codec::serialize_logical_plan;
 
-                let nworkers = df_state.planned_workers;
+                let nworkers = mpp_workers;
 
                 let Some((process, _, mux_writers, mux_readers, _session_id, bridge, nlaunched)) =
                     parallel::launch_join_workers(

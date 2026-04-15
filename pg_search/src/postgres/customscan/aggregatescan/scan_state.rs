@@ -73,8 +73,6 @@ pub struct DataFusionAggState {
     pub mpp_local_set: Option<tokio::task::LocalSet>,
     /// MPP: parallel process handle for cleanup.
     pub mpp_process: Option<crate::parallel_worker::builder::ParallelProcessFinish>,
-    /// MPP: number of planned workers (from planner, 0 = no MPP).
-    pub planned_workers: usize,
 }
 
 /// State for projecting wrapped aggregate expressions through Postgres' own

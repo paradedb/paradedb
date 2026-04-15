@@ -265,8 +265,16 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         name: &str,
         _buf: &[u8],
     ) -> Result<Arc<datafusion::logical_expr::AggregateUDF>> {
+        use datafusion::functions_aggregate;
         match name {
-            "min" => Ok(datafusion::functions_aggregate::min_max::min_udaf()),
+            "min" => Ok(functions_aggregate::min_max::min_udaf()),
+            "max" => Ok(functions_aggregate::min_max::max_udaf()),
+            "count" => Ok(functions_aggregate::count::count_udaf()),
+            "sum" => Ok(functions_aggregate::sum::sum_udaf()),
+            "avg" => Ok(functions_aggregate::average::avg_udaf()),
+            "first_value" => Ok(functions_aggregate::first_last::first_value_udaf()),
+            "last_value" => Ok(functions_aggregate::first_last::last_value_udaf()),
+            "array_agg" => Ok(functions_aggregate::array_agg::array_agg_udaf()),
             _ => Err(DataFusionError::NotImplemented(format!(
                 "LogicalExtensionCodec is not provided for aggregate function {name}"
             ))),

@@ -67,6 +67,18 @@ pub fn create_aggregate_session_context() -> SessionContext {
     create_datafusion_session_context(SessionContextProfile::Aggregate)
 }
 
+/// Create an MPP-aware aggregate session context for parallel execution.
+#[allow(dead_code)]
+pub fn create_mpp_aggregate_session_context(
+    participant_index: usize,
+    total_participants: usize,
+) -> SessionContext {
+    create_datafusion_session_context(SessionContextProfile::JoinMpp {
+        participant_index,
+        total_participants,
+    })
+}
+
 /// Build the complete DataFusion logical plan for an aggregate-on-join query:
 /// scan(s) → join → aggregate [→ sort → limit].
 #[allow(clippy::too_many_arguments)]

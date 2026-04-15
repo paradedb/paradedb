@@ -68,6 +68,13 @@ pub struct DataFusionAggState {
     pub current_batch: Option<RecordBatch>,
     /// Row index within current_batch.
     pub batch_row_idx: usize,
+
+    /// MPP: tokio LocalSet that drives the control service during streaming.
+    pub mpp_local_set: Option<tokio::task::LocalSet>,
+    /// MPP: parallel process handle for cleanup.
+    pub mpp_process: Option<crate::parallel_worker::builder::ParallelProcessFinish>,
+    /// MPP: number of planned workers (from planner, 0 = no MPP).
+    pub planned_workers: usize,
 }
 
 /// State for projecting wrapped aggregate expressions through Postgres' own

@@ -344,6 +344,9 @@ impl CustomScan for AggregateScan {
                     stream: None,
                     current_batch: None,
                     batch_row_idx: 0,
+                    mpp_local_set: None,
+                    mpp_process: None,
+                    planned_workers: 0, // TODO: set from planner
                 });
                 builder.build()
             }
@@ -529,6 +532,15 @@ impl CustomScan for AggregateScan {
         // intended lifecycle boundary rather than relying on Postgres to drop the
         // state wrapper later. Mirrors JoinScan::end_custom_scan.
         if let Some(mut df_state) = state.custom_state_mut().datafusion_state.take() {
+            // Clean up MPP resources before dropping DataFusion state.
+            if df_state.mpp_process.is_some() {
+                crate::postgres::customscan::joinscan::exchange::clear_dsm_mesh();
+                df_state.mpp_local_set = None;
+                df_state.stream = None;
+                if let Some(process) = df_state.mpp_process.take() {
+                    process.destroy();
+                }
+            }
             df_state.stream = None;
             df_state.current_batch = None;
             df_state.runtime = None;
@@ -983,17 +995,36 @@ impl AggregateScan {
 
         // First call: build and execute the DataFusion plan
         if df_state.runtime.is_none() {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap_or_else(|e| pgrx::error!("Failed to create tokio runtime: {}", e));
+            let use_mpp = crate::gucs::enable_mpp_join() && df_state.planned_workers > 0;
 
-            let ctx = create_aggregate_session_context();
+            let runtime = if use_mpp {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap_or_else(|e| pgrx::error!("Failed to create tokio runtime: {}", e))
+            } else {
+                tokio::runtime::Builder::new_current_thread()
+                    .build()
+                    .unwrap_or_else(|e| pgrx::error!("Failed to create tokio runtime: {}", e))
+            };
+
+            let ctx = if use_mpp {
+                let nworkers = df_state.planned_workers;
+                let total =
+                    crate::postgres::customscan::joinscan::scan_state::compute_total_participants(
+                        nworkers,
+                    );
+                datafusion_exec::create_mpp_aggregate_session_context(0, total)
+            } else {
+                create_aggregate_session_context()
+            };
 
             let custom_exprs = df_state.custom_exprs;
             let custom_scan_tlist = df_state.custom_scan_tlist;
-            let physical_plan = runtime.block_on(async {
-                let logical = build_join_aggregate_plan(
+
+            // Build logical plan
+            let logical_plan = runtime.block_on(async {
+                build_join_aggregate_plan(
                     &df_state.plan,
                     &df_state.targetlist,
                     df_state.topk.as_ref(),
@@ -1003,31 +1034,128 @@ impl AggregateScan {
                     df_state.having_filter.as_ref(),
                     &ctx,
                 )
-                .await?;
-                build_physical_plan(&ctx, logical).await
+                .await
             });
-
-            let physical_plan = match physical_plan {
+            let logical_plan = match logical_plan {
                 Ok(p) => p,
-                Err(e) => pgrx::error!("Failed to build DataFusion aggregate plan: {}", e),
+                Err(e) => pgrx::error!("Failed to build DataFusion aggregate logical plan: {}", e),
             };
 
-            let task_ctx = build_task_context(
-                &ctx,
-                &physical_plan,
-                unsafe { pg_sys::work_mem as usize * 1024 },
-                unsafe { pg_sys::hash_mem_multiplier },
-            );
-            let stream = {
-                let _guard = runtime.enter();
-                match physical_plan.execute(0, task_ctx) {
-                    Ok(s) => s,
-                    Err(e) => pgrx::error!("Failed to execute DataFusion aggregate plan: {}", e),
+            if use_mpp {
+                // MPP path: launch workers, broadcast plan, execute with exchanges
+                use crate::postgres::customscan::joinscan::{
+                    exchange, parallel, transport::TransportMesh,
+                };
+                use crate::scan::codec::serialize_logical_plan;
+
+                let nworkers = df_state.planned_workers;
+
+                let Some((process, _, mux_writers, mux_readers, _session_id, bridge, nlaunched)) =
+                    parallel::launch_join_workers(
+                        &runtime,
+                        nworkers,
+                        unsafe { pg_sys::work_mem as usize * 1024 },
+                        unsafe { pg_sys::parallel_leader_participation },
+                    )
+                else {
+                    pgrx::error!("MPP AggregateScan: failed to launch workers");
+                };
+
+                // Serialize logical plan for broadcast
+                let plan_bytes = serialize_logical_plan(&logical_plan).unwrap_or_else(|e| {
+                    pgrx::error!("MPP AggregateScan: failed to serialize plan: {e}")
+                });
+
+                // Broadcast to workers
+                for (i, reader_mutex) in mux_readers.iter().enumerate() {
+                    if i == 0 {
+                        continue;
+                    }
+                    let mut reader = reader_mutex.lock();
+                    reader
+                        .send_control_message_variable(128, &plan_bytes)
+                        .unwrap_or_else(|e| {
+                            pgrx::error!("MPP AggregateScan: broadcast failed: {e}")
+                        });
                 }
-            };
 
-            df_state.runtime = Some(runtime);
-            df_state.stream = Some(stream);
+                // Register DSM mesh
+                let transport = TransportMesh {
+                    mux_writers,
+                    mux_readers,
+                    bridge,
+                };
+                let mesh = exchange::DsmMesh {
+                    transport,
+                    registry: parking_lot::Mutex::new(exchange::StreamRegistry::default()),
+                };
+                exchange::register_dsm_mesh(mesh);
+
+                // Rebuild context with actual participant count, build physical plan
+                let ctx = datafusion_exec::create_mpp_aggregate_session_context(0, nlaunched);
+                let physical_plan = runtime
+                    .block_on(build_physical_plan(&ctx, logical_plan))
+                    .unwrap_or_else(|e| {
+                        pgrx::error!("MPP AggregateScan: physical plan failed: {e}")
+                    });
+
+                // Register leader's stream sources
+                let mut sources = Vec::new();
+                exchange::collect_dsm_exchanges(physical_plan.clone(), &mut sources);
+                for source in sources {
+                    exchange::register_stream_source(
+                        source,
+                        crate::postgres::customscan::joinscan::transport::ParticipantId(0),
+                    );
+                }
+
+                // Spawn control service and execute with LocalSet
+                let local_set = tokio::task::LocalSet::new();
+                let task_ctx = build_task_context(
+                    &ctx,
+                    &physical_plan,
+                    unsafe { pg_sys::work_mem as usize * 1024 },
+                    unsafe { pg_sys::hash_mem_multiplier },
+                );
+                exchange::spawn_control_service(&local_set, task_ctx.clone());
+
+                let stream = runtime.block_on(local_set.run_until(async {
+                    physical_plan
+                        .execute(0, task_ctx)
+                        .unwrap_or_else(|e| panic!("MPP AggregateScan: execution failed: {e}"))
+                }));
+
+                df_state.mpp_local_set = Some(local_set);
+                df_state.mpp_process = Some(process);
+                df_state.runtime = Some(runtime);
+                df_state.stream = Some(stream);
+            } else {
+                // Standard single-threaded path
+                let physical_plan = runtime
+                    .block_on(build_physical_plan(&ctx, logical_plan))
+                    .unwrap_or_else(|e| {
+                        pgrx::error!("Failed to build aggregate physical plan: {e}")
+                    });
+
+                let task_ctx = build_task_context(
+                    &ctx,
+                    &physical_plan,
+                    unsafe { pg_sys::work_mem as usize * 1024 },
+                    unsafe { pg_sys::hash_mem_multiplier },
+                );
+                let stream = {
+                    let _guard = runtime.enter();
+                    match physical_plan.execute(0, task_ctx) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            pgrx::error!("Failed to execute DataFusion aggregate plan: {}", e)
+                        }
+                    }
+                };
+
+                df_state.runtime = Some(runtime);
+                df_state.stream = Some(stream);
+            }
         }
 
         // Consume batches row-by-row
@@ -1050,14 +1178,19 @@ impl AggregateScan {
                 df_state.current_batch = None;
             }
 
-            // Fetch next batch from stream
+            // Fetch next batch from stream. When MPP is active, drive the
+            // LocalSet (control service) so worker RPCs are processed.
             let runtime = df_state.runtime.as_ref().unwrap();
             let stream = df_state.stream.as_mut().unwrap();
 
-            let next = runtime.block_on(async {
+            let next = {
                 use futures::StreamExt;
-                stream.next().await
-            });
+                if let Some(local_set) = df_state.mpp_local_set.as_ref() {
+                    runtime.block_on(local_set.run_until(stream.next()))
+                } else {
+                    runtime.block_on(async { stream.next().await })
+                }
+            };
 
             match next {
                 Some(Ok(batch)) => {

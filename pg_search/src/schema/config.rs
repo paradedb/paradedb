@@ -305,10 +305,7 @@ impl SearchFieldConfig {
 fn apply_bm25(mut idx: TextFieldIndexing, k1: Option<f32>, b: Option<f32>) -> TextFieldIndexing {
     if k1.is_some() || b.is_some() {
         let d = Bm25Params::default();
-        idx = idx.set_bm25_params(Bm25Params {
-            k1: k1.unwrap_or(d.k1),
-            b: b.unwrap_or(d.b),
-        });
+        idx = idx.set_bm25_params(Bm25Params::new(k1.unwrap_or(d.k1()), b.unwrap_or(d.b())));
     }
     idx
 }

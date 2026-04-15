@@ -31,3 +31,17 @@ GROUP BY
 ORDER BY
     COUNT(*) DESC
 LIMIT 10;
+
+-- MPP TopK aggregate scan
+SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SET paradedb.enable_mpp_join TO on; SELECT
+    f.title,
+    COUNT(*)
+FROM files f
+JOIN pages p ON f.id = p."fileId"
+WHERE
+    f.content ||| 'Section'
+GROUP BY
+    f.title
+ORDER BY
+    COUNT(*) DESC
+LIMIT 10;

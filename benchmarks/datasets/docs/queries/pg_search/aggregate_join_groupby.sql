@@ -19,3 +19,11 @@ JOIN pages p ON f.id = p."fileId"
 WHERE f.content ||| 'Section'
 GROUP BY f.title
 ORDER BY f.title;
+
+-- MPP aggregate scan
+SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SET paradedb.enable_mpp_join TO on; SELECT f.title, COUNT(*), SUM(p."sizeInBytes")
+FROM files f
+JOIN pages p ON f.id = p."fileId"
+WHERE f.content ||| 'Section'
+GROUP BY f.title
+ORDER BY f.title;

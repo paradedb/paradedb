@@ -12,10 +12,62 @@ INSERT INTO array_demo (categories) VALUES
     ('{"food","groceries and produce"}'),
     ('{"electronics","computers"}'),
     ('{"books","fiction","mystery"}');
+```
 
-CREATE INDEX ON array_demo USING bm25 (id, categories)
+<CodeGroup>
+```sql SQL
+CREATE INDEX search_idx ON array_demo
+USING bm25 (id, categories)
 WITH (key_field = 'id');
 ```
+
+```python Django
+from django.db import connection
+from paradedb.indexes import BM25Index
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        ArrayDemo,
+        BM25Index(
+            fields={
+                "id": {},
+                "categories": {},
+            },
+            key_field="id",
+            name="search_idx",
+        ),
+    )
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing
+
+idx = Index(
+    "search_idx",
+    indexing.BM25Field(ArrayDemo.id),
+    indexing.BM25Field(ArrayDemo.categories),
+    postgresql_using="bm25",
+    postgresql_with={"key_field": "id"},
+)
+
+with engine.begin() as conn:
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_bm25_index(
+  :array_demo,
+  fields: {
+    id: {},
+    categories: {}
+  },
+  key_field: :id,
+  name: :search_idx
+)
+```
+
+</CodeGroup>
 
 Under the hood, each element in the array is indexed as a separate entry. This means that an array is considered a
 match if **any** of its entries is a match.
@@ -33,7 +85,60 @@ SELECT * FROM array_demo WHERE categories === 'food';
 
 Text arrays can be [tokenized](/documentation/tokenizers/overview) and [filtered](/documentation/token-filters/overview) in the same way as text fields:
 
-```sql
-CREATE INDEX ON array_demo USING bm25 (id, (categories::pdb.literal))
+<CodeGroup>
+```sql SQL
+CREATE INDEX search_idx ON array_demo
+USING bm25 (id, (categories::pdb.literal))
 WITH (key_field = 'id');
 ```
+
+```python Django
+from django.db import connection
+from paradedb.indexes import BM25Index
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        ArrayDemo,
+        BM25Index(
+            fields={
+                "id": {},
+                "categories": {"tokenizer": "literal"},
+            },
+            key_field="id",
+            name="search_idx",
+        ),
+    )
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing
+
+idx = Index(
+    "search_idx",
+    indexing.BM25Field(ArrayDemo.id),
+    indexing.BM25Field(
+        ArrayDemo.categories,
+        tokenizer=indexing.tokenize.literal(),
+    ),
+    postgresql_using="bm25",
+    postgresql_with={"key_field": "id"},
+)
+
+with engine.begin() as conn:
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_bm25_index(
+  :array_demo,
+  fields: {
+    id: {},
+    categories: { tokenizer: :literal }
+  },
+  key_field: :id,
+  name: :search_idx
+)
+```
+
+</CodeGroup>

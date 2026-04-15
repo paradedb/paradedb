@@ -152,8 +152,17 @@ pub struct DsmMesh {
     pub registry: Mutex<StreamRegistry>,
 }
 
+type LocalBypassEntry = (
+    std::sync::mpsc::Sender<RecordBatch>,
+    Option<std::sync::mpsc::Receiver<RecordBatch>>,
+);
+
 lazy_static::lazy_static! {
     pub static ref DSM_MESH: Mutex<Option<DsmMesh>> = Mutex::new(None);
+    /// In-process bypass channels for self-directed exchange data.
+    /// Avoids Arrow IPC + ring buffer round-trips for data that stays in-process.
+    pub static ref LOCAL_BYPASS: Mutex<HashMap<LogicalStreamId, LocalBypassEntry>> =
+        Mutex::new(HashMap::default());
 }
 
 pub fn register_dsm_mesh(mesh: DsmMesh) {
@@ -164,6 +173,8 @@ pub fn register_dsm_mesh(mesh: DsmMesh) {
 pub fn clear_dsm_mesh() {
     let mut guard = DSM_MESH.lock();
     *guard = None;
+    let mut bypass = LOCAL_BYPASS.lock();
+    bypass.clear();
 }
 
 impl Drop for DsmMesh {
@@ -634,6 +645,14 @@ impl DsmExchangeExec {
             );
         }
 
+        // Set up local bypass channel for self-partition (avoids IPC overhead).
+        let local_tx = {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let mut guard = LOCAL_BYPASS.lock();
+            guard.insert(config.stream_id, (tx.clone(), Some(rx)));
+            tx
+        };
+
         // Initialize partitioner ONCE if needed
         let mut partitioner = if let ExchangeMode::Redistribute = config.mode {
             Some(
@@ -665,6 +684,14 @@ impl DsmExchangeExec {
                 let mut blocked_on_write = false;
 
                 for i in 0..total_participants {
+                    // Self-partition: bypass ring buffer, send directly via channel.
+                    if i == participant_index {
+                        while let Some(batch) = out_queues[i].pop_front() {
+                            let _ = local_tx.send(batch);
+                            progress = true;
+                        }
+                        continue;
+                    }
                     while let Some(batch) = out_queues[i].front() {
                         match writers[i].write_batch(batch) {
                             Ok(_) => {
@@ -816,17 +843,60 @@ impl DsmExchangeExec {
                     }
                 }
 
-                let mut readers = Vec::new();
+                let mut readers: Vec<SendableRecordBatchStream> = Vec::new();
                 for i in 0..total_participants {
-                    // Read from Participant i, Logical Stream S, Sender Index i.
-                    if let Some(reader) = get_dsm_reader(
-                        i,
-                        self.config.stream_id,
-                        ParticipantId(i as u16),
-                        schema.clone(),
-                        self.config.sanitized,
-                    ) {
-                        readers.push(shared_memory_stream(reader));
+                    if i == participant_index {
+                        // Self-partition: read from local bypass channel (no IPC overhead).
+                        let rx = {
+                            let mut guard = LOCAL_BYPASS.lock();
+                            guard
+                                .get_mut(&self.config.stream_id)
+                                .and_then(|(_, rx)| rx.take())
+                        };
+                        if let Some(rx) = rx {
+                            let schema_clone = schema.clone();
+                            let stream = futures::stream::unfold(rx, move |rx| {
+                                let s = schema_clone.clone();
+                                async move {
+                                    match rx.try_recv() {
+                                        Ok(batch) => Some((Ok(batch), rx)),
+                                        Err(std::sync::mpsc::TryRecvError::Empty) => {
+                                            // Yield and retry
+                                            tokio::task::yield_now().await;
+                                            match rx.try_recv() {
+                                                Ok(batch) => Some((Ok(batch), rx)),
+                                                Err(
+                                                    std::sync::mpsc::TryRecvError::Disconnected,
+                                                ) => None,
+                                                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                                                    Some((Ok(RecordBatch::new_empty(s)), rx))
+                                                }
+                                            }
+                                        }
+                                        Err(std::sync::mpsc::TryRecvError::Disconnected) => None,
+                                    }
+                                }
+                            })
+                            .filter(|batch| {
+                                let keep = batch.as_ref().map_or(true, |b| b.num_rows() > 0);
+                                futures::future::ready(keep)
+                            });
+                            readers.push(Box::pin(RecordBatchStreamAdapter::new(
+                                schema.clone(),
+                                Box::pin(stream),
+                            )));
+                        }
+                    } else {
+                        // Remote partition: read from DSM ring buffer.
+                        if let Some(reader) = get_dsm_reader(
+                            i,
+                            self.config.stream_id,
+                            ParticipantId(i as u16),
+                            schema.clone(),
+                            self.config.sanitized,
+                        ) {
+                            readers.push(shared_memory_stream(reader));
+                        }
                     }
                 }
 

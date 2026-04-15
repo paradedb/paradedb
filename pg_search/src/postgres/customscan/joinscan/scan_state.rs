@@ -327,7 +327,12 @@ pub fn create_datafusion_session_context(profile: SessionContextProfile) -> Sess
     } = &profile
     {
         let mut c = SessionConfig::new().with_target_partitions(*total_participants);
-        // Force DataFusion to use partitioned hash joins instead of single-partition mode.
+        // Force DataFusion to use partitioned hash joins so that both sides of
+        // the join are hash-repartitioned. This ensures EnforceDsmShuffle can
+        // replace the RepartitionExec nodes with DsmExchangeExec for cross-process
+        // data transfer. Without this, DataFusion may choose CollectLeft which
+        // doesn't create RepartitionExec, leaving no mechanism for cross-process
+        // data flow.
         c.options_mut()
             .optimizer
             .hash_join_single_partition_threshold = 0;

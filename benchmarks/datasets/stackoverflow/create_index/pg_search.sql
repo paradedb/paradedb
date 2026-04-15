@@ -1,1 +1,2 @@
-CREATE INDEX stackoverflow_posts_idx ON stackoverflow_posts USING bm25 (id, title, body, tags, post_type_id, score, creation_date, view_count, answer_count, comment_count, owner_display_name) WITH (key_field = 'id', text_fields = '{"tags": {"fast": true}}');
+CREATE INDEX stackoverflow_posts_idx ON stackoverflow_posts USING bm25 (id, title, body, tags, post_type_id, score, creation_date, view_count, answer_count, comment_count, owner_display_name) WITH (key_field = 'id', text_fields = '{"owner_display_name": {"fast": true}}');
+CREATE INDEX badges_idx ON badges USING bm25 (id, name, date, user_id, class, tag_based) WITH (key_field = 'id', text_fields = '{"name": {"fast": true}}');

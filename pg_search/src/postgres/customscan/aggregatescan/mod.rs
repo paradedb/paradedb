@@ -1040,25 +1040,26 @@ impl AggregateScan {
                 Err(e) => pgrx::error!("Failed to build DataFusion aggregate logical plan: {}", e),
             };
 
-            if use_mpp {
-                // MPP path: launch workers, broadcast plan, execute with exchanges
-                use crate::postgres::customscan::joinscan::{
-                    exchange, parallel, transport::TransportMesh,
-                };
+            // Attempt MPP launch. If it fails (e.g. parallel workers
+            // unavailable), fall back to the standard serial path.
+            let launched = if use_mpp {
+                use crate::postgres::customscan::joinscan::parallel;
+                parallel::launch_join_workers(
+                    &runtime,
+                    mpp_workers,
+                    unsafe { pg_sys::work_mem as usize * 1024 },
+                    unsafe { pg_sys::parallel_leader_participation },
+                )
+            } else {
+                None
+            };
+
+            if let Some((process, _, mux_writers, mux_readers, _session_id, bridge, nlaunched)) =
+                launched
+            {
+                // MPP path: broadcast plan, execute with exchanges
+                use crate::postgres::customscan::joinscan::{exchange, transport::TransportMesh};
                 use crate::scan::codec::serialize_logical_plan;
-
-                let nworkers = mpp_workers;
-
-                let Some((process, _, mux_writers, mux_readers, _session_id, bridge, nlaunched)) =
-                    parallel::launch_join_workers(
-                        &runtime,
-                        nworkers,
-                        unsafe { pg_sys::work_mem as usize * 1024 },
-                        unsafe { pg_sys::parallel_leader_participation },
-                    )
-                else {
-                    pgrx::error!("MPP AggregateScan: failed to launch workers");
-                };
 
                 // Serialize logical plan for broadcast
                 let plan_bytes = serialize_logical_plan(&logical_plan).unwrap_or_else(|e| {
@@ -1129,6 +1130,12 @@ impl AggregateScan {
                 df_state.runtime = Some(runtime);
                 df_state.stream = Some(stream);
             } else {
+                if use_mpp {
+                    crate::mpp_log!(
+                        "MPP AggregateScan: could not launch workers, falling back to serial"
+                    );
+                }
+
                 // Standard single-threaded path
                 let physical_plan = runtime
                     .block_on(build_physical_plan(&ctx, logical_plan))

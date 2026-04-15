@@ -217,11 +217,20 @@ pub struct JoinScanState {
     /// Dropping manifests early would release the pins and allow segment recycling
     /// before workers can open them.
     pub source_manifests: Vec<SearchIndexManifest>,
+
+    /// MPP: tokio LocalSet that drives the control service. Must be kept alive
+    /// while streaming results so the control service can respond to worker RPCs.
+    pub mpp_local_set: Option<tokio::task::LocalSet>,
+
+    /// MPP: parallel process handle. Dropped in end_custom_scan to destroy
+    /// the parallel context and terminate workers.
+    pub mpp_process: Option<crate::parallel_worker::builder::ParallelProcessFinish>,
 }
 
 impl JoinScanState {
     /// Reset the scan state for a rescan.
     pub fn reset(&mut self) {
+        self.mpp_local_set = None;
         self.datafusion_stream = None;
         self.current_batch = None;
         self.batch_index = 0;

@@ -1378,14 +1378,17 @@ impl CustomScan for JoinScan {
 
                 let next_batch = {
                     let custom_state = state.custom_state_mut();
-                    custom_state.runtime.as_mut().unwrap().block_on(async {
-                        custom_state
-                            .datafusion_stream
-                            .as_mut()
-                            .unwrap()
-                            .next()
-                            .await
-                    })
+                    let runtime = custom_state.runtime.as_ref().unwrap();
+                    let stream = custom_state.datafusion_stream.as_mut().unwrap();
+                    // When MPP is active, drive the LocalSet (control service) while
+                    // polling for the next batch. This ensures worker RPCs are processed
+                    // concurrently with data consumption — without this, the exchange
+                    // would deadlock waiting for StartStream responses.
+                    if let Some(local_set) = custom_state.mpp_local_set.as_ref() {
+                        runtime.block_on(local_set.run_until(stream.next()))
+                    } else {
+                        runtime.block_on(async { stream.next().await })
+                    }
                 };
 
                 match next_batch {
@@ -1407,6 +1410,15 @@ impl CustomScan for JoinScan {
             // Drop tuple slots that we own.
             for rel_state in state.custom_state().relations.values() {
                 pg_sys::ExecDropSingleTupleTableSlot(rel_state.fetch_slot);
+            }
+        }
+        // Clean up MPP resources: clear DSM mesh, drop LocalSet, destroy parallel context.
+        if state.custom_state().mpp_process.is_some() {
+            crate::postgres::customscan::joinscan::exchange::clear_dsm_mesh();
+            state.custom_state_mut().mpp_local_set = None;
+            state.custom_state_mut().datafusion_stream = None;
+            if let Some(process) = state.custom_state_mut().mpp_process.take() {
+                process.destroy();
             }
         }
         // Clean up resources
@@ -1532,35 +1544,16 @@ impl JoinScan {
 
         exchange::spawn_control_service(&local_set, task_ctx.clone());
 
-        // Collect ALL results inside run_until so the LocalSet continues to drive
-        // the control service while the stream is being polled. The control service
-        // must remain active to respond to worker RPCs (StartStream, etc.).
-        use futures::StreamExt;
-        let batches: Vec<arrow_array::RecordBatch> = runtime.block_on(local_set.run_until(async {
-            let mut stream = plan
-                .execute(0, task_ctx)
-                .expect("MPP: failed to execute plan");
-            let mut batches = Vec::new();
-            while let Some(batch) = stream.next().await {
-                match batch {
-                    Ok(b) => batches.push(b),
-                    Err(e) => panic!("MPP: stream error: {e}"),
-                }
-            }
-            batches
+        // Start the execution stream inside run_until (so the control service
+        // is active to handle the initial StartStream RPCs), then store both
+        // the LocalSet and stream in state for lazy per-batch polling.
+        let stream = runtime.block_on(local_set.run_until(async {
+            plan.execute(0, task_ctx)
+                .expect("MPP: failed to execute plan")
         }));
 
-        // Create a stream from the collected batches for the exec_custom_scan loop.
-        let schema = plan.schema();
-        let batch_stream = futures::stream::iter(batches.into_iter().map(Ok));
-        let stream: datafusion::execution::SendableRecordBatchStream = Box::pin(
-            datafusion::physical_plan::stream::RecordBatchStreamAdapter::new(
-                schema.clone(),
-                batch_stream,
-            ),
-        );
-
         // Retain plan for EXPLAIN ANALYZE.
+        let schema = plan.schema();
         state.custom_state_mut().physical_plan = Some(plan.clone());
 
         // Map CTID columns to their schema positions.
@@ -1574,13 +1567,11 @@ impl JoinScan {
             }
         }
 
-        // Clean up: clear the DSM mesh and destroy the parallel context.
-        // We must NOT call wait_for_finish() because workers are in an async
-        // loop that only exits on SIGTERM. DestroyParallelContext sends SIGTERM
-        // and waits for workers to exit.
-        exchange::clear_dsm_mesh();
-        process.destroy();
-
+        // Store MPP-specific state for streaming and cleanup.
+        // The LocalSet must stay alive to drive the control service during
+        // per-batch polling. The process handle is kept for cleanup in end_custom_scan.
+        state.custom_state_mut().mpp_local_set = Some(local_set);
+        state.custom_state_mut().mpp_process = Some(process);
         state.custom_state_mut().runtime = Some(runtime);
         state.custom_state_mut().datafusion_stream = Some(stream);
     }

@@ -3,7 +3,7 @@ USING bm25 (
     id,
     title,
     body,
-    tags,
+    (tags::pdb.literal_normalized),
     post_type_id,
     score,
     creation_date,

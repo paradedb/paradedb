@@ -82,7 +82,7 @@ The following join shapes are supported:
 | `GROUP BY` | Columns from any table in the join, including JSON sub-fields via `metadata->>'key'` |
 | `HAVING` clause | Comparisons against aggregate results and group columns |
 | Per-aggregate `FILTER (WHERE ...)` | Yes |
-| `ORDER BY ... LIMIT K` | Pushed down as TopK when the sort target is an aggregate, a group column, or `MIN(col)` / `MAX(col)` |
+| `ORDER BY ... LIMIT K` | Pushed down as TopK when there is a single `ORDER BY` column targeting an aggregate, a group column, or `MIN(col)` / `MAX(col)` |
 | `ORDER BY` inside `STRING_AGG` / `ARRAY_AGG` | Yes (produces deterministic element ordering) |
 
 ParadeDB falls back to native Postgres execution when any of the following are true:
@@ -92,7 +92,8 @@ ParadeDB falls back to native Postgres execution when any of the following are t
 - Join keys, `GROUP BY` columns, or aggregate arguments are not indexed columns
 - The query uses window functions (`OVER ...`), `ROLLUP`, `CUBE`, `GROUPING SETS`, `LATERAL`, or `DISTINCT ON`
 - `GROUP BY` uses a scalar function like `date_trunc(...)` or `lower(...)` (JSON sub-field access via `->>` is supported)
-- The aggregate argument is wrapped in an expression such as `COALESCE(...)` or a cast
+- The aggregate argument or result is wrapped in an expression such as `COALESCE(SUM(...), 0)` or a cast
+- The query uses `pdb.agg()` (use standard SQL aggregate functions instead)
 
 When a fallback happens, the query still runs correctly through Postgres' native planner. ParadeDB simply does not accelerate it.
 

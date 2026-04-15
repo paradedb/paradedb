@@ -363,6 +363,19 @@ impl SearchIndexMerger {
         })
     }
 
+    pub fn open_for_merge(
+        directory: MVCCDirectory,
+        indexrel: &crate::postgres::rel::PgSearchRelation,
+    ) -> Result<SearchIndexMerger> {
+        let mut index = Index::open(directory.clone())?;
+        crate::vector::register_vector_plugins_for_merge(&mut index, indexrel);
+        Ok(Self {
+            index,
+            merged_segment_ids: Default::default(),
+            directory,
+        })
+    }
+
     pub fn all_entries(&self) -> HashMap<SegmentId, SegmentMetaEntry> {
         self.directory.all_entries()
     }

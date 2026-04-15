@@ -414,8 +414,9 @@ unsafe fn merge_index(
     // before it decides to find the segments it should vacuum.  The reason is that it needs to see
     // the final merged segment, not the original segments that will be deleted
     let metadata = MetaPage::open(indexrel);
-    let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(indexrel))
-        .expect("should be able to open merger");
+    let merger =
+        SearchIndexMerger::open_for_merge(MvccSatisfies::Mergeable.directory(indexrel), indexrel)
+            .expect("should be able to open merger");
 
     // further reduce the set of segments that the LayeredMergePolicy will operate on by internally
     // simulating the process, allowing concurrent merges to consider segments we're not, only retaining

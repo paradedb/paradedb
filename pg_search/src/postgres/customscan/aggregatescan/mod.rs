@@ -1016,16 +1016,7 @@ impl AggregateScan {
                     .unwrap_or_else(|e| pgrx::error!("Failed to create tokio runtime: {}", e))
             };
 
-            let ctx = if use_mpp {
-                let nworkers = mpp_workers;
-                let total =
-                    crate::postgres::customscan::joinscan::scan_state::compute_total_participants(
-                        nworkers,
-                    );
-                datafusion_exec::create_mpp_aggregate_session_context(0, total)
-            } else {
-                create_aggregate_session_context()
-            };
+            let ctx = create_aggregate_session_context();
 
             let custom_exprs = df_state.custom_exprs;
             let custom_scan_tlist = df_state.custom_scan_tlist;

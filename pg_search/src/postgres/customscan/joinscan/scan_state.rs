@@ -65,7 +65,7 @@ use std::sync::Arc;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::logical_expr::{col, Expr};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
-use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
+use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties, Partitioning};
 use datafusion::prelude::{DataFrame, SessionConfig, SessionContext};
 use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
@@ -479,10 +479,35 @@ pub async fn build_physical_plan(
         .create_physical_plan(&plan, &state)
         .await?;
 
-    // In MPP mode, don't coalesce — EnforceDsmShuffle handles distribution.
     let target_partitions = ctx.state().config().target_partitions();
-    if target_partitions == 1 && plan.output_partitioning().partition_count() > 1 {
-        Ok(Arc::new(CoalescePartitionsExec::new(plan)) as Arc<dyn ExecutionPlan>)
+    if plan.output_partitioning().partition_count() > 1 {
+        if target_partitions > 1 {
+            // MPP mode: wrap with a Gather DsmExchangeExec to collect all
+            // participants' results, then CoalescePartitions to merge into
+            // a single stream. Without this, execute(0) only sees the
+            // leader's partition.
+            use crate::postgres::customscan::joinscan::exchange::{
+                DsmExchangeConfig, DsmExchangeExec, ExchangeMode,
+            };
+            use crate::postgres::customscan::joinscan::transport::LogicalStreamId;
+
+            let partitioning = Partitioning::UnknownPartitioning(target_partitions);
+            let config = DsmExchangeConfig {
+                stream_id: LogicalStreamId(65535), // Use a high stream ID to avoid conflicts
+                total_participants: target_partitions,
+                mode: ExchangeMode::Gather,
+                sanitized: false,
+            };
+            let gather = Arc::new(DsmExchangeExec::try_new(
+                plan,
+                partitioning.clone(),
+                partitioning,
+                config,
+            )?) as Arc<dyn ExecutionPlan>;
+            Ok(Arc::new(CoalescePartitionsExec::new(gather)))
+        } else {
+            Ok(Arc::new(CoalescePartitionsExec::new(plan)) as Arc<dyn ExecutionPlan>)
+        }
     } else {
         Ok(plan)
     }

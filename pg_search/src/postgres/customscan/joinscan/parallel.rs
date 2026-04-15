@@ -291,10 +291,6 @@ impl ParallelWorker for JoinWorker<'_> {
         // them as stream sources in the local StreamRegistry.
         let mut sources = Vec::new();
         exchange::collect_dsm_exchanges(plan.clone(), &mut sources);
-        pgrx::warning!(
-            "MPP Worker {participant_index}: found {} DsmExchangeExec nodes",
-            sources.len()
-        );
         for source in sources {
             exchange::register_stream_source(
                 source,

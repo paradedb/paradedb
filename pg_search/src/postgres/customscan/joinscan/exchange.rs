@@ -152,16 +152,15 @@ pub struct DsmMesh {
     pub registry: Mutex<StreamRegistry>,
 }
 
-type LocalBypassEntry = (
-    std::sync::mpsc::Sender<RecordBatch>,
-    Option<std::sync::mpsc::Receiver<RecordBatch>>,
-);
-
 lazy_static::lazy_static! {
     pub static ref DSM_MESH: Mutex<Option<DsmMesh>> = Mutex::new(None);
-    /// In-process bypass channels for self-directed exchange data.
-    /// Avoids Arrow IPC + ring buffer round-trips for data that stays in-process.
-    pub static ref LOCAL_BYPASS: Mutex<HashMap<LogicalStreamId, LocalBypassEntry>> =
+    /// In-process bypass receivers for self-directed exchange data.
+    pub static ref LOCAL_BYPASS: Mutex<HashMap<LogicalStreamId, std::sync::mpsc::Receiver<RecordBatch>>> =
+        Mutex::new(HashMap::default());
+    /// In-process bypass senders, pre-created in register_stream_source and
+    /// taken by the producer task. When the producer finishes and drops the sender,
+    /// the channel disconnects and the consumer stops.
+    pub static ref BYPASS_SENDERS: Mutex<HashMap<LogicalStreamId, std::sync::mpsc::Sender<RecordBatch>>> =
         Mutex::new(HashMap::default());
 }
 
@@ -175,6 +174,8 @@ pub fn clear_dsm_mesh() {
     *guard = None;
     let mut bypass = LOCAL_BYPASS.lock();
     bypass.clear();
+    let mut senders = BYPASS_SENDERS.lock();
+    senders.clear();
 }
 
 impl Drop for DsmMesh {
@@ -184,12 +185,21 @@ impl Drop for DsmMesh {
 }
 
 pub fn register_stream_source(source: StreamSource, participant_id: ParticipantId) {
+    // Pre-create the local bypass channel for this exchange's self-partition.
+    // The consumer will take the receiver during create_consumer_stream.
+    // The producer will retrieve the sender during producer_task.
+    if source.config.mode == ExchangeMode::Redistribute {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut bypass = LOCAL_BYPASS.lock();
+        // Store the receiver for the consumer. The sender goes into BYPASS_SENDERS.
+        bypass.insert(source.config.stream_id, rx);
+        let mut senders = BYPASS_SENDERS.lock();
+        senders.insert(source.config.stream_id, tx);
+    }
+
     let mut guard = DSM_MESH.lock();
     if let Some(mesh) = guard.as_mut() {
-        // Calculate physical ID: (Logical << 16) | Sender (us)
-        // participant_id is "us" (the sender).
         let physical_id = PhysicalStreamId::new(source.config.stream_id, participant_id);
-
         let mut registry = mesh.registry.lock();
         registry.sources.insert(physical_id, source);
     }
@@ -645,12 +655,12 @@ impl DsmExchangeExec {
             );
         }
 
-        // Set up local bypass channel for self-partition (avoids IPC overhead).
+        // Take the local bypass sender for this exchange's self-partition.
+        // Pre-created in register_stream_source. When the producer finishes
+        // and drops the sender, the channel disconnects and the consumer stops.
         let local_tx = {
-            let (tx, rx) = std::sync::mpsc::channel();
-            let mut guard = LOCAL_BYPASS.lock();
-            guard.insert(config.stream_id, (tx.clone(), Some(rx)));
-            tx
+            let mut guard = BYPASS_SENDERS.lock();
+            guard.remove(&config.stream_id)
         };
 
         // Initialize partitioner ONCE if needed
@@ -686,11 +696,18 @@ impl DsmExchangeExec {
                 for i in 0..total_participants {
                     // Self-partition: bypass ring buffer, send directly via channel.
                     if i == participant_index {
-                        while let Some(batch) = out_queues[i].pop_front() {
-                            let _ = local_tx.send(batch);
-                            progress = true;
+                        if let Some(ref tx) = local_tx {
+                            while let Some(batch) = out_queues[i].pop_front() {
+                                let _ = tx.send(batch);
+                                progress = true;
+                            }
+                        } else {
+                            // No bypass channel — write through ring buffer like remote
+                            // (fallback for Gather mode which doesn't use bypass)
                         }
-                        continue;
+                        if local_tx.is_some() {
+                            continue;
+                        }
                     }
                     while let Some(batch) = out_queues[i].front() {
                         match writers[i].write_batch(batch) {
@@ -849,9 +866,7 @@ impl DsmExchangeExec {
                         // Self-partition: read from local bypass channel (no IPC overhead).
                         let rx = {
                             let mut guard = LOCAL_BYPASS.lock();
-                            guard
-                                .get_mut(&self.config.stream_id)
-                                .and_then(|(_, rx)| rx.take())
+                            guard.remove(&self.config.stream_id)
                         };
                         if let Some(rx) = rx {
                             let schema_clone = schema.clone();

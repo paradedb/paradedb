@@ -71,6 +71,14 @@ run_psql_file() {
   fi
 }
 
+create_snippet_indexes() {
+  run_psql_file "${SCRIPT_DIR}/create_code_snippet_indexes.sql"
+}
+
+drop_snippet_indexes() {
+  run_psql_file "${SCRIPT_DIR}/drop_code_snippet_indexes.sql"
+}
+
 echo "Creating temporary Python environment for Python snippet verification..."
 python3 -m venv "$PYTHON_ENV_DIR"
 
@@ -96,6 +104,12 @@ sql_fail_count=0
 while IFS= read -r snippet_file; do
   rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
+  drop_snippet_indexes
+
+  if ! grep -Fq 'CREATE INDEX' "$snippet_file"; then
+    create_snippet_indexes
+  fi
+
   if run_psql_file "$snippet_file"; then
     echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
     sql_pass_count=$((sql_pass_count + 1))
@@ -110,6 +124,12 @@ django_fail_count=0
 
 while IFS= read -r snippet_file; do
   rel_snippet="${snippet_file#"$REPO_ROOT"/}"
+
+  drop_snippet_indexes
+
+  if ! grep -Eq 'schema_editor\.add_index' "$snippet_file"; then
+    create_snippet_indexes
+  fi
 
   if {
     cat "${SCRIPT_DIR}/django_snippet_harness.py"
@@ -134,6 +154,12 @@ rails_fail_count=0
 
 while IFS= read -r snippet_file; do
   rel_snippet="${snippet_file#"$REPO_ROOT"/}"
+
+  drop_snippet_indexes
+
+  if ! grep -Fq 'add_bm25_index' "$snippet_file"; then
+    create_snippet_indexes
+  fi
 
   if {
     cat "${SCRIPT_DIR}/rails_snippet_harness.rb"
@@ -161,9 +187,15 @@ sqlalchemy_fail_count=0
 while IFS= read -r snippet_file; do
   rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
+  drop_snippet_indexes
+
+  if ! grep -Fq 'idx.create' "$snippet_file"; then
+    create_snippet_indexes
+  fi
+
   if {
     cat <<PY
-from sqlalchemy_snippet_harness import MockItem, Order, engine
+from sqlalchemy_snippet_harness import MockItem, Order, ArrayDemo, engine
 
 # Source: $rel_snippet
 PY

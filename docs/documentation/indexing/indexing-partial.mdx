@@ -10,12 +10,68 @@ This can reduce index size and improve performance when you only query a subset 
 
 The BM25 index supports partial indexes using the same syntax as PostgreSQL.
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description, category)
 WITH (key_field='id')
 WHERE description IS NOT NULL;
 ```
+
+```python Django
+from django.db import connection
+from django.db.models import Q
+from paradedb.indexes import BM25Index
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        MockItem,
+        BM25Index(
+            fields={
+                "id": {},
+                "description": {},
+                "category": {},
+            },
+            key_field="id",
+            name="search_idx",
+            condition=Q(description__isnull=False),
+        ),
+    )
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing
+
+idx = Index(
+    "search_idx",
+    indexing.BM25Field(MockItem.id),
+    indexing.BM25Field(MockItem.description),
+    indexing.BM25Field(MockItem.category),
+    postgresql_using="bm25",
+    postgresql_with={"key_field": "id"},
+    postgresql_where=MockItem.description.is_not(None),
+)
+
+with engine.begin() as conn:
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_bm25_index(
+  :mock_items,
+  fields: {
+    id: {},
+    description: {},
+    category: {}
+  },
+  key_field: :id,
+  name: :search_idx,
+  where: "description IS NOT NULL"
+)
+```
+
+</CodeGroup>
 
 An important note: if the BM25 index has a `WHERE` condition, queries **must have the same `WHERE` condition** in order for the index to be used.
 A query that does not contain the `WHERE` condition will fall back to a sequential scan, which does not support all of

@@ -155,12 +155,15 @@ pub struct DsmMesh {
 lazy_static::lazy_static! {
     pub static ref DSM_MESH: Mutex<Option<DsmMesh>> = Mutex::new(None);
     /// In-process bypass receivers for self-directed exchange data.
-    pub static ref LOCAL_BYPASS: Mutex<HashMap<LogicalStreamId, std::sync::mpsc::Receiver<RecordBatch>>> =
+    /// Uses tokio::sync::mpsc so the consumer properly returns Pending (instead of
+    /// spin-waiting) when the channel is empty, allowing the LocalSet to schedule
+    /// other tasks (control service, producers) efficiently.
+    pub static ref LOCAL_BYPASS: Mutex<HashMap<LogicalStreamId, tokio::sync::mpsc::UnboundedReceiver<RecordBatch>>> =
         Mutex::new(HashMap::default());
     /// In-process bypass senders, pre-created in register_stream_source and
     /// taken by the producer task. When the producer finishes and drops the sender,
     /// the channel disconnects and the consumer stops.
-    pub static ref BYPASS_SENDERS: Mutex<HashMap<LogicalStreamId, std::sync::mpsc::Sender<RecordBatch>>> =
+    pub static ref BYPASS_SENDERS: Mutex<HashMap<LogicalStreamId, tokio::sync::mpsc::UnboundedSender<RecordBatch>>> =
         Mutex::new(HashMap::default());
 }
 
@@ -188,10 +191,14 @@ pub fn register_stream_source(source: StreamSource, participant_id: ParticipantI
     // Pre-create the local bypass channel for this exchange's self-partition.
     // The consumer will take the receiver during create_consumer_stream.
     // The producer will retrieve the sender during producer_task.
-    if source.config.mode == ExchangeMode::Redistribute {
-        let (tx, rx) = std::sync::mpsc::channel();
+    // Both Redistribute and Gather modes use bypass channels to avoid ring-buffer
+    // IPC for self-directed data. Without this, Gather mode routes self-partition
+    // data through shared memory, which adds serialization overhead and can cause
+    // deadlocks when the ring buffer fills faster than the single-threaded LocalSet
+    // can drain it.
+    {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let mut bypass = LOCAL_BYPASS.lock();
-        // Store the receiver for the consumer. The sender goes into BYPASS_SENDERS.
         bypass.insert(source.config.stream_id, rx);
         let mut senders = BYPASS_SENDERS.lock();
         senders.insert(source.config.stream_id, tx);
@@ -699,17 +706,13 @@ impl DsmExchangeExec {
 
                 for i in 0..total_participants {
                     // Self-partition: bypass ring buffer, send directly via channel.
+                    // Both Redistribute and Gather modes use bypass channels.
                     if i == participant_index {
                         if let Some(ref tx) = local_tx {
                             while let Some(batch) = out_queues[i].pop_front() {
                                 let _ = tx.send(batch);
                                 progress = true;
                             }
-                        } else {
-                            // No bypass channel — write through ring buffer like remote
-                            // (fallback for Gather mode which doesn't use bypass)
-                        }
-                        if local_tx.is_some() {
                             continue;
                         }
                     }
@@ -868,37 +871,16 @@ impl DsmExchangeExec {
                 for i in 0..total_participants {
                     if i == participant_index {
                         // Self-partition: read from local bypass channel (no IPC overhead).
+                        // Uses tokio::sync::mpsc so recv() properly returns Pending when
+                        // empty, allowing the LocalSet to schedule other tasks instead of
+                        // spin-waiting.
                         let rx = {
                             let mut guard = LOCAL_BYPASS.lock();
                             guard.remove(&self.config.stream_id)
                         };
                         if let Some(rx) = rx {
-                            let schema_clone = schema.clone();
-                            let stream = futures::stream::unfold(rx, move |rx| {
-                                let s = schema_clone.clone();
-                                async move {
-                                    match rx.try_recv() {
-                                        Ok(batch) => Some((Ok(batch), rx)),
-                                        Err(std::sync::mpsc::TryRecvError::Empty) => {
-                                            // Yield and retry
-                                            tokio::task::yield_now().await;
-                                            match rx.try_recv() {
-                                                Ok(batch) => Some((Ok(batch), rx)),
-                                                Err(
-                                                    std::sync::mpsc::TryRecvError::Disconnected,
-                                                ) => None,
-                                                Err(std::sync::mpsc::TryRecvError::Empty) => {
-                                                    Some((Ok(RecordBatch::new_empty(s)), rx))
-                                                }
-                                            }
-                                        }
-                                        Err(std::sync::mpsc::TryRecvError::Disconnected) => None,
-                                    }
-                                }
-                            })
-                            .filter(|batch| {
-                                let keep = batch.as_ref().map_or(true, |b| b.num_rows() > 0);
-                                futures::future::ready(keep)
+                            let stream = futures::stream::unfold(rx, |mut rx| async move {
+                                rx.recv().await.map(|batch| (Ok(batch), rx))
                             });
                             readers.push(Box::pin(RecordBatchStreamAdapter::new(
                                 schema.clone(),
@@ -958,14 +940,52 @@ impl DsmExchangeExec {
                     }
                 }
 
-                // Leader: Pull Partition `partition` from Worker `partition`.
-                // Send StartStream to trigger the worker's producer task.
+                // Leader: Pull Partition `partition`.
+                if partition == participant_index {
+                    // Self-partition: use bypass channel instead of ring buffer.
+                    // This avoids serialization overhead and prevents deadlocks
+                    // when the producer and consumer share the same LocalSet.
+                    let rx = {
+                        let mut guard = LOCAL_BYPASS.lock();
+                        guard.remove(&self.config.stream_id)
+                    };
+                    if let Some(rx) = rx {
+                        // We still need to send StartStream to trigger the producer.
+                        let physical_id = PhysicalStreamId::new(
+                            self.config.stream_id,
+                            ParticipantId(partition as u16),
+                        );
+                        crate::mpp_log!(
+                            "MPP Gather: sending StartStream({physical_id:?}) to self (bypass)"
+                        );
+                        let guard = DSM_MESH.lock();
+                        if let Some(mesh) = guard.as_ref() {
+                            if partition < mesh.transport.mux_readers.len() {
+                                let mut reader_mux = mesh.transport.mux_readers[partition].lock();
+                                let _ = reader_mux.start_stream(physical_id);
+                            }
+                        }
+                        drop(guard);
+
+                        let stream = futures::stream::unfold(rx, |mut rx| async move {
+                            rx.recv().await.map(|batch| (Ok(batch), rx))
+                        });
+                        return Ok(Box::pin(RecordBatchStreamAdapter::new(
+                            schema,
+                            Box::pin(stream),
+                        )));
+                    }
+                    // Fallback: no bypass channel, use ring buffer path below
+                }
+
+                // Remote partition (or fallback): send StartStream to trigger
+                // the worker's producer task.
                 {
                     let physical_id = PhysicalStreamId::new(
                         self.config.stream_id,
                         ParticipantId(partition as u16),
                     );
-                    pgrx::warning!(
+                    crate::mpp_log!(
                         "MPP Gather: sending StartStream({physical_id:?}) to partition {partition}"
                     );
                     let guard = DSM_MESH.lock();

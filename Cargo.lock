@@ -5218,7 +5218,7 @@ dependencies = [
 [[package]]
 name = "ownedbytes"
 version = "0.9.0"
-source = "git+https://github.com/paradedb/tantivy.git?branch=vector-search#1e0c9c9e4fc62f82ebc85bec8f1e937431588258"
+source = "git+https://github.com/paradedb/tantivy.git?branch=vector-search#d9697ebeb3f95b58fc3ad9968ceee6e4dd05c40e"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -7813,7 +7813,7 @@ dependencies = [
 [[package]]
 name = "tantivy"
 version = "0.26.0"
-source = "git+https://github.com/paradedb/tantivy.git?branch=vector-search#1e0c9c9e4fc62f82ebc85bec8f1e937431588258"
+source = "git+https://github.com/paradedb/tantivy.git?branch=vector-search#d9697ebeb3f95b58fc3ad9968ceee6e4dd05c40e"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -7871,7 +7871,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.9.0"
-source = "git+https://github.com/paradedb/tantivy.git?branch=vector-search#1e0c9c9e4fc62f82ebc85bec8f1e937431588258"
+source = "git+https://github.com/paradedb/tantivy.git?branch=vector-search#d9697ebeb3f95b58fc3ad9968ceee6e4dd05c40e"
 dependencies = [
  "bitpacking",
 ]
@@ -7879,7 +7879,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?branch=vector-search#1e0c9c9e4fc62f82ebc85bec8f1e937431588258"
+source = "git+https://github.com/paradedb/tantivy.git?branch=vector-search#d9697ebeb3f95b58fc3ad9968ceee6e4dd05c40e"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -7894,7 +7894,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.10.0"
-source = "git+https://github.com/paradedb/tantivy.git?branch=vector-search#1e0c9c9e4fc62f82ebc85bec8f1e937431588258"
+source = "git+https://github.com/paradedb/tantivy.git?branch=vector-search#d9697ebeb3f95b58fc3ad9968ceee6e4dd05c40e"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -7927,7 +7927,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.25.0"
-source = "git+https://github.com/paradedb/tantivy.git?branch=vector-search#1e0c9c9e4fc62f82ebc85bec8f1e937431588258"
+source = "git+https://github.com/paradedb/tantivy.git?branch=vector-search#d9697ebeb3f95b58fc3ad9968ceee6e4dd05c40e"
 dependencies = [
  "fnv",
  "nom 7.1.3",
@@ -7939,7 +7939,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?branch=vector-search#1e0c9c9e4fc62f82ebc85bec8f1e937431588258"
+source = "git+https://github.com/paradedb/tantivy.git?branch=vector-search#d9697ebeb3f95b58fc3ad9968ceee6e4dd05c40e"
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -7952,7 +7952,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?branch=vector-search#1e0c9c9e4fc62f82ebc85bec8f1e937431588258"
+source = "git+https://github.com/paradedb/tantivy.git?branch=vector-search#d9697ebeb3f95b58fc3ad9968ceee6e4dd05c40e"
 dependencies = [
  "fixedbitset",
  "murmurhash32",
@@ -7989,7 +7989,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?branch=vector-search#1e0c9c9e4fc62f82ebc85bec8f1e937431588258"
+source = "git+https://github.com/paradedb/tantivy.git?branch=vector-search#d9697ebeb3f95b58fc3ad9968ceee6e4dd05c40e"
 dependencies = [
  "serde",
 ]

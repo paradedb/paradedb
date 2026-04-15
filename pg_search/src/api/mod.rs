@@ -385,6 +385,11 @@ pub enum OrderByFeature {
         inner: Box<OrderByFeature>,
         nulltesttype: NullTestKind,
     },
+    VectorDistance {
+        name: FieldName,
+        rti: u32,
+        query_vector: Vec<f32>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -409,6 +414,7 @@ impl std::fmt::Display for OrderByFeature {
                 };
                 write!(f, "{inner} {test}")
             }
+            Self::VectorDistance { name, .. } => write!(f, "{name} <-> vector"),
         }
     }
 }

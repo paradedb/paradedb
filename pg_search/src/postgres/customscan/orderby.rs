@@ -40,7 +40,7 @@ use crate::schema::{SearchField, SearchIndexSchema};
 use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList};
 
 /// The type of sort expression found in an ORDER BY clause.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SortExpressionType {
     /// Sorting by search score: `ORDER BY pdb.score(...)`
     Score,
@@ -50,6 +50,8 @@ pub enum SortExpressionType {
     Raw,
     /// Sorting by an expression that matched an indexed expression in `pg_index.indexprs`.
     IndexedExpression,
+    /// Sorting by vector distance: `ORDER BY col <-> '[...]'`
+    VectorDistance(Vec<f32>),
 }
 
 /// Reason why pathkeys cannot be used for Top K execution
@@ -221,6 +223,16 @@ pub unsafe fn analyze_sort_expression(
         }
     }
 
+    if let Some((var, query_vector)) = extract_vector_distance(node, context) {
+        let (relid, attno) = context.var_relation(var);
+        let field_name = fieldname_from_var(relid, var, attno);
+        return Some((
+            SortExpressionType::VectorDistance(query_vector),
+            var,
+            field_name,
+        ));
+    }
+
     if let Some(var) = extract_lower_var(node) {
         let (relid, attno) = context.var_relation(var);
         let field_name = fieldname_from_var(relid, var, attno);
@@ -232,6 +244,60 @@ pub unsafe fn analyze_sort_expression(
     }
 
     None
+}
+
+/// Check if an operator OID is pgvector's L2 distance operator (<->).
+fn is_vector_distance_opoid(opoid: pg_sys::Oid) -> bool {
+    use std::sync::OnceLock;
+    static L2_DIST_OPOID: OnceLock<pg_sys::Oid> = OnceLock::new();
+    let cached = *L2_DIST_OPOID.get_or_init(|| unsafe {
+        direct_function_call::<pg_sys::Oid>(
+            pg_sys::regoperatorin,
+            &[c"<->(vector,vector)".into_datum()],
+        )
+        .unwrap_or(pg_sys::Oid::INVALID)
+    });
+    cached != pg_sys::Oid::INVALID && opoid == cached
+}
+
+/// Detect `col <-> '[...]'` vector distance expression.
+/// Returns (column Var, query vector as Vec<f32>) if matched.
+unsafe fn extract_vector_distance(
+    node: *mut pg_sys::Node,
+    _context: VarContext,
+) -> Option<(*mut pg_sys::Var, Vec<f32>)> {
+    let opexpr = nodecast!(OpExpr, T_OpExpr, node)?;
+    if !is_vector_distance_opoid((*opexpr).opno) {
+        return None;
+    }
+
+    let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+    if args.len() != 2 {
+        return None;
+    }
+
+    let left = args.get_ptr(0)?;
+    let right = args.get_ptr(1)?;
+
+    // left should be a Var (column reference), right should be a Const (query vector)
+    let (var_node, const_node) = if !left.is_null() && (*left).type_ == pg_sys::NodeTag::T_Var {
+        (left as *mut pg_sys::Var, right)
+    } else if !right.is_null() && (*right).type_ == pg_sys::NodeTag::T_Var {
+        (right as *mut pg_sys::Var, left)
+    } else {
+        return None;
+    };
+
+    // Extract the constant vector value
+    let const_node = nodecast!(Const, T_Const, const_node)?;
+    if (*const_node).constisnull {
+        return None;
+    }
+
+    let datum = (*const_node).constvalue;
+    let query_vector = crate::postgres::types::extract_pgvector_floats_from_datum(datum);
+
+    Some((var_node, query_vector))
 }
 
 /// Extract FuncExpr from PlaceHolderVar node
@@ -400,6 +466,18 @@ where
                             }
                         }
                     }
+                    SortExpressionType::VectorDistance(ref query_vector) => {
+                        if let Some(field_name) = field_name_opt {
+                            pathkey_styles.push(OrderByStyle::VectorDistance {
+                                pathkey,
+                                name: field_name,
+                                rti,
+                                query_vector: query_vector.clone(),
+                            });
+                            found_valid_member = true;
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -550,6 +628,10 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 if !search_field.is_fast() {
                     return false;
                 }
+            }
+            SortExpressionType::VectorDistance(_) => {
+                // Vector distance is always valid if the field exists in the index
+                continue;
             }
         }
     }

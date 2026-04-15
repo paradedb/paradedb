@@ -370,6 +370,7 @@ impl SearchIndexReader {
 
         let directory = mvcc_style.directory(index_relation);
         let mut index = Index::open(directory.clone())?;
+        crate::vector::register_vector_plugins(&mut index);
         let total_segment_count = directory
             .total_segment_count()
             .load(std::sync::atomic::Ordering::Relaxed);
@@ -914,6 +915,35 @@ impl SearchIndexReader {
                 feature: OrderByFeature::NullTest { .. },
                 ..
             } => unreachable!("NullTest ORDER BY is only used in JoinScan"),
+            OrderByInfo {
+                feature:
+                    OrderByFeature::VectorDistance {
+                        name, query_vector, ..
+                    },
+                direction,
+            } => {
+                let field = self
+                    .schema
+                    .search_field(name)
+                    .expect("vector field should exist in index schema");
+                let tantivy_field = field.field();
+                let order: ComparatorEnum = (*direction).into();
+                let sort_computer = tantivy::collector::sort_key::SortByVectorDistance::new(
+                    query_vector.clone(),
+                    tantivy_field,
+                );
+                TopKSearchResults::new_for_discarded_field(
+                    &self.searcher,
+                    self.top_in_segments(
+                        segment_ids,
+                        (sort_computer, order),
+                        erased_features,
+                        n,
+                        offset,
+                        aux_collector,
+                    ),
+                )
+            }
         }
     }
 
@@ -1394,6 +1424,13 @@ impl SearchIndexReader {
                     feature: OrderByFeature::NullTest { .. },
                     ..
                 } => unreachable!("NullTest ORDER BY is only used in JoinScan"),
+                OrderByInfo {
+                    feature: OrderByFeature::VectorDistance { .. },
+                    ..
+                } => {
+                    // Vector distance cannot be a secondary sort key
+                    unimplemented!("Vector distance ORDER BY can only be the primary sort key")
+                }
             }
         }
 

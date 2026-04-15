@@ -35,6 +35,12 @@ pub enum OrderByStyle {
         name: FieldName,
         rti: u32,
     },
+    VectorDistance {
+        pathkey: *mut pg_sys::PathKey,
+        name: FieldName,
+        rti: u32,
+        query_vector: Vec<f32>,
+    },
 }
 
 impl OrderByStyle {
@@ -42,6 +48,7 @@ impl OrderByStyle {
         match self {
             OrderByStyle::Score { pathkey, .. } => *pathkey,
             OrderByStyle::Field { pathkey, .. } => *pathkey,
+            OrderByStyle::VectorDistance { pathkey, .. } => *pathkey,
         }
     }
 
@@ -92,6 +99,16 @@ impl From<&OrderByStyle> for OrderByInfo {
                 rti: *rti,
             },
             OrderByStyle::Score { rti, .. } => OrderByFeature::Score { rti: *rti },
+            OrderByStyle::VectorDistance {
+                name,
+                rti,
+                query_vector,
+                ..
+            } => OrderByFeature::VectorDistance {
+                name: name.to_owned(),
+                rti: *rti,
+                query_vector: query_vector.clone(),
+            },
         };
         OrderByInfo {
             feature,

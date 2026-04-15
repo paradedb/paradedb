@@ -22,8 +22,8 @@ use crate::nodecast;
 use crate::postgres::var::identity_ops::IdentityOp;
 use pgrx::pg_sys::NodeTag::{T_CoerceViaIO, T_Const, T_OpExpr, T_RelabelType, T_Var};
 use pgrx::pg_sys::{expression_tree_walker, CoerceViaIO, Const, OpExpr, RelabelType, Var};
-use pgrx::PgOid;
 use pgrx::{is_a, pg_guard, pg_sys, FromDatum, PgList, PgRelation};
+use pgrx::{AnyNumeric, PgOid};
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use std::sync::OnceLock;
@@ -183,6 +183,9 @@ unsafe fn is_identity_operation(
             pg_sys::INT8OID => i64::from_datum(datum, false) == Some(expected),
             pg_sys::FLOAT4OID => f32::from_datum(datum, false) == Some(expected as f32),
             pg_sys::FLOAT8OID => f64::from_datum(datum, false) == Some(expected as f64),
+            pg_sys::NUMERICOID => {
+                AnyNumeric::from_datum(datum, false) == Some(AnyNumeric::from(expected))
+            }
             _ => false,
         }
     };

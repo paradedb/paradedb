@@ -1309,7 +1309,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
             // Chain strip_wrappers (for PlaceHolderVar/RelabelType) then
-            // unwrap_order_preserving (for identity OpExpr like `id + 0`).
+            // strip_identity_wrappers (for identity OpExpr like `id + 0`).
             let mut expr = strip_identity_wrappers(strip_wrappers(expr.cast()));
 
             // Unwrap NullTest to inspect the inner expression

@@ -203,10 +203,20 @@ impl Property {
         }
     }
 
+    /// Truncates f64 → f32 and i64 → f32. Safe for small magnitudes;
+    /// do not use for values where precision matters.
     pub fn as_f32(&self) -> Option<f32> {
         match self {
             Property::Float(_, v) => Some(*v as f32),
             Property::Integer(_, i) => Some(*i as f32),
+            _ => None,
+        }
+    }
+
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            Property::Float(_, v) => Some(*v),
+            Property::Integer(_, i) => Some(*i as f64),
             _ => None,
         }
     }

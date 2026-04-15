@@ -149,7 +149,7 @@ impl ValueConstraint {
                 }
             }
             ValueConstraint::Float { min, max } => {
-                if let Some(v) = prop.as_f32().map(|v| v as f64) {
+                if let Some(v) = prop.as_f64() {
                     if let Some(min_val) = min {
                         if v < *min_val {
                             return Err(ValidationError::InvalidValue {
@@ -279,7 +279,7 @@ impl TypmodSchema {
                     "k1",
                     ValueConstraint::Float {
                         min: Some(0.0),
-                        max: None
+                        max: Some(100.0)
                     }
                 ),
                 rule!(

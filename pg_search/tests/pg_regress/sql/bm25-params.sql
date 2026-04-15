@@ -34,7 +34,8 @@ ORDER BY pdb.score(id) DESC, id;
 DROP INDEX bm25_default_idx;
 
 -- =============================================================================
--- TEST 2: k1=0 disables term frequency — all matching docs score the same
+-- TEST 2: k1=0 removes term-frequency weighting; score becomes pure IDF.
+--         With a single-term query, all matching docs tie at the same IDF value.
 -- =============================================================================
 
 CREATE INDEX bm25_low_k1_idx ON bm25_params_test
@@ -124,6 +125,83 @@ DROP INDEX bm25_high_k1_idx;
 CREATE INDEX bm25_invalid_idx ON bm25_params_test
 USING bm25 (id, (short_text::pdb.simple('b=1.5')))
 WITH (key_field='id');
+
+-- =============================================================================
+-- TEST 8: Validation — b < 0 should error
+-- =============================================================================
+
+CREATE INDEX bm25_invalid_idx ON bm25_params_test
+USING bm25 (id, (short_text::pdb.simple('b=-0.1')))
+WITH (key_field='id');
+
+-- =============================================================================
+-- TEST 9: Validation — k1 < 0 should error
+-- =============================================================================
+
+CREATE INDEX bm25_invalid_idx ON bm25_params_test
+USING bm25 (id, (short_text::pdb.simple('k1=-0.5')))
+WITH (key_field='id');
+
+-- =============================================================================
+-- TEST 10: Validation — k1 = non-numeric should error
+-- =============================================================================
+
+CREATE INDEX bm25_invalid_idx ON bm25_params_test
+USING bm25 (id, (short_text::pdb.simple('k1=abc')))
+WITH (key_field='id');
+
+-- =============================================================================
+-- TEST 11: k1 + b on a JSON field
+-- =============================================================================
+
+DROP TABLE IF EXISTS bm25_json_test CASCADE;
+CREATE TABLE bm25_json_test (
+    id INTEGER PRIMARY KEY,
+    data JSONB
+);
+
+INSERT INTO bm25_json_test (id, data) VALUES
+(1, '{"text": "search search search"}'),
+(2, '{"text": "search engine"}'),
+(3, '{"text": "database query"}');
+
+CREATE INDEX bm25_json_idx ON bm25_json_test
+USING bm25 (id, (data::pdb.simple('k1=0.5', 'b=0.3')))
+WITH (key_field='id');
+
+SELECT id, round(pdb.score(id)::numeric, 4) AS score
+FROM bm25_json_test
+WHERE data @@@ paradedb.term('data.text', 'search')
+ORDER BY pdb.score(id) DESC, id;
+
+DROP TABLE bm25_json_test CASCADE;
+
+-- =============================================================================
+-- TEST 12: Round-trip — create with custom k1, query, drop, recreate with
+--          defaults, assert scores differ
+-- =============================================================================
+
+CREATE INDEX bm25_custom_idx ON bm25_params_test
+USING bm25 (id, (short_text::pdb.simple('k1=5.0', 'b=0.0')))
+WITH (key_field='id');
+
+SELECT id, round(pdb.score(id)::numeric, 4) AS score
+FROM bm25_params_test
+WHERE short_text @@@ 'search'
+ORDER BY pdb.score(id) DESC, id;
+
+DROP INDEX bm25_custom_idx;
+
+CREATE INDEX bm25_default_roundtrip_idx ON bm25_params_test
+USING bm25 (id, short_text)
+WITH (key_field='id');
+
+SELECT id, round(pdb.score(id)::numeric, 4) AS score
+FROM bm25_params_test
+WHERE short_text @@@ 'search'
+ORDER BY pdb.score(id) DESC, id;
+
+DROP INDEX bm25_default_roundtrip_idx;
 
 -- =============================================================================
 -- CLEANUP

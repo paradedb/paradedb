@@ -549,6 +549,34 @@ pub fn execute_aggregate(
 pub const NULL_SENTINEL_MIN: &str = "\u{0000}\u{0000}\u{0000}\u{0000}__PDB_NULL__"; // Sorts BEFORE other strings
 pub const NULL_SENTINEL_MAX: &str = "\u{10FFFF}\u{10FFFF}\u{10FFFF}\u{10FFFF}__PDB_NULL__"; // Sorts AFTER other strings (max Unicode codepoint)
 
+pub fn scrub_null_sentinels(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut keys_to_nullify = Vec::new();
+            for (k, v) in map.iter() {
+                if k.contains("__PDB_NULL__") {
+                    keys_to_nullify.push(k.to_string());
+                }
+                scrub_null_sentinels(v);
+            }
+            for k in keys_to_nullify {
+                map.insert(k, serde_json::Value::Null);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                scrub_null_sentinels(v);
+            }
+        }
+        serde_json::Value::String(s) => {
+            if s.contains("__PDB_NULL__") {
+                *value = serde_json::Value::Null;
+            }
+        }
+        _ => {}
+    }
+}
+
 // recursively set a `missing` bucket on all terms aggregations so NULL values produce a group
 fn set_missing_on_terms(
     aggs: &mut Aggregations,

@@ -54,7 +54,7 @@ use std::error::Error;
 use pgrx::{default, pg_extern, Json, JsonB, PgRelation};
 use serde::{Deserialize, Serialize};
 
-use crate::aggregate::{execute_aggregate, AggregateRequest};
+use crate::aggregate::{execute_aggregate, scrub_null_sentinels, AggregateRequest};
 use crate::gucs;
 use crate::postgres::customscan::aggregatescan::aggregate_type::validate_agg_json_fields;
 use crate::postgres::rel::PgSearchRelation;
@@ -106,7 +106,9 @@ fn aggregate_impl(
     if aggregate.0.is_empty() {
         Ok(JsonB(serde_json::Value::Null))
     } else {
-        Ok(JsonB(serde_json::to_value(aggregate)?))
+        let mut val = serde_json::to_value(aggregate)?;
+        scrub_null_sentinels(&mut val);
+        Ok(JsonB(val))
     }
 }
 

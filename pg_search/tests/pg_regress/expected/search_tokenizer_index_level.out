@@ -107,7 +107,7 @@ SELECT id, content FROM param_test WHERE content ||| 'running' ORDER BY id;
 CREATE INDEX idx_bad ON autocomplete
     USING bm25 (id, (title::pdb.ngram(1, 10, 'search_tokenizer=unicode_words')))
     WITH (key_field = 'id');
-ERROR:  Invalid option: 'search_tokenizer'. Allowed options: alias, alpha_num_only, ascii_folding, columnar, fieldnorms, lowercase, max, min, normalizer, positions, prefix_only, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
+ERROR:  Invalid option: 'search_tokenizer'. Allowed options: alias, alpha_num_only, ascii_folding, b, columnar, fieldnorms, k1, lowercase, max, min, normalizer, positions, prefix_only, remove_long, remove_short, stemmer, stopwords, stopwords_language, trim.
 -------------------------------------------------------------
 -- Cleanup
 -------------------------------------------------------------

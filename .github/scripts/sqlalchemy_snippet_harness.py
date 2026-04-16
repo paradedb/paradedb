@@ -20,7 +20,7 @@ from sqlalchemy import (
     Time,
     create_engine,
 )
-from sqlalchemy.dialects.postgresql import INT4RANGE, JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, INT4RANGE, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -75,11 +75,21 @@ class Order(Base):
     customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
 
 
+class ArrayDemo(Base):
+    """Read-only model used by docs snippets that target `array_demo`."""
+
+    __tablename__ = "array_demo"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    categories: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False)
+
+
 engine = create_engine(DATABASE_URL, future=True)
 
 __all__ = [
     "Base",
     "DATABASE_URL",
+    "ArrayDemo",
     "MockItem",
     "Order",
     "engine",

@@ -9,19 +9,137 @@ This enables fast [filtering pushdown](/documentation/filtering#filter-pushdown)
 [aggregates](/documentation/aggregates/overview) over these fields. For example, in the following index definition, `rating` and `id` are columnar indexed
 because they are integers, whereas `description` is not because it is text.
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description, rating)
 WITH (key_field = 'id');
 ```
 
+```python Django
+from django.db import connection
+from paradedb.indexes import BM25Index
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        MockItem,
+        BM25Index(
+            fields={
+                "id": {},
+                "description": {},
+                "rating": {},
+            },
+            key_field="id",
+            name="search_idx",
+        ),
+    )
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing
+
+idx = Index(
+    "search_idx",
+    indexing.BM25Field(MockItem.id),
+    indexing.BM25Field(MockItem.description),
+    indexing.BM25Field(MockItem.rating),
+    postgresql_using="bm25",
+    postgresql_with={"key_field": "id"},
+)
+
+with engine.begin() as conn:
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_bm25_index(
+  :mock_items,
+  fields: {
+    id: {},
+    description: {},
+    rating: {}
+  },
+  key_field: :id,
+  name: :search_idx
+)
+```
+
+</CodeGroup>
+
 To enable columnar indexing for text and JSON fields, cast the field to a [tokenizer](/documentation/tokenizers/overview) with `columnar` set to `true`.
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.unicode_words('columnar=true')), rating)
 WITH (key_field = 'id');
 ```
+
+```python Django
+from django.db import connection
+from paradedb.indexes import BM25Index
+
+with connection.schema_editor() as schema_editor:
+    schema_editor.add_index(
+        MockItem,
+        BM25Index(
+            fields={
+                "id": {},
+                "description": {
+                    "tokenizer": "unicode_words",
+                    "named_args": {"columnar": True},
+                },
+                "rating": {},
+            },
+            key_field="id",
+            name="search_idx",
+        ),
+    )
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing
+
+idx = Index(
+    "search_idx",
+    indexing.BM25Field(MockItem.id),
+    indexing.BM25Field(
+        MockItem.description,
+        tokenizer=indexing.tokenize.from_config(
+            {
+                "tokenizer": "unicode_words",
+                "named_args": {"columnar": True},
+            }
+        ),
+    ),
+    indexing.BM25Field(MockItem.rating),
+    postgresql_using="bm25",
+    postgresql_with={"key_field": "id"},
+)
+
+with engine.begin() as conn:
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_bm25_index(
+  :mock_items,
+  fields: {
+    id: {},
+    description: {
+      tokenizer: :unicode_words,
+      named_args: { columnar: true }
+    },
+    rating: {}
+  },
+  key_field: :id,
+  name: :search_idx
+)
+```
+
+</CodeGroup>
 
 <Note>
   The `columnar` option for tokenizers is available in versions `0.22.0` and

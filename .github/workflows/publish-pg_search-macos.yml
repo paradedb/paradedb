@@ -119,6 +119,7 @@ jobs:
           echo version=$version >> $GITHUB_OUTPUT
 
       - name: Install pgrx
+        if: steps.cache-pgrx.outputs.cache-hit != 'true'
         run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
       - name: Initialize pgrx for Current PostgreSQL Version

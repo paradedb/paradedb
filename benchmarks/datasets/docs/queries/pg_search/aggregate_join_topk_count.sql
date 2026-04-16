@@ -33,7 +33,7 @@ ORDER BY
 LIMIT 10;
 
 -- MPP TopK aggregate scan
-SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SET paradedb.enable_mpp_join TO on; SELECT
+SET statement_timeout TO '120s'; SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SET paradedb.enable_mpp_join TO on; SELECT
     f.title,
     COUNT(*)
 FROM files f

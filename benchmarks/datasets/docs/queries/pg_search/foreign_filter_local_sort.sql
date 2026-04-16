@@ -33,7 +33,7 @@ ORDER BY
 LIMIT 20;
 
 -- MPP join scan
-SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SET paradedb.enable_mpp_join TO on; SELECT
+SET statement_timeout TO '120s'; SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SET paradedb.enable_mpp_join TO on; SELECT
     f.id,
     f.title,
     f."createdAt",

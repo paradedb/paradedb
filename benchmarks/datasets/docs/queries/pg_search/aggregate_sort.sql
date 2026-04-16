@@ -31,7 +31,7 @@ ORDER BY
 LIMIT 10;
 
 -- MPP join scan
-SET paradedb.enable_join_custom_scan TO on; SET paradedb.enable_mpp_join TO on; SELECT
+SET statement_timeout TO '120s'; SET paradedb.enable_join_custom_scan TO on; SET paradedb.enable_mpp_join TO on; SELECT
     f.id,
     f.title,
     MAX(p."createdAt") as last_activity

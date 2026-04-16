@@ -17,7 +17,7 @@ JOIN pages p ON f.id = p."fileId"
 WHERE f.content ||| 'Section';
 
 -- MPP aggregate scan
-SET paradedb.enable_aggregate_custom_scan TO on; SET paradedb.enable_mpp_join TO on; SELECT COUNT(*)
+SET statement_timeout TO '120s'; SET paradedb.enable_aggregate_custom_scan TO on; SET paradedb.enable_mpp_join TO on; SELECT COUNT(*)
 FROM files f
 JOIN pages p ON f.id = p."fileId"
 WHERE f.content ||| 'Section';

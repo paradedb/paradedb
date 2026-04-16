@@ -199,7 +199,7 @@ impl Drop for SignalOnDrop {
 }
 
 pub fn trigger_stream(physical_stream_id: PhysicalStreamId, context: Arc<TaskContext>) {
-    crate::mpp_log!("MPP exchange: trigger_stream({physical_stream_id:?})");
+    pgrx::warning!("MPP exchange: trigger_stream({physical_stream_id:?})");
     let mut guard = DSM_MESH.lock();
     let mesh = guard.as_mut().expect("DSM mesh not registered");
     let mut registry = mesh.registry.lock();
@@ -664,6 +664,18 @@ impl DsmExchangeExec {
 
         let mut input_done = false;
         let bridge = get_dsm_bridge();
+        let mut total_batches: u64 = 0;
+        let mut total_rows: u64 = 0;
+        let mut blocked_count: u64 = 0;
+
+        pgrx::warning!(
+            "MPP producer_task: stream_id={}, mode={:?}, participant={}/{}, input_partitions={}",
+            config.stream_id.0,
+            config.mode,
+            participant_index,
+            total_participants,
+            num_partitions,
+        );
 
         poll_fn(|cx| {
             loop {
@@ -726,6 +738,8 @@ impl DsmExchangeExec {
                 if !input_done {
                     match input_stream.as_mut().poll_next(cx) {
                         Poll::Ready(Some(Ok(batch))) => {
+                            total_rows += batch.num_rows() as u64;
+                            total_batches += 1;
                             match config.mode {
                                 ExchangeMode::Redistribute => {
                                     partitioner
@@ -749,6 +763,10 @@ impl DsmExchangeExec {
                         Poll::Ready(None) => {
                             input_done = true;
                             progress = true; // State change counts as progress
+                            pgrx::warning!(
+                                "MPP producer_task: stream_id={} input done, {} batches, {} rows, {} blocked",
+                                config.stream_id.0, total_batches, total_rows, blocked_count,
+                            );
                         }
                         Poll::Pending => {
                             // Input not ready
@@ -760,14 +778,14 @@ impl DsmExchangeExec {
                     return Poll::Ready(());
                 }
 
-                // If blocked on any ring buffer write, yield immediately even if
-                // other queues made progress. This is critical: without yielding,
+                // If blocked on any ring buffer write, yield immediately. This is critical: without yielding,
                 // the producer can cycle indefinitely writing to self-partition
                 // ring buffers (which the local consumer drains), starving the
                 // tokio IO driver. Remote participants signal space-available via
                 // UDS, which only fires when the IO driver polls — and that only
                 // happens when ALL LocalSet tasks return Pending.
                 if blocked_on_write {
+                    blocked_count += 1;
                     bridge.register_waker(cx.waker().clone(), None);
                     return Poll::Pending;
                 }
@@ -783,6 +801,14 @@ impl DsmExchangeExec {
             }
         })
         .await;
+
+        pgrx::warning!(
+            "MPP producer_task: stream_id={} COMPLETE, {} batches, {} rows, {} blocked",
+            config.stream_id.0,
+            total_batches,
+            total_rows,
+            blocked_count,
+        );
 
         for writer in writers {
             let _ = writer.finish();

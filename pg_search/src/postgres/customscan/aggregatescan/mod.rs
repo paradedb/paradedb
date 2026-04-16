@@ -1066,10 +1066,16 @@ impl AggregateScan {
                 use crate::postgres::customscan::joinscan::{exchange, transport::TransportMesh};
                 use crate::scan::codec::serialize_logical_plan;
 
+                pgrx::warning!("MPP AggregateScan: {} participants launched", nlaunched);
+
                 // Serialize logical plan for broadcast
                 let plan_bytes = serialize_logical_plan(&logical_plan).unwrap_or_else(|e| {
                     pgrx::error!("MPP AggregateScan: failed to serialize plan: {e}")
                 });
+                pgrx::warning!(
+                    "MPP AggregateScan: plan serialized ({} bytes), broadcasting",
+                    plan_bytes.len()
+                );
 
                 // Broadcast to workers
                 for (i, reader_mutex) in mux_readers.iter().enumerate() {
@@ -1104,9 +1110,15 @@ impl AggregateScan {
                         pgrx::error!("MPP AggregateScan: physical plan failed: {e}")
                     });
 
+                pgrx::warning!("MPP AggregateScan: physical plan built");
+
                 // Register leader's stream sources
                 let mut sources = Vec::new();
                 exchange::collect_dsm_exchanges(physical_plan.clone(), &mut sources);
+                pgrx::warning!(
+                    "MPP AggregateScan: {} DsmExchangeExec nodes found",
+                    sources.len()
+                );
                 for source in sources {
                     exchange::register_stream_source(
                         source,

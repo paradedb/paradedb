@@ -215,12 +215,24 @@ impl SignalBridge {
     /// Subsequent signals use **non-blocking I/O** and handle `WouldBlock` by silently dropping the signal
     /// (event coalescing), ensuring that the main loop is never stalled by a slow consumer.
     pub fn signal(&self, target_id: ParticipantId) -> std::io::Result<()> {
-        // NOTE: Self-signals intentionally go through UDS (no shortcut).
-        // Direct waker.wake() for self-signals causes LocalSet task cycling
-        // that starves the tokio IO driver, preventing cross-process UDS
-        // signals from being received — deadlocking the MPP exchange.
-        // By routing ALL signals through UDS, the IO driver mediates waking,
-        // ensuring fair scheduling between local tasks and IO events.
+        if target_id == self.participant_id {
+            // Self-signal: directly wake registered wakers without UDS round-trip.
+            let wakers_to_wake: Vec<_> = {
+                let mut guard = self.wakers.lock();
+                let mut to_wake = Vec::new();
+                if let Some(list) = guard.get_mut(&Some(self.participant_id)) {
+                    to_wake.append(list);
+                }
+                if let Some(list) = guard.get_mut(&None) {
+                    to_wake.append(list);
+                }
+                to_wake
+            };
+            for waker in wakers_to_wake {
+                waker.wake();
+            }
+            return Ok(());
+        }
 
         let needs_connect = {
             let guard = self.outgoing.lock();
@@ -230,17 +242,22 @@ impl SignalBridge {
         if needs_connect {
             let name_str = Self::socket_name(self.session_id, target_id)?;
 
+            // Retry connection with backoff. Workers may not have created
+            // their UDS listeners yet when the leader first tries to signal.
+            // Without retry, the signal is silently dropped and the worker
+            // never receives StartStream — deadlocking the exchange.
             let mut stream = loop {
                 match UnixStream::connect(&name_str) {
                     Ok(s) => break s,
                     Err(e) if e.kind() == ErrorKind::Interrupted => continue,
-                    // Safely ignore connection errors if backlog is full or not bound yet
                     Err(e)
                         if e.kind() == ErrorKind::WouldBlock
                             || e.kind() == ErrorKind::ConnectionRefused
                             || e.kind() == ErrorKind::NotFound =>
                     {
-                        return Ok(());
+                        // Worker's listener not ready yet — retry after a short sleep.
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                        continue;
                     }
                     Err(e) => return Err(e),
                 }

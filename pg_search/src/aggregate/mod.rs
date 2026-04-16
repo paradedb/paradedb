@@ -553,7 +553,7 @@ pub fn scrub_null_sentinels(value: &mut serde_json::Value) {
     match value {
         serde_json::Value::Object(map) => {
             let mut keys_to_nullify = Vec::new();
-            for (k, v) in map.iter() {
+            for (k, v) in map.iter_mut() {
                 if k.contains("__PDB_NULL__") {
                     keys_to_nullify.push(k.to_string());
                 }

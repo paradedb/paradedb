@@ -123,6 +123,7 @@ jobs:
           key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
 
       - name: Install pgrx
+        if: steps.cache-pgrx.outputs.cache-hit != 'true'
         run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
       - name: Initialize pgrx environment

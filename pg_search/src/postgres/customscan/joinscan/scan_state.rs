@@ -282,6 +282,17 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
     use super::visibility_filter::VisibilityFilterOptimizerRule;
     use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
 
+    // Skip SortMergeJoinEnforcer in MPP mode: it wraps join inputs in
+    // SortPreservingMergeExec (single-partition output), which collapses the
+    // hash-partitioned DsmExchange streams. A single participant would then be
+    // unable to read data routed to other participants, producing wrong results.
+    let is_mpp = config
+        .options()
+        .extensions
+        .get::<crate::scan::table_provider::MppParticipantConfig>()
+        .map(|c| c.total_participants > 1)
+        .unwrap_or(false);
+
     let mut builder = SessionStateBuilder::new().with_config(config);
 
     // Inject visibility before late materialization so ctid lineage is analyzed
@@ -292,7 +303,7 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
             crate::scan::late_materialization::LateMaterializationRule,
         ));
 
-    if crate::gucs::is_columnar_sort_enabled() {
+    if crate::gucs::is_columnar_sort_enabled() && !is_mpp {
         builder = builder.with_physical_optimizer_rule(Arc::new(SortMergeJoinEnforcer::new()));
     }
 
@@ -339,6 +350,14 @@ pub fn create_datafusion_session_context(profile: SessionContextProfile) -> Sess
         c.options_mut()
             .optimizer
             .hash_join_single_partition_threshold_rows = 0;
+        // HashJoin dynamic filter pushdown is unsafe for MPP: each participant's
+        // HashJoin populates its filter from only its local partition of the
+        // build side, but the probe-side scan (DsmExchange producer) runs
+        // concurrently and sees an uninitialized filter — emitting 0 rows
+        // before the filter is set.
+        c.options_mut()
+            .optimizer
+            .enable_join_dynamic_filter_pushdown = false;
         c
     } else {
         SessionConfig::new().with_target_partitions(1)

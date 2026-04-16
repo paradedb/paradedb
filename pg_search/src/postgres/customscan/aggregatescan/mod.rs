@@ -1209,21 +1209,7 @@ impl AggregateScan {
             let next = {
                 use futures::StreamExt;
                 if let Some(local_set) = df_state.mpp_local_set.as_ref() {
-                    runtime.block_on(local_set.run_until(async {
-                        // Periodically yield to the runtime so the IO driver can
-                        // process cross-process UDS signals from workers, and also
-                        // check for PostgreSQL cancel/timeout signals.
-                        loop {
-                            pgrx::check_for_interrupts!();
-                            tokio::select! {
-                                biased;
-                                result = stream.next() => break result,
-                                _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
-                                    // Timeout: yield to IO driver and retry
-                                }
-                            }
-                        }
-                    }))
+                    runtime.block_on(local_set.run_until(stream.next()))
                 } else {
                     runtime.block_on(async { stream.next().await })
                 }

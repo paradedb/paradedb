@@ -1385,7 +1385,21 @@ impl CustomScan for JoinScan {
                     // concurrently with data consumption — without this, the exchange
                     // would deadlock waiting for StartStream responses.
                     if let Some(local_set) = custom_state.mpp_local_set.as_ref() {
-                        runtime.block_on(local_set.run_until(stream.next()))
+                        runtime.block_on(local_set.run_until(async {
+                            // Periodically yield to the runtime so the IO driver can
+                            // process cross-process UDS signals from workers, and also
+                            // check for PostgreSQL cancel/timeout signals.
+                            loop {
+                                pgrx::check_for_interrupts!();
+                                tokio::select! {
+                                    biased;
+                                    result = stream.next() => break result,
+                                    _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+                                        // Timeout: yield to IO driver and retry
+                                    }
+                                }
+                            }
+                        }))
                     } else {
                         runtime.block_on(async { stream.next().await })
                     }

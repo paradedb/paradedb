@@ -667,6 +667,9 @@ impl DsmExchangeExec {
 
         poll_fn(|cx| {
             loop {
+                // Allow PostgreSQL to process statement_timeout / cancel signals.
+                pgrx::check_for_interrupts!();
+
                 let mut progress = false;
 
                 // 1. Try to drain all queues

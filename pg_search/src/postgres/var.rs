@@ -19,13 +19,186 @@ use crate::api::FieldName;
 use crate::api::HashSet;
 use crate::customscan::operator_oid;
 use crate::nodecast;
+use crate::postgres::var::identity_ops::IdentityOp;
 use pgrx::pg_sys::NodeTag::{T_CoerceViaIO, T_Const, T_OpExpr, T_RelabelType, T_Var};
 use pgrx::pg_sys::{expression_tree_walker, CoerceViaIO, Const, OpExpr, RelabelType, Var};
-use pgrx::PgOid;
 use pgrx::{is_a, pg_guard, pg_sys, FromDatum, PgList, PgRelation};
+use pgrx::{AnyNumeric, PgOid};
 use std::ffi::CStr;
 use std::ptr::addr_of_mut;
 use std::sync::OnceLock;
+
+/// Operator OIDs
+mod identity_ops {
+    use crate::api::HashMap;
+    use crate::postgres::customscan::operator_oid;
+    use pgrx::pg_sys::Oid;
+    use std::sync::OnceLock;
+    use strum::Display;
+
+    #[derive(Copy, Clone, Debug, Display)]
+    pub enum IdentityOp {
+        Add,
+        Sub,
+        Mul,
+        Div,
+    }
+
+    static IDENTITY_OPS: OnceLock<HashMap<Oid, IdentityOp>> = OnceLock::new();
+
+    pub unsafe fn lookup() -> &'static HashMap<Oid, IdentityOp> {
+        IDENTITY_OPS.get_or_init(|| {
+            let mut map = HashMap::default();
+
+            // +(T, T) → Add (identity: 0, either side)
+            for sig in [
+                "+(int4,int4)",
+                "+(int8,int8)",
+                "+(float4,float4)",
+                "+(float8,float8)",
+                "+(numeric,numeric)",
+            ] {
+                map.insert(operator_oid(sig), IdentityOp::Add);
+            }
+
+            // -(T, T) → Sub (identity: 0, right side only)
+            for sig in [
+                "-(int4,int4)",
+                "-(int8,int8)",
+                "-(float4,float4)",
+                "-(float8,float8)",
+                "-(numeric,numeric)",
+            ] {
+                map.insert(operator_oid(sig), IdentityOp::Sub);
+            }
+
+            // *(T, T) → Mul (identity: 1, either side)
+            for sig in [
+                "*(int4,int4)",
+                "*(int8,int8)",
+                "*(float4,float4)",
+                "*(float8,float8)",
+                "*(numeric,numeric)",
+            ] {
+                map.insert(operator_oid(sig), IdentityOp::Mul);
+            }
+
+            // /(T, T) → Div (identity: 1, right side only)
+            for sig in [
+                "/(int4,int4)",
+                "/(int8,int8)",
+                "/(float4,float4)",
+                "/(float8,float8)",
+                "/(numeric,numeric)",
+            ] {
+                map.insert(operator_oid(sig), IdentityOp::Div);
+            }
+
+            map
+        })
+    }
+}
+/// Strip identity wrappers from `expr`: `RelabelType`, `CoerceToDomain`,
+/// and `OpExpr` where the operator is a known identity operation
+/// (e.g. `+ 0`, `- 0`, `* 1`, `/ 1` against pg_catalog numeric types).
+///
+/// Returns the innermost non-identity node (typically a `Var`).
+/// If nothing can be safely stripped, returns `expr` unchanged.
+///
+/// Safe to call with a null pointer; returns null in that case.
+pub(crate) unsafe fn strip_identity_wrappers(mut expr: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    loop {
+        if expr.is_null() {
+            return expr;
+        }
+        match (*expr).type_ {
+            pg_sys::NodeTag::T_RelabelType => {
+                expr = (*(expr as *mut pg_sys::RelabelType)).arg as *mut pg_sys::Node;
+            }
+            pg_sys::NodeTag::T_CoerceToDomain => {
+                expr = (*(expr as *mut pg_sys::CoerceToDomain)).arg as *mut pg_sys::Node;
+            }
+            pg_sys::NodeTag::T_OpExpr => {
+                match try_unwrap_identity_opexpr(expr as *mut pg_sys::OpExpr) {
+                    Some(inner) => expr = inner,
+                    None => return expr,
+                }
+            }
+            _ => return expr,
+        }
+    }
+}
+
+/// Attempt to unwrap an `OpExpr` of the shape `Var <op> Const` or `Const <op> Var`
+/// where the operator is a known identity operation (e.g. `+ 0`, `* 1`).
+unsafe fn try_unwrap_identity_opexpr(op: *mut pg_sys::OpExpr) -> Option<*mut pg_sys::Node> {
+    // Must have exactly two args.
+    let args = (*op).args;
+    let args_list = PgList::<pg_sys::Node>::from_pg(args);
+    if args_list.len() != 2 {
+        return None;
+    }
+    let left = args_list.get_ptr(0)?;
+    let right = args_list.get_ptr(1)?;
+
+    // Match "Var-side <op> Const" or "Const <op> Var-side".
+    // The "var side" is the non-Const operand — it may itself be a wrapped Var.
+    let (var_side, const_side, const_on_right) = match ((*left).type_, (*right).type_) {
+        (pg_sys::NodeTag::T_Const, pg_sys::NodeTag::T_Const) => return None,
+        (pg_sys::NodeTag::T_Const, _) => (right, left as *mut pg_sys::Const, false),
+        (_, pg_sys::NodeTag::T_Const) => (left, right as *mut pg_sys::Const, true),
+        _ => return None,
+    };
+
+    // Operator OID + identity-value check.
+    if !is_identity_operation((*op).opno, const_side, const_on_right) {
+        return None;
+    }
+    Some(var_side)
+}
+
+/// Check whether the given operator OID combined with the constant value
+/// forms an identity operation that preserves row ordering.
+///
+/// `const_on_right` indicates whether the constant is the right operand.
+/// For non-commutative operators like `-` and `/`, the constant must be on the right.
+unsafe fn is_identity_operation(
+    opno: pg_sys::Oid,
+    konst: *mut pg_sys::Const,
+    const_on_right: bool,
+) -> bool {
+    if konst.is_null() || (*konst).constisnull {
+        return false;
+    }
+
+    let Some(&op) = identity_ops::lookup().get(&opno) else {
+        return false;
+    };
+
+    let const_is = |expected: i64| -> bool {
+        let datum = (*konst).constvalue;
+        let typoid = (*konst).consttype;
+        match typoid {
+            pg_sys::INT4OID => i32::from_datum(datum, false) == Some(expected as i32),
+            pg_sys::INT8OID => i64::from_datum(datum, false) == Some(expected),
+            pg_sys::FLOAT4OID => f32::from_datum(datum, false) == Some(expected as f32),
+            pg_sys::FLOAT8OID => f64::from_datum(datum, false) == Some(expected as f64),
+            pg_sys::NUMERICOID => {
+                AnyNumeric::from_datum(datum, false) == Some(AnyNumeric::from(expected))
+            }
+            _ => false,
+        }
+    };
+
+    // Note: -0.0 == 0.0 in IEEE 754, so float_col + (-0.0) also gets
+    // unwrapped. This is correct — adding -0.0 is an identity operation.
+    match op {
+        IdentityOp::Add => const_is(0),
+        IdentityOp::Sub => const_on_right && const_is(0),
+        IdentityOp::Mul => const_is(1),
+        IdentityOp::Div => const_on_right && const_is(1),
+    }
+}
 
 #[derive(Clone, Copy)]
 pub enum VarContext {

@@ -259,6 +259,7 @@ impl<'a> ParallelAggregationWorker<'a> {
             MvccSatisfies::ParallelWorker(segment_ids.clone()),
             NonNull::new(context_ptr),
             planstate.and_then(NonNull::new),
+            self.query.needs_tokenizer(),
         )?;
 
         let use_min_sentinel_fields = match self.aggregation.as_ref() {
@@ -396,6 +397,7 @@ pub fn execute_aggregate(
             MvccSatisfies::Snapshot,
             NonNull::new(expr_context),
             NonNull::new(planstate),
+            query.needs_tokenizer(),
         )?;
         let ambulkdelete_epoch = MetaPage::open(index).ambulkdelete_epoch();
         let segment_ids = reader

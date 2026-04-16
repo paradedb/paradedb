@@ -15,16 +15,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! EXPLAIN output helpers for JoinScan.
+//! EXPLAIN output helpers shared by the DataFusion-backed custom scans.
 //!
-//! This module provides formatting utilities for displaying JoinScan plans
-//! in PostgreSQL's EXPLAIN output, including expression tree formatting
-//! and column name resolution.
+//! `format_expr_for_explain` and `get_attname_safe` operate on raw PostgreSQL
+//! nodes/oids; `format_join_level_expr` formats a `JoinLevelExpr` whose
+//! definition currently lives in `joinscan::build` (and which AggregateScan
+//! consumes by absolute path). None of these helpers are join-specific in
+//! shape — they live here so JoinScan and any future aggregate-on-join
+//! predicate-tree EXPLAIN can both reach them.
 
-use super::build::{JoinCSClause, JoinLevelExpr};
-
-use crate::customscan::joinscan::RelationAlias;
 use crate::postgres::customscan::explain::ExplainFormat;
+use crate::postgres::customscan::joinscan::build::{JoinCSClause, JoinLevelExpr, RelationAlias};
 use crate::postgres::deparse::node_to_string_fallback;
 use pgrx::pg_sys;
 
@@ -35,12 +36,12 @@ use pgrx::pg_sys;
 /// For proper SQL deparsing with table/column names, we'd need a PlannerContext
 /// which isn't available during EXPLAIN. The debug output is still useful for
 /// understanding the expression structure.
-pub(super) unsafe fn format_expr_for_explain(node: *mut pg_sys::Node) -> String {
+pub unsafe fn format_expr_for_explain(node: *mut pg_sys::Node) -> String {
     node_to_string_fallback(node)
 }
 
 /// Get the column name for an attribute, with fallback to "relname.attno" if lookup fails.
-pub(super) fn get_attname_safe(
+pub fn get_attname_safe(
     heaprelid: Option<pg_sys::Oid>,
     attno: pg_sys::AttrNumber,
     rel_name: &str,
@@ -63,7 +64,7 @@ pub(super) fn get_attname_safe(
 }
 
 /// Format a join-level expression tree for EXPLAIN output.
-pub(super) fn format_join_level_expr(expr: &JoinLevelExpr, join_clause: &JoinCSClause) -> String {
+pub fn format_join_level_expr(expr: &JoinLevelExpr, join_clause: &JoinCSClause) -> String {
     match expr {
         JoinLevelExpr::SingleTablePredicate {
             plan_position,

@@ -90,7 +90,7 @@ GROUP BY p.category;
    Backend: DataFusion
    Indexes: mt_products_idx (p), mt_tags_idx (t), mt_reviews_idx (r)
    Group By: category
-   Aggregates: COUNT(*)(*), SUM(rating), AVG(rating)
+   Aggregates: COUNT(*), SUM(rating), AVG(rating)
 (5 rows)
 
 SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating)
@@ -141,7 +141,7 @@ GROUP BY p.category;
    Backend: DataFusion
    Indexes: mt_products_idx (p), mt_tags_idx (t), mt_reviews_idx (r), mt_suppliers_idx (s)
    Group By: category
-   Aggregates: COUNT(*)(*), SUM(rating)
+   Aggregates: COUNT(*), SUM(rating)
 (5 rows)
 
 SELECT p.category, COUNT(*), SUM(r.rating)

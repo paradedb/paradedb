@@ -420,6 +420,7 @@ impl JoinSourceCandidate {
         // `expr_context` only lives until the end of this function,
         // which is fine because it is only used to get estimates
         let expr_context = ExprContextGuard::new();
+        let needs_tokenizer_manager = query.needs_tokenizer();
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
             query,
@@ -427,6 +428,7 @@ impl JoinSourceCandidate {
             MvccSatisfies::LargestSegment,
             NonNull::new(expr_context.as_ptr()),
             None,
+            needs_tokenizer_manager,
         )
         .expect("Failed to open index reader for estimation");
 
@@ -653,6 +655,11 @@ pub struct JoinNode {
     pub equi_keys: Vec<JoinKeyPair>,
     /// Any remaining non-equi join conditions.
     pub filter: Option<JoinLevelExpr>,
+    /// The `plan_id` of the PostgreSQL SubPlan that this join was extracted
+    /// from, if any.  Set for Semi/Anti/LeftMark joins created by
+    /// `wrap_with_semi_anti` and `wrap_with_mark_filter`; `None` for joins
+    /// that come from the normal join-hook path or path reconstruction.
+    pub subplan_id: Option<i32>,
 }
 
 /// A filter node in the relational plan tree.
@@ -889,6 +896,41 @@ impl RelNode {
                 j.right.collect_join_keys(acc);
             }
             RelNode::Filter(f) => f.input.collect_join_keys(acc),
+        }
+    }
+
+    /// Resolve every equi-join key in this tree structurally against the
+    /// specific join node that owns it, and return `(plan_position, attno)`
+    /// pairs identifying the exact sources that must project each key column.
+    ///
+    /// A flat lookup keyed on `(rti, attno)` can pick the wrong source when a
+    /// SubPlan's inner relation shares an RTI value with an outer relation
+    /// (inner queries have their own RTI numbering). By resolving each key
+    /// against its owning `JoinNode`'s own `left`/`right` subtrees with the
+    /// same logic used at execution time (`JoinKeyPair::resolve_against`),
+    /// we bind each key to the correct `JoinSource` unambiguously.
+    pub fn join_key_projections(&self) -> Vec<(usize, pg_sys::AttrNumber)> {
+        let mut result = Vec::new();
+        self.collect_join_key_projections(&mut result);
+        result
+    }
+
+    fn collect_join_key_projections(&self, acc: &mut Vec<(usize, pg_sys::AttrNumber)>) {
+        match self {
+            RelNode::Scan(_) => {}
+            RelNode::Join(j) => {
+                for jk in &j.equi_keys {
+                    if let Some(((left_src, left_att), (right_src, right_att))) =
+                        jk.resolve_against(&j.left, &j.right)
+                    {
+                        acc.push((left_src.plan_position, left_att));
+                        acc.push((right_src.plan_position, right_att));
+                    }
+                }
+                j.left.collect_join_key_projections(acc);
+                j.right.collect_join_key_projections(acc);
+            }
+            RelNode::Filter(f) => f.input.collect_join_key_projections(acc),
         }
     }
 

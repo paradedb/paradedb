@@ -1,0 +1,231 @@
+-- Tests for per-field BM25 parameter tuning (k1 and b) via typmod syntax
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+DROP TABLE IF EXISTS bm25_params_test CASCADE;
+CREATE TABLE bm25_params_test (
+    id INTEGER PRIMARY KEY,
+    short_text TEXT,
+    long_text TEXT
+);
+INSERT INTO bm25_params_test (id, short_text, long_text) VALUES
+(1, 'search search search', 'search search search extra words here to pad the document length out significantly more'),
+(2, 'search engine', 'search engine with many additional filler words to make this document much longer than the others'),
+(3, 'database query', 'database query optimization techniques and strategies for improving performance in production'),
+(4, 'search', 'search is a common operation in databases and information retrieval systems worldwide today');
+-- =============================================================================
+-- TEST 1: Default BM25 parameters (k1=1.2, b=0.75) as baseline
+-- =============================================================================
+CREATE INDEX bm25_default_idx ON bm25_params_test
+USING bm25 (id, short_text)
+WITH (key_field='id');
+SELECT id, short_text, round(pdb.score(id)::numeric, 4) AS score
+FROM bm25_params_test
+WHERE short_text @@@ 'search'
+ORDER BY pdb.score(id) DESC, id;
+ id |      short_text      | score  
+----+----------------------+--------
+  1 | search search search | 0.5062
+  4 | search               | 0.4484
+  2 | search engine        | 0.3567
+(3 rows)
+
+DROP INDEX bm25_default_idx;
+-- =============================================================================
+-- TEST 2: k1=0 removes term-frequency weighting; score becomes pure IDF.
+--         With a single-term query, all matching docs tie at the same IDF value.
+-- =============================================================================
+CREATE INDEX bm25_low_k1_idx ON bm25_params_test
+USING bm25 (id, (short_text::pdb.simple('k1=0.0')))
+WITH (key_field='id');
+SELECT id, short_text, round(pdb.score(id)::numeric, 4) AS score
+FROM bm25_params_test
+WHERE short_text @@@ 'search'
+ORDER BY pdb.score(id) DESC, id;
+ id |      short_text      | score  
+----+----------------------+--------
+  1 | search search search | 0.3567
+  2 | search engine        | 0.3567
+  4 | search               | 0.3567
+(3 rows)
+
+DROP INDEX bm25_low_k1_idx;
+-- =============================================================================
+-- TEST 3: b=0 disables length normalization
+-- =============================================================================
+CREATE INDEX bm25_no_len_norm_idx ON bm25_params_test
+USING bm25 (id, (long_text::pdb.simple('b=0.0')))
+WITH (key_field='id');
+SELECT id, round(pdb.score(id)::numeric, 4) AS score
+FROM bm25_params_test
+WHERE long_text @@@ 'search'
+ORDER BY pdb.score(id) DESC, id;
+ id | score  
+----+--------
+  1 | 0.5605
+  2 | 0.3567
+  4 | 0.3567
+(3 rows)
+
+DROP INDEX bm25_no_len_norm_idx;
+-- =============================================================================
+-- TEST 4: b=1.0 maximum length normalization
+-- =============================================================================
+CREATE INDEX bm25_full_len_norm_idx ON bm25_params_test
+USING bm25 (id, (long_text::pdb.simple('b=1.0')))
+WITH (key_field='id');
+SELECT id, round(pdb.score(id)::numeric, 4) AS score
+FROM bm25_params_test
+WHERE long_text @@@ 'search'
+ORDER BY pdb.score(id) DESC, id;
+ id | score  
+----+--------
+  1 | 0.5546
+  4 | 0.3640
+  2 | 0.3240
+(3 rows)
+
+DROP INDEX bm25_full_len_norm_idx;
+-- =============================================================================
+-- TEST 5: Per-field parameters — different k1/b on each field
+-- =============================================================================
+CREATE INDEX bm25_per_field_idx ON bm25_params_test
+USING bm25 (
+    id,
+    (short_text::pdb.simple('k1=0.5', 'b=0.3')),
+    (long_text::pdb.simple('k1=1.5', 'b=0.9'))
+)
+WITH (key_field='id');
+SELECT id, round(pdb.score(id)::numeric, 4) AS score
+FROM bm25_params_test
+WHERE short_text @@@ 'search'
+ORDER BY pdb.score(id) DESC, id;
+ id | score  
+----+--------
+  1 | 0.4490
+  4 | 0.3754
+  2 | 0.3567
+(3 rows)
+
+SELECT id, round(pdb.score(id)::numeric, 4) AS score
+FROM bm25_params_test
+WHERE long_text @@@ 'search'
+ORDER BY pdb.score(id) DESC, id;
+ id | score  
+----+--------
+  1 | 0.5879
+  4 | 0.3640
+  2 | 0.3243
+(3 rows)
+
+DROP INDEX bm25_per_field_idx;
+-- =============================================================================
+-- TEST 6: High k1 gives more weight to term frequency
+-- =============================================================================
+CREATE INDEX bm25_high_k1_idx ON bm25_params_test
+USING bm25 (id, (short_text::pdb.simple('k1=5.0')))
+WITH (key_field='id');
+SELECT id, short_text, round(pdb.score(id)::numeric, 4) AS score
+FROM bm25_params_test
+WHERE short_text @@@ 'search'
+ORDER BY pdb.score(id) DESC, id;
+ id |      short_text      | score  
+----+----------------------+--------
+  1 | search search search | 0.6501
+  4 | search               | 0.5188
+  2 | search engine        | 0.3567
+(3 rows)
+
+DROP INDEX bm25_high_k1_idx;
+-- =============================================================================
+-- TEST 7: Validation — b > 1 should error
+-- =============================================================================
+CREATE INDEX bm25_invalid_idx ON bm25_params_test
+USING bm25 (id, (short_text::pdb.simple('b=1.5')))
+WITH (key_field='id');
+ERROR:  Invalid value for option 'b': must be <= 1, got 1.5
+-- =============================================================================
+-- TEST 8: Validation — b < 0 should error
+-- =============================================================================
+CREATE INDEX bm25_invalid_idx ON bm25_params_test
+USING bm25 (id, (short_text::pdb.simple('b=-0.1')))
+WITH (key_field='id');
+ERROR:  Invalid value for option 'b': must be >= 0, got -0.1
+-- =============================================================================
+-- TEST 9: Validation — k1 < 0 should error
+-- =============================================================================
+CREATE INDEX bm25_invalid_idx ON bm25_params_test
+USING bm25 (id, (short_text::pdb.simple('k1=-0.5')))
+WITH (key_field='id');
+ERROR:  Invalid value for option 'k1': must be >= 0, got -0.5
+-- =============================================================================
+-- TEST 10: Validation — k1 = non-numeric should error
+-- =============================================================================
+CREATE INDEX bm25_invalid_idx ON bm25_params_test
+USING bm25 (id, (short_text::pdb.simple('k1=abc')))
+WITH (key_field='id');
+ERROR:  Cannot parse value of 'k1=abc'
+-- =============================================================================
+-- TEST 11: k1 + b on a JSON field
+-- =============================================================================
+DROP TABLE IF EXISTS bm25_json_test CASCADE;
+CREATE TABLE bm25_json_test (
+    id INTEGER PRIMARY KEY,
+    data JSONB
+);
+INSERT INTO bm25_json_test (id, data) VALUES
+(1, '{"text": "search search search"}'),
+(2, '{"text": "search engine"}'),
+(3, '{"text": "database query"}');
+CREATE INDEX bm25_json_idx ON bm25_json_test
+USING bm25 (id, (data::pdb.simple('k1=0.5', 'b=0.3')))
+WITH (key_field='id');
+SELECT id, round(pdb.score(id)::numeric, 4) AS score
+FROM bm25_json_test
+WHERE data @@@ paradedb.term('data.text', 'search')
+ORDER BY pdb.score(id) DESC, id;
+ id | score  
+----+--------
+  1 | 0.6195
+  2 | 0.4985
+(2 rows)
+
+DROP TABLE bm25_json_test CASCADE;
+-- =============================================================================
+-- TEST 12: Round-trip — create with custom k1, query, drop, recreate with
+--          defaults, assert scores differ
+-- =============================================================================
+CREATE INDEX bm25_custom_idx ON bm25_params_test
+USING bm25 (id, (short_text::pdb.simple('k1=5.0', 'b=0.0')))
+WITH (key_field='id');
+SELECT id, round(pdb.score(id)::numeric, 4) AS score
+FROM bm25_params_test
+WHERE short_text @@@ 'search'
+ORDER BY pdb.score(id) DESC, id;
+ id | score  
+----+--------
+  1 | 0.8025
+  2 | 0.3567
+  4 | 0.3567
+(3 rows)
+
+DROP INDEX bm25_custom_idx;
+CREATE INDEX bm25_default_roundtrip_idx ON bm25_params_test
+USING bm25 (id, short_text)
+WITH (key_field='id');
+SELECT id, round(pdb.score(id)::numeric, 4) AS score
+FROM bm25_params_test
+WHERE short_text @@@ 'search'
+ORDER BY pdb.score(id) DESC, id;
+ id | score  
+----+--------
+  1 | 0.5062
+  4 | 0.4484
+  2 | 0.3567
+(3 rows)
+
+DROP INDEX bm25_default_roundtrip_idx;
+-- =============================================================================
+-- CLEANUP
+-- =============================================================================
+DROP TABLE bm25_params_test CASCADE;

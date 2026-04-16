@@ -209,8 +209,8 @@ LIMIT 10;
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: p SEMI ((c ANTI d) SEMI d)
-         Join Cond: p.company_id = c.id, c.id = d.company_id, d.company_id = c.id
+         Relation Tree: p SEMI ((c SEMI d) ANTI d)
+         Join Cond: p.company_id = c.id, d.company_id = c.id, c.id = d.company_id
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -220,12 +220,12 @@ LIMIT 10;
            :       VisibilityFilterExec: tables=[p]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
-           :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, id@0)]
+           :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, id@0)]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Engineering","lenient":null,"conjunction_mode":null}}}}
-           :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, id@0)]
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Marketing","lenient":null,"conjunction_mode":null}}}}
+           :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, id@0)]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Marketing","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Engineering","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
            :             PgSearchScan: segments=1, query="all"
 (21 rows)
@@ -338,8 +338,8 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
-         Relation Tree: p SEMI (r INNER (c SEMI d))
-         Join Cond: p.company_id = c.id, c.region_id = r.id, c.id = d.company_id
+         Relation Tree: p SEMI ((r INNER c) SEMI d)
+         Join Cond: p.company_id = c.id, c.id = d.company_id, c.region_id = r.id
          Limit: 10
          Order By: p.id asc
          DataFusion Physical Plan: 
@@ -349,14 +349,14 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
            :       VisibilityFilterExec: tables=[p]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
-           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, region_id@1)], projection=[id@1]
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"America","lenient":null,"conjunction_mode":null}}}}
-           :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, id@0)]
+           :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, region_id@1)], projection=[id@1]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Engineering","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"America","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Engineering","lenient":null,"conjunction_mode":null}}}}
 (21 rows)
 
 SELECT p.id, p.description

@@ -49,19 +49,22 @@ use crate::postgres::customscan::aggregatescan::datafusion_exec::{
     build_join_aggregate_plan, create_aggregate_session_context,
 };
 use crate::postgres::customscan::aggregatescan::datafusion_project::project_aggregate_row_to_slot;
-use crate::postgres::customscan::aggregatescan::exec::aggregation_results_iter;
+use crate::postgres::customscan::aggregatescan::exec::{
+    aggregation_results_iter, AggregateResult, AggregationResultsRow,
+};
 use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
 use crate::postgres::customscan::aggregatescan::join_targetlist::extract_aggregate_targetlist;
 use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
-use crate::postgres::customscan::aggregatescan::scan_state::{AggregateScanState, ExecutionState};
+use crate::postgres::customscan::aggregatescan::scan_state::{
+    AggregateScanState, ExecutionState, WrappedAggregateProjection,
+};
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
 use crate::postgres::customscan::explainer::Explainer;
-use crate::postgres::customscan::joinscan::memory::create_memory_pool;
-use crate::postgres::customscan::joinscan::scan_state::build_physical_plan;
+use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, build_task_context};
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -71,15 +74,58 @@ use crate::postgres::types::{is_datetime_type, TantivyValue};
 use crate::postgres::utils::{add_vars_to_tlist, is_unnest_func, make_text_const};
 use crate::postgres::PgSearchRelation;
 use chrono::{DateTime as ChronoDateTime, Utc};
-use datafusion::execution::runtime_env::RuntimeEnvBuilder;
-use datafusion::execution::TaskContext;
 use pgrx::{pg_sys, PgList, PgMemoryContexts, PgTupleDesc};
 use std::ffi::CStr;
-use std::sync::Arc;
 use tantivy::schema::OwnedValue;
 
 #[derive(Default)]
 pub struct AggregateScan;
+
+/// Why the DataFusion aggregate path declined to produce a custom path.
+///
+/// Mirrors `JoinScan`'s `JoinPathDecline` shape: `Quiet` is for early gates
+/// that filter out non-candidate inputs, `Warn` is for validation failures
+/// past the "candidate" boundary that owe the planner a NOTICE.
+enum AggregatePathDecline {
+    Quiet,
+    Warn(AggregateDeclineReason),
+}
+
+/// Specific reason a `Warn` decline was raised. Each variant maps 1:1 to a
+/// planner-warning string the inline code used to emit.
+enum AggregateDeclineReason {
+    NotAllBm25,
+    NonEquiJoinQuals,
+    CrossJoin,
+    /// Errors carrying a free-form message (parse-tree extraction, target-list
+    /// extraction, fast-field population) — the underlying helper already
+    /// produces a contextual string.
+    Other(String),
+}
+
+impl AggregateDeclineReason {
+    fn emit(&self) {
+        let alias = "join".to_string();
+        match self {
+            AggregateDeclineReason::NotAllBm25 => AggregateScan::add_planner_warning(
+                "Aggregate Scan (DataFusion) not used: all tables in the join must have BM25 indexes",
+                alias,
+            ),
+            AggregateDeclineReason::NonEquiJoinQuals => AggregateScan::add_planner_warning(
+                "Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans",
+                alias,
+            ),
+            AggregateDeclineReason::CrossJoin => AggregateScan::add_planner_warning(
+                "Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys)",
+                alias,
+            ),
+            AggregateDeclineReason::Other(msg) => AggregateScan::add_planner_warning(
+                format!("Aggregate Scan (DataFusion) not used: {}", msg),
+                alias,
+            ),
+        }
+    }
+}
 
 impl CustomScan for AggregateScan {
     const NAME: &'static CStr = c"ParadeDB Aggregate Scan";
@@ -368,7 +414,9 @@ impl CustomScan for AggregateScan {
                     .iter()
                     .map(|a| {
                         if a.field_refs.is_empty() {
-                            format!("{}(*)", a.agg_kind)
+                            // CountStar displays as "COUNT(*)" — no extra wrapping needed.
+                            // Other no-arg aggregates (none currently) also use Display directly.
+                            a.agg_kind.to_string()
                         } else {
                             let fields: Vec<&str> =
                                 a.field_refs.iter().map(|(_, _, n)| n.as_str()).collect();
@@ -445,8 +493,10 @@ impl CustomScan for AggregateScan {
             let (placeholder_tlist, const_nodes, needs_projection) =
                 create_placeholder_targetlist(plan_targetlist);
             if needs_projection && !placeholder_tlist.is_null() {
-                state.custom_state_mut().placeholder_targetlist = Some(placeholder_tlist);
-                state.custom_state_mut().const_agg_nodes = const_nodes;
+                state.custom_state_mut().wrapped_projection = Some(WrappedAggregateProjection {
+                    targetlist: placeholder_tlist,
+                    const_nodes,
+                });
                 // Note: projection is built per-row in exec_custom_scan, not here
             }
         }
@@ -465,269 +515,10 @@ impl CustomScan for AggregateScan {
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
-        // DataFusion backend: consume Arrow RecordBatches
         if state.custom_state().is_datafusion_backend() {
-            return Self::exec_datafusion_aggregate(state);
-        }
-
-        // Tantivy backend: existing path
-        let next = match &mut state.custom_state_mut().state {
-            ExecutionState::Completed => {
-                return std::ptr::null_mut();
-            }
-            ExecutionState::NotStarted => {
-                // Execute the aggregate, and change the state to Emitting.
-                let mut row_iter = aggregation_results_iter(state);
-                let next = row_iter.next();
-                state.custom_state_mut().state = ExecutionState::Emitting(row_iter);
-                next
-            }
-            ExecutionState::Emitting(row_iter) => {
-                // Emit the next row.
-                row_iter.next()
-            }
-        };
-
-        let Some(row) = next else {
-            state.custom_state_mut().state = ExecutionState::Completed;
-            return std::ptr::null_mut();
-        };
-
-        unsafe {
-            let tupdesc = PgTupleDesc::from_pg_unchecked((*state.planstate()).ps_ResultTupleDesc);
-            // Use the reusable slot created in begin_custom_scan to avoid per-row memory leaks
-            let slot = state
-                .custom_state()
-                .scan_slot
-                .expect("scan_slot should be initialized in begin_custom_scan");
-            pg_sys::ExecClearTuple(slot);
-
-            let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
-            let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
-            let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
-
-            let mut aggregates = row.aggregates.clone().into_iter();
-            let mut natts_processed = 0;
-
-            // Fill in values according to the target list
-            for (i, entry) in state.custom_state().aggregate_clause.entries().enumerate() {
-                let attr = tupdesc.get(i).expect("missing attribute");
-                let expected_typoid = attr.type_oid().value();
-
-                let datum = match (entry, row.is_empty()) {
-                    (TargetListEntry::GroupingColumn(gc_idx), false) => {
-                        let key = row.group_keys[*gc_idx].clone();
-                        // Check if this is a NULL sentinel (handles both MIN and MAX sentinels).
-                        // U64 uses string sentinel for MIN (since 0 is valid); u64::MAX for MAX.
-                        // Bool uses string sentinels for both MIN and MAX.
-                        // DateTime columns don't have a missing sentinel (NULLs are excluded).
-                        let is_datetime = is_datetime_type(expected_typoid);
-                        let is_null_sentinel = match &key.0 {
-                            OwnedValue::Str(s) => s == NULL_SENTINEL_MIN || s == NULL_SENTINEL_MAX,
-                            OwnedValue::I64(v) => *v == i64::MAX || *v == i64::MIN,
-                            OwnedValue::U64(v) => *v == u64::MAX,
-                            OwnedValue::F64(v) => *v == f64::MAX || *v == f64::MIN,
-                            _ => false,
-                        };
-                        if is_null_sentinel {
-                            None
-                        } else if is_datetime {
-                            // For datetime types, Tantivy's terms aggregation returns the date as
-                            // an ISO 8601 string (e.g., "2025-12-26T00:00:00Z"). We need to parse
-                            // this string and convert it to the appropriate PostgreSQL date type.
-                            match &key.0 {
-                                OwnedValue::Str(date_str) => {
-                                    // Parse ISO 8601 datetime string using chrono
-                                    match date_str.parse::<ChronoDateTime<Utc>>() {
-                                        Ok(chrono_dt) => {
-                                            // Convert to nanoseconds since epoch for Tantivy DateTime
-                                            let nanos =
-                                                chrono_dt.timestamp_nanos_opt().unwrap_or(0);
-                                            let datetime =
-                                                tantivy::DateTime::from_timestamp_nanos(nanos);
-                                            TantivyValue(OwnedValue::Date(datetime))
-                                                .try_into_datum(pgrx::PgOid::from(expected_typoid))
-                                                .expect(
-                                                    "should be able to convert datetime to datum",
-                                                )
-                                        }
-                                        Err(e) => {
-                                            pgrx::error!(
-                                                "Failed to parse datetime string '{}': {}",
-                                                date_str,
-                                                e
-                                            );
-                                        }
-                                    }
-                                }
-                                OwnedValue::I64(nanos) => {
-                                    // Fallback for I64 (nanoseconds timestamp)
-                                    let datetime = tantivy::DateTime::from_timestamp_nanos(*nanos);
-                                    TantivyValue(OwnedValue::Date(datetime))
-                                        .try_into_datum(pgrx::PgOid::from(expected_typoid))
-                                        .expect("should be able to convert datetime to datum")
-                                }
-                                _ => key
-                                    .try_into_datum(pgrx::PgOid::from(expected_typoid))
-                                    .expect("should be able to convert to datum"),
-                            }
-                        } else {
-                            key.try_into_datum(pgrx::PgOid::from(expected_typoid))
-                                .expect("should be able to convert to datum")
-                        }
-                    }
-                    (TargetListEntry::GroupingColumn(_), true) => None,
-                    (TargetListEntry::Aggregate(agg_type), false) => {
-                        if agg_type.can_use_doc_count()
-                            && !state.custom_state().aggregate_clause.has_filter()
-                            && state.custom_state().aggregate_clause.has_groupby()
-                        {
-                            row.doc_count()
-                                .try_into_datum(pgrx::PgOid::from(expected_typoid))
-                                .expect("should be able to convert to datum")
-                        } else {
-                            exec::aggregate_result_to_datum(
-                                aggregates.next().and_then(|v| v),
-                                agg_type,
-                                expected_typoid,
-                            )
-                        }
-                    }
-                    (TargetListEntry::Aggregate(agg_type), true) => {
-                        agg_type.nullish().value.and_then(|value| {
-                            TantivyValue(OwnedValue::F64(value))
-                                .try_into_datum(expected_typoid.into())
-                                .unwrap()
-                        })
-                    }
-                };
-
-                if let Some(datum) = datum {
-                    datums[i] = datum;
-                    isnull[i] = false;
-                } else {
-                    datums[i] = pg_sys::Datum::null();
-                    isnull[i] = true;
-                }
-
-                natts_processed += 1;
-            }
-
-            assert_eq!(natts, natts_processed, "target list length mismatch",);
-
-            // Simple finalization - just set the flags and return the slot (no ExecStoreVirtualTuple needed)
-            // Note: We don't set TTS_FLAG_SHOULDFREE since we're reusing this slot across rows
-            (*slot).tts_flags &= !(pg_sys::TTS_FLAG_EMPTY as u16);
-            (*slot).tts_nvalid = natts as i16;
-
-            // If we have wrapped aggregates, project the expressions using basescan pattern:
-            // 1. Mutate Const nodes with actual aggregate values (directly, not from slot)
-            // 2. Build projection in per-tuple memory context (bakes Const values in)
-            // 3. ExecProject
-            if let Some(placeholder_tlist) = state.custom_state().placeholder_targetlist {
-                let planstate = state.planstate();
-                let expr_context = (*planstate).ps_ExprContext;
-
-                // Switch to per-tuple memory context and reset it to avoid memory leaks
-                // from ExecBuildProjectionInfo allocations and wrapper functions
-                let mut per_tuple_context =
-                    PgMemoryContexts::For((*expr_context).ecxt_per_tuple_memory);
-                per_tuple_context.reset();
-
-                // Mutate Const nodes with values directly from the row results.
-                // We DON'T use the slot's datums for aggregates because those were converted
-                // using the output tuple descriptor's types (e.g., TEXT for jsonb_pretty output),
-                // but we need the native aggregate type (e.g., JSONB for pdb.agg).
-                // This matches basescan's approach of setting Const values directly.
-                let mut agg_iter = row.aggregates.iter();
-                for (i, entry) in state.custom_state().aggregate_clause.entries().enumerate() {
-                    let Some(const_node) = state
-                        .custom_state()
-                        .const_agg_nodes
-                        .get(i)
-                        .copied()
-                        .flatten()
-                    else {
-                        // No Const node for this entry, skip the aggregate iterator if it's an aggregate
-                        if matches!(entry, TargetListEntry::Aggregate(_)) {
-                            agg_iter.next();
-                        }
-                        continue;
-                    };
-
-                    let (datum, is_null) = match entry {
-                        TargetListEntry::Aggregate(agg_type) => {
-                            // Get the next aggregate result
-                            let agg_result = agg_iter.next().and_then(|v| v.clone());
-
-                            // Convert to datum using the Const node's type (native aggregate type)
-                            // not the output tuple descriptor's type
-                            if row.is_empty() {
-                                // Empty result - use nullish value
-                                let nullish_datum = agg_type.nullish().value.and_then(|value| {
-                                    TantivyValue(OwnedValue::F64(value))
-                                        .try_into_datum((*const_node).consttype.into())
-                                        .unwrap()
-                                });
-                                (
-                                    nullish_datum.unwrap_or(pg_sys::Datum::null()),
-                                    nullish_datum.is_none(),
-                                )
-                            } else if agg_type.can_use_doc_count()
-                                && !state.custom_state().aggregate_clause.has_filter()
-                                && state.custom_state().aggregate_clause.has_groupby()
-                            {
-                                let d = row
-                                    .doc_count()
-                                    .try_into_datum(pgrx::PgOid::from((*const_node).consttype));
-                                match d {
-                                    Ok(Some(datum)) => (datum, false),
-                                    _ => (pg_sys::Datum::null(), true),
-                                }
-                            } else {
-                                // Use the native aggregate result type (from the Const node)
-                                let d = exec::aggregate_result_to_datum(
-                                    agg_result,
-                                    agg_type,
-                                    (*const_node).consttype, // Use Const's type, not output type
-                                );
-                                match d {
-                                    Some(datum) => (datum, false),
-                                    None => (pg_sys::Datum::null(), true),
-                                }
-                            }
-                        }
-                        TargetListEntry::GroupingColumn(_) => {
-                            debug_assert!(
-                                i < natts,
-                                "aggregate clause entry index out of bounds for tuple descriptor"
-                            );
-                            (datums[i], isnull[i])
-                        }
-                    };
-
-                    (*const_node).constvalue = datum;
-                    (*const_node).constisnull = is_null;
-                }
-
-                // Set the scan tuple for expression evaluation context
-                (*expr_context).ecxt_scantuple = slot;
-
-                // Build projection and execute in per-tuple memory context (basescan pattern)
-                // This ensures ExecBuildProjectionInfo allocations are cleaned up each row
-                return per_tuple_context.switch_to(|_| {
-                    let proj_info = pg_sys::ExecBuildProjectionInfo(
-                        placeholder_tlist,
-                        expr_context,
-                        (*planstate).ps_ResultTupleSlot,
-                        planstate,
-                        (*slot).tts_tupleDescriptor,
-                    );
-                    pg_sys::ExecProject(proj_info)
-                });
-            }
-
-            slot
+            Self::exec_datafusion_aggregate(state)
+        } else {
+            Self::exec_tantivy_aggregate(state)
         }
     }
 
@@ -766,6 +557,19 @@ impl From<String> for CustomScanBuildError {
 impl From<&str> for CustomScanBuildError {
     fn from(s: &str) -> Self {
         CustomScanBuildError::Incompatible(s.to_string())
+    }
+}
+
+/// Return the alias name of a Postgres `RangeTblEntry`, or `"unknown"` if the
+/// entry has no alias attached. Used by planner-warning messages where we want
+/// a stable user-visible label for the rejected relation.
+unsafe fn rte_alias_or_unknown(rte: *mut pg_sys::RangeTblEntry) -> String {
+    if !(*rte).eref.is_null() && !(*(*rte).eref).aliasname.is_null() {
+        std::ffi::CStr::from_ptr((*(*rte).eref).aliasname)
+            .to_string_lossy()
+            .into_owned()
+    } else {
+        "unknown".to_string()
     }
 }
 
@@ -828,18 +632,9 @@ impl AggregateScan {
         };
         let Some((_table, index)) = rel_get_bm25_index(unsafe { (*heap_rte).relid }) else {
             if has_paradedb_agg {
-                let alias = unsafe {
-                    if !(*heap_rte).eref.is_null() && !(*(*heap_rte).eref).aliasname.is_null() {
-                        std::ffi::CStr::from_ptr((*(*heap_rte).eref).aliasname)
-                            .to_string_lossy()
-                            .into_owned()
-                    } else {
-                        "unknown".to_string()
-                    }
-                };
                 Self::add_planner_warning(
                     "Aggregate Scan not used: table must have a BM25 index",
-                    alias,
+                    unsafe { rte_alias_or_unknown(heap_rte) },
                 );
             }
             return Vec::new();
@@ -847,16 +642,7 @@ impl AggregateScan {
 
         match AggregateCSClause::build(builder, heap_rti, &index) {
             Ok((builder, aggregate_clause)) => {
-                let alias = unsafe {
-                    if !(*heap_rte).eref.is_null() && !(*(*heap_rte).eref).aliasname.is_null() {
-                        std::ffi::CStr::from_ptr((*(*heap_rte).eref).aliasname)
-                            .to_string_lossy()
-                            .into_owned()
-                    } else {
-                        "unknown".to_string()
-                    }
-                };
-                Self::mark_contexts_successful(alias);
+                Self::mark_contexts_successful(unsafe { rte_alias_or_unknown(heap_rte) });
 
                 vec![builder.build(PrivateData::Tantivy {
                     heap_rti,
@@ -889,28 +675,42 @@ impl AggregateScan {
     fn build_datafusion_aggregate_path(
         builder: CustomPathBuilder<Self>,
     ) -> Vec<pg_sys::CustomPath> {
+        match Self::try_build_datafusion_aggregate_path(builder) {
+            Ok(path) => vec![path],
+            Err(AggregatePathDecline::Quiet) => Vec::new(),
+            Err(AggregatePathDecline::Warn(reason)) => {
+                reason.emit();
+                Vec::new()
+            }
+        }
+    }
+
+    /// Body of [`Self::build_datafusion_aggregate_path`] in `?`-style.
+    /// Mirrors the JoinScan `try_build_join_custom_path` shape: `Quiet` for
+    /// silent gates that don't qualify as a join we'd accelerate, and
+    /// `Warn(reason)` for validation failures past the "candidate" boundary
+    /// that owe the planner a NOTICE.
+    fn try_build_datafusion_aggregate_path(
+        builder: CustomPathBuilder<Self>,
+    ) -> Result<pg_sys::CustomPath, AggregatePathDecline> {
         let root = builder.args().root;
         let input_rel = builder.args().input_rel();
 
-        // Collect all tables in the join and their BM25 indexes
+        // Silent gates: no sources, or no BM25 index at all → not a candidate.
         let sources = unsafe { collect_join_agg_sources(root, input_rel) };
-
         if sources.is_empty() {
-            return Vec::new();
+            return Err(AggregatePathDecline::Quiet);
+        }
+        if !has_any_bm25_index(&sources) {
+            return Err(AggregatePathDecline::Quiet);
         }
 
-        // At least one table must have a BM25 index
-        if !has_any_bm25_index(&sources) {
-            return Vec::new();
-        }
+        // Below this line every Err carries a planner warning.
+        let warn = |reason| AggregatePathDecline::Warn(reason);
 
         // For M1, all tables must have BM25 indexes (DataFusion scans all via PgSearchTableProvider)
         if !all_have_bm25_index(&sources) {
-            Self::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: all tables in the join must have BM25 indexes",
-                "join".to_string(),
-            );
-            return Vec::new();
+            return Err(warn(AggregateDeclineReason::NotAllBm25));
         }
 
         // Reject joins with non-equi quals (OR across tables, cross-table
@@ -918,38 +718,17 @@ impl AggregateScan {
         // joinrestrictinfo AND the parse tree's WHERE quals for cross-table
         // references that our DataFusion backend can't apply.
         if unsafe { datafusion_build::has_non_equi_join_quals(input_rel, &sources) } {
-            Self::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans",
-                "join".to_string(),
-            );
-            return Vec::new();
+            return Err(warn(AggregateDeclineReason::NonEquiJoinQuals));
         }
 
         // Extract the join tree from the parse tree
-        let (mut plan, join_level_predicates, multi_table_predicates, multi_table_clauses) = match unsafe {
-            extract_join_tree_from_parse(root, &sources, builder.args().input_rel())
-        } {
-            Ok(result) => result,
-            Err(e) => {
-                Self::add_planner_warning(
-                    format!("Aggregate Scan (DataFusion) not used: {}", e),
-                    "join".to_string(),
-                );
-                return Vec::new();
-            }
-        };
+        let (mut plan, join_level_predicates, multi_table_predicates, multi_table_clauses) =
+            unsafe { extract_join_tree_from_parse(root, &sources, builder.args().input_rel()) }
+                .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Extract aggregate target list (GROUP BY + aggregates)
-        let targetlist = match unsafe { extract_aggregate_targetlist(builder.args(), &sources) } {
-            Ok(tl) => tl,
-            Err(e) => {
-                Self::add_planner_warning(
-                    format!("Aggregate Scan (DataFusion) not used: {}", e),
-                    "join".to_string(),
-                );
-                return Vec::new();
-            }
-        };
+        let targetlist = unsafe { extract_aggregate_targetlist(builder.args(), &sources) }
+            .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Reject plans with any join node that has no equi-keys (CROSS JOIN).
         // Without join keys, PgSearchTableProvider has no Named fields,
@@ -959,24 +738,15 @@ impl AggregateScan {
         // when routed from RELOPT_BASEREL (e.g., max_buckets overflow or
         // ORDER BY aggregate + LIMIT).
         if sources.len() > 1 && plan.has_join_without_keys() {
-            Self::add_planner_warning(
-                "Aggregate Scan (DataFusion) not used: CROSS JOINs are not supported (no equi-join keys)",
-                "join".to_string(),
-            );
-            return Vec::new();
+            return Err(warn(AggregateDeclineReason::CrossJoin));
         }
 
         // Populate the fast fields on each source so PgSearchTableProvider exposes them.
         // This fails if join key fields aren't indexed as fast fields.
-        if let Err(e) = unsafe {
+        unsafe {
             datafusion_build::populate_required_fields(&mut plan, &targetlist, &multi_table_clauses)
-        } {
-            Self::add_planner_warning(
-                format!("Aggregate Scan (DataFusion) not used: {}", e),
-                "join".to_string(),
-            );
-            return Vec::new();
         }
+        .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Detect ORDER BY on aggregate + LIMIT for TopK pushdown into DataFusion.
         // DataFusion's SortExec(fetch=K) uses a bounded TopK heap internally.
@@ -989,7 +759,13 @@ impl AggregateScan {
         let having_filter = unsafe {
             let parse = builder.args().root().parse;
             if !parse.is_null() && !(*parse).havingQual.is_null() {
-                privdat::HavingExpr::from_pg_node((*parse).havingQual, &targetlist)
+                privdat::FilterExpr::from_pg_node(
+                    (*parse).havingQual,
+                    &datafusion_build::FilterExprBuildContext {
+                        targetlist: Some(&targetlist),
+                        sources: None,
+                    },
+                )
             } else {
                 None
             }
@@ -1021,7 +797,171 @@ impl AggregateScan {
             }
         }
 
-        vec![custom_path]
+        Ok(custom_path)
+    }
+
+    /// Execute the Tantivy aggregate path: drive the existing
+    /// `aggregation_results_iter` one row at a time, fill the scan slot, and
+    /// optionally project wrapped aggregates on top.
+    fn exec_tantivy_aggregate(
+        state: &mut CustomScanStateWrapper<Self>,
+    ) -> *mut pg_sys::TupleTableSlot {
+        let Some(row) = Self::advance_tantivy_state(state) else {
+            return std::ptr::null_mut();
+        };
+
+        unsafe {
+            let tupdesc = PgTupleDesc::from_pg_unchecked((*state.planstate()).ps_ResultTupleDesc);
+            // Use the reusable slot created in begin_custom_scan to avoid per-row memory leaks
+            let slot = state
+                .custom_state()
+                .scan_slot
+                .expect("scan_slot should be initialized in begin_custom_scan");
+            pg_sys::ExecClearTuple(slot);
+
+            fill_slot_from_row(slot, &tupdesc, &row, &state.custom_state().aggregate_clause);
+
+            Self::project_wrapped_aggregates(state, slot, &row)
+        }
+    }
+
+    /// Drive the Tantivy execution state machine: lazily kick off the
+    /// aggregate iterator on the first call, return the next row on
+    /// subsequent calls, and transition to `Completed` when the iterator
+    /// is exhausted.
+    fn advance_tantivy_state(
+        state: &mut CustomScanStateWrapper<Self>,
+    ) -> Option<AggregationResultsRow> {
+        let row = match &mut state.custom_state_mut().state {
+            ExecutionState::Completed => return None,
+            ExecutionState::NotStarted => {
+                // Execute the aggregate, and change the state to Emitting.
+                let mut row_iter = aggregation_results_iter(state);
+                let first = row_iter.next();
+                state.custom_state_mut().state = ExecutionState::Emitting(row_iter);
+                first
+            }
+            ExecutionState::Emitting(row_iter) => row_iter.next(),
+        };
+        if row.is_none() {
+            state.custom_state_mut().state = ExecutionState::Completed;
+        }
+        row
+    }
+
+    /// If `wrapped_projection` is set on the scan state, mutate the
+    /// pre-baked Const nodes with the row's native aggregate values, switch
+    /// into the per-tuple memory context, and `ExecProject` to materialize
+    /// the wrapped expressions. Returns the projected slot. When no wrapped
+    /// projection is configured, returns the input slot unchanged.
+    unsafe fn project_wrapped_aggregates(
+        state: &mut CustomScanStateWrapper<Self>,
+        slot: *mut pg_sys::TupleTableSlot,
+        row: &AggregationResultsRow,
+    ) -> *mut pg_sys::TupleTableSlot {
+        // Snapshot the projection state into locals so the immutable borrow
+        // on `state.custom_state()` ends before the mutable `state.planstate()`
+        // call below. The targetlist is a raw pointer (Copy) and the const-node
+        // vec is small (one entry per output column).
+        let projection_snapshot: Option<(*mut pg_sys::List, Vec<Option<*mut pg_sys::Const>>)> =
+            state
+                .custom_state()
+                .wrapped_projection
+                .as_ref()
+                .map(|w| (w.targetlist, w.const_nodes.clone()));
+        let Some((placeholder_tlist, const_nodes)) = projection_snapshot else {
+            return slot;
+        };
+
+        let planstate = state.planstate();
+        let expr_context = (*planstate).ps_ExprContext;
+
+        // Switch to per-tuple memory context and reset it to avoid memory leaks
+        // from ExecBuildProjectionInfo allocations and wrapper functions
+        let mut per_tuple_context = PgMemoryContexts::For((*expr_context).ecxt_per_tuple_memory);
+        per_tuple_context.reset();
+
+        // Read the slot's already-filled datums for the GroupingColumn fallback
+        // arm in the loop below.
+        let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
+        let datums = std::slice::from_raw_parts((*slot).tts_values, natts);
+        let isnull = std::slice::from_raw_parts((*slot).tts_isnull, natts);
+
+        // Mutate Const nodes with values directly from the row results.
+        // We DON'T use the slot's datums for aggregates because those were converted
+        // using the output tuple descriptor's types (e.g., TEXT for jsonb_pretty output),
+        // but we need the native aggregate type (e.g., JSONB for pdb.agg).
+        // This matches basescan's approach of setting Const values directly.
+        let mut agg_iter = row.aggregates.iter();
+        let aggregate_clause = &state.custom_state().aggregate_clause;
+        for (i, entry) in aggregate_clause.entries().enumerate() {
+            let Some(const_node) = const_nodes.get(i).copied().flatten() else {
+                // No Const node for this entry, skip the aggregate iterator if
+                // it's an aggregate that occupies a slot in `row.aggregates`
+                // (doc-count aggregates do not — see `uses_doc_count_path`).
+                if let TargetListEntry::Aggregate(agg_type) = entry {
+                    if !uses_doc_count_path(agg_type, aggregate_clause) {
+                        agg_iter.next();
+                    }
+                }
+                continue;
+            };
+
+            let (datum, is_null) = match entry {
+                TargetListEntry::Aggregate(agg_type) => {
+                    // Use the native aggregate result type (from the Const node),
+                    // not the output tuple descriptor's type — those would have
+                    // been converted to e.g. TEXT for jsonb_pretty output, but
+                    // the wrapped projection wants the raw JSONB / numeric.
+                    //
+                    // Only advance the aggregate iterator for entries that
+                    // actually occupy a slot in `row.aggregates` (see
+                    // `uses_doc_count_path`).
+                    let next_aggregate =
+                        if row.is_empty() || uses_doc_count_path(agg_type, aggregate_clause) {
+                            None
+                        } else {
+                            agg_iter.next().and_then(|v| v.clone())
+                        };
+                    match aggregate_value_to_datum(
+                        agg_type,
+                        row,
+                        (*const_node).consttype,
+                        aggregate_clause,
+                        next_aggregate,
+                    ) {
+                        Some(datum) => (datum, false),
+                        None => (pg_sys::Datum::null(), true),
+                    }
+                }
+                TargetListEntry::GroupingColumn(_) => {
+                    debug_assert!(
+                        i < natts,
+                        "aggregate clause entry index out of bounds for tuple descriptor"
+                    );
+                    (datums[i], isnull[i])
+                }
+            };
+
+            (*const_node).constvalue = datum;
+            (*const_node).constisnull = is_null;
+        }
+
+        // Set the scan tuple for expression evaluation context
+        (*expr_context).ecxt_scantuple = slot;
+
+        // Build projection and execute in per-tuple memory context (basescan pattern)
+        // This ensures ExecBuildProjectionInfo allocations are cleaned up each row
+        per_tuple_context.switch_to(|_| {
+            let proj_info = pg_sys::ExecBuildProjectionInfo(
+                placeholder_tlist,
+                expr_context,
+                (*planstate).ps_ResultTupleSlot,
+                planstate,
+                (*slot).tts_tupleDescriptor,
+            );
+            pg_sys::ExecProject(proj_info)
+        })
     }
 
     /// Execute the DataFusion aggregate path: build plan, consume Arrow batches,
@@ -1072,21 +1012,11 @@ impl AggregateScan {
                 Err(e) => pgrx::error!("Failed to build DataFusion aggregate plan: {}", e),
             };
 
-            let memory_pool = create_memory_pool(
+            let task_ctx = build_task_context(
+                &ctx,
                 &physical_plan,
                 unsafe { pg_sys::work_mem as usize * 1024 },
                 unsafe { pg_sys::hash_mem_multiplier },
-            );
-
-            let task_ctx = Arc::new(
-                TaskContext::default()
-                    .with_session_config(ctx.state().config().clone())
-                    .with_runtime(Arc::new(
-                        RuntimeEnvBuilder::new()
-                            .with_memory_pool(memory_pool)
-                            .build()
-                            .expect("Failed to create RuntimeEnv"),
-                    )),
             );
             let stream = {
                 let _guard = runtime.enter();
@@ -1143,6 +1073,196 @@ impl AggregateScan {
                 }
             }
         }
+    }
+}
+
+/// True when an aggregate entry is served by the bucket's `doc_count` rather
+/// than by an entry in `row.aggregates`. Matches the filter in
+/// `CollectFlat<AggregateType, MetricsWithGroupBy>` in `build.rs`, which omits
+/// these aggregates from the Tantivy request — so they must NOT be advanced
+/// past when walking the result iterator.
+fn uses_doc_count_path(agg_type: &AggregateType, aggregate_clause: &AggregateCSClause) -> bool {
+    agg_type.can_use_doc_count() && !aggregate_clause.has_filter() && aggregate_clause.has_groupby()
+}
+
+/// Convert one aggregate target-list entry to a Postgres datum.
+///
+/// Handles three branches in order:
+/// 1. **Empty result row** → use the agg type's `nullish` fallback (always F64).
+/// 2. **`can_use_doc_count` fast path** → forward `row.doc_count()` directly,
+///    bypassing the aggregate iterator. Requires no FILTER and a GROUP BY.
+/// 3. **Otherwise** → call into [`exec::aggregate_result_to_datum`] with the
+///    `next_aggregate` value the caller supplies from its iterator.
+///
+/// The caller is responsible for advancing its aggregate iterator exactly when
+/// branch 3 fires — see [`uses_doc_count_path`]. Doc-count aggregates have no
+/// slot in `row.aggregates`, so advancing past them would shift subsequent
+/// aggregate results by one.
+///
+/// Used by both `fill_slot_from_row` (which targets the tupdesc type) and
+/// `project_wrapped_aggregates` (which targets the Const node's native type).
+/// Returns `None` when the result should be NULL.
+unsafe fn aggregate_value_to_datum(
+    agg_type: &AggregateType,
+    row: &AggregationResultsRow,
+    target_typoid: pg_sys::Oid,
+    aggregate_clause: &AggregateCSClause,
+    next_aggregate: Option<AggregateResult>,
+) -> Option<pg_sys::Datum> {
+    if row.is_empty() {
+        return agg_type.nullish().value.and_then(|value| {
+            TantivyValue(OwnedValue::F64(value))
+                .try_into_datum(target_typoid.into())
+                .unwrap()
+        });
+    }
+    if uses_doc_count_path(agg_type, aggregate_clause) {
+        return row
+            .doc_count()
+            .try_into_datum(pgrx::PgOid::from(target_typoid))
+            .ok()
+            .flatten();
+    }
+    exec::aggregate_result_to_datum(next_aggregate, agg_type, target_typoid)
+}
+
+/// Fill the scan slot's `tts_values` / `tts_isnull` arrays from a single
+/// `AggregationResultsRow`. Walks the aggregate clause's target list once and
+/// dispatches to one of four shapes:
+///
+/// 1. `GroupingColumn` with a non-empty row → decode the group key (handles
+///    NULL sentinels and ISO-8601 datetime parsing) via [`group_key_to_datum`].
+/// 2. `GroupingColumn` with an empty row → NULL.
+/// 3. `Aggregate` (any row) → delegate to [`aggregate_value_to_datum`].
+///
+/// Finalizes by setting `tts_flags` and `tts_nvalid` so the slot is in the
+/// "virtual tuple stored" state.
+unsafe fn fill_slot_from_row(
+    slot: *mut pg_sys::TupleTableSlot,
+    tupdesc: &PgTupleDesc<'_>,
+    row: &AggregationResultsRow,
+    aggregate_clause: &AggregateCSClause,
+) {
+    let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
+    let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
+    let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
+
+    let mut aggregates = row.aggregates.clone().into_iter();
+    let mut natts_processed = 0;
+
+    // Fill in values according to the target list
+    for (i, entry) in aggregate_clause.entries().enumerate() {
+        let attr = tupdesc.get(i).expect("missing attribute");
+        let expected_typoid = attr.type_oid().value();
+
+        let datum = match entry {
+            TargetListEntry::GroupingColumn(gc_idx) => {
+                if row.is_empty() {
+                    None
+                } else {
+                    group_key_to_datum(row.group_keys[*gc_idx].clone(), expected_typoid)
+                }
+            }
+            TargetListEntry::Aggregate(agg_type) => {
+                // Doc-count aggregates don't occupy a slot in `row.aggregates`
+                // (see `uses_doc_count_path` and the matching filter in
+                // `CollectFlat<..., MetricsWithGroupBy>` in build.rs), so the
+                // iterator must only be advanced for aggregates that do.
+                let next_aggregate =
+                    if row.is_empty() || uses_doc_count_path(agg_type, aggregate_clause) {
+                        None
+                    } else {
+                        aggregates.next().and_then(|v| v)
+                    };
+                aggregate_value_to_datum(
+                    agg_type,
+                    row,
+                    expected_typoid,
+                    aggregate_clause,
+                    next_aggregate,
+                )
+            }
+        };
+
+        if let Some(datum) = datum {
+            datums[i] = datum;
+            isnull[i] = false;
+        } else {
+            datums[i] = pg_sys::Datum::null();
+            isnull[i] = true;
+        }
+
+        natts_processed += 1;
+    }
+
+    assert_eq!(natts, natts_processed, "target list length mismatch",);
+
+    // Simple finalization - just set the flags and return the slot (no
+    // ExecStoreVirtualTuple needed). Note: we don't set TTS_FLAG_SHOULDFREE
+    // since we're reusing this slot across rows.
+    (*slot).tts_flags &= !(pg_sys::TTS_FLAG_EMPTY as u16);
+    (*slot).tts_nvalid = natts as i16;
+}
+
+/// Convert a Tantivy group key to a Postgres datum, handling NULL sentinels
+/// (used for I64/U64/F64/Bool when the aggregator omits a row) and the
+/// datetime decoding path (Tantivy returns ISO-8601 strings; we parse them
+/// with chrono and re-pack as `tantivy::DateTime` before round-tripping
+/// through `try_into_datum`).
+///
+/// Returns `None` for NULL sentinels; otherwise the converted datum.
+unsafe fn group_key_to_datum(
+    key: TantivyValue,
+    expected_typoid: pg_sys::Oid,
+) -> Option<pg_sys::Datum> {
+    // Check if this is a NULL sentinel (handles both MIN and MAX sentinels).
+    // U64 uses string sentinel for MIN (since 0 is valid); u64::MAX for MAX.
+    // Bool uses string sentinels for both MIN and MAX.
+    // DateTime columns don't have a missing sentinel (NULLs are excluded).
+    let is_null_sentinel = match &key.0 {
+        OwnedValue::Str(s) => s == NULL_SENTINEL_MIN || s == NULL_SENTINEL_MAX,
+        OwnedValue::I64(v) => *v == i64::MAX || *v == i64::MIN,
+        OwnedValue::U64(v) => *v == u64::MAX,
+        OwnedValue::F64(v) => *v == f64::MAX || *v == f64::MIN,
+        _ => false,
+    };
+    if is_null_sentinel {
+        return None;
+    }
+
+    if !is_datetime_type(expected_typoid) {
+        return key
+            .try_into_datum(pgrx::PgOid::from(expected_typoid))
+            .expect("should be able to convert to datum");
+    }
+
+    // For datetime types, Tantivy's terms aggregation returns the date as
+    // an ISO 8601 string (e.g., "2025-12-26T00:00:00Z"). We need to parse
+    // this string and convert it to the appropriate PostgreSQL date type.
+    match &key.0 {
+        OwnedValue::Str(date_str) => match date_str.parse::<ChronoDateTime<Utc>>() {
+            Ok(chrono_dt) => {
+                // Convert to nanoseconds since epoch for Tantivy DateTime
+                let nanos = chrono_dt.timestamp_nanos_opt().unwrap_or(0);
+                let datetime = tantivy::DateTime::from_timestamp_nanos(nanos);
+                TantivyValue(OwnedValue::Date(datetime))
+                    .try_into_datum(pgrx::PgOid::from(expected_typoid))
+                    .expect("should be able to convert datetime to datum")
+            }
+            Err(e) => {
+                pgrx::error!("Failed to parse datetime string '{}': {}", date_str, e);
+            }
+        },
+        OwnedValue::I64(nanos) => {
+            // Fallback for I64 (nanoseconds timestamp)
+            let datetime = tantivy::DateTime::from_timestamp_nanos(*nanos);
+            TantivyValue(OwnedValue::Date(datetime))
+                .try_into_datum(pgrx::PgOid::from(expected_typoid))
+                .expect("should be able to convert datetime to datum")
+        }
+        _ => key
+            .try_into_datum(pgrx::PgOid::from(expected_typoid))
+            .expect("should be able to convert to datum"),
     }
 }
 

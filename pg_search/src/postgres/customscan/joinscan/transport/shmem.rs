@@ -215,24 +215,10 @@ impl SignalBridge {
     /// Subsequent signals use **non-blocking I/O** and handle `WouldBlock` by silently dropping the signal
     /// (event coalescing), ensuring that the main loop is never stalled by a slow consumer.
     pub fn signal(&self, target_id: ParticipantId) -> std::io::Result<()> {
-        if target_id == self.participant_id {
-            // Self-signal: directly wake registered wakers without UDS round-trip.
-            let wakers_to_wake: Vec<_> = {
-                let mut guard = self.wakers.lock();
-                let mut to_wake = Vec::new();
-                if let Some(list) = guard.get_mut(&Some(self.participant_id)) {
-                    to_wake.append(list);
-                }
-                if let Some(list) = guard.get_mut(&None) {
-                    to_wake.append(list);
-                }
-                to_wake
-            };
-            for waker in wakers_to_wake {
-                waker.wake();
-            }
-            return Ok(());
-        }
+        // All signals (including self) go through UDS. Direct waker.wake() for
+        // self-signals causes LocalSet task cycling that starves the tokio IO
+        // driver, preventing cross-process signals from being processed.
+        // The UDS round-trip (~10μs) is negligible with 32MB ring buffers.
 
         let needs_connect = {
             let guard = self.outgoing.lock();

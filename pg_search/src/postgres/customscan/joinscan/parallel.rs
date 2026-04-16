@@ -390,8 +390,8 @@ pub fn launch_join_workers(
     // Ring buffer size per connection. Smaller buffers reduce DSM allocation
     // overhead (the biggest component of launch cost) at the expense of more
     // frequent flushes for large result sets.
-    let ring_buffer_size = 4 * 1024 * 1024; // 4MB per connection
-                                            // Control buffer for plan broadcast and StartStream/CancelStream messages.
+    let ring_buffer_size = 32 * 1024 * 1024; // 32MB per connection
+                                             // Control buffer for plan broadcast and StartStream/CancelStream messages.
     let control_size = 256 * 1024; // 256KB (plans are typically <10KB)
                                    // Data Header + Data + Control Header + Control Data + padding
     let layout = TransportLayout::new(ring_buffer_size, control_size);

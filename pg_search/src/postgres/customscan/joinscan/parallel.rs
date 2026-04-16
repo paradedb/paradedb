@@ -393,7 +393,7 @@ pub fn launch_join_workers(
     // circular ring buffer dependencies (all participants blocked writing to
     // each other) that the single-threaded LocalSet cannot break.
     let ring_buffer_size =
-        (max_memory / (2 * total_participants)).clamp(4 * 1024 * 1024, 256 * 1024 * 1024);
+        (max_memory / (2 * total_participants)).clamp(32 * 1024 * 1024, 256 * 1024 * 1024);
     // Control buffer for plan broadcast and StartStream/CancelStream messages.
     let control_size = 256 * 1024; // 256KB (plans are typically <10KB)
                                    // Data Header + Data + Control Header + Control Data + padding

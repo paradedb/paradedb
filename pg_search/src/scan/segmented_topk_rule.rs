@@ -133,6 +133,55 @@ fn try_inject_at_sort(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionP
     }
 }
 
+/// Resolve the physical index in `schema` for a column reference from a SortExec.
+///
+/// SortExec column indices are logical positions relative to *its* input schema
+/// (i.e. `TantivyLookupExec`'s output). After a join, the physical schema seen
+/// by `lookup_child` may reorder or duplicate fields — for example a HashJoinExec
+/// output like `[ctid_0, s.name, ctid_1, p.name]` gives `p.name` the physical
+/// index 3, while the SortExec might carry logical index 1.
+///
+/// Resolution strategy:
+///   1. Collect all fields in `schema` whose name matches `col.name()`.
+///   2. Use `col.index()` as the *N-th occurrence* hint: take the `col.index()`-th
+///      match (0-based among same-named fields).  This handles the common join case
+///      where two tables contribute columns with the same base name.
+///   3. If no name match is found at all, fall back to `col.index()` directly
+///      (pre-join, single-table path — maintains backward compatibility).
+fn resolve_physical_index(col: &Column, schema: &datafusion::arrow::datatypes::SchemaRef) -> usize {
+    let col_name = col.name();
+    let logical_idx = col.index();
+
+    // Collect positions of all fields matching this name.
+    let matches: Vec<usize> = schema
+        .fields()
+        .iter()
+        .enumerate()
+        .filter_map(|(i, f)| if f.name() == col_name { Some(i) } else { None })
+        .collect();
+
+    let physical_idx = if matches.is_empty() {
+        // No name match — fall back to the raw logical index.
+        logical_idx
+    } else {
+        // Use the logical index as an occurrence hint.
+        // E.g. if two fields are named "name" at positions [1, 3], and the
+        // SortExec carries logical index 1, we want the *second* occurrence → 3.
+        // Clamp to the last occurrence to avoid panics on unexpected schemas.
+        let occurrence = logical_idx.min(matches.len() - 1);
+        matches[occurrence]
+    };
+
+    pgrx::debug1!(
+        "SegmentedTopK: mapping logical index {} to physical index {} for column '{}'",
+        logical_idx,
+        physical_idx,
+        col_name
+    );
+
+    physical_idx
+}
+
 /// Recursively search below `plan` for a `TantivyLookupExec` whose deferred
 /// fields include `sort_col_name`. If found, inject a `SegmentedTopKExec`
 /// as its new child and rebuild the plan tree up to `plan`.
@@ -145,40 +194,43 @@ fn try_inject_below_lookup(
 
     for (child_idx, child) in children.iter().enumerate() {
         if let Some(lookup) = child.as_any().downcast_ref::<TantivyLookupExec>() {
-            // Check if ANY sort column is one of the deferred fields.
-            // If so, we will inject SegmentedTopKExec and collect all deferred
-            // fields in the sort expressions to pass them down.
+            let lookup_child = &lookup.children()[0];
+            let input_schema = lookup_child.schema();
+
+            // Check if ANY sort column is one of the deferred fields, using
+            // physical index resolution to handle join-reordered schemas.
             let has_deferred_sort_col = sort_exprs.iter().any(|expr| {
                 if let Some(col) = expr.expr.as_any().downcast_ref::<Column>() {
+                    let physical_idx = resolve_physical_index(col, &input_schema);
                     lookup
                         .deferred_fields()
                         .iter()
-                        .any(|d| d.col_idx == col.index())
+                        .any(|d| d.col_idx == physical_idx)
                 } else {
                     false
                 }
             });
 
             if has_deferred_sort_col {
-                let lookup_child = &lookup.children()[0];
                 // Wrap blocking nodes (e.g. SortPreservingMergeExec) so that
                 // the second FilterPushdown(Post) pass can push
                 // SegmentedTopKExec's DynamicFilterPhysicalExpr down to PgSearchScan.
                 let lookup_child = &wrap_blocking_nodes(Arc::clone(lookup_child))?;
-                let input_schema = lookup_child.schema();
 
-                // Collect all deferred columns found in the sort expressions.
+                // Collect all deferred columns found in the sort expressions,
+                // resolving logical → physical indices for each.
                 let mut deferred_columns = Vec::new();
                 for expr in &sort_exprs {
                     if let Some(col) = expr.expr.as_any().downcast_ref::<Column>() {
+                        let physical_idx = resolve_physical_index(col, &input_schema);
                         if let Some(field) = lookup
                             .deferred_fields()
                             .iter()
-                            .find(|d| d.col_idx == col.index())
+                            .find(|d| d.col_idx == physical_idx)
                         {
                             deferred_columns.push(
                                 crate::scan::segmented_topk_exec::DeferredSortColumn {
-                                    sort_col_idx: col.index(),
+                                    sort_col_idx: physical_idx,
                                     canonical: field.canonical.clone(),
                                 },
                             );
@@ -210,41 +262,24 @@ fn try_inject_below_lookup(
                     None => return Ok(None),
                 };
 
-                // Each sort expression carries a physical column index set when SortExec was built
-                // against TantivyLookupExec's output schema. TantivyLookupExec preserves field
-                // positions exactly — it only changes Union types to their materialized string types —
-                // so col.index() maps directly into lookup_child's schema without name-based translation.
+                // Rewrite sort expressions: replace each Column's index with the
+                // resolved physical index so that SegmentedTopKExec operates on the
+                // correct field position in lookup_child's schema.
+                //
+                // Previously this used col.index() directly, which is the logical index
+                // relative to TantivyLookupExec's output schema. After a join the physical
+                // schema may differ (e.g. HashJoinExec emits [ctid_0, s.name, ctid_1, p.name]
+                // so p.name is at physical index 3, not 1).
                 let mut rewritten_sort_exprs = Vec::with_capacity(sort_exprs.len());
                 for sort_expr in &sort_exprs {
                     use datafusion::common::tree_node::{Transformed, TreeNode};
+                    let input_schema_clone = Arc::clone(&input_schema);
                     let rewritten_expr = sort_expr.expr.clone().transform(|node| {
                         if let Some(col) = node.as_any().downcast_ref::<Column>() {
-                            let new_idx = col.index();
-                            if new_idx < input_schema.fields().len() {
-                                // Ensure index is valid (this is the real invariant)
-                                debug_assert!(
-                                    new_idx < input_schema.fields().len(),
-                                    "SegmentedTopK sort-expr rewrite: column index {} out of bounds (schema has {} fields)",
-                                    new_idx,
-                                    input_schema.fields().len()
-                                );
+                            let physical_idx = resolve_physical_index(col, &input_schema_clone);
 
-                                // Names may differ due to aliases (e.g., col_2 vs name), so don't assert equality.
-                                // But log in debug builds for visibility.
-                                if cfg!(debug_assertions) {
-                                    let expected = input_schema.field(new_idx).name();
-                                    let actual = col.name();
-                                    if expected != actual {
-                                        eprintln!(
-                                            "SegmentedTopK debug: column name mismatch at index {} (expected '{}', got '{}')",
-                                            new_idx,
-                                            expected,
-                                            actual
-                                        );
-                                    }
-                                }
-
-                                let new_col = Column::new(col.name(), new_idx);
+                            if physical_idx < input_schema_clone.fields().len() {
+                                let new_col = Column::new(col.name(), physical_idx);
                                 return Ok(Transformed::yes(
                                     Arc::new(new_col) as Arc<dyn PhysicalExpr>
                                 ));

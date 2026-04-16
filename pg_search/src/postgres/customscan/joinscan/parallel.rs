@@ -387,11 +387,14 @@ pub fn launch_join_workers(
 
     let session_id = uuid::Uuid::new_v4();
 
-    // Ring buffer size per connection. Smaller buffers reduce DSM allocation
-    // overhead (the biggest component of launch cost) at the expense of more
-    // frequent flushes for large result sets.
-    let ring_buffer_size = 32 * 1024 * 1024; // 32MB per connection
-                                             // Control buffer for plan broadcast and StartStream/CancelStream messages.
+    // Size the ring buffer based on work_mem to hold a substantial fraction
+    // of the expected data per connection. With N participants, each connection
+    // carries ~(total_rows / N^2) rows. Insufficient buffer size causes
+    // circular ring buffer dependencies (all participants blocked writing to
+    // each other) that the single-threaded LocalSet cannot break.
+    let ring_buffer_size =
+        (max_memory / (2 * total_participants)).clamp(4 * 1024 * 1024, 256 * 1024 * 1024);
+    // Control buffer for plan broadcast and StartStream/CancelStream messages.
     let control_size = 256 * 1024; // 256KB (plans are typically <10KB)
                                    // Data Header + Data + Control Header + Control Data + padding
     let layout = TransportLayout::new(ring_buffer_size, control_size);

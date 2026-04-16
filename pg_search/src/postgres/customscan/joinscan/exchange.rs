@@ -757,15 +757,21 @@ impl DsmExchangeExec {
                     return Poll::Ready(());
                 }
 
-                // If we made progress, try again immediately to drain more
-                if progress {
-                    continue;
-                }
-
-                // No progress made.
-                // If blocked on write, register waker with bridge.
+                // If blocked on any ring buffer write, yield immediately even if
+                // other queues made progress. This is critical: without yielding,
+                // the producer can cycle indefinitely writing to self-partition
+                // ring buffers (which the local consumer drains), starving the
+                // tokio IO driver. Remote participants signal space-available via
+                // UDS, which only fires when the IO driver polls — and that only
+                // happens when ALL LocalSet tasks return Pending.
                 if blocked_on_write {
                     bridge.register_waker(cx.waker().clone(), None);
+                    return Poll::Pending;
+                }
+
+                // If we made progress (and not blocked), try again immediately
+                if progress {
+                    continue;
                 }
 
                 // If input is pending, it already registered waker.

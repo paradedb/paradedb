@@ -446,7 +446,7 @@ impl WorkerBuildState {
             segment_ids_to_merge
         );
         let directory = MvccSatisfies::Mergeable.directory(&self.indexrel);
-        let mut merger = SearchIndexMerger::open(directory)?;
+        let mut merger = SearchIndexMerger::open_for_merge(directory, &self.indexrel)?;
         unsafe { set_ps_display_suffix(MERGING.as_ptr()) };
         merger.merge_segments(&segment_ids_to_merge)?;
 

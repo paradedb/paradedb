@@ -254,19 +254,21 @@ pub unsafe fn do_merge(
     let merge_lock = metadata.acquire_merge_lock();
     let foreground_layer_sizes = layer_sizes.foreground_layer_sizes.clone();
 
-    let (needs_background_merge, largest_layer_size) =
-        if layer_sizes.user_configured_background_layers() {
-            let combined_layers = layer_sizes.combined();
-            let merger = SearchIndexMerger::open(MvccSatisfies::Mergeable.directory(index))?;
-            let mut background_merge_policy = LayeredMergePolicy::new(combined_layers);
+    let (needs_background_merge, largest_layer_size) = if layer_sizes
+        .user_configured_background_layers()
+    {
+        let combined_layers = layer_sizes.combined();
+        let merger =
+            SearchIndexMerger::open_for_merge(MvccSatisfies::Mergeable.directory(index), index)?;
+        let mut background_merge_policy = LayeredMergePolicy::new(combined_layers);
 
-            background_merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
-            let (merge_candidates, largest_layer_size) = background_merge_policy.simulate();
+        background_merge_policy.set_mergeable_segment_entries(&metadata, &merge_lock, &merger);
+        let (merge_candidates, largest_layer_size) = background_merge_policy.simulate();
 
-            (!merge_candidates.is_empty(), largest_layer_size)
-        } else {
-            (false, 0)
-        };
+        (!merge_candidates.is_empty(), largest_layer_size)
+    } else {
+        (false, 0)
+    };
 
     if needs_background_merge && !need_backpressure {
         // if we need (and think we can do) a background merge then we prefer to do that

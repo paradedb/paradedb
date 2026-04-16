@@ -59,3 +59,6 @@ CLAUDE.local.md
 
 .github/scripts/verify
 __pycache__
+profile.trace
+*.trace
+*.trace

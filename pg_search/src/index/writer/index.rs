@@ -140,7 +140,7 @@ impl SerialIndexWriter {
 
         let directory = mvcc_satisfies.directory(index_relation);
         let mut index = Index::open(directory)?;
-        crate::vector::register_vector_plugins(&mut index);
+        crate::vector::register_vector_plugins_for_merge(&mut index, index_relation);
         let schema = index_relation.schema()?;
         setup_tokenizers(index_relation, &mut index)?;
         let ctid_field = schema.ctid_field();

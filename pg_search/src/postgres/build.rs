@@ -312,7 +312,7 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
     };
 
     let mut index = Index::create(directory, schema.clone(), settings)?;
-    crate::vector::register_vector_plugins(&mut index);
+    crate::vector::register_vector_plugins_for_merge(&mut index, index_relation);
 
     Ok(())
 }

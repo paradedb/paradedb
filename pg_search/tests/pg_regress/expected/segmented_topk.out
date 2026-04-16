@@ -825,6 +825,72 @@ RESET paradedb.enable_segmented_topk;
 DROP TABLE stk_vis_files CASCADE;
 DROP TABLE stk_vis_docs CASCADE;
 -- =============================================================================
+-- TEST 14: Regression — small segment (fewer than 2×k rows) must not be dropped
+--
+-- When a segment has fewer than 2×k rows, segment_cutoffs has no entry for it
+-- (QuickSelect never fires). The old is_some_and returned false on None, silently
+-- dropping every row from that segment. Fix: is_none_or passes all rows through
+-- when no cutoff entry exists.
+-- =============================================================================
+DROP TABLE IF EXISTS stk_small_docs CASCADE;
+DROP TABLE IF EXISTS stk_small_files CASCADE;
+CREATE TABLE stk_small_docs (id TEXT PRIMARY KEY, category TEXT);
+CREATE TABLE stk_small_files (id SERIAL PRIMARY KEY, doc_id TEXT, title TEXT);
+-- Only 4 rows total — well below 2×k=52 for LIMIT 26. No cutoff will ever be set.
+INSERT INTO stk_small_docs VALUES ('s1', 'SMALLTEST alpha'), ('s2', 'SMALLTEST beta');
+INSERT INTO stk_small_files (doc_id, title) VALUES
+    ('s1', 'Apple'), ('s1', 'Banana'), ('s2', 'Cherry'), ('s2', 'Date');
+CREATE INDEX ON stk_small_docs USING bm25 (id, category)
+    WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
+CREATE INDEX ON stk_small_files USING bm25 (id, doc_id, title)
+    WITH (key_field = 'id', text_fields = '{"doc_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}}');
+ANALYZE stk_small_docs;
+ANALYZE stk_small_files;
+-- Ground truth: STK OFF
+SET paradedb.enable_segmented_topk = off;
+SELECT count(*) FROM (
+    SELECT f.id FROM stk_small_files f
+    WHERE f.doc_id IN (SELECT d.id FROM stk_small_docs d WHERE d.category @@@ 'SMALLTEST')
+    ORDER BY f.title ASC LIMIT 26
+) sub;
+ count 
+-------
+     4
+(1 row)
+
+-- STK ON: must return same count (4), not 0.
+SET paradedb.enable_segmented_topk = on;
+SELECT count(*) FROM (
+    SELECT f.id FROM stk_small_files f
+    WHERE f.doc_id IN (SELECT d.id FROM stk_small_docs d WHERE d.category @@@ 'SMALLTEST')
+    ORDER BY f.title ASC LIMIT 26
+) sub;
+ count 
+-------
+     4
+(1 row)
+
+DROP TABLE stk_small_files CASCADE;
+DROP TABLE stk_small_docs CASCADE;
+-- =============================================================================
+-- TEST 15: Regression — LIMIT 0 must not panic (k=0 rejected at rule level)
+--
+-- With k=0, select_nth_unstable(k-1) underflows usize. The fix rejects
+-- Some(0) in segmented_topk_rule.rs before SegmentedTopKExec is injected.
+-- =============================================================================
+SET paradedb.enable_segmented_topk = on;
+SELECT f.id, f.title
+FROM stk_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+)
+ORDER BY f.title ASC
+LIMIT 0;
+ id | title 
+----+-------
+(0 rows)
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 DROP TABLE stk_files CASCADE;

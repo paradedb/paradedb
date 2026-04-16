@@ -120,6 +120,12 @@ fn try_inject_at_sort(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionP
         return Ok(plan);
     };
 
+    // LIMIT 0 would cause select_nth_unstable(k-1) to underflow; nothing to
+    // compute anyway.
+    if k == 0 {
+        return Ok(plan);
+    }
+
     let sort_exprs = sort_exec.expr();
 
     // Walk down from SortExec to find TantivyLookupExec.

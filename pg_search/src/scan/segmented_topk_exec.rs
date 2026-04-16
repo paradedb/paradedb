@@ -988,15 +988,17 @@ impl SegmentedTopKState {
     }
 
     /// Build the set of all survivors across all segments. A row survives if
-    /// its `OwnedRow` is <= the cutoff (worst heap entry) for its segment.
+    /// its `OwnedRow` is <= the cutoff (worst heap entry) for its segment, or
+    /// if the segment never reached 2×k rows and therefore has no cutoff yet
+    /// (in which case every row from that segment is a candidate).
     fn build_survivors(&self) -> crate::api::HashSet<(usize, usize)> {
         let mut survivors = crate::api::HashSet::default();
         for (batch_idx, row_idx, seg_ord, heap_val) in &self.row_ordinals {
-            let dominated = self
+            let survives = self
                 .segment_cutoffs
                 .get(seg_ord)
-                .is_some_and(|cutoff| heap_val <= cutoff);
-            if dominated {
+                .is_none_or(|cutoff| heap_val <= cutoff);
+            if survives {
                 survivors.insert((*batch_idx, *row_idx));
             }
         }

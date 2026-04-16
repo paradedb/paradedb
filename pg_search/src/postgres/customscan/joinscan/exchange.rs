@@ -746,8 +746,14 @@ impl DsmExchangeExec {
                     }
                 }
 
-                // 2. Poll input stream if not done
-                if !input_done {
+                // 2. Poll input stream if not done AND all queues are drained.
+                // This creates backpressure: the producer stops reading from the
+                // scan until all previously partitioned data is flushed to ring
+                // buffers. Without this, the producer reads the entire input
+                // (~5M rows per participant) into unbounded out_queues, then
+                // tries to drain — causing circular ring buffer deadlocks when
+                // all participants are simultaneously blocked.
+                if !input_done && all_queues_empty {
                     match input_stream.as_mut().poll_next(cx) {
                         Poll::Ready(Some(Ok(batch))) => {
                             total_rows += batch.num_rows() as u64;

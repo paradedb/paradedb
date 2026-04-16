@@ -680,14 +680,13 @@ impl DsmExchangeExec {
         let mut yield_counter: u64 = 0;
         poll_fn(|cx| {
             loop {
-                // Cooperative yielding: every 16 iterations, re-queue this task
-                // and return Pending. This gives the LocalSet a chance to run
-                // other tasks (e.g. Gather producer / consumer tasks) AND lets
-                // the tokio IO driver poll for UDS signals from remote
-                // participants. Without this, self-signal direct waking can
-                // cause this task to loop indefinitely, starving IO.
+                // Cooperative yielding: re-queue this task and return Pending
+                // on every other iteration. This gives the LocalSet a chance
+                // to run other tasks (Gather producer / consumer tasks that
+                // need to drain ring buffers) AND lets the tokio IO driver
+                // poll for UDS signals from remote participants.
                 yield_counter += 1;
-                if yield_counter.is_multiple_of(16) {
+                if yield_counter.is_multiple_of(2) {
                     cx.waker().wake_by_ref();
                     return Poll::Pending;
                 }

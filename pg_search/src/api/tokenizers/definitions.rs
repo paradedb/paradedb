@@ -31,7 +31,7 @@ pub(crate) mod pdb {
     use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
     use pgrx::nullable::Nullable;
     use pgrx::pgrx_sql_entity_graph::metadata::{
-        ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
+        ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
     };
     use pgrx::{extension_sql, pg_extern, pg_sys, FromDatum, IntoDatum};
     use std::ffi::CString;
@@ -232,13 +232,12 @@ pub(crate) mod pdb {
             }
 
             unsafe impl SqlTranslatable for $rust_name {
-                fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-                    Ok(SqlMapping::As(format!("pdb.{}", $sql_name)))
-                }
-
-                fn return_sql() -> Result<Returns, ReturnsError> {
-                    Ok(Returns::One(SqlMapping::As(format!("pdb.{}", $sql_name))))
-                }
+                const TYPE_IDENT: &'static str = pgrx::pgrx_resolved_type!($rust_name);
+                const TYPE_ORIGIN: TypeOrigin = TypeOrigin::External;
+                const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
+                    Ok(SqlMappingRef::literal($sql_name));
+                const RETURN_SQL: Result<ReturnsRef, ReturnsError> =
+                    Ok(ReturnsRef::One(SqlMappingRef::literal($sql_name)));
             }
 
             #[pg_extern(immutable, parallel_safe)]

@@ -46,7 +46,7 @@ ENV PATH="/usr/local/bin:/root/.cargo/bin:$PATH" \
 COPY Cargo.toml /tmp/
 WORKDIR /tmp/
 
-# Extract version from Cargo.toml (handles 'pgrx = "=0.17.0"')
+# Extract version from Cargo.toml (handles 'pgrx = "=0.18.0"')
 # This replaces `cargo tree` to avoid needing the full source tree
 RUN PGRX_VERSION=$(grep 'pgrx =' Cargo.toml | head -n 1 | cut -d '"' -f 2 | tr -d '=') && \
     echo "PGRX_VERSION=$PGRX_VERSION" && \

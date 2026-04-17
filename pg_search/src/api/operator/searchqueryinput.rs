@@ -28,7 +28,7 @@ use crate::query::SearchQueryInput;
 use crate::{nodecast, UNKNOWN_SELECTIVITY};
 use pgrx::callconv::{Arg, ArgAbi};
 use pgrx::pgrx_sql_entity_graph::metadata::{
-    ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
+    ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
 };
 use pgrx::{
     check_for_interrupts, pg_extern, pg_func_extra, pg_getarg_datum_raw, pg_getarg_type, pg_sys,
@@ -102,13 +102,11 @@ unsafe impl<'fcx> ArgAbi<'fcx> for FakeAnyElement {
 }
 
 unsafe impl SqlTranslatable for FakeAnyElement {
-    fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-        Ok(SqlMapping::As("anyelement".into()))
-    }
-
-    fn return_sql() -> Result<Returns, ReturnsError> {
-        Err(ReturnsError::Datum)
-    }
+    const TYPE_IDENT: &'static str = pgrx::pgrx_resolved_type!(FakeAnyElement);
+    const TYPE_ORIGIN: TypeOrigin = TypeOrigin::External;
+    const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
+        Ok(SqlMappingRef::literal("anyelement"));
+    const RETURN_SQL: Result<ReturnsRef, ReturnsError> = Err(ReturnsError::Datum);
 }
 
 unsafe impl<'fcx> ArgAbi<'fcx> for FakeSearchQueryInput {
@@ -118,13 +116,13 @@ unsafe impl<'fcx> ArgAbi<'fcx> for FakeSearchQueryInput {
 }
 
 unsafe impl SqlTranslatable for FakeSearchQueryInput {
-    fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-        Ok(SqlMapping::As("SearchQueryInput".into()))
-    }
-
-    fn return_sql() -> Result<Returns, ReturnsError> {
-        Err(ReturnsError::Datum)
-    }
+    // Borrow the real `SearchQueryInput` resolution so the SQL graph emits
+    // `CREATE TYPE SearchQueryInput` before any function that consumes this fake.
+    const TYPE_IDENT: &'static str = <SearchQueryInput as SqlTranslatable>::TYPE_IDENT;
+    const TYPE_ORIGIN: TypeOrigin = <SearchQueryInput as SqlTranslatable>::TYPE_ORIGIN;
+    const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
+        <SearchQueryInput as SqlTranslatable>::ARGUMENT_SQL;
+    const RETURN_SQL: Result<ReturnsRef, ReturnsError> = Err(ReturnsError::Datum);
 }
 
 #[allow(unused_variables)]

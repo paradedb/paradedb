@@ -3,74 +3,15 @@
 <br>
 </h1>
 
-## Overview
-
-`pg_search` is a Postgres extension that enables full text search over heap tables using the BM25 algorithm. It is built on top of Tantivy, the Rust-based alternative to Apache Lucene, using `pgrx`. Please refer to the [ParadeDB documentation](https://docs.paradedb.com/documentation/getting-started/install) to get started.
+This README covers **local development** of the `pg_search` extension. For installation, deployment, and usage, see the [top-level ParadeDB README](../README.md) or the [ParadeDB documentation](https://docs.paradedb.com).
 
 `pg_search` is supported on official PostgreSQL Global Development Group Postgres versions, starting at PostgreSQL 15.
 
-Benchmarks can be found in the [`/benchmarks` directory](../benchmarks/README.md).
+## Prerequisites
 
-## Installation
+### Rust
 
-### From ParadeDB
-
-The easiest way to use the extension is to run the ParadeDB Dockerfile:
-
-```bash
-docker run \
-  --name paradedb \
-  -e POSTGRES_USER=<user> \
-  -e POSTGRES_PASSWORD=<password> \
-  -e POSTGRES_DB=<dbname> \
-  -v paradedb_data:/var/lib/postgresql/ \
-  -p 5432:5432 \
-  -d \
-  paradedb/paradedb:latest
-```
-
-This will spin up a Postgres instance with `pg_search` preinstalled.
-
-### From Self-Hosted PostgreSQL
-
-If you are self-hosting Postgres and would like to use the extension within your existing Postgres, follow the steps below.
-
-It's **very important** to make the following change to your `postgresql.conf` configuration file. `pg_search` must be in the list of `shared_preload_libraries`:
-
-```c
-shared_preload_libraries = 'pg_search'
-```
-
-This enables the extension to spawn a background worker process that performs writes to the index. If this background process is not started because of an incorrect `postgresql.conf` configuration, your database connection will crash or hang when you attempt to create a `pg_search` index.
-
-#### Debian/Ubuntu
-
-We provide prebuilt binaries for Debian-based Linux for Postgres 15+. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
-
-#### RHEL/Rocky
-
-We provide prebuilt binaries for Red Hat-based Linux for Postgres 15+. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
-
-You can also install `pg_search` via [Pigsty](https://pigsty.io/ext/repo/). To install `pig` for `yum` / `dnf` compatible systems [follow these instructions](https://pigsty.io/ext/repo/yum/). Then:
-
-```bash
-dnf install pig
-pig install pg_search
-```
-
-#### macOS
-
-We provide prebuilt binaries for macOS for Postgres 15+. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
-
-#### Windows
-
-Windows is not supported. This restriction is [inherited from pgrx not supporting Windows](https://github.com/pgcentralfoundation/pgrx?tab=readme-ov-file#caveats--known-issues).
-
-## Development
-
-### Prerequisites
-
-To develop the extension, first install stable Rust using `rustup`:
+Install stable Rust using `rustup`:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -79,7 +20,9 @@ rustup install stable
 
 Note: While it is possible to install Rust via your package manager, we recommend using `rustup` as we've observed inconsistencies with Homebrew's Rust installation on macOS.
 
-Then, install the PostgreSQL version of your choice using your system package manager. Here we provide the commands for the default PostgreSQL version used by this project:
+### PostgreSQL
+
+Install the PostgreSQL version of your choice using your system package manager. Here we provide the commands for the default PostgreSQL version used by this project:
 
 ```bash
 # macOS
@@ -94,17 +37,19 @@ sudo apt-get update && sudo apt-get install -y postgresql-18 postgresql-server-d
 sudo pacman -S extra/postgresql
 ```
 
-If you are using Postgres.app to manage your macOS PostgreSQL, you'll need to add the `pg_config` binary to your path before continuing:
+If you are using Postgres.app to manage your macOS PostgreSQL, add the `pg_config` binary to your path before continuing:
 
 ```bash
 export PATH="$PATH:/Applications/Postgres.app/Contents/Versions/latest/bin"
 ```
 
-Then, install and initialize `pgrx`:
+### pgrx
+
+The `cargo-pgrx` version must match the `pgrx` dependency declared in [`pg_search/Cargo.toml`](Cargo.toml). Install and initialize it for your Postgres version:
 
 ```bash
 # Note: Replace --pg18 with your version of Postgres, if different (i.e. --pg17, etc.)
-cargo install --locked cargo-pgrx --version 0.17.0
+cargo install --locked cargo-pgrx --version 0.18.0
 
 # macOS arm64
 cargo pgrx init --pg18=/opt/homebrew/opt/postgresql@18/bin/pg_config
@@ -119,11 +64,9 @@ cargo pgrx init --pg18=/usr/lib/postgresql/18/bin/pg_config
 cargo pgrx init --pg18=/usr/bin/pg_config
 ```
 
-If you prefer to use a different version of Postgres, update the `--pg` flag accordingly.
-
 Note: While it is possible to develop using pgrx's own Postgres installation(s), via `cargo pgrx init` without specifying a `pg_config` path, we recommend using your system package manager's Postgres as we've observed inconsistent behaviours when using pgrx's.
 
-`pgrx` requires `libclang`, which does not come by default on Linux. To install it:
+`pgrx` requires `libclang`, which does not come by default on Linux:
 
 ```bash
 # Ubuntu
@@ -133,9 +76,11 @@ sudo apt install libclang-dev
 sudo pacman -S extra/clang
 ```
 
-#### pgvector
+Windows is not supported. This restriction is [inherited from pgrx not supporting Windows](https://github.com/pgcentralfoundation/pgrx?tab=readme-ov-file#caveats--known-issues).
 
-`pgvector` is needed for hybrid search integration tests.
+### pgvector
+
+`pgvector` is needed for hybrid search integration tests:
 
 ```bash
 # Note: Replace 18 with your version of Postgres
@@ -159,47 +104,53 @@ PG_CONFIG=/usr/bin/pg_config make
 sudo PG_CONFIG=/usr/bin/pg_config make install # may need sudo
 ```
 
-### Running the Extension
+## Running the Extension
 
-First, start pgrx:
+Start an interactive Postgres session with the extension built and loaded:
 
 ```bash
 cargo pgrx run
 ```
 
-This will launch an interactive connection to Postgres. Inside Postgres, create the extension by running:
+Inside Postgres, create the extension:
 
 ```sql
 CREATE EXTENSION pg_search;
 ```
 
-Now, you have access to all the extension functions.
+## Modifying the Extension
 
-### Modifying the Extension
+After making changes to the extension code:
 
-If you make changes to the extension code, follow these steps to update it:
+1. Recompile and start Postgres:
 
-1. Recompile the extension:
-
-```bash
-cargo pgrx run
-```
+   ```bash
+   cargo pgrx run
+   ```
 
 2. Recreate the extension to load the latest changes:
 
-```sql
-DROP EXTENSION pg_search;
-CREATE EXTENSION pg_search;
+   ```sql
+   DROP EXTENSION pg_search;
+   CREATE EXTENSION pg_search;
+   ```
+
+## Testing
+
+Unit tests live in `pg_search/src` and run with:
+
+```bash
+cargo test -p pg_search -- a_specific_method_to_run
 ```
 
-### Testing
+Tests marked `#[pg_test]` run inside the Postgres process and can use the full `pgrx` API. The annotation handles re-installing the extension automatically — no manual install needed.
 
-This section covers the **unit tests** located in the `pg_search/src` directory. For a complete overview of ParadeDB's testing infrastructure (which includes integration tests, client property tests, and pg regress tests), please see the [Testing section in `CONTRIBUTING.md`](../CONTRIBUTING.md#testing).
+For the other test categories (pg regress, integration tests, client property tests), see:
 
-Unit tests can be run using `cargo test -p pg_search -- a_specific_method_to_run`. These tests sometimes (if marked `#[pg_test]`) run inside the Postgres process, which allows them to use all of Postgres APIs via `pgrx`. There is no need to pre-install the extension for these: the `#[pg_test]` annotation on the test will re-install the extension automatically.
+- [`pg_search/tests/pg_regress/README.md`](tests/pg_regress/README.md) — pg regress tests
+- [`tests/README.md`](../tests/README.md) — integration tests and client property tests
+- [`CONTRIBUTING.md#testing`](../CONTRIBUTING.md#testing) — overview of all test categories and when to use which
 
-_Note: For **pg regress tests**, please refer to [pg_search/tests/pg_regress/README.md](tests/pg_regress/README.md). For **integration tests** and **client property tests**, please refer to [tests/README.md](../tests/README.md)._
+## Benchmarks
 
-## License
-
-`pg_search` is licensed under the [GNU Affero General Public License v3.0](../LICENSE) and as commercial software. For commercial licensing, please contact us at [sales@paradedb.com](mailto:sales@paradedb.com).
+See [`benchmarks/README.md`](../benchmarks/README.md).

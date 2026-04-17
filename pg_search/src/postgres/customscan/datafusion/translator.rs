@@ -182,6 +182,12 @@ impl<'a> PredicateTranslator<'a> {
                 let null_check = Expr::IsNull(Box::new(col(col_name)));
                 Some(mark_check.or(null_check))
             }
+            // `PgExpression` is only produced as a top-level `JoinNode.filter`
+            // for Semi/Anti joins, translated in [`build_join_df_with_filter`]
+            // via `stringToNode` + [`PredicateTranslator::translate`] with a
+            // `CombinedMapper` against the join's sources. It should never
+            // appear inside a `RelNode::Filter` predicate tree.
+            JoinLevelExpr::PgExpression { .. } => None,
         }
     }
 
@@ -449,8 +455,19 @@ pub fn build_join_df(
     allowed_join_types: JoinTypeAllowList,
 ) -> Result<DataFrame> {
     let on = build_equi_join_exprs(join)?;
+    let df_join_type = map_join_type(join.join_type, allowed_join_types)?;
 
-    let df_join_type = match (join.join_type, allowed_join_types) {
+    if on.is_empty() {
+        left.join(right, df_join_type, &[], &[], None)
+    } else {
+        left.join_on(right, df_join_type, on)
+    }
+}
+
+/// Map a [`super::build::JoinType`] to DataFusion's `JoinType`, honoring the
+/// allow-list policy.
+fn map_join_type(jt: PgJoinType, allowed_join_types: JoinTypeAllowList) -> Result<JoinType> {
+    Ok(match (jt, allowed_join_types) {
         (PgJoinType::Inner, _) => JoinType::Inner,
         (PgJoinType::Left, _) => JoinType::Left,
         (PgJoinType::Right, _) => JoinType::Right,
@@ -473,13 +490,93 @@ pub fn build_join_df(
                 jt
             )));
         }
+    })
+}
+
+/// Like [`build_join_df`], but translates [`JoinNode::filter`] and attaches it
+/// to the join (passed to `DataFrame::join`'s filter parameter, which
+/// DataFusion lowers to `NestedLoopJoinExec` when there are no equi keys).
+///
+/// Required for Semi/Anti joins whose condition cannot be expressed as equi
+/// keys (e.g. `a.col = b.x OR a.col = b.y`): a post-join filter would mean
+/// "cross-join then filter", which drops every left row under LeftAnti
+/// semantics. Placing the predicate on the join itself evaluates it per
+/// (left, right) pair and preserves correctness.
+///
+/// The filter expression is built by deserializing the PostgreSQL expression
+/// tree (stored in [`JoinLevelExpr::PgExpression`]) with `stringToNode` and
+/// translating it via [`PredicateTranslator::translate`] + [`CombinedMapper`]
+/// — the same pipeline used for regular join-level conditions, just without
+/// the custom_exprs / setrefs round-trip that fails under Semi/Anti tlist
+/// pruning.
+pub fn build_join_df_with_filter(
+    left: DataFrame,
+    right: DataFrame,
+    join: &JoinNode,
+    sources: &[&JoinSource],
+    output_columns: &[OutputColumnInfo],
+    allowed_join_types: JoinTypeAllowList,
+) -> Result<DataFrame> {
+    let df_join_type = map_join_type(join.join_type, allowed_join_types)?;
+
+    let filter_expr = match &join.filter {
+        Some(JoinLevelExpr::PgExpression { pg_node_string, .. }) => unsafe {
+            translate_pg_expression_filter(pg_node_string, sources, output_columns)?
+        },
+        Some(other) => {
+            return Err(DataFusionError::NotImplemented(format!(
+                "JoinNode.filter variant {:?} not yet supported in build_join_df_with_filter",
+                other
+            )));
+        }
+        None => {
+            return build_join_df(left, right, join, allowed_join_types);
+        }
     };
 
-    if on.is_empty() {
-        left.join(right, df_join_type, &[], &[], None)
-    } else {
-        left.join_on(right, df_join_type, on)
+    if join.equi_keys.is_empty() {
+        return left.join(right, df_join_type, &[], &[], Some(filter_expr));
     }
+
+    // The mixed case (equi keys + join filter) is not exercised today: only
+    // the disjunctive Semi/Anti path populates `JoinNode.filter`, and it
+    // always yields empty equi keys. Surface an explicit error so a future
+    // planner change that introduces the mixed case is noticed instead of
+    // silently producing a cross-join.
+    Err(DataFusionError::NotImplemented(
+        "JoinNode.filter combined with equi-join keys is not yet supported".into(),
+    ))
+}
+
+/// Deserialize a PostgreSQL expression from its `nodeToString` representation
+/// and translate it to a DataFusion `Expr` against `sources`. The translator
+/// is seeded with a [`CombinedMapper`] so Var nodes (carrying their original
+/// `(varno, varattno)`) resolve to qualified DataFusion columns.
+unsafe fn translate_pg_expression_filter(
+    pg_node_string: &str,
+    sources: &[&JoinSource],
+    output_columns: &[OutputColumnInfo],
+) -> Result<Expr> {
+    let c_str = std::ffi::CString::new(pg_node_string).map_err(|e| {
+        DataFusionError::Internal(format!("CString conversion failed for PgExpression: {e}"))
+    })?;
+    let node = pg_sys::stringToNode(c_str.as_ptr().cast_mut());
+    if node.is_null() {
+        return Err(DataFusionError::Internal(
+            "stringToNode returned null for PgExpression".into(),
+        ));
+    }
+
+    let mapper = CombinedMapper {
+        sources,
+        output_columns,
+    };
+    let translator = PredicateTranslator::new(sources).with_mapper(Box::new(mapper));
+    translator.translate(node.cast()).ok_or_else(|| {
+        DataFusionError::Internal(
+            "PredicateTranslator failed to translate deserialized PgExpression".into(),
+        )
+    })
 }
 
 /// Build equi-join filter expressions from a [`JoinNode`]'s key pairs.

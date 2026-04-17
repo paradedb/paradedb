@@ -20,53 +20,9 @@ rustup install stable
 
 Note: While it is possible to install Rust via your package manager, we recommend using `rustup` as we've observed inconsistencies with Homebrew's Rust installation on macOS.
 
-### PostgreSQL
-
-Install the PostgreSQL version of your choice using your system package manager. Here we provide the commands for the default PostgreSQL version used by this project:
-
-```bash
-# macOS
-brew install postgresql@18
-
-# Ubuntu
-wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-sudo apt-get update && sudo apt-get install -y postgresql-18 postgresql-server-dev-18
-
-# Arch Linux
-sudo pacman -S extra/postgresql
-```
-
-If you are using Postgres.app to manage your macOS PostgreSQL, add the `pg_config` binary to your path before continuing:
-
-```bash
-export PATH="$PATH:/Applications/Postgres.app/Contents/Versions/latest/bin"
-```
-
 ### pgrx
 
-The `cargo-pgrx` version must match the `pgrx` dependency declared in [`pg_search/Cargo.toml`](Cargo.toml). Install and initialize it for your Postgres version:
-
-```bash
-# Note: Replace --pg18 with your version of Postgres, if different (i.e. --pg17, etc.)
-cargo install --locked cargo-pgrx --version 0.18.0
-
-# macOS arm64
-cargo pgrx init --pg18=/opt/homebrew/opt/postgresql@18/bin/pg_config
-
-# macOS amd64
-cargo pgrx init --pg18=/usr/local/opt/postgresql@18/bin/pg_config
-
-# Ubuntu
-cargo pgrx init --pg18=/usr/lib/postgresql/18/bin/pg_config
-
-# Arch Linux
-cargo pgrx init --pg18=/usr/bin/pg_config
-```
-
-Note: While it is possible to develop using pgrx's own Postgres installation(s), via `cargo pgrx init` without specifying a `pg_config` path, we recommend using your system package manager's Postgres as we've observed inconsistent behaviours when using pgrx's.
-
-`pgrx` requires `libclang`, which does not come by default on Linux:
+The `cargo-pgrx` version must match the `pgrx` dependency declared in [`pg_search/Cargo.toml`](Cargo.toml). On Linux, `pgrx` also requires `libclang`:
 
 ```bash
 # Ubuntu
@@ -76,32 +32,27 @@ sudo apt install libclang-dev
 sudo pacman -S extra/clang
 ```
 
+Then install `cargo-pgrx` and let it bootstrap a managed PostgreSQL installation under `~/.pgrx/`:
+
+```bash
+cargo install --locked cargo-pgrx --version 0.18.0
+cargo pgrx init
+```
+
+`cargo pgrx init` builds every supported Postgres version this project targets (currently 15–18) into `~/.pgrx/<version>/pgrx-install/` and points future `cargo pgrx` commands at it — no system Postgres required. To target only a single version, pass e.g. `cargo pgrx init --pg18 download`.
+
 Windows is not supported. This restriction is [inherited from pgrx not supporting Windows](https://github.com/pgcentralfoundation/pgrx?tab=readme-ov-file#caveats--known-issues).
 
 ### pgvector
 
-`pgvector` is needed for hybrid search integration tests:
+`pgvector` is needed for hybrid search integration tests. Build it against the pgrx-managed Postgres install (replace `18.3` with the version under `~/.pgrx/`):
 
 ```bash
-# Note: Replace 18 with your version of Postgres
 git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git
 cd pgvector/
 
-# macOS arm64
-PG_CONFIG=/opt/homebrew/opt/postgresql@18/bin/pg_config make
-sudo PG_CONFIG=/opt/homebrew/opt/postgresql@18/bin/pg_config make install # may need sudo
-
-# macOS amd64
-PG_CONFIG=/usr/local/opt/postgresql@18/bin/pg_config make
-sudo PG_CONFIG=/usr/local/opt/postgresql@18/bin/pg_config make install # may need sudo
-
-# Ubuntu
-PG_CONFIG=/usr/lib/postgresql/18/bin/pg_config make
-sudo PG_CONFIG=/usr/lib/postgresql/18/bin/pg_config make install # may need sudo
-
-# Arch Linux
-PG_CONFIG=/usr/bin/pg_config make
-sudo PG_CONFIG=/usr/bin/pg_config make install # may need sudo
+PG_CONFIG=~/.pgrx/18.3/pgrx-install/bin/pg_config make
+PG_CONFIG=~/.pgrx/18.3/pgrx-install/bin/pg_config make install
 ```
 
 ## Running the Extension

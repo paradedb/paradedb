@@ -15,6 +15,7 @@ on:
     paths:
       - ".github/workflows/test-pg_search-upgrade.yml"
       - "pg_search/**"
+      - "!pg_search/README.md"
       - "tests/**"
       - "tokenizers/**"
       - "Cargo.toml"

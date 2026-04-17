@@ -7,7 +7,7 @@ license = { workspace = true }
 build = "build.rs"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["pg18"]

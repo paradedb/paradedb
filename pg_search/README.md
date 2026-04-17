@@ -3,7 +3,7 @@
 <br>
 </h1>
 
-This README covers **local development** of the `pg_search` extension. For installation, deployment, and usage, see the [top-level ParadeDB README](../README.md) or the [ParadeDB documentation](https://docs.paradedb.com).
+This README covers development of the `pg_search` extension. For installation, deployment, and usage, see the [top-level ParadeDB README](../README.md) or the [ParadeDB documentation](https://docs.paradedb.com).
 
 `pg_search` is supported on official PostgreSQL Global Development Group Postgres versions, starting at PostgreSQL 15.
 
@@ -96,7 +96,7 @@ For the other test categories (pg regress, integration tests, client property te
 
 - [`pg_search/tests/pg_regress/README.md`](tests/pg_regress/README.md) — pg_regress tests
 - [`tests/README.md`](../tests/README.md) — integration tests and client property tests
-- [`stressgres/README.md`](../stressgres/README.md) — Stressgres, the stress-testing tool used locally and in CI (including Antithesis deterministic simulation runs)
+- [`stressgres/README.md`](../stressgres/README.md) — Stressgres, the stress-testing tool used locally and in CI
 - [`CONTRIBUTING.md#testing`](../CONTRIBUTING.md#testing) — overview of all test categories and when to use which
 
 ## Benchmarks

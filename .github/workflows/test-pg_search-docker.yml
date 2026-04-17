@@ -17,6 +17,7 @@ on:
       - "docker/**"
       - "!docker/Dockerfile.stressgres"
       - "pg_search/**"
+      - "!pg_search/README.md"
       - "tokenizers/**"
   workflow_dispatch:
 

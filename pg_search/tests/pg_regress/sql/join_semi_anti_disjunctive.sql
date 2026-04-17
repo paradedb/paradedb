@@ -1,0 +1,382 @@
+-- Tests for Semi and Anti Joins with disjunctive (OR) join conditions.
+-- Verifies the fix for https://github.com/paradedb/paradedb/issues/4776:
+-- when a NOT EXISTS/EXISTS subquery uses OR across multiple equalities,
+-- JoinScan should absorb the join using DataFusion's NestedLoopJoinExec
+-- (cross-join + filter) instead of falling back to Postgres's Nested Loop.
+
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+DROP TABLE IF EXISTS items CASCADE;
+CREATE TABLE items (
+    id bigint NOT NULL PRIMARY KEY,
+    name text,
+    alt_name text,
+    category text
+);
+
+INSERT INTO items (id, name, alt_name, category)
+SELECT
+    i,
+    'name_' || i,
+    CASE WHEN i % 3 = 0 THEN 'alt_' || i ELSE NULL END,
+    CASE WHEN i % 2 = 0 THEN 'target' ELSE 'other' END
+FROM generate_series(1, 500) as i;
+
+DROP TABLE IF EXISTS exclusions CASCADE;
+CREATE TABLE exclusions (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    pattern text,
+    reason text
+);
+
+-- Populate exclusions so roughly half of items are excluded via `name` match
+-- and a smaller slice is excluded via `alt_name` match. Includes a few
+-- patterns that match both name and alt_name to exercise the OR branching.
+INSERT INTO exclusions (pattern, reason)
+SELECT 'name_' || i, 'name-based'
+FROM generate_series(1, 250) as i
+WHERE i % 5 = 0;
+
+INSERT INTO exclusions (pattern, reason)
+SELECT 'alt_' || i, 'alt-based'
+FROM generate_series(1, 500) as i
+WHERE i % 3 = 0 AND i % 15 = 0;
+
+CREATE INDEX items_idx ON items
+USING bm25 (id, name, alt_name, category)
+WITH (
+    key_field = id,
+    text_fields = '{
+        "name": {"fast": true, "tokenizer": {"type": "keyword"}},
+        "alt_name": {"fast": true, "tokenizer": {"type": "keyword"}},
+        "category": {"fast": true, "tokenizer": {"type": "keyword"}, "normalizer": "lowercase"}
+    }'
+);
+
+CREATE INDEX exclusions_idx ON exclusions
+USING bm25 (id, pattern, reason)
+WITH (
+    key_field = id,
+    text_fields = '{
+        "pattern": {"fast": true, "tokenizer": {"type": "keyword"}},
+        "reason": {"fast": true, "tokenizer": {"type": "keyword"}}
+    }'
+);
+
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 1. NOT EXISTS with 2-arm OR join condition (the core repro)
+-- =====================================================================
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern = i.alt_name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern = i.alt_name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+-- =====================================================================
+-- 2. EXISTS with 2-arm OR join condition
+-- =====================================================================
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern = i.alt_name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id ASC
+LIMIT 10;
+
+SELECT i.id
+FROM items i
+WHERE EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern = i.alt_name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id ASC
+LIMIT 10;
+
+-- =====================================================================
+-- 3. NOT EXISTS with 3-arm OR
+-- =====================================================================
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (
+          e.pattern = i.name
+          OR e.pattern = i.alt_name
+          OR e.pattern = i.category
+      )
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (
+          e.pattern = i.name
+          OR e.pattern = i.alt_name
+          OR e.pattern = i.category
+      )
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+-- =====================================================================
+-- 4. Correctness cross-check: compare JoinScan result with JoinScan off
+-- =====================================================================
+-- Capture the result with JoinScan enabled, then again with it off, and
+-- diff them. They must match.
+SET paradedb.enable_join_custom_scan TO off;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern = i.alt_name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 5. Non-translatable arm: graceful fallback to PG native
+-- =====================================================================
+-- A disjunction where one arm uses a function call (length()) that the
+-- PredicateTranslator cannot handle. JoinScan should decline and PG's
+-- native Nested Loop Anti Join should run — results must still be correct.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR length(e.pattern) > 100)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR length(e.pattern) > 100)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+-- =====================================================================
+-- 6. NOT EXISTS with inequality operator (<>)
+-- =====================================================================
+-- A single <> comparison. The old EquiKeyDisjunction shape could not
+-- represent this; PgExpression carries the full OpExpr, so PredicateTranslator
+-- maps it to Operator::NotEq.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND e.id <> i.id
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND e.id <> i.id
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND e.id <> i.id
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 7. NOT EXISTS with mixed operators in OR (> and =)
+-- =====================================================================
+-- Disjunction of > and =, both Var-vs-Var. Both operators are supported
+-- by PredicateTranslator.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.id > i.id OR e.pattern = i.name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.id > i.id OR e.pattern = i.name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.id > i.id OR e.pattern = i.name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 8. EXISTS with Var = Const in an OR arm
+-- =====================================================================
+-- One arm compares a Var to a bigint literal. The old EquiKeyDisjunction
+-- shape required Var-vs-Var on every arm; PgExpression has no such
+-- restriction — PredicateTranslator::translate_const handles INT8OID.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.id = 42::bigint)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SELECT i.id
+FROM items i
+WHERE EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.id = 42::bigint)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.id = 42::bigint)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 9. NOT EXISTS with AND nested inside OR
+-- =====================================================================
+-- Nested BoolExpr(AND) inside BoolExpr(OR). PredicateTranslator handles
+-- both boolean operators recursively.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (
+          (e.pattern = i.name AND e.id > i.id)
+          OR e.pattern = i.alt_name
+      )
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (
+          (e.pattern = i.name AND e.id > i.id)
+          OR e.pattern = i.alt_name
+      )
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (
+          (e.pattern = i.name AND e.id > i.id)
+          OR e.pattern = i.alt_name
+      )
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- Cleanup
+DROP TABLE items CASCADE;
+DROP TABLE exclusions CASCADE;
+
+RESET paradedb.enable_join_custom_scan;

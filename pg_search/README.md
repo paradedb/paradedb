@@ -104,7 +104,7 @@ Then, install and initialize `pgrx`:
 
 ```bash
 # Note: Replace --pg18 with your version of Postgres, if different (i.e. --pg17, etc.)
-cargo install --locked cargo-pgrx --version 0.17.0
+cargo install --locked cargo-pgrx --version 0.18.0
 
 # macOS arm64
 cargo pgrx init --pg18=/opt/homebrew/opt/postgresql@18/bin/pg_config

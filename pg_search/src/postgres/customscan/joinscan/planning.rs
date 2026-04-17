@@ -897,6 +897,57 @@ unsafe fn resolve_subplan_output_var(
     let var = nodecast!(Var, T_Var, expr)?;
     Some(((*var).varno as pg_sys::Index, (*var).varattno))
 }
+/// If `clause` is a `T_OpExpr` implementing equality between two Var nodes (one
+/// from each side of the join), produce the corresponding [`JoinKeyPair`].
+unsafe fn equi_key_pair_from_opexpr(
+    clause: *mut pg_sys::Node,
+    sources: &[&JoinSource],
+) -> Option<JoinKeyPair> {
+    if clause.is_null() || (*clause).type_ != pg_sys::NodeTag::T_OpExpr {
+        return None;
+    }
+    let opexpr = clause as *mut pg_sys::OpExpr;
+    let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+    if args.len() != 2 {
+        return None;
+    }
+
+    let opno = (*opexpr).opno;
+    if lookup_operator(opno) != Some("=") {
+        return None;
+    }
+
+    let arg0 = strip_wrappers(args.get_ptr(0)?);
+    let arg1 = strip_wrappers(args.get_ptr(1)?);
+
+    if (*arg0).type_ != pg_sys::NodeTag::T_Var || (*arg1).type_ != pg_sys::NodeTag::T_Var {
+        return None;
+    }
+    let var0 = arg0 as *mut pg_sys::Var;
+    let var1 = arg1 as *mut pg_sys::Var;
+
+    let varno0 = (*var0).varno as pg_sys::Index;
+    let varno1 = (*var1).varno as pg_sys::Index;
+    let attno0 = (*var0).varattno;
+    let attno1 = (*var1).varattno;
+
+    let (rti0, att0) = find_source_for_var(sources, varno0, attno0)?;
+    let (rti1, att1) = find_source_for_var(sources, varno1, attno1)?;
+
+    let type_oid = (*var0).vartype;
+    let (typlen, typbyval) = get_type_info(type_oid);
+
+    Some(JoinKeyPair {
+        outer_rti: rti0,
+        outer_attno: att0,
+        inner_rti: rti1,
+        inner_attno: att1,
+        type_oid,
+        typlen,
+        typbyval,
+    })
+}
+
 /// Parses a given list of `RestrictInfo` nodes to extract equi-join conditions and other join filters.
 /// Iterates over the given restrict list and groups conditions according to whether they are
 /// standard join keys or general functional predicates.
@@ -926,60 +977,12 @@ unsafe fn extract_join_conditions_from_list(
         // Try to identify equi-join conditions (OpExpr with Var = Var using equality operator)
         let mut is_equi_join = false;
 
-        if (*clause).type_ == pg_sys::NodeTag::T_OpExpr {
-            let opexpr = clause as *mut pg_sys::OpExpr;
-            let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-
-            // Equi-join: should have exactly 2 args, both Var nodes, AND use equality operator
-            if args.len() == 2 {
-                let arg0 = args.get_ptr(0).unwrap();
-                let arg1 = args.get_ptr(1).unwrap();
-
-                // Check if operator is an equality operator
-                let opno = (*opexpr).opno;
-                let is_equality_op = lookup_operator(opno) == Some("=");
-
-                if is_equality_op {
-                    let stripped_arg0 = strip_wrappers(arg0);
-                    let stripped_arg1 = strip_wrappers(arg1);
-
-                    if (*stripped_arg0).type_ == pg_sys::NodeTag::T_Var
-                        && (*stripped_arg1).type_ == pg_sys::NodeTag::T_Var
-                    {
-                        let var0 = stripped_arg0 as *mut pg_sys::Var;
-                        let var1 = stripped_arg1 as *mut pg_sys::Var;
-
-                        let varno0 = (*var0).varno as pg_sys::Index;
-                        let varno1 = (*var1).varno as pg_sys::Index;
-                        let attno0 = (*var0).varattno;
-                        let attno1 = (*var1).varattno;
-
-                        // Try to map vars to sources
-                        let source0 = find_source_for_var(sources, varno0, attno0);
-                        let source1 = find_source_for_var(sources, varno1, attno1);
-
-                        if let (Some((rti0, att0)), Some((rti1, att1))) = (source0, source1) {
-                            let type_oid = (*var0).vartype;
-                            let (typlen, typbyval) = get_type_info(type_oid);
-
-                            result.equi_keys.push(JoinKeyPair {
-                                outer_rti: rti0,
-                                outer_attno: att0,
-                                inner_rti: rti1,
-                                inner_attno: att1,
-                                type_oid,
-                                typlen,
-                                typbyval,
-                            });
-                            is_equi_join = true;
-                        }
-                    }
-                }
-            }
+        if let Some(jk) = equi_key_pair_from_opexpr(clause.cast(), sources) {
+            result.equi_keys.push(jk);
+            is_equi_join = true;
         }
 
         if !is_equi_join {
-            let search_op = anyelement_query_input_opoid();
             let has_search_op = expr_contains_any_operator(clause.cast(), &[search_op]);
             if !has_search_op {
                 result.other_conditions.push(ri);

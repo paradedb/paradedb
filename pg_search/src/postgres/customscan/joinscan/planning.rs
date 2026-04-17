@@ -926,13 +926,10 @@ unsafe fn equi_key_pair_from_opexpr(
     let var0 = arg0 as *mut pg_sys::Var;
     let var1 = arg1 as *mut pg_sys::Var;
 
-    let varno0 = (*var0).varno as pg_sys::Index;
-    let varno1 = (*var1).varno as pg_sys::Index;
-    let attno0 = (*var0).varattno;
-    let attno1 = (*var1).varattno;
-
-    let (rti0, att0) = find_source_for_var(sources, varno0, attno0)?;
-    let (rti1, att1) = find_source_for_var(sources, varno1, attno1)?;
+    let (rti0, att0) =
+        find_source_for_var(sources, (*var0).varno as pg_sys::Index, (*var0).varattno)?;
+    let (rti1, att1) =
+        find_source_for_var(sources, (*var1).varno as pg_sys::Index, (*var1).varattno)?;
 
     let type_oid = (*var0).vartype;
     let (typlen, typbyval) = get_type_info(type_oid);
@@ -961,6 +958,7 @@ unsafe fn extract_join_conditions_from_list(
         has_search_predicate: false,
     };
 
+    let search_op = anyelement_query_input_opoid();
     let list = PgList::<pg_sys::RestrictInfo>::from_pg(restrictlist);
     for ri in list.iter_ptr() {
         let clause = (*ri).clause;
@@ -968,25 +966,19 @@ unsafe fn extract_join_conditions_from_list(
             continue;
         }
 
-        // Check if this clause contains our @@@ operator
-        let search_op = anyelement_query_input_opoid();
-        if expr_contains_any_operator(clause.cast(), &[search_op]) {
+        let has_search_op = expr_contains_any_operator(clause.cast(), &[search_op]);
+        if has_search_op {
             result.has_search_predicate = true;
         }
 
-        // Try to identify equi-join conditions (OpExpr with Var = Var using equality operator)
         let mut is_equi_join = false;
-
         if let Some(jk) = equi_key_pair_from_opexpr(clause.cast(), sources) {
             result.equi_keys.push(jk);
             is_equi_join = true;
         }
 
-        if !is_equi_join {
-            let has_search_op = expr_contains_any_operator(clause.cast(), &[search_op]);
-            if !has_search_op {
-                result.other_conditions.push(ri);
-            }
+        if !is_equi_join && !has_search_op {
+            result.other_conditions.push(ri);
         }
     }
 

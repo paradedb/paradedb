@@ -213,7 +213,13 @@ impl<'a> PredicateTranslator<'a> {
             pg_sys::NodeTag::T_Var => self.translate_var(node as *mut pg_sys::Var),
             pg_sys::NodeTag::T_Const => self.translate_const(node as *mut pg_sys::Const),
             pg_sys::NodeTag::T_BoolExpr => self.translate_bool_expr(node as *mut pg_sys::BoolExpr),
-            // Type casts (RelabelType, CoerceViaIO, FuncExpr) are not supported because
+            pg_sys::NodeTag::T_RelabelType => {
+                // Binary-compatible cast (e.g. varchar → text). The underlying
+                // datum is identical — just recurse into the inner expression.
+                let relabel = node as *mut pg_sys::RelabelType;
+                self.translate((*relabel).arg.cast())
+            }
+            // Type casts (CoerceViaIO, FuncExpr) are not supported because
             // they may change value semantics. Cross-type comparisons like INT < NUMERIC
             // require proper type coercion that DataFusion cannot perform correctly when
             // the underlying fast field storage uses different scales/representations.

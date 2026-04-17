@@ -84,8 +84,8 @@ use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::datafusion::translator::{
-    apply_join_level_filter, build_join_df, make_col, make_source_col, make_source_score_col,
-    CombinedMapper, JoinTypeAllowList, PredicateTranslator,
+    apply_join_level_filter, build_join_df_with_filter, make_col, make_source_col,
+    make_source_score_col, CombinedMapper, JoinTypeAllowList, PredicateTranslator,
 };
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
@@ -427,6 +427,7 @@ struct RelNodeBuildCtx<'a> {
     join_clause: &'a JoinCSClause,
     translated_exprs: &'a [Expr],
     ctid_map: &'a crate::api::HashMap<pg_sys::Index, Expr>,
+    output_columns: &'a [OutputColumnInfo],
 }
 
 /// Recursively lowers a `RelNode` tree into a DataFusion `DataFrame`.
@@ -502,16 +503,16 @@ fn build_relnode_df<'a>(
             RelNode::Join(join) => {
                 let left_df = build_relnode_df(rctx, &join.left).await?;
                 let right_df = build_relnode_df(rctx, &join.right).await?;
-
-                let df = build_join_df(left_df, right_df, join, JoinTypeAllowList::All)?;
-
-                if join.filter.is_some() {
-                    return Err(DataFusionError::NotImplemented(
-                        "Non-equi join filters are not yet implemented".into(),
-                    ));
-                }
-
-                Ok(df)
+                let mut sources = join.left.sources();
+                sources.extend(join.right.sources());
+                build_join_df_with_filter(
+                    left_df,
+                    right_df,
+                    join,
+                    &sources,
+                    rctx.output_columns,
+                    JoinTypeAllowList::All,
+                )
             }
             RelNode::Filter(filter) => {
                 let df = build_relnode_df(rctx, &filter.input).await?;
@@ -593,6 +594,7 @@ fn build_clause_df<'a>(
             join_clause,
             translated_exprs: &translated_exprs,
             ctid_map: &ctid_map,
+            output_columns: &private_data.output_columns,
         };
         let df = build_relnode_df(&rctx, &join_clause.plan).await?;
 
@@ -973,6 +975,16 @@ fn build_source_df<'a>(
             }
             if source.contains_rti(jk.inner_rti) {
                 if let Some(col) = source.column_name(jk.inner_attno) {
+                    required_early.insert(col);
+                }
+            }
+        }
+        // Columns referenced by `JoinNode.filter` (e.g. a disjunctive Semi/Anti
+        // `PgExpression`) must also be materialized eagerly — the filter is
+        // evaluated per row pair before the join emits anything.
+        for (rti, attno) in join_clause.plan.filter_input_vars() {
+            if source.contains_rti(rti) {
+                if let Some(col) = source.column_name(attno) {
                     required_early.insert(col);
                 }
             }

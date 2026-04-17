@@ -102,7 +102,8 @@ use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, ExecutionPlanProperties, PlanProperties,
 };
-use futures::{future::poll_fn, Stream, StreamExt};
+use futures::future::poll_fn;
+use futures::{Stream, StreamExt};
 use parking_lot::Mutex;
 use tokio::sync::watch;
 
@@ -224,9 +225,30 @@ pub fn trigger_stream(physical_stream_id: PhysicalStreamId, context: Arc<TaskCon
             })
             .clone();
 
-        let task = tokio::task::spawn_local(async move {
+        // Spawn the producer on a dedicated OS thread instead of spawn_local.
+        //
+        // This is the critical fix for the exchange deadlock: when all ring
+        // buffers fill simultaneously, producers blocked on writes prevent
+        // consumers from draining data because they all share a single-threaded
+        // LocalSet. By moving producers to their own OS threads, each producer
+        // can independently block (with a short sleep) on ring buffer writes
+        // while the LocalSet thread remains free to run consumer tasks and the
+        // tokio IO driver (for processing UDS signals from remote participants).
+        let join_handle = std::thread::spawn(move || {
             let _guard = SignalOnDrop(Some(tx));
-            DsmExchangeExec::producer_task(input, partitioning, config, context).await;
+            DsmExchangeExec::producer_task_blocking(input, partitioning, config, context);
+        });
+
+        // Wrap std::thread::JoinHandle in a tokio JoinHandle by spawning a
+        // local task that awaits the thread. This preserves the existing
+        // abort/cleanup interface (StreamRegistry expects JoinHandle<()>).
+        let task = tokio::task::spawn_local(async move {
+            // Park this lightweight task until the OS thread finishes.
+            // Use spawn_blocking to wait without blocking the LocalSet.
+            let _ = tokio::task::spawn_blocking(move || {
+                let _ = join_handle.join();
+            })
+            .await;
         });
 
         registry
@@ -614,12 +636,27 @@ impl DsmExchangeExec {
         })
     }
 
-    pub(crate) async fn producer_task(
+    /// Synchronous producer that runs on a dedicated OS thread.
+    ///
+    /// This is the key to breaking the exchange deadlock: instead of running as
+    /// a `spawn_local` task on the single-threaded `LocalSet` (where it competes
+    /// with consumer tasks and the IO driver), each producer gets its own OS
+    /// thread. When a ring buffer is full, the producer simply sleeps briefly
+    /// and retries, while the `LocalSet` thread is free to run consumer tasks
+    /// that drain ring buffers and process UDS signals from remote participants.
+    pub(crate) fn producer_task_blocking(
         input: Arc<dyn ExecutionPlan>,
         partitioning: Partitioning,
         config: DsmExchangeConfig,
         context: Arc<TaskContext>,
     ) {
+        // Each producer thread gets its own lightweight tokio runtime to drive
+        // the DataFusion input stream (which is async). This runtime only needs
+        // to poll the input — all ring buffer writes are synchronous.
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("Failed to create producer thread runtime");
+
         let (participant_index, total_participants) = get_mpp_config(&context);
         let participant_id = ParticipantId(participant_index as u16);
         let num_partitions = input.output_partitioning().partition_count();
@@ -631,7 +668,7 @@ impl DsmExchangeExec {
                     .expect("Failed to execute input"),
             );
         }
-        let input_stream = futures::stream::select_all(streams).fuse();
+        let input_stream = futures::stream::select_all(streams);
         let mut input_stream = Box::pin(input_stream);
         let schema = input.schema();
 
@@ -663,13 +700,12 @@ impl DsmExchangeExec {
             vec![std::collections::VecDeque::new(); total_participants];
 
         let mut input_done = false;
-        let bridge = get_dsm_bridge();
         let mut total_batches: u64 = 0;
         let mut total_rows: u64 = 0;
         let mut blocked_count: u64 = 0;
 
         pgrx::warning!(
-            "MPP producer_task: stream_id={}, mode={:?}, participant={}/{}, input_partitions={}",
+            "MPP producer_task_blocking: stream_id={}, mode={:?}, participant={}/{}, input_partitions={}",
             config.stream_id.0,
             config.mode,
             participant_index,
@@ -677,151 +713,115 @@ impl DsmExchangeExec {
             num_partitions,
         );
 
-        let mut yield_counter: u64 = 0;
-        poll_fn(|cx| {
-            loop {
-                // Cooperative yielding: re-queue this task and return Pending
-                // on every other iteration. This gives the LocalSet a chance
-                // to run other tasks (Gather producer / consumer tasks that
-                // need to drain ring buffers) AND lets the tokio IO driver
-                // poll for UDS signals from remote participants.
-                yield_counter += 1;
-                if yield_counter.is_multiple_of(2) {
-                    cx.waker().wake_by_ref();
-                    return Poll::Pending;
-                }
+        // The backpressure threshold: only poll input when total queued batches
+        // across all output queues is below this limit. This prevents unbounded
+        // memory growth while still allowing enough buffering to keep the
+        // pipeline busy.
+        const MAX_QUEUED_BATCHES: usize = 4;
 
-                // Allow PostgreSQL to process statement_timeout / cancel signals.
-                pgrx::check_for_interrupts!();
+        loop {
+            // 1. Try to drain all output queues to ring buffers.
+            let mut all_queues_empty = true;
+            let mut any_blocked = false;
 
-                let mut progress = false;
-
-                // 1. Try to drain all queues
-                let mut all_queues_empty = true;
-                let mut blocked_on_write = false;
-
-                for i in 0..total_participants {
-                    while let Some(batch) = out_queues[i].front() {
-                        match writers[i].write_batch(batch) {
-                            Ok(_) => {
-                                out_queues[i].pop_front();
-                                progress = true;
-                            }
-                            Err(datafusion::error::DataFusionError::IoError(ref msg))
-                                if msg.kind() == ErrorKind::WouldBlock =>
-                            {
-                                // Check-Register-Check pattern
-                                bridge.register_waker(cx.waker().clone(), None);
-
-                                // Retry immediately to avoid race condition where space became available
-                                // after the first check but before we registered the waker.
-                                match writers[i].write_batch(batch) {
-                                    Ok(_) => {
-                                        out_queues[i].pop_front();
-                                        progress = true;
-                                    }
-                                    Err(datafusion::error::DataFusionError::IoError(ref msg))
-                                        if msg.kind() == ErrorKind::WouldBlock =>
-                                    {
-                                        blocked_on_write = true;
-                                        all_queues_empty = false;
-                                        break;
-                                    }
-                                    Err(e) => panic!("Producer failed on retry: {}", e),
-                                }
-                                break;
-                            }
-                            Err(datafusion::error::DataFusionError::IoError(ref msg))
-                                if msg.kind() == ErrorKind::BrokenPipe =>
-                            {
-                                // Receiver closed
-                                out_queues[i].clear();
-                                break;
-                            }
-                            Err(e) => panic!("Producer failed: {}", e),
+            for i in 0..total_participants {
+                while let Some(batch) = out_queues[i].front() {
+                    match writers[i].write_batch(batch) {
+                        Ok(_) => {
+                            out_queues[i].pop_front();
                         }
-                    }
-                    if !out_queues[i].is_empty() {
-                        all_queues_empty = false;
+                        Err(datafusion::error::DataFusionError::IoError(ref msg))
+                            if msg.kind() == ErrorKind::WouldBlock =>
+                        {
+                            any_blocked = true;
+                            all_queues_empty = false;
+                            break;
+                        }
+                        Err(datafusion::error::DataFusionError::IoError(ref msg))
+                            if msg.kind() == ErrorKind::BrokenPipe =>
+                        {
+                            // Receiver closed — drop all pending data for this target
+                            out_queues[i].clear();
+                            break;
+                        }
+                        Err(e) => panic!("Producer write failed: {}", e),
                     }
                 }
-
-                // 2. Poll input stream if not done AND all queues are drained.
-                // This creates backpressure: the producer stops reading from the
-                // scan until all previously partitioned data is flushed to ring
-                // buffers. Without this, the producer reads the entire input
-                // (~5M rows per participant) into unbounded out_queues, then
-                // tries to drain — causing circular ring buffer deadlocks when
-                // all participants are simultaneously blocked.
-                if !input_done && all_queues_empty {
-                    match input_stream.as_mut().poll_next(cx) {
-                        Poll::Ready(Some(Ok(batch))) => {
-                            total_rows += batch.num_rows() as u64;
-                            total_batches += 1;
-                            match config.mode {
-                                ExchangeMode::Redistribute => {
-                                    partitioner
-                                        .as_mut()
-                                        .unwrap()
-                                        .partition(batch, |dest_idx, partitioned_batch| {
-                                            if dest_idx < out_queues.len() {
-                                                out_queues[dest_idx].push_back(partitioned_batch);
-                                            }
-                                            Ok(())
-                                        })
-                                        .expect("Partitioning failed");
-                                }
-                                ExchangeMode::Gather => {
-                                    out_queues[0].push_back(batch);
-                                }
-                            }
-                            progress = true;
-                        }
-                        Poll::Ready(Some(Err(e))) => panic!("Input stream failed: {}", e),
-                        Poll::Ready(None) => {
-                            input_done = true;
-                            progress = true; // State change counts as progress
-                            pgrx::warning!(
-                                "MPP producer_task: stream_id={} input done, {} batches, {} rows, {} blocked",
-                                config.stream_id.0, total_batches, total_rows, blocked_count,
-                            );
-                        }
-                        Poll::Pending => {
-                            // Input not ready
-                        }
-                    }
+                if !out_queues[i].is_empty() {
+                    all_queues_empty = false;
                 }
-
-                if input_done && all_queues_empty {
-                    return Poll::Ready(());
-                }
-
-                // If blocked on any ring buffer write, yield immediately. This is critical: without yielding,
-                // the producer can cycle indefinitely writing to self-partition
-                // ring buffers (which the local consumer drains), starving the
-                // tokio IO driver. Remote participants signal space-available via
-                // UDS, which only fires when the IO driver polls — and that only
-                // happens when ALL LocalSet tasks return Pending.
-                if blocked_on_write {
-                    blocked_count += 1;
-                    bridge.register_waker(cx.waker().clone(), None);
-                    return Poll::Pending;
-                }
-
-                // If we made progress (and not blocked), try again immediately
-                if progress {
-                    continue;
-                }
-
-                // If input is pending, it already registered waker.
-
-                return Poll::Pending;
             }
-        })
-        .await;
+
+            // 2. Check completion.
+            if input_done && all_queues_empty {
+                break;
+            }
+
+            // 3. Apply backpressure: only poll input when queues are small enough.
+            let total_queued: usize = out_queues.iter().map(|q| q.len()).sum();
+            if !input_done && total_queued < MAX_QUEUED_BATCHES {
+                // Use the thread-local runtime to poll the async input stream.
+                let next = rt.block_on(async {
+                    // Try to get the next batch without blocking indefinitely.
+                    // Use poll_fn to do a single poll attempt.
+                    poll_fn(|cx| match input_stream.as_mut().poll_next(cx) {
+                        Poll::Ready(item) => Poll::Ready(Some(item)),
+                        Poll::Pending => Poll::Ready(None),
+                    })
+                    .await
+                });
+
+                match next {
+                    Some(Some(Ok(batch))) => {
+                        total_rows += batch.num_rows() as u64;
+                        total_batches += 1;
+                        match config.mode {
+                            ExchangeMode::Redistribute => {
+                                partitioner
+                                    .as_mut()
+                                    .unwrap()
+                                    .partition(batch, |dest_idx, partitioned_batch| {
+                                        if dest_idx < out_queues.len() {
+                                            out_queues[dest_idx].push_back(partitioned_batch);
+                                        }
+                                        Ok(())
+                                    })
+                                    .expect("Partitioning failed");
+                            }
+                            ExchangeMode::Gather => {
+                                out_queues[0].push_back(batch);
+                            }
+                        }
+                        continue; // Made progress — loop immediately
+                    }
+                    Some(Some(Err(e))) => panic!("Input stream failed: {}", e),
+                    Some(None) => {
+                        input_done = true;
+                        pgrx::warning!(
+                            "MPP producer_task_blocking: stream_id={} input done, {} batches, {} rows, {} blocked",
+                            config.stream_id.0, total_batches, total_rows, blocked_count,
+                        );
+                        continue; // State changed — try draining again
+                    }
+                    None => {
+                        // Input not ready (Pending). If queues also blocked,
+                        // we need to wait for space to free up.
+                    }
+                }
+            }
+
+            // 4. If blocked on writes or input pending, sleep briefly to let
+            //    consumers on the LocalSet thread drain ring buffers. This is
+            //    the key difference from the async approach: sleeping on a
+            //    dedicated thread does NOT block the LocalSet.
+            if any_blocked || !input_done {
+                blocked_count += 1;
+                std::thread::sleep(std::time::Duration::from_micros(100));
+            }
+        }
 
         pgrx::warning!(
-            "MPP producer_task: stream_id={} COMPLETE, {} batches, {} rows, {} blocked",
+            "MPP producer_task_blocking: stream_id={} COMPLETE, {} batches, {} rows, {} blocked",
             config.stream_id.0,
             total_batches,
             total_rows,

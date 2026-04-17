@@ -28,6 +28,9 @@ mod schema;
 pub mod gucs;
 pub mod parallel_worker;
 
+#[cfg(test)]
+mod tests_link_stubs;
+
 use self::postgres::customscan;
 use pgrx::*;
 

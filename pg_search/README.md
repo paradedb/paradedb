@@ -92,10 +92,11 @@ cargo test -p pg_search -- a_specific_method_to_run
 
 Tests marked `#[pg_test]` run inside the Postgres process and can use the full `pgrx` API. The annotation automatically reinstalls the extension — no manual install needed.
 
-For the other test categories (pg regress, integration tests, client property tests), see:
+For the other test categories (pg regress, integration tests, client property tests, stress tests), see:
 
 - [`pg_search/tests/pg_regress/README.md`](tests/pg_regress/README.md) — pg_regress tests
 - [`tests/README.md`](../tests/README.md) — integration tests and client property tests
+- [`stressgres/README.md`](../stressgres/README.md) — Stressgres, the stress-testing tool used locally and in CI (including Antithesis deterministic simulation runs)
 - [`CONTRIBUTING.md#testing`](../CONTRIBUTING.md#testing) — overview of all test categories and when to use which
 
 ## Benchmarks

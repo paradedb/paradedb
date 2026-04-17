@@ -49,7 +49,7 @@ ParadeDB's public-facing documentation is stored in the `docs` folder. If you ar
 
 ### Testing
 
-ParadeDB has three main categories of tests. For a full overview of how and when to use them, please see their respective documentation:
+ParadeDB has four main categories of tests. For a full overview of how and when to use them, please see their respective documentation:
 
 #### 1. pg regress tests
 
@@ -76,6 +76,14 @@ Located in the `pg_search/src` directory.
   - **Unit tests which run in Postgres as UDFs** if they are marked `#[pg_test]`. These use all of Postgres APIs via `pgrx`.
 - **Running:** Run them with `cargo test -p pg_search -- a_specific_method_to_run`. There is no need to pre-install the extension for `#[pg_test]` annotated tests (the annotation automatically handles it).
 - **Details:** See [`pg_search/README.md`](pg_search/README.md#testing) for more details.
+
+#### 4. Stress tests (Stressgres)
+
+Located in the `stressgres/` directory.
+
+- **Purpose:** Replicate representative customer workloads against ParadeDB (or vanilla Postgres) to surface concurrency, correctness, and performance regressions that don't show up in shorter-lived tests. Also the entry point for Antithesis deterministic simulation runs.
+- **Running:** Run a suite interactively with `cargo run -- ui suites/vanilla-postgres.toml`, or headlessly with `cargo run -- headless suites/vanilla-postgres.toml --runtime=300000`.
+- **Details:** See [`stressgres/README.md`](stressgres/README.md) for more details.
 
 ## Legal Info
 

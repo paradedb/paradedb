@@ -262,7 +262,7 @@ impl CollectAggregations for AggregateCSClause {
                 aggs.insert(
                     FilterSentinelKey::NAME.to_string(),
                     Aggregation {
-                        agg: new_filter_query(self.quals.query().clone(), self.indexrelid)?.into(),
+                        agg: new_filter_query(self.quals.query().clone(), self.indexrelid).into(),
                         sub_aggregation: term_aggs,
                     },
                 );
@@ -710,7 +710,7 @@ impl CollectFlat<Option<FilterQuery>, FiltersWithoutGroupBy> for AggregateCSClau
         Ok(self.targetlist.aggregates().map(|agg| {
             agg.filter_expr()
                 .as_ref()
-                .map(|q| new_filter_query(q.clone(), agg.indexrelid()).expect("filter query"))
+                .map(|q| new_filter_query(q.clone(), agg.indexrelid()))
         }))
     }
 }
@@ -722,7 +722,7 @@ impl CollectFlat<FilterQuery, FiltersWithGroupBy> for AggregateCSClause {
                 Some(q) => q.clone(),
                 None => SearchQueryInput::All,
             };
-            new_filter_query(query, agg.indexrelid()).expect("filter query")
+            new_filter_query(query, agg.indexrelid())
         }))
     }
 }

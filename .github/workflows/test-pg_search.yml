@@ -15,14 +15,6 @@ on:
       - main
       - 0.*.x # Release branches
       - moe/** # Temporary: trigger CI on stacked PR chain
-    paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - ".github/workflows/test-pg_search.yml"
-      - "pg_search/**"
-      - "!pg_search/README.md"
-      - "tests/**"
-      - "tokenizers/**"
   workflow_dispatch:
 
 concurrency:
@@ -30,10 +22,35 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # We use dorny/paths-filter instead of on.pull_request.paths because the
+  # built-in paths filter skips the entire workflow — including the required
+  # gate job — which causes branch protection to block merges indefinitely.
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ github.event_name != 'pull_request' || steps.filter.outputs.relevant == 'true' }}
+    steps:
+      - name: Detect File Changes
+        uses: dorny/paths-filter@v4
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            relevant:
+              - "Cargo.toml"
+              - "Cargo.lock"
+              - ".github/workflows/test-pg_search.yml"
+              - "pg_search/**"
+              - "!pg_search/README.md"
+              - "tests/**"
+              - "tokenizers/**"
+
   set-matrix:
     name: Define the PostgreSQL Version Matrix
     runs-on: ubuntu-latest
-    if: ${{ !cancelled() }}
+    needs: detect-changes
+    if: ${{ !cancelled() && needs.detect-changes.outputs.should_run == 'true' }}
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
@@ -51,8 +68,12 @@ jobs:
   test-pg_search:
     name: Test pg_search on PostgreSQL ${{ matrix.pg_version }} (${{ matrix.pg_impl }} - ${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
-    if: ${{ !cancelled() }}
-    needs: set-matrix
+    # detect-changes is listed in needs: explicitly (not transitively via set-matrix)
+    # so we can still read its outputs on the skip path. If detect-changes itself
+    # fails (e.g., dorny API error), should_run is empty → this job is skipped and
+    # report-results sees the failure in needs.*.result and fails the gate.
+    if: ${{ !cancelled() && needs.detect-changes.outputs.should_run == 'true' }}
+    needs: [detect-changes, set-matrix]
     strategy:
       fail-fast: false
       matrix:
@@ -330,3 +351,20 @@ jobs:
           verbose: true
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # Required for branch protection — GitHub lacks "required when present" for
+  # status checks so this gate always runs and reports pass/fail. Standard pattern:
+  # https://github.com/astral-sh/ruff/blob/main/.github/workflows/ci.yaml
+  # https://github.com/orgs/community/discussions/26251
+  report-results:
+    name: Report Results
+    if: always()
+    needs: [detect-changes, set-matrix, test-pg_search, upload-coverage]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate CI Results
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "CI failed or was cancelled"
+            exit 1
+          fi

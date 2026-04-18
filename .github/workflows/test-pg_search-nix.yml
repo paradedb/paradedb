@@ -12,14 +12,6 @@ on:
       - main
       - 0.*.x # Release branches
       - moe/** # Temporary: trigger CI on stacked PR chain
-    paths:
-      - ".github/workflows/test-pg_search-nix.yml"
-      - "nix/**"
-      - "tokenizers/Cargo.toml"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "flake.nix"
-      - "flake.lock"
   workflow_dispatch:
 
 concurrency:
@@ -30,9 +22,35 @@ permissions:
   contents: write
 
 jobs:
+  # We use dorny/paths-filter instead of on.pull_request.paths because the
+  # built-in paths filter skips the entire workflow — including the required
+  # gate job — which causes branch protection to block merges indefinitely.
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ github.event_name != 'pull_request' || steps.filter.outputs.relevant == 'true' }}
+    steps:
+      - name: Detect File Changes
+        uses: dorny/paths-filter@v4
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            relevant:
+              - ".github/workflows/test-pg_search-nix.yml"
+              - "nix/**"
+              - "tokenizers/Cargo.toml"
+              - "Cargo.toml"
+              - "Cargo.lock"
+              - "flake.nix"
+              - "flake.lock"
+
   nix-cargo-hash-check:
     name: Verify Nix Cargo Hash
     runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.should_run == 'true'
     env:
       PG_MAJOR_VERSION: "18"
 
@@ -77,4 +95,21 @@ jobs:
             exit 1
           else
             echo "cargoHash is correct"
+          fi
+
+  # Required for branch protection — GitHub lacks "required when present" for
+  # status checks so this gate always runs and reports pass/fail. Standard pattern:
+  # https://github.com/astral-sh/ruff/blob/main/.github/workflows/ci.yaml
+  # https://github.com/orgs/community/discussions/26251
+  report-results:
+    name: Report Results
+    if: always()
+    needs: [detect-changes, nix-cargo-hash-check]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate CI Results
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "CI failed or was cancelled"
+            exit 1
           fi

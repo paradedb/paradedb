@@ -28,7 +28,7 @@ mod schema;
 pub mod gucs;
 pub mod parallel_worker;
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests_link_stubs;
 
 use self::postgres::customscan;

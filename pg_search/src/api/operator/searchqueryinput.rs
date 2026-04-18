@@ -118,8 +118,10 @@ unsafe impl<'fcx> ArgAbi<'fcx> for FakeSearchQueryInput {
 }
 
 unsafe impl SqlTranslatable for FakeSearchQueryInput {
-    // Borrow the real `SearchQueryInput` resolution so the SQL graph emits
-    // `CREATE TYPE SearchQueryInput` before any function that consumes this fake.
+    // This is intentionally borrowing `SearchQueryInput`'s `TYPE_IDENT`: current
+    // pgrx tolerates two Rust types sharing that identifier, and we rely on that
+    // observed behavior so the SQL graph still emits `CREATE TYPE SearchQueryInput`
+    // before any function that consumes this fake wrapper.
     const TYPE_IDENT: &'static str = <SearchQueryInput as SqlTranslatable>::TYPE_IDENT;
     const TYPE_ORIGIN: TypeOrigin = <SearchQueryInput as SqlTranslatable>::TYPE_ORIGIN;
     const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =

@@ -8,10 +8,6 @@ name: Lint Markdown
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    paths:
-      - "**/*.md"
-      - "**/*.mdx"
-      - ".github/workflows/lint-markdown.yml"
   workflow_dispatch:
 
 concurrency:
@@ -19,9 +15,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # We use dorny/paths-filter instead of on.pull_request.paths because the
+  # built-in paths filter skips the entire workflow — including the required
+  # gate job — which causes branch protection to block merges indefinitely.
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ github.event_name != 'pull_request' || steps.filter.outputs.relevant == 'true' }}
+    steps:
+      - name: Detect File Changes
+        uses: dorny/paths-filter@v4
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            relevant:
+              - "**/*.md"
+              - "**/*.mdx"
+              - ".github/workflows/lint-markdown.yml"
+
   lint-markdown:
     name: Lint Markdown Files
     runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.should_run == 'true'
 
     steps:
       - name: Checkout Git Repository
@@ -38,3 +56,20 @@ jobs:
 
       - name: Run Prettier
         run: prettier --check "{**/*.md,**/*.mdx}" --ignore-path .prettierignore
+
+  # Required for branch protection — GitHub lacks "required when present" for
+  # status checks so this gate always runs and reports pass/fail. Standard pattern:
+  # https://github.com/astral-sh/ruff/blob/main/.github/workflows/ci.yaml
+  # https://github.com/orgs/community/discussions/26251
+  report-results:
+    name: Report Results
+    if: always()
+    needs: [detect-changes, lint-markdown]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate CI Results
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "CI failed or was cancelled"
+            exit 1
+          fi

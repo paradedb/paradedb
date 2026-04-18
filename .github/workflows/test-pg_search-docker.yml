@@ -15,11 +15,6 @@ on:
       - main
       - 0.*.x # Release branches
       - moe/** # Temporary: trigger CI on stacked PR chain
-    paths:
-      - ".github/workflows/test-pg_search-docker.yml"
-      - "docker/**"
-      - "!docker/manifests/**"
-      - "!docker/Dockerfile.stressgres"
   workflow_dispatch:
     inputs:
       ref:
@@ -40,6 +35,29 @@ env:
   PG_VERSION: "18"
 
 jobs:
+  # We use dorny/paths-filter instead of on.pull_request.paths because the
+  # built-in paths filter skips the entire workflow — including the required
+  # gate job — which causes branch protection to block merges indefinitely.
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ github.event_name != 'pull_request' || steps.filter.outputs.relevant == 'true' }}
+    steps:
+      - name: Detect File Changes
+        uses: dorny/paths-filter@v4
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            relevant:
+              - ".github/workflows/test-pg_search-docker.yml"
+              - "docker/**"
+              - "!docker/Dockerfile.stressgres"
+              - "pg_search/**"
+              - "!pg_search/README.md"
+              - "tokenizers/**"
+
   test-paradedb:
     name: Test ${{ matrix.flavor }} Docker Image (${{ matrix.arch }})
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
@@ -51,6 +69,8 @@ jobs:
       - image=${{ matrix.runner_image }}
       - volume=80gb # default runner ships with 40GB — see https://runs-on.com/runners/linux/
       - extras=s3-cache
+    needs: detect-changes
+    if: needs.detect-changes.outputs.should_run == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -166,3 +186,20 @@ jobs:
         run: |
           docker run --name temp-inspect-paradedb --entrypoint /bin/bash paradedb/paradedb:latest -c "ls -la /var/lib/postgresql"
           docker rm temp-inspect-paradedb
+
+  # Required for branch protection — GitHub lacks "required when present" for
+  # status checks so this gate always runs and reports pass/fail. Standard pattern:
+  # https://github.com/astral-sh/ruff/blob/main/.github/workflows/ci.yaml
+  # https://github.com/orgs/community/discussions/26251
+  report-results:
+    name: Report Results
+    if: always()
+    needs: [detect-changes, test-paradedb]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate CI Results
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "CI failed or was cancelled"
+            exit 1
+          fi

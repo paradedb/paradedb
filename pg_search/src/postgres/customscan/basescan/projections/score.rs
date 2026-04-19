@@ -28,7 +28,7 @@ mod pdb {
     #[allow(unused_variables)]
     #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
     fn score_from_relation(relation_reference: AnyElement) -> f32 {
-        panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+        panic!("pdb.score() requires a WHERE clause with a ParadeDB search operator (e.g. pdb.term, pdb.parse, pdb.fuzzy). See https://docs.paradedb.com for details. If this query already has a search operator, please report at https://github.com/paradedb/paradedb/issues/new/choose");
     }
 
     extension_sql!(
@@ -46,7 +46,7 @@ mod pdb {
 #[allow(unused_variables)]
 #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
 fn paradedb_score_from_relation(relation_reference: AnyElement) -> Option<f32> {
-    panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+    panic!("paradedb.score() requires a WHERE clause with a ParadeDB search operator (e.g. paradedb.term, paradedb.parse, paradedb.fuzzy). See https://docs.paradedb.com for details. If this query already has a search operator, please report at https://github.com/paradedb/paradedb/issues/new/choose");
 }
 
 extension_sql!(

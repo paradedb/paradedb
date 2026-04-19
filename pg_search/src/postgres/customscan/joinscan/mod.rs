@@ -1845,7 +1845,9 @@ impl JoinScan {
         // gate for this Semi/Anti join; absorption failed, so decline rather
         // than fall through to the MultiTablePredicate pipeline (setrefs would
         // fail on inner-side Vars).
-        if try_absorb_disjunction && initial_filter.is_none() {
+        if try_absorb_disjunction
+            && (initial_filter.is_none() || !remaining_other_conditions.is_empty())
+        {
             return Err(warn(JoinDeclineReason::NoEquiKeys));
         }
 

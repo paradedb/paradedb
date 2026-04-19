@@ -25,7 +25,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
-use crate::{nodecast, UNKNOWN_SELECTIVITY};
+use crate::{nodecast, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use pgrx::callconv::{Arg, ArgAbi};
 use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
@@ -274,7 +274,15 @@ pub fn query_input_restrict(
                 PgList::<pg_sys::Node>::from_pg(args.unwrap()?.cast_mut_ptr::<pg_sys::List>());
 
             let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
-            let const_ = nodecast!(Const, T_Const, args.get_ptr(1)?)?;
+            let rhs = args.get_ptr(1)?;
+
+            // If the RHS isn't a Const (e.g. Param in GENERIC prepared plans,
+            // FuncExpr, etc.) we can't evaluate the query at planning time.
+            // Fall back to PARAMETERIZED_SELECTIVITY so row estimates don't
+            // collapse and kill parallelism — see issue #4665.
+            let Some(const_) = nodecast!(Const, T_Const, rhs) else {
+                return Some(PARAMETERIZED_SELECTIVITY);
+            };
 
             let (heaprelid, _, _) = find_var_relation(var, info);
             let indexrel = locate_bm25_index(heaprelid)?;

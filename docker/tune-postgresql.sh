@@ -82,9 +82,14 @@ else
   TOTAL_RAM_MB=$(grep MemTotal /proc/meminfo | awk '{printf "%.0f", $2 / 1024}')
 fi
 
-# Safety floor: Do not auto-tune on very small instances (< 512MB)
-if [ -z "$TOTAL_RAM_MB" ] || [ "$TOTAL_RAM_MB" -lt 512 ]; then
-  echo "ParadeDB auto-tune: System RAM ($TOTAL_RAM_MB MB) is too low. Skipping."
+# Split safety checks for clearer logging
+if [ -z "$TOTAL_RAM_MB" ]; then
+  echo "ParadeDB auto-tune: WARNING: Could not detect system RAM. Skipping."
+  exit 0
+fi
+
+if [ "$TOTAL_RAM_MB" -lt 512 ]; then
+  echo "ParadeDB auto-tune: System RAM (${TOTAL_RAM_MB}MB) below 512MB minimum. Skipping."
   exit 0
 fi
 
@@ -107,15 +112,16 @@ if [ "$CPU_COUNT" -lt 1 ]; then
   CPU_COUNT=1
 fi
 
-SB_MB=$(awk "BEGIN {print int($TOTAL_RAM_MB * 0.25)}")
+# shared_buffers: 25% of RAM, capped at 16GB (16384MB) to prevent diminishing returns
+SB_MB=$(awk "BEGIN {s=int($TOTAL_RAM_MB * 0.25); print (s > 16384 ? 16384 : s)}")
 ECS_MB=$(awk "BEGIN {print int($TOTAL_RAM_MB * 0.75)}")
 MWM_MB=$(awk "BEGIN {m=int($TOTAL_RAM_MB / 16); print (m > 2048 ? 2048 : m)}")
 MAX_CONN=${PG_TUNE_MAX_CONNECTIONS:-100}
 WM_MB=$(awk "BEGIN {w=int(($TOTAL_RAM_MB - $SB_MB) / ($MAX_CONN * 3)); print (w < 4 ? 4 : w)}")
 WAL_MB=$(awk "BEGIN {w=int($SB_MB / 32); print (w > 64 ? 64 : w)}")
 
-# Global worker pools: 5x CPU count based on production observations, +8 for background tasks
-PARALLEL_WORKERS=$(awk "BEGIN {print int($CPU_COUNT * 5)}")
+# Global worker pools: 5x CPU count, capped at 128 to prevent excessive shared memory usage. +8 for background tasks.
+PARALLEL_WORKERS=$(awk "BEGIN {w=int($CPU_COUNT * 5); print (w > 128 ? 128 : w)}")
 WORKER_PROCESSES=$(awk "BEGIN {print int($PARALLEL_WORKERS + 8)}")
 
 # Per-query workers (half of CPUs, min 1)
@@ -139,7 +145,12 @@ tune_param "max_worker_processes" "$WORKER_PROCESSES" "${PG_TUNE_MAX_WORKER_PROC
 tune_param "max_parallel_workers_per_gather" "$PARALLEL_GATHER" "${PG_TUNE_MAX_PARALLEL_WORKERS_PER_GATHER:-}"
 tune_param "max_parallel_maintenance_workers" "$PMW" "${PG_TUNE_MAX_PARALLEL_MAINTENANCE_WORKERS:-}"
 
+# SSD assumptions: random_page_cost=1.1 and effective_io_concurrency=200 are optimized for solid-state drives.
 tune_param "random_page_cost" "1.1" "${PG_TUNE_RANDOM_PAGE_COST:-}"
 tune_param "effective_io_concurrency" "200" "${PG_TUNE_EFFECTIVE_IO_CONCURRENCY:-}"
 
 echo "ParadeDB auto-tune: Configuration written to $CONF_FILE"
+
+# CRITICAL: GNU sed -i creates a temp file and renames it, changing the owner to root.
+# We must chown the file back to postgres at the very end so ALTER SYSTEM continues to work.
+chown postgres:postgres "$CONF_FILE" 2>/dev/null || echo "ParadeDB auto-tune: Warning: could not chown $CONF_FILE at exit"

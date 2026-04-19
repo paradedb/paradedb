@@ -276,22 +276,21 @@ pub fn query_input_restrict(
             let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
             let rhs = args.get_ptr(1)?;
 
-            // If the RHS isn't a Const (e.g. Param in GENERIC prepared plans,
-            // FuncExpr, etc.) we can't evaluate the query at planning time.
-            // Fall back to PARAMETERIZED_SELECTIVITY so row estimates don't
-            // collapse and kill parallelism — see issue #4665.
-            let Some(const_) = nodecast!(Const, T_Const, rhs) else {
-                return Some(PARAMETERIZED_SELECTIVITY);
-            };
+            if let Some(const_) = nodecast!(Const, T_Const, rhs) {
+                let (heaprelid, _, _) = find_var_relation(var, info);
+                let indexrel = locate_bm25_index(heaprelid)?;
+                let search_query_input =
+                    SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
+                return estimate_selectivity(&indexrel, search_query_input);
+            }
 
-            let (heaprelid, _, _) = find_var_relation(var, info);
-            let indexrel = locate_bm25_index(heaprelid)?;
+            if let Some(param) = nodecast!(Param, T_Param, rhs) {
+                if (*param).paramkind == pg_sys::ParamKind::PARAM_EXTERN {
+                    return Some(PARAMETERIZED_SELECTIVITY);
+                }
+            }
 
-            // create the search query from the rhs Const node
-            let search_query_input =
-                SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
-
-            estimate_selectivity(&indexrel, search_query_input)
+            None
         }
     }
 

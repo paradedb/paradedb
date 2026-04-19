@@ -159,7 +159,6 @@ use self::privdat::PrivateData;
 use crate::postgres::customscan::datafusion::explain::{format_join_level_expr, get_attname_safe};
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::pullup::resolve_fast_field;
-use crate::postgres::utils::expr_collect_vars;
 
 use self::scan_state::{
     build_joinscan_logical_plan, build_physical_plan, build_task_context,
@@ -1659,6 +1658,39 @@ fn bake_logical_plan(private_data: &mut PrivateData, custom_exprs: *mut pg_sys::
     );
 }
 
+/// Walk `node` and build an [`InputVarInfo`] for every base-relation Var
+/// referenced, capturing type metadata from the live Var pointer so execution
+/// doesn't need catalog lookups. Uses `pull_var_clause` (same as the DISTINCT
+/// extraction path in `planning.rs`) to recurse through all wrappers.
+unsafe fn collect_input_vars(node: *mut pg_sys::Node) -> Vec<build::InputVarInfo> {
+    const PVC_RECURSE_ALL: i32 = (pg_sys::PVC_RECURSE_AGGREGATES
+        | pg_sys::PVC_RECURSE_WINDOWFUNCS
+        | pg_sys::PVC_RECURSE_PLACEHOLDERS) as i32;
+    let var_list = pg_sys::pull_var_clause(node, PVC_RECURSE_ALL);
+    let vars = PgList::<pg_sys::Var>::from_pg(var_list);
+    let mut result = Vec::with_capacity(vars.len());
+    let mut seen = crate::api::HashSet::default();
+    for var_ptr in vars.iter_ptr() {
+        let rti = (*var_ptr).varno as pg_sys::Index;
+        let attno = (*var_ptr).varattno;
+        // Skip non-base-relation Vars and whole-row references.
+        if rti == 0 || rti >= pg_sys::INNER_VAR as pg_sys::Index || attno <= 0 {
+            continue;
+        }
+        if !seen.insert((rti, attno)) {
+            continue;
+        }
+        result.push(build::InputVarInfo {
+            rti,
+            attno,
+            type_oid: (*var_ptr).vartype,
+            typmod: (*var_ptr).vartypmod,
+            collation: (*var_ptr).varcollid,
+        });
+    }
+    result
+}
+
 /// Append every entry in `best_path.custom_private` (skipping index 0, which
 /// holds the serialized `PrivateData`) onto `list`. Used twice in
 /// `plan_custom_path`: once to splice the trailing restrictlist clauses onto
@@ -1797,10 +1829,7 @@ impl JoinScan {
                             .to_string_lossy()
                             .into_owned()
                     };
-                    let input_vars = expr_collect_vars(combined_node, false)
-                        .into_iter()
-                        .map(|v| (v.rti, v.attno))
-                        .collect();
+                    let input_vars = collect_input_vars(combined_node);
                     Some(build::JoinLevelExpr::PgExpression {
                         pg_node_string,
                         input_vars,

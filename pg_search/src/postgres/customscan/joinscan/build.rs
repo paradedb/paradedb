@@ -629,14 +629,17 @@ pub enum JoinLevelExpr {
     /// which `PredicateTranslator` then translates to a DataFusion `Expr`
     /// (Var nodes resolve via `CombinedMapper` against the join's sources).
     ///
-    /// `input_vars` lists every `(rti, attno)` referenced by the expression so
-    /// the projection pass can register the required columns. Used for
+    /// `input_vars` describes each Var dependency (RTI, attno, plus the type
+    /// metadata captured at planning time so execution avoids catalog
+    /// lookups). The projection pass uses `(rti, attno)` to register the
+    /// required columns; the type metadata is also serialized through
+    /// `JoinCSClause` and available to any future consumer. Used for
     /// Semi/Anti join filters because the MultiTablePredicate / custom_exprs
     /// pipeline would fail in setrefs: Semi/Anti prunes the inner relation
     /// from the scan tlist, leaving inner-side Vars unresolvable.
     PgExpression {
         pg_node_string: String,
-        input_vars: Vec<(pgrx::pg_sys::Index, pgrx::pg_sys::AttrNumber)>,
+        input_vars: Vec<InputVarInfo>,
     },
 }
 
@@ -933,7 +936,7 @@ impl RelNode {
             RelNode::Scan(_) => {}
             RelNode::Join(j) => {
                 if let Some(JoinLevelExpr::PgExpression { input_vars, .. }) = &j.filter {
-                    acc.extend(input_vars.iter().copied());
+                    acc.extend(input_vars.iter().map(|v| (v.rti, v.attno)));
                 }
                 j.left.collect_filter_input_vars(acc);
                 j.right.collect_filter_input_vars(acc);
@@ -971,13 +974,13 @@ impl RelNode {
                     }
                 }
                 if let Some(JoinLevelExpr::PgExpression { input_vars, .. }) = &j.filter {
-                    for &(rti, attno) in input_vars {
+                    for v in input_vars {
                         if let Some(source) = j
                             .left
-                            .source_for_rti_in_subtree(rti)
-                            .or_else(|| j.right.source_for_rti_in_subtree(rti))
+                            .source_for_rti_in_subtree(v.rti)
+                            .or_else(|| j.right.source_for_rti_in_subtree(v.rti))
                         {
-                            acc.push((source.plan_position, attno));
+                            acc.push((source.plan_position, v.attno));
                         }
                     }
                 }

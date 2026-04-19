@@ -897,54 +897,6 @@ unsafe fn resolve_subplan_output_var(
     let var = nodecast!(Var, T_Var, expr)?;
     Some(((*var).varno as pg_sys::Index, (*var).varattno))
 }
-/// If `clause` is a `T_OpExpr` implementing equality between two Var nodes (one
-/// from each side of the join), produce the corresponding [`JoinKeyPair`].
-unsafe fn equi_key_pair_from_opexpr(
-    clause: *mut pg_sys::Node,
-    sources: &[&JoinSource],
-) -> Option<JoinKeyPair> {
-    if clause.is_null() || (*clause).type_ != pg_sys::NodeTag::T_OpExpr {
-        return None;
-    }
-    let opexpr = clause as *mut pg_sys::OpExpr;
-    let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-    if args.len() != 2 {
-        return None;
-    }
-
-    let opno = (*opexpr).opno;
-    if lookup_operator(opno) != Some("=") {
-        return None;
-    }
-
-    let arg0 = strip_wrappers(args.get_ptr(0)?);
-    let arg1 = strip_wrappers(args.get_ptr(1)?);
-
-    if (*arg0).type_ != pg_sys::NodeTag::T_Var || (*arg1).type_ != pg_sys::NodeTag::T_Var {
-        return None;
-    }
-    let var0 = arg0 as *mut pg_sys::Var;
-    let var1 = arg1 as *mut pg_sys::Var;
-
-    let (rti0, att0) =
-        find_source_for_var(sources, (*var0).varno as pg_sys::Index, (*var0).varattno)?;
-    let (rti1, att1) =
-        find_source_for_var(sources, (*var1).varno as pg_sys::Index, (*var1).varattno)?;
-
-    let type_oid = (*var0).vartype;
-    let (typlen, typbyval) = get_type_info(type_oid);
-
-    Some(JoinKeyPair {
-        outer_rti: rti0,
-        outer_attno: att0,
-        inner_rti: rti1,
-        inner_attno: att1,
-        type_oid,
-        typlen,
-        typbyval,
-    })
-}
-
 /// Parses a given list of `RestrictInfo` nodes to extract equi-join conditions and other join filters.
 /// Iterates over the given restrict list and groups conditions according to whether they are
 /// standard join keys or general functional predicates.
@@ -959,6 +911,8 @@ unsafe fn extract_join_conditions_from_list(
     };
 
     let search_op = anyelement_query_input_opoid();
+    let valid_rtis: Vec<pg_sys::Index> =
+        sources.iter().map(|s| s.scan_info.heap_rti).collect();
     let list = PgList::<pg_sys::RestrictInfo>::from_pg(restrictlist);
     for ri in list.iter_ptr() {
         let clause = (*ri).clause;
@@ -972,7 +926,12 @@ unsafe fn extract_join_conditions_from_list(
         }
 
         let mut is_equi_join = false;
-        if let Some(jk) = equi_key_pair_from_opexpr(clause.cast(), sources) {
+        let equi_pair = if (*clause).type_ == pg_sys::NodeTag::T_OpExpr {
+            build::try_extract_equi_key(clause.cast(), &valid_rtis)
+        } else {
+            None
+        };
+        if let Some(jk) = equi_pair {
             result.equi_keys.push(jk);
             is_equi_join = true;
         }

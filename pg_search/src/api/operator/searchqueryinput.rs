@@ -276,21 +276,18 @@ pub fn query_input_restrict(
             let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
             let rhs = args.get_ptr(1)?;
 
-            if let Some(const_) = nodecast!(Const, T_Const, rhs) {
-                let (heaprelid, _, _) = find_var_relation(var, info);
-                let indexrel = locate_bm25_index(heaprelid)?;
-                let search_query_input =
-                    SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
-                return estimate_selectivity(&indexrel, search_query_input);
-            }
-
-            if let Some(param) = nodecast!(Param, T_Param, rhs) {
-                if (*param).paramkind == pg_sys::ParamKind::PARAM_EXTERN {
-                    return Some(PARAMETERIZED_SELECTIVITY);
+            match (*rhs).type_ {
+                pg_sys::NodeTag::T_Const => {
+                    let const_ = rhs.cast::<pg_sys::Const>();
+                    let (heaprelid, _, _) = find_var_relation(var, info);
+                    let indexrel = locate_bm25_index(heaprelid)?;
+                    let search_query_input =
+                        SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
+                    estimate_selectivity(&indexrel, search_query_input)
                 }
+                pg_sys::NodeTag::T_Param => Some(PARAMETERIZED_SELECTIVITY),
+                _ => None,
             }
-
-            None
         }
     }
 

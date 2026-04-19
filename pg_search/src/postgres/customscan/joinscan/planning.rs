@@ -911,8 +911,7 @@ unsafe fn extract_join_conditions_from_list(
     };
 
     let search_op = anyelement_query_input_opoid();
-    let valid_rtis: Vec<pg_sys::Index> =
-        sources.iter().map(|s| s.scan_info.heap_rti).collect();
+    let valid_rtis: Vec<pg_sys::Index> = sources.iter().map(|s| s.scan_info.heap_rti).collect();
     let list = PgList::<pg_sys::RestrictInfo>::from_pg(restrictlist);
     for ri in list.iter_ptr() {
         let clause = (*ri).clause;

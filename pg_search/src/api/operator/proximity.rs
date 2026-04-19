@@ -38,14 +38,20 @@ fn rhs_prox(left: ProximityClause, right: ProximityClause) -> ProximityClause {
     match left {
         ProximityClause::Proximity {
             left,
-            distance,
+            distance: ProximityDistance::AnyOrder(distance),
             right: original_right,
         } if matches!(original_right.as_ref(), ProximityClause::Uninitialized) => {
             ProximityClause::Proximity {
                 left,
-                distance,
+                distance: ProximityDistance::AnyOrder(distance),
                 right: Box::new(right),
             }
+        }
+        ProximityClause::Proximity {
+            distance: ProximityDistance::InOrder(_),
+            right: original_right,
+        } if matches!(original_right.as_ref(), ProximityClause::Uninitialized) => {
+            panic!("mismatched proximity operators: left side uses ##> (ordered) but right side uses ## (unordered). Use matching operators (## ... ## or ##> ... ##>) for consistency.");
         }
         _ => panic!("lhs of ## must be a ProximityClause with an uninitialized rhs"),
     }
@@ -71,14 +77,20 @@ fn rhs_prox_in_order(left: ProximityClause, right: ProximityClause) -> Proximity
     match left {
         ProximityClause::Proximity {
             left,
-            distance,
+            distance: ProximityDistance::InOrder(distance),
             right: original_right,
         } if matches!(original_right.as_ref(), ProximityClause::Uninitialized) => {
             ProximityClause::Proximity {
                 left,
-                distance,
+                distance: ProximityDistance::InOrder(distance),
                 right: Box::new(right),
             }
+        }
+        ProximityClause::Proximity {
+            distance: ProximityDistance::AnyOrder(_),
+            right: original_right,
+        } if matches!(original_right.as_ref(), ProximityClause::Uninitialized) => {
+            panic!("mismatched proximity operators: left side uses ## (unordered) but right side uses ##> (ordered). Use matching operators (## ... ## or ##> ... ##>) for consistency.");
         }
         _ => panic!("lhs of ## must be a ProximityClause with an uninitialized rhs"),
     }

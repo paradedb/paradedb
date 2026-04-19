@@ -413,6 +413,140 @@ pub unsafe extern "C" fn expression_tree_walker_impl(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn stringToNode(_str: *const c_char) -> *mut c_void {
+    core::ptr::null_mut()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn stringToNodeWithLocations(_str: *const c_char) -> *mut c_void {
+    core::ptr::null_mut()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn makeStringInfo() -> pg_sys::StringInfo {
+    core::ptr::null_mut()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn makeStringInfoExt(_initsize: c_int) -> pg_sys::StringInfo {
+    core::ptr::null_mut()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn RelationClose(_relation: Relation) {}
+
+#[no_mangle]
+pub unsafe extern "C" fn relation_open(_relation_id: Oid, _lockmode: pg_sys::LOCKMODE) -> Relation {
+    core::ptr::null_mut()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn relation_close(_relation: Relation, _lockmode: pg_sys::LOCKMODE) {}
+
+#[no_mangle]
+pub unsafe extern "C" fn SPI_getargtypeid(_plan: SPIPlanPtr, _arg_index: c_int) -> Oid {
+    0.into()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SPI_getargcount(_plan: SPIPlanPtr) -> c_int {
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SPI_is_cursor_plan(_plan: SPIPlanPtr) -> bool {
+    false
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SPI_plan_is_valid(_plan: SPIPlanPtr) -> bool {
+    false
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SPI_getbinval(
+    _tuple: HeapTuple,
+    _tupdesc: TupleDesc,
+    _fnumber: c_int,
+    _isnull: *mut bool,
+) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SPI_gettypeid(_tupdesc: TupleDesc, _fnumber: c_int) -> Oid {
+    0.into()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SearchSysCache(
+    _cache_id: c_int,
+    _key1: Datum,
+    _key2: Datum,
+    _key3: Datum,
+    _key4: Datum,
+) -> HeapTuple {
+    core::ptr::null_mut()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SearchSysCache1(_cache_id: c_int, _key1: Datum) -> HeapTuple {
+    core::ptr::null_mut()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SearchSysCache2(
+    _cache_id: c_int,
+    _key1: Datum,
+    _key2: Datum,
+) -> HeapTuple {
+    core::ptr::null_mut()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SearchSysCache3(
+    _cache_id: c_int,
+    _key1: Datum,
+    _key2: Datum,
+    _key3: Datum,
+) -> HeapTuple {
+    core::ptr::null_mut()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SearchSysCache4(
+    _cache_id: c_int,
+    _key1: Datum,
+    _key2: Datum,
+    _key3: Datum,
+    _key4: Datum,
+) -> HeapTuple {
+    core::ptr::null_mut()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn ReleaseSysCache(_tuple: HeapTuple) {}
+
+#[no_mangle]
+pub unsafe extern "C" fn SysCacheGetAttr(
+    _cache_id: c_int,
+    _tup: HeapTuple,
+    _attribute_number: AttrNumber,
+    _is_null: *mut bool,
+) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SysCacheGetAttrNotNull(
+    _cache_id: c_int,
+    _tup: HeapTuple,
+    _attribute_number: AttrNumber,
+) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn numeric_in(_fcinfo: FunctionCallInfo) -> Datum {
     zeroed()
 }
@@ -518,6 +652,51 @@ pub unsafe extern "C" fn extract_timestamptz(_fcinfo: FunctionCallInfo) -> Datum
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn timestamp_in(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn timestamp_out(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn timestamptz_in(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn timestamptz_out(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn date_timestamptz(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn timestamptz_zone(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn make_timestamp(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn make_timestamptz(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn make_timestamptz_at_timezone(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn regprocedurein(_fcinfo: FunctionCallInfo) -> Datum {
     zeroed()
 }
@@ -529,6 +708,11 @@ pub unsafe extern "C" fn quote_identifier(ident: *const c_char) -> *const c_char
 
 #[no_mangle]
 pub unsafe extern "C" fn get_array_type(_typid: Oid) -> Oid {
+    0.into()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn get_element_type(_typid: Oid) -> Oid {
     0.into()
 }
 
@@ -620,6 +804,27 @@ fn stubs_link_cleanly() {
     let _ = SPI_keepplan as usize;
     let _ = SPI_fnumber as usize;
     let _ = expression_tree_walker_impl as usize;
+    let _ = stringToNode as usize;
+    let _ = stringToNodeWithLocations as usize;
+    let _ = makeStringInfo as usize;
+    let _ = makeStringInfoExt as usize;
+    let _ = RelationClose as usize;
+    let _ = relation_open as usize;
+    let _ = relation_close as usize;
+    let _ = SPI_getargtypeid as usize;
+    let _ = SPI_getargcount as usize;
+    let _ = SPI_is_cursor_plan as usize;
+    let _ = SPI_plan_is_valid as usize;
+    let _ = SPI_getbinval as usize;
+    let _ = SPI_gettypeid as usize;
+    let _ = SearchSysCache as usize;
+    let _ = SearchSysCache1 as usize;
+    let _ = SearchSysCache2 as usize;
+    let _ = SearchSysCache3 as usize;
+    let _ = SearchSysCache4 as usize;
+    let _ = ReleaseSysCache as usize;
+    let _ = SysCacheGetAttr as usize;
+    let _ = SysCacheGetAttrNotNull as usize;
     let _ = numeric_in as usize;
     let _ = numeric_out as usize;
     let _ = int2_numeric as usize;
@@ -641,8 +846,18 @@ fn stubs_link_cleanly() {
     let _ = extract_timetz as usize;
     let _ = extract_timestamp as usize;
     let _ = extract_timestamptz as usize;
+    let _ = timestamp_in as usize;
+    let _ = timestamp_out as usize;
+    let _ = timestamptz_in as usize;
+    let _ = timestamptz_out as usize;
+    let _ = date_timestamptz as usize;
+    let _ = timestamptz_zone as usize;
+    let _ = make_timestamp as usize;
+    let _ = make_timestamptz as usize;
+    let _ = make_timestamptz_at_timezone as usize;
     let _ = regprocedurein as usize;
     let _ = quote_identifier as usize;
     let _ = get_array_type as usize;
+    let _ = get_element_type as usize;
     let _ = GetSysCacheOid as usize;
 }

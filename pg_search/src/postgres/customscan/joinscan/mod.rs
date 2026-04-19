@@ -1762,7 +1762,6 @@ impl JoinScan {
             // Validating translatability with the live pointer now means
             // `stringToNode` + `PredicateTranslator::translate` will succeed at
             // execution time on the same shape.
-            let translator = PredicateTranslator::new(&current_sources);
             let mut absorbed_clauses: Vec<*mut pg_sys::Node> = Vec::new();
             let mut remaining: Vec<*mut pg_sys::RestrictInfo> =
                 Vec::with_capacity(join_conditions.other_conditions.len());
@@ -1770,7 +1769,7 @@ impl JoinScan {
                 let clause = (*ri).clause;
                 if clause.is_null()
                     || !all_vars_are_fast_fields_recursive(clause.cast(), &current_sources)
-                    || translator.translate(clause.cast()).is_none()
+                    || !PredicateTranslator::can_translate(&current_sources, clause.cast())
                 {
                     remaining.push(ri);
                     continue;

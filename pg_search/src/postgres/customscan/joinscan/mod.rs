@@ -516,9 +516,14 @@ impl JoinScan {
         // Empty join_keys are normally a rejection, but a disjunctive Semi/Anti
         // condition (`a = b OR a = c`) legitimately produces no equi-keys — the
         // predicate lives on `JoinNode.filter` and DataFusion evaluates it via
-        // NestedLoopJoinExec. Skip this gate for plans that contain a Semi/Anti
-        // join; per-key validation below is simply a no-op when there are none.
-        if join_keys.is_empty() && !plan.has_semi_or_anti() {
+        // NestedLoopJoinExec. Only the outermost join benefits from this
+        // relaxation; a nested Semi/Anti deeper in the tree does not excuse
+        // the current join-hook invocation from needing equi-keys.
+        let root_is_semi_anti = matches!(
+            &plan,
+            RelNode::Join(j) if matches!(j.join_type, build::JoinType::Semi | build::JoinType::Anti)
+        );
+        if join_keys.is_empty() && !root_is_semi_anti {
             return None;
         }
 

@@ -46,14 +46,15 @@
 #[cfg(not(test))]
 compile_error!("tests_link_stubs must never ship in non-test builds");
 
-use core::ffi::{c_char, c_int, c_void};
+use core::ffi::{c_char, c_int, c_long, c_void};
 use core::mem::MaybeUninit;
 use pgrx::pg_sys::{
-    self, sigjmp_buf, varlena, AttrNumber, BackendType, Buffer, BufferAccessStrategy,
-    BufferAccessStrategyType, Datum, ErrorContextCallback, ErrorData, ExprContext,
-    FunctionCallInfo, HeapTuple, IndexInfo, JsonbContainer, JsonbIterator, JsonbIteratorToken,
-    JsonbValue, MemoryContext, Oid, Relation, SPITupleTable, Size, Snapshot, SnapshotData,
-    TransactionId, TupleTableSlot, TupleTableSlotOps,
+    self, sigjmp_buf, tree_walker_callback, varlena, AttrNumber, BackendType, Buffer,
+    BufferAccessStrategy, BufferAccessStrategyType, Datum, ErrorContextCallback, ErrorData,
+    ExprContext, FunctionCallInfo, HeapTuple, IndexInfo, JsonbContainer, JsonbIterator,
+    JsonbIteratorToken, JsonbValue, MemoryContext, Node, Oid, ParamListInfo, ParserSetupHook,
+    Relation, SPIExecuteOptions, SPIPlanPtr, SPIPrepareOptions, SPITupleTable, Size, Snapshot,
+    SnapshotData, TransactionId, TupleDesc, TupleTableSlot, TupleTableSlotOps,
 };
 
 const fn zeroed<T>() -> T {
@@ -202,6 +203,16 @@ pub unsafe extern "C" fn copyObjectImpl(from: *const c_void) -> *mut c_void {
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn nodeToString(_obj: *const c_void) -> *mut c_char {
+    core::ptr::null_mut()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn nodeToStringWithLocations(_obj: *const c_void) -> *mut c_char {
+    core::ptr::null_mut()
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn heap_freetuple(_htup: HeapTuple) {}
 
 #[no_mangle]
@@ -255,6 +266,255 @@ pub unsafe extern "C" fn HotStandbyActive() -> bool {
 #[no_mangle]
 pub unsafe extern "C" fn BuildIndexInfo(_index: Relation) -> *mut IndexInfo {
     leak_zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SPI_connect() -> c_int {
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SPI_connect_ext(_options: c_int) -> c_int {
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SPI_finish() -> c_int {
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SPI_execute(
+    _src: *const c_char,
+    _read_only: bool,
+    _tcount: c_long,
+) -> c_int {
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SPI_execute_extended(
+    _src: *const c_char,
+    _options: *const SPIExecuteOptions,
+) -> c_int {
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SPI_execute_plan(
+    _plan: SPIPlanPtr,
+    _values: *mut Datum,
+    _nulls: *const c_char,
+    _read_only: bool,
+    _tcount: c_long,
+) -> c_int {
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SPI_execute_plan_extended(
+    _plan: SPIPlanPtr,
+    _options: *const SPIExecuteOptions,
+) -> c_int {
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SPI_execute_plan_with_paramlist(
+    _plan: SPIPlanPtr,
+    _params: ParamListInfo,
+    _read_only: bool,
+    _tcount: c_long,
+) -> c_int {
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SPI_execute_snapshot(
+    _plan: SPIPlanPtr,
+    _values: *mut Datum,
+    _nulls: *const c_char,
+    _snapshot: Snapshot,
+    _crosscheck_snapshot: Snapshot,
+    _read_only: bool,
+    _fire_triggers: bool,
+    _tcount: c_long,
+) -> c_int {
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SPI_execute_with_args(
+    _src: *const c_char,
+    _nargs: c_int,
+    _argtypes: *mut Oid,
+    _values: *mut Datum,
+    _nulls: *const c_char,
+    _read_only: bool,
+    _tcount: c_long,
+) -> c_int {
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SPI_prepare(
+    _src: *const c_char,
+    _nargs: c_int,
+    _argtypes: *mut Oid,
+) -> SPIPlanPtr {
+    core::ptr::null_mut()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SPI_prepare_cursor(
+    _src: *const c_char,
+    _nargs: c_int,
+    _argtypes: *mut Oid,
+    _cursor_options: c_int,
+) -> SPIPlanPtr {
+    core::ptr::null_mut()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SPI_prepare_extended(
+    _src: *const c_char,
+    _options: *const SPIPrepareOptions,
+) -> SPIPlanPtr {
+    core::ptr::null_mut()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SPI_prepare_params(
+    _src: *const c_char,
+    _parser_setup: ParserSetupHook,
+    _parser_setup_arg: *mut c_void,
+    _cursor_options: c_int,
+) -> SPIPlanPtr {
+    core::ptr::null_mut()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SPI_keepplan(_plan: SPIPlanPtr) -> c_int {
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn SPI_fnumber(_tupdesc: TupleDesc, _fname: *const c_char) -> c_int {
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn expression_tree_walker_impl(
+    _node: *mut Node,
+    _walker: tree_walker_callback,
+    _context: *mut c_void,
+) -> bool {
+    false
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn numeric_in(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn numeric_out(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn int2_numeric(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn int4_numeric(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn int8_numeric(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn float4_numeric(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn float8_numeric(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn numeric_int2(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn numeric_int4(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn numeric_int8(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn numeric_float4(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn numeric_float8(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn time_timetz(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn timetz_time(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn timetz_zone(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn timetz_izone(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn extract_date(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn extract_time(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn extract_timetz(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn extract_timestamp(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn extract_timestamptz(_fcinfo: FunctionCallInfo) -> Datum {
+    zeroed()
 }
 
 #[no_mangle]
@@ -329,6 +589,8 @@ fn stubs_link_cleanly() {
     let _ = pfree as usize;
     let _ = pg_detoast_datum as usize;
     let _ = copyObjectImpl as usize;
+    let _ = nodeToString as usize;
+    let _ = nodeToStringWithLocations as usize;
     let _ = heap_freetuple as usize;
     let _ = slot_getsomeattrs_int as usize;
     let _ = JsonbIteratorInit as usize;
@@ -341,6 +603,44 @@ fn stubs_link_cleanly() {
     let _ = GetAccessStrategy as usize;
     let _ = HotStandbyActive as usize;
     let _ = BuildIndexInfo as usize;
+    let _ = SPI_connect as usize;
+    let _ = SPI_connect_ext as usize;
+    let _ = SPI_finish as usize;
+    let _ = SPI_execute as usize;
+    let _ = SPI_execute_extended as usize;
+    let _ = SPI_execute_plan as usize;
+    let _ = SPI_execute_plan_extended as usize;
+    let _ = SPI_execute_plan_with_paramlist as usize;
+    let _ = SPI_execute_snapshot as usize;
+    let _ = SPI_execute_with_args as usize;
+    let _ = SPI_prepare as usize;
+    let _ = SPI_prepare_cursor as usize;
+    let _ = SPI_prepare_extended as usize;
+    let _ = SPI_prepare_params as usize;
+    let _ = SPI_keepplan as usize;
+    let _ = SPI_fnumber as usize;
+    let _ = expression_tree_walker_impl as usize;
+    let _ = numeric_in as usize;
+    let _ = numeric_out as usize;
+    let _ = int2_numeric as usize;
+    let _ = int4_numeric as usize;
+    let _ = int8_numeric as usize;
+    let _ = float4_numeric as usize;
+    let _ = float8_numeric as usize;
+    let _ = numeric_int2 as usize;
+    let _ = numeric_int4 as usize;
+    let _ = numeric_int8 as usize;
+    let _ = numeric_float4 as usize;
+    let _ = numeric_float8 as usize;
+    let _ = time_timetz as usize;
+    let _ = timetz_time as usize;
+    let _ = timetz_zone as usize;
+    let _ = timetz_izone as usize;
+    let _ = extract_date as usize;
+    let _ = extract_time as usize;
+    let _ = extract_timetz as usize;
+    let _ = extract_timestamp as usize;
+    let _ = extract_timestamptz as usize;
     let _ = regprocedurein as usize;
     let _ = quote_identifier as usize;
     let _ = get_array_type as usize;

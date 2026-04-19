@@ -46,7 +46,7 @@ use crate::postgres::customscan::CustomScan;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_collect_vars, expr_contains_any_operator};
-use crate::postgres::var::fieldname_from_var;
+use crate::postgres::var::{fieldname_from_var, strip_identity_wrappers};
 use crate::query::SearchQueryInput;
 
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
@@ -1308,21 +1308,23 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
 
         for member in members.iter_ptr() {
             let expr = (*member).em_expr;
-            let mut check_expr = strip_wrappers(expr.cast());
+            // Chain strip_wrappers (for PlaceHolderVar/RelabelType) then
+            // strip_identity_wrappers (for identity OpExpr like `id + 0`).
+            let mut expr = strip_identity_wrappers(strip_wrappers(expr.cast()));
 
             // Unwrap NullTest to inspect the inner expression
-            if let Some(nt) = nodecast!(NullTest, T_NullTest, check_expr) {
-                check_expr = strip_wrappers((*nt).arg.cast());
+            if let Some(nt) = nodecast!(NullTest, T_NullTest, expr) {
+                expr = strip_identity_wrappers(strip_wrappers((*nt).arg.cast()));
             }
 
             if sources
                 .iter()
-                .any(|s| is_score_func_recursive(check_expr.cast(), s))
+                .any(|s| is_score_func_recursive(expr.cast(), s))
             {
                 continue 'pathkey;
             }
 
-            if let Some(var) = nodecast!(Var, T_Var, check_expr) {
+            if let Some(var) = nodecast!(Var, T_Var, expr) {
                 let varno = (*var).varno as pg_sys::Index;
                 let varattno = (*var).varattno;
 
@@ -1348,7 +1350,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
                         continue;
                     };
                     if find_matching_fast_field(
-                        expr as *mut pg_sys::Node,
+                        expr,
                         &index_rel.index_expressions(),
                         schema,
                         source.scan_info.heap_rti,
@@ -1802,6 +1804,11 @@ impl JoinSortExprKind {
         output_rtis: &[pg_sys::Index],
         pathkey_equivalence_member: bool,
     ) -> Self {
+        // Strip order-preserving wrappers (e.g. `id + 0`, RelabelType, CoerceToDomain)
+        // so that the expression reaches the pattern-matching below in canonical form.
+        let check_expr =
+            strip_identity_wrappers(check_expr as *mut pg_sys::Node) as *mut pg_sys::Expr;
+
         if let Some(nt) = nodecast!(NullTest, T_NullTest, check_expr) {
             let inner_expr = strip_wrappers((*nt).arg.cast()).cast::<pg_sys::Expr>();
             let nulltesttype = if (*nt).nulltesttype == pg_sys::NullTestType::IS_NULL {

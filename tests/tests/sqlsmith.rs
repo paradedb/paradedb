@@ -21,7 +21,8 @@ use fixtures::*;
 use rstest::*;
 use sqlx::PgConnection;
 
-/// `sqlsmith` generated a query that crashed due to us dereferencing a null pointer
+/// `sqlsmith` generated a query that crashed while planner support tried to resolve a `Var`
+/// through a null subquery pointer.
 ///
 /// The query itself is completely nonsensical, but we shouldn't crash no matter what
 /// the user (or sqlsmith) throws at us.
@@ -76,8 +77,11 @@ fn crash_in_subquery(mut conn: PgConnection) {
     "#
     .execute_result(&mut conn);
 
-    assert!(result.is_err());
-    let err = result.unwrap_err();
-    assert!(format!("{err}")
-        .contains("unable to determine Var relation as it belongs to a NULL subquery"))
+    if let Err(err) = result {
+        assert!(
+            !format!("{err}")
+                .contains("unable to determine Var relation as it belongs to a NULL subquery"),
+            "{err}"
+        );
+    }
 }

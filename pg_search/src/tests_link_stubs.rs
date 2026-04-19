@@ -15,8 +15,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Symbol stubs that let `cargo test --tests` link and load the pg_search
-//! unit test binary on Linux.
+//! Symbol stubs that let standalone `cargo test` binaries link and load the
+//! pg_search unit test binary.
 //!
 //! pgrx 0.18 removed the `pgrx_embed` indirection that used to keep
 //! Postgres' globals out of test-binary link paths. Every `#[pg_extern]`
@@ -27,8 +27,8 @@
 //!
 //! * `ld` refuses to produce an executable with undefined data symbols
 //!   (Linux treats that as a hard error for ELF executables), and
-//! * even with `-Wl,--unresolved-symbols=ignore-all` at link time,
-//!   glibc's x86_64 loader rejects the binary on startup with
+//! * on Darwin the executable can be produced but `dyld` still rejects it
+//!   on startup once it hits an unresolved Postgres global such as
 //!   `undefined symbol: CurrentMemoryContext`.
 //!
 //! This module provides local null definitions of the Postgres globals
@@ -52,8 +52,8 @@ use pgrx::pg_sys::{
     self, sigjmp_buf, varlena, AttrNumber, BackendType, Buffer, BufferAccessStrategy,
     BufferAccessStrategyType, Datum, ErrorContextCallback, ErrorData, ExprContext,
     FunctionCallInfo, HeapTuple, IndexInfo, JsonbContainer, JsonbIterator, JsonbIteratorToken,
-    JsonbValue, MemoryContext, Oid, Relation, Size, Snapshot, SnapshotData, TransactionId,
-    TupleTableSlot, TupleTableSlotOps,
+    JsonbValue, MemoryContext, Oid, Relation, SPITupleTable, Size, Snapshot, SnapshotData,
+    TransactionId, TupleTableSlot, TupleTableSlotOps,
 };
 
 const fn zeroed<T>() -> T {
@@ -92,12 +92,17 @@ stub_ptr! {
     CurTransactionContext: MemoryContext,
     PortalContext: MemoryContext,
     PostmasterContext: MemoryContext,
+    BufferBlocks: *mut c_char,
+    LocalBufferBlockPointers: *mut pg_sys::Block,
+    SPI_tuptable: *mut SPITupleTable,
     error_context_stack: *mut ErrorContextCallback,
     PG_exception_stack: *mut sigjmp_buf,
 }
 
 #[no_mangle]
 pub static mut InterruptHoldoffCount: pg_sys::uint32 = zeroed();
+#[no_mangle]
+pub static mut InterruptPending: pg_sys::sig_atomic_t = 0;
 #[no_mangle]
 pub static mut NBuffers: c_int = 0;
 #[no_mangle]
@@ -109,9 +114,15 @@ pub static mut CheckXidAlive: TransactionId = zeroed();
 #[no_mangle]
 pub static mut bsysscan: bool = false;
 #[no_mangle]
+pub static mut QueryCancelPending: pg_sys::sig_atomic_t = 0;
+#[no_mangle]
 pub static mut SnapshotAnyData: SnapshotData = zeroed();
 #[no_mangle]
 pub static TTSOpsBufferHeapTuple: TupleTableSlotOps = zeroed();
+#[no_mangle]
+pub static mut SPI_processed: pg_sys::uint64 = 0;
+#[no_mangle]
+pub static mut SPI_result: c_int = 0;
 
 #[no_mangle]
 pub unsafe extern "C" fn errstart(_elevel: c_int, _domain: *const c_char) -> bool {
@@ -284,16 +295,23 @@ fn stubs_link_cleanly() {
     let _ = &raw mut CurTransactionContext;
     let _ = &raw mut PortalContext;
     let _ = &raw mut PostmasterContext;
+    let _ = &raw mut BufferBlocks;
+    let _ = &raw mut LocalBufferBlockPointers;
+    let _ = &raw mut SPI_tuptable;
     let _ = &raw mut error_context_stack;
     let _ = &raw mut PG_exception_stack;
     let _ = &raw mut InterruptHoldoffCount;
+    let _ = &raw mut InterruptPending;
     let _ = &raw mut NBuffers;
     let _ = &raw mut NLocBuffer;
     let _ = &raw mut MyBackendType;
     let _ = &raw mut CheckXidAlive;
     let _ = &raw mut bsysscan;
+    let _ = &raw mut QueryCancelPending;
     let _ = &raw mut SnapshotAnyData;
     let _ = &raw const TTSOpsBufferHeapTuple;
+    let _ = &raw mut SPI_processed;
+    let _ = &raw mut SPI_result;
 
     let _ = errstart as usize;
     let _ = errstart_cold as usize;

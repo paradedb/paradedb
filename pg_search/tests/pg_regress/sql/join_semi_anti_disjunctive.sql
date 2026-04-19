@@ -375,6 +375,173 @@ ORDER BY i.id DESC
 LIMIT 10;
 SET paradedb.enable_join_custom_scan TO on;
 
+-- =====================================================================
+-- 10. Single equi-key Semi/Anti regression
+-- =====================================================================
+-- A plain Var = Var NOT EXISTS with no OR must still go through the
+-- equi-key path (HashJoinExec), not PgExpression/NestedLoopJoinExec.
+-- Regression guard: single equalities must not be routed through the
+-- new disjunctive-filter absorption.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND e.pattern = i.name
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND e.pattern = i.name
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND e.pattern = i.name
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 11. NULL semantics on OR arms
+-- =====================================================================
+-- Restrict the outer side to rows where `i.alt_name IS NULL` by targeting
+-- odd ids (category:"other") — the setup leaves `alt_name` NULL whenever
+-- `i % 3 != 0`. Verifies that NULL comparisons inside disjunctive arms
+-- produce the same result under DataFusion's NestedLoopJoinExec as under
+-- PostgreSQL's native Nested Loop Anti Join.
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern = i.alt_name)
+)
+AND i.id @@@ 'category:"other"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern = i.alt_name)
+)
+AND i.id @@@ 'category:"other"'
+ORDER BY i.id DESC
+LIMIT 10;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 12. RelabelType path with varchar columns
+-- =====================================================================
+-- varchar columns force PostgreSQL to wrap each Var in a RelabelType
+-- (varchar -> text) before the equality operator. This exercises the
+-- translator's RelabelType-stripping path for disjunctive filters; if
+-- broken, JoinScan would fall back to a Nested Loop Anti Join.
+DROP TABLE IF EXISTS items_vc CASCADE;
+DROP TABLE IF EXISTS exclusions_vc CASCADE;
+
+CREATE TABLE items_vc (
+    id bigint NOT NULL PRIMARY KEY,
+    name varchar(100),
+    alt_name varchar(100),
+    category varchar(100)
+);
+INSERT INTO items_vc (id, name, alt_name, category)
+SELECT
+    i,
+    ('name_' || i)::varchar(100),
+    CASE WHEN i % 3 = 0 THEN ('alt_' || i)::varchar(100) ELSE NULL END,
+    (CASE WHEN i % 2 = 0 THEN 'target' ELSE 'other' END)::varchar(100)
+FROM generate_series(1, 200) as i;
+
+CREATE TABLE exclusions_vc (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    pattern varchar(100)
+);
+INSERT INTO exclusions_vc (pattern)
+SELECT ('name_' || i)::varchar(100)
+FROM generate_series(1, 100) as i
+WHERE i % 5 = 0;
+
+CREATE INDEX items_vc_idx ON items_vc
+USING bm25 (id, name, alt_name, category)
+WITH (
+    key_field = id,
+    text_fields = '{
+        "name": {"fast": true, "tokenizer": {"type": "keyword"}},
+        "alt_name": {"fast": true, "tokenizer": {"type": "keyword"}},
+        "category": {"fast": true, "tokenizer": {"type": "keyword"}, "normalizer": "lowercase"}
+    }'
+);
+
+CREATE INDEX exclusions_vc_idx ON exclusions_vc
+USING bm25 (id, pattern)
+WITH (
+    key_field = id,
+    text_fields = '{
+        "pattern": {"fast": true, "tokenizer": {"type": "keyword"}}
+    }'
+);
+
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items_vc i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions_vc e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern = i.alt_name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SELECT i.id
+FROM items_vc i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions_vc e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern = i.alt_name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items_vc i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions_vc e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern = i.alt_name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+SET paradedb.enable_join_custom_scan TO on;
+
+DROP TABLE items_vc CASCADE;
+DROP TABLE exclusions_vc CASCADE;
+
 -- Cleanup
 DROP TABLE items CASCADE;
 DROP TABLE exclusions CASCADE;

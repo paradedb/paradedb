@@ -191,6 +191,30 @@ impl<'a> PredicateTranslator<'a> {
         }
     }
 
+    /// Check whether an expression can be translated to DataFusion.
+    /// Validates both node-type support and column resolution against
+    /// the provided sources, without requiring plan_position or
+    /// output_columns.
+    pub unsafe fn can_translate(sources: &'a [&'a JoinSource], node: *mut pg_sys::Node) -> bool {
+        struct ValidationMapper<'a> {
+            sources: &'a [&'a JoinSource],
+        }
+
+        impl<'a> ColumnMapper for ValidationMapper<'a> {
+            /// Just confirm the source exists — field registration hasn't
+            /// happened yet at this planning stage. Column validity is
+            /// covered by all_vars_are_fast_fields_recursive which runs first.
+            fn map_var(&self, varno: pg_sys::Index, _varattno: pg_sys::AttrNumber) -> Option<Expr> {
+                let _source = self.sources.iter().find(|s| s.contains_rti(varno))?;
+                Some(col("placeholder"))
+            }
+        }
+
+        let mapper = ValidationMapper { sources };
+        let translator = Self::new(sources).with_mapper(Box::new(mapper));
+        translator.translate(node).is_some()
+    }
+
     /// Translate a PostgreSQL expression to a DataFusion `Expr`.
     ///
     /// Returns `None` if the expression cannot be translated.

@@ -85,7 +85,8 @@ use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::datafusion::translator::{
     apply_join_level_filter, build_join_df_with_filter, make_col, make_source_col,
-    make_source_score_col, ColumnMapper, CombinedMapper, JoinTypeAllowList, PredicateTranslator,
+    make_source_score_col, translate_pg_node_string, ColumnMapper, CombinedMapper,
+    JoinTypeAllowList, PredicateTranslator,
 };
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
@@ -132,37 +133,21 @@ impl<'a> ColumnMapper for JoinClauseMapper<'a> {
 
 /// Translate a `ChildProjection::Expression` via `PredicateTranslator`.
 ///
-/// Known `pg_catalog` functions (length, upper, abs, etc.) are mapped to
-/// native DataFusion functions for efficient evaluation; unknown functions
-/// fall back to `PgExprUdf` via `try_wrap_as_udf`.
+/// Known `pg_catalog` functions (length, upper, abs, etc.) map to native
+/// DataFusion functions; unknown functions fall back to `PgExprUdf` via
+/// `try_wrap_as_udf`.
 unsafe fn translate_child_projection_expr(
     pg_expr_string: &str,
     join_clause: &JoinCSClause,
 ) -> Result<Expr> {
-    let c_str = std::ffi::CString::new(pg_expr_string).map_err(|e| {
-        DataFusionError::Internal(format!(
-            "CString conversion failed for ChildProjection::Expression: {e}"
-        ))
-    })?;
-    let node = pg_sys::stringToNode(c_str.as_ptr().cast_mut());
-    if node.is_null() {
-        return Err(DataFusionError::Internal(
-            "stringToNode returned null for ChildProjection::Expression".into(),
-        ));
-    }
-
     let sources = join_clause.plan.sources();
     let mapper = JoinClauseMapper { join_clause };
-
-    let translator = PredicateTranslator::new(&sources)
-        .with_mapper(Box::new(mapper))
-        .with_allow_udf_fallback(true);
-
-    translator.translate(node.cast()).ok_or_else(|| {
-        DataFusionError::Internal(
-            "PredicateTranslator failed to translate ChildProjection::Expression".into(),
-        )
-    })
+    translate_pg_node_string(
+        pg_expr_string,
+        &sources,
+        Box::new(mapper),
+        "ChildProjection::Expression",
+    )
 }
 
 /// Query planner that lowers JoinScan's custom logical nodes

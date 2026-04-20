@@ -223,8 +223,8 @@ impl<'a> PredicateTranslator<'a> {
 
         let mapper = ValidationMapper { sources };
         let translator = Self::new(sources)
-            .with_allow_udf_fallback(allow_udf_fallback)
-            .with_mapper(Box::new(mapper));
+            .with_mapper(Box::new(mapper))
+            .with_allow_udf_fallback(allow_udf_fallback);
         translator.translate(node).is_some()
     }
 
@@ -268,12 +268,8 @@ impl<'a> PredicateTranslator<'a> {
             _ => None,
         };
 
-        // When `allow_udf_fallback` is on, any subtree that fails native
-        // translation is wrapped in a `PgExprUdf`. This applies uniformly
-        // across node types — e.g. arithmetic OpExprs (`*`, `+`) that
-        // `translate_op_expr` doesn't handle still succeed as UDFs. Wrapping
-        // runs per recursive call, so the innermost failing subtree gets
-        // wrapped and its parent can still evaluate natively.
+        // Fallback runs per recursive call so the innermost failing subtree
+        // gets wrapped and its parent can still evaluate natively.
         native.or_else(|| {
             if self.allow_udf_fallback {
                 self.try_wrap_as_udf(node)
@@ -611,36 +607,48 @@ pub fn build_join_df_with_filter(
 }
 
 /// Deserialize a PostgreSQL expression from its `nodeToString` representation
-/// and translate it to a DataFusion `Expr` against `sources`. The translator
-/// is seeded with a [`CombinedMapper`] so Var nodes (carrying their original
-/// `(varno, varattno)`) resolve to qualified DataFusion columns.
+/// and translate it to a DataFusion `Expr` against `sources`, using the
+/// caller-supplied `mapper` to resolve Var nodes. `context` is used only in
+/// error messages to disambiguate call sites.
+pub unsafe fn translate_pg_node_string<'a>(
+    pg_node_string: &str,
+    sources: &'a [&'a JoinSource],
+    mapper: Box<dyn ColumnMapper + 'a>,
+    context: &'static str,
+) -> Result<Expr> {
+    let c_str = std::ffi::CString::new(pg_node_string).map_err(|e| {
+        DataFusionError::Internal(format!("CString conversion failed for {context}: {e}"))
+    })?;
+    let node = pg_sys::stringToNode(c_str.as_ptr().cast_mut());
+    if node.is_null() {
+        return Err(DataFusionError::Internal(format!(
+            "stringToNode returned null for {context}"
+        )));
+    }
+
+    let translator = PredicateTranslator::new(sources)
+        .with_mapper(mapper)
+        .with_allow_udf_fallback(true);
+    translator.translate(node.cast()).ok_or_else(|| {
+        DataFusionError::Internal(format!(
+            "PredicateTranslator failed to translate deserialized {context}"
+        ))
+    })
+}
+
+/// Translate a `PgExpression` join filter using a [`CombinedMapper`] so Var
+/// nodes (carrying their original `(varno, varattno)`) resolve to qualified
+/// DataFusion columns.
 unsafe fn translate_pg_expression_filter(
     pg_node_string: &str,
     sources: &[&JoinSource],
     output_columns: &[OutputColumnInfo],
 ) -> Result<Expr> {
-    let c_str = std::ffi::CString::new(pg_node_string).map_err(|e| {
-        DataFusionError::Internal(format!("CString conversion failed for PgExpression: {e}"))
-    })?;
-    let node = pg_sys::stringToNode(c_str.as_ptr().cast_mut());
-    if node.is_null() {
-        return Err(DataFusionError::Internal(
-            "stringToNode returned null for PgExpression".into(),
-        ));
-    }
-
     let mapper = CombinedMapper {
         sources,
         output_columns,
     };
-    let translator = PredicateTranslator::new(sources)
-        .with_allow_udf_fallback(true)
-        .with_mapper(Box::new(mapper));
-    translator.translate(node.cast()).ok_or_else(|| {
-        DataFusionError::Internal(
-            "PredicateTranslator failed to translate deserialized PgExpression".into(),
-        )
-    })
+    translate_pg_node_string(pg_node_string, sources, Box::new(mapper), "PgExpression")
 }
 
 /// Build equi-join filter expressions from a [`JoinNode`]'s key pairs.

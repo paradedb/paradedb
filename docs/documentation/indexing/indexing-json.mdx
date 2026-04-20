@@ -102,14 +102,14 @@ with connection.schema_editor() as schema_editor:
 
 ```python SQLAlchemy
 from sqlalchemy import Index
-from paradedb.sqlalchemy import indexing
+from paradedb.sqlalchemy import indexing, tokenizer
 
 idx = Index(
     "search_idx",
     indexing.BM25Field(MockItem.id),
     indexing.BM25Field(
         MockItem.metadata_,
-        tokenizer=indexing.tokenize.ngram(min_gram=2, max_gram=3),
+        tokenizer=tokenizer.ngram(2, 3),
     ),
     postgresql_using="bm25",
     postgresql_with={"key_field": "id"},
@@ -170,14 +170,14 @@ with connection.schema_editor() as schema_editor:
 
 ```python SQLAlchemy
 from sqlalchemy import Index
-from paradedb.sqlalchemy import expr, indexing
+from paradedb.sqlalchemy import expr, indexing, tokenizer
 
 idx = Index(
     "search_idx",
     indexing.BM25Field(MockItem.id),
     indexing.BM25Field(
         expr.json_text(MockItem.metadata_, "color"),
-        tokenizer=indexing.tokenize.ngram(min_gram=2, max_gram=3),
+        tokenizer=tokenizer.ngram(2, 3),
     ),
     postgresql_using="bm25",
     postgresql_with={"key_field": "id"},

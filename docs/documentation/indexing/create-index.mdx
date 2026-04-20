@@ -135,14 +135,14 @@ with connection.schema_editor() as schema_editor:
 
 ```python SQLAlchemy
 from sqlalchemy import Index
-from paradedb.sqlalchemy import indexing
+from paradedb.sqlalchemy import indexing, tokenizer
 
 idx = Index(
     "search_idx",
     indexing.BM25Field(MockItem.id),
     indexing.BM25Field(
         MockItem.description,
-        tokenizer=indexing.tokenize.icu(),
+        tokenizer=tokenizer.icu(),
     ),
     indexing.BM25Field(MockItem.category),
     postgresql_using="bm25",
@@ -306,17 +306,14 @@ with connection.schema_editor() as schema_editor:
 
 ```python SQLAlchemy
 from sqlalchemy import Index
-from paradedb.sqlalchemy import indexing
+from paradedb.sqlalchemy import indexing, tokenizer
 
 idx = Index(
     "search_idx",
     indexing.BM25Field(MockItem.id),
     indexing.BM25Field(
         MockItem.description,
-        tokenizer=indexing.tokenize.simple(
-            filters=["stemmer"],
-            stemmer="english",
-        ),
+        tokenizer=tokenizer.simple(options={"stemmer": "english"}),
     ),
     indexing.BM25Field(MockItem.category),
     postgresql_using="bm25",

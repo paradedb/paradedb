@@ -112,15 +112,12 @@ with connection.schema_editor() as schema_editor:
 
 ```python SQLAlchemy
 from sqlalchemy import Index
-from paradedb.sqlalchemy import indexing
+from paradedb.sqlalchemy import indexing, tokenizer
 
 idx = Index(
     "search_idx",
     indexing.BM25Field(ArrayDemo.id),
-    indexing.BM25Field(
-        ArrayDemo.categories,
-        tokenizer=indexing.tokenize.literal(),
-    ),
+    indexing.BM25Field(ArrayDemo.categories, tokenizer=tokenizer.literal()),
     postgresql_using="bm25",
     postgresql_with={"key_field": "id"},
 )

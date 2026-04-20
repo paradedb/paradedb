@@ -100,19 +100,14 @@ with connection.schema_editor() as schema_editor:
 
 ```python SQLAlchemy
 from sqlalchemy import Index
-from paradedb.sqlalchemy import indexing
+from paradedb.sqlalchemy import indexing, tokenizer
 
 idx = Index(
     "search_idx",
     indexing.BM25Field(MockItem.id),
     indexing.BM25Field(
         MockItem.description,
-        tokenizer=indexing.tokenize.from_config(
-            {
-                "tokenizer": "unicode_words",
-                "named_args": {"columnar": True},
-            }
-        ),
+        tokenizer=tokenizer.unicode_words(options={"columnar": True}),
     ),
     indexing.BM25Field(MockItem.rating),
     postgresql_using="bm25",

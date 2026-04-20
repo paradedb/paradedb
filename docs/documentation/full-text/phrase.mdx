@@ -160,11 +160,11 @@ MockItem.objects.filter(
 ```python SQLAlchemy
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from paradedb.sqlalchemy import search
+from paradedb.sqlalchemy import search, tokenizer
 
 stmt = (
     select(MockItem.description, MockItem.rating, MockItem.category)
-    .where(search.phrase(MockItem.description, "running shoes", tokenizer="whitespace"))
+    .where(search.phrase(MockItem.description, "running shoes", tokenizer=tokenizer.whitespace()))
 )
 
 with Session(engine) as session:

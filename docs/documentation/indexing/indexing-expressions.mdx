@@ -49,14 +49,14 @@ with connection.schema_editor() as schema_editor:
 
 ```python SQLAlchemy
 from sqlalchemy import Index
-from paradedb.sqlalchemy import indexing
+from paradedb.sqlalchemy import indexing, tokenizer
 
 idx = Index(
     "search_idx",
     indexing.BM25Field(MockItem.id),
     indexing.BM25Field(
         MockItem.description + " " + MockItem.category,
-        tokenizer=indexing.tokenize.simple(alias="description_concat"),
+        tokenizer=tokenizer.simple(options={"alias": "description_concat"}),
     ),
     postgresql_using="bm25",
     postgresql_with={"key_field": "id"},

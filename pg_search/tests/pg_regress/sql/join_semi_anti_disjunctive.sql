@@ -706,11 +706,11 @@ LIMIT 5;
 SET paradedb.enable_join_custom_scan TO on;
 
 -- =====================================================================
--- 17. Arithmetic OpExpr (`*`) → UDF fallback
+-- 17. Arithmetic OpExpr (`*`) maps natively
 -- =====================================================================
--- `translate_op_expr` doesn't handle arithmetic; `allow_udf_fallback`
--- should wrap the `e.id * 2` subtree in a PgExprUdf so JoinScan still
--- absorbs the anti-join. EXPLAIN should contain `pdb_eval_expr_opexpr_*`.
+-- `translate_op_expr` now handles `+`, `-`, `*`, `/`, `%` — the `(e.id * 2)`
+-- subtree maps directly to `Operator::Multiply`. EXPLAIN should contain a
+-- native multiplication (e.g. `id * 2`) and NO `pdb_eval_expr_opexpr_*`.
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT i.id
 FROM items i
@@ -835,19 +835,18 @@ SET paradedb.enable_join_custom_scan TO on;
 -- =====================================================================
 -- 20. Tier 2 — MIXED native + PgExprUdf in a single predicate
 -- =====================================================================
--- Cross-table disjunction: `upper()` maps natively; modulo `%` is an
--- OpExpr that `translate_op_expr` doesn't handle, so `(e.id % 2)` gets
--- wrapped as a PgExprUdf. The disjunction spans both tables so the
--- whole tree is absorbed at the join-level (not pushed down as a
--- single-table heap filter). EXPLAIN should contain BOTH native
--- `upper(...)` AND `pdb_eval_expr_opexpr_*` in the same plan.
+-- Cross-table disjunction: `upper()` maps natively; `md5()` isn't in the
+-- pg_catalog map so it gets wrapped as a PgExprUdf. The disjunction spans
+-- both tables so the whole tree is absorbed at the join level (not pushed
+-- down as a single-table heap filter). EXPLAIN should contain BOTH native
+-- `upper(...)` AND `pdb_eval_expr_funcexpr_*` in the same plan.
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
     WHERE e.id @@@ paradedb.all()
-      AND (upper(e.pattern) = upper(i.name) OR (e.id % 2) = i.id)
+      AND (upper(e.pattern) = upper(i.name) OR md5(e.pattern) = md5(i.name))
 )
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
@@ -858,7 +857,7 @@ FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
     WHERE e.id @@@ paradedb.all()
-      AND (upper(e.pattern) = upper(i.name) OR (e.id % 2) = i.id)
+      AND (upper(e.pattern) = upper(i.name) OR md5(e.pattern) = md5(i.name))
 )
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
@@ -870,7 +869,7 @@ FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
     WHERE e.id @@@ paradedb.all()
-      AND (upper(e.pattern) = upper(i.name) OR (e.id % 2) = i.id)
+      AND (upper(e.pattern) = upper(i.name) OR md5(e.pattern) = md5(i.name))
 )
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
@@ -878,14 +877,13 @@ LIMIT 5;
 SET paradedb.enable_join_custom_scan TO on;
 
 -- =====================================================================
--- 21. Tier 3 — PURE PgExprUdf: every function/arithmetic → UDF
+-- 21. Tier 3 — PURE PgExprUdf: every function → UDF
 -- =====================================================================
--- `md5` isn't in the pg_catalog map; `*` and `+` aren't in
--- `translate_op_expr`. The top-level `=`, `<>`, `AND` are native
--- structural combinators, but every function- or arithmetic-producing
--- subtree is wrapped. EXPLAIN should contain only `pdb_eval_expr_*`
--- UDFs (both `funcexpr_*` for md5 and `opexpr_*` for the arithmetic),
--- and NO native pg_catalog scalar function names.
+-- Neither `md5` nor `to_hex` is in the pg_catalog map, so both FuncExprs
+-- are wrapped by `try_wrap_as_udf`. The top-level `=`, `<>`, `AND` are
+-- native structural combinators, but every function-producing subtree
+-- is UDF-wrapped. EXPLAIN should contain only `pdb_eval_expr_funcexpr_*`
+-- wrappers and NO native pg_catalog scalar function names.
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT i.id
 FROM items i
@@ -893,7 +891,7 @@ WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
     WHERE e.id @@@ paradedb.all()
       AND md5(e.pattern) = md5(i.name)
-      AND (e.id * 2) <> (i.id + 1)
+      AND to_hex(e.id) <> to_hex(i.id)
 )
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
@@ -905,7 +903,7 @@ WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
     WHERE e.id @@@ paradedb.all()
       AND md5(e.pattern) = md5(i.name)
-      AND (e.id * 2) <> (i.id + 1)
+      AND to_hex(e.id) <> to_hex(i.id)
 )
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
@@ -918,7 +916,7 @@ WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
     WHERE e.id @@@ paradedb.all()
       AND md5(e.pattern) = md5(i.name)
-      AND (e.id * 2) <> (i.id + 1)
+      AND to_hex(e.id) <> to_hex(i.id)
 )
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC

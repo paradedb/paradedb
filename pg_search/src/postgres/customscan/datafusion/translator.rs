@@ -27,7 +27,6 @@ use crate::postgres::customscan::joinscan::build::{
     RelationAlias,
 };
 use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, SCORE_COL_NAME};
-use crate::postgres::customscan::opexpr::lookup_operator;
 use crate::scan::SearchPredicateUDF;
 
 pub trait ColumnMapper {
@@ -268,8 +267,8 @@ impl<'a> PredicateTranslator<'a> {
             _ => None,
         };
 
-        // Fallback runs per recursive call so the innermost failing subtree
-        // gets wrapped and its parent can still evaluate natively.
+        // Fallback runs per recursive call, so the innermost failing subtree
+        // gets wrapped, and its parent can still evaluate natively.
         native.or_else(|| {
             if self.allow_udf_fallback {
                 self.try_wrap_as_udf(node)
@@ -288,16 +287,28 @@ impl<'a> PredicateTranslator<'a> {
         let left = self.translate(args.get_ptr(0)?)?;
         let right = self.translate(args.get_ptr(1)?)?;
 
+        // Resolve the operator name straight from PG's catalog. The shared
+        // `lookup_operator` table in `opexpr.rs` is scoped to the Tantivy
+        // pushdown set and excludes arithmetic; DataFusion's translator has
+        // its own set of native operators, so we go around it here.
         let opno = (*op_expr).opno;
-        let op_str = lookup_operator(opno)?;
-
+        let op_name_ptr = pg_sys::get_opname(opno);
+        if op_name_ptr.is_null() {
+            return None;
+        }
+        let op_str = std::ffi::CStr::from_ptr(op_name_ptr).to_str().ok()?;
         let op = match op_str {
             "=" => Operator::Eq,
-            "<>" => Operator::NotEq,
+            "<>" | "!=" => Operator::NotEq,
             "<" => Operator::Lt,
             "<=" => Operator::LtEq,
             ">" => Operator::Gt,
             ">=" => Operator::GtEq,
+            "+" => Operator::Plus,
+            "-" => Operator::Minus,
+            "*" => Operator::Multiply,
+            "/" => Operator::Divide,
+            "%" => Operator::Modulo,
             _ => return None,
         };
 

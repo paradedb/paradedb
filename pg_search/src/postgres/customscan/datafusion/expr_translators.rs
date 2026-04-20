@@ -649,6 +649,10 @@ mod tests {
             Just("length(e.pattern) > 3".to_string()),
             Just("upper(e.pattern) = upper(i.name)".to_string()),
             Just("COALESCE(e.pattern, '') = i.name".to_string()),
+            // Arithmetic operators — native via translate_op_expr (+, -, *, /, %).
+            Just("e.threshold + 10 > i.value".to_string()),
+            Just("e.threshold * 2 > 50".to_string()),
+            Just("i.value - e.threshold > 0".to_string()),
         ]
     }
 
@@ -703,6 +707,9 @@ mod tests {
             Just("e.pattern = i.name OR length(e.pattern) > 100".to_string()),
             Just("e.pattern = i.name OR e.pattern IS NULL".to_string()),
             Just("upper(e.pattern) = i.name OR e.threshold > i.value".to_string()),
+            // Arithmetic cross-table predicates — now native OpExpr.
+            Just("e.threshold * 2 > i.value".to_string()),
+            Just("e.threshold + i.value > 100".to_string()),
         ]
     }
 

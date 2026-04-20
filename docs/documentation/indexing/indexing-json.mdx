@@ -124,7 +124,7 @@ ActiveRecord::Base.connection.add_bm25_index(
   :mock_items,
   fields: {
     id: {},
-    metadata: { tokenizer: :ngram, named_args: { min: 2, max: 3 } }
+    metadata: { tokenizer: Tokenizer.ngram(2, 3) }
   },
   key_field: :id,
   name: :search_idx
@@ -192,7 +192,7 @@ ActiveRecord::Base.connection.add_bm25_index(
   :mock_items,
   fields: {
     id: {},
-    "metadata->>'color'" => { tokenizer: :ngram, named_args: { min: 2, max: 3 } }
+    "metadata->>'color'" => { tokenizer: Tokenizer.ngram(2, 3) }
   },
   key_field: :id,
   name: :search_idx

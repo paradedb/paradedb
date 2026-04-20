@@ -158,7 +158,7 @@ ActiveRecord::Base.connection.add_bm25_index(
   :mock_items,
   fields: {
     id: {},
-    description: { tokenizer: :icu },
+    description: { tokenizer: Tokenizer.icu() },
     category: {}
   },
   key_field: :id,
@@ -330,9 +330,7 @@ ActiveRecord::Base.connection.add_bm25_index(
   fields: {
     id: {},
     description: {
-      tokenizer: :simple,
-      filters: [:stemmer],
-      stemmer: "english"
+      tokenizer: Tokenizer.simple(options: { stemmer: "english" })
     },
     category: {}
   },

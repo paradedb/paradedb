@@ -131,7 +131,7 @@ ActiveRecord::Base.connection.add_bm25_index(
   :array_demo,
   fields: {
     id: {},
-    categories: { tokenizer: :literal }
+    categories: { tokenizer: Tokenizer.literal() }
   },
   key_field: :id,
   name: :search_idx

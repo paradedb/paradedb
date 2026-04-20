@@ -72,8 +72,7 @@ ActiveRecord::Base.connection.add_bm25_index(
   fields: {
     id: {},
     "(description || ' ' || category)" => {
-      tokenizer: :simple,
-      alias: "description_concat"
+      tokenizer: Tokenizer.simple(options: { alias: "description_concat" })
     }
   },
   key_field: :id,

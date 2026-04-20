@@ -124,8 +124,7 @@ ActiveRecord::Base.connection.add_bm25_index(
   fields: {
     id: {},
     description: {
-      tokenizer: :unicode_words,
-      named_args: { columnar: true }
+      tokenizer: Tokenizer.unicode_words(options: { columnar: true })
     },
     rating: {}
   },

@@ -212,7 +212,7 @@ with Session(engine) as session:
 
 ```ruby Rails
 MockItem.search(:description)
-        .matching_any("running shoes", tokenizer: "whitespace")
+        .matching_any("running shoes", tokenizer: Tokenizer.whitespace())
         .select(:description, :rating, :category)
 ```
 

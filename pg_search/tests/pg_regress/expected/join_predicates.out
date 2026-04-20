@@ -857,7 +857,7 @@ LIMIT 10;
            :   SortExec: TopK(fetch=10), expr=[id@4 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[s, p]
            :       ProjectionExec: expr=[ctid_0@3 as ctid_0, id@4 as id, ctid_1@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=abs(pdb_eval_expr_opexpr_1d849f2b(supplier_id@1, id@0)) >= 0
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=abs(supplier_id@1 - id@0) >= 0
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
@@ -923,7 +923,7 @@ LIMIT 10;
            :   SortExec: TopK(fetch=10), expr=[id@4 ASC NULLS LAST], preserve_partitioning=[false]
            :     VisibilityFilterExec: tables=[s, p]
            :       ProjectionExec: expr=[ctid_0@3 as ctid_0, id@4 as id, ctid_1@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=abs(supplier_id@1) <= CAST(pdb_eval_expr_opexpr_75520593(id@0) AS Int64)
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=abs(supplier_id@1) <= id@0 * 2
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec

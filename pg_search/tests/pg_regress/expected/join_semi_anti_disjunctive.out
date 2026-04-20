@@ -1223,11 +1223,11 @@ LIMIT 5;
 
 SET paradedb.enable_join_custom_scan TO on;
 -- =====================================================================
--- 17. Arithmetic OpExpr (`*`) → UDF fallback
+-- 17. Arithmetic OpExpr (`*`) maps natively
 -- =====================================================================
--- `translate_op_expr` doesn't handle arithmetic; `allow_udf_fallback`
--- should wrap the `e.id * 2` subtree in a PgExprUdf so JoinScan still
--- absorbs the anti-join. EXPLAIN should contain `pdb_eval_expr_opexpr_*`.
+-- `translate_op_expr` now handles `+`, `-`, `*`, `/`, `%` — the `(e.id * 2)`
+-- subtree maps directly to `Operator::Multiply`. EXPLAIN should contain a
+-- native multiplication (e.g. `id * 2`) and NO `pdb_eval_expr_opexpr_*`.
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT i.id
 FROM items i
@@ -1253,7 +1253,7 @@ LIMIT 5;
            :       VisibilityFilterExec: tables=[i]
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-           :       ProjectionExec: expr=[id@0 as id, pdb_eval_expr_opexpr_bd77129f(id@0) as join_proj_push_down_1]
+           :       ProjectionExec: expr=[id@0 as id, id@0 * 2 as join_proj_push_down_1]
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
 (15 rows)
@@ -1457,25 +1457,24 @@ SET paradedb.enable_join_custom_scan TO on;
 -- =====================================================================
 -- 20. Tier 2 — MIXED native + PgExprUdf in a single predicate
 -- =====================================================================
--- Cross-table disjunction: `upper()` maps natively; modulo `%` is an
--- OpExpr that `translate_op_expr` doesn't handle, so `(e.id % 2)` gets
--- wrapped as a PgExprUdf. The disjunction spans both tables so the
--- whole tree is absorbed at the join-level (not pushed down as a
--- single-table heap filter). EXPLAIN should contain BOTH native
--- `upper(...)` AND `pdb_eval_expr_opexpr_*` in the same plan.
+-- Cross-table disjunction: `upper()` maps natively; `md5()` isn't in the
+-- pg_catalog map so it gets wrapped as a PgExprUdf. The disjunction spans
+-- both tables so the whole tree is absorbed at the join level (not pushed
+-- down as a single-table heap filter). EXPLAIN should contain BOTH native
+-- `upper(...)` AND `pdb_eval_expr_funcexpr_*` in the same plan.
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT i.id
 FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
     WHERE e.id @@@ paradedb.all()
-      AND (upper(e.pattern) = upper(i.name) OR (e.id % 2) = i.id)
+      AND (upper(e.pattern) = upper(i.name) OR md5(e.pattern) = md5(i.name))
 )
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
-                                                                                             QUERY PLAN                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i ANTI e
@@ -1485,12 +1484,12 @@ LIMIT 5;
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=5), expr=[id@1 DESC], preserve_partitioning=[false]
            :     ProjectionExec: expr=[ctid_0@0 as ctid_0, id@2 as id]
-           :       NestedLoopJoinExec: join_type=LeftAnti, filter=join_proj_push_down_2@2 = join_proj_push_down_1@1 OR join_proj_push_down_3@3 = id@0, projection=[ctid_0@0, name@1, id@2]
-           :         ProjectionExec: expr=[ctid_0@0 as ctid_0, name@1 as name, id@2 as id, upper(name@1) as join_proj_push_down_1]
+           :       NestedLoopJoinExec: join_type=LeftAnti, filter=join_proj_push_down_3@2 = join_proj_push_down_1@0 OR join_proj_push_down_4@3 = join_proj_push_down_2@1, projection=[ctid_0@0, name@1, id@2]
+           :         ProjectionExec: expr=[ctid_0@0 as ctid_0, name@1 as name, id@2 as id, upper(name@1) as join_proj_push_down_1, pdb_eval_expr_funcexpr_887b5ea5(CAST(name@1 AS Utf8)) as join_proj_push_down_2]
            :           VisibilityFilterExec: tables=[i]
            :             CooperativeExec
            :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-           :         ProjectionExec: expr=[pattern@0 as pattern, id@1 as id, upper(pattern@0) as join_proj_push_down_2, pdb_eval_expr_opexpr_ef78363a(id@1) as join_proj_push_down_3]
+           :         ProjectionExec: expr=[pattern@0 as pattern, upper(pattern@0) as join_proj_push_down_3, pdb_eval_expr_funcexpr_685b54ea(CAST(pattern@0 AS Utf8)) as join_proj_push_down_4]
            :           CooperativeExec
            :             PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
 (17 rows)
@@ -1500,7 +1499,7 @@ FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
     WHERE e.id @@@ paradedb.all()
-      AND (upper(e.pattern) = upper(i.name) OR (e.id % 2) = i.id)
+      AND (upper(e.pattern) = upper(i.name) OR md5(e.pattern) = md5(i.name))
 )
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
@@ -1520,7 +1519,7 @@ FROM items i
 WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
     WHERE e.id @@@ paradedb.all()
-      AND (upper(e.pattern) = upper(i.name) OR (e.id % 2) = i.id)
+      AND (upper(e.pattern) = upper(i.name) OR md5(e.pattern) = md5(i.name))
 )
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
@@ -1536,14 +1535,13 @@ LIMIT 5;
 
 SET paradedb.enable_join_custom_scan TO on;
 -- =====================================================================
--- 21. Tier 3 — PURE PgExprUdf: every function/arithmetic → UDF
+-- 21. Tier 3 — PURE PgExprUdf: every function → UDF
 -- =====================================================================
--- `md5` isn't in the pg_catalog map; `*` and `+` aren't in
--- `translate_op_expr`. The top-level `=`, `<>`, `AND` are native
--- structural combinators, but every function- or arithmetic-producing
--- subtree is wrapped. EXPLAIN should contain only `pdb_eval_expr_*`
--- UDFs (both `funcexpr_*` for md5 and `opexpr_*` for the arithmetic),
--- and NO native pg_catalog scalar function names.
+-- Neither `md5` nor `to_hex` is in the pg_catalog map, so both FuncExprs
+-- are wrapped by `try_wrap_as_udf`. The top-level `=`, `<>`, `AND` are
+-- native structural combinators, but every function-producing subtree
+-- is UDF-wrapped. EXPLAIN should contain only `pdb_eval_expr_funcexpr_*`
+-- wrappers and NO native pg_catalog scalar function names.
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT i.id
 FROM items i
@@ -1551,13 +1549,13 @@ WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
     WHERE e.id @@@ paradedb.all()
       AND md5(e.pattern) = md5(i.name)
-      AND (e.id * 2) <> (i.id + 1)
+      AND to_hex(e.id) <> to_hex(i.id)
 )
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
-                                                                                                                                       QUERY PLAN                                                                                                                                       
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                         QUERY PLAN                                                                                                                                         
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i ANTI e
@@ -1566,7 +1564,7 @@ LIMIT 5;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=5), expr=[id@1 DESC], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(pdb_eval_expr_funcexpr_887b5ea5(i_0.name)@3, pdb_eval_expr_funcexpr_685b54ea(e_1.pattern)@2)], filter=pdb_eval_expr_opexpr_bd77129f(id@1) != pdb_eval_expr_opexpr_1d725e73(id@0), projection=[ctid_0@0, id@1]
+           :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(pdb_eval_expr_funcexpr_887b5ea5(i_0.name)@3, pdb_eval_expr_funcexpr_685b54ea(e_1.pattern)@2)], filter=pdb_eval_expr_funcexpr_7e60c530(id@1) != pdb_eval_expr_funcexpr_64208395(id@0), projection=[ctid_0@0, id@1]
            :       ProjectionExec: expr=[ctid_0@0 as ctid_0, id@1 as id, name@2 as name, pdb_eval_expr_funcexpr_887b5ea5(CAST(name@2 AS Utf8)) as pdb_eval_expr_funcexpr_887b5ea5(i_0.name)]
            :         VisibilityFilterExec: tables=[i]
            :           CooperativeExec
@@ -1582,7 +1580,7 @@ WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
     WHERE e.id @@@ paradedb.all()
       AND md5(e.pattern) = md5(i.name)
-      AND (e.id * 2) <> (i.id + 1)
+      AND to_hex(e.id) <> to_hex(i.id)
 )
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
@@ -1603,7 +1601,7 @@ WHERE NOT EXISTS (
     SELECT 1 FROM exclusions e
     WHERE e.id @@@ paradedb.all()
       AND md5(e.pattern) = md5(i.name)
-      AND (e.id * 2) <> (i.id + 1)
+      AND to_hex(e.id) <> to_hex(i.id)
 )
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC

@@ -172,11 +172,12 @@ LIMIT 10;
 SET paradedb.enable_join_custom_scan TO on;
 
 -- =====================================================================
--- 5. Non-translatable arm: graceful fallback to PG native
+-- 5. Generic function in disjunctive filter: native DataFusion evaluation
 -- =====================================================================
--- A disjunction where one arm uses a function call (length()) that the
--- PredicateTranslator cannot handle. JoinScan should decline and PG's
--- native Nested Loop Anti Join should run — results must still be correct.
+-- A disjunction where one arm uses a pg_catalog function (length()).
+-- PredicateTranslator maps it to DataFusion's native character_length(),
+-- allowing JoinScan to absorb the full expression. The EXPLAIN should
+-- show character_length(...) in the physical plan, not a PgExprUdf.
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT i.id
 FROM items i

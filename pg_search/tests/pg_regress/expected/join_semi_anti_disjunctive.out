@@ -263,11 +263,12 @@ LIMIT 10;
 
 SET paradedb.enable_join_custom_scan TO on;
 -- =====================================================================
--- 5. Non-translatable arm: graceful fallback to PG native
+-- 5. Generic function in disjunctive filter: native DataFusion evaluation
 -- =====================================================================
--- A disjunction where one arm uses a function call (length()) that the
--- PredicateTranslator cannot handle. JoinScan should decline and PG's
--- native Nested Loop Anti Join should run — results must still be correct.
+-- A disjunction where one arm uses a pg_catalog function (length()).
+-- PredicateTranslator maps it to DataFusion's native character_length(),
+-- allowing JoinScan to absorb the full expression. The EXPLAIN should
+-- show character_length(...) in the physical plan, not a PgExprUdf.
 EXPLAIN (COSTS OFF, TIMING OFF)
 SELECT i.id
 FROM items i
@@ -279,31 +280,25 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: e, i)
-                                                                                 QUERY PLAN                                                                                  
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                            QUERY PLAN                                                                                            
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: i.id DESC
-         ->  Nested Loop Anti Join
-               Join Filter: ((e.pattern = i.name) OR (length(e.pattern) > 100))
-               ->  Custom Scan (ParadeDB Base Scan) on items i
-                     Table: items
-                     Index: items_idx
-                     Exec Method: ColumnarExecState
-                     Fast Fields: id, name
-                     Scores: false
-                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
-               ->  Materialize
-                     ->  Custom Scan (ParadeDB Base Scan) on exclusions e
-                           Table: exclusions
-                           Index: exclusions_idx
-                           Exec Method: ColumnarExecState
-                           Fast Fields: pattern
-                           Scores: false
-                           Full Index Scan: true
-                           Tantivy Query: {"with_index":{"query":"all"}}
-(21 rows)
+   ->  Custom Scan (ParadeDB Join Scan)
+         Relation Tree: i ANTI e
+         Limit: 5
+         Order By: i.id desc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@1 as col_1, ctid_0@0 as ctid_0]
+           :   SortExec: TopK(fetch=5), expr=[id@1 DESC], preserve_partitioning=[false]
+           :     ProjectionExec: expr=[ctid_0@0 as ctid_0, id@2 as id]
+           :       NestedLoopJoinExec: join_type=LeftAnti, filter=pattern@1 = name@0 OR join_proj_push_down_1@2, projection=[ctid_0@0, name@1, id@2]
+           :         VisibilityFilterExec: tables=[i]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target\"","lenient":null,"conjunction_mode":null}}}}
+           :         ProjectionExec: expr=[pattern@0 as pattern, character_length(pattern@0) > 100 as join_proj_push_down_1]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
+(16 rows)
 
 SELECT i.id
 FROM items i
@@ -315,7 +310,6 @@ WHERE NOT EXISTS (
 AND i.id @@@ 'category:"target"'
 ORDER BY i.id DESC
 LIMIT 5;
-WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: e, i)
  id  
 -----
  500

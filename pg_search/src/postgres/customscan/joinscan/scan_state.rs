@@ -263,7 +263,8 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
     use super::visibility_filter::VisibilityFilterOptimizerRule;
     use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
 
-    let mut builder = SessionStateBuilder::new().with_config(config);
+    let mut builder = SessionStateBuilder::new().with_config(config)
+        .with_default_features();
 
     // Inject visibility before late materialization so ctid lineage is analyzed
     // while DeferredCtid columns are still present in the logical plan.

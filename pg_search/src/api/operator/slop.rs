@@ -190,7 +190,7 @@ fn query_to_slop(mut input: pdb::Query, typmod: i32, _is_explicit: bool) -> Slop
 }
 
 #[pg_extern(immutable, parallel_safe)]
-fn text_array_to_slop(array: Vec<String>, typmod: i32, _is_explicit: bool) -> SlopType {
+pub fn text_array_to_slop(array: Vec<String>, typmod: i32, _is_explicit: bool) -> SlopType {
     let mut query = pdb::Query::UnclassifiedArray {
         array,
         fuzzy_data: None,

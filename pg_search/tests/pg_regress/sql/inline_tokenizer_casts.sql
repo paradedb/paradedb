@@ -1,0 +1,112 @@
+\i common/common_setup.sql
+
+-- Tests for chained casts between tokenizer and relevance tuning types
+-- (issue #4430).
+--
+-- Verifies that inline tokenizer types (pdb.whitespace, pdb.simple, etc.)
+-- can be chained into relevance tuning types (pdb.boost, pdb.const,
+-- pdb.fuzzy, pdb.slop) via explicit casts, and that the resulting
+-- Tantivy query has the tokenization applied alongside the score/matching
+-- adjustment.
+--
+-- Also covers the pre-existing fuzzy/slop -> boost chain casts and the
+-- newly added fuzzy/slop -> const chain casts.
+
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items'
+);
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, description, rating, category, in_stock, metadata, created_at, weight_range)
+WITH (key_field='id');
+
+--
+-- pdb.fuzzy -> pdb.boost (pre-existing)
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ 'shoes'::pdb.fuzzy(2)::pdb.boost(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.fuzzy(2)::pdb.boost(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description === 'shoes'::pdb.fuzzy(2)::pdb.boost(3);
+
+--
+-- pdb.fuzzy -> pdb.const
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ 'shoes'::pdb.fuzzy(2)::pdb.const(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.fuzzy(2)::pdb.const(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description === 'shoes'::pdb.fuzzy(2)::pdb.const(3);
+
+--
+-- pdb.slop -> pdb.boost (pre-existing)
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description ### 'running shoes'::pdb.slop(2)::pdb.boost(3);
+
+--
+-- pdb.slop -> pdb.const
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description ### 'running shoes'::pdb.slop(2)::pdb.const(3);
+
+--
+-- tokenizer -> pdb.boost (representative tokenizers)
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.simple::pdb.boost(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.whitespace::pdb.boost(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.literal::pdb.boost(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.alias::pdb.boost(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.ngram(2, 3)::pdb.boost(3);
+
+--
+-- tokenizer -> pdb.const
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.simple::pdb.const(5);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.whitespace::pdb.const(5);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.literal::pdb.const(5);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.alias::pdb.const(5);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.ngram(2, 3)::pdb.const(5);
+
+--
+-- tokenizer -> pdb.fuzzy
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.simple::pdb.fuzzy(2);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.whitespace::pdb.fuzzy(2);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.literal::pdb.fuzzy(2);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.alias::pdb.fuzzy(2);
+
+--
+-- tokenizer -> pdb.slop
+--
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description ### 'running shoes'::pdb.simple::pdb.slop(2);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description ### 'running shoes'::pdb.whitespace::pdb.slop(2);
+
+--
+-- validate JSON representation of chained casts
+--
+SELECT 'running shoes'::pdb.whitespace::pdb.boost(3);
+SELECT 'running shoes'::pdb.whitespace::pdb.const(5);
+SELECT 'running shoes'::pdb.whitespace::pdb.fuzzy(2);
+SELECT 'running shoes'::pdb.fuzzy(2)::pdb.boost(3);
+SELECT 'running shoes'::pdb.fuzzy(2)::pdb.const(3);
+SELECT 'running shoes'::pdb.slop(2)::pdb.boost(3);
+SELECT 'running shoes'::pdb.slop(2)::pdb.const(3);
+
+--
+-- end-to-end scoring: tokenizer -> boost scales linearly vs plain text baseline
+--
+SELECT id, paradedb.score(id) AS score
+FROM mock_items
+WHERE description &&& 'shoes'
+ORDER BY id;
+
+SELECT id, paradedb.score(id) AS score
+FROM mock_items
+WHERE description &&& 'shoes'::pdb.whitespace::pdb.boost(3)
+ORDER BY id;
+
+--
+-- end-to-end scoring: tokenizer -> const assigns a fixed score
+--
+SELECT id, paradedb.score(id) AS score
+FROM mock_items
+WHERE description &&& 'shoes'::pdb.whitespace::pdb.const(5)
+ORDER BY id;
+
+-- Clean up
+DROP TABLE mock_items CASCADE;

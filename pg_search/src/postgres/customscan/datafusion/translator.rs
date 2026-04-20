@@ -202,7 +202,11 @@ impl<'a> PredicateTranslator<'a> {
     /// Validates both node-type support and column resolution against
     /// the provided sources, without requiring plan_position or
     /// output_columns.
-    pub unsafe fn can_translate(sources: &'a [&'a JoinSource], node: *mut pg_sys::Node) -> bool {
+    pub unsafe fn can_translate(
+        sources: &'a [&'a JoinSource],
+        node: *mut pg_sys::Node,
+        allow_udf_fallback: bool,
+    ) -> bool {
         struct ValidationMapper<'a> {
             sources: &'a [&'a JoinSource],
         }
@@ -218,7 +222,9 @@ impl<'a> PredicateTranslator<'a> {
         }
 
         let mapper = ValidationMapper { sources };
-        let translator = Self::new(sources).with_mapper(Box::new(mapper));
+        let translator = Self::new(sources)
+            .with_allow_udf_fallback(allow_udf_fallback)
+            .with_mapper(Box::new(mapper));
         translator.translate(node).is_some()
     }
 
@@ -239,7 +245,7 @@ impl<'a> PredicateTranslator<'a> {
             return None;
         }
 
-        match (*node).type_ {
+        let native = match (*node).type_ {
             pg_sys::NodeTag::T_OpExpr => self.translate_op_expr(node as *mut pg_sys::OpExpr),
             pg_sys::NodeTag::T_Var => self.translate_var(node as *mut pg_sys::Var),
             pg_sys::NodeTag::T_Const => self.translate_const(node as *mut pg_sys::Const),
@@ -250,13 +256,7 @@ impl<'a> PredicateTranslator<'a> {
                 let relabel = node as *mut pg_sys::RelabelType;
                 self.translate((*relabel).arg.cast())
             }
-            pg_sys::NodeTag::T_FuncExpr => self.translate_func_expr(node).or_else(|| {
-                if self.allow_udf_fallback {
-                    self.try_wrap_as_udf(node)
-                } else {
-                    None
-                }
-            }),
+            pg_sys::NodeTag::T_FuncExpr => self.translate_func_expr(node),
             pg_sys::NodeTag::T_NullTest => self.translate_null_test(node),
             pg_sys::NodeTag::T_BooleanTest => self.translate_boolean_test(node),
             pg_sys::NodeTag::T_CaseExpr => self.translate_case_expr(node),
@@ -266,7 +266,21 @@ impl<'a> PredicateTranslator<'a> {
             pg_sys::NodeTag::T_ScalarArrayOpExpr => self.translate_scalar_array_op_expr(node),
             pg_sys::NodeTag::T_CoerceViaIO => self.translate_coerce_via_io(node),
             _ => None,
-        }
+        };
+
+        // When `allow_udf_fallback` is on, any subtree that fails native
+        // translation is wrapped in a `PgExprUdf`. This applies uniformly
+        // across node types — e.g. arithmetic OpExprs (`*`, `+`) that
+        // `translate_op_expr` doesn't handle still succeed as UDFs. Wrapping
+        // runs per recursive call, so the innermost failing subtree gets
+        // wrapped and its parent can still evaluate natively.
+        native.or_else(|| {
+            if self.allow_udf_fallback {
+                self.try_wrap_as_udf(node)
+            } else {
+                None
+            }
+        })
     }
 
     unsafe fn translate_op_expr(&self, op_expr: *mut pg_sys::OpExpr) -> Option<Expr> {
@@ -619,7 +633,9 @@ unsafe fn translate_pg_expression_filter(
         sources,
         output_columns,
     };
-    let translator = PredicateTranslator::new(sources).with_mapper(Box::new(mapper));
+    let translator = PredicateTranslator::new(sources)
+        .with_allow_udf_fallback(true)
+        .with_mapper(Box::new(mapper));
     translator.translate(node.cast()).ok_or_else(|| {
         DataFusionError::Internal(
             "PredicateTranslator failed to translate deserialized PgExpression".into(),

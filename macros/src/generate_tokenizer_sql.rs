@@ -108,7 +108,7 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
     let pgrx_cast_to_boost_name = format!("{}_cast_to_boost", sql_name.value());
     let create_cast_to_boost = format!(
         r#"
-        CREATE CAST (pdb.{sql_name} AS pdb.boost) WITH FUNCTION {schema}.{sql_name}_to_boost(pdb.{sql_name}, integer, boolean) AS IMPLICIT;
+        CREATE CAST (pdb.{sql_name} AS pdb.boost) WITH FUNCTION {schema}.{sql_name}_to_boost(pdb.{sql_name}, integer, boolean) AS ASSIGNMENT;
         "#,
         schema = schema,
         sql_name = sql_name.value(),

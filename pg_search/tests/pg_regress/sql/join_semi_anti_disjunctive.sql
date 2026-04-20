@@ -543,6 +543,388 @@ SET paradedb.enable_join_custom_scan TO on;
 DROP TABLE items_vc CASCADE;
 DROP TABLE exclusions_vc CASCADE;
 
+-- =====================================================================
+-- 13. upper() in EXISTS semi-join filter (native DataFusion)
+-- =====================================================================
+-- EXPLAIN should show `upper(...)` in the physical plan and JoinScan
+-- should absorb the whole semi-join (no "JoinScan not used" warning).
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND upper(e.pattern) = upper(i.name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id ASC
+LIMIT 5;
+
+SELECT i.id
+FROM items i
+WHERE EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND upper(e.pattern) = upper(i.name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id ASC
+LIMIT 5;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND upper(e.pattern) = upper(i.name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id ASC
+LIMIT 5;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 14. COALESCE() in NOT EXISTS anti-join filter (native DataFusion)
+-- =====================================================================
+-- EXPLAIN should show `coalesce(...)` natively, not a PgExprUdf wrapper.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND COALESCE(e.pattern, '') = i.name
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND COALESCE(e.pattern, '') = i.name
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND COALESCE(e.pattern, '') = i.name
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 15. IS NULL arm in disjunctive anti-join filter (native DataFusion)
+-- =====================================================================
+-- EXPLAIN should show `IS NULL` natively and JoinScan should absorb the
+-- disjunction.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern IS NULL)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern IS NULL)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern IS NULL)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 16. CASE WHEN in anti-join filter (native DataFusion)
+-- =====================================================================
+-- EXPLAIN should show `CASE WHEN ... END` natively, not a PgExprUdf.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND CASE WHEN e.pattern IS NOT NULL THEN e.pattern ELSE '' END = i.name
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND CASE WHEN e.pattern IS NOT NULL THEN e.pattern ELSE '' END = i.name
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND CASE WHEN e.pattern IS NOT NULL THEN e.pattern ELSE '' END = i.name
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 17. Arithmetic OpExpr (`*`) → UDF fallback
+-- =====================================================================
+-- `translate_op_expr` doesn't handle arithmetic; `allow_udf_fallback`
+-- should wrap the `e.id * 2` subtree in a PgExprUdf so JoinScan still
+-- absorbs the anti-join. EXPLAIN should contain `pdb_eval_expr_opexpr_*`.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.id * 2) > i.id
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.id * 2) > i.id
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.id * 2) > i.id
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 18. Mixed native + UDF in one disjunction
+-- =====================================================================
+-- `upper()` is in the pg_catalog map → native; `md5()` is not →
+-- `try_wrap_as_udf` wraps the md5 FuncExpr. EXPLAIN should show `upper`
+-- on one arm and `pdb_eval_expr_funcexpr_*` on the other.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (upper(e.pattern) = i.name OR md5(e.pattern) = 'never-matches')
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (upper(e.pattern) = i.name OR md5(e.pattern) = 'never-matches')
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (upper(e.pattern) = i.name OR md5(e.pattern) = 'never-matches')
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 19. Tier 1 — ALL NATIVE: every function maps to DataFusion
+-- =====================================================================
+-- Cross-table disjunction where `upper` and `character_length`
+-- (via the `length` alias) are both in `translate_known_func`'s
+-- pg_catalog map; operators `=`, `>`, `OR` are native structural.
+-- The EXPLAIN should contain NO `pdb_eval_expr_*` UDFs anywhere.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (upper(e.pattern) = upper(i.name) OR length(e.pattern) > length(i.name))
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (upper(e.pattern) = upper(i.name) OR length(e.pattern) > length(i.name))
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (upper(e.pattern) = upper(i.name) OR length(e.pattern) > length(i.name))
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 20. Tier 2 — MIXED native + PgExprUdf in a single predicate
+-- =====================================================================
+-- Cross-table disjunction: `upper()` maps natively; modulo `%` is an
+-- OpExpr that `translate_op_expr` doesn't handle, so `(e.id % 2)` gets
+-- wrapped as a PgExprUdf. The disjunction spans both tables so the
+-- whole tree is absorbed at the join-level (not pushed down as a
+-- single-table heap filter). EXPLAIN should contain BOTH native
+-- `upper(...)` AND `pdb_eval_expr_opexpr_*` in the same plan.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (upper(e.pattern) = upper(i.name) OR (e.id % 2) = i.id)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (upper(e.pattern) = upper(i.name) OR (e.id % 2) = i.id)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (upper(e.pattern) = upper(i.name) OR (e.id % 2) = i.id)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 21. Tier 3 — PURE PgExprUdf: every function/arithmetic → UDF
+-- =====================================================================
+-- `md5` isn't in the pg_catalog map; `*` and `+` aren't in
+-- `translate_op_expr`. The top-level `=`, `<>`, `AND` are native
+-- structural combinators, but every function- or arithmetic-producing
+-- subtree is wrapped. EXPLAIN should contain only `pdb_eval_expr_*`
+-- UDFs (both `funcexpr_*` for md5 and `opexpr_*` for the arithmetic),
+-- and NO native pg_catalog scalar function names.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND md5(e.pattern) = md5(i.name)
+      AND (e.id * 2) <> (i.id + 1)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND md5(e.pattern) = md5(i.name)
+      AND (e.id * 2) <> (i.id + 1)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND md5(e.pattern) = md5(i.name)
+      AND (e.id * 2) <> (i.id + 1)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+SET paradedb.enable_join_custom_scan TO on;
+
 -- Cleanup
 DROP TABLE items CASCADE;
 DROP TABLE exclusions CASCADE;

@@ -699,9 +699,7 @@ mod tests {
             Just("lower(e.pattern) = lower(i.name)".to_string()),
             Just("abs(e.threshold) > i.value".to_string()),
             Just("COALESCE(e.pattern, '') = i.name".to_string()),
-            Just(
-                "CASE WHEN e.pattern IS NOT NULL THEN e.pattern ELSE '' END = i.name".to_string(),
-            ),
+            Just("CASE WHEN e.pattern IS NOT NULL THEN e.pattern ELSE '' END = i.name".to_string(),),
             Just("e.pattern = i.name OR length(e.pattern) > 100".to_string()),
             Just("e.pattern = i.name OR e.pattern IS NULL".to_string()),
             Just("upper(e.pattern) = i.name OR e.threshold > i.value".to_string()),

@@ -27,6 +27,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::blocklist;
 use crate::postgres::storage::buffer::{init_new_buffer, BufferManager, PageHeaderMethods};
 use crate::postgres::storage::fsm::FreeSpaceManager;
+use crate::postgres::storage::utils::BufferAccessStrategyHolder;
 
 use anyhow::Result;
 use parking_lot::Mutex;
@@ -217,14 +218,11 @@ impl LinkedBytesList {
         }
     }
 
-    /// Set the [`pg_sys::BufferAccessStrategy`] used when reading buffers in this list.
-    ///
-    /// # Safety
-    ///
-    /// See [`BufferManager::with_strategy`] — the caller must ensure `strategy`
-    /// is either null or has process lifetime.
-    pub(crate) unsafe fn with_strategy(mut self, strategy: pg_sys::BufferAccessStrategy) -> Self {
-        self.bman = unsafe { self.bman.with_strategy(strategy) };
+    /// Set the [`BufferAccessStrategyHolder`] used when reading buffers in
+    /// this list. The strategy only affects read-only buffer acquisitions;
+    /// see [`BufferManager::with_strategy`] for details.
+    pub(crate) fn with_strategy(mut self, strategy: BufferAccessStrategyHolder) -> Self {
+        self.bman = self.bman.with_strategy(strategy);
         self
     }
 

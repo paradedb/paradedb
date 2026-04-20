@@ -20,7 +20,7 @@ use crate::postgres::storage::block::{BM25PageSpecialData, PgItem};
 use crate::postgres::storage::fsm::v2::V2FSM;
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::storage::utils::{BM25Page, RelationBufferAccess};
+use crate::postgres::storage::utils::{BM25Page, BufferAccessStrategyHolder, RelationBufferAccess};
 use pgrx::pg_sys;
 use stable_deref_trait::StableDeref;
 use std::mem::size_of;
@@ -734,37 +734,35 @@ impl PageHeaderMethods for pg_sys::PageHeaderData {
 pub struct BufferManager {
     rbufacc: RelationBufferAccess,
     fsm_blockno: Option<pg_sys::BlockNumber>,
-    strategy: pg_sys::BufferAccessStrategy,
+    /// Strategy applied to *read-only* buffer acquisitions
+    /// ([`Self::get_buffer`], [`Self::pinned_buffer`]). Write-path methods
+    /// (`get_buffer_mut`, cleanup, etc.) deliberately ignore this so that
+    /// e.g. a `BAS_BULKREAD` strategy cannot accidentally evict buffers we
+    /// are about to modify.
+    ///
+    /// `BufferAccessStrategyHolder` is `Send + Sync`, which lets
+    /// `BufferManager` auto-derive `Send + Sync` without a blanket
+    /// `unsafe impl` on the outer type.
+    strategy: BufferAccessStrategyHolder,
 }
-
-// SAFETY: The `strategy` field is either null or points to a process-lifetime
-// singleton allocated in TopMemoryContext (via `bulkread_strategy()` or similar),
-// which is safe to share across threads. The `with_strategy` method is `unsafe`
-// and requires the caller to uphold this invariant.
-unsafe impl Send for BufferManager {}
-unsafe impl Sync for BufferManager {}
 
 impl BufferManager {
     pub fn new(rel: &PgSearchRelation) -> Self {
         Self {
             rbufacc: RelationBufferAccess::open(rel),
             fsm_blockno: None,
-            strategy: std::ptr::null_mut(),
+            strategy: BufferAccessStrategyHolder::NULL,
         }
     }
 
-    /// Set the [`pg_sys::BufferAccessStrategy`] used when reading existing buffers.
+    /// Set the [`BufferAccessStrategyHolder`] used when reading existing
+    /// buffers via the read-only methods ([`Self::get_buffer`] and
+    /// [`Self::pinned_buffer`]). Write-path methods are unaffected.
     ///
-    /// For example, pass the result of [`bulkread_strategy()`] to prevent bulk reads
-    /// from evicting active buffers in the shared buffer cache.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that `strategy` is either null or points to memory
-    /// that lives for the entire process lifetime (e.g. allocated in
-    /// `TopMemoryContext`). This is required for the `Send`/`Sync` impl on
-    /// `BufferManager` to be sound.
-    pub(crate) unsafe fn with_strategy(mut self, strategy: pg_sys::BufferAccessStrategy) -> Self {
+    /// For example, pass the result of
+    /// [`crate::postgres::storage::utils::bulkread_strategy`] to prevent
+    /// bulk reads from evicting active buffers in the shared buffer cache.
+    pub(crate) fn with_strategy(mut self, strategy: BufferAccessStrategyHolder) -> Self {
         self.strategy = strategy;
         self
     }
@@ -873,7 +871,7 @@ impl BufferManager {
         block_tracker::track!(Pinned, blockno);
         PinnedBuffer::new(self.rbufacc.get_buffer_extended(
             blockno,
-            self.strategy,
+            self.strategy.as_ptr(),
             pg_sys::ReadBufferMode::RBM_NORMAL,
             None,
         ))
@@ -882,7 +880,7 @@ impl BufferManager {
     pub fn get_buffer(&self, blockno: pg_sys::BlockNumber) -> Buffer {
         let pg_buffer = self.rbufacc.get_buffer_extended(
             blockno,
-            self.strategy,
+            self.strategy.as_ptr(),
             pg_sys::ReadBufferMode::RBM_NORMAL,
             Some(pg_sys::BUFFER_LOCK_SHARE),
         );
@@ -909,7 +907,10 @@ impl BufferManager {
             dirty: false,
             inner: Buffer::new(self.rbufacc.get_buffer_extended(
                 blockno,
-                self.strategy,
+                // Write paths deliberately bypass `self.strategy`: a
+                // `BAS_BULKREAD` ring would evict buffers we are about to
+                // modify, and we never want that.
+                std::ptr::null_mut(),
                 pg_sys::ReadBufferMode::RBM_NORMAL,
                 Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
             )),
@@ -932,9 +933,10 @@ impl BufferManager {
     #[allow(dead_code)]
     pub fn get_buffer_conditional(&mut self, blockno: pg_sys::BlockNumber) -> Option<BufferMut> {
         unsafe {
+            // Write path — see `get_buffer_mut`.
             let pg_buffer = self.rbufacc.get_buffer_extended(
                 blockno,
-                self.strategy,
+                std::ptr::null_mut(),
                 pg_sys::ReadBufferMode::RBM_NORMAL,
                 None,
             );
@@ -953,9 +955,10 @@ impl BufferManager {
 
     pub fn get_buffer_for_cleanup(&mut self, blockno: pg_sys::BlockNumber) -> BufferMut {
         unsafe {
+            // Cleanup path — see `get_buffer_mut`.
             let pg_buffer = self.rbufacc.get_buffer_extended(
                 blockno,
-                self.strategy,
+                std::ptr::null_mut(),
                 pg_sys::ReadBufferMode::RBM_NORMAL,
                 None,
             );
@@ -973,9 +976,10 @@ impl BufferManager {
         blockno: pg_sys::BlockNumber,
     ) -> Option<BufferMut> {
         unsafe {
+            // Cleanup path — see `get_buffer_mut`.
             let pg_buffer = self.rbufacc.get_buffer_extended(
                 blockno,
-                self.strategy,
+                std::ptr::null_mut(),
                 pg_sys::ReadBufferMode::RBM_NORMAL,
                 None,
             );

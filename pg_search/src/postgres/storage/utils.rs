@@ -25,25 +25,57 @@ use std::sync::LazyLock;
 /// Matches Postgres's [`MAX_BUFFERS_TO_EXTEND_BY`]
 pub const MAX_BUFFERS_TO_EXTEND_BY: usize = 64;
 
-/// Returns a process-lifetime `BAS_BULKREAD` [`pg_sys::BufferAccessStrategy`].
+/// `Send + Sync` wrapper around a [`pg_sys::BufferAccessStrategy`].
 ///
-/// This strategy tells PostgreSQL to use a small ring buffer for sequential scans,
-/// preventing bulk reads from evicting active buffers from the shared buffer cache.
-/// It should be used when reading segments that are about to be merged away.
-pub fn bulkread_strategy() -> pg_sys::BufferAccessStrategy {
-    struct Holder(pg_sys::BufferAccessStrategy);
-    unsafe impl Send for Holder {}
-    unsafe impl Sync for Holder {}
+/// The wrapped pointer is either null or points to a `BufferAccessStrategyData`
+/// allocated in `TopMemoryContext` with process lifetime (see
+/// [`bulkread_strategy`]). Sharing such a pointer
+/// across threads is sound in that sense, but note that
+/// `BufferAccessStrategyData` itself has mutable internal state
+/// (e.g. `current_buffer`) that is updated on every `ReadBufferExtended` call.
+/// Using the *same* strategy concurrently from multiple threads/backends would
+/// race on that state, so callers must ensure it is only used serially.
+#[derive(Copy, Clone, Debug)]
+pub(crate) struct BufferAccessStrategyHolder(pub pg_sys::BufferAccessStrategy);
 
-    static BAS_BULKREAD: LazyLock<Holder> = LazyLock::new(|| {
-        Holder(unsafe {
+// SAFETY: see type-level comment — the pointer has process lifetime or is null.
+unsafe impl Send for BufferAccessStrategyHolder {}
+unsafe impl Sync for BufferAccessStrategyHolder {}
+
+impl BufferAccessStrategyHolder {
+    /// A null strategy, equivalent to passing `NULL` to PostgreSQL
+    /// (i.e. "use the default buffer access strategy").
+    pub const NULL: Self = Self(std::ptr::null_mut());
+
+    #[inline]
+    pub fn as_ptr(self) -> pg_sys::BufferAccessStrategy {
+        self.0
+    }
+}
+
+/// Returns a process-lifetime `BAS_BULKREAD` [`BufferAccessStrategyHolder`].
+///
+/// This strategy tells PostgreSQL to use a small ring buffer for sequential
+/// scans, preventing bulk reads from evicting active buffers from the shared
+/// buffer cache. It should be used when reading segments that are about to be
+/// merged away.
+///
+/// The returned value is a *shared singleton*. `BufferAccessStrategyData` has
+/// mutable internal state (e.g. `current_buffer`) that Postgres updates on
+/// every `ReadBufferExtended` call, so it must not be used concurrently from
+/// multiple threads. Today this is fine because the only caller is Tantivy's
+/// single-threaded merger; any future caller must uphold the same invariant.
+pub(crate) fn bulkread_strategy() -> BufferAccessStrategyHolder {
+    static BAS_BULKREAD: LazyLock<BufferAccessStrategyHolder> = LazyLock::new(|| {
+        BufferAccessStrategyHolder(unsafe {
+            // SAFETY: Allocated in `TopMemoryContext`, once, so that it's always available.
             PgMemoryContexts::TopMemoryContext.switch_to(|_| {
                 pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_BULKREAD)
             })
         })
     });
 
-    BAS_BULKREAD.0
+    *BAS_BULKREAD
 }
 
 pub trait BM25Page {
@@ -295,10 +327,6 @@ unsafe fn bulk_extend_relation(
     npages: usize,
     fork: pg_sys::ForkNumber::Type,
 ) -> [pg_sys::Buffer; MAX_BUFFERS_TO_EXTEND_BY] {
-    struct BufferAccessStrategyHolder(pg_sys::BufferAccessStrategy);
-    unsafe impl Send for BufferAccessStrategyHolder {}
-    unsafe impl Sync for BufferAccessStrategyHolder {}
-
     static BAS_BULKWRITE: LazyLock<BufferAccessStrategyHolder> = LazyLock::new(|| {
         BufferAccessStrategyHolder(unsafe {
             // SAFETY:  Allocated in `TopMemoryContext`, once, so that it's always available

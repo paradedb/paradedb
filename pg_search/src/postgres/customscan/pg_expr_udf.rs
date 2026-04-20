@@ -152,6 +152,22 @@ impl PgExprUdf {
         }
     }
 
+    /// Build a deterministic, EXPLAIN-stable UDF name from a short node-tag
+    /// label and the serialized expression. Two subtrees with the same
+    /// serialized form collide on the same name — semantically correct,
+    /// since they're the same expression.
+    ///
+    /// Uses `FxHasher` (from `rustc-hash`) rather than `std`'s
+    /// `DefaultHasher`: the FxHash algorithm is documented and stable across
+    /// Rust releases, whereas `DefaultHasher`'s output is explicitly not.
+    pub fn stable_name(tag: &str, pg_expr_string: &str) -> String {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = rustc_hash::FxHasher::default();
+        pg_expr_string.hash(&mut hasher);
+        let short_hash = hasher.finish() as u32;
+        format!("{PG_EXPR_UDF_PREFIX}{tag}_{short_hash:08x}")
+    }
+
     /// Rebuild derived fields after deserialization.
     pub fn fixup_after_deserialize(&mut self) {
         self.return_type = types_arrow::pg_type_to_arrow(self.result_type_oid);

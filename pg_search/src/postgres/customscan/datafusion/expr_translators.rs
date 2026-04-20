@@ -41,11 +41,32 @@ use std::sync::Arc;
 use crate::api::HashSet;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::expr_eval::InputVarInfo;
-use crate::postgres::customscan::pg_expr_udf::{PgExprUdf, PG_EXPR_UDF_PREFIX};
+use crate::postgres::customscan::pg_expr_udf::PgExprUdf;
 
 const PVC_RECURSE_ALL: i32 = (pg_sys::PVC_RECURSE_AGGREGATES
     | pg_sys::PVC_RECURSE_WINDOWFUNCS
     | pg_sys::PVC_RECURSE_PLACEHOLDERS) as i32;
+
+/// Short, `&'static str` label for the subset of PG node tags that reach
+/// `try_wrap_as_udf`. Used only for building human-readable UDF names — a
+/// rename in `pg_sys::NodeTag` won't silently shift the emitted label.
+fn node_tag_label(tag: pg_sys::NodeTag) -> &'static str {
+    match tag {
+        pg_sys::NodeTag::T_OpExpr => "opexpr",
+        pg_sys::NodeTag::T_FuncExpr => "funcexpr",
+        pg_sys::NodeTag::T_BoolExpr => "boolexpr",
+        pg_sys::NodeTag::T_NullTest => "nulltest",
+        pg_sys::NodeTag::T_BooleanTest => "booleantest",
+        pg_sys::NodeTag::T_CaseExpr => "caseexpr",
+        pg_sys::NodeTag::T_CoalesceExpr => "coalesceexpr",
+        pg_sys::NodeTag::T_NullIfExpr => "nullifexpr",
+        pg_sys::NodeTag::T_MinMaxExpr => "minmaxexpr",
+        pg_sys::NodeTag::T_ScalarArrayOpExpr => "scalararrayopexpr",
+        pg_sys::NodeTag::T_CoerceViaIO => "coerceviaio",
+        pg_sys::NodeTag::T_RelabelType => "relabeltype",
+        _ => "expr",
+    }
+}
 
 impl<'a> PredicateTranslator<'a> {
     /// Translate a `FuncExpr` node.
@@ -370,21 +391,7 @@ impl<'a> PredicateTranslator<'a> {
         let pg_expr_string = CStr::from_ptr(node_str).to_string_lossy().into_owned();
         pg_sys::pfree(node_str.cast());
 
-        // Stable UDF names across runs
-        let udf_name = {
-            use std::collections::hash_map::DefaultHasher;
-            use std::hash::{Hash, Hasher};
-            let mut hasher = DefaultHasher::new();
-            pg_expr_string.hash(&mut hasher);
-            let short_hash = format!("{:08x}", hasher.finish() as u32);
-
-            let tag = format!("{:?}", (*node).type_)
-                .strip_prefix("T_")
-                .unwrap_or("expr")
-                .to_lowercase();
-
-            format!("{PG_EXPR_UDF_PREFIX}{tag}_{short_hash}")
-        };
+        let udf_name = PgExprUdf::stable_name(node_tag_label((*node).type_), &pg_expr_string);
         let udf = PgExprUdf::new(udf_name, pg_expr_string, input_vars, result_type_oid);
 
         Some(Expr::ScalarFunction(ScalarFunction::new_udf(

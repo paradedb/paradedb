@@ -85,7 +85,7 @@ use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::datafusion::translator::{
     apply_join_level_filter, build_join_df_with_filter, make_col, make_source_col,
-    make_source_score_col, CombinedMapper, JoinTypeAllowList, PredicateTranslator,
+    make_source_score_col, ColumnMapper, CombinedMapper, JoinTypeAllowList, PredicateTranslator,
 };
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
@@ -115,6 +115,53 @@ fn resolve_var_to_df_col(
         let mapped = source.map_var(rti, attno)?;
         let field = source.column_name(mapped)?;
         Some(make_source_col(source, &field))
+    })
+}
+
+/// Adapter that lets `PredicateTranslator` resolve Vars against a
+/// `JoinCSClause` by delegating to [`resolve_var_to_df_col`].
+struct JoinClauseMapper<'a> {
+    join_clause: &'a JoinCSClause,
+}
+
+impl<'a> ColumnMapper for JoinClauseMapper<'a> {
+    fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr> {
+        resolve_var_to_df_col(self.join_clause, varno, varattno)
+    }
+}
+
+/// Translate a `ChildProjection::Expression` via `PredicateTranslator`.
+///
+/// Known `pg_catalog` functions (length, upper, abs, etc.) are mapped to
+/// native DataFusion functions for efficient evaluation; unknown functions
+/// fall back to `PgExprUdf` via `try_wrap_as_udf`.
+unsafe fn translate_child_projection_expr(
+    pg_expr_string: &str,
+    join_clause: &JoinCSClause,
+) -> Result<Expr> {
+    let c_str = std::ffi::CString::new(pg_expr_string).map_err(|e| {
+        DataFusionError::Internal(format!(
+            "CString conversion failed for ChildProjection::Expression: {e}"
+        ))
+    })?;
+    let node = pg_sys::stringToNode(c_str.as_ptr().cast_mut());
+    if node.is_null() {
+        return Err(DataFusionError::Internal(
+            "stringToNode returned null for ChildProjection::Expression".into(),
+        ));
+    }
+
+    let sources = join_clause.plan.sources();
+    let mapper = JoinClauseMapper { join_clause };
+
+    let translator = PredicateTranslator::new(&sources)
+        .with_mapper(Box::new(mapper))
+        .with_allow_udf_fallback(true);
+
+    translator.translate(node.cast()).ok_or_else(|| {
+        DataFusionError::Internal(
+            "PredicateTranslator failed to translate ChildProjection::Expression".into(),
+        )
     })
 }
 
@@ -263,7 +310,8 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
     use super::visibility_filter::VisibilityFilterOptimizerRule;
     use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
 
-    let mut builder = SessionStateBuilder::new().with_config(config)
+    let mut builder = SessionStateBuilder::new()
+        .with_config(config)
         .with_default_features();
 
     // Inject visibility before late materialization so ctid lineage is analyzed
@@ -577,7 +625,9 @@ fn build_clause_df<'a>(
             sources: &plan_sources,
             output_columns: &private_data.output_columns,
         };
-        let translator = PredicateTranslator::new(&plan_sources).with_mapper(Box::new(mapper));
+        let translator = PredicateTranslator::new(&plan_sources)
+            .with_mapper(Box::new(mapper))
+            .with_allow_udf_fallback(true);
         let translated_exprs = unsafe { translate_custom_exprs(&translator, custom_exprs)? };
         // Drop the translator (and its borrow on `plan_sources`) before downstream
         // stages re-borrow `plan_sources` for projection / output assembly.
@@ -666,46 +716,8 @@ fn apply_distinct_group_by(
         let col_alias = format!("col_{}", i + 1);
 
         let (expr, map_key) = match proj {
-            build::ChildProjection::Expression {
-                pg_expr_string,
-                input_vars,
-                result_type_oid,
-                ..
-            } => {
-                let udf_name = format!(
-                    "{}{}",
-                    crate::postgres::customscan::pg_expr_udf::PG_EXPR_UDF_PREFIX,
-                    i
-                );
-
-                let input_exprs: Vec<Expr> = input_vars
-                    .iter()
-                    .filter_map(|var_info| {
-                        resolve_var_to_df_col(join_clause, var_info.rti, var_info.attno)
-                    })
-                    .collect();
-
-                if input_exprs.len() != input_vars.len() {
-                    return Err(DataFusionError::Internal(format!(
-                        "PgExprUdf: could not resolve all input columns \
-                         (resolved {} of {})",
-                        input_exprs.len(),
-                        input_vars.len()
-                    )));
-                }
-
-                let udf = crate::postgres::customscan::pg_expr_udf::PgExprUdf::new(
-                    udf_name,
-                    pg_expr_string.clone(),
-                    input_vars.clone(),
-                    *result_type_oid,
-                );
-
-                let e =
-                    Expr::ScalarFunction(datafusion::logical_expr::expr::ScalarFunction::new_udf(
-                        Arc::new(datafusion::logical_expr::ScalarUDF::new_from_impl(udf)),
-                        input_exprs,
-                    ));
+            build::ChildProjection::Expression { pg_expr_string, .. } => {
+                let e = unsafe { translate_child_projection_expr(pg_expr_string, join_clause)? };
                 // Expressions don't participate in sort-step column mapping
                 (e, None)
             }

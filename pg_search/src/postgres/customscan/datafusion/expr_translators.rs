@@ -24,9 +24,6 @@
 //! MinMaxExpr, ScalarArrayOpExpr, and CoerceViaIO — plus a UDF fallback hook
 //! (`try_wrap_as_udf`) for opaque expressions.
 
-use std::ffi::CStr;
-use std::sync::Arc;
-
 use datafusion::functions::core::expr_fn::{coalesce, greatest, least, nullif};
 use datafusion::functions::math::expr_fn::{
     abs, ceil, floor, ln, log10, power, round, signum, sqrt,
@@ -38,6 +35,8 @@ use datafusion::functions::unicode::expr_fn::{character_length, reverse, substr,
 use datafusion::logical_expr::expr::{Case, InList, ScalarFunction};
 use datafusion::logical_expr::{Expr, ScalarUDF};
 use pgrx::{pg_sys, PgList};
+use std::ffi::CStr;
+use std::sync::Arc;
 
 use crate::api::HashSet;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
@@ -371,7 +370,21 @@ impl<'a> PredicateTranslator<'a> {
         let pg_expr_string = CStr::from_ptr(node_str).to_string_lossy().into_owned();
         pg_sys::pfree(node_str.cast());
 
-        let udf_name = format!("{}{:x}", PG_EXPR_UDF_PREFIX, node as usize);
+        // Stable UDF names across runs
+        let udf_name = {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut hasher = DefaultHasher::new();
+            pg_expr_string.hash(&mut hasher);
+            let short_hash = format!("{:08x}", hasher.finish() as u32);
+
+            let tag = format!("{:?}", (*node).type_)
+                .strip_prefix("T_")
+                .unwrap_or("expr")
+                .to_lowercase();
+
+            format!("{PG_EXPR_UDF_PREFIX}{tag}_{short_hash}")
+        };
         let udf = PgExprUdf::new(udf_name, pg_expr_string, input_vars, result_type_oid);
 
         Some(Expr::ScalarFunction(ScalarFunction::new_udf(

@@ -158,3 +158,6 @@ jobs:
             antithesis.duration=${{ github.event.inputs.duration || (github.event_name == 'pull_request' && '60') || '480' }}
             antithesis.is_ephemeral=${{ github.event_name == 'pull_request' }}
             antithesis.source=paradedb
+            custom.network_fault_exclusion_patterns=coredns,stressgres
+            custom.container_faults_stop_exclusion_patterns=coredns,stressgres,paradedb,cloudnative-pg
+            custom.container_faults_kill_exclusion_patterns=coredns,stressgres,paradedb,cloudnative-pg

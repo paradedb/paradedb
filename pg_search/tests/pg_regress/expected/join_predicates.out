@@ -825,6 +825,142 @@ WARNING:  JoinScan not used: failed to extract join-level conditions (ensure all
 (17 rows)
 
 -- =============================================================================
+-- TEST 12: Functions in cross-table predicates (native DF + UDF fallback)
+-- =============================================================================
+-- Exercise PredicateTranslator's FuncExpr + arithmetic-OpExpr paths inside a
+-- multi-table predicate. Both sides' columns are fast fields, so JoinScan
+-- should absorb these and the EXPLAIN should show `abs(...)` natively while
+-- the arithmetic OpExpr (`-`) gets wrapped as `pdb_eval_expr_opexpr_*` via
+-- `try_wrap_as_udf`.
+-- 12a: abs() wrapping a cross-table arithmetic OpExpr
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.supplier_id, s.id AS supplier_pk
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND abs(p.supplier_id - s.id) >= 0
+ORDER BY p.id
+LIMIT 10;
+                                                                                                                                                                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.supplier_id, s.id
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.id, p.supplier_id, s.id
+         Relation Tree: s INNER p
+         Join Cond: p.supplier_id = s.id
+         Join Predicate: heap:{OPEXPR :opno 525 :opfuncid 150 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({FUNCEXPR :funcid 1397 :funcresulttype 23 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({OPEXPR :opno 555 :opfuncid 181 :opresulttype 23 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1} {VAR :varno 2 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 1 :location -1}) :location -1}) :location -1} {CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ 0 0 0 0 0 0 0 0 ]}) :location -1}
+         Limit: 10
+         Order By: p.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@4 as col_1, supplier_id@3 as col_2, id@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@4 ASC NULLS LAST], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[s, p]
+           :       ProjectionExec: expr=[ctid_0@3 as ctid_0, id@4 as id, ctid_1@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=abs(pdb_eval_expr_opexpr_1d849f2b(supplier_id@1, id@0)) >= 0
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(19 rows)
+
+SELECT p.id, p.supplier_id, s.id AS supplier_pk
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND abs(p.supplier_id - s.id) >= 0
+ORDER BY p.id
+LIMIT 10;
+ id  | supplier_id | supplier_pk 
+-----+-------------+-------------
+ 201 |         151 |         151
+ 206 |         151 |         151
+ 207 |         152 |         152
+(3 rows)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT p.id, p.supplier_id, s.id AS supplier_pk
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND abs(p.supplier_id - s.id) >= 0
+ORDER BY p.id
+LIMIT 10;
+ id  | supplier_id | supplier_pk 
+-----+-------------+-------------
+ 201 |         151 |         151
+ 206 |         151 |         151
+ 207 |         152 |         152
+(3 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+-- 12b: native FuncExpr on one side of a comparison, UDF-wrapped arithmetic
+-- on the other. LHS `abs(p.supplier_id)` is a native FuncExpr over a Var;
+-- RHS `(s.id * 2)` is an arithmetic OpExpr that `translate_op_expr`
+-- doesn't handle, so it gets wrapped as `pdb_eval_expr_opexpr_*`. The outer
+-- `<=` comparison stays native. EXPLAIN should show BOTH paths side by side.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.supplier_id, s.id AS supplier_pk
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND abs(p.supplier_id) <= (s.id * 2)
+ORDER BY p.id
+LIMIT 10;
+                                                                                                                                                                                                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   Output: p.id, p.supplier_id, s.id
+   ->  Custom Scan (ParadeDB Join Scan)
+         Output: p.id, p.supplier_id, s.id
+         Relation Tree: s INNER p
+         Join Cond: p.supplier_id = s.id
+         Join Predicate: heap:{OPEXPR :opno 523 :opfuncid 149 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({FUNCEXPR :funcid 1397 :funcresulttype 23 :funcretset false :funcvariadic false :funcformat 0 :funccollid 0 :inputcollid 0 :args ({VAR :varno 1 :varattno 4 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 4 :location -1}) :location -1} {OPEXPR :opno 514 :opfuncid 141 :opresulttype 23 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 2 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 1 :location -1} {CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 :constbyval true :constisnull false :location -1 :constvalue 4 [ 2 0 0 0 0 0 0 0 ]}) :location -1}) :location -1}
+         Limit: 10
+         Order By: p.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@4 as col_1, supplier_id@3 as col_2, id@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
+           :   SortExec: TopK(fetch=10), expr=[id@4 ASC NULLS LAST], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[s, p]
+           :       ProjectionExec: expr=[ctid_0@3 as ctid_0, id@4 as id, ctid_1@0 as ctid_1, supplier_id@1 as supplier_id, id@2 as id]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], filter=abs(supplier_id@1) <= CAST(pdb_eval_expr_opexpr_75520593(id@0) AS Int64)
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(19 rows)
+
+SELECT p.id, p.supplier_id, s.id AS supplier_pk
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND abs(p.supplier_id) <= (s.id * 2)
+ORDER BY p.id
+LIMIT 10;
+ id  | supplier_id | supplier_pk 
+-----+-------------+-------------
+ 201 |         151 |         151
+ 206 |         151 |         151
+ 207 |         152 |         152
+(3 rows)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT p.id, p.supplier_id, s.id AS supplier_pk
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND abs(p.supplier_id) <= (s.id * 2)
+ORDER BY p.id
+LIMIT 10;
+ id  | supplier_id | supplier_pk 
+-----+-------------+-------------
+ 201 |         151 |         151
+ 206 |         151 |         151
+ 207 |         152 |         152
+(3 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 DROP TABLE IF EXISTS products CASCADE;

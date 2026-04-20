@@ -472,6 +472,75 @@ WHERE p.description @@@ 'wireless'
 LIMIT 10;
 
 -- =============================================================================
+-- TEST 12: Functions in cross-table predicates (native DF + UDF fallback)
+-- =============================================================================
+-- Exercise PredicateTranslator's FuncExpr + arithmetic-OpExpr paths inside a
+-- multi-table predicate. Both sides' columns are fast fields, so JoinScan
+-- should absorb these and the EXPLAIN should show `abs(...)` natively while
+-- the arithmetic OpExpr (`-`) gets wrapped as `pdb_eval_expr_opexpr_*` via
+-- `try_wrap_as_udf`.
+
+-- 12a: abs() wrapping a cross-table arithmetic OpExpr
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.supplier_id, s.id AS supplier_pk
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND abs(p.supplier_id - s.id) >= 0
+ORDER BY p.id
+LIMIT 10;
+
+SELECT p.id, p.supplier_id, s.id AS supplier_pk
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND abs(p.supplier_id - s.id) >= 0
+ORDER BY p.id
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT p.id, p.supplier_id, s.id AS supplier_pk
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND abs(p.supplier_id - s.id) >= 0
+ORDER BY p.id
+LIMIT 10;
+SET paradedb.enable_join_custom_scan = on;
+
+-- 12b: native FuncExpr on one side of a comparison, UDF-wrapped arithmetic
+-- on the other. LHS `abs(p.supplier_id)` is a native FuncExpr over a Var;
+-- RHS `(s.id * 2)` is an arithmetic OpExpr that `translate_op_expr`
+-- doesn't handle, so it gets wrapped as `pdb_eval_expr_opexpr_*`. The outer
+-- `<=` comparison stays native. EXPLAIN should show BOTH paths side by side.
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.id, p.supplier_id, s.id AS supplier_pk
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND abs(p.supplier_id) <= (s.id * 2)
+ORDER BY p.id
+LIMIT 10;
+
+SELECT p.id, p.supplier_id, s.id AS supplier_pk
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND abs(p.supplier_id) <= (s.id * 2)
+ORDER BY p.id
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT p.id, p.supplier_id, s.id AS supplier_pk
+FROM products p
+JOIN suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless'
+  AND abs(p.supplier_id) <= (s.id * 2)
+ORDER BY p.id
+LIMIT 10;
+SET paradedb.enable_join_custom_scan = on;
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 

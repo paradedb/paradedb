@@ -39,7 +39,7 @@ pub trait ColumnMapper {
 pub struct PredicateTranslator<'a> {
     pub sources: &'a [&'a JoinSource],
     mapper: Option<Box<dyn ColumnMapper + 'a>>,
-    pub(crate) allow_udf_fallback: bool,
+    allow_udf_fallback: bool,
 }
 
 impl<'a> PredicateTranslator<'a> {

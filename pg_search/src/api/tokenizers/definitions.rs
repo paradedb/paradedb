@@ -22,6 +22,7 @@ use std::ffi::CStr;
 
 #[pgrx::pg_schema]
 pub(crate) mod pdb {
+    use crate::api::operator::boost;
     use crate::api::tokenizers::{
         CowString, DatumWrapper, GenericTypeWrapper, JsonMarker, JsonbMarker, SqlNameMarker,
         TextArrayMarker, UuidMarker, VarcharArrayMarker,
@@ -328,6 +329,12 @@ pub(crate) mod pdb {
                     arr: GenericTypeWrapper<Vec<String>, VarcharArrayMarker>,
                 ) -> GenericTypeWrapper<$rust_name, [<$rust_name VarcharArrayMarker>]> {
                     GenericTypeWrapper::new(arr.datum, arr.typoid)
+                }
+
+                #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
+                fn [<$sql_name _to_boost>](input: $rust_name, typmod: i32, is_explicit: bool, fcinfo: pg_sys::FunctionCallInfo) -> boost::BoostType {
+                    let tokens = $cast_name(input, fcinfo);
+                    boost::text_array_to_boost(tokens, typmod, is_explicit)
                 }
             }
 

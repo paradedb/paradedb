@@ -17,15 +17,15 @@
 
 mod andandand;
 mod atatat;
-mod boost;
-mod const_score;
+pub mod boost;
+pub mod const_score;
 mod eqeqeq;
-mod fuzzy;
+pub mod fuzzy;
 mod hashhashhash;
 mod ororor;
 mod proximity;
 mod searchqueryinput;
-mod slop;
+pub mod slop;
 
 use crate::api::operator::boost::{boost_to_boost, BoostType};
 use crate::api::operator::fuzzy::{fuzzy_to_fuzzy, FuzzyType};

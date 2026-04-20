@@ -47,6 +47,17 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE desc
    Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"shoes","tokenizer":null,"distance":2,"transposition_cost_one":false,"prefix":false,"conjunction_mode":true}},"score":{"Boost":3.0}}}}}
 (6 rows)
 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description ||| 'shoes'::pdb.fuzzy(2)::pdb.boost(3);
+                                                                                                                     QUERY PLAN                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on mock_items
+   Table: mock_items
+   Index: search_idx
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"shoes","tokenizer":null,"distance":2,"transposition_cost_one":false,"prefix":false,"conjunction_mode":false}},"score":{"Boost":3.0}}}}}
+(6 rows)
+
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description === 'shoes'::pdb.fuzzy(2)::pdb.boost(3);
                                                                                                    QUERY PLAN                                                                                                   
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -81,6 +92,17 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE desc
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"shoes","tokenizer":null,"distance":2,"transposition_cost_one":false,"prefix":false,"conjunction_mode":true}},"score":{"Const":3.0}}}}}
+(6 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description ||| 'shoes'::pdb.fuzzy(2)::pdb.const(3);
+                                                                                                                     QUERY PLAN                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on mock_items
+   Table: mock_items
+   Index: search_idx
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match":{"value":"shoes","tokenizer":null,"distance":2,"transposition_cost_one":false,"prefix":false,"conjunction_mode":false}},"score":{"Const":3.0}}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description === 'shoes'::pdb.fuzzy(2)::pdb.const(3);
@@ -180,6 +202,17 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE desc
    Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match_array":{"tokens":["sh","sho","ho","hoe","oe","oes","es"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"score":{"Boost":3.0}}}}}
 (6 rows)
 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.lindera(chinese)::pdb.boost(3);
+                                                                                                                 QUERY PLAN                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on mock_items
+   Table: mock_items
+   Index: search_idx
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match_array":{"tokens":["shoes"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"score":{"Boost":3.0}}}}}
+(6 rows)
+
 --
 -- tokenizer -> pdb.const
 --
@@ -236,6 +269,17 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE desc
    Exec Method: NormalScanExecState
    Scores: false
    Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match_array":{"tokens":["sh","sho","ho","hoe","oe","oes","es"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"score":{"Const":5.0}}}}}
+(6 rows)
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.lindera(chinese)::pdb.const(5);
+                                                                                                                 QUERY PLAN                                                                                                                  
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Base Scan) on mock_items
+   Table: mock_items
+   Index: search_idx
+   Exec Method: NormalScanExecState
+   Scores: false
+   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"match_array":{"tokens":["shoes"],"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":true}},"score":{"Const":5.0}}}}}
 (6 rows)
 
 --

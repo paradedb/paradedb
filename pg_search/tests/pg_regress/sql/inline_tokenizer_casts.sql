@@ -25,6 +25,7 @@ WITH (key_field='id');
 --
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ 'shoes'::pdb.fuzzy(2)::pdb.boost(3);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.fuzzy(2)::pdb.boost(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description ||| 'shoes'::pdb.fuzzy(2)::pdb.boost(3);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description === 'shoes'::pdb.fuzzy(2)::pdb.boost(3);
 
 --
@@ -32,6 +33,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE desc
 --
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description @@@ 'shoes'::pdb.fuzzy(2)::pdb.const(3);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.fuzzy(2)::pdb.const(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description ||| 'shoes'::pdb.fuzzy(2)::pdb.const(3);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description === 'shoes'::pdb.fuzzy(2)::pdb.const(3);
 
 --
@@ -52,6 +54,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE desc
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.literal::pdb.boost(3);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.alias::pdb.boost(3);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.ngram(2, 3)::pdb.boost(3);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.lindera(chinese)::pdb.boost(3);
 
 --
 -- tokenizer -> pdb.const
@@ -61,6 +64,7 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE desc
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.literal::pdb.const(5);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.alias::pdb.const(5);
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.ngram(2, 3)::pdb.const(5);
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description &&& 'shoes'::pdb.lindera(chinese)::pdb.const(5);
 
 --
 -- tokenizer -> pdb.fuzzy

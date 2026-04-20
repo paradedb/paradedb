@@ -39,6 +39,7 @@ pub trait ColumnMapper {
 pub struct PredicateTranslator<'a> {
     pub sources: &'a [&'a JoinSource],
     mapper: Option<Box<dyn ColumnMapper + 'a>>,
+    pub(crate) allow_udf_fallback: bool,
 }
 
 impl<'a> PredicateTranslator<'a> {
@@ -46,11 +47,17 @@ impl<'a> PredicateTranslator<'a> {
         Self {
             sources,
             mapper: None,
+            allow_udf_fallback: false,
         }
     }
 
     pub fn with_mapper(mut self, mapper: Box<dyn ColumnMapper + 'a>) -> Self {
         self.mapper = Some(mapper);
+        self
+    }
+
+    pub fn with_allow_udf_fallback(mut self, allow_udf_fallback: bool) -> Self {
+        self.allow_udf_fallback = allow_udf_fallback;
         self
     }
 
@@ -243,10 +250,21 @@ impl<'a> PredicateTranslator<'a> {
                 let relabel = node as *mut pg_sys::RelabelType;
                 self.translate((*relabel).arg.cast())
             }
-            // Type casts (CoerceViaIO, FuncExpr) are not supported because
-            // they may change value semantics. Cross-type comparisons like INT < NUMERIC
-            // require proper type coercion that DataFusion cannot perform correctly when
-            // the underlying fast field storage uses different scales/representations.
+            pg_sys::NodeTag::T_FuncExpr => self.translate_func_expr(node).or_else(|| {
+                if self.allow_udf_fallback {
+                    self.try_wrap_as_udf(node)
+                } else {
+                    None
+                }
+            }),
+            pg_sys::NodeTag::T_NullTest => self.translate_null_test(node),
+            pg_sys::NodeTag::T_BooleanTest => self.translate_boolean_test(node),
+            pg_sys::NodeTag::T_CaseExpr => self.translate_case_expr(node),
+            pg_sys::NodeTag::T_CoalesceExpr => self.translate_coalesce_expr(node),
+            pg_sys::NodeTag::T_NullIfExpr => self.translate_nullif_expr(node),
+            pg_sys::NodeTag::T_MinMaxExpr => self.translate_min_max_expr(node),
+            pg_sys::NodeTag::T_ScalarArrayOpExpr => self.translate_scalar_array_op_expr(node),
+            pg_sys::NodeTag::T_CoerceViaIO => self.translate_coerce_via_io(node),
             _ => None,
         }
     }
@@ -280,7 +298,7 @@ impl<'a> PredicateTranslator<'a> {
         )))
     }
 
-    unsafe fn translate_var(&self, var: *mut pg_sys::Var) -> Option<Expr> {
+    pub(crate) unsafe fn translate_var(&self, var: *mut pg_sys::Var) -> Option<Expr> {
         let varno = (*var).varno as pg_sys::Index;
         let varattno = (*var).varattno;
 

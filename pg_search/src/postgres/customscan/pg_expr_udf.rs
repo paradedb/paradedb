@@ -132,6 +132,26 @@ impl PgExprUdf {
         Signature::variadic_any(Volatility::Immutable)
     }
 
+    /// Returns the Arrow `DataType` for a PG result type OID if `PgExprUdf`
+    /// can evaluate it, or `None` if unsupported. This is the single gate for
+    /// whether an expression can be UDF-wrapped.
+    ///
+    /// KEEP IN SYNC with the `eval_expr_to_arrow!` arms in
+    /// [`Self::invoke_with_args`] — every OID accepted here must have a
+    /// matching match arm there, and vice versa.
+    pub fn try_result_type_to_arrow(oid: pg_sys::Oid) -> Option<DataType> {
+        match oid {
+            pg_sys::BOOLOID => Some(DataType::Boolean),
+            pg_sys::INT2OID => Some(DataType::Int16),
+            pg_sys::INT4OID => Some(DataType::Int32),
+            pg_sys::INT8OID => Some(DataType::Int64),
+            pg_sys::FLOAT4OID => Some(DataType::Float32),
+            pg_sys::FLOAT8OID => Some(DataType::Float64),
+            pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::NAMEOID => Some(DataType::Utf8),
+            _ => None,
+        }
+    }
+
     /// Rebuild derived fields after deserialization.
     pub fn fixup_after_deserialize(&mut self) {
         self.return_type = types_arrow::pg_type_to_arrow(self.result_type_oid);
@@ -225,6 +245,9 @@ unsafe fn populate_slot(
 /// and append the result directly to an Arrow builder. No intermediate Vec<Datum>.
 ///
 /// Follows the `fetch_ff_column!` pattern from `fast_fields_helper.rs`.
+///
+/// KEEP IN SYNC with [`PgExprUdf::try_result_type_to_arrow`] — every PG type
+/// accepted by that gate must have a matching arm here, and vice versa.
 macro_rules! eval_expr_to_arrow {
     (
         $self_:expr, $num_rows:expr, $pg_state:expr, $args:expr, $input_vars:expr,
@@ -253,10 +276,17 @@ macro_rules! eval_expr_to_arrow {
                     std::sync::Arc::new(builder.finish()) as std::sync::Arc<dyn Array>
                 }
             )*
-            other => panic!(
-                "PgExprUdf: unsupported result type OID {other} — \
-                 add a branch to eval_expr_to_arrow!"
-            ),
+            other => {
+                debug_assert!(
+                    Self::try_result_type_to_arrow(other).is_none(),
+                    "PgExprUdf::try_result_type_to_arrow accepts OID {other} but \
+                     eval_expr_to_arrow! has no branch for it — keep the two in sync"
+                );
+                return Err(DataFusionError::Internal(format!(
+                    "PgExprUdf: unsupported result type OID {other} — \
+                     PgExprUdf::try_result_type_to_arrow must gate wrapping before this point"
+                )));
+            }
         }
     };
 }
@@ -285,11 +315,8 @@ impl ScalarUDFImpl for PgExprUdf {
         // SAFETY: single-threaded access guaranteed by target_partitions=1.
         let pg_state = unsafe { self.get_or_init_state() };
 
-        debug_assert!(
-            !self.input_vars.is_empty(),
-            "PgExprUdf '{}' has no input_vars — expression must have Var dependencies",
-            self.name
-        );
+        // A UDF over only constants has no input Vars — that's valid.
+        // ExecEvalExpr evaluates it with an empty slot.
 
         let n = args.number_rows;
         let arg_values = &args.args;

@@ -28,9 +28,6 @@ mod schema;
 pub mod gucs;
 pub mod parallel_worker;
 
-#[cfg(test)]
-mod tests_link_stubs;
-
 use self::postgres::customscan;
 use pgrx::*;
 
@@ -127,6 +124,9 @@ pub unsafe extern "C-unwind" fn _PG_init() {
 
     // Register global planner hook for window function support
     customscan::register_window_aggregate_hook();
+
+    // Initialize the filter query builder
+    customscan::aggregatescan::filterquery::init_filter_query_builder();
 }
 
 #[pg_extern]

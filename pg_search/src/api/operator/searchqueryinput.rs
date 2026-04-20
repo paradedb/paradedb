@@ -25,7 +25,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
-use crate::{nodecast, UNKNOWN_SELECTIVITY};
+use crate::{nodecast, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use pgrx::callconv::{Arg, ArgAbi};
 use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
@@ -274,16 +274,20 @@ pub fn query_input_restrict(
                 PgList::<pg_sys::Node>::from_pg(args.unwrap()?.cast_mut_ptr::<pg_sys::List>());
 
             let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
-            let const_ = nodecast!(Const, T_Const, args.get_ptr(1)?)?;
+            let rhs = args.get_ptr(1)?;
 
-            let (heaprelid, _, _) = find_var_relation(var, info);
-            let indexrel = locate_bm25_index(heaprelid)?;
-
-            // create the search query from the rhs Const node
-            let search_query_input =
-                SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
-
-            estimate_selectivity(&indexrel, search_query_input)
+            match (*rhs).type_ {
+                pg_sys::NodeTag::T_Const => {
+                    let const_ = rhs.cast::<pg_sys::Const>();
+                    let (heaprelid, _, _) = find_var_relation(var, info);
+                    let indexrel = locate_bm25_index(heaprelid)?;
+                    let search_query_input =
+                        SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
+                    estimate_selectivity(&indexrel, search_query_input)
+                }
+                pg_sys::NodeTag::T_Param => Some(PARAMETERIZED_SELECTIVITY),
+                _ => None,
+            }
         }
     }
 

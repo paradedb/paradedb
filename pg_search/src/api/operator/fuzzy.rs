@@ -214,7 +214,11 @@ fn query_to_fuzzy(mut input: pdb::Query, typmod: i32, _is_explicit: bool) -> Fuz
 }
 
 #[pg_extern(immutable, parallel_safe)]
-pub fn text_array_to_fuzzy(array: Vec<String>, typmod: i32, _is_explicit: bool) -> FuzzyType {
+pub(crate) fn text_array_to_fuzzy(
+    array: Vec<String>,
+    typmod: i32,
+    _is_explicit: bool,
+) -> FuzzyType {
     let mut query = pdb::Query::UnclassifiedArray {
         array,
         fuzzy_data: None,

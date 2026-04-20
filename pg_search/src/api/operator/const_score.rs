@@ -212,7 +212,11 @@ pub fn query_to_const(input: pdb::Query, typmod: i32, _is_explicit: bool) -> Con
 }
 
 #[pg_extern(immutable, parallel_safe)]
-pub fn text_array_to_const(array: Vec<String>, typmod: i32, _is_explicit: bool) -> ConstType {
+pub(crate) fn text_array_to_const(
+    array: Vec<String>,
+    typmod: i32,
+    _is_explicit: bool,
+) -> ConstType {
     let const_ = deserialize_i32_to_f32(typmod);
     let query = pdb::Query::UnclassifiedArray {
         array,

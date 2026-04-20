@@ -212,7 +212,11 @@ pub fn query_to_boost(input: pdb::Query, typmod: i32, _is_explicit: bool) -> Boo
 }
 
 #[pg_extern(immutable, parallel_safe)]
-pub fn text_array_to_boost(array: Vec<String>, typmod: i32, _is_explicit: bool) -> BoostType {
+pub(crate) fn text_array_to_boost(
+    array: Vec<String>,
+    typmod: i32,
+    _is_explicit: bool,
+) -> BoostType {
     let boost = deserialize_i32_to_f32(typmod);
     let query = pdb::Query::UnclassifiedArray {
         array,

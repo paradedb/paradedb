@@ -400,3 +400,343 @@ impl<'a> PredicateTranslator<'a> {
         )))
     }
 }
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use datafusion::logical_expr::col;
+    use pgrx::prelude::*;
+    use proptest::prelude::*;
+
+    /// All `(name, arity)` pairs that `translate_known_func` must accept
+    /// under `pg_catalog`. Keep in sync with the match arms in
+    /// `PredicateTranslator::translate_known_func`.
+    #[allow(dead_code)]
+    const KNOWN_FUNCS: &[(&str, usize)] = &[
+        // string module (fixed arity)
+        ("upper", 1),
+        ("lower", 1),
+        ("ascii", 1),
+        ("repeat", 2),
+        ("starts_with", 2),
+        ("ends_with", 2),
+        ("replace", 3),
+        // string module (variadic; always match)
+        ("btrim", 0),
+        ("btrim", 1),
+        ("btrim", 2),
+        ("trim", 0),
+        ("trim", 1),
+        ("trim", 2),
+        ("ltrim", 0),
+        ("ltrim", 1),
+        ("ltrim", 2),
+        ("rtrim", 0),
+        ("rtrim", 1),
+        ("rtrim", 2),
+        ("concat", 0),
+        ("concat", 1),
+        ("concat", 2),
+        ("concat", 3),
+        // unicode module
+        ("length", 1),
+        ("char_length", 1),
+        ("character_length", 1),
+        ("substr", 2),
+        ("substr", 3),
+        ("substring", 2),
+        ("substring", 3),
+        ("reverse", 1),
+        // math module
+        ("abs", 1),
+        ("ceil", 1),
+        ("ceiling", 1),
+        ("floor", 1),
+        ("round", 0),
+        ("round", 1),
+        ("round", 2),
+        ("sqrt", 1),
+        ("power", 2),
+        ("pow", 2),
+        ("sign", 1),
+        ("ln", 1),
+        ("log", 1),
+        ("log10", 1),
+        // core module
+        ("coalesce", 0),
+        ("coalesce", 1),
+        ("coalesce", 2),
+        ("coalesce", 3),
+        ("nullif", 2),
+        ("greatest", 0),
+        ("greatest", 1),
+        ("greatest", 2),
+        ("greatest", 3),
+        ("least", 0),
+        ("least", 1),
+        ("least", 2),
+        ("least", 3),
+    ];
+
+    #[allow(dead_code)]
+    fn placeholder_args(arity: usize) -> Vec<Expr> {
+        (0..arity).map(|i| col(format!("c{i}"))).collect()
+    }
+
+    // ---------- Test 1: translate_known_func coverage (pure Rust) ----------
+
+    #[test]
+    fn known_funcs_all_return_some() {
+        for &(name, arity) in KNOWN_FUNCS {
+            let args = placeholder_args(arity);
+            let out = PredicateTranslator::translate_known_func("pg_catalog", name, args);
+            assert!(
+                out.is_some(),
+                "expected Some for pg_catalog.{name}/{arity}, got None",
+            );
+        }
+    }
+
+    #[test]
+    fn non_pg_catalog_schema_returns_none() {
+        for &(name, arity) in KNOWN_FUNCS {
+            for schema in ["public", "my_schema", "information_schema", ""] {
+                let args = placeholder_args(arity);
+                let out = PredicateTranslator::translate_known_func(schema, name, args);
+                assert!(
+                    out.is_none(),
+                    "expected None for {schema}.{name}/{arity}, got Some",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn wrong_arity_returns_none() {
+        // Fixed-arity functions rejected when called with the wrong count.
+        let cases: &[(&str, usize)] = &[
+            ("upper", 0),
+            ("upper", 2),
+            ("lower", 2),
+            ("replace", 1),
+            ("replace", 2),
+            ("replace", 4),
+            ("ascii", 0),
+            ("ascii", 2),
+            ("repeat", 1),
+            ("repeat", 3),
+            ("starts_with", 1),
+            ("starts_with", 3),
+            ("nullif", 1),
+            ("nullif", 3),
+            ("power", 1),
+            ("power", 3),
+            ("abs", 0),
+            ("abs", 2),
+            ("length", 0),
+            ("length", 2),
+            ("substr", 0),
+            ("substr", 1),
+            ("substr", 4),
+        ];
+        for &(name, arity) in cases {
+            let args = placeholder_args(arity);
+            let out = PredicateTranslator::translate_known_func("pg_catalog", name, args);
+            assert!(
+                out.is_none(),
+                "expected None for pg_catalog.{name}/{arity}, got Some",
+            );
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+
+        #[test]
+        fn unknown_func_name_returns_none(
+            name in "[a-z_]{3,15}".prop_filter("not a known func", |n| {
+                !KNOWN_FUNCS.iter().any(|(k, _)| *k == n)
+            }),
+            arity in 0usize..5,
+        ) {
+            let args = placeholder_args(arity);
+            let out = PredicateTranslator::translate_known_func("pg_catalog", &name, args);
+            prop_assert!(
+                out.is_none(),
+                "expected None for pg_catalog.{name}/{arity}, got Some",
+            );
+        }
+    }
+
+    // ---------- SQL-level tests (need live Postgres) ----------
+
+    fn setup_test_tables() {
+        pgrx::Spi::run(
+            r#"
+            DROP TABLE IF EXISTS prop_exclusions CASCADE;
+            DROP TABLE IF EXISTS prop_items CASCADE;
+            CREATE TABLE prop_items (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                value INT NOT NULL
+            );
+            CREATE TABLE prop_exclusions (
+                id SERIAL PRIMARY KEY,
+                pattern TEXT,
+                threshold INT NOT NULL
+            );
+            INSERT INTO prop_items (name, value) VALUES
+                ('alpha', 10), ('beta', 20), ('gamma', 30),
+                ('', 0), ('UPPER', 100), ('  trimme  ', 50);
+            INSERT INTO prop_exclusions (pattern, threshold) VALUES
+                ('alpha', 5), (NULL, 10), ('', 15),
+                ('BETA', 20), ('gamma', 25), ('  trimme  ', 30);
+            CREATE INDEX prop_items_idx ON prop_items
+                USING bm25 (id, name, value)
+                WITH (
+                    key_field='id',
+                    text_fields='{"name": {"fast": true}}',
+                    numeric_fields='{"value": {"fast": true}}'
+                );
+            CREATE INDEX prop_exclusions_idx ON prop_exclusions
+                USING bm25 (id, pattern, threshold)
+                WITH (
+                    key_field='id',
+                    text_fields='{"pattern": {"fast": true}}',
+                    numeric_fields='{"threshold": {"fast": true}}'
+                );
+            "#,
+        )
+        .expect("setup_test_tables failed");
+    }
+
+    fn run_ids(query: &str) -> Vec<i32> {
+        pgrx::Spi::connect(|client| {
+            let args: [pgrx::datum::DatumWithOid; 0] = [];
+            let result = client.select(query, None, &args)?;
+            let mut ids = Vec::new();
+            for row in result {
+                if let Some(id) = row.get_by_name::<i32, _>("id")? {
+                    ids.push(id);
+                }
+            }
+            Ok::<_, pgrx::spi::Error>(ids)
+        })
+        .expect("run_ids failed")
+    }
+
+    fn explain_plan(query: &str) -> String {
+        pgrx::Spi::connect(|client| {
+            let args: [pgrx::datum::DatumWithOid; 0] = [];
+            let result = client.select(query, None, &args)?;
+            let mut out = String::new();
+            for row in result {
+                if let Some(line) = row.get::<String>(1)? {
+                    out.push_str(&line);
+                    out.push('\n');
+                }
+            }
+            Ok::<_, pgrx::spi::Error>(out)
+        })
+        .expect("explain_plan failed")
+    }
+
+    fn arb_bool_expr() -> impl Strategy<Value = String> {
+        prop_oneof![
+            Just("e.pattern IS NULL".to_string()),
+            Just("e.pattern IS NOT NULL".to_string()),
+            Just("length(e.pattern) > 3".to_string()),
+            Just("upper(e.pattern) = upper(i.name)".to_string()),
+            Just("COALESCE(e.pattern, '') = i.name".to_string()),
+        ]
+    }
+
+    fn anti_join_query(expr: &str) -> String {
+        // LIMIT is required for JoinScan to absorb a Semi/Anti subquery.
+        format!(
+            "SELECT i.id FROM prop_items i \
+             WHERE NOT EXISTS ( \
+                 SELECT 1 FROM prop_exclusions e \
+                 WHERE e.id @@@ paradedb.all() AND ({expr}) \
+             ) \
+             AND i.id @@@ paradedb.all() \
+             ORDER BY i.id LIMIT 10"
+        )
+    }
+
+    // ---------- Test 2: JoinScan results match native PG ----------
+
+    #[pg_test]
+    fn joinscan_matches_native() {
+        setup_test_tables();
+        let cfg = ProptestConfig::with_cases(5);
+        proptest!(cfg, |(expr in arb_bool_expr())| {
+            let query = anti_join_query(&expr);
+
+            pgrx::Spi::run("SET paradedb.enable_join_custom_scan = on").unwrap();
+            let joinscan = run_ids(&query);
+
+            pgrx::Spi::run("SET paradedb.enable_join_custom_scan = off").unwrap();
+            let native = run_ids(&query);
+
+            pgrx::Spi::run("SET paradedb.enable_join_custom_scan = on").unwrap();
+
+            prop_assert_eq!(joinscan, native, "mismatch for expression: {}", expr);
+        });
+    }
+
+    // ---------- Test 3: EXPLAIN shows JoinScan absorbed the expression ----------
+
+    /// Only cross-table expressions — JoinScan's Semi/Anti absorption
+    /// requires the predicate to reference Vars from both sides of the
+    /// EXISTS/NOT EXISTS subquery. Single-table filters (e.g.
+    /// `length(e.pattern) > 3`) get pushed down as heap filters on the
+    /// inner scan and bypass JoinScan entirely.
+    fn arb_absorbable_expr() -> impl Strategy<Value = String> {
+        prop_oneof![
+            Just("upper(e.pattern) = i.name".to_string()),
+            Just("lower(e.pattern) = lower(i.name)".to_string()),
+            Just("abs(e.threshold) > i.value".to_string()),
+            Just("COALESCE(e.pattern, '') = i.name".to_string()),
+            Just(
+                "CASE WHEN e.pattern IS NOT NULL THEN e.pattern ELSE '' END = i.name".to_string(),
+            ),
+            Just("e.pattern = i.name OR length(e.pattern) > 100".to_string()),
+            Just("e.pattern = i.name OR e.pattern IS NULL".to_string()),
+            Just("upper(e.pattern) = i.name OR e.threshold > i.value".to_string()),
+        ]
+    }
+
+    #[pg_test]
+    fn expression_is_absorbed_by_joinscan() {
+        setup_test_tables();
+        pgrx::Spi::run("SET paradedb.enable_join_custom_scan = on").unwrap();
+        let cfg = ProptestConfig::with_cases(5);
+        proptest!(cfg, |(expr in arb_absorbable_expr())| {
+            let explain_query = format!("EXPLAIN (COSTS OFF) {}", anti_join_query(&expr));
+            let plan = explain_plan(&explain_query);
+
+            prop_assert!(
+                plan.contains("ParadeDB Join Scan"),
+                "expression '{}' was not absorbed by JoinScan. Plan:\n{}",
+                expr,
+                plan
+            );
+            prop_assert!(
+                !plan.contains("JoinScan not used"),
+                "expression '{}' triggered JoinScan decline. Plan:\n{}",
+                expr,
+                plan
+            );
+        });
+    }
+
+    // DISTINCT native-function coverage is already exercised
+    // thoroughly by `tests/pg_regress/sql/join_distinct_expr.sql`, whose
+    // expected output pins `upper(...)`, `character_length(...)`, `IS NULL`,
+    // etc. in the physical plan. Repeating that via a proptest on the
+    // minimal in-test schema triggers an unrelated JoinScan DISTINCT+PK-join
+    // schema bug (column-name="" in apply_distinct_group_by), so the SQL
+    // regression remains the authoritative coverage for that path.
+}

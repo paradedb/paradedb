@@ -22,6 +22,25 @@ use rstest::*;
 use serde_json::Value;
 use sqlx::PgConnection;
 
+/// Recursively search an EXPLAIN (FORMAT JSON) plan tree for any node that
+/// declares `Workers Planned > 0`. Used to assert that parallelism survived
+/// planning — see issue #4665, where GENERIC prepared plans regressed to 0
+/// workers because of a selectivity collapse.
+fn plan_has_parallel_workers(v: &Value) -> bool {
+    match v {
+        Value::Object(obj) => {
+            if let Some(workers) = obj.get("Workers Planned").and_then(|w| w.as_i64()) {
+                if workers > 0 {
+                    return true;
+                }
+            }
+            obj.values().any(plan_has_parallel_workers)
+        }
+        Value::Array(arr) => arr.iter().any(plan_has_parallel_workers),
+        _ => false,
+    }
+}
+
 #[rstest]
 fn self_referencing_var(mut conn: PgConnection) {
     r#"
@@ -177,4 +196,200 @@ fn test_issue2061(mut conn: PgConnection) {
             (2, "Plastic Keyboard".into(), 3.2668595),
         ]
     )
+}
+
+/// Issue #4665: CUSTOM and GENERIC prepared plans must return the same rows
+/// AND retain parallelism when the WHERE clause uses a parameterized BM25
+/// search predicate. Plan-shape check guards against the selectivity
+/// regression that collapsed GENERIC row estimates to 0 workers.
+#[rstest]
+fn generic_plan_consistent_results_issue_4665(mut conn: PgConnection) {
+    if pg_major_version(&mut conn) < 16 {
+        // `debug_parallel_query` is only available from PG16.
+        return;
+    }
+    "SET debug_parallel_query TO on".execute(&mut conn);
+
+    r#"
+    CREATE TABLE issue_4665 (
+        id SERIAL PRIMARY KEY,
+        content TEXT
+    );
+
+    INSERT INTO issue_4665 (content)
+    SELECT 'document about ' ||
+           (ARRAY['technology', 'science', 'cooking', 'sports'])[1 + (i % 4)]
+           || ' number ' || i
+    FROM generate_series(1, 200) AS i;
+
+    CREATE INDEX issue_4665_idx ON issue_4665
+    USING bm25 (id, content) WITH (key_field = 'id');
+    "#
+    .execute(&mut conn);
+
+    // Get results + plan with CUSTOM plan (constant is visible to planner)
+    "SET plan_cache_mode = force_custom_plan".execute(&mut conn);
+    "PREPARE stmt_custom(text) AS
+     SELECT id FROM issue_4665
+     WHERE content ||| $1
+     ORDER BY pdb.score(id) DESC
+     LIMIT 10"
+        .execute(&mut conn);
+    let custom_results = "EXECUTE stmt_custom('technology')".fetch::<(i32,)>(&mut conn);
+    let (custom_plan,) = "EXPLAIN (ANALYZE, FORMAT JSON) EXECUTE stmt_custom('technology')"
+        .fetch_one::<(Value,)>(&mut conn);
+    "DEALLOCATE stmt_custom".execute(&mut conn);
+
+    // Get results + plan with GENERIC plan (Param node, not Const)
+    "SET plan_cache_mode = force_generic_plan".execute(&mut conn);
+    "PREPARE stmt_generic(text) AS
+     SELECT id FROM issue_4665
+     WHERE content ||| $1
+     ORDER BY pdb.score(id) DESC
+     LIMIT 10"
+        .execute(&mut conn);
+    let generic_results = "EXECUTE stmt_generic('technology')".fetch::<(i32,)>(&mut conn);
+    let (generic_plan,) = "EXPLAIN (ANALYZE, FORMAT JSON) EXECUTE stmt_generic('technology')"
+        .fetch_one::<(Value,)>(&mut conn);
+    "DEALLOCATE stmt_generic".execute(&mut conn);
+
+    assert_eq!(
+        custom_results, generic_results,
+        "CUSTOM and GENERIC plans must return identical rows for parameterized WHERE"
+    );
+    assert!(!custom_results.is_empty(), "should have matches");
+
+    assert!(
+        plan_has_parallel_workers(&custom_plan),
+        "CUSTOM plan should have Workers Planned > 0: {custom_plan:#?}"
+    );
+    assert!(
+        plan_has_parallel_workers(&generic_plan),
+        "GENERIC plan should have Workers Planned > 0 (issue #4665): {generic_plan:#?}"
+    );
+
+    "RESET plan_cache_mode".execute(&mut conn);
+}
+
+/// Issue #4665 follow-up: Parameterized LIMIT must produce the same results
+/// as a constant LIMIT in both CUSTOM and GENERIC modes.
+#[rstest]
+fn generic_plan_parameterized_limit_issue_4665(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE issue_4665_plim (
+        id SERIAL PRIMARY KEY,
+        content TEXT
+    );
+
+    INSERT INTO issue_4665_plim (content)
+    SELECT 'document about ' ||
+           (ARRAY['technology', 'science', 'cooking', 'sports'])[1 + (i % 4)]
+           || ' number ' || i
+    FROM generate_series(1, 200) AS i;
+
+    CREATE INDEX issue_4665_plim_idx ON issue_4665_plim
+    USING bm25 (id, content) WITH (key_field = 'id');
+    "#
+    .execute(&mut conn);
+
+    // Baseline: constant LIMIT
+    let baseline = "SELECT id FROM issue_4665_plim
+                    WHERE content ||| 'technology'
+                    ORDER BY pdb.score(id) DESC
+                    LIMIT 5"
+        .fetch::<(i32,)>(&mut conn);
+
+    // CUSTOM plan with parameterized LIMIT
+    "SET plan_cache_mode = force_custom_plan".execute(&mut conn);
+    "PREPARE stmt_plim_c(text, int) AS
+     SELECT id FROM issue_4665_plim
+     WHERE content ||| $1
+     ORDER BY pdb.score(id) DESC
+     LIMIT $2"
+        .execute(&mut conn);
+    let custom_results = "EXECUTE stmt_plim_c('technology', 5)".fetch::<(i32,)>(&mut conn);
+    "DEALLOCATE stmt_plim_c".execute(&mut conn);
+
+    // GENERIC plan with parameterized LIMIT
+    "SET plan_cache_mode = force_generic_plan".execute(&mut conn);
+    "PREPARE stmt_plim_g(text, int) AS
+     SELECT id FROM issue_4665_plim
+     WHERE content ||| $1
+     ORDER BY pdb.score(id) DESC
+     LIMIT $2"
+        .execute(&mut conn);
+    let generic_results = "EXECUTE stmt_plim_g('technology', 5)".fetch::<(i32,)>(&mut conn);
+    "DEALLOCATE stmt_plim_g".execute(&mut conn);
+
+    assert_eq!(
+        custom_results, baseline,
+        "CUSTOM plan with parameterized LIMIT must match constant LIMIT baseline"
+    );
+    assert_eq!(
+        generic_results, baseline,
+        "GENERIC plan with parameterized LIMIT must match constant LIMIT baseline"
+    );
+
+    "RESET plan_cache_mode".execute(&mut conn);
+}
+
+/// Issue #4665: The natural CUSTOM→GENERIC transition (after 5 executions)
+/// must not change result correctness AND must retain parallel workers in
+/// the GENERIC plan.
+#[rstest]
+fn generic_plan_natural_transition_issue_4665(mut conn: PgConnection) {
+    if pg_major_version(&mut conn) < 16 {
+        // `debug_parallel_query` is only available from PG16.
+        return;
+    }
+    "SET debug_parallel_query TO on".execute(&mut conn);
+
+    r#"
+    CREATE TABLE issue_4665_nat (
+        id SERIAL PRIMARY KEY,
+        content TEXT
+    );
+
+    INSERT INTO issue_4665_nat (content)
+    SELECT 'document about ' ||
+           (ARRAY['technology', 'science', 'cooking', 'sports'])[1 + (i % 4)]
+           || ' number ' || i
+    FROM generate_series(1, 200) AS i;
+
+    CREATE INDEX issue_4665_nat_idx ON issue_4665_nat
+    USING bm25 (id, content) WITH (key_field = 'id');
+    "#
+    .execute(&mut conn);
+
+    "PREPARE stmt_nat(text) AS
+     SELECT id FROM issue_4665_nat
+     WHERE content ||| $1
+     ORDER BY pdb.score(id) DESC
+     LIMIT 10"
+        .execute(&mut conn);
+
+    // First execution captures expected results (CUSTOM plan)
+    let expected = "EXECUTE stmt_nat('technology')".fetch::<(i32,)>(&mut conn);
+    assert!(!expected.is_empty(), "should have matches");
+
+    // Execute 6 more times — PostgreSQL switches to GENERIC around execution 6
+    for i in 0..6 {
+        let results = "EXECUTE stmt_nat('technology')".fetch::<(i32,)>(&mut conn);
+        assert_eq!(
+            results,
+            expected,
+            "execution {} must match first execution results",
+            i + 2
+        );
+    }
+
+    // After the natural transition to GENERIC, the plan must still be parallel.
+    let (plan,) = "EXPLAIN (ANALYZE, FORMAT JSON) EXECUTE stmt_nat('technology')"
+        .fetch_one::<(Value,)>(&mut conn);
+    assert!(
+        plan_has_parallel_workers(&plan),
+        "post-transition GENERIC plan should have Workers Planned > 0 (issue #4665): {plan:#?}"
+    );
+
+    "DEALLOCATE stmt_nat".execute(&mut conn);
 }

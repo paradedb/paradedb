@@ -145,10 +145,9 @@ impl CustomScan for AggregateScan {
             ReScanCustomScan: Some(crate::postgres::customscan::exec::rescan_custom_scan::<Self>),
             MarkPosCustomScan: None,
             RestrPosCustomScan: None,
-            // MPP reserved slots. The path is not yet declared parallel-safe
-            // in `create_custom_path`, so PG will never actually invoke these
-            // hooks today — they return zero / no-op. Phase 4b-ii wires the
-            // real MPP lifecycle when `customscan_glue::mpp_is_active()`.
+            // MPP DSM slots. These are only invoked when the path is flagged
+            // parallel-safe in `create_custom_path`; they wire the MPP
+            // lifecycle when `customscan_glue::mpp_is_active()`.
             EstimateDSMCustomScan: Some(mpp_dsm::estimate_dsm_custom_scan::<Self>),
             InitializeDSMCustomScan: Some(mpp_dsm::initialize_dsm_custom_scan::<Self>),
             ReInitializeDSMCustomScan: Some(mpp_dsm::reinitialize_dsm_custom_scan::<Self>),
@@ -1301,14 +1300,10 @@ impl AggregateScan {
     fn exec_datafusion_aggregate(
         state: &mut CustomScanStateWrapper<Self>,
     ) -> *mut pg_sys::TupleTableSlot {
-        // Phase 4b-iv correctness fence: if we're a parallel worker and
-        // mpp_state is None even though MPP is supposed to be active, the
-        // leader has flipped parallel-safe (step 4) without step 3's
-        // worker attach being wired. Silently running the non-MPP path
-        // here would double-count at the final gather. Abort loudly
-        // instead. No-op until step 4 lands; once both step 3 and step 4
-        // are in place, mpp_state is always Some on a worker and this
-        // never fires.
+        // Correctness fence: if we're a parallel worker and `mpp_state` is
+        // None even though MPP is supposed to be active, the worker DSM
+        // attach didn't run. Silently running the non-MPP path here would
+        // double-count at the final gather. Abort loudly instead.
         // `IsParallelWorker` is a C macro (`ParallelWorkerNumber >= 0`);
         // pgrx exposes the underlying int but not the macro, so inline it.
         let is_parallel_worker = unsafe { pg_sys::ParallelWorkerNumber } >= 0;
@@ -1318,9 +1313,8 @@ impl AggregateScan {
         {
             pgrx::error!(
                 "mpp: parallel worker reached exec_datafusion_aggregate without \
-                 MppExecutionState — Phase 4b-iv step 3 (worker DSM attach) must \
-                 land before step 4 (parallel-safe flip). Wrong-result scenario \
-                 averted via loud abort."
+                 MppExecutionState — worker DSM attach did not run. Wrong-result \
+                 scenario averted via loud abort."
             );
         }
 
@@ -2045,28 +2039,12 @@ unsafe fn get_aggregate_name(aggref: *mut pg_sys::Aggref) -> String {
 }
 
 // ----------------------------------------------------------------------------
-// Phase 4b-ii/iii: ParallelQueryCapable for AggregateScan.
-//
-// Delegation surface for the MPP lifecycle hooks. Today AggregateScan's
-// `create_custom_path` does NOT flag its paths as parallel-safe, so PG
-// never actually invokes these — the logging/debug_assert paths below
-// are cold. Wiring them here keeps the surface compiled and lets
-// Phase 4b-iv activate MPP with a single flip in `create_custom_path`
-// + a plan-bytes stash.
-//
-// Remaining Phase 4b work:
-//   * Flip parallel-safe + parallel_workers in `create_custom_path` via
-//     `CustomPathBuilder::set_parallel(nworkers)` when
-//     `mpp_eligible_for_aggregate()` returns true.
-//   * Serialize the logical plan in `begin_custom_scan` (NOT in
-//     `create_custom_path` or `estimate_dsm_custom_scan`) and stash the
-//     bytes on `AggregateScanState`. Path-build is too early (planner may
-//     discard the path); `estimate_dsm_custom_scan` is too late and would
-//     force re-lowering per parallel init. `begin_custom_scan` runs once
-//     per query after the plan is committed.
-//   * Teach `exec_datafusion_aggregate` to route through
-//     `mpp::plan_build::build_mpp_aggregate_plan` when `mpp_state` is
-//     `Some`.
+// ParallelQueryCapable for AggregateScan — delegation surface for the MPP
+// lifecycle hooks. `create_custom_path` flags the path parallel-safe via
+// `CustomPathBuilder::set_parallel(nworkers)` when `mpp_eligible_for_aggregate()`
+// is true; `begin_custom_scan` serializes the logical plan and stashes the
+// bytes on `AggregateScanState`; `exec_datafusion_aggregate` routes through
+// `mpp::plan_build::build_mpp_aggregate_plan` when `mpp_state` is `Some`.
 // ----------------------------------------------------------------------------
 impl ParallelQueryCapable for AggregateScan {
     fn estimate_dsm_custom_scan(
@@ -2165,8 +2143,8 @@ impl ParallelQueryCapable for AggregateScan {
         _pcxt: *mut pg_sys::ParallelContext,
         _coordinate: *mut std::os::raw::c_void,
     ) {
-        // Rescan is Phase 5+ territory. A rescanned MPP aggregate would
-        // need a full mesh teardown + rebuild.
+        // Rescan is out of scope. A rescanned MPP aggregate would need a
+        // full mesh teardown + rebuild.
     }
 
     fn initialize_worker_custom_scan(
@@ -2188,7 +2166,7 @@ impl ParallelQueryCapable for AggregateScan {
         // `shm_mq_attach` handles NULL seg by skipping its
         // `on_dsm_detach` callback and letting process-exit clean up
         // the shm_mq handles. Safe for parallel-worker lifetimes where
-        // the process dies with the query (Phase 4b-iv scope).
+        // the process dies with the query.
         //
         // For region_total, we read the header's own `region_total`
         // field (the first 8 bytes of the header's final u64). This
@@ -2236,17 +2214,15 @@ impl ParallelQueryCapable for AggregateScan {
 
 /// Eligibility predicate for firing the MPP path from `create_custom_path`.
 ///
-/// Rules (derived from the eligibility research):
+/// Rules:
 ///   * `paradedb.enable_mpp` ON AND `paradedb.mpp_worker_count` >= 2
 ///   * Aggregate is over a JOIN (RELOPT_JOINREL), not a single table
-///   * (Phase 4b-iv) only COUNT / SUM / MIN / MAX / AVG / BOOL_* /
-///     STDDEV_* / VAR_* aggregates — no DISTINCT, ARRAY_AGG, STRING_AGG
-///   * (Phase 4b-iv) GROUP BY keys are simple column references
+///   * Only COUNT / SUM / MIN / MAX / AVG / BOOL_* / STDDEV_* / VAR_*
+///     aggregates — no DISTINCT, ARRAY_AGG, STRING_AGG
+///   * GROUP BY keys are simple column references
 ///
-/// Today this is consulted by the stub trait impl's diagnostic log and by
-/// Phase 4b-iv's parallel-safe flip. Kept here so the eligibility rule has
-/// one canonical home.
-#[allow(dead_code)] // first caller lands in Phase 4b-iv
+/// Kept here so the eligibility rule has one canonical home.
+#[allow(dead_code)]
 pub fn mpp_eligible_for_aggregate(input_rel_kind: pg_sys::RelOptKind::Type) -> bool {
     if !crate::postgres::customscan::mpp::customscan_glue::mpp_is_active() {
         return false;

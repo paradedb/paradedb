@@ -140,10 +140,9 @@ pub struct AggregateScanState {
     /// MPP lifecycle state. Populated by `initialize_dsm_custom_scan`
     /// (leader) or `initialize_worker_custom_scan` (worker) when
     /// `mpp_is_active()` AND the path was flagged parallel-safe. Left
-    /// `None` for the serial (non-MPP) code path. Phase 4b-iv will
-    /// teach `exec_datafusion_aggregate` to route through
-    /// `mpp::plan_build::build_mpp_aggregate_plan` when this field is
-    /// `Some`.
+    /// `None` for the serial (non-MPP) code path. When `Some`,
+    /// `exec_datafusion_aggregate` routes through
+    /// `mpp::plan_build::build_mpp_aggregate_plan`.
     ///
     /// ## Drop ordering
     ///
@@ -151,9 +150,9 @@ pub struct AggregateScanState {
     /// matters because `MppExecutionState` owns shm_mq handles pointing
     /// into PG's DSM segment. PG's `ExecEndCustomScan` tears down our
     /// state *before* `ExecParallelCleanup` detaches the DSM segment, so
-    /// dropping `mpp_state` while DSM is still mapped is safe. Phase 4b-iv
-    /// will also wire a `DrainHandle` into `MppExecutionState::Leader`;
-    /// that handle must `join()` its drain thread before the DSM detaches,
+    /// dropping `mpp_state` while DSM is still mapped is safe.
+    /// `MppExecutionState::Leader` also holds a `DrainHandle`; that
+    /// handle must `join()` its drain thread before the DSM detaches,
     /// so don't move `mpp_state` earlier in this struct without revisiting
     /// the Drop chain.
     pub mpp_state: Option<crate::postgres::customscan::mpp::customscan_glue::MppExecutionState>,

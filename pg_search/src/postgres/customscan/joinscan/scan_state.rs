@@ -327,7 +327,7 @@ pub fn create_datafusion_session_context(profile: SessionContextProfile) -> Sess
 ///      preserved across the MPP HashJoin rebuild (via `builder()`) and
 ///      re-applied as a `FilterExec` above the post-shuffle probe stream by
 ///      `shape::build_*_on_binary_join`. See `exec_bridge.rs`.
-#[allow(dead_code)] // first MPP caller lands in Phase 4
+#[allow(dead_code)] // first caller is the MPP path
 pub fn create_datafusion_session_context_mpp(
     profile: SessionContextProfile,
     mpp: &crate::postgres::customscan::mpp::MppParticipantConfig,

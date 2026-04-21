@@ -34,6 +34,76 @@ pub trait ColumnMapper {
     fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr>;
 }
 
+/// Human-readable PG type name (e.g. `"integer"`, `"jsonb"`) for debug
+/// logging. Falls back to `"OID {n}"` if the OID can't be resolved.
+pub(crate) unsafe fn type_name(oid: pg_sys::Oid) -> String {
+    let c_str = pg_sys::format_type_be(oid);
+    if c_str.is_null() {
+        return format!("OID {}", oid);
+    }
+    std::ffi::CStr::from_ptr(c_str)
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Deparse a PG expression into readable SQL for debug logs. Builds a
+/// deparse context that covers every join source so Var nodes resolve to
+/// qualified column names (e.g. `e.pattern`). Wrapped in
+/// [`pgrx::PgTryBuilder`] so a PG error inside `deparse_expression` (which
+/// doesn't handle every possible node shape) degrades to a short tag
+/// fallback instead of unwinding the caller.
+pub(crate) unsafe fn deparse_expr_for_debug(
+    node: *mut pg_sys::Node,
+    sources: &[&JoinSource],
+) -> String {
+    use std::panic::AssertUnwindSafe;
+    if node.is_null() {
+        return "<null>".to_string();
+    }
+
+    let tag_fallback = || format!("{:?}", (*node).type_);
+
+    pgrx::PgTryBuilder::new(AssertUnwindSafe(|| {
+        let mut context: *mut pg_sys::List = std::ptr::null_mut();
+        for source in sources {
+            let alias = source.scan_info.alias.as_deref().unwrap_or("?");
+            let relname = match std::ffi::CString::new(alias) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let rel_context =
+                pg_sys::deparse_context_for(relname.as_ptr(), source.scan_info.heaprelid);
+            context = pg_sys::list_concat(context, rel_context);
+        }
+        let deparsed = pg_sys::deparse_expression(
+            node.cast(),
+            context,
+            sources.len() > 1,
+            false,
+        );
+        if deparsed.is_null() {
+            return tag_fallback();
+        }
+        std::ffi::CStr::from_ptr(deparsed)
+            .to_string_lossy()
+            .into_owned()
+    }))
+    .catch_others(|_| tag_fallback())
+    .execute()
+}
+
+/// Short label for a node tag (strips the `T_` prefix). Used in debug
+/// logs so the offending node type is immediately scannable. Separate from
+/// `expr_translators::node_tag_label`, which covers only the subset of
+/// tags that reach the UDF-naming path.
+pub(crate) unsafe fn node_tag_debug(node: *mut pg_sys::Node) -> String {
+    if node.is_null() {
+        return "null".to_string();
+    }
+    let dbg = format!("{:?}", (*node).type_);
+    dbg.strip_prefix("T_").unwrap_or(&dbg).to_string()
+}
+
 /// Helper struct for translating PostgreSQL expression trees into DataFusion `Expr`s.
 pub struct PredicateTranslator<'a> {
     pub sources: &'a [&'a JoinSource],
@@ -228,6 +298,7 @@ impl<'a> PredicateTranslator<'a> {
     /// cannot be evaluated purely in DataFusion and must fall back to PostgreSQL evaluation.
     pub unsafe fn translate(&self, node: *mut pg_sys::Node) -> Option<Expr> {
         if node.is_null() {
+            pgrx::debug1!("PredicateTranslator: null node pointer");
             return None;
         }
 
@@ -256,7 +327,17 @@ impl<'a> PredicateTranslator<'a> {
 
         // Fallback runs per recursive call, so the innermost failing subtree
         // gets wrapped, and its parent can still evaluate natively.
-        native.or_else(|| self.try_wrap_as_udf(node))
+        native.or_else(|| {
+            let wrapped = self.try_wrap_as_udf(node);
+            if wrapped.is_none() {
+                pgrx::debug1!(
+                    "PredicateTranslator: UDF fallback failed [{}] | {}",
+                    node_tag_debug(node),
+                    deparse_expr_for_debug(node, self.sources)
+                );
+            }
+            wrapped
+        })
     }
 
     // `translate_op_expr`, `translate_var`, `translate_const`,

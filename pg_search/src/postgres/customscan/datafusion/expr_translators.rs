@@ -32,7 +32,9 @@ use std::ffi::CStr;
 use std::sync::Arc;
 
 use crate::api::HashSet;
-use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
+use crate::postgres::customscan::datafusion::translator::{
+    deparse_expr_for_debug, node_tag_debug, type_name, PredicateTranslator,
+};
 use crate::postgres::customscan::expr_eval::InputVarInfo;
 use crate::postgres::customscan::pg_expr_udf::PgExprUdf;
 
@@ -81,13 +83,28 @@ impl<'a> PredicateTranslator<'a> {
         let namespace_ptr = pg_sys::get_namespace_name(namespace_oid);
         let func_name_ptr = pg_sys::get_func_name(funcid);
         if namespace_ptr.is_null() || func_name_ptr.is_null() {
+            pgrx::debug1!(
+                "PredicateTranslator: could not resolve function identity [FuncExpr] funcid={}",
+                funcid.to_u32()
+            );
             return None;
         }
 
         let schema = CStr::from_ptr(namespace_ptr).to_str().ok()?;
         let name = CStr::from_ptr(func_name_ptr).to_str().ok()?;
 
-        Self::translate_known_func(schema, name, df_args)
+        let arity = df_args.len();
+        let result = Self::translate_known_func(schema, name, df_args);
+        if result.is_none() {
+            pgrx::debug1!(
+                "PredicateTranslator: no native mapping [FuncExpr] func={}.{}, arity={} | {}",
+                schema,
+                name,
+                arity,
+                deparse_expr_for_debug(node, self.sources)
+            );
+        }
+        result
     }
 
     /// Map a `(schema, name, args)` triple to a native DataFusion `Expr`.
@@ -203,6 +220,7 @@ impl<'a> PredicateTranslator<'a> {
             when_then_expr.push((Box::new(when), Box::new(then)));
         }
         if when_then_expr.is_empty() {
+            pgrx::debug1!("PredicateTranslator: empty WHEN list [CaseExpr]");
             return None;
         }
 
@@ -230,6 +248,7 @@ impl<'a> PredicateTranslator<'a> {
             pg_args.iter_ptr().map(|arg| self.translate(arg)).collect();
         let df_args = df_args?;
         if df_args.is_empty() {
+            pgrx::debug1!("PredicateTranslator: empty args list [CoalesceExpr]");
             return None;
         }
 
@@ -249,6 +268,10 @@ impl<'a> PredicateTranslator<'a> {
         let op = node as *mut pg_sys::OpExpr;
         let args = PgList::<pg_sys::Node>::from_pg((*op).args);
         if args.len() != 2 {
+            pgrx::debug1!(
+                "PredicateTranslator: expected 2 args, got {} [NullIfExpr]",
+                args.len()
+            );
             return None;
         }
         let left = self.translate(args.get_ptr(0)?)?;
@@ -267,6 +290,7 @@ impl<'a> PredicateTranslator<'a> {
             pg_args.iter_ptr().map(|arg| self.translate(arg)).collect();
         let df_args = df_args?;
         if df_args.is_empty() {
+            pgrx::debug1!("PredicateTranslator: empty args list [MinMaxExpr]");
             return None;
         }
 
@@ -290,6 +314,10 @@ impl<'a> PredicateTranslator<'a> {
         let saop = node as *mut pg_sys::ScalarArrayOpExpr;
         let args = PgList::<pg_sys::Node>::from_pg((*saop).args);
         if args.len() != 2 {
+            pgrx::debug1!(
+                "PredicateTranslator: expected 2 args, got {} [ScalarArrayOpExpr]",
+                args.len()
+            );
             return None;
         }
 
@@ -297,6 +325,11 @@ impl<'a> PredicateTranslator<'a> {
 
         let rhs = args.get_ptr(1)?;
         if (*rhs).type_ != pg_sys::NodeTag::T_ArrayExpr {
+            pgrx::debug1!(
+                "PredicateTranslator: RHS is not ArrayExpr [ScalarArrayOpExpr] rhs_tag={} | {}",
+                node_tag_debug(rhs),
+                deparse_expr_for_debug(node, self.sources)
+            );
             return None;
         }
         let array_expr = rhs as *mut pg_sys::ArrayExpr;
@@ -332,6 +365,12 @@ impl<'a> PredicateTranslator<'a> {
         if in_text(source) && in_text(target) {
             self.translate(arg_node)
         } else {
+            pgrx::debug1!(
+                "PredicateTranslator: rejected cross-type coercion [CoerceViaIO] source={}, target={} | {}",
+                type_name(source),
+                type_name(target),
+                deparse_expr_for_debug(node, self.sources)
+            );
             None
         }
     }
@@ -351,7 +390,15 @@ impl<'a> PredicateTranslator<'a> {
     /// translation is wrapped here.
     pub(crate) unsafe fn try_wrap_as_udf(&self, node: *mut pg_sys::Node) -> Option<Expr> {
         let result_type_oid = pg_sys::exprType(node);
-        PgExprUdf::get_result_type_to_arrow(result_type_oid)?;
+        if PgExprUdf::get_result_type_to_arrow(result_type_oid).is_none() {
+            pgrx::debug1!(
+                "PredicateTranslator: unsupported result type for UDF wrap [{}] type={} | {}",
+                node_tag_debug(node),
+                type_name(result_type_oid),
+                deparse_expr_for_debug(node, self.sources)
+            );
+            return None;
+        }
 
         let var_list = pg_sys::pull_var_clause(node, PVC_RECURSE_ALL);
         let vars = PgList::<pg_sys::Var>::from_pg(var_list);
@@ -382,7 +429,19 @@ impl<'a> PredicateTranslator<'a> {
                 continue;
             }
 
-            let col_expr = self.translate_var(var_ptr)?;
+            let col_expr = match self.translate_var(var_ptr) {
+                Some(expr) => expr,
+                None => {
+                    pgrx::debug1!(
+                        "PredicateTranslator: UDF wrap failed — could not resolve Var [{}] varno={}, varattno={} | {}",
+                        node_tag_debug(node),
+                        varno,
+                        varattno,
+                        deparse_expr_for_debug(node, self.sources)
+                    );
+                    return None;
+                }
+            };
             input_exprs.push(col_expr);
             input_vars.push(InputVarInfo {
                 rti: varno,
@@ -395,6 +454,10 @@ impl<'a> PredicateTranslator<'a> {
 
         let node_str = pg_sys::nodeToString(node.cast());
         if node_str.is_null() {
+            pgrx::debug1!(
+                "PredicateTranslator: nodeToString returned null [{}]",
+                node_tag_debug(node)
+            );
             return None;
         }
         let pg_expr_string = CStr::from_ptr(node_str).to_string_lossy().into_owned();
@@ -416,13 +479,24 @@ impl<'a> PredicateTranslator<'a> {
     // -----------------------------------------------------------------
 
     pub(crate) unsafe fn translate_op_expr(&self, op_expr: *mut pg_sys::OpExpr) -> Option<Expr> {
+        let node = op_expr as *mut pg_sys::Node;
         let args = PgList::<pg_sys::Node>::from_pg((*op_expr).args);
         if args.len() != 2 {
+            pgrx::debug1!(
+                "PredicateTranslator: expected 2 args, got {} [OpExpr]",
+                args.len()
+            );
             return None; // Only support binary operators for now
         }
 
-        let left = self.translate(args.get_ptr(0)?)?;
-        let right = self.translate(args.get_ptr(1)?)?;
+        // Capture raw arg types before translation for diagnostic logging.
+        let left_arg = args.get_ptr(0)?;
+        let right_arg = args.get_ptr(1)?;
+        let left_type = pg_sys::exprType(left_arg);
+        let right_type = pg_sys::exprType(right_arg);
+
+        let left = self.translate(left_arg)?;
+        let right = self.translate(right_arg)?;
 
         // Resolve the operator name straight from PG's catalog. The shared
         // `lookup_operator` table in `opexpr.rs` is scoped to the Tantivy
@@ -431,6 +505,10 @@ impl<'a> PredicateTranslator<'a> {
         let opno = (*op_expr).opno;
         let op_name_ptr = pg_sys::get_opname(opno);
         if op_name_ptr.is_null() {
+            pgrx::debug1!(
+                "PredicateTranslator: get_opname returned null [OpExpr] opno={}",
+                opno.to_u32()
+            );
             return None;
         }
         let op_str = CStr::from_ptr(op_name_ptr).to_str().ok()?;
@@ -446,7 +524,16 @@ impl<'a> PredicateTranslator<'a> {
             "*" => Operator::Multiply,
             "/" => Operator::Divide,
             "%" => Operator::Modulo,
-            _ => return None,
+            _ => {
+                pgrx::debug1!(
+                    "PredicateTranslator: unsupported operator [OpExpr] op=\"{}\", types=({}, {}) | {}",
+                    op_str,
+                    type_name(left_type),
+                    type_name(right_type),
+                    deparse_expr_for_debug(node, self.sources)
+                );
+                return None;
+            }
         };
 
         Some(Expr::BinaryExpr(BinaryExpr::new(
@@ -464,6 +551,11 @@ impl<'a> PredicateTranslator<'a> {
         if varno != pg_sys::INDEX_VAR as pg_sys::Index
             && !self.sources.iter().any(|s| s.contains_rti(varno))
         {
+            pgrx::debug1!(
+                "PredicateTranslator: unknown source [Var] varno={}, varattno={}",
+                varno,
+                varattno
+            );
             return None;
         }
 
@@ -471,6 +563,11 @@ impl<'a> PredicateTranslator<'a> {
             if let Some(expr) = mapper.map_var(varno, varattno) {
                 return Some(expr);
             }
+            pgrx::debug1!(
+                "PredicateTranslator: mapper failed to resolve [Var] varno={}, varattno={}",
+                varno,
+                varattno
+            );
             return None;
         }
 
@@ -511,7 +608,13 @@ impl<'a> PredicateTranslator<'a> {
                 let val = datum.value() != 0;
                 ScalarValue::Boolean(Some(val))
             }
-            _ => return None,
+            _ => {
+                pgrx::debug1!(
+                    "PredicateTranslator: unsupported const type [Const] type={}",
+                    type_name(type_oid)
+                );
+                return None;
+            }
         };
 
         Some(lit(scalar_value))

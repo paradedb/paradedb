@@ -547,6 +547,7 @@ impl PgSearchTableProvider {
     /// `SortPreservingMergeExec` across the partitions. Since there is no competition
     /// with other workers for these segments, no prefetching or throttling is necessary.
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     fn create_eager_scan(
         &self,
         reader: &SearchIndexReader,
@@ -557,12 +558,22 @@ impl PgSearchTableProvider {
         schema: SchemaRef,
         query_for_display: SearchQueryInput,
         sort_order: Option<&crate::postgres::options::SortByField>,
+        mpp_shard: Option<(u32, u32)>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let ffhelper = Arc::new(ffhelper);
         let segments: Vec<ScanState> = reader
             .segment_readers()
             .iter()
-            .map(|r| {
+            .enumerate()
+            // MPP sharded eager-scan: each participant opens only its own
+            // subset. Filter applies identically across all participants
+            // because `segment_readers()` has deterministic order, so
+            // every segment ends up on exactly one participant.
+            .filter(|(i, _)| match mpp_shard {
+                Some((pi, total)) => (*i as u32) % total == pi,
+                None => true,
+            })
+            .map(|(_, r)| {
                 self.create_scan_partition(
                     reader,
                     r.segment_id(),
@@ -593,6 +604,7 @@ impl PgSearchTableProvider {
     /// exactly which segments it will end up scanning at planning time to sum their individual
     /// sizes. Instead, it relies on the estimated partition size computed during query planning.
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     fn create_lazy_scan(
         &self,
         parallel_state: Option<*mut ParallelScanState>,
@@ -604,9 +616,25 @@ impl PgSearchTableProvider {
         schema: SchemaRef,
         query_for_display: SearchQueryInput,
         planner_estimated_rows: u64,
+        mpp_shard: Option<(u32, u32)>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let search_results = if let Some(parallel_state) = parallel_state {
             reader.search_lazy(parallel_state, planner_estimated_rows)
+        } else if let Some((participant_index, total_participants)) = mpp_shard {
+            // MPP sharded lazy scan: each participant reads only its share
+            // of segments (`segment_idx % total == participant_index`), so
+            // the scan work is split N ways across participants. The
+            // hash-shuffle above then redistributes rows by join key —
+            // because each input row is scanned by exactly one participant,
+            // the shuffle output matches the serial scan.
+            let sharded_ids = reader
+                .searcher()
+                .segment_readers()
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| (*i as u32) % total_participants == participant_index)
+                .map(|(_, r)| r.segment_id());
+            reader.search_segments(sharded_ids)
         } else {
             // Unsorted Serial
             reader.search()
@@ -692,11 +720,22 @@ impl TableProvider for PgSearchTableProvider {
 
     async fn scan(
         &self,
-        _state: &dyn Session,
+        state: &dyn Session,
         projection: Option<&Vec<usize>>,
         filters: &[Expr],
         _limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
+        // MPP sharding: the exec bridge stashes a `MppShardConfig` as a
+        // session config extension before `build_join_aggregate_plan`
+        // builds the logical plan. When present AND we take the lazy
+        // (un-parallel) scan path, each participant reads only its share
+        // of segments — see `create_lazy_scan`. Absent for non-MPP
+        // queries and for the sorted/eager paths that have their own
+        // parallelization story.
+        let mpp_shard = state
+            .config()
+            .get_extension::<crate::postgres::customscan::mpp::MppShardConfig>()
+            .map(|cfg| (cfg.participant_index, cfg.total_participants));
         // TODO: We should support limit pushdown here to allow providing a batch size hint
         // to the Scanner.
 
@@ -804,6 +843,7 @@ impl TableProvider for PgSearchTableProvider {
                     projected_schema,
                     query,
                     Some(sort_order),
+                    mpp_shard,
                 )
             }
         } else {
@@ -823,6 +863,7 @@ impl TableProvider for PgSearchTableProvider {
                 projected_schema,
                 query,
                 total_estimated_rows,
+                mpp_shard,
             )
         }
     }

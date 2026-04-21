@@ -27,19 +27,56 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Resolves the immediately preceding released version on the upgrade path
+  # (the highest semver tag less than the current Cargo.toml version) plus its
+  # matching pgrx version, and emits the full matrix of upgrade starting points.
+  discover-upgrade-starting-points:
+    name: Discover upgrade starting points
+    runs-on: ubuntu-latest
+    outputs:
+      prior_matrix: ${{ steps.compute.outputs.prior_matrix }}
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # Fetch the entire history (required to read tags)
+
+      - name: Compute prior versions
+        id: compute
+        run: |
+          set -euo pipefail
+          CURRENT=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
+          TAGS=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$')
+          SORTED=$(printf "%s\nv%s\n" "$TAGS" "$CURRENT" | sort -V -u)
+          PRIOR=$(echo "$SORTED" | awk -v cur="v$CURRENT" 'prev != "" && $0 == cur { print prev; exit } { prev = $0 }')
+          if [ -z "$PRIOR" ]; then
+            echo "Could not determine prior version for current=$CURRENT" >&2
+            exit 1
+          fi
+          PRIOR_PGRX=$(git show "$PRIOR:Cargo.toml" | sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' | head -1)
+          if [ -z "$PRIOR_PGRX" ]; then
+            echo "Could not determine pgrx version at $PRIOR" >&2
+            exit 1
+          fi
+          echo "Resolved prior=$PRIOR pgrx=$PRIOR_PGRX (current=$CURRENT)"
+
+          # v0.21.0 is the first pg_search version with Postgres 18 support.
+          # Dedup in case the dynamic prior happens to also be v0.21.0.
+          MATRIX=$(jq -nc --arg p "$PRIOR" --arg pgrx "$PRIOR_PGRX" '[
+            { "pg_search_version": "v0.21.0", "pgrx_version": "0.16.1" },
+            { "pg_search_version": $p, "pgrx_version": $pgrx }
+          ] | unique_by(.pg_search_version)')
+          echo "prior_matrix=$MATRIX" >> $GITHUB_OUTPUT
+
   test-pg_search-upgrade:
     name: Test upgrading pg_search via ALTER EXTENSION
+    needs: discover-upgrade-starting-points
     runs-on: ubicloud-standard-8-arm-ubuntu-2404
     strategy:
       fail-fast: false
       matrix:
         pg_version: [18]
-        # Each entry is an upgrade starting point. v0.21.0 is the first pg_search
-        # version that has Postgres 18 support; pgrx_version must match the prior
-        # pg_search version's pgrx dependency.
-        prior:
-          - pg_search_version: "v0.21.0"
-            pgrx_version: "0.16.1"
+        prior: ${{ fromJSON(needs.discover-upgrade-starting-points.outputs.prior_matrix) }}
 
     steps:
       - name: Checkout Git Repository

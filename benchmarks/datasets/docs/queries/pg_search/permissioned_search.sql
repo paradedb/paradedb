@@ -27,3 +27,17 @@ WHERE
 ORDER BY
     relevance DESC
 LIMIT 10;
+
+-- MPP join scan
+SET statement_timeout TO '300s'; SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SET paradedb.enable_mpp TO on; SELECT
+    f.id,
+    f.title,
+    pdb.score(f.id) as relevance
+FROM files f
+JOIN documents d ON f."documentId" = d.id
+WHERE
+    f.title ||| 'File'              -- Driving the Sort (Single Feature)
+    AND d.parents ||| 'parent group'
+ORDER BY
+    relevance DESC
+LIMIT 10;

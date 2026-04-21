@@ -647,6 +647,22 @@ impl JoinScan {
             0
         };
 
+        // When MPP is active for a binary join (the JoinOnly shape), PG's
+        // worker count must match `mpp_worker_count - 1`. Otherwise PG
+        // launches workers whose `ParallelWorkerNumber` exceeds
+        // `total_participants - 1`, and `worker_init_dsm` errors with
+        // "participant_index out of range". Mirrors the AggregateScan MPP
+        // path's `maybe_flip_mpp_parallel`.
+        let nworkers = if nworkers > 0
+            && join_clause.plan.sources().len() == 2
+            && crate::postgres::customscan::mpp::customscan_glue::mpp_is_active()
+        {
+            let n = crate::postgres::customscan::mpp::customscan_glue::mpp_worker_count() as usize;
+            n.saturating_sub(1).max(1)
+        } else {
+            nworkers
+        };
+
         if nworkers > 0 {
             let processes = std::cmp::max(
                 1,
@@ -727,9 +743,187 @@ impl ParallelQueryCapable for JoinScan {
         state: &mut CustomScanStateWrapper<Self>,
         _pcxt: *mut pg_sys::ParallelContext,
     ) -> pg_sys::Size {
-        // Size DSM from actual execution-time segment counts (via manifests) rather
-        // than planning-time scan_info.segment_count, which can diverge under
-        // concurrent inserts.
+        // MPP branch: when `begin_custom_scan` classified this query as
+        // JoinOnly and serialized the broadcast plan, we size DSM for the
+        // MPP mesh instead of the broadcast-join `ParallelScanState`. PG
+        // hands us one coordinate region; MPP and broadcast-join layouts
+        // are incompatible in it, so this is an OR choice.
+        if let Some(shape) = state.custom_state().mpp_shape {
+            let Some(plan_bytes) = state.custom_state().logical_plan_bytes.as_ref() else {
+                crate::mpp_log!(
+                    "mpp: JoinScan::estimate_dsm_custom_scan but logical_plan_bytes is None; \
+                     falling back to non-MPP sizing"
+                );
+                return Self::estimate_broadcast_dsm(state);
+            };
+            let num_meshes = crate::postgres::customscan::mpp::shape::shuffles_required(shape);
+            if num_meshes == 0 {
+                return Self::estimate_broadcast_dsm(state);
+            }
+            return match crate::postgres::customscan::mpp::customscan_glue::leader_estimate_dsm(
+                plan_bytes.len(),
+                num_meshes,
+            ) {
+                Ok(sz) => sz,
+                Err(e) => {
+                    crate::mpp_log!(
+                        "mpp: JoinScan leader_estimate_dsm failed: {e}; falling back to non-MPP"
+                    );
+                    Self::estimate_broadcast_dsm(state)
+                }
+            };
+        }
+
+        Self::estimate_broadcast_dsm(state)
+    }
+
+    fn initialize_dsm_custom_scan(
+        state: &mut CustomScanStateWrapper<Self>,
+        pcxt: *mut pg_sys::ParallelContext,
+        coordinate: *mut c_void,
+    ) {
+        // MPP branch mirrors AggregateScan::initialize_dsm_custom_scan.
+        if let Some(shape) = state.custom_state().mpp_shape {
+            debug_assert!(state.custom_state().mpp_state.is_none());
+            if coordinate.is_null() {
+                // `estimate_dsm` returned 0 (plan bytes unavailable) — PG
+                // hands us NULL. Silently fall back to non-MPP.
+                Self::initialize_broadcast_dsm(state, coordinate);
+                return;
+            }
+            let Some(plan_bytes) = state.custom_state().logical_plan_bytes.as_ref() else {
+                Self::initialize_broadcast_dsm(state, coordinate);
+                return;
+            };
+            let plan_bytes = plan_bytes.to_vec();
+            let num_meshes = crate::postgres::customscan::mpp::shape::shuffles_required(shape);
+            if num_meshes == 0 {
+                Self::initialize_broadcast_dsm(state, coordinate);
+                return;
+            }
+            let seg = unsafe { (*pcxt).seg };
+            let ctx = unsafe {
+                crate::postgres::customscan::mpp::customscan_glue::leader_init_dsm(
+                    coordinate, plan_bytes, num_meshes, seg,
+                )
+            };
+            match ctx {
+                Ok(leader_ctx) => {
+                    crate::mpp_log!(
+                        "mpp: JoinScan leader initialized DSM for {} participants (shape={:?})",
+                        leader_ctx.participant_config().total_participants,
+                        shape,
+                    );
+                    state.custom_state_mut().mpp_state = Some(leader_ctx);
+                }
+                Err(e) => {
+                    // Partial-init leaves DSM in undefined state — fail
+                    // loudly, same rationale as AggregateScan.
+                    pgrx::error!("mpp: JoinScan leader_init_dsm failed: {e}");
+                }
+            }
+            return;
+        }
+
+        Self::initialize_broadcast_dsm(state, coordinate);
+    }
+
+    fn reinitialize_dsm_custom_scan(
+        state: &mut CustomScanStateWrapper<Self>,
+        _pcxt: *mut pg_sys::ParallelContext,
+        coordinate: *mut c_void,
+    ) {
+        // MPP rescan is out of scope in Phase 5; the non-MPP path resets
+        // the broadcast-join `ParallelScanState` as before.
+        if state.custom_state().mpp_shape.is_some() {
+            // No-op: a rescanned MPP join would need a full mesh teardown
+            // + rebuild, same gap AggregateScan leaves.
+            return;
+        }
+        let pscan_state = coordinate.cast::<ParallelScanState>();
+        assert!(!pscan_state.is_null(), "coordinate is null");
+        unsafe {
+            (*pscan_state).reset();
+        }
+    }
+
+    fn initialize_worker_custom_scan(
+        state: &mut CustomScanStateWrapper<Self>,
+        _toc: *mut pg_sys::shm_toc,
+        coordinate: *mut c_void,
+    ) {
+        // MPP branch: if the leader wrote MPP header magic, attach as an
+        // MPP worker. We key off the DSM header's magic via the same
+        // `MppDsmHeader` read AggregateScan uses — we don't have
+        // `mpp_shape` on the worker side (that state doesn't propagate
+        // through PrivateData), so we inspect the region itself.
+        if crate::postgres::customscan::mpp::customscan_glue::mpp_is_active()
+            && !coordinate.is_null()
+            && Self::dsm_looks_like_mpp(coordinate)
+        {
+            debug_assert!(state.custom_state().mpp_state.is_none());
+            let region_total = unsafe {
+                let header = std::ptr::read_unaligned(
+                    coordinate as *const crate::postgres::customscan::mpp::worker::MppDsmHeader,
+                );
+                header.region_total
+            };
+            let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
+            let ctx = unsafe {
+                crate::postgres::customscan::mpp::customscan_glue::worker_init_dsm(
+                    coordinate,
+                    region_total,
+                    worker_number,
+                    std::ptr::null_mut(),
+                )
+            };
+            match ctx {
+                Ok(worker_ctx) => {
+                    crate::mpp_log!(
+                        "mpp: JoinScan worker {} attached to DSM ({} participants)",
+                        worker_number,
+                        worker_ctx.participant_config().total_participants
+                    );
+                    state.custom_state_mut().mpp_state = Some(worker_ctx);
+                    return;
+                }
+                Err(e) => {
+                    // Worker-side attach failure is fatal because the
+                    // leader expects an MPP participant on this seat.
+                    pgrx::error!(
+                        "mpp: JoinScan worker_init_dsm failed on worker {worker_number}: {e}"
+                    );
+                }
+            }
+        }
+
+        let pscan_state = coordinate.cast::<ParallelScanState>();
+        assert!(!pscan_state.is_null(), "coordinate is null");
+
+        state.custom_state_mut().parallel_state = Some(pscan_state);
+
+        // Workers must wait for the leader to finish populating the segment pool.
+        unsafe {
+            (*pscan_state).wait_for_initialization();
+        }
+
+        // Read the canonical non-partitioning segment ID sets that the leader wrote to
+        // shared memory.  These are used in exec_custom_scan to ensure every worker opens
+        // each replicated source with MvccSatisfies::ParallelWorker, which pins the
+        // visible segment list to exactly what the leader snapshotted.
+        let non_partitioning_segments = unsafe { (*pscan_state).non_partitioning_segment_ids() };
+        state.custom_state_mut().non_partitioning_segments = non_partitioning_segments;
+
+        // We don't need to deserialize query from parallel state for JoinScan
+        // because the full plan (including query) is serialized in PrivateData
+        // and available to the worker via the plan.
+    }
+}
+
+impl JoinScan {
+    /// DSM sizing for the non-MPP broadcast-join path. Extracted so both the
+    /// non-MPP branch and the MPP fallback can call it.
+    fn estimate_broadcast_dsm(state: &mut CustomScanStateWrapper<Self>) -> pg_sys::Size {
         Self::ensure_source_manifests(state);
 
         let join_clause = &state.custom_state().join_clause;
@@ -744,11 +938,9 @@ impl ParallelQueryCapable for JoinScan {
         ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false)
     }
 
-    fn initialize_dsm_custom_scan(
-        state: &mut CustomScanStateWrapper<Self>,
-        _pcxt: *mut pg_sys::ParallelContext,
-        coordinate: *mut c_void,
-    ) {
+    /// DSM population for the non-MPP broadcast-join path. Extracted so both
+    /// the non-MPP branch and the MPP fallback can call it.
+    fn initialize_broadcast_dsm(state: &mut CustomScanStateWrapper<Self>, coordinate: *mut c_void) {
         let pscan_state = coordinate.cast::<ParallelScanState>();
         assert!(!pscan_state.is_null(), "coordinate is null");
 
@@ -781,47 +973,83 @@ impl ParallelQueryCapable for JoinScan {
         state.custom_state_mut().non_partitioning_segments = non_partitioning_segments;
     }
 
-    fn reinitialize_dsm_custom_scan(
-        _state: &mut CustomScanStateWrapper<Self>,
-        _pcxt: *mut pg_sys::ParallelContext,
-        coordinate: *mut c_void,
-    ) {
-        let pscan_state = coordinate.cast::<ParallelScanState>();
-        assert!(!pscan_state.is_null(), "coordinate is null");
+    /// Quick heuristic to detect whether `coordinate` points to an
+    /// MPP-initialized DSM region (as opposed to a `ParallelScanState` the
+    /// broadcast-join path allocated). Reads the header's `magic` field;
+    /// `MppDsmHeader` places a fixed magic at the start of the region. Safe
+    /// to call speculatively because the read is aligned and bounded to the
+    /// header struct size — if the region is `ParallelScanState`-sized, the
+    /// magic won't match and we fall through to the broadcast-join branch.
+    fn dsm_looks_like_mpp(coordinate: *mut c_void) -> bool {
         unsafe {
-            (*pscan_state).reset();
+            let header = std::ptr::read_unaligned(
+                coordinate as *const crate::postgres::customscan::mpp::worker::MppDsmHeader,
+            );
+            header.magic == crate::postgres::customscan::mpp::worker::MPP_DSM_MAGIC
         }
     }
 
-    fn initialize_worker_custom_scan(
-        state: &mut CustomScanStateWrapper<Self>,
-        _toc: *mut pg_sys::shm_toc,
-        coordinate: *mut c_void,
-    ) {
-        let pscan_state = coordinate.cast::<ParallelScanState>();
-        assert!(!pscan_state.is_null(), "coordinate is null");
+    /// Wrap the already-serialized logical plan in `MppPlanBroadcast` and
+    /// stash the bytes + classified shape on `JoinScanState` for the MPP DSM
+    /// hooks to consume. Called from `begin_custom_scan` when `mpp_is_active()`
+    /// and the query is not EXPLAIN-only.
+    ///
+    /// Classification is derived from `join_clause.plan.sources().len()` — a
+    /// 2-source binary join maps to [`MppPlanShape::JoinOnly`]; anything else
+    /// stays `Ineligible`. Failures (serialize error, ineligible shape) leave
+    /// the MPP fields `None` and the scan silently falls back to the non-MPP
+    /// broadcast-join path — same ops-friendly behavior as AggregateScan.
+    fn maybe_stash_mpp_plan_bytes(state: &mut CustomScanStateWrapper<Self>) {
+        use crate::postgres::customscan::mpp::shape::{classify, ClassifyInputs, MppPlanShape};
 
-        state.custom_state_mut().parallel_state = Some(pscan_state);
+        let Some(raw_plan_bytes) = state.custom_state().logical_plan.as_ref() else {
+            crate::mpp_log!(
+                "mpp: JoinScan begin_custom_scan has no logical_plan bytes; MPP falls back"
+            );
+            return;
+        };
+        let raw_plan_bytes = raw_plan_bytes.clone();
 
-        // Workers must wait for the leader to finish populating the segment pool.
-        unsafe {
-            (*pscan_state).wait_for_initialization();
+        let n_join_tables = state.custom_state().join_clause.plan.sources().len();
+        let shape = classify(&ClassifyInputs {
+            n_join_tables,
+            has_group_by: false,
+            all_aggregates_splittable: true,
+            has_aggregate: false,
+        });
+        if !matches!(shape, MppPlanShape::JoinOnly) {
+            crate::mpp_log!(
+                "mpp: JoinScan shape={:?} (n_join_tables={}); staying on non-MPP path",
+                shape,
+                n_join_tables
+            );
+            return;
         }
 
-        // Read the canonical non-partitioning segment ID sets that the leader wrote to
-        // shared memory.  These are used in exec_custom_scan to ensure every worker opens
-        // each replicated source with MvccSatisfies::ParallelWorker, which pins the
-        // visible segment list to exactly what the leader snapshotted.
-        let non_partitioning_segments = unsafe { (*pscan_state).non_partitioning_segment_ids() };
-        state.custom_state_mut().non_partitioning_segments = non_partitioning_segments;
-
-        // We don't need to deserialize query from parallel state for JoinScan
-        // because the full plan (including query) is serialized in PrivateData
-        // and available to the worker via the plan.
+        let n = crate::postgres::customscan::mpp::customscan_glue::mpp_worker_count();
+        let broadcast = crate::postgres::customscan::mpp::session::MppPlanBroadcast::new(
+            raw_plan_bytes.to_vec(),
+            n,
+            crate::postgres::customscan::mpp::session::MppSessionProfile::Join,
+        );
+        let broadcast_bytes = match broadcast.serialize() {
+            Ok(b) => b,
+            Err(e) => {
+                crate::mpp_log!(
+                    "mpp: JoinScan MppPlanBroadcast serialize failed, MPP falls back: {e}"
+                );
+                return;
+            }
+        };
+        crate::mpp_log!(
+            "mpp: JoinScan stashed plan-broadcast bytes (shape={:?}, n={})",
+            shape,
+            n
+        );
+        state.custom_state_mut().logical_plan_bytes = Some(bytes::Bytes::from(broadcast_bytes));
+        state.custom_state_mut().mpp_shape = Some(shape);
     }
-}
 
-impl JoinScan {
     /// Capture lightweight segment manifests for all join sources.
     ///
     /// Uses `SearchIndexManifest::capture` instead of opening full `SearchIndexReader`s
@@ -880,8 +1108,9 @@ impl JoinScan {
         let mut ids_by_pos = vec![None; plan_sources.len()];
         let partitioning_idx = join_clause.partitioning_source_index();
         let is_worker = unsafe { pg_sys::ParallelWorkerNumber >= 0 };
+        let is_mpp = state.custom_state().mpp_state.is_some();
 
-        if is_worker {
+        if is_worker && !is_mpp {
             let non_partitioning_segs = &state.custom_state().non_partitioning_segments;
             let mut np_counter = 0usize;
             for (i, _source) in plan_sources.iter().enumerate() {
@@ -1250,7 +1479,8 @@ impl CustomScan for JoinScan {
         estate: *mut pg_sys::EState,
         eflags: i32,
     ) {
-        if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) == 0 {
+        let explain_only = (eflags & pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) != 0;
+        if !explain_only {
             unsafe {
                 let planstate = state.planstate();
                 // Always assign an ExprContext — heap filters, runtime
@@ -1258,6 +1488,12 @@ impl CustomScan for JoinScan {
                 pg_sys::ExecAssignExprContext(estate, planstate);
                 state.custom_state_mut().result_slot = Some(state.csstate.ss.ps.ps_ResultTupleSlot);
                 state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
+            }
+
+            // Stash MPP plan-broadcast bytes + shape when MPP is active.
+            // Non-fatal on failure (logged + falls back to broadcast-join).
+            if crate::postgres::customscan::mpp::customscan_glue::mpp_is_active() {
+                Self::maybe_stash_mpp_plan_bytes(state);
             }
         }
     }
@@ -1307,7 +1543,42 @@ impl CustomScan for JoinScan {
                 let index_segment_ids =
                     Self::build_index_segment_ids(state, &join_clause, &plan_sources);
 
-                let ctx = create_datafusion_session_context(SessionContextProfile::Join);
+                // Pre-read the MPP shape BEFORE we take the DataFusion
+                // session/context borrow, because rewriting the physical
+                // plan below needs `mpp_state` mutably at the same time
+                // as the ctx is built.
+                let mpp_shape = if state.custom_state().mpp_state.is_some() {
+                    state.custom_state().mpp_shape
+                } else {
+                    None
+                };
+
+                // Build the session context. When this scan is an MPP
+                // participant, use `create_datafusion_session_context_mpp`
+                // so `SortMergeJoinEnforcer` is skipped (otherwise it
+                // collapses hash-partitioned streams) and inject
+                // `MppShardConfig` so `PgSearchTableProvider::scan`
+                // opens each participant's shard of segments.
+                let ctx = match state.custom_state().mpp_state.as_ref() {
+                    Some(mpp_state) if mpp_state.participant_config().total_participants > 1 => {
+                        let cfg = mpp_state.participant_config().clone();
+                        let ctx = scan_state::create_datafusion_session_context_mpp(
+                            SessionContextProfile::Join,
+                            &cfg,
+                        );
+                        ctx.state_ref()
+                            .write()
+                            .config_mut()
+                            .set_extension(std::sync::Arc::new(
+                                crate::postgres::customscan::mpp::MppShardConfig {
+                                    participant_index: cfg.participant_index,
+                                    total_participants: cfg.total_participants,
+                                },
+                            ));
+                        ctx
+                    }
+                    _ => create_datafusion_session_context(SessionContextProfile::Join),
+                };
                 let logical_plan = deserialize_logical_plan_with_runtime(
                     &plan_bytes,
                     &ctx.task_ctx(),
@@ -1319,10 +1590,36 @@ impl CustomScan for JoinScan {
                 )
                 .expect("Failed to deserialize logical plan");
 
-                // Convert logical plan to physical plan
-                let plan = runtime
+                // Convert logical plan to standard physical plan.
+                let standard_plan = runtime
                     .block_on(build_physical_plan(&ctx, logical_plan))
                     .expect("Failed to create execution plan");
+
+                // If MPP was set up by the DSM hooks, rewrite the
+                // standard plan into the JoinOnly MPP shape.
+                let plan = if let Some(shape) = mpp_shape {
+                    let mpp_state = state
+                        .custom_state_mut()
+                        .mpp_state
+                        .as_mut()
+                        .expect("mpp_shape set ⇒ mpp_state must be Some");
+                    crate::mpp_log!(
+                        "mpp: routing JoinScan exec through shape {:?} (is_leader={})",
+                        shape,
+                        mpp_state.is_leader()
+                    );
+                    let _guard = runtime.enter();
+                    match crate::postgres::customscan::mpp::exec_bridge::build_mpp_physical_plan(
+                        standard_plan,
+                        mpp_state,
+                        shape,
+                    ) {
+                        Ok(p) => p,
+                        Err(e) => panic!("mpp: JoinScan build_mpp_physical_plan failed: {e}"),
+                    }
+                } else {
+                    standard_plan
+                };
 
                 let task_ctx = build_task_context(
                     &ctx,

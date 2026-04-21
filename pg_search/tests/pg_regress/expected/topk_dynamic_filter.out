@@ -165,9 +165,9 @@ LIMIT 3;
            :     VisibilityFilterExec: tables=[s, p], metrics=[output_rows=6, output_bytes=64.1 KB, output_batches=1]
            :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, id@4], metrics=[output_rows=6, output_bytes=192.0 KB, output_batches=1, array_map_created_count=1, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=6, build_mem_used=20, avg_fanout=100% (6/6), probe_hit_rate=100% (6/6)]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"region","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1, output_bytes=16.0 B, output_batches=1]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[rows_pruned=24, rows_scanned=30]
+           :           PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[output_rows=6, output_bytes=160.0 B, output_batches=1, rows_pruned=24, rows_scanned=30]
 (15 rows)
 
 -- =============================================================================
@@ -485,9 +485,9 @@ LIMIT 3;
            :       VisibilityFilterExec: tables=[d, f], metrics=[output_rows=70, output_bytes=2030.0 B, output_batches=1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4], metrics=[output_rows=70, output_bytes=128.9 KB, output_batches=1, array_map_created_count=0, build_input_batches=1, build_input_rows=7, input_batches=1, input_rows=70, build_mem_used=424, avg_fanout=100% (70/70), probe_hit_rate=100% (70/70)]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=7, output_bytes=232.0 B, output_batches=1]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[rows_pruned=130, rows_scanned=200]
+           :             PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[output_rows=70, output_bytes=2.6 KB, output_batches=1, rows_pruned=130, rows_scanned=200]
 (16 rows)
 
 SELECT f.id, f.title
@@ -532,9 +532,9 @@ LIMIT 3;
            :       VisibilityFilterExec: tables=[d, f], metrics=[output_rows=10, output_bytes=290.0 B, output_batches=1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4], metrics=[output_rows=10, output_bytes=128.1 KB, output_batches=1, array_map_created_count=0, build_input_batches=1, build_input_rows=1, input_batches=1, input_rows=10, build_mem_used=105, avg_fanout=100% (10/10), probe_hit_rate=100% (10/10)]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"intro","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"intro","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1, output_bytes=32.0 B, output_batches=1]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[rows_pruned=190, rows_scanned=200]
+           :             PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[output_rows=10, output_bytes=378.0 B, output_batches=1, rows_pruned=190, rows_scanned=200]
 (16 rows)
 
 SELECT f.id, f.title

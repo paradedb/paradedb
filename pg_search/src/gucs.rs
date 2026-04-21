@@ -479,8 +479,8 @@ pub fn init() {
         c"High-water mark for MPP drain buffer (spill not yet implemented)",
         c"Reserved. When the in-memory drain buffer per participant exceeds this \
           many megabytes, incoming batches will spill to a Postgres BufFile-backed \
-          temp file. Spilling is not yet wired up as of Phase 2; the GUC is defined \
-          now so future benchmarks can exercise the cap without schema churn.",
+          temp file. Spilling is not yet wired up; the GUC is defined now so future \
+          benchmarks can exercise the cap without schema churn.",
         &MPP_DRAIN_WATERMARK_MB,
         0,
         i32::MAX,

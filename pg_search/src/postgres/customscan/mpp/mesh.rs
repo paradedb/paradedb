@@ -36,7 +36,7 @@
 //! are in this file so the full production transport stack lives next to the
 //! layout math.
 
-#![allow(dead_code)] // consumer lands in Phase 2c / Phase 4
+#![allow(dead_code)]
 
 use pgrx::pg_sys;
 use std::ptr::NonNull;
@@ -84,11 +84,10 @@ pub fn mesh_queue_bytes(n: u32, queue_bytes: usize) -> usize {
     num_edges(n) * aligned_queue_bytes(queue_bytes)
 }
 
-/// Layout description for the MPP mesh DSM region. Phase 2c will wire this
-/// into the custom scan's `estimate_dsm_custom_scan` / `initialize_dsm_custom_scan`
-/// hooks. For now the layout is a pure compile-time data shape that Phase 3
-/// operators and Phase 4 AggregateScan wiring can reason about without needing
-/// a running Postgres.
+/// Layout description for the MPP mesh DSM region. Consumed by the custom
+/// scan's `estimate_dsm_custom_scan` / `initialize_dsm_custom_scan` hooks and
+/// by the shuffle operators — a pure compile-time data shape that callers can
+/// reason about without needing a running Postgres.
 #[derive(Debug, Clone, Copy)]
 pub struct MeshLayout {
     pub total_participants: u32,

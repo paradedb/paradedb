@@ -28,7 +28,7 @@
 //! The plan bytes are the same for every participant — participant identity
 //! comes from the worker's seat in the mesh, not from the plan encoding.
 
-#![allow(dead_code)] // consumer lands in Phase 2c / Phase 4
+#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 

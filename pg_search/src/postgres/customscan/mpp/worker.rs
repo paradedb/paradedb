@@ -39,12 +39,12 @@
 //!
 //! This module deliberately does NOT wrap `pg_sys::shm_mq_create` /
 //! `shm_mq_attach`; those calls are driven by the custom scan's
-//! `initialize_dsm_custom_scan` / `initialize_worker_custom_scan` callbacks in
-//! Phase 4, feeding back into [`ShmMqSender`](super::mesh::ShmMqSender) and
+//! `initialize_dsm_custom_scan` / `initialize_worker_custom_scan` callbacks,
+//! feeding back into [`ShmMqSender`](super::mesh::ShmMqSender) and
 //! [`ShmMqReceiver`](super::mesh::ShmMqReceiver). Here we only own the
 //! sizing/offset math and the header layout.
 
-#![allow(dead_code)] // caller lands in Phase 4
+#![allow(dead_code)]
 
 use crate::postgres::customscan::mpp::mesh::{MeshLayout, ShmMqReceiver, ShmMqSender};
 use crate::postgres::customscan::mpp::transport::{MppReceiver, MppSender};
@@ -290,7 +290,7 @@ fn align_up_maxalign_checked(n: usize) -> Option<usize> {
 // ----------------------------------------------------------------------------
 // PG-facing DSM init / attach. These functions perform raw pg_sys FFI and
 // require a live Postgres backend — they compile on their own but are only
-// testable via `#[pg_test]`. Phase 4 wires them into the custom scan's
+// testable via `#[pg_test]`. The custom scan wires them into its
 // `estimate_dsm_custom_scan` / `initialize_dsm_custom_scan` /
 // `initialize_worker_custom_scan` hooks.
 // ----------------------------------------------------------------------------

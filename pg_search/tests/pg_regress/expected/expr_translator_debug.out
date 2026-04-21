@@ -57,10 +57,10 @@ WHERE NOT EXISTS (
 AND i.id @@@ paradedb.all()
 LIMIT 5;
 DEBUG:  PredicateTranslator: unsupported const type [Const] type=text
-DEBUG:  PredicateTranslator: unsupported operator [OpExpr] op="||", types=(text, text) | T_OpExpr
+DEBUG:  PredicateTranslator: unsupported operator [OpExpr] op="pg_catalog.||", types=(text, text) | T_OpExpr
 WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
 DEBUG:  PredicateTranslator: unsupported const type [Const] type=text
-DEBUG:  PredicateTranslator: unsupported operator [OpExpr] op="||", types=(text, text) | T_OpExpr
+DEBUG:  PredicateTranslator: unsupported operator [OpExpr] op="pg_catalog.||", types=(text, text) | T_OpExpr
                                                                                                      QUERY PLAN                                                                                                      
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit

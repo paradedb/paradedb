@@ -498,20 +498,39 @@ impl<'a> PredicateTranslator<'a> {
         let left = self.translate(left_arg)?;
         let right = self.translate(right_arg)?;
 
-        // Resolve the operator name straight from PG's catalog. The shared
-        // `lookup_operator` table in `opexpr.rs` is scoped to the Tantivy
-        // pushdown set and excludes arithmetic; DataFusion's translator has
-        // its own set of native operators, so we go around it here.
+        // Resolve the operator's `(schema, name)` identity from the PG
+        // catalog. Mirrors `translate_func_expr`'s namespace gate: we only
+        // natively translate operators that live in `pg_catalog`, so a
+        // user-defined operator in another schema that happens to share a
+        // symbol (e.g. `=`) with a pg_catalog operator isn't silently
+        // mistranslated. The operator's namespace is the namespace of its
+        // implementing function (`get_opcode` → `get_func_namespace`).
         let opno = (*op_expr).opno;
         let op_name_ptr = pg_sys::get_opname(opno);
-        if op_name_ptr.is_null() {
+        let namespace_oid = pg_sys::get_func_namespace(pg_sys::get_opcode(opno));
+        let namespace_ptr = pg_sys::get_namespace_name(namespace_oid);
+        if op_name_ptr.is_null() || namespace_ptr.is_null() {
             pgrx::debug1!(
-                "PredicateTranslator: get_opname returned null [OpExpr] opno={}",
+                "PredicateTranslator: could not resolve operator identity [OpExpr] opno={}",
                 opno.to_u32()
             );
             return None;
         }
+        let schema = CStr::from_ptr(namespace_ptr).to_str().ok()?;
         let op_str = CStr::from_ptr(op_name_ptr).to_str().ok()?;
+
+        if schema != "pg_catalog" {
+            pgrx::debug1!(
+                "PredicateTranslator: non-pg_catalog operator [OpExpr] op={}.{}, types=({}, {}) | {}",
+                schema,
+                op_str,
+                type_name(left_type),
+                type_name(right_type),
+                deparse_expr_for_debug(node, self.sources)
+            );
+            return None;
+        }
+
         let op = match op_str {
             "=" => Operator::Eq,
             "<>" | "!=" => Operator::NotEq,
@@ -526,7 +545,8 @@ impl<'a> PredicateTranslator<'a> {
             "%" => Operator::Modulo,
             _ => {
                 pgrx::debug1!(
-                    "PredicateTranslator: unsupported operator [OpExpr] op=\"{}\", types=({}, {}) | {}",
+                    "PredicateTranslator: unsupported operator [OpExpr] op=\"{}.{}\", types=({}, {}) | {}",
+                    schema,
                     op_str,
                     type_name(left_type),
                     type_name(right_type),

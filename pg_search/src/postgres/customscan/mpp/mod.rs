@@ -37,7 +37,7 @@ use serde::{Deserialize, Serialize};
 /// Injected into the DataFusion `SessionConfig` via `config_options` so downstream
 /// operators (optimizer rules, hash partitioners) can discover it without an
 /// out-of-band side channel.
-#[allow(dead_code)] // wired up in Phase 2
+#[allow(dead_code)]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MppParticipantConfig {
     /// 0-based index of this participant. The leader is always index 0.
@@ -46,7 +46,7 @@ pub struct MppParticipantConfig {
     pub total_participants: u32,
 }
 
-#[allow(dead_code)] // wired up in Phase 2
+#[allow(dead_code)]
 impl MppParticipantConfig {
     pub fn is_leader(&self) -> bool {
         self.participant_index == 0
@@ -65,7 +65,7 @@ impl MppParticipantConfig {
 /// set, the provider calls `reader.search_segments(sharded_ids)` and each
 /// participant reads only its share of segments.
 #[derive(Clone, Debug)]
-#[allow(dead_code)] // consumed by scan layer in Phase 2
+#[allow(dead_code)]
 pub struct MppShardConfig {
     pub participant_index: u32,
     pub total_participants: u32,

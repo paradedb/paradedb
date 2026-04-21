@@ -26,10 +26,10 @@
 //!   cannot propagate backpressure to remote producers and cause the N×N cycle
 //!   that deadlocked the prior attempt.
 //!
-//! Phase 2 adds the shm_mq-backed sender/receiver and the drain thread spawn
-//! logic on top of these primitives.
+//! The shm_mq-backed sender/receiver and drain thread spawn logic build on
+//! top of these primitives.
 
-#![allow(dead_code)] // wired up in Phase 2
+#![allow(dead_code)]
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex};
@@ -215,8 +215,8 @@ impl DrainBuffer {
     ///
     /// Using this from a `Stream::poll_next` lets `DrainGatherStream` return
     /// `Poll::Pending` instead of blocking the executor thread — critical
-    /// once Phase 5 wires peer-to-peer backpressure, where a blocking wait
-    /// could deadlock with this worker's own outbound pump.
+    /// under peer-to-peer backpressure, where a blocking wait could deadlock
+    /// with this worker's own outbound pump.
     pub fn poll_pop_front(&self, waker: &std::task::Waker) -> Option<DrainItem> {
         let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
         if let Some(batch) = guard.queue.pop_front() {

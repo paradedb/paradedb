@@ -508,17 +508,21 @@ ORDER BY p.id
 LIMIT 10;
 SET paradedb.enable_join_custom_scan = on;
 
--- 12b: native FuncExpr on one side of a comparison, UDF-wrapped arithmetic
--- on the other. LHS `abs(p.supplier_id)` is a native FuncExpr over a Var;
--- RHS `(s.id * 2)` is an arithmetic OpExpr that `translate_op_expr`
--- doesn't handle, so it gets wrapped as `pdb_eval_expr_opexpr_*`. The outer
--- `<=` comparison stays native. EXPLAIN should show BOTH paths side by side.
+-- 12b: native FuncExpr on one side of a comparison, UDF-wrapped FuncExpr
+-- on the other. LHS `abs(p.supplier_id)` is a native FuncExpr over a Var.
+-- RHS `length(to_hex(s.id))` nests two FuncExprs: `to_hex` is a pg_catalog
+-- function that is NOT in `translate_known_func`'s native map, so it falls
+-- through to `try_wrap_as_udf` and becomes `pdb_eval_expr_funcexpr_*`. The
+-- outer `length` (→ `character_length`) IS native and wraps the UDF. The
+-- outer `<=` comparison stays native. EXPLAIN should show native
+-- `abs(supplier_id)` and native `character_length(pdb_eval_expr_funcexpr_*(id))`
+-- side by side.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.supplier_id, s.id AS supplier_pk
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
-  AND abs(p.supplier_id) <= (s.id * 2)
+  AND abs(p.supplier_id) <= length(to_hex(s.id))
 ORDER BY p.id
 LIMIT 10;
 
@@ -526,7 +530,7 @@ SELECT p.id, p.supplier_id, s.id AS supplier_pk
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
-  AND abs(p.supplier_id) <= (s.id * 2)
+  AND abs(p.supplier_id) <= length(to_hex(s.id))
 ORDER BY p.id
 LIMIT 10;
 
@@ -535,7 +539,7 @@ SELECT p.id, p.supplier_id, s.id AS supplier_pk
 FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
-  AND abs(p.supplier_id) <= (s.id * 2)
+  AND abs(p.supplier_id) <= length(to_hex(s.id))
 ORDER BY p.id
 LIMIT 10;
 SET paradedb.enable_join_custom_scan = on;

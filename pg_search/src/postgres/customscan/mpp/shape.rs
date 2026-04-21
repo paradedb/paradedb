@@ -159,14 +159,6 @@ pub struct ScalarAggOnBinaryJoinInputs {
     pub right_shuffle: ShuffleWiring,
     pub right_drain: std::sync::Arc<DrainHandle>,
     pub right_schema: SchemaRef,
-    /// Join keys, as `(left_expr, right_expr)` pairs.
-    pub join_on: JoinOn,
-    /// Column projection applied to the `HashJoinExec` output. DataFusion
-    /// may prune the raw `left_schema ++ right_schema` down to only the
-    /// columns that flow up into the aggregate; `aggr_expr`'s `Column`
-    /// references use indices into that projected schema. Forwarding the
-    /// same projection here keeps those indices valid.
-    pub join_projection: Option<Vec<usize>>,
     pub aggr_expr: Vec<Arc<AggregateFunctionExpr>>,
     pub filter_expr: Vec<Option<Arc<dyn PhysicalExpr>>>,
     /// Wiring for the final-gather mesh: every participant ships its
@@ -318,9 +310,6 @@ pub struct GroupByAggOnBinaryJoinInputs {
     pub right_shuffle: ShuffleWiring,
     pub right_drain: std::sync::Arc<DrainHandle>,
     pub right_schema: SchemaRef,
-    pub join_on: JoinOn,
-    /// See [`ScalarAggOnBinaryJoinInputs::join_projection`].
-    pub join_projection: Option<Vec<usize>>,
     pub group_by: PhysicalGroupBy,
     pub aggr_expr: Vec<Arc<AggregateFunctionExpr>>,
     pub filter_expr: Vec<Option<Arc<dyn PhysicalExpr>>>,
@@ -434,60 +423,6 @@ pub fn build_groupby_agg_on_binary_join(
     Ok(Arc::new(final_agg))
 }
 
-/// Inputs to [`build_groupby_agg_single_table`]. Single mesh (post-Partial
-/// shuffle only) — no pre-join shuffle because there's no join.
-pub struct GroupByAggSingleTableInputs {
-    pub child: Arc<dyn ExecutionPlan>,
-    pub group_by: PhysicalGroupBy,
-    pub aggr_expr: Vec<Arc<AggregateFunctionExpr>>,
-    pub filter_expr: Vec<Option<Arc<dyn PhysicalExpr>>>,
-    pub child_schema: SchemaRef,
-    pub postagg_shuffle: ShuffleWiring,
-    pub postagg_drain: std::sync::Arc<DrainHandle>,
-}
-
-/// Build the MPP plan for a GROUP BY aggregate over a single table.
-///
-/// Shape:
-/// ```text
-///     AggregateExec(FinalPartitioned)
-///       wrap_with_mpp_shuffle(AggregateExec(Partial), group_by_key_hash)
-/// ```
-///
-/// Pays off at high cardinality where the Final aggregate is the serial
-/// bottleneck on a single-table scan.
-pub fn build_groupby_agg_single_table(
-    inputs: GroupByAggSingleTableInputs,
-) -> Result<Arc<dyn ExecutionPlan>> {
-    let partial: Arc<dyn ExecutionPlan> = Arc::new(AggregateExec::try_new(
-        AggregateMode::Partial,
-        inputs.group_by.clone(),
-        inputs.aggr_expr.clone(),
-        inputs.filter_expr.clone(),
-        inputs.child,
-        inputs.child_schema,
-    )?);
-    let partial_schema = partial.schema();
-
-    let repartitioned = wrap_with_mpp_shuffle(MppShuffleInputs {
-        child: partial,
-        wiring: inputs.postagg_shuffle,
-        drain_handle: inputs.postagg_drain,
-        wrapped_schema: partial_schema.clone(),
-        tag: "gb_single_postagg",
-    })?;
-
-    let final_agg = AggregateExec::try_new(
-        AggregateMode::FinalPartitioned,
-        inputs.group_by,
-        inputs.aggr_expr,
-        inputs.filter_expr,
-        repartitioned,
-        partial_schema,
-    )?;
-    Ok(Arc::new(final_agg))
-}
-
 /// Inputs to [`build_join_only`]. Two meshes (one per join input).
 pub struct JoinOnlyInputs {
     pub left_child: Arc<dyn ExecutionPlan>,
@@ -499,7 +434,10 @@ pub struct JoinOnlyInputs {
     pub right_drain: std::sync::Arc<DrainHandle>,
     pub right_schema: SchemaRef,
     pub join_on: JoinOn,
-    /// See [`ScalarAggOnBinaryJoinInputs::join_projection`].
+    /// Column projection applied to the `HashJoinExec` output. DataFusion
+    /// may prune the raw `left_schema ++ right_schema` down to only the
+    /// columns the caller needs; forwarding the same projection here keeps
+    /// downstream column indices valid.
     pub join_projection: Option<Vec<usize>>,
     pub join_type: JoinType,
 }

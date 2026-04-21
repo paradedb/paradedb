@@ -15,11 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use datafusion::common::{Column, JoinType, Result, ScalarValue, TableReference};
+use datafusion::common::{Column, JoinType, Result, TableReference};
 use datafusion::error::DataFusionError;
 use datafusion::logical_expr::{col, lit, BinaryExpr, Expr, Operator};
 use datafusion::prelude::DataFrame;
-use pgrx::{pg_sys, PgList};
+use pgrx::pg_sys;
 
 use crate::api::{HashMap, HashSet};
 use crate::postgres::customscan::joinscan::build::{
@@ -37,7 +37,7 @@ pub trait ColumnMapper {
 /// Helper struct for translating PostgreSQL expression trees into DataFusion `Expr`s.
 pub struct PredicateTranslator<'a> {
     pub sources: &'a [&'a JoinSource],
-    mapper: Option<Box<dyn ColumnMapper + 'a>>,
+    pub(crate) mapper: Option<Box<dyn ColumnMapper + 'a>>,
 }
 
 impl<'a> PredicateTranslator<'a> {
@@ -259,152 +259,10 @@ impl<'a> PredicateTranslator<'a> {
         native.or_else(|| self.try_wrap_as_udf(node))
     }
 
-    unsafe fn translate_op_expr(&self, op_expr: *mut pg_sys::OpExpr) -> Option<Expr> {
-        let args = PgList::<pg_sys::Node>::from_pg((*op_expr).args);
-        if args.len() != 2 {
-            return None; // Only support binary operators for now
-        }
-
-        let left = self.translate(args.get_ptr(0)?)?;
-        let right = self.translate(args.get_ptr(1)?)?;
-
-        // Resolve the operator name straight from PG's catalog. The shared
-        // `lookup_operator` table in `opexpr.rs` is scoped to the Tantivy
-        // pushdown set and excludes arithmetic; DataFusion's translator has
-        // its own set of native operators, so we go around it here.
-        let opno = (*op_expr).opno;
-        let op_name_ptr = pg_sys::get_opname(opno);
-        if op_name_ptr.is_null() {
-            return None;
-        }
-        let op_str = std::ffi::CStr::from_ptr(op_name_ptr).to_str().ok()?;
-        let op = match op_str {
-            "=" => Operator::Eq,
-            "<>" | "!=" => Operator::NotEq,
-            "<" => Operator::Lt,
-            "<=" => Operator::LtEq,
-            ">" => Operator::Gt,
-            ">=" => Operator::GtEq,
-            "+" => Operator::Plus,
-            "-" => Operator::Minus,
-            "*" => Operator::Multiply,
-            "/" => Operator::Divide,
-            "%" => Operator::Modulo,
-            _ => return None,
-        };
-
-        Some(Expr::BinaryExpr(BinaryExpr::new(
-            Box::new(left),
-            op,
-            Box::new(right),
-        )))
-    }
-
-    pub(crate) unsafe fn translate_var(&self, var: *mut pg_sys::Var) -> Option<Expr> {
-        let varno = (*var).varno as pg_sys::Index;
-        let varattno = (*var).varattno;
-
-        // INDEX_VAR is allowed because it represents a reference to the custom scan's output
-        if varno != pg_sys::INDEX_VAR as pg_sys::Index
-            && !self.sources.iter().any(|s| s.contains_rti(varno))
-        {
-            return None;
-        }
-
-        if let Some(ref mapper) = self.mapper {
-            if let Some(expr) = mapper.map_var(varno, varattno) {
-                return Some(expr);
-            }
-            return None;
-        }
-
-        Some(col("placeholder"))
-    }
-
-    unsafe fn translate_const(&self, c: *mut pg_sys::Const) -> Option<Expr> {
-        if (*c).constisnull {
-            return Some(lit(ScalarValue::Null));
-        }
-
-        let type_oid = (*c).consttype;
-        let datum = (*c).constvalue;
-
-        // Simple mapping for common types
-        let scalar_value = match type_oid {
-            pg_sys::INT2OID => {
-                let val = datum.value() as i16;
-                ScalarValue::Int16(Some(val))
-            }
-            pg_sys::INT4OID => {
-                let val = datum.value() as i32;
-                ScalarValue::Int32(Some(val))
-            }
-            pg_sys::INT8OID => {
-                let val = datum.value() as i64;
-                ScalarValue::Int64(Some(val))
-            }
-            pg_sys::FLOAT4OID => {
-                let val = f32::from_bits(datum.value() as u32);
-                ScalarValue::Float32(Some(val))
-            }
-            pg_sys::FLOAT8OID => {
-                let val = f64::from_bits(datum.value() as u64);
-                ScalarValue::Float64(Some(val))
-            }
-            pg_sys::BOOLOID => {
-                let val = datum.value() != 0;
-                ScalarValue::Boolean(Some(val))
-            }
-            _ => return None,
-        };
-
-        Some(lit(scalar_value))
-    }
-
-    unsafe fn translate_bool_expr(&self, bool_expr: *mut pg_sys::BoolExpr) -> Option<Expr> {
-        let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
-
-        match (*bool_expr).boolop {
-            pg_sys::BoolExprType::AND_EXPR => {
-                if args.len() < 2 {
-                    return None;
-                }
-                let mut expr = self.translate(args.get_ptr(0)?)?;
-                for i in 1..args.len() {
-                    let right = self.translate(args.get_ptr(i)?)?;
-                    expr = Expr::BinaryExpr(BinaryExpr::new(
-                        Box::new(expr),
-                        Operator::And,
-                        Box::new(right),
-                    ));
-                }
-                Some(expr)
-            }
-            pg_sys::BoolExprType::OR_EXPR => {
-                if args.len() < 2 {
-                    return None;
-                }
-                let mut expr = self.translate(args.get_ptr(0)?)?;
-                for i in 1..args.len() {
-                    let right = self.translate(args.get_ptr(i)?)?;
-                    expr = Expr::BinaryExpr(BinaryExpr::new(
-                        Box::new(expr),
-                        Operator::Or,
-                        Box::new(right),
-                    ));
-                }
-                Some(expr)
-            }
-            pg_sys::BoolExprType::NOT_EXPR => {
-                if args.len() != 1 {
-                    return None;
-                }
-                let child = self.translate(args.get_ptr(0)?)?;
-                Some(Expr::Not(Box::new(child)))
-            }
-            _ => None,
-        }
-    }
+    // `translate_op_expr`, `translate_var`, `translate_const`,
+    // `translate_bool_expr` — plus the extended node-type translators and
+    // the UDF fallback — are defined in `expr_translators.rs` on a split
+    // `impl PredicateTranslator` block.
 }
 
 /// Translate a `JoinLevelExpr` predicate into a DataFusion filter expression

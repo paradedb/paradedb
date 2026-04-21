@@ -24,8 +24,9 @@
 //! MinMaxExpr, ScalarArrayOpExpr, and CoerceViaIO — plus a UDF fallback hook
 //! (`try_wrap_as_udf`) for opaque expressions.
 
+use datafusion::common::ScalarValue;
 use datafusion::logical_expr::expr::{Case, InList, ScalarFunction};
-use datafusion::logical_expr::{Expr, ScalarUDF};
+use datafusion::logical_expr::{col, lit, BinaryExpr, Expr, Operator, ScalarUDF};
 use pgrx::{pg_sys, PgList};
 use std::ffi::CStr;
 use std::sync::Arc;
@@ -406,6 +407,162 @@ impl<'a> PredicateTranslator<'a> {
             Arc::new(ScalarUDF::new_from_impl(udf)),
             input_exprs,
         )))
+    }
+
+    // -----------------------------------------------------------------
+    // Core node-type translators. These are the arms dispatched from
+    // `translate()` in `translator.rs` — `pub(crate)` so the split impl
+    // block in `translator.rs` can call them as methods on `&self`.
+    // -----------------------------------------------------------------
+
+    pub(crate) unsafe fn translate_op_expr(&self, op_expr: *mut pg_sys::OpExpr) -> Option<Expr> {
+        let args = PgList::<pg_sys::Node>::from_pg((*op_expr).args);
+        if args.len() != 2 {
+            return None; // Only support binary operators for now
+        }
+
+        let left = self.translate(args.get_ptr(0)?)?;
+        let right = self.translate(args.get_ptr(1)?)?;
+
+        // Resolve the operator name straight from PG's catalog. The shared
+        // `lookup_operator` table in `opexpr.rs` is scoped to the Tantivy
+        // pushdown set and excludes arithmetic; DataFusion's translator has
+        // its own set of native operators, so we go around it here.
+        let opno = (*op_expr).opno;
+        let op_name_ptr = pg_sys::get_opname(opno);
+        if op_name_ptr.is_null() {
+            return None;
+        }
+        let op_str = CStr::from_ptr(op_name_ptr).to_str().ok()?;
+        let op = match op_str {
+            "=" => Operator::Eq,
+            "<>" | "!=" => Operator::NotEq,
+            "<" => Operator::Lt,
+            "<=" => Operator::LtEq,
+            ">" => Operator::Gt,
+            ">=" => Operator::GtEq,
+            "+" => Operator::Plus,
+            "-" => Operator::Minus,
+            "*" => Operator::Multiply,
+            "/" => Operator::Divide,
+            "%" => Operator::Modulo,
+            _ => return None,
+        };
+
+        Some(Expr::BinaryExpr(BinaryExpr::new(
+            Box::new(left),
+            op,
+            Box::new(right),
+        )))
+    }
+
+    pub(crate) unsafe fn translate_var(&self, var: *mut pg_sys::Var) -> Option<Expr> {
+        let varno = (*var).varno as pg_sys::Index;
+        let varattno = (*var).varattno;
+
+        // INDEX_VAR is allowed because it represents a reference to the custom scan's output
+        if varno != pg_sys::INDEX_VAR as pg_sys::Index
+            && !self.sources.iter().any(|s| s.contains_rti(varno))
+        {
+            return None;
+        }
+
+        if let Some(ref mapper) = self.mapper {
+            if let Some(expr) = mapper.map_var(varno, varattno) {
+                return Some(expr);
+            }
+            return None;
+        }
+
+        Some(col("placeholder"))
+    }
+
+    pub(crate) unsafe fn translate_const(&self, c: *mut pg_sys::Const) -> Option<Expr> {
+        if (*c).constisnull {
+            return Some(lit(ScalarValue::Null));
+        }
+
+        let type_oid = (*c).consttype;
+        let datum = (*c).constvalue;
+
+        // Simple mapping for common types
+        let scalar_value = match type_oid {
+            pg_sys::INT2OID => {
+                let val = datum.value() as i16;
+                ScalarValue::Int16(Some(val))
+            }
+            pg_sys::INT4OID => {
+                let val = datum.value() as i32;
+                ScalarValue::Int32(Some(val))
+            }
+            pg_sys::INT8OID => {
+                let val = datum.value() as i64;
+                ScalarValue::Int64(Some(val))
+            }
+            pg_sys::FLOAT4OID => {
+                let val = f32::from_bits(datum.value() as u32);
+                ScalarValue::Float32(Some(val))
+            }
+            pg_sys::FLOAT8OID => {
+                let val = f64::from_bits(datum.value() as u64);
+                ScalarValue::Float64(Some(val))
+            }
+            pg_sys::BOOLOID => {
+                let val = datum.value() != 0;
+                ScalarValue::Boolean(Some(val))
+            }
+            _ => return None,
+        };
+
+        Some(lit(scalar_value))
+    }
+
+    pub(crate) unsafe fn translate_bool_expr(
+        &self,
+        bool_expr: *mut pg_sys::BoolExpr,
+    ) -> Option<Expr> {
+        let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
+
+        match (*bool_expr).boolop {
+            pg_sys::BoolExprType::AND_EXPR => {
+                if args.len() < 2 {
+                    return None;
+                }
+                let mut expr = self.translate(args.get_ptr(0)?)?;
+                for i in 1..args.len() {
+                    let right = self.translate(args.get_ptr(i)?)?;
+                    expr = Expr::BinaryExpr(BinaryExpr::new(
+                        Box::new(expr),
+                        Operator::And,
+                        Box::new(right),
+                    ));
+                }
+                Some(expr)
+            }
+            pg_sys::BoolExprType::OR_EXPR => {
+                if args.len() < 2 {
+                    return None;
+                }
+                let mut expr = self.translate(args.get_ptr(0)?)?;
+                for i in 1..args.len() {
+                    let right = self.translate(args.get_ptr(i)?)?;
+                    expr = Expr::BinaryExpr(BinaryExpr::new(
+                        Box::new(expr),
+                        Operator::Or,
+                        Box::new(right),
+                    ));
+                }
+                Some(expr)
+            }
+            pg_sys::BoolExprType::NOT_EXPR => {
+                if args.len() != 1 {
+                    return None;
+                }
+                let child = self.translate(args.get_ptr(0)?)?;
+                Some(Expr::Not(Box::new(child)))
+            }
+            _ => None,
+        }
     }
 }
 

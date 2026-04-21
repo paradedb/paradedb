@@ -1,0 +1,229 @@
+-- =====================================================================
+-- MPP correctness: with `paradedb.enable_mpp=on`, scalar COUNT(*) on a
+-- binary join must return the same result as with MPP off.
+--
+-- This test exercises the full shape classification + plan-stash +
+-- parallel-flag flip pipeline on a medium-sized dataset (40x200 rows).
+-- PG's planner decides whether to launch actual parallel workers based
+-- on cost; at this size it typically doesn't, so the MPP *exec* path
+-- isn't exercised here — for that you need `debug_parallel_query=on`
+-- at a larger scale, which is out of scope for pg_regress (no parallel
+-- workers launched == no DSM coordination == no cross-worker shuffle).
+--
+-- What this DOES verify:
+--   * MPP-on doesn't break the serial code path
+--   * Shape classifier agrees between path-time and plan-stash-time
+--   * `maybe_stash_mpp_plan_bytes` completes without error
+--   * The plan survives logical-plan → bytes round-trip
+-- =====================================================================
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_aggregate_custom_scan TO on;
+CREATE TABLE mpp_exec_products (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    category TEXT
+);
+CREATE TABLE mpp_exec_reviews (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER,
+    rating INTEGER
+);
+INSERT INTO mpp_exec_products (description, category)
+SELECT
+    CASE (i % 4)
+        WHEN 0 THEN 'Laptop computer fast'
+        WHEN 1 THEN 'Running shoes light'
+        WHEN 2 THEN 'Winter jacket warm'
+        ELSE 'Office chair ergonomic'
+    END,
+    CASE (i % 4)
+        WHEN 0 THEN 'Electronics'
+        WHEN 1 THEN 'Sports'
+        WHEN 2 THEN 'Clothing'
+        ELSE 'Furniture'
+    END
+FROM generate_series(1, 40) AS i;
+INSERT INTO mpp_exec_reviews (product_id, rating)
+SELECT (i % 40) + 1, (i % 5) + 1 FROM generate_series(1, 200) AS i;
+CREATE INDEX mpp_exec_products_idx ON mpp_exec_products
+USING bm25 (id, description, category)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}, "category": {"fast": true}}'
+);
+CREATE INDEX mpp_exec_reviews_idx ON mpp_exec_reviews
+USING bm25 (id, product_id, rating)
+WITH (
+    key_field='id',
+    numeric_fields='{"product_id": {"fast": true}, "rating": {"fast": true}}'
+);
+-- =====================================================================
+-- Serial baseline
+-- =====================================================================
+SET paradedb.enable_mpp TO off;
+SELECT COUNT(*) AS baseline_count
+FROM mpp_exec_products p
+JOIN mpp_exec_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR chair';
+ baseline_count 
+----------------
+            200
+(1 row)
+
+-- =====================================================================
+-- MPP enabled: must return the same count.
+-- =====================================================================
+SET paradedb.enable_mpp TO on;
+SET paradedb.mpp_worker_count TO 3;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT COUNT(*)
+FROM mpp_exec_products p
+JOIN mpp_exec_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR chair';
+                              QUERY PLAN                              
+----------------------------------------------------------------------
+ Gather
+   Output: (count(*))
+   Workers Planned: 2
+   ->  Parallel Custom Scan (ParadeDB Aggregate Scan)
+         Output: (count(*))
+         Backend: DataFusion
+         Indexes: mpp_exec_products_idx (p), mpp_exec_reviews_idx (r)
+         Aggregates: COUNT(*)
+(8 rows)
+
+SELECT COUNT(*) AS mpp_count
+FROM mpp_exec_products p
+JOIN mpp_exec_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR chair';
+ mpp_count 
+-----------
+       200
+(1 row)
+
+-- With mpp_debug, the plan should log the shape dispatch + parallel
+-- flip + the "routing exec_datafusion_aggregate through shape" line
+-- that proves the MPP exec bridge actually ran (not just the serial
+-- fallback). The answer must still match the baseline.
+SET paradedb.mpp_debug TO on;
+SELECT COUNT(*) AS mpp_count_with_debug
+FROM mpp_exec_products p
+JOIN mpp_exec_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR chair';
+WARNING:  mpp: flipping AggregateScan path parallel_workers=2 for shape ScalarAggOnBinaryJoin
+WARNING:  mpp: stashed plan-broadcast bytes (shape=ScalarAggOnBinaryJoin) on AggregateScanState
+WARNING:  mpp: AggregateScan leader initialized DSM for 3 participants
+WARNING:  mpp: routing exec_datafusion_aggregate through shape ScalarAggOnBinaryJoin (is_leader=true)
+WARNING:  mpp: assembling ScalarAggOnBinaryJoin plan (participant=0, total=3, aggr_count=1, join_keys=1)
+WARNING:  mpp: stashed plan-broadcast bytes (shape=ScalarAggOnBinaryJoin) on AggregateScanState
+WARNING:  mpp: AggregateScan worker 0 attached to DSM (3 participants)
+WARNING:  mpp: routing exec_datafusion_aggregate through shape ScalarAggOnBinaryJoin (is_leader=false)
+WARNING:  mpp: assembling ScalarAggOnBinaryJoin plan (participant=1, total=3, aggr_count=1, join_keys=1)
+WARNING:  mpp: stashed plan-broadcast bytes (shape=ScalarAggOnBinaryJoin) on AggregateScanState
+WARNING:  mpp: AggregateScan worker 1 attached to DSM (3 participants)
+WARNING:  mpp: routing exec_datafusion_aggregate through shape ScalarAggOnBinaryJoin (is_leader=false)
+WARNING:  mpp: assembling ScalarAggOnBinaryJoin plan (participant=2, total=3, aggr_count=1, join_keys=1)
+ mpp_count_with_debug 
+----------------------
+                  200
+(1 row)
+
+SET paradedb.mpp_debug TO off;
+-- =====================================================================
+-- GROUP BY aggregate on join, with ORDER BY on the group-by column. Both
+-- the GROUP BY and the ORDER BY are driven by the same column, so PG
+-- wraps the Gather-above-CustomScan MPP path in a Sort above the Gather.
+-- The MPP path keeps Aggrefs intact in every tlist so `fix_upper_expr`
+-- matches structurally at setrefs time (if we'd replaced them with
+-- `pdb.agg_fn(...)` placeholders only on the Gather side, setrefs would
+-- trip "Aggref found in non-Agg plan node" on the Result projection PG
+-- adds above the Sort).
+-- =====================================================================
+SET paradedb.enable_mpp TO off;
+SELECT p.category, COUNT(*) AS cnt, MAX(r.rating) AS max_rating
+FROM mpp_exec_products p
+JOIN mpp_exec_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR chair'
+GROUP BY p.category
+ORDER BY p.category;
+  category   | cnt | max_rating 
+-------------+-----+------------
+ Clothing    |  50 |          5
+ Electronics |  50 |          5
+ Furniture   |  50 |          5
+ Sports      |  50 |          5
+(4 rows)
+
+SET paradedb.enable_mpp TO on;
+SET paradedb.mpp_debug TO on;
+-- Force PG to pick the Gather-wrapped MPP path for GROUP BY on this
+-- small fixture: without these knobs the planner's cost model rejects
+-- Gather for aggregates at this row count and we'd fall back to the
+-- serial Custom Scan (which still produces correct output via the
+-- non-MPP code path).
+SET min_parallel_table_scan_size TO 0;
+SET parallel_setup_cost TO 0;
+SET parallel_tuple_cost TO 0;
+SET max_parallel_workers_per_gather TO 2;
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.category, COUNT(*) AS cnt, MAX(r.rating) AS max_rating
+FROM mpp_exec_products p
+JOIN mpp_exec_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR chair'
+GROUP BY p.category
+ORDER BY p.category;
+WARNING:  mpp: flipping AggregateScan path parallel_workers=2 for shape GroupByAggOnBinaryJoin
+                                 QUERY PLAN                                 
+----------------------------------------------------------------------------
+ Sort
+   Output: p.category, (count(*)), (max(r.rating))
+   Sort Key: p.category
+   ->  Gather
+         Output: p.category, (count(*)), (max(r.rating))
+         Workers Planned: 2
+         ->  Parallel Custom Scan (ParadeDB Aggregate Scan)
+               Output: p.category, (count(*)), (max(r.rating))
+               Backend: DataFusion
+               Indexes: mpp_exec_products_idx (p), mpp_exec_reviews_idx (r)
+               Group By: category
+               Aggregates: COUNT(*), MAX(rating)
+(12 rows)
+
+SELECT p.category, COUNT(*) AS cnt, MAX(r.rating) AS max_rating
+FROM mpp_exec_products p
+JOIN mpp_exec_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR chair'
+GROUP BY p.category
+ORDER BY p.category;
+WARNING:  mpp: flipping AggregateScan path parallel_workers=2 for shape GroupByAggOnBinaryJoin
+WARNING:  mpp: stashed plan-broadcast bytes (shape=GroupByAggOnBinaryJoin) on AggregateScanState
+WARNING:  mpp: AggregateScan leader initialized DSM for 3 participants
+WARNING:  mpp: routing exec_datafusion_aggregate through shape GroupByAggOnBinaryJoin (is_leader=true)
+WARNING:  mpp: assembling GroupByAggOnBinaryJoin plan (participant=0, total=3, aggr_count=2, group_keys=1, join_keys=1)
+WARNING:  mpp: stashed plan-broadcast bytes (shape=GroupByAggOnBinaryJoin) on AggregateScanState
+WARNING:  mpp: AggregateScan worker 0 attached to DSM (3 participants)
+WARNING:  mpp: routing exec_datafusion_aggregate through shape GroupByAggOnBinaryJoin (is_leader=false)
+WARNING:  mpp: assembling GroupByAggOnBinaryJoin plan (participant=1, total=3, aggr_count=2, group_keys=1, join_keys=1)
+WARNING:  mpp: stashed plan-broadcast bytes (shape=GroupByAggOnBinaryJoin) on AggregateScanState
+WARNING:  mpp: AggregateScan worker 1 attached to DSM (3 participants)
+WARNING:  mpp: routing exec_datafusion_aggregate through shape GroupByAggOnBinaryJoin (is_leader=false)
+WARNING:  mpp: assembling GroupByAggOnBinaryJoin plan (participant=2, total=3, aggr_count=2, group_keys=1, join_keys=1)
+  category   | cnt | max_rating 
+-------------+-----+------------
+ Clothing    |  50 |          5
+ Electronics |  50 |          5
+ Furniture   |  50 |          5
+ Sports      |  50 |          5
+(4 rows)
+
+RESET min_parallel_table_scan_size;
+RESET parallel_setup_cost;
+RESET parallel_tuple_cost;
+RESET max_parallel_workers_per_gather;
+SET paradedb.mpp_debug TO off;
+-- Restore defaults + clean up.
+RESET paradedb.enable_mpp;
+RESET paradedb.mpp_worker_count;
+RESET paradedb.enable_aggregate_custom_scan;
+DROP TABLE mpp_exec_reviews;
+DROP TABLE mpp_exec_products;

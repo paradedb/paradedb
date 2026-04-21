@@ -255,11 +255,23 @@ pub enum SessionContextProfile {
 /// Build the shared core of a DataFusion [`SessionStateBuilder`] with:
 /// - Visibility filtering (logical + physical)
 /// - Late materialization
-/// - SortMergeJoinEnforcer (when columnar sort enabled)
+/// - SortMergeJoinEnforcer (when columnar sort enabled *and* MPP is inactive)
 /// - `PgSearchQueryPlanner`
 ///
 /// Callers append their own TopK rule and FilterPushdown passes.
-pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
+///
+/// When `mpp` is `Some` with `total_participants > 1`, two bug-fix paths from
+/// the reference MPP implementation apply:
+///   1. `SortMergeJoinEnforcer` is skipped. The SPM rewrite collapses hash
+///      partitions to one, which would make our `HashRepartitionExec::execute(i)`
+///      return empty for all `i != leader`.
+///   2. Caller `create_datafusion_session_context_mpp` disables
+///      `enable_join_dynamic_filter_pushdown` so probe-side scans do not race
+///      with the exchange producer and emit zero rows.
+pub(crate) fn build_base_session_with_mpp(
+    config: SessionConfig,
+    mpp: Option<&crate::postgres::customscan::mpp::MppParticipantConfig>,
+) -> SessionStateBuilder {
     use super::visibility_filter::VisibilityFilterOptimizerRule;
     use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
 
@@ -273,7 +285,14 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
             crate::scan::late_materialization::LateMaterializationRule,
         ));
 
-    if crate::gucs::is_columnar_sort_enabled() {
+    // Treat any non-None MppParticipantConfig as "MPP is active" — even N=1
+    // MPP (leader-only) shares the shuffle operator tree with N>1, so the
+    // SortMergeJoinEnforcer's partition-collapsing behavior is undesirable
+    // in both cases. Callers that do *not* want the bug-fix semantics pass
+    // `None`.
+    let mpp_active = mpp.is_some();
+
+    if crate::gucs::is_columnar_sort_enabled() && !mpp_active {
         builder = builder.with_physical_optimizer_rule(Arc::new(SortMergeJoinEnforcer::new()));
     }
 
@@ -297,6 +316,29 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
 /// - [`SessionContextProfile::Aggregate`]: appends a single `FilterPushdown`
 ///   post-pass; SegmentedTopK does not apply to aggregate-on-join queries.
 pub fn create_datafusion_session_context(profile: SessionContextProfile) -> SessionContext {
+    create_datafusion_session_context_inner(profile, None)
+}
+
+/// MPP-aware variant of [`create_datafusion_session_context`]. Applies the
+/// reference implementation's join-layer adjustment when the participant
+/// config indicates more than one participant:
+///   1. Skip `SortMergeJoinEnforcer` (handled by `build_base_session_with_mpp`).
+///   2. Keep `enable_join_dynamic_filter_pushdown = true`. The filter Arc is
+///      preserved across the MPP HashJoin rebuild (via `builder()`) and
+///      re-applied as a `FilterExec` above the post-shuffle probe stream by
+///      `shape::build_*_on_binary_join`. See `exec_bridge.rs`.
+#[allow(dead_code)] // first MPP caller lands in Phase 4
+pub fn create_datafusion_session_context_mpp(
+    profile: SessionContextProfile,
+    mpp: &crate::postgres::customscan::mpp::MppParticipantConfig,
+) -> SessionContext {
+    create_datafusion_session_context_inner(profile, Some(mpp))
+}
+
+fn create_datafusion_session_context_inner(
+    profile: SessionContextProfile,
+    mpp: Option<&crate::postgres::customscan::mpp::MppParticipantConfig>,
+) -> SessionContext {
     let mut config = SessionConfig::new().with_target_partitions(1);
     if matches!(profile, SessionContextProfile::Join) {
         config
@@ -305,11 +347,41 @@ pub fn create_datafusion_session_context(profile: SessionContextProfile) -> Sess
             .enable_topk_dynamic_filter_pushdown = true;
     }
 
-    let mut builder = build_base_session(config);
+    // Disable DataFusion's "skip partial aggregation" probe for MPP sessions.
+    //
+    // In Partial mode, DataFusion samples the first
+    // `skip_partial_aggregation_probe_rows_threshold` (default 100_000) rows
+    // and, if the distinct-group ratio exceeds
+    // `skip_partial_aggregation_probe_ratio_threshold` (default 0.8), flips
+    // the operator into pass-through mode — every subsequent input row is
+    // emitted as its own partial output row with no deduplication. The
+    // downstream `FinalPartitioned` still produces correct results because it
+    // merges duplicates, but the intermediate shuffle must carry ~distinct_
+    // groups × rows_per_group rows instead of ~distinct_groups rows.
+    //
+    // On the 25M `aggregate_join_groupby` bench this fanout was ~7× (gb_postagg
+    // rows_in = 22M across seats for 3.1M distinct groups), and 22M rows
+    // through shm_mq saturated the shuffle for > 600s. Single-process
+    // DataFusion never pays that cost because there's no shuffle; the skip
+    // probe is a pure win in single-process. For MPP it is the dominant cost.
+    //
+    // Setting the ratio threshold to 1.1 (> 1.0, which is the max achievable
+    // ratio) disables the switch unconditionally. Partial mode still benefits
+    // from in-memory hash-table dedup within each batch flush.
+    if mpp.is_some() {
+        config
+            .options_mut()
+            .execution
+            .skip_partial_aggregation_probe_ratio_threshold = 1.1;
+    }
+
+    let mut builder = build_base_session_with_mpp(config, mpp);
+
+    let mpp_active = mpp.is_some();
 
     match profile {
         SessionContextProfile::Join => {
-            if crate::gucs::is_columnar_sort_enabled() {
+            if crate::gucs::is_columnar_sort_enabled() && !mpp_active {
                 builder = builder.with_physical_optimizer_rule(Arc::new(
                     FilterPushdown::new_post_optimization(),
                 ));

@@ -15,3 +15,9 @@ SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(*), MIN(p."sizeInB
 FROM files f
 JOIN pages p ON f.id = p."fileId"
 WHERE f.content ||| 'Section';
+
+-- MPP aggregate scan
+SET statement_timeout TO '300s'; SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SET paradedb.enable_mpp TO on; SELECT COUNT(*), MIN(p."sizeInBytes"), MAX(p."sizeInBytes")
+FROM files f
+JOIN pages p ON f.id = p."fileId"
+WHERE f.content ||| 'Section';

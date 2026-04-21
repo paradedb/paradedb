@@ -38,6 +38,7 @@ pub mod expr_eval;
 mod hook;
 pub mod joinscan;
 pub mod limit_offset;
+pub mod mpp;
 pub mod opexpr;
 pub mod orderby;
 pub mod parallel;

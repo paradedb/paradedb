@@ -189,6 +189,23 @@ impl MessageQueueReceiver {
         }
     }
 
+    /// Wrap an already-acquired `shm_mq_handle` pointer directly. Used by
+    /// the MPP mesh where `shm_mq_attach` is called from a non-standard
+    /// layout (one `shm_mq_create` up front for every mesh slot, then each
+    /// participant attaches as sender or receiver separately).
+    ///
+    /// # Safety
+    /// `handle` must be a non-null `shm_mq_handle*` returned by a successful
+    /// `shm_mq_attach` call, and ownership of the handle (detach on drop) is
+    /// transferred into the returned receiver.
+    pub unsafe fn from_raw_handle(handle: *mut pg_sys::shm_mq_handle) -> Self {
+        Self {
+            handle: MessageQueueHandle {
+                handle: unsafe { NonNull::new_unchecked(handle) },
+            },
+        }
+    }
+
     pub fn recv(&self) -> Result<Vec<u8>, MessageQueueRecvError> {
         unsafe {
             let mut len = 0usize;

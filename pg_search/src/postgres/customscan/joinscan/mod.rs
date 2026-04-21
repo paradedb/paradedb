@@ -833,8 +833,8 @@ impl ParallelQueryCapable for JoinScan {
         _pcxt: *mut pg_sys::ParallelContext,
         coordinate: *mut c_void,
     ) {
-        // MPP rescan is out of scope in Phase 5; the non-MPP path resets
-        // the broadcast-join `ParallelScanState` as before.
+        // MPP rescan is out of scope; the non-MPP path resets the
+        // broadcast-join `ParallelScanState` as before.
         if state.custom_state().mpp_shape.is_some() {
             // No-op: a rescanned MPP join would need a full mesh teardown
             // + rebuild, same gap AggregateScan leaves.

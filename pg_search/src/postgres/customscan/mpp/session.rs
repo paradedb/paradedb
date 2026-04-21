@@ -74,16 +74,6 @@ impl From<crate::postgres::customscan::joinscan::scan_state::SessionContextProfi
     }
 }
 
-impl MppSessionProfile {
-    /// Convenience wrapper for call sites that prefer a method over the
-    /// `From` conversion.
-    pub fn to_session_profile(
-        self,
-    ) -> crate::postgres::customscan::joinscan::scan_state::SessionContextProfile {
-        self.into()
-    }
-}
-
 /// Current wire-format version of [`MppPlanBroadcast`]. Bumped when fields are
 /// added or reordered so an old worker reading a new leader's bytes aborts
 /// cleanly instead of silently decoding shifted fields. bincode 2 does not
@@ -208,26 +198,11 @@ mod tests {
         let w1 = bc.participant_config(1);
         let w2 = bc.participant_config(2);
         assert_eq!(leader.participant_index, 0);
-        assert!(leader.is_leader());
         assert_eq!(w1.participant_index, 1);
-        assert!(!w1.is_leader());
         assert_eq!(w2.participant_index, 2);
         for pc in [leader, w1, w2] {
             assert_eq!(pc.total_participants, 3);
         }
-    }
-
-    #[test]
-    fn profile_maps_to_executor_enum() {
-        use crate::postgres::customscan::joinscan::scan_state::SessionContextProfile;
-        assert!(matches!(
-            MppSessionProfile::Join.to_session_profile(),
-            SessionContextProfile::Join
-        ));
-        assert!(matches!(
-            MppSessionProfile::Aggregate.to_session_profile(),
-            SessionContextProfile::Aggregate
-        ));
     }
 
     #[test]

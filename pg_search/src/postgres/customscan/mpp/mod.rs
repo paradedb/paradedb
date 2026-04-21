@@ -46,13 +46,6 @@ pub struct MppParticipantConfig {
     pub total_participants: u32,
 }
 
-#[allow(dead_code)]
-impl MppParticipantConfig {
-    pub fn is_leader(&self) -> bool {
-        self.participant_index == 0
-    }
-}
-
 /// Session-scoped MPP sharding info. Stashed as a DataFusion session
 /// `config_extension` by `exec_datafusion_aggregate` on every participant
 /// before `build_join_aggregate_plan` runs, so `PgSearchTableProvider::scan`

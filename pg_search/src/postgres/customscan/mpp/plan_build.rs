@@ -50,13 +50,13 @@
 //! participant's seat — some from local computation, some from peers —
 //! merged into a single Arrow IPC-compatible `SendableRecordBatchStream`.
 //!
-//! Callers (AggregateScan, future JoinScan MPP) compose `HashJoinExec`,
+//! Callers (AggregateScan, JoinScan MPP) compose `HashJoinExec`,
 //! `AggregateExec(Partial)`, or any other DataFusion operator on top of the
 //! wrapped child. Because each wrap consumes one directed mesh of shm_mqs
 //! (one `ShuffleWiring` + one `DrainHandle`), a binary hash-partitioned join
-//! needs **two** independent mesh wirings — one per side. Phase 4b-iv's DSM
-//! hook layer allocates and distributes them; this module is ABI-agnostic
-//! about where they come from.
+//! needs **two** independent mesh wirings — one per side. The DSM hook layer
+//! allocates and distributes them; this module is ABI-agnostic about where
+//! they come from.
 //!
 //! # What was here before
 //!
@@ -72,7 +72,7 @@
 //! building block for the benchmark and cleanly composes with DataFusion's
 //! existing `HashJoinExec(Partitioned)`.
 
-#![allow(dead_code)] // caller lands in Phase 4b-iv step 4
+#![allow(dead_code)]
 
 use std::sync::Arc;
 

@@ -15,11 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use datafusion::common::{Column, JoinType, Result, ScalarValue, TableReference};
+use datafusion::common::{Column, JoinType, Result, TableReference};
 use datafusion::error::DataFusionError;
 use datafusion::logical_expr::{col, lit, BinaryExpr, Expr, Operator};
 use datafusion::prelude::DataFrame;
-use pgrx::{pg_sys, PgList};
+use pgrx::pg_sys;
 
 use crate::api::{HashMap, HashSet};
 use crate::postgres::customscan::joinscan::build::{
@@ -27,7 +27,6 @@ use crate::postgres::customscan::joinscan::build::{
     RelationAlias,
 };
 use crate::postgres::customscan::joinscan::privdat::{OutputColumnInfo, SCORE_COL_NAME};
-use crate::postgres::customscan::opexpr::lookup_operator;
 use crate::scan::SearchPredicateUDF;
 
 pub trait ColumnMapper {
@@ -35,10 +34,75 @@ pub trait ColumnMapper {
     fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr>;
 }
 
+/// Human-readable PG type name (e.g. `"integer"`, `"jsonb"`) for debug
+/// logging. Falls back to `"OID {n}"` if the OID can't be resolved.
+pub(crate) unsafe fn type_name(oid: pg_sys::Oid) -> String {
+    let c_str = pg_sys::format_type_be(oid);
+    if c_str.is_null() {
+        return format!("OID {}", oid);
+    }
+    std::ffi::CStr::from_ptr(c_str)
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Deparse a PG expression into readable SQL for debug logs. Builds a
+/// deparse context that covers every join source so Var nodes resolve to
+/// qualified column names (e.g. `e.pattern`). Wrapped in
+/// [`pgrx::PgTryBuilder`] so a PG error inside `deparse_expression` (which
+/// doesn't handle every possible node shape) degrades to a short tag
+/// fallback instead of unwinding the caller.
+pub(crate) unsafe fn deparse_expr_for_debug(
+    node: *mut pg_sys::Node,
+    sources: &[&JoinSource],
+) -> String {
+    use std::panic::AssertUnwindSafe;
+    if node.is_null() {
+        return "<null>".to_string();
+    }
+
+    let tag_fallback = || format!("{:?}", (*node).type_);
+
+    pgrx::PgTryBuilder::new(AssertUnwindSafe(|| {
+        let mut context: *mut pg_sys::List = std::ptr::null_mut();
+        for source in sources {
+            let alias = source.scan_info.alias.as_deref().unwrap_or("?");
+            let relname = match std::ffi::CString::new(alias) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let rel_context =
+                pg_sys::deparse_context_for(relname.as_ptr(), source.scan_info.heaprelid);
+            context = pg_sys::list_concat(context, rel_context);
+        }
+        let deparsed = pg_sys::deparse_expression(node.cast(), context, sources.len() > 1, false);
+        if deparsed.is_null() {
+            return tag_fallback();
+        }
+        std::ffi::CStr::from_ptr(deparsed)
+            .to_string_lossy()
+            .into_owned()
+    }))
+    .catch_others(|_| tag_fallback())
+    .execute()
+}
+
+/// Short label for a node tag (strips the `T_` prefix). Used in debug
+/// logs so the offending node type is immediately scannable. Separate from
+/// `expr_translators::node_tag_label`, which covers only the subset of
+/// tags that reach the UDF-naming path.
+pub(crate) unsafe fn node_tag_debug(node: *mut pg_sys::Node) -> String {
+    if node.is_null() {
+        return "null".to_string();
+    }
+    let dbg = format!("{:?}", (*node).type_);
+    dbg.strip_prefix("T_").unwrap_or(&dbg).to_string()
+}
+
 /// Helper struct for translating PostgreSQL expression trees into DataFusion `Expr`s.
 pub struct PredicateTranslator<'a> {
     pub sources: &'a [&'a JoinSource],
-    mapper: Option<Box<dyn ColumnMapper + 'a>>,
+    pub(crate) mapper: Option<Box<dyn ColumnMapper + 'a>>,
 }
 
 impl<'a> PredicateTranslator<'a> {
@@ -229,10 +293,11 @@ impl<'a> PredicateTranslator<'a> {
     /// cannot be evaluated purely in DataFusion and must fall back to PostgreSQL evaluation.
     pub unsafe fn translate(&self, node: *mut pg_sys::Node) -> Option<Expr> {
         if node.is_null() {
+            pgrx::debug1!("PredicateTranslator: null node pointer");
             return None;
         }
 
-        match (*node).type_ {
+        let native = match (*node).type_ {
             pg_sys::NodeTag::T_OpExpr => self.translate_op_expr(node as *mut pg_sys::OpExpr),
             pg_sys::NodeTag::T_Var => self.translate_var(node as *mut pg_sys::Var),
             pg_sys::NodeTag::T_Const => self.translate_const(node as *mut pg_sys::Const),
@@ -243,148 +308,37 @@ impl<'a> PredicateTranslator<'a> {
                 let relabel = node as *mut pg_sys::RelabelType;
                 self.translate((*relabel).arg.cast())
             }
-            // Type casts (CoerceViaIO, FuncExpr) are not supported because
-            // they may change value semantics. Cross-type comparisons like INT < NUMERIC
-            // require proper type coercion that DataFusion cannot perform correctly when
-            // the underlying fast field storage uses different scales/representations.
+            pg_sys::NodeTag::T_FuncExpr => self.translate_func_expr(node),
+            pg_sys::NodeTag::T_NullTest => self.translate_null_test(node),
+            pg_sys::NodeTag::T_BooleanTest => self.translate_boolean_test(node),
+            pg_sys::NodeTag::T_CaseExpr => self.translate_case_expr(node),
+            pg_sys::NodeTag::T_CoalesceExpr => self.translate_coalesce_expr(node),
+            pg_sys::NodeTag::T_NullIfExpr => self.translate_nullif_expr(node),
+            pg_sys::NodeTag::T_MinMaxExpr => self.translate_min_max_expr(node),
+            pg_sys::NodeTag::T_ScalarArrayOpExpr => self.translate_scalar_array_op_expr(node),
+            pg_sys::NodeTag::T_CoerceViaIO => self.translate_coerce_via_io(node),
             _ => None,
-        }
-    }
-
-    unsafe fn translate_op_expr(&self, op_expr: *mut pg_sys::OpExpr) -> Option<Expr> {
-        let args = PgList::<pg_sys::Node>::from_pg((*op_expr).args);
-        if args.len() != 2 {
-            return None; // Only support binary operators for now
-        }
-
-        let left = self.translate(args.get_ptr(0)?)?;
-        let right = self.translate(args.get_ptr(1)?)?;
-
-        let opno = (*op_expr).opno;
-        let op_str = lookup_operator(opno)?;
-
-        let op = match op_str {
-            "=" => Operator::Eq,
-            "<>" => Operator::NotEq,
-            "<" => Operator::Lt,
-            "<=" => Operator::LtEq,
-            ">" => Operator::Gt,
-            ">=" => Operator::GtEq,
-            _ => return None,
         };
 
-        Some(Expr::BinaryExpr(BinaryExpr::new(
-            Box::new(left),
-            op,
-            Box::new(right),
-        )))
+        // Fallback runs per recursive call, so the innermost failing subtree
+        // gets wrapped, and its parent can still evaluate natively.
+        native.or_else(|| {
+            let wrapped = self.try_wrap_as_udf(node);
+            if wrapped.is_none() {
+                pgrx::debug1!(
+                    "PredicateTranslator: UDF fallback failed [{}] | {}",
+                    node_tag_debug(node),
+                    deparse_expr_for_debug(node, self.sources)
+                );
+            }
+            wrapped
+        })
     }
 
-    unsafe fn translate_var(&self, var: *mut pg_sys::Var) -> Option<Expr> {
-        let varno = (*var).varno as pg_sys::Index;
-        let varattno = (*var).varattno;
-
-        // INDEX_VAR is allowed because it represents a reference to the custom scan's output
-        if varno != pg_sys::INDEX_VAR as pg_sys::Index
-            && !self.sources.iter().any(|s| s.contains_rti(varno))
-        {
-            return None;
-        }
-
-        if let Some(ref mapper) = self.mapper {
-            if let Some(expr) = mapper.map_var(varno, varattno) {
-                return Some(expr);
-            }
-            return None;
-        }
-
-        Some(col("placeholder"))
-    }
-
-    unsafe fn translate_const(&self, c: *mut pg_sys::Const) -> Option<Expr> {
-        if (*c).constisnull {
-            return Some(lit(ScalarValue::Null));
-        }
-
-        let type_oid = (*c).consttype;
-        let datum = (*c).constvalue;
-
-        // Simple mapping for common types
-        let scalar_value = match type_oid {
-            pg_sys::INT2OID => {
-                let val = datum.value() as i16;
-                ScalarValue::Int16(Some(val))
-            }
-            pg_sys::INT4OID => {
-                let val = datum.value() as i32;
-                ScalarValue::Int32(Some(val))
-            }
-            pg_sys::INT8OID => {
-                let val = datum.value() as i64;
-                ScalarValue::Int64(Some(val))
-            }
-            pg_sys::FLOAT4OID => {
-                let val = f32::from_bits(datum.value() as u32);
-                ScalarValue::Float32(Some(val))
-            }
-            pg_sys::FLOAT8OID => {
-                let val = f64::from_bits(datum.value() as u64);
-                ScalarValue::Float64(Some(val))
-            }
-            pg_sys::BOOLOID => {
-                let val = datum.value() != 0;
-                ScalarValue::Boolean(Some(val))
-            }
-            _ => return None,
-        };
-
-        Some(lit(scalar_value))
-    }
-
-    unsafe fn translate_bool_expr(&self, bool_expr: *mut pg_sys::BoolExpr) -> Option<Expr> {
-        let args = PgList::<pg_sys::Node>::from_pg((*bool_expr).args);
-
-        match (*bool_expr).boolop {
-            pg_sys::BoolExprType::AND_EXPR => {
-                if args.len() < 2 {
-                    return None;
-                }
-                let mut expr = self.translate(args.get_ptr(0)?)?;
-                for i in 1..args.len() {
-                    let right = self.translate(args.get_ptr(i)?)?;
-                    expr = Expr::BinaryExpr(BinaryExpr::new(
-                        Box::new(expr),
-                        Operator::And,
-                        Box::new(right),
-                    ));
-                }
-                Some(expr)
-            }
-            pg_sys::BoolExprType::OR_EXPR => {
-                if args.len() < 2 {
-                    return None;
-                }
-                let mut expr = self.translate(args.get_ptr(0)?)?;
-                for i in 1..args.len() {
-                    let right = self.translate(args.get_ptr(i)?)?;
-                    expr = Expr::BinaryExpr(BinaryExpr::new(
-                        Box::new(expr),
-                        Operator::Or,
-                        Box::new(right),
-                    ));
-                }
-                Some(expr)
-            }
-            pg_sys::BoolExprType::NOT_EXPR => {
-                if args.len() != 1 {
-                    return None;
-                }
-                let child = self.translate(args.get_ptr(0)?)?;
-                Some(Expr::Not(Box::new(child)))
-            }
-            _ => None,
-        }
-    }
+    // `translate_op_expr`, `translate_var`, `translate_const`,
+    // `translate_bool_expr` — plus the extended node-type translators and
+    // the UDF fallback — are defined in `expr_translators.rs` on a split
+    // `impl PredicateTranslator` block.
 }
 
 /// Translate a `JoinLevelExpr` predicate into a DataFusion filter expression
@@ -579,34 +533,46 @@ pub fn build_join_df_with_filter(
 }
 
 /// Deserialize a PostgreSQL expression from its `nodeToString` representation
-/// and translate it to a DataFusion `Expr` against `sources`. The translator
-/// is seeded with a [`CombinedMapper`] so Var nodes (carrying their original
-/// `(varno, varattno)`) resolve to qualified DataFusion columns.
+/// and translate it to a DataFusion `Expr` against `sources`, using the
+/// caller-supplied `mapper` to resolve Var nodes. `context` is used only in
+/// error messages to disambiguate call sites.
+pub unsafe fn translate_pg_node_string<'a>(
+    pg_node_string: &str,
+    sources: &'a [&'a JoinSource],
+    mapper: Box<dyn ColumnMapper + 'a>,
+    context: &'static str,
+) -> Result<Expr> {
+    let c_str = std::ffi::CString::new(pg_node_string).map_err(|e| {
+        DataFusionError::Internal(format!("CString conversion failed for {context}: {e}"))
+    })?;
+    let node = pg_sys::stringToNode(c_str.as_ptr().cast_mut());
+    if node.is_null() {
+        return Err(DataFusionError::Internal(format!(
+            "stringToNode returned null for {context}"
+        )));
+    }
+
+    let translator = PredicateTranslator::new(sources).with_mapper(mapper);
+    translator.translate(node.cast()).ok_or_else(|| {
+        DataFusionError::Internal(format!(
+            "PredicateTranslator failed to translate deserialized {context}"
+        ))
+    })
+}
+
+/// Translate a `PgExpression` join filter using a [`CombinedMapper`] so Var
+/// nodes (carrying their original `(varno, varattno)`) resolve to qualified
+/// DataFusion columns.
 unsafe fn translate_pg_expression_filter(
     pg_node_string: &str,
     sources: &[&JoinSource],
     output_columns: &[OutputColumnInfo],
 ) -> Result<Expr> {
-    let c_str = std::ffi::CString::new(pg_node_string).map_err(|e| {
-        DataFusionError::Internal(format!("CString conversion failed for PgExpression: {e}"))
-    })?;
-    let node = pg_sys::stringToNode(c_str.as_ptr().cast_mut());
-    if node.is_null() {
-        return Err(DataFusionError::Internal(
-            "stringToNode returned null for PgExpression".into(),
-        ));
-    }
-
     let mapper = CombinedMapper {
         sources,
         output_columns,
     };
-    let translator = PredicateTranslator::new(sources).with_mapper(Box::new(mapper));
-    translator.translate(node.cast()).ok_or_else(|| {
-        DataFusionError::Internal(
-            "PredicateTranslator failed to translate deserialized PgExpression".into(),
-        )
-    })
+    translate_pg_node_string(pg_node_string, sources, Box::new(mapper), "PgExpression")
 }
 
 /// Build equi-join filter expressions from a [`JoinNode`]'s key pairs.

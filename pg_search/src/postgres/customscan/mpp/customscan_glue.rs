@@ -48,7 +48,6 @@ use crate::postgres::customscan::mpp::coordinator::{
     attach_mpp_dsm_worker, estimate_mpp_dsm, init_mpp_dsm_leader, LeaderMppContext,
     WorkerMppContext,
 };
-use crate::postgres::customscan::mpp::session::MppSessionProfile;
 
 /// Per-query MPP state a customscan's execution state stores. Distinct
 /// variants for leader vs worker because the two have different wiring
@@ -65,13 +64,6 @@ impl MppExecutionState {
         match self {
             MppExecutionState::Leader(l) => &l.participant_config,
             MppExecutionState::Worker(w) => &w.participant_config,
-        }
-    }
-
-    pub fn session_profile(&self) -> MppSessionProfile {
-        match self {
-            MppExecutionState::Leader(l) => l.session_profile,
-            MppExecutionState::Worker(w) => w.plan.session_profile,
         }
     }
 
@@ -143,7 +135,6 @@ pub unsafe fn leader_init_dsm(
     coordinate: *mut std::ffi::c_void,
     plan_broadcast_bytes: Vec<u8>,
     num_meshes: u32,
-    session_profile: MppSessionProfile,
     seg: *mut pg_sys::dsm_segment,
 ) -> Result<MppExecutionState, String> {
     if coordinate.is_null() {
@@ -157,7 +148,6 @@ pub unsafe fn leader_init_dsm(
             plan_broadcast_bytes,
             n,
             num_meshes,
-            session_profile,
             DEFAULT_MPP_QUEUE_BYTES,
             seg,
         )?

@@ -40,9 +40,9 @@
 use pgrx::pg_sys;
 
 use crate::postgres::customscan::mpp::mesh::MeshLayout;
-use crate::postgres::customscan::mpp::session::{MppPlanBroadcast, MppSessionProfile};
+use crate::postgres::customscan::mpp::session::MppPlanBroadcast;
 use crate::postgres::customscan::mpp::worker::{
-    attach_dsm_as_worker, compute_dsm_layout, initialize_dsm_as_leader, DsmLayout, LeaderMesh,
+    attach_dsm_as_worker, compute_dsm_layout, initialize_dsm_as_leader, LeaderMesh,
 };
 
 /// Compute the exact DSM size the MPP custom scan needs for a plan of
@@ -80,7 +80,6 @@ pub unsafe fn init_mpp_dsm_leader(
     plan_broadcast_bytes: Vec<u8>,
     total_participants: u32,
     num_meshes: u32,
-    session_profile: MppSessionProfile,
     queue_bytes: usize,
     seg: *mut pg_sys::dsm_segment,
 ) -> Result<LeaderMppContext, String> {
@@ -101,12 +100,10 @@ pub unsafe fn init_mpp_dsm_leader(
 
     Ok(LeaderMppContext {
         meshes,
-        layout: dsm,
         participant_config: super::MppParticipantConfig {
             participant_index: 0,
             total_participants,
         },
-        session_profile,
     })
 }
 
@@ -116,9 +113,7 @@ pub unsafe fn init_mpp_dsm_leader(
 pub struct LeaderMppContext {
     /// One [`LeaderMesh`] per shuffle mesh, in the order the shape requested.
     pub meshes: Vec<LeaderMesh>,
-    pub layout: DsmLayout,
     pub participant_config: super::MppParticipantConfig,
-    pub session_profile: MppSessionProfile,
 }
 
 /// Worker's DSM-attach entry point. Reads the header, validates, attaches as
@@ -156,24 +151,22 @@ pub unsafe fn attach_mpp_dsm_worker(
 
     Ok(WorkerMppContext {
         meshes: attach.meshes,
-        plan: broadcast,
         participant_config,
     })
 }
 
 /// Bundle returned to a worker after [`attach_mpp_dsm_worker`]. The caller
-/// rebuilds its DataFusion logical plan from `plan.logical_plan`, constructs
-/// a session with `participant_config` + `plan.session_profile`, and wires
-/// the returned meshes into `ShuffleExec` (one mesh per shuffle).
+/// constructs a session with `participant_config` and wires the returned
+/// meshes into `ShuffleExec` (one mesh per shuffle).
 pub struct WorkerMppContext {
     pub meshes: Vec<crate::postgres::customscan::mpp::worker::WorkerMesh>,
-    pub plan: MppPlanBroadcast,
     pub participant_config: super::MppParticipantConfig,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::postgres::customscan::mpp::session::MppSessionProfile;
 
     #[test]
     fn estimate_matches_compute_dsm_layout() {

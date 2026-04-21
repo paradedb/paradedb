@@ -289,12 +289,6 @@ fn build_scalar_agg_on_binary_join_bridge(
     // 5) Extract aggregate expressions.
     let aggr_expr = partial_agg.aggr_expr().to_vec();
     let filter_expr = partial_agg.filter_expr().to_vec();
-    // Preserve the original HashJoin's column projection — it narrows the
-    // raw `left_schema ++ right_schema` to the subset that flows into the
-    // aggregate. Aggregate expressions' `Column` references use indices
-    // into that projected schema, so dropping the projection here would
-    // silently misread columns (e.g. MAX(rating) reading the join key).
-    let join_projection = hash_join.projection.as_deref().map(|s| s.to_vec());
 
     crate::mpp_log!(
         "mpp: assembling ScalarAggOnBinaryJoin plan (participant={}, total={}, \
@@ -316,8 +310,6 @@ fn build_scalar_agg_on_binary_join_bridge(
             right_shuffle,
             right_drain,
             right_schema,
-            join_on,
-            join_projection,
             aggr_expr,
             filter_expr,
             final_shuffle,
@@ -412,9 +404,6 @@ fn build_groupby_agg_on_binary_join_bridge(
 
     let aggr_expr = partial_agg.aggr_expr().to_vec();
     let filter_expr = partial_agg.filter_expr().to_vec();
-    // See `build_scalar_agg_on_binary_join_bridge` for why we forward the
-    // HashJoin's projection.
-    let join_projection = hash_join.projection.as_deref().map(|s| s.to_vec());
 
     crate::mpp_log!(
         "mpp: assembling GroupByAggOnBinaryJoin plan (participant={}, total={}, \
@@ -438,8 +427,6 @@ fn build_groupby_agg_on_binary_join_bridge(
         right_shuffle,
         right_drain,
         right_schema,
-        join_on,
-        join_projection,
         group_by,
         aggr_expr,
         filter_expr,
@@ -728,38 +715,6 @@ fn find_hash_join(plan: &dyn ExecutionPlan) -> Option<&HashJoinExec> {
         return find_hash_join(children[0].as_ref());
     }
     None
-}
-
-/// Walk a join input subtree and shard any `PgSearchScanPlan` it contains so
-/// that this participant sees only `segment_idx % total == participant_index`
-/// of the segments. Intermediate nodes (e.g. `FilterExec`, `ProjectionExec`)
-/// are preserved and rebuilt with the sharded scan beneath them.
-///
-/// This is the key optimisation that makes MPP actually parallelise the scan:
-/// each participant reads a disjoint subset of BM25 segments, then the
-/// downstream hash-shuffle redistributes the rows across all participants.
-/// Total work done on the base relation is `O(rows)` instead of
-/// `O(rows * N_participants)`.
-fn shard_scan(
-    node: Arc<dyn ExecutionPlan>,
-    participant_index: u32,
-    total_participants: u32,
-) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
-    if node.as_any().downcast_ref::<PgSearchScanPlan>().is_some() {
-        return PgSearchScanPlan::shard_from_dyn(node, participant_index, total_participants);
-    }
-
-    let children = node.children();
-    if children.is_empty() {
-        // Non-search leaf (e.g. EmptyExec, MemorySourceConfig) — leave as-is.
-        return Ok(node);
-    }
-
-    let new_children = children
-        .iter()
-        .map(|c| shard_scan(Arc::clone(c), participant_index, total_participants))
-        .collect::<Result<Vec<_>, _>>()?;
-    node.with_new_children(new_children)
 }
 
 /// Walk a join-input subtree and replace every `PgSearchScanPlan` with a

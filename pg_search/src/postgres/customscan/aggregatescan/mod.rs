@@ -2114,11 +2114,7 @@ impl ParallelQueryCapable for AggregateScan {
         let seg = unsafe { (*pcxt).seg };
         let ctx = unsafe {
             crate::postgres::customscan::mpp::customscan_glue::leader_init_dsm(
-                coordinate,
-                plan_bytes,
-                num_meshes,
-                crate::postgres::customscan::mpp::session::MppSessionProfile::Aggregate,
-                seg,
+                coordinate, plan_bytes, num_meshes, seg,
             )
         };
         match ctx {

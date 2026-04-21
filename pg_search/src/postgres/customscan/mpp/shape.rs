@@ -57,7 +57,6 @@
 //! shuffle. Multi-mesh DSM allocation is a separate piece — this module
 //! takes pre-allocated wirings as parameters.
 
-#![allow(dead_code)]
 // caller lands once create_custom_path flips parallel-safe
 // `CoalesceBatchesExec` is deprecated in favor of arrow-rs's `BatchCoalescer`,
 // but DataFusion 52 still ships it as an `ExecutionPlan` node — the replacement

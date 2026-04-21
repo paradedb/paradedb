@@ -40,8 +40,6 @@
 //! `ParallelQueryCapable` impl is five lines of delegation and never touches
 //! raw shm_mq FFI directly.
 
-#![allow(dead_code)] // First caller is AggregateScan wiring.
-
 use pgrx::pg_sys;
 
 use crate::postgres::customscan::mpp::coordinator::{

@@ -72,8 +72,6 @@
 //! building block for the benchmark and cleanly composes with DataFusion's
 //! existing `HashJoinExec(Partitioned)`.
 
-#![allow(dead_code)]
-
 use std::sync::Arc;
 
 use datafusion::arrow::datatypes::SchemaRef;

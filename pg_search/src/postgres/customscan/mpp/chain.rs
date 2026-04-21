@@ -46,8 +46,6 @@
 //! driven by the participants' scan completions, not by operator-level poll
 //! cadence. See `plan_build::wrap_with_mpp_shuffle` for the full reasoning.
 
-#![allow(dead_code)] // wired in via wrap_with_mpp_shuffle.
-
 use std::any::Any;
 use std::sync::Arc;
 use std::task::{Context, Poll};

@@ -139,7 +139,7 @@ impl PgExprUdf {
     /// KEEP IN SYNC with the `eval_expr_to_arrow!` arms in
     /// [`Self::invoke_with_args`] — every OID accepted here must have a
     /// matching match arm there, and vice versa.
-    pub fn try_result_type_to_arrow(oid: pg_sys::Oid) -> Option<DataType> {
+    pub fn get_result_type_to_arrow(oid: pg_sys::Oid) -> Option<DataType> {
         match oid {
             pg_sys::BOOLOID => Some(DataType::Boolean),
             pg_sys::INT2OID => Some(DataType::Int16),
@@ -262,7 +262,7 @@ unsafe fn populate_slot(
 ///
 /// Follows the `fetch_ff_column!` pattern from `fast_fields_helper.rs`.
 ///
-/// KEEP IN SYNC with [`PgExprUdf::try_result_type_to_arrow`] — every PG type
+/// KEEP IN SYNC with [`PgExprUdf::get_result_type_to_arrow`] — every PG type
 /// accepted by that gate must have a matching arm here, and vice versa.
 macro_rules! eval_expr_to_arrow {
     (
@@ -294,13 +294,13 @@ macro_rules! eval_expr_to_arrow {
             )*
             other => {
                 debug_assert!(
-                    Self::try_result_type_to_arrow(other).is_none(),
-                    "PgExprUdf::try_result_type_to_arrow accepts OID {other} but \
+                    Self::get_result_type_to_arrow(other).is_none(),
+                    "PgExprUdf::get_result_type_to_arrow accepts OID {other} but \
                      eval_expr_to_arrow! has no branch for it — keep the two in sync"
                 );
                 return Err(DataFusionError::Internal(format!(
                     "PgExprUdf: unsupported result type OID {other} — \
-                     PgExprUdf::try_result_type_to_arrow must gate wrapping before this point"
+                     PgExprUdf::get_result_type_to_arrow must gate wrapping before this point"
                 )));
             }
         }

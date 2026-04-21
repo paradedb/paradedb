@@ -113,7 +113,7 @@ pub unsafe fn extract_join_level_conditions(
             }
 
             // Check if the predicate can be translated to DataFusion
-            if !PredicateTranslator::can_translate(sources, clause.cast(), true) {
+            if !PredicateTranslator::can_translate(sources, clause.cast()) {
                 return Err(format!(
                     "Multi-table predicate '{}' cannot be executed by DataFusion (unsupported operator or type)",
                     format_expr_for_explain(clause.cast())

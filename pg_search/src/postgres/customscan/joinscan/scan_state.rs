@@ -610,9 +610,7 @@ fn build_clause_df<'a>(
             sources: &plan_sources,
             output_columns: &private_data.output_columns,
         };
-        let translator = PredicateTranslator::new(&plan_sources)
-            .with_mapper(Box::new(mapper))
-            .with_allow_udf_fallback(true);
+        let translator = PredicateTranslator::new(&plan_sources).with_mapper(Box::new(mapper));
         let translated_exprs = unsafe { translate_custom_exprs(&translator, custom_exprs)? };
         // Drop the translator (and its borrow on `plan_sources`) before downstream
         // stages re-borrow `plan_sources` for projection / output assembly.

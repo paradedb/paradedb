@@ -36,6 +36,10 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
     let uuid_cast_name = args.take_ident("uuid_cast_name").unwrap();
     let text_array_cast_name = args.take_ident("text_array_cast_name").unwrap();
     let varchar_array_cast_name = args.take_ident("varchar_array_cast_name").unwrap();
+    let to_boost_name = quote::format_ident!("{}_to_boost", sql_name.value());
+    let to_const_name = quote::format_ident!("{}_to_const", sql_name.value());
+    let to_fuzzy_name = quote::format_ident!("{}_to_fuzzy", sql_name.value());
+    let to_slop_name = quote::format_ident!("{}_to_slop", sql_name.value());
     let pgrx_name = format!("{}_definition", sql_name.value());
 
     let create_type_sql = format!(
@@ -104,6 +108,42 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
         sql_name = sql_name.value(),
     );
 
+    let pgrx_cast_to_boost_name = format!("{}_cast_to_boost", sql_name.value());
+    let create_cast_to_boost = format!(
+        r#"
+        CREATE CAST (pdb.{sql_name} AS pdb.boost) WITH FUNCTION {schema}.{sql_name}_to_boost(pdb.{sql_name}, integer, boolean) AS ASSIGNMENT;
+        "#,
+        schema = schema,
+        sql_name = sql_name.value(),
+    );
+
+    let pgrx_cast_to_const_name = format!("{}_cast_to_const", sql_name.value());
+    let create_cast_to_const = format!(
+        r#"
+        CREATE CAST (pdb.{sql_name} AS pdb.const) WITH FUNCTION {schema}.{sql_name}_to_const(pdb.{sql_name}, integer, boolean) AS ASSIGNMENT;
+        "#,
+        schema = schema,
+        sql_name = sql_name.value(),
+    );
+
+    let pgrx_cast_to_fuzzy_name = format!("{}_cast_to_fuzzy", sql_name.value());
+    let create_cast_to_fuzzy = format!(
+        r#"
+        CREATE CAST (pdb.{sql_name} AS pdb.fuzzy) WITH FUNCTION {schema}.{sql_name}_to_fuzzy(pdb.{sql_name}, integer, boolean) AS ASSIGNMENT;
+        "#,
+        schema = schema,
+        sql_name = sql_name.value(),
+    );
+
+    let pgrx_cast_to_slop_name = format!("{}_cast_to_slop", sql_name.value());
+    let create_cast_to_slop = format!(
+        r#"
+        CREATE CAST (pdb.{sql_name} AS pdb.slop) WITH FUNCTION {schema}.{sql_name}_to_slop(pdb.{sql_name}, integer, boolean) AS ASSIGNMENT;
+        "#,
+        schema = schema,
+        sql_name = sql_name.value(),
+    );
+
     let typmod = if !custom_typmod {
         let alter_type_sql = format!(
             "ALTER TYPE {schema}.{sql_name} SET (TYPMOD_IN = generic_typmod_in, TYPMOD_OUT = generic_typmod_out);",
@@ -138,6 +178,10 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
         extension_sql!(#create_cast_from_json, name = #pgrx_cast_from_json_name, requires = [#pgrx_name, #json_cast_name, #jsonb_cast_name]);
         extension_sql!(#create_cast_from_uuid, name = #pgrx_cast_from_uuid_name, requires = [#pgrx_name, #uuid_cast_name]);
         extension_sql!(#create_cast_from_text_array, name = #pgrx_cast_from_text_array_name, requires = [#pgrx_name, #text_array_cast_name, #varchar_array_cast_name]);
+        extension_sql!(#create_cast_to_boost, name = #pgrx_cast_to_boost_name, requires = [#pgrx_name, #cast_name, #to_boost_name]);
+        extension_sql!(#create_cast_to_const, name = #pgrx_cast_to_const_name, requires = [#pgrx_name, #cast_name, #to_const_name]);
+        extension_sql!(#create_cast_to_fuzzy, name = #pgrx_cast_to_fuzzy_name, requires = [#pgrx_name, #cast_name, #to_fuzzy_name]);
+        extension_sql!(#create_cast_to_slop, name = #pgrx_cast_to_slop_name, requires = [#pgrx_name, #cast_name, #to_slop_name]);
         #text_cast_sql
     }
         .into()

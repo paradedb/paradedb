@@ -451,8 +451,6 @@ pub unsafe fn attach_dsm_as_worker(
         meshes,
         plan_bytes_ptr,
         plan_bytes_len,
-        participant_index,
-        total_participants: header.total_participants,
     })
 }
 
@@ -471,8 +469,6 @@ pub struct WorkerAttach {
     /// synchronization is required for this read.
     pub plan_bytes_ptr: *const u8,
     pub plan_bytes_len: usize,
-    pub participant_index: u32,
-    pub total_participants: u32,
 }
 
 impl WorkerAttach {

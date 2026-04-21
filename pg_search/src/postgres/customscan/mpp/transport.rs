@@ -34,6 +34,7 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
+#[cfg(test)]
 use std::time::Duration;
 
 use datafusion::arrow::array::RecordBatch;
@@ -43,14 +44,10 @@ use datafusion::common::DataFusionError;
 
 /// Serialize one `RecordBatch` as a self-contained Arrow IPC Stream message.
 ///
-/// Each message carries its own schema header, which costs a few hundred bytes
-/// per batch but makes the receiver stateless — simpler lifetime management
-/// across shm_mq hand-offs, and the overhead is negligible at typical 64K-row
-/// batch sizes.
-///
-/// Prefer [`encode_batch_into`] on the hot path — reusing a scratch buffer
-/// avoids the ~500 KB / batch allocator traffic the 25M GROUP BY benchmark
-/// spends 19 s on.
+/// Test-only allocating wrapper for [`encode_batch_into`]; production hot paths
+/// reuse a scratch `Vec` so the ~500 KB/batch allocator traffic the 25M GROUP BY
+/// benchmark once spent 19 s on stays out of the critical loop.
+#[cfg(test)]
 pub fn encode_batch(batch: &RecordBatch) -> Result<Vec<u8>, DataFusionError> {
     let mut buf = Vec::with_capacity(1024);
     encode_batch_into(batch, &mut buf)?;
@@ -176,6 +173,7 @@ impl DrainBuffer {
     /// of the cancel/eof check would silently drop buffered data on an
     /// otherwise-clean shutdown; the
     /// `drain_buffer_drains_buffered_before_eof` test locks this in.
+    #[cfg(test)]
     pub fn pop_front(&self) -> DrainItem {
         let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
         loop {
@@ -189,18 +187,10 @@ impl DrainBuffer {
         }
     }
 
-    /// Snapshot the number of batches currently buffered. For debug/telemetry.
-    #[cfg(any(test, feature = "pg_test"))]
-    pub fn len(&self) -> usize {
-        self.inner
-            .lock()
-            .expect("DrainBuffer mutex poisoned")
-            .queue
-            .len()
-    }
-
-    /// True if `cancel` has been called. The drain thread consults this so a
-    /// `DrainHandle::drop` with a live peer sender still tears down cleanly.
+    /// True if `cancel` has been called. The test-only `drain_loop` and its
+    /// tests consult this; the cooperative production path watches the flag
+    /// through `notify_source_done` fan-out instead.
+    #[cfg(test)]
     pub fn is_cancelled(&self) -> bool {
         self.inner
             .lock()
@@ -309,6 +299,10 @@ impl MppSender {
         self
     }
 
+    /// Test-only stats-less wrapper around [`Self::send_batch_traced`].
+    /// Production call sites (`ShuffleStream::process_batch`) always pass a
+    /// `SendBatchStats` so per-peer wall-time shows up in the EOF trace.
+    #[cfg(test)]
     pub fn send_batch(&self, batch: &RecordBatch) -> Result<(), DataFusionError> {
         let mut stats = SendBatchStats::default();
         self.send_batch_traced(batch, &mut stats)
@@ -412,6 +406,12 @@ pub enum RecvBatchOutcome {
 }
 
 /// Configuration for [`spawn_drain_thread`].
+///
+/// Only used by the thread-backed drain path, which is test-only: pgrx panics
+/// on any pg FFI call (including `shm_mq_receive`) from a non-backend thread,
+/// so production uses [`DrainHandle::cooperative`] — see the notes on
+/// `DrainHandle::spawn` for details.
+#[cfg(test)]
 pub struct DrainConfig {
     /// Receivers to drain. Ownership moves into the spawned thread.
     pub receivers: Vec<MppReceiver>,
@@ -423,6 +423,7 @@ pub struct DrainConfig {
     pub idle_sleep: Duration,
 }
 
+#[cfg(test)]
 impl DrainConfig {
     pub fn new(receivers: Vec<MppReceiver>, buffer: Arc<DrainBuffer>) -> Self {
         Self {
@@ -435,15 +436,11 @@ impl DrainConfig {
 
 /// Spawn the dedicated drain thread.
 ///
-/// The thread round-robins through every receiver with non-blocking `try_recv`,
-/// pushes decoded batches into `buffer`, and marks each source done as soon as
-/// it observes a detach or decode error. When every source is done, the thread
-/// exits. Its `JoinHandle` is returned so the caller can join on shutdown.
-///
-/// Prefer [`DrainHandle::spawn`] over this raw function — `DrainHandle` pins
-/// the cancel+join invariant at the type level so a dropped handle guarantees
-/// the thread has torn down before DSM is detached, regardless of whether the
-/// consumer path panicked.
+/// Test-only: the thread round-robins through every receiver with non-blocking
+/// `try_recv`, pushes decoded batches into `buffer`, and marks each source
+/// done as soon as it observes a detach or decode error. When every source is
+/// done, the thread exits.
+#[cfg(test)]
 pub fn spawn_drain_thread(config: DrainConfig) -> JoinHandle<Result<(), DataFusionError>> {
     std::thread::spawn(move || drain_loop(config))
 }
@@ -484,14 +481,11 @@ pub struct DrainHandle {
 
 impl DrainHandle {
     /// Spawn a drain thread and wrap the join handle together with the buffer
-    /// it drains into. The returned handle is `!Send`-tolerant (std::thread
-    /// join handles are Send), so it may live on any thread that manages the
-    /// query's lifecycle.
-    ///
-    /// Safe for in-proc test receivers (std::sync::mpsc). NOT safe for
-    /// `shm_mq`-backed receivers — pgrx panics on any pg FFI call from a
-    /// non-backend thread. Production paths must use
-    /// [`Self::cooperative`] instead.
+    /// it drains into. Test-only: pgrx's `check_active_thread` panics on any
+    /// pg FFI call (including `shm_mq_receive`) from a non-backend thread, so
+    /// a real mesh receiver can never drain from a std::thread worker.
+    /// Production paths must use [`Self::cooperative`] instead.
+    #[cfg(test)]
     pub fn spawn(config: DrainConfig) -> Self {
         let buffer = Arc::clone(&config.buffer);
         let join = spawn_drain_thread(config);
@@ -622,6 +616,7 @@ impl Drop for DrainHandle {
     }
 }
 
+#[cfg(test)]
 fn drain_loop(config: DrainConfig) -> Result<(), DataFusionError> {
     let DrainConfig {
         receivers,
@@ -677,15 +672,18 @@ fn drain_loop(config: DrainConfig) -> Result<(), DataFusionError> {
 /// SPSC channel pair for unit tests and in-process single-worker validation.
 /// Bounded capacity via `std::sync::mpsc::sync_channel` so tests can exercise
 /// backpressure (`send` blocks when full).
+#[cfg(test)]
 pub fn in_proc_channel(capacity: usize) -> (InProcSender, InProcReceiver) {
     let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(capacity);
     (InProcSender { tx }, InProcReceiver { rx: Mutex::new(rx) })
 }
 
+#[cfg(test)]
 pub struct InProcSender {
     tx: std::sync::mpsc::SyncSender<Vec<u8>>,
 }
 
+#[cfg(test)]
 pub struct InProcReceiver {
     // The std::sync::mpsc receiver is !Sync; wrap in a Mutex so the drain
     // thread can hold it behind a `Box<dyn BatchChannelReceiver>` (which is
@@ -695,6 +693,7 @@ pub struct InProcReceiver {
     rx: Mutex<std::sync::mpsc::Receiver<Vec<u8>>>,
 }
 
+#[cfg(test)]
 impl BatchChannelSender for InProcSender {
     fn send_bytes(&self, bytes: &[u8]) -> Result<(), DataFusionError> {
         self.tx.send(bytes.to_vec()).map_err(|_| {
@@ -703,6 +702,7 @@ impl BatchChannelSender for InProcSender {
     }
 }
 
+#[cfg(test)]
 impl BatchChannelReceiver for InProcReceiver {
     fn try_recv(&self) -> RecvOutcome {
         let rx = self.rx.lock().expect("InProcReceiver mutex poisoned");

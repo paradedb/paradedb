@@ -217,6 +217,32 @@ pub struct JoinScanState {
     /// Dropping manifests early would release the pins and allow segment recycling
     /// before workers can open them.
     pub source_manifests: Vec<SearchIndexManifest>,
+
+    /// Serialized `MppPlanBroadcast` bytes — same framing as
+    /// `AggregateScanState::logical_plan_bytes`. Wraps the raw logical-plan
+    /// bytes already in `PrivateData::logical_plan`. Populated on the leader
+    /// in `begin_custom_scan` when MPP is active and the classified shape is
+    /// eligible; consumed by the MPP DSM hooks (`estimate_dsm_custom_scan`
+    /// reads `.len()`; `initialize_dsm_custom_scan` copies verbatim into DSM).
+    /// `None` when MPP is off, the shape is ineligible, or plan serialization
+    /// failed (logged; silently falls back to the non-MPP broadcast-join).
+    pub logical_plan_bytes: Option<bytes::Bytes>,
+
+    /// Classified MPP shape for this query, populated alongside
+    /// `logical_plan_bytes`. Drives the number of shuffle meshes allocated in
+    /// DSM and the per-shape builder used by `exec_bridge`. For JoinScan this
+    /// is always `JoinOnly` (or `Ineligible`, which means `logical_plan_bytes`
+    /// stays `None`).
+    pub mpp_shape: Option<crate::postgres::customscan::mpp::shape::MppPlanShape>,
+
+    /// MPP lifecycle state. Populated by `initialize_dsm_custom_scan` on the
+    /// leader or `initialize_worker_custom_scan` on a worker when MPP is
+    /// active. `None` for the non-MPP broadcast-join path.
+    ///
+    /// Declared LAST so it's the last field dropped — same rationale as
+    /// `AggregateScanState::mpp_state`: it owns shm_mq handles pointing into
+    /// DSM which must stay mapped until this drops.
+    pub mpp_state: Option<crate::postgres::customscan::mpp::customscan_glue::MppExecutionState>,
 }
 
 impl JoinScanState {

@@ -210,7 +210,6 @@ impl PgSearchScanPlan {
     /// Transfers scan state out of the original plan — the original becomes
     /// a dead stub whose `execute` returns empty streams. Returns the plan
     /// unchanged when there are no dynamic filters to strip.
-    #[allow(dead_code)] // caller lands in MPP exec-bridge PR
     pub fn strip_dynamic_filters_from_dyn(
         dyn_plan: Arc<dyn ExecutionPlan>,
     ) -> Result<Arc<dyn ExecutionPlan>> {

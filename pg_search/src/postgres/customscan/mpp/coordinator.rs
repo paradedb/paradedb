@@ -35,8 +35,6 @@
 //! glue from the lower-level DSM math so future refactors on either side
 //! stay localized.
 
-#![allow(dead_code)] // First caller lands when AggregateScan MPP path is wired up.
-
 use pgrx::pg_sys;
 
 use crate::postgres::customscan::mpp::mesh::MeshLayout;

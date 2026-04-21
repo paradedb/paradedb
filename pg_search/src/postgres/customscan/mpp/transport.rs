@@ -29,8 +29,6 @@
 //! The shm_mq-backed sender/receiver and drain thread spawn logic build on
 //! top of these primitives.
 
-#![allow(dead_code)]
-
 use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;

@@ -44,8 +44,6 @@
 //! [`ShmMqReceiver`](super::mesh::ShmMqReceiver). Here we only own the
 //! sizing/offset math and the header layout.
 
-#![allow(dead_code)]
-
 use crate::postgres::customscan::mpp::mesh::{MeshLayout, ShmMqReceiver, ShmMqSender};
 use crate::postgres::customscan::mpp::transport::{MppReceiver, MppSender};
 use pgrx::pg_sys;

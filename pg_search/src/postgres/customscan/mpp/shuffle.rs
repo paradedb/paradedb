@@ -41,8 +41,6 @@
 //!   loop calls this once per input batch, then feeds each sub-batch to its
 //!   corresponding `MppSender` (peers) or local channel (self).
 
-#![allow(dead_code)]
-
 use datafusion::arrow::array::{RecordBatch, UInt64Array};
 use datafusion::arrow::compute::take;
 use datafusion::common::hash_utils::create_hashes;
@@ -583,8 +581,10 @@ struct ShuffleStream {
     done: bool,
     schema: datafusion::arrow::datatypes::SchemaRef,
     /// Diagnostic label for the `mpp_log!` row-count report at EOF.
+    #[cfg_attr(test, allow(dead_code))]
     tag: &'static str,
     /// Remembered `participant_index` for logging after `wiring` is dropped.
+    #[cfg_attr(test, allow(dead_code))]
     participant_index: u32,
     /// Total rows read from `child`.
     rows_in: u64,
@@ -1019,7 +1019,9 @@ struct DrainGatherStream {
     handle: Option<std::sync::Arc<crate::postgres::customscan::mpp::transport::DrainHandle>>,
     done: bool,
     schema: datafusion::arrow::datatypes::SchemaRef,
+    #[cfg_attr(test, allow(dead_code))]
     tag: &'static str,
+    #[cfg_attr(test, allow(dead_code))]
     participant_index: u32,
     rows_received: u64,
     batches_received: u64,

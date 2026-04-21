@@ -36,8 +36,6 @@
 //! are in this file so the full production transport stack lives next to the
 //! layout math.
 
-#![allow(dead_code)]
-
 use pgrx::pg_sys;
 
 use crate::parallel_worker::mqueue::{

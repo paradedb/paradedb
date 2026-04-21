@@ -61,7 +61,6 @@
 //! mismatch would route left rows to the right drain and break
 //! correctness.
 
-#![allow(dead_code)]
 // caller lands in aggregatescan/mod.rs in this same change.
 // `CoalesceBatchesExec` is deprecated in favor of arrow-rs's `BatchCoalescer`, but
 // DataFusion 52's planner still emits `CoalesceBatchesExec` nodes in the physical

@@ -79,7 +79,7 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : AggregateExec: mode=Single, gby=[upper(name@1) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
+                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
                              :       VisibilityFilterExec: tables=[s, p]
@@ -531,7 +531,7 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : AggregateExec: mode=Single, gby=[upper(name@1) IS NULL as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
+                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@1 AS Utf8)) IS NULL as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=1
                              :       VisibilityFilterExec: tables=[s, p]
@@ -870,7 +870,7 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : AggregateExec: mode=Single, gby=[upper(name@1) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
+                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
                              :       VisibilityFilterExec: tables=[s, p]
@@ -1157,7 +1157,7 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : AggregateExec: mode=Single, gby=[upper(pdb_eval_expr_funcexpr_685b54ea(CAST(name@1 AS Utf8))) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
+                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_d16211df(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
                              :       VisibilityFilterExec: tables=[s, p]

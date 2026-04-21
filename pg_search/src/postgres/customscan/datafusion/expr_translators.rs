@@ -127,11 +127,14 @@ impl<'a> PredicateTranslator<'a> {
             "pg_catalog" => {
                 match (name, arity) {
                     // string module
-                    ("upper", 1) => Some(upper(it.next()?)),
-                    ("lower", 1) => Some(lower(it.next()?)),
-                    ("btrim" | "trim", _) => Some(btrim(it.collect())),
-                    ("ltrim", _) => Some(ltrim(it.collect())),
-                    ("rtrim", _) => Some(rtrim(it.collect())),
+                    //
+                    // `upper` / `lower` / `btrim` / `trim` / `ltrim` / `rtrim`
+                    // are intentionally NOT mapped here. They are
+                    // collation-aware: DataFusion's implementations use Rust's
+                    // Unicode rules, which can differ from PostgreSQL's
+                    // locale-specific behavior. The `try_wrap_as_udf` fallback
+                    // runs them through `ExecEvalExpr` instead, preserving
+                    // PG-correct semantics.
                     ("concat", _) => Some(concat(it.collect())),
                     ("ascii", 1) => Some(ascii(it.next()?)),
                     ("repeat", 2) => Some(repeat(it.next()?, it.next()?)),
@@ -703,26 +706,15 @@ mod tests {
     #[allow(dead_code)]
     const KNOWN_FUNCS: &[(&str, usize)] = &[
         // string module (fixed arity)
-        ("upper", 1),
-        ("lower", 1),
+        // Note: `upper`, `lower`, `btrim`, `trim`, `ltrim`, `rtrim` are
+        // intentionally excluded — they're collation-aware and handled by
+        // the PgExprUdf fallback to preserve PG-correct semantics.
         ("ascii", 1),
         ("repeat", 2),
         ("starts_with", 2),
         ("ends_with", 2),
         ("replace", 3),
         // string module (variadic; always match)
-        ("btrim", 0),
-        ("btrim", 1),
-        ("btrim", 2),
-        ("trim", 0),
-        ("trim", 1),
-        ("trim", 2),
-        ("ltrim", 0),
-        ("ltrim", 1),
-        ("ltrim", 2),
-        ("rtrim", 0),
-        ("rtrim", 1),
-        ("rtrim", 2),
         ("concat", 0),
         ("concat", 1),
         ("concat", 2),
@@ -803,10 +795,11 @@ mod tests {
     #[test]
     fn wrong_arity_returns_none() {
         // Fixed-arity functions rejected when called with the wrong count.
+        // `upper` / `lower` / `btrim` / `trim` / `ltrim` / `rtrim` are
+        // deliberately absent: they're excluded from `translate_known_func`
+        // entirely (collation-aware), so they return None for every arity —
+        // not a wrong-arity test subject.
         let cases: &[(&str, usize)] = &[
-            ("upper", 0),
-            ("upper", 2),
-            ("lower", 2),
             ("replace", 1),
             ("replace", 2),
             ("replace", 4),

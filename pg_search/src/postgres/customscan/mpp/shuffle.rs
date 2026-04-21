@@ -41,7 +41,7 @@
 //!   loop calls this once per input batch, then feeds each sub-batch to its
 //!   corresponding `MppSender` (peers) or local channel (self).
 
-#![allow(dead_code)] // ShuffleExec::poll_next wrapper lands in Phase 3-iii
+#![allow(dead_code)]
 
 use datafusion::arrow::array::{RecordBatch, UInt64Array};
 use datafusion::arrow::compute::take;
@@ -93,11 +93,11 @@ pub trait RowPartitioner: Send + Sync {
 /// routing); that is not a problem for our shuffle because only the routing
 /// hash needs agreement across workers, not the internal-table hash.
 ///
-/// TODO(Phase 4/5): accept `Vec<Arc<dyn PhysicalExpr>>` instead of column
-/// indices so a planner that pushes `CAST(col)` or `col + 0` into the key
-/// list stays byte-compatible with DataFusion's own routing. Today we
-/// accept only column refs, which is sufficient for the expected planner
-/// output but will silently diverge if that changes.
+/// TODO: accept `Vec<Arc<dyn PhysicalExpr>>` instead of column indices so a
+/// planner that pushes `CAST(col)` or `col + 0` into the key list stays
+/// byte-compatible with DataFusion's own routing. Today we accept only
+/// column refs, which is sufficient for the expected planner output but
+/// will silently diverge if that changes.
 pub struct HashPartitioner {
     /// Indices into the input schema for the key columns to hash.
     key_columns: Vec<usize>,
@@ -326,8 +326,8 @@ fn concat_batches(
 /// through the DataFusion `ExecutionPlan` so every worker aborts the whole
 /// query, not just this operator. A silent drop would make peers' downstream
 /// aggregate nodes happily finalize over incomplete input and return wrong
-/// answers. Phase 3-iii's `Stream::poll_next` wrapper must honor this by
-/// surfacing the error via its `Stream::Err` item.
+/// answers. `ShuffleStream::poll_next` honors this by surfacing the error
+/// via its `Stream::Err` item.
 ///
 /// ## Producer order
 ///
@@ -428,7 +428,7 @@ pub struct ShuffleWiring {
 /// rows to peer participants via `MppSender`s, emitting only the
 /// self-partition rows as its output stream.
 ///
-/// Peer-received rows are NOT merged in here — the Phase 4 wiring layers a
+/// Peer-received rows are NOT merged in here — the plan builder layers a
 /// gather-style operator above `ShuffleExec` that unions the self-partition
 /// output with a `DrainBuffer` populated by the drain thread reading inbound
 /// receivers. Keeping the two sides separate at this layer makes the operator

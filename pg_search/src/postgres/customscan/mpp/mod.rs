@@ -27,7 +27,9 @@
 
 pub mod chain;
 pub mod mesh;
+pub mod plan_build;
 pub mod session;
+pub mod shape;
 pub mod shuffle;
 pub mod transport;
 pub mod worker;

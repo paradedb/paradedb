@@ -189,10 +189,12 @@ impl RowPartitioner for FixedTargetPartitioner {
 /// regardless of their join key, which would break HashJoin/Aggregate
 /// correctness. Useful in unit tests because the routing is trivially
 /// predictable without committing to a specific hash output.
+#[cfg(test)]
 pub struct ModuloPartitioner {
     total_participants: u32,
 }
 
+#[cfg(test)]
 impl ModuloPartitioner {
     pub fn new(total_participants: u32) -> Self {
         assert!(total_participants > 0);
@@ -200,6 +202,7 @@ impl ModuloPartitioner {
     }
 }
 
+#[cfg(test)]
 impl RowPartitioner for ModuloPartitioner {
     fn partition_for_each_row(&self, batch: &RecordBatch) -> Result<Vec<u32>, DataFusionError> {
         let n = self.total_participants;
@@ -341,6 +344,7 @@ fn concat_batches(
 /// This is the non-streaming core of `ShuffleExec`: the DataFusion operator
 /// composes this same logic inside a `Stream::poll_next`, but the synchronous
 /// form is unit-testable without setting up a DataFusion runtime.
+#[cfg(test)]
 pub fn run_shuffle_pump<I>(
     input: I,
     partitioner: &dyn RowPartitioner,

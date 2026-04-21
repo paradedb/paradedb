@@ -117,6 +117,7 @@ WITH (key_field='id');
 ```python Django
 from django.db import connection
 from paradedb.indexes import BM25Index
+from paradedb.search import Tokenizer
 
 with connection.schema_editor() as schema_editor:
     schema_editor.add_index(
@@ -124,7 +125,7 @@ with connection.schema_editor() as schema_editor:
         BM25Index(
             fields={
                 "id": {},
-                "description": {"tokenizer": "icu"},
+                "description": {"tokenizer": Tokenizer.icu()},
                 "category": {},
             },
             key_field="id",
@@ -284,6 +285,7 @@ WITH (key_field='id');
 ```python Django
 from django.db import connection
 from paradedb.indexes import BM25Index
+from paradedb.search import Tokenizer
 
 with connection.schema_editor() as schema_editor:
     schema_editor.add_index(
@@ -292,9 +294,9 @@ with connection.schema_editor() as schema_editor:
             fields={
                 "id": {},
                 "description": {
-                    "tokenizer": "simple",
-                    "filters": ["stemmer"],
-                    "stemmer": "english",
+                    "tokenizer": Tokenizer.simple(
+                        options={"stemmer": "english"}
+                    ),
                 },
                 "category": {},
             },

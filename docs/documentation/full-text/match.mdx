@@ -189,10 +189,12 @@ WHERE description ||| 'running shoes'::pdb.whitespace;
 ```
 
 ```python Django
-from paradedb import Match, ParadeDB
+from paradedb import Match, ParadeDB, Tokenizer
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('running shoes', operator='OR', tokenizer='whitespace'))
+    description=ParadeDB(
+        Match('running shoes', operator='OR', tokenizer=Tokenizer.whitespace())
+    )
 ).values('description', 'rating', 'category')
 ```
 

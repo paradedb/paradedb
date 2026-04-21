@@ -99,6 +99,7 @@ from django.db import models
 from django.contrib.postgres.fields import IntegerRangeField
 from paradedb.indexes import BM25Index
 from paradedb.queryset import ParadeDBManager
+from paradedb.search import Tokenizer
 
 
 class MockItem(models.Model):
@@ -120,8 +121,8 @@ class MockItem(models.Model):
             BM25Index(
                 fields={
                     "id": {},
-                    "description": {"tokenizer": "unicode_words"},
-                    "category": {"tokenizer": "literal"},
+                    "description": {"tokenizer": Tokenizer.unicode_words()},
+                    "category": {"tokenizer": Tokenizer.literal()},
                     "rating": {},
                     "in_stock": {},
                     "metadata": {"json_fields": {"fast": True}},

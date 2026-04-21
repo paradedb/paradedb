@@ -150,10 +150,10 @@ WHERE description ### 'running shoes'::pdb.whitespace;
 ```
 
 ```python Django
-from paradedb import ParadeDB, Phrase
+from paradedb import ParadeDB, Phrase, Tokenizer
 
 MockItem.objects.filter(
-    description=ParadeDB(Phrase('running shoes', tokenizer='whitespace'))
+    description=ParadeDB(Phrase('running shoes', tokenizer=Tokenizer.whitespace()))
 ).values('description', 'rating', 'category')
 ```
 

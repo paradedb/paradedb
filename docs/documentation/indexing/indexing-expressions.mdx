@@ -21,6 +21,7 @@ WITH (key_field='id');
 from django.db import connection, models
 from django.db.models import F, Func, Value
 from paradedb.indexes import BM25Index, IndexExpression
+from paradedb.search import Tokenizer
 
 with connection.schema_editor() as schema_editor:
     schema_editor.add_index(
@@ -38,7 +39,9 @@ with connection.schema_editor() as schema_editor:
                         output_field=models.TextField(),
                     ),
                     alias="description_concat",
-                    tokenizer="simple",
+                    tokenizer=Tokenizer.simple(
+                        options={"alias": "description_concat"}
+                    ),
                 ),
             ],
             key_field="id",

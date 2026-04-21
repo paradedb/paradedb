@@ -82,6 +82,7 @@ WITH (key_field='id');
 ```python Django
 from django.db import connection
 from paradedb.indexes import BM25Index
+from paradedb.search import Tokenizer
 
 with connection.schema_editor() as schema_editor:
     schema_editor.add_index(
@@ -90,8 +91,7 @@ with connection.schema_editor() as schema_editor:
             fields={
                 "id": {},
                 "metadata": {
-                    "tokenizer": "ngram",
-                    "args": [2, 3],
+                    "tokenizer": Tokenizer.ngram(2, 3),
                 },
             },
             key_field="id",
@@ -146,6 +146,7 @@ WITH (key_field='id');
 ```python Django
 from django.db import connection
 from paradedb.indexes import BM25Index
+from paradedb.search import Tokenizer
 
 with connection.schema_editor() as schema_editor:
     schema_editor.add_index(
@@ -156,8 +157,7 @@ with connection.schema_editor() as schema_editor:
                 "metadata": {
                     "json_keys": {
                         "color": {
-                            "tokenizer": "ngram",
-                            "args": [2, 3],
+                            "tokenizer": Tokenizer.ngram(2, 3),
                         },
                     },
                 },

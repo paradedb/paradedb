@@ -75,12 +75,7 @@ pub(crate) unsafe fn deparse_expr_for_debug(
                 pg_sys::deparse_context_for(relname.as_ptr(), source.scan_info.heaprelid);
             context = pg_sys::list_concat(context, rel_context);
         }
-        let deparsed = pg_sys::deparse_expression(
-            node.cast(),
-            context,
-            sources.len() > 1,
-            false,
-        );
+        let deparsed = pg_sys::deparse_expression(node.cast(), context, sources.len() > 1, false);
         if deparsed.is_null() {
             return tag_fallback();
         }

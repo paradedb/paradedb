@@ -24,14 +24,6 @@
 //! MinMaxExpr, ScalarArrayOpExpr, and CoerceViaIO — plus a UDF fallback hook
 //! (`try_wrap_as_udf`) for opaque expressions.
 
-use datafusion::functions::core::expr_fn::{coalesce, greatest, least, nullif};
-use datafusion::functions::math::expr_fn::{
-    abs, ceil, floor, ln, log10, power, round, signum, sqrt,
-};
-use datafusion::functions::string::expr_fn::{
-    ascii, btrim, concat, ends_with, lower, ltrim, repeat, replace, rtrim, starts_with, upper,
-};
-use datafusion::functions::unicode::expr_fn::{character_length, reverse, substr, substring};
 use datafusion::logical_expr::expr::{Case, InList, ScalarFunction};
 use datafusion::logical_expr::{Expr, ScalarUDF};
 use pgrx::{pg_sys, PgList};
@@ -102,6 +94,15 @@ impl<'a> PredicateTranslator<'a> {
     /// Returns `None` for unrecognized functions — the caller can fall back
     /// to UDF wrapping.
     fn translate_known_func(schema: &str, name: &str, args: Vec<Expr>) -> Option<Expr> {
+        // Scoped imports: these expr_fn modules contain very short names
+        // (`abs`, `upper`, `round`, etc.) that could easily shadow or collide
+        // if pulled in at file scope. Keep them local to this function.
+        // Core items aren't glob-re-exported, so list them explicitly.
+        use datafusion::functions::core::expr_fn::{coalesce, greatest, least, nullif};
+        use datafusion::functions::math::expr_fn::*;
+        use datafusion::functions::string::expr_fn::*;
+        use datafusion::functions::unicode::expr_fn::*;
+
         let arity = args.len();
         let mut it = args.into_iter();
         match schema {
@@ -219,6 +220,8 @@ impl<'a> PredicateTranslator<'a> {
 
     /// Translate a `CoalesceExpr` to DataFusion's `coalesce(args)`.
     pub(crate) unsafe fn translate_coalesce_expr(&self, node: *mut pg_sys::Node) -> Option<Expr> {
+        use datafusion::functions::core::expr_fn::coalesce;
+
         let ce = node as *mut pg_sys::CoalesceExpr;
         let pg_args = PgList::<pg_sys::Node>::from_pg((*ce).args);
 
@@ -235,6 +238,8 @@ impl<'a> PredicateTranslator<'a> {
     /// Translate a `NullIfExpr`. Postgres shares the `OpExpr` layout for this
     /// node, so we cast to `OpExpr` and read its two-argument list.
     pub(crate) unsafe fn translate_nullif_expr(&self, node: *mut pg_sys::Node) -> Option<Expr> {
+        use datafusion::functions::core::expr_fn::nullif;
+
         debug_assert_eq!(
             (*node).type_,
             pg_sys::NodeTag::T_NullIfExpr,
@@ -252,6 +257,8 @@ impl<'a> PredicateTranslator<'a> {
 
     /// Translate a `MinMaxExpr` (GREATEST / LEAST).
     pub(crate) unsafe fn translate_min_max_expr(&self, node: *mut pg_sys::Node) -> Option<Expr> {
+        use datafusion::functions::core::expr_fn::{greatest, least};
+
         let mmx = node as *mut pg_sys::MinMaxExpr;
         let pg_args = PgList::<pg_sys::Node>::from_pg((*mmx).args);
 

@@ -82,16 +82,16 @@ drop_snippet_indexes() {
 echo "Creating temporary Python environment for Python snippet verification..."
 python3 -m venv "$PYTHON_ENV_DIR"
 
-echo "Installing latest Django and SQLAlchemy ParadeDB clients from PyPI..."
+echo "Installing Django and SQLAlchemy ParadeDB clients from PyPI..."
 PIP_DISABLE_PIP_VERSION_CHECK=1 "$PYTHON_BIN" -m pip install --quiet --upgrade \
-  "django-paradedb" \
-  "sqlalchemy-paradedb" \
+  "django-paradedb==0.5.0" \
+  "sqlalchemy-paradedb==0.5.0" \
   "psycopg[binary]"
 
-echo "Installing latest rails-paradedb from RubyGems..."
+echo "Installing rails-paradedb from RubyGems..."
 GEM_HOME="$RUBY_GEM_HOME" GEM_PATH="$RUBY_GEM_HOME" \
   gem install --silent --no-document --install-dir "$RUBY_GEM_HOME" \
-  "rails-paradedb" \
+  "rails-paradedb:0.6.0" \
   "pg"
 
 "$PYTHON_BIN" "${SCRIPT_DIR}/extract_code_snippets.py" >/dev/null

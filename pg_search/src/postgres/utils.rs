@@ -781,6 +781,14 @@ pub fn lookup_pdb_function(func_name: &str, arg_types: &[pg_sys::Oid]) -> pg_sys
     }
 }
 
+/// Returns true if the pg_search extension is installed in the current database.
+///
+/// This is used to guard shared_preload_libraries hooks from touching schemas/types/functions
+/// that only exist after `CREATE EXTENSION pg_search`.
+pub fn pg_search_extension_installed() -> bool {
+    unsafe { pg_sys::get_extension_oid(c"pg_search".as_ptr(), true) != pg_sys::InvalidOid }
+}
+
 #[macro_export]
 macro_rules! debug1 {
     ($($arg:tt)*) => {{

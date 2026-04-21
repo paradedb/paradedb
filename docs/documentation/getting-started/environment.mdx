@@ -65,7 +65,7 @@ To start you'll need a [Django](https://www.djangoproject.com/) project with [Ps
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install django psycopg django-paradedb==0.5.0
+pip install django psycopg django-paradedb==0.6.0
 python3 -m django startproject myproject .
 python3 manage.py startapp myapp
 ```
@@ -183,7 +183,7 @@ To get started, install [SQLAlchemy](https://www.sqlalchemy.org/), [Alembic](htt
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install sqlalchemy psycopg alembic sqlalchemy-paradedb==0.5.0
+pip install sqlalchemy psycopg alembic sqlalchemy-paradedb==0.6.0
 ```
 
 Initialize Alembic:
@@ -441,7 +441,7 @@ cd paradedb
 Add the [rails-paradedb](https://rubygems.org/gems/rails-paradedb) gem to your `Gemfile`:
 
 ```ruby Gemfile
-gem "rails-paradedb", "0.6.0", require: "parade_db"
+gem "rails-paradedb", "0.7.0", require: "parade_db"
 ```
 
 Then install it:

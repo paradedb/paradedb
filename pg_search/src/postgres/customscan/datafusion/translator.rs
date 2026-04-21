@@ -38,7 +38,6 @@ pub trait ColumnMapper {
 pub struct PredicateTranslator<'a> {
     pub sources: &'a [&'a JoinSource],
     mapper: Option<Box<dyn ColumnMapper + 'a>>,
-    allow_udf_fallback: bool,
 }
 
 impl<'a> PredicateTranslator<'a> {
@@ -46,17 +45,11 @@ impl<'a> PredicateTranslator<'a> {
         Self {
             sources,
             mapper: None,
-            allow_udf_fallback: false,
         }
     }
 
     pub fn with_mapper(mut self, mapper: Box<dyn ColumnMapper + 'a>) -> Self {
         self.mapper = Some(mapper);
-        self
-    }
-
-    pub fn with_allow_udf_fallback(mut self, allow_udf_fallback: bool) -> Self {
-        self.allow_udf_fallback = allow_udf_fallback;
         self
     }
 
@@ -201,11 +194,7 @@ impl<'a> PredicateTranslator<'a> {
     /// Validates both node-type support and column resolution against
     /// the provided sources, without requiring plan_position or
     /// output_columns.
-    pub unsafe fn can_translate(
-        sources: &'a [&'a JoinSource],
-        node: *mut pg_sys::Node,
-        allow_udf_fallback: bool,
-    ) -> bool {
+    pub unsafe fn can_translate(sources: &'a [&'a JoinSource], node: *mut pg_sys::Node) -> bool {
         struct ValidationMapper<'a> {
             sources: &'a [&'a JoinSource],
         }
@@ -221,9 +210,7 @@ impl<'a> PredicateTranslator<'a> {
         }
 
         let mapper = ValidationMapper { sources };
-        let translator = Self::new(sources)
-            .with_mapper(Box::new(mapper))
-            .with_allow_udf_fallback(allow_udf_fallback);
+        let translator = Self::new(sources).with_mapper(Box::new(mapper));
         translator.translate(node).is_some()
     }
 
@@ -269,13 +256,7 @@ impl<'a> PredicateTranslator<'a> {
 
         // Fallback runs per recursive call, so the innermost failing subtree
         // gets wrapped, and its parent can still evaluate natively.
-        native.or_else(|| {
-            if self.allow_udf_fallback {
-                self.try_wrap_as_udf(node)
-            } else {
-                None
-            }
-        })
+        native.or_else(|| self.try_wrap_as_udf(node))
     }
 
     unsafe fn translate_op_expr(&self, op_expr: *mut pg_sys::OpExpr) -> Option<Expr> {
@@ -637,9 +618,7 @@ pub unsafe fn translate_pg_node_string<'a>(
         )));
     }
 
-    let translator = PredicateTranslator::new(sources)
-        .with_mapper(mapper)
-        .with_allow_udf_fallback(true);
+    let translator = PredicateTranslator::new(sources).with_mapper(mapper);
     translator.translate(node.cast()).ok_or_else(|| {
         DataFusionError::Internal(format!(
             "PredicateTranslator failed to translate deserialized {context}"

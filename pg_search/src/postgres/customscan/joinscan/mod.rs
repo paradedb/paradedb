@@ -1806,7 +1806,7 @@ impl JoinScan {
                 let clause = (*ri).clause;
                 if clause.is_null()
                     || !all_vars_are_fast_fields_recursive(clause.cast(), &current_sources)
-                    || !PredicateTranslator::can_translate(&current_sources, clause.cast(), true)
+                    || !PredicateTranslator::can_translate(&current_sources, clause.cast())
                 {
                     remaining.push(ri);
                     continue;

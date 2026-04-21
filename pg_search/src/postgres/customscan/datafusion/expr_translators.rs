@@ -338,11 +338,12 @@ impl<'a> PredicateTranslator<'a> {
     ///   - some input Var can't be resolved against `self.sources` / mapper,
     ///   - `nodeToString` returns null.
     ///
-    /// Callers (see `translate()` in `translator.rs`) gate on
-    /// `self.allow_udf_fallback` before invoking this method.
+    /// Called unconditionally as the final fallback in
+    /// [`PredicateTranslator::translate`] — any subtree that fails native
+    /// translation is wrapped here.
     pub(crate) unsafe fn try_wrap_as_udf(&self, node: *mut pg_sys::Node) -> Option<Expr> {
         let result_type_oid = pg_sys::exprType(node);
-        PgExprUdf::try_result_type_to_arrow(result_type_oid)?;
+        PgExprUdf::get_result_type_to_arrow(result_type_oid)?;
 
         let var_list = pg_sys::pull_var_clause(node, PVC_RECURSE_ALL);
         let vars = PgList::<pg_sys::Var>::from_pg(var_list);

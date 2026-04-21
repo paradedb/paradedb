@@ -122,6 +122,13 @@ runs:
         psql -h localhost -p 288${{ inputs.pg_version }} postgres -c "CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool STABLE STRICT LANGUAGE plpgsql AS \$\$ BEGIN IF a <> b THEN RAISE EXCEPTION 'Assertion failed: % <> %', a, b; END IF; RETURN true; END; \$\$;"
         psql -h localhost -p 288${{ inputs.pg_version }} postgres -c "SELECT assert(count(*), 0) FROM (SELECT * FROM pdb.verify_index('search_idx') WHERE NOT passed) failed;"
 
+    # `cargo pgrx regress` rebuilds and reinstalls the extension without sudo,
+    # but the earlier `cargo pgrx install --sudo` left the Postgres extension
+    # directories owned by root.
+    - name: Take ownership of Postgres directories
+      shell: bash
+      run: sudo chown -R $(whoami) /usr/share/postgresql/${{ inputs.pg_version }}/ /usr/lib/postgresql/${{ inputs.pg_version }}/
+
     - name: Run pg_search Regression Tests
       shell: bash
       run: |

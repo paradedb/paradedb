@@ -1183,7 +1183,7 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_type t
-        JOIN pg_namespace n ON t.typnamespace == n.oid
+        JOIN pg_namespace n ON t.typnamespace = n.oid
         WHERE n.nspname = 'pdb' AND t.typname = 'edge_ngram'
     ) THEN 
         CREATE TYPE pdb.edge_ngram;

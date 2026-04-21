@@ -25,8 +25,10 @@
 //! that reads all inbound queues into a spillable local buffer — this decouples
 //! consumer-side backpressure from producer-side backpressure.
 
+pub mod chain;
 pub mod mesh;
 pub mod session;
+pub mod shuffle;
 pub mod transport;
 pub mod worker;
 

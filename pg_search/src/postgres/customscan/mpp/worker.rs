@@ -569,7 +569,7 @@ mod tests {
         assert_eq!(dsm.plan_offset % pgrx::pg_sys::MAXIMUM_ALIGNOF as usize, 0);
         assert!(dsm.mesh_offset >= dsm.plan_offset + plan_len);
         assert_eq!(dsm.mesh_offset % pgrx::pg_sys::MAXIMUM_ALIGNOF as usize, 0);
-        assert_eq!(dsm.mesh_bytes, layout.dsm_queue_bytes());
+        assert_eq!(dsm.mesh_bytes, layout.dsm_queue_bytes_checked().unwrap());
         assert_eq!(dsm.total, dsm.mesh_offset + dsm.mesh_bytes);
         assert_eq!(dsm.plan_len, plan_len);
         assert_eq!(dsm.num_meshes, 1);
@@ -580,9 +580,10 @@ mod tests {
         let layout = MeshLayout::new(4, 64 * 1024);
         let one = compute_dsm_layout(&layout, 1, 0).unwrap();
         let three = compute_dsm_layout(&layout, 3, 0).unwrap();
-        assert_eq!(three.mesh_bytes, 3 * layout.dsm_queue_bytes());
+        let queue_bytes = layout.dsm_queue_bytes_checked().unwrap();
+        assert_eq!(three.mesh_bytes, 3 * queue_bytes);
         assert_eq!(three.mesh_offset, one.mesh_offset);
-        assert_eq!(three.total - one.total, 2 * layout.dsm_queue_bytes());
+        assert_eq!(three.total - one.total, 2 * queue_bytes);
         assert_eq!(three.num_meshes, 3);
 
         let header = MppDsmHeader::from_layout(&layout, &three);

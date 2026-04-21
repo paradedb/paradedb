@@ -39,7 +39,6 @@
 #![allow(dead_code)]
 
 use pgrx::pg_sys;
-use std::ptr::NonNull;
 
 use crate::parallel_worker::mqueue::{
     MessageQueueReceiver, MessageQueueRecvError, MessageQueueSendError, MessageQueueSender,
@@ -76,14 +75,6 @@ pub fn aligned_queue_bytes(queue_bytes: usize) -> usize {
     queue_bytes & !(MAXIMUM_ALIGNOF - 1)
 }
 
-/// Total DSM bytes needed to hold the mesh's shm_mq regions (exclusive of
-/// header and plan bytes). Does NOT include `BUFFERALIGN` rounding that
-/// `shm_toc_allocate` applies — that is PG's concern.
-#[inline]
-pub fn mesh_queue_bytes(n: u32, queue_bytes: usize) -> usize {
-    num_edges(n) * aligned_queue_bytes(queue_bytes)
-}
-
 /// Layout description for the MPP mesh DSM region. Consumed by the custom
 /// scan's `estimate_dsm_custom_scan` / `initialize_dsm_custom_scan` hooks and
 /// by the shuffle operators — a pure compile-time data shape that callers can
@@ -102,17 +93,10 @@ impl MeshLayout {
         }
     }
 
-    /// DSM bytes required for the queue array alone (see `mesh_queue_bytes`).
-    ///
-    /// Prefer `dsm_queue_bytes_checked` in production code paths; this
-    /// wrapping form is kept for tests and `Debug` that assume finite N.
-    pub fn dsm_queue_bytes(&self) -> usize {
-        mesh_queue_bytes(self.total_participants, self.queue_bytes)
-    }
-
-    /// Overflow-checked variant. Returns `None` if `num_edges * aligned_bytes`
-    /// overflows `usize`. `compute_dsm_layout` uses this so a pathological
-    /// caller (`N=u32::MAX`) fails cleanly instead of wrapping.
+    /// Overflow-checked DSM-byte computation. Returns `None` if
+    /// `num_edges * aligned_bytes` overflows `usize`. `compute_dsm_layout`
+    /// uses this so a pathological caller (`N=u32::MAX`) fails cleanly
+    /// instead of wrapping.
     pub fn dsm_queue_bytes_checked(&self) -> Option<usize> {
         let edges = num_edges(self.total_participants);
         edges.checked_mul(aligned_queue_bytes(self.queue_bytes))
@@ -121,12 +105,6 @@ impl MeshLayout {
     /// Aligned per-queue size.
     pub fn aligned_queue_bytes(&self) -> usize {
         aligned_queue_bytes(self.queue_bytes)
-    }
-
-    /// Offset of the shm_mq region for edge `src -> dst` from the queue
-    /// array base pointer.
-    pub fn edge_offset(&self, src: u32, dst: u32) -> usize {
-        edge_slot(src, dst, self.total_participants) * self.aligned_queue_bytes()
     }
 }
 
@@ -255,25 +233,6 @@ pub struct ShmMqReceiver {
 unsafe impl Send for ShmMqReceiver {}
 
 impl ShmMqReceiver {
-    /// Create *and* attach a new shm_mq region. The underlying wrapper calls
-    /// `shm_mq_create` at `address`, which initializes the ring buffer
-    /// header in place — use this for single-queue standalone setups.
-    ///
-    /// # Safety
-    /// See `MessageQueueReceiver::new`. Caller holds a valid `ParallelContext`
-    /// and the memory at `address` is uninitialized / safe to stomp.
-    pub unsafe fn create_and_attach(
-        pcxt: NonNull<pg_sys::ParallelContext>,
-        address: *mut std::ffi::c_void,
-        size: usize,
-    ) -> Self {
-        unsafe {
-            Self {
-                inner: MessageQueueReceiver::new(pcxt, address, size),
-            }
-        }
-    }
-
     /// Attach as receiver to an *already-created* shm_mq. Used by the MPP
     /// mesh wiring where the leader calls `shm_mq_create` for every slot
     /// up front, and each participant then attaches to the slots it owns.
@@ -408,21 +367,23 @@ mod tests {
     fn mesh_layout_offsets_are_contiguous_and_non_overlapping() {
         let layout = MeshLayout::new(4, 64 * 1024);
         let slot_bytes = layout.aligned_queue_bytes();
+        let n = layout.total_participants;
         let mut offsets = Vec::new();
-        for src in 0..4u32 {
-            for dst in 0..4u32 {
+        for src in 0..n {
+            for dst in 0..n {
                 if src == dst {
                     continue;
                 }
-                offsets.push(layout.edge_offset(src, dst));
+                offsets.push(edge_slot(src, dst, n) * slot_bytes);
             }
         }
         offsets.sort();
-        // Monotonic and each offset == slot_bytes * slot_index
         for (i, off) in offsets.iter().enumerate() {
             assert_eq!(*off, i * slot_bytes);
         }
-        // Total matches expectation
-        assert_eq!(layout.dsm_queue_bytes(), num_edges(4) * slot_bytes);
+        assert_eq!(
+            layout.dsm_queue_bytes_checked().unwrap(),
+            num_edges(n) * slot_bytes
+        );
     }
 }

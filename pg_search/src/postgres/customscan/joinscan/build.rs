@@ -620,6 +620,27 @@ pub enum JoinLevelExpr {
         /// Attribute number of the outer column tested for IS NULL.
         null_test_attno: pgrx::pg_sys::AttrNumber,
     },
+    /// A PostgreSQL expression serialized via `nodeToString`, evaluated as a
+    /// join filter.
+    ///
+    /// During planning the raw `pg_sys::Expr` is validated for DataFusion
+    /// translatability via `PredicateTranslator::translate` and serialized with
+    /// `nodeToString`. At execution time `stringToNode` rehydrates the tree,
+    /// which `PredicateTranslator` then translates to a DataFusion `Expr`
+    /// (Var nodes resolve via `CombinedMapper` against the join's sources).
+    ///
+    /// `input_vars` describes each Var dependency (RTI, attno, plus the type
+    /// metadata captured at planning time so execution avoids catalog
+    /// lookups). The projection pass uses `(rti, attno)` to register the
+    /// required columns; the type metadata is also serialized through
+    /// `JoinCSClause` and available to any future consumer. Used for
+    /// Semi/Anti join filters because the MultiTablePredicate / custom_exprs
+    /// pipeline would fail in setrefs: Semi/Anti prunes the inner relation
+    /// from the scan tlist, leaving inner-side Vars unresolvable.
+    PgExpression {
+        pg_node_string: String,
+        input_vars: Vec<InputVarInfo>,
+    },
 }
 
 /// A node in the intermediate relational plan tree.
@@ -891,11 +912,36 @@ impl RelNode {
         match self {
             RelNode::Scan(_) => {}
             RelNode::Join(j) => {
-                acc.extend(j.equi_keys.clone());
+                acc.extend(j.equi_keys.iter().cloned());
                 j.left.collect_join_keys(acc);
                 j.right.collect_join_keys(acc);
             }
             RelNode::Filter(f) => f.input.collect_join_keys(acc),
+        }
+    }
+
+    /// Recursively collect every `(rti, attno)` referenced by a join-level
+    /// filter (`JoinNode.filter`). Used by `build_source_df` to keep the
+    /// referenced columns out of the deferred-output promotion — the filter
+    /// is evaluated before the join emits rows, so the columns must be
+    /// materialized in the per-source scan.
+    pub fn filter_input_vars(&self) -> Vec<(pg_sys::Index, pg_sys::AttrNumber)> {
+        let mut result = Vec::new();
+        self.collect_filter_input_vars(&mut result);
+        result
+    }
+
+    fn collect_filter_input_vars(&self, acc: &mut Vec<(pg_sys::Index, pg_sys::AttrNumber)>) {
+        match self {
+            RelNode::Scan(_) => {}
+            RelNode::Join(j) => {
+                if let Some(JoinLevelExpr::PgExpression { input_vars, .. }) = &j.filter {
+                    acc.extend(input_vars.iter().map(|v| (v.rti, v.attno)));
+                }
+                j.left.collect_filter_input_vars(acc);
+                j.right.collect_filter_input_vars(acc);
+            }
+            RelNode::Filter(f) => f.input.collect_filter_input_vars(acc),
         }
     }
 
@@ -925,6 +971,17 @@ impl RelNode {
                     {
                         acc.push((left_src.plan_position, left_att));
                         acc.push((right_src.plan_position, right_att));
+                    }
+                }
+                if let Some(JoinLevelExpr::PgExpression { input_vars, .. }) = &j.filter {
+                    for v in input_vars {
+                        if let Some(source) = j
+                            .left
+                            .source_for_rti_in_subtree(v.rti)
+                            .or_else(|| j.right.source_for_rti_in_subtree(v.rti))
+                        {
+                            acc.push((source.plan_position, v.attno));
+                        }
                     }
                 }
                 j.left.collect_join_key_projections(acc);

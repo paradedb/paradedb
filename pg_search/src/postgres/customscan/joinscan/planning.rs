@@ -910,6 +910,8 @@ unsafe fn extract_join_conditions_from_list(
         has_search_predicate: false,
     };
 
+    let search_op = anyelement_query_input_opoid();
+    let valid_rtis: Vec<pg_sys::Index> = sources.iter().map(|s| s.scan_info.heap_rti).collect();
     let list = PgList::<pg_sys::RestrictInfo>::from_pg(restrictlist);
     for ri in list.iter_ptr() {
         let clause = (*ri).clause;
@@ -917,73 +919,24 @@ unsafe fn extract_join_conditions_from_list(
             continue;
         }
 
-        // Check if this clause contains our @@@ operator
-        let search_op = anyelement_query_input_opoid();
-        if expr_contains_any_operator(clause.cast(), &[search_op]) {
+        let has_search_op = expr_contains_any_operator(clause.cast(), &[search_op]);
+        if has_search_op {
             result.has_search_predicate = true;
         }
 
-        // Try to identify equi-join conditions (OpExpr with Var = Var using equality operator)
         let mut is_equi_join = false;
-
-        if (*clause).type_ == pg_sys::NodeTag::T_OpExpr {
-            let opexpr = clause as *mut pg_sys::OpExpr;
-            let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
-
-            // Equi-join: should have exactly 2 args, both Var nodes, AND use equality operator
-            if args.len() == 2 {
-                let arg0 = args.get_ptr(0).unwrap();
-                let arg1 = args.get_ptr(1).unwrap();
-
-                // Check if operator is an equality operator
-                let opno = (*opexpr).opno;
-                let is_equality_op = lookup_operator(opno) == Some("=");
-
-                if is_equality_op {
-                    let stripped_arg0 = strip_wrappers(arg0);
-                    let stripped_arg1 = strip_wrappers(arg1);
-
-                    if (*stripped_arg0).type_ == pg_sys::NodeTag::T_Var
-                        && (*stripped_arg1).type_ == pg_sys::NodeTag::T_Var
-                    {
-                        let var0 = stripped_arg0 as *mut pg_sys::Var;
-                        let var1 = stripped_arg1 as *mut pg_sys::Var;
-
-                        let varno0 = (*var0).varno as pg_sys::Index;
-                        let varno1 = (*var1).varno as pg_sys::Index;
-                        let attno0 = (*var0).varattno;
-                        let attno1 = (*var1).varattno;
-
-                        // Try to map vars to sources
-                        let source0 = find_source_for_var(sources, varno0, attno0);
-                        let source1 = find_source_for_var(sources, varno1, attno1);
-
-                        if let (Some((rti0, att0)), Some((rti1, att1))) = (source0, source1) {
-                            let type_oid = (*var0).vartype;
-                            let (typlen, typbyval) = get_type_info(type_oid);
-
-                            result.equi_keys.push(JoinKeyPair {
-                                outer_rti: rti0,
-                                outer_attno: att0,
-                                inner_rti: rti1,
-                                inner_attno: att1,
-                                type_oid,
-                                typlen,
-                                typbyval,
-                            });
-                            is_equi_join = true;
-                        }
-                    }
-                }
-            }
+        let equi_pair = if (*clause).type_ == pg_sys::NodeTag::T_OpExpr {
+            build::try_extract_equi_key(clause.cast(), &valid_rtis)
+        } else {
+            None
+        };
+        if let Some(jk) = equi_pair {
+            result.equi_keys.push(jk);
+            is_equi_join = true;
         }
 
-        if !is_equi_join {
-            let search_op = anyelement_query_input_opoid();
-            let has_search_op = expr_contains_any_operator(clause.cast(), &[search_op]);
-            if !has_search_op {
-                result.other_conditions.push(ri);
-            }
+        if !is_equi_join && !has_search_op {
+            result.other_conditions.push(ri);
         }
     }
 

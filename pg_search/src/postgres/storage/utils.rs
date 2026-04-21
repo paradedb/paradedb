@@ -35,8 +35,13 @@ pub const MAX_BUFFERS_TO_EXTEND_BY: usize = 64;
 /// (e.g. `current_buffer`) that is updated on every `ReadBufferExtended` call.
 /// Using the *same* strategy concurrently from multiple threads/backends would
 /// race on that state, so callers must ensure it is only used serially.
+///
+/// The inner pointer is kept private so that constructing a holder with an
+/// arbitrary (e.g. stack-allocated or short-lived) pointer requires going
+/// through the `unsafe` [`BufferAccessStrategyHolder::new`] constructor, which
+/// makes the `Send + Sync` safety invariant opt-in rather than a convention.
 #[derive(Copy, Clone, Debug)]
-pub(crate) struct BufferAccessStrategyHolder(pub pg_sys::BufferAccessStrategy);
+pub(crate) struct BufferAccessStrategyHolder(pg_sys::BufferAccessStrategy);
 
 // SAFETY: see type-level comment — the pointer has process lifetime or is null.
 unsafe impl Send for BufferAccessStrategyHolder {}
@@ -46,6 +51,21 @@ impl BufferAccessStrategyHolder {
     /// A null strategy, equivalent to passing `NULL` to PostgreSQL
     /// (i.e. "use the default buffer access strategy").
     pub const NULL: Self = Self(std::ptr::null_mut());
+
+    /// Wrap a raw [`pg_sys::BufferAccessStrategy`] pointer.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure `ptr` is either null or points to a
+    /// `BufferAccessStrategyData` that outlives every thread or backend that
+    /// may observe the resulting holder — typically one allocated in
+    /// `TopMemoryContext` with process lifetime. Passing a stack-allocated or
+    /// otherwise short-lived pointer violates the `Send + Sync` invariant
+    /// documented on [`BufferAccessStrategyHolder`].
+    #[inline]
+    pub const unsafe fn new(ptr: pg_sys::BufferAccessStrategy) -> Self {
+        Self(ptr)
+    }
 
     #[inline]
     pub fn as_ptr(self) -> pg_sys::BufferAccessStrategy {
@@ -66,13 +86,13 @@ impl BufferAccessStrategyHolder {
 /// multiple threads. Today this is fine because the only caller is Tantivy's
 /// single-threaded merger; any future caller must uphold the same invariant.
 pub(crate) fn bulkread_strategy() -> BufferAccessStrategyHolder {
-    static BAS_BULKREAD: LazyLock<BufferAccessStrategyHolder> = LazyLock::new(|| {
-        BufferAccessStrategyHolder(unsafe {
-            // SAFETY: Allocated in `TopMemoryContext`, once, so that it's always available.
-            PgMemoryContexts::TopMemoryContext.switch_to(|_| {
-                pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_BULKREAD)
-            })
-        })
+    static BAS_BULKREAD: LazyLock<BufferAccessStrategyHolder> = LazyLock::new(|| unsafe {
+        // SAFETY: Allocated in `TopMemoryContext`, once, so that it's always
+        // available — satisfying the process-lifetime requirement of
+        // `BufferAccessStrategyHolder::new`.
+        BufferAccessStrategyHolder::new(PgMemoryContexts::TopMemoryContext.switch_to(|_| {
+            pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_BULKREAD)
+        }))
     });
 
     *BAS_BULKREAD
@@ -327,13 +347,13 @@ unsafe fn bulk_extend_relation(
     npages: usize,
     fork: pg_sys::ForkNumber::Type,
 ) -> [pg_sys::Buffer; MAX_BUFFERS_TO_EXTEND_BY] {
-    static BAS_BULKWRITE: LazyLock<BufferAccessStrategyHolder> = LazyLock::new(|| {
-        BufferAccessStrategyHolder(unsafe {
-            // SAFETY:  Allocated in `TopMemoryContext`, once, so that it's always available
-            PgMemoryContexts::TopMemoryContext.switch_to(|_| {
-                pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_BULKWRITE)
-            })
-        })
+    static BAS_BULKWRITE: LazyLock<BufferAccessStrategyHolder> = LazyLock::new(|| unsafe {
+        // SAFETY: Allocated in `TopMemoryContext`, once, so that it's always
+        // available — satisfying the process-lifetime requirement of
+        // `BufferAccessStrategyHolder::new`.
+        BufferAccessStrategyHolder::new(PgMemoryContexts::TopMemoryContext.switch_to(|_| {
+            pg_sys::GetAccessStrategy(pg_sys::BufferAccessStrategyType::BAS_BULKWRITE)
+        }))
     });
 
     let mut buffers = [pg_sys::InvalidBuffer as pg_sys::Buffer; MAX_BUFFERS_TO_EXTEND_BY];
@@ -360,7 +380,7 @@ unsafe fn bulk_extend_relation(
                 pg_sys::ExtendBufferedRelBy(
                     bmr,
                     fork,
-                    BAS_BULKWRITE.0,
+                    BAS_BULKWRITE.as_ptr(),
                     // failure to clear the size cache, which is attached to `self.rel.rd_smgr` can cause
                     // future reads from the relation to fail complaining that the block number returned
                     // here doesn't exist because internally the Relation doesn't realize that it has
@@ -388,7 +408,7 @@ unsafe fn bulk_extend_relation(
             if is_backend_bulk_compatible {
                 // only bgworker and backends can use the BULKWRITE BufferAccessStrategy
                 // specifically, using this in an autovacuum worker can trip an internal postgres assert
-                BAS_BULKWRITE.0
+                BAS_BULKWRITE.as_ptr()
             } else {
                 std::ptr::null_mut()
             },

@@ -367,7 +367,7 @@ FROM products p
 JOIN suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'premium'
 ORDER BY p.id;
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: p, s)
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, s)
                                                                              QUERY PLAN                                                                             
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort

@@ -291,7 +291,7 @@ WHERE f.document_id IN (
     SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
 )
 ORDER BY f.title ASC;
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: d, f)
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: d, f)
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort

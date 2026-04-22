@@ -86,7 +86,7 @@ WHERE documents.parents @@@ 'project alpha'
   AND pages.content @@@ 'Single Number Reach'
 ORDER BY score DESC
 LIMIT 1000;
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: documents, files, pages)
+WARNING:  JoinScan not used: ORDER BY columns must be fast fields (tables: documents, files, pages)
                                                                                                                                                QUERY PLAN                                                                                                                                                
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -136,7 +136,7 @@ WHERE documents.parents @@@ 'project alpha'
   AND pages.content @@@ 'Single Number Reach'
 ORDER BY score DESC
 LIMIT 1000;
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: documents, files, pages)
+WARNING:  JoinScan not used: ORDER BY columns must be fast fields (tables: documents, files, pages)
   id   |       parents       |           content            |   title   |   id   | documentId |        content         |        title        |   id   | fileId |              content              | title  |   score   
 -------+---------------------+------------------------------+-----------+--------+------------+------------------------+---------------------+--------+--------+-----------------------------------+--------+-----------
  doc-1 | project alpha notes | Document about project alpha | Alpha Doc | file-1 | doc-1      | File content for alpha | collab12 alpha file | page-1 | file-1 | Single Number Reach configuration | Page A | 3.2872329

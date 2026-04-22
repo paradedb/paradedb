@@ -28,6 +28,7 @@
 //! The plan bytes are the same for every participant — participant identity
 //! comes from the worker's seat in the mesh, not from the plan encoding.
 
+use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 
 use crate::postgres::customscan::mpp::MppParticipantConfig;
@@ -76,7 +77,54 @@ impl From<crate::postgres::customscan::joinscan::scan_state::SessionContextProfi
 /// added or reordered so an old worker reading a new leader's bytes aborts
 /// cleanly instead of silently decoding shifted fields. bincode 2 does not
 /// tag fields, so we do our own versioning.
-pub const MPP_PLAN_BROADCAST_VERSION: u8 = 1;
+///
+/// - v1 → v2: added `query_id: u64` so workers key their `MppStage` /
+///   `MppTaskKey` against the same value the leader stamped on boundary
+///   nodes. Old worker reading v2 bytes (or vice versa) now rejects cleanly
+///   with a "version mismatch" error instead of silently decoding shifted
+///   fields.
+pub const MPP_PLAN_BROADCAST_VERSION: u8 = 2;
+
+/// Cheap per-query identifier for `MppStage.query_id`, derived on the leader
+/// from `MyProcPid` (top 32 bits, XOR'd with timestamp bits) and
+/// `GetCurrentStatementStartTimestamp` (bottom 32 bits). Both come from PG
+/// state the leader owns at planning time.
+///
+/// # Uniqueness
+///
+/// `u64` is wide enough that collisions across coexisting queries are
+/// negligible in practice: two different backends would need the same PID
+/// and the same statement-start microsecond. Inside a single backend, the
+/// bottom 32 bits (timestamp modulo ~71 minutes) distinguishes sequential
+/// queries; the top 32 bits carry `pid ^ (ts >> 32)` so two simultaneous
+/// backends disagree even when they happen to start inside the same
+/// microsecond.
+///
+/// # Why not a UUID
+///
+/// DF-D uses a `uuid::Uuid` to stay unique across services. Our query never
+/// crosses processes beyond the parallel workers spawned by the same backend,
+/// which inherit the leader's broadcast — so u64 is sufficient and avoids a
+/// new crate dependency. Chosen per review comment: "cheapest choice that
+/// also helps with debugging". Printing the value in logs makes it easy to
+/// correlate mesh traffic to a specific query.
+///
+/// # Safety
+///
+/// Both `pg_sys::MyProcPid` and `GetCurrentStatementStartTimestamp` are
+/// always valid to read from the backend thread (the caller holds a
+/// `pg_sys::PlannedStmt` lifetime, so PG is mid-query). Calling from a
+/// non-backend thread would trip pgrx's `check_active_thread` guard; we
+/// document that here so the FFI boundary is explicit.
+pub fn derive_query_id() -> u64 {
+    // SAFETY: both FFI calls are legal on the backend thread, which is
+    // where the leader always lives during plan-stash (the only caller).
+    unsafe {
+        let pid = pg_sys::MyProcPid as u32 as u64;
+        let ts = pg_sys::GetCurrentStatementStartTimestamp() as u64;
+        ts ^ (pid << 32)
+    }
+}
 
 /// Bundle the leader writes into DSM at query start; every worker reads the
 /// same bytes and reconstructs its own `MppParticipantConfig` from the mesh
@@ -107,6 +155,13 @@ pub struct MppPlanBroadcast {
     pub logical_plan: Vec<u8>,
     pub total_participants: u32,
     pub session_profile: MppSessionProfile,
+    /// Per-query identifier stamped on every [`MppStage`] / [`MppTaskKey`]
+    /// boundary descriptor. Workers re-use the same value so mesh framing
+    /// agrees across seats. Leader fills via [`derive_query_id`].
+    ///
+    /// [`MppStage`]: super::stage::MppStage
+    /// [`MppTaskKey`]: super::stage::MppTaskKey
+    pub query_id: u64,
 }
 
 impl MppPlanBroadcast {
@@ -114,12 +169,14 @@ impl MppPlanBroadcast {
         logical_plan: Vec<u8>,
         total_participants: u32,
         session_profile: MppSessionProfile,
+        query_id: u64,
     ) -> Self {
         Self {
             version: MPP_PLAN_BROADCAST_VERSION,
             logical_plan,
             total_participants,
             session_profile,
+            query_id,
         }
     }
 
@@ -181,17 +238,19 @@ mod tests {
             vec![0xde, 0xad, 0xbe, 0xef, 0xca, 0xfe],
             4,
             MppSessionProfile::Aggregate,
+            0x1234_5678_9abc_def0,
         );
         let bytes = orig.serialize().expect("serialize");
         let decoded = MppPlanBroadcast::deserialize(&bytes).expect("deserialize");
         assert_eq!(decoded.logical_plan, orig.logical_plan);
         assert_eq!(decoded.total_participants, orig.total_participants);
         assert_eq!(decoded.session_profile, orig.session_profile);
+        assert_eq!(decoded.query_id, orig.query_id);
     }
 
     #[test]
     fn participant_config_differs_per_seat() {
-        let bc = MppPlanBroadcast::new(vec![], 3, MppSessionProfile::Join);
+        let bc = MppPlanBroadcast::new(vec![], 3, MppSessionProfile::Join, 0);
         let leader = bc.participant_config(0);
         let w1 = bc.participant_config(1);
         let w2 = bc.participant_config(2);
@@ -205,7 +264,7 @@ mod tests {
 
     #[test]
     fn deserialize_rejects_truncated_bytes() {
-        let orig = MppPlanBroadcast::new(vec![1, 2, 3, 4], 2, MppSessionProfile::Join);
+        let orig = MppPlanBroadcast::new(vec![1, 2, 3, 4], 2, MppSessionProfile::Join, 0);
         let bytes = orig.serialize().unwrap();
         // Truncate by removing the last byte — should not round-trip.
         let truncated = &bytes[..bytes.len() - 1];
@@ -214,7 +273,7 @@ mod tests {
 
     #[test]
     fn deserialize_rejects_version_mismatch() {
-        let mut orig = MppPlanBroadcast::new(vec![1, 2, 3], 2, MppSessionProfile::Join);
+        let mut orig = MppPlanBroadcast::new(vec![1, 2, 3], 2, MppSessionProfile::Join, 0);
         orig.version = MPP_PLAN_BROADCAST_VERSION.wrapping_add(1);
         let bytes = orig.serialize().unwrap();
         let err = MppPlanBroadcast::deserialize(&bytes).expect_err("version mismatch must reject");
@@ -235,7 +294,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "participant_index")]
     fn participant_config_panics_on_out_of_bounds_seat() {
-        let bc = MppPlanBroadcast::new(vec![], 2, MppSessionProfile::Join);
+        let bc = MppPlanBroadcast::new(vec![], 2, MppSessionProfile::Join, 0);
         // Seat 2 is out of bounds for total_participants=2; panic at boot
         // time beats a silently dropped partition in production.
         let _ = bc.participant_config(2);
@@ -247,7 +306,7 @@ mod tests {
         let big = (0..10_000u32)
             .map(|i| (i % 251) as u8) // non-trivial pattern
             .collect::<Vec<u8>>();
-        let orig = MppPlanBroadcast::new(big.clone(), 2, MppSessionProfile::Aggregate);
+        let orig = MppPlanBroadcast::new(big.clone(), 2, MppSessionProfile::Aggregate, 0xCAFE);
         let bytes = orig.serialize().unwrap();
         let decoded = MppPlanBroadcast::deserialize(&bytes).unwrap();
         assert_eq!(decoded.logical_plan, big);

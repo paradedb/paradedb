@@ -92,6 +92,7 @@ use crate::postgres::customscan::mpp::shape::{
 use crate::postgres::customscan::mpp::shuffle::{
     FixedTargetPartitioner, HashPartitioner, RowPartitioner, ShuffleWiring,
 };
+use crate::postgres::customscan::mpp::stage::MppStage;
 use crate::postgres::customscan::mpp::transport::{DrainBuffer, DrainHandle};
 use crate::postgres::customscan::mpp::worker::{LeaderMesh, WorkerMesh};
 use crate::scan::execution_plan::PgSearchScanPlan;
@@ -299,6 +300,14 @@ fn build_scalar_agg_on_binary_join_bridge(
     );
 
     let is_leader = mpp_state.is_leader();
+    let query_id = mpp_state.query_id();
+    // Mesh-index / stage-id contract (see module-level doc):
+    //   mesh 0 = left pre-join, stage_id = 0
+    //   mesh 1 = right pre-join, stage_id = 1
+    //   mesh 2 = final-gather-to-leader, stage_id = 2
+    let left_stage = MppStage::new(query_id, 0, total_participants);
+    let right_stage = MppStage::new(query_id, 1, total_participants);
+    let final_stage = MppStage::new(query_id, 2, total_participants);
     build_scalar_agg_on_binary_join(
         ScalarAggOnBinaryJoinInputs {
             left_child,
@@ -314,6 +323,9 @@ fn build_scalar_agg_on_binary_join_bridge(
             final_shuffle,
             final_drain,
             original_hash_join,
+            left_stage,
+            right_stage,
+            final_stage,
         },
         is_leader,
     )
@@ -417,6 +429,11 @@ fn build_groupby_agg_on_binary_join_bridge(
     // Symmetric plan on every seat. Hash partitioning ensures each group
     // lands on exactly one seat's Final, so PG's Gather concatenates
     // without double-count.
+    let query_id = mpp_state.query_id();
+    // Mesh-index / stage-id contract: mesh 0=left, 1=right, 2=postagg.
+    let left_stage = MppStage::new(query_id, 0, total_participants);
+    let right_stage = MppStage::new(query_id, 1, total_participants);
+    let postagg_stage = MppStage::new(query_id, 2, total_participants);
     build_groupby_agg_on_binary_join(GroupByAggOnBinaryJoinInputs {
         left_child,
         right_child,
@@ -432,6 +449,9 @@ fn build_groupby_agg_on_binary_join_bridge(
         postagg_shuffle,
         postagg_drain,
         original_hash_join,
+        left_stage,
+        right_stage,
+        postagg_stage,
     })
 }
 
@@ -514,6 +534,10 @@ fn build_join_only_bridge(
         join_type,
     );
 
+    let query_id = mpp_state.query_id();
+    // Mesh-index / stage-id contract: mesh 0=left pre-join, 1=right pre-join.
+    let left_stage = MppStage::new(query_id, 0, total_participants);
+    let right_stage = MppStage::new(query_id, 1, total_participants);
     let mpp_hash_join = build_join_only(JoinOnlyInputs {
         left_child,
         right_child,
@@ -526,6 +550,8 @@ fn build_join_only_bridge(
         join_on,
         join_projection,
         join_type,
+        left_stage,
+        right_stage,
     })?;
 
     // Graft the MPP-shuffled `HashJoinExec` back into the standard plan tree

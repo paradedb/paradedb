@@ -80,6 +80,7 @@ use datafusion::physical_plan::ExecutionPlan;
 
 use crate::postgres::customscan::mpp::plan_build::{wrap_with_mpp_shuffle, MppShuffleInputs};
 use crate::postgres::customscan::mpp::shuffle::ShuffleWiring;
+use crate::postgres::customscan::mpp::stage::MppStage;
 use crate::postgres::customscan::mpp::transport::DrainHandle;
 
 /// Classify a query so the dispatcher picks the right topology.
@@ -174,6 +175,13 @@ pub struct ScalarAggOnBinaryJoinInputs {
     /// probe-side `PgSearchScanPlan` and this module re-applies it as a
     /// [`FilterExec`] on top of the post-shuffle probe stream (see below).
     pub original_hash_join: Arc<HashJoinExec>,
+    /// Stage descriptor for the left pre-join mesh (stage 0 by convention).
+    pub left_stage: MppStage,
+    /// Stage descriptor for the right pre-join mesh (stage 1 by convention).
+    pub right_stage: MppStage,
+    /// Stage descriptor for the gather-to-leader final mesh (stage 2 by
+    /// convention). Every participant ships its Partial row on this stage.
+    pub final_stage: MppStage,
 }
 
 /// Build the MPP plan for a scalar aggregate over a binary join.
@@ -227,6 +235,7 @@ pub fn build_scalar_agg_on_binary_join(
         drain_handle: inputs.left_drain,
         wrapped_schema: inputs.left_schema,
         tag: "scalar_left",
+        stage: Some(inputs.left_stage),
     })?;
     let right_shuffled = wrap_with_mpp_shuffle(MppShuffleInputs {
         child: inputs.right_child,
@@ -234,6 +243,7 @@ pub fn build_scalar_agg_on_binary_join(
         drain_handle: inputs.right_drain,
         wrapped_schema: inputs.right_schema,
         tag: "scalar_right",
+        stage: Some(inputs.right_stage),
     })?;
 
     // Re-apply the HashJoin's dynamic filter above the post-shuffle probe
@@ -276,6 +286,7 @@ pub fn build_scalar_agg_on_binary_join(
         drain_handle: inputs.final_drain,
         wrapped_schema: partial_schema.clone(),
         tag: "scalar_final",
+        stage: Some(inputs.final_stage),
     })?;
 
     if !is_leader {
@@ -316,6 +327,13 @@ pub struct GroupByAggOnBinaryJoinInputs {
     pub postagg_drain: std::sync::Arc<DrainHandle>,
     /// See [`ScalarAggOnBinaryJoinInputs::original_hash_join`].
     pub original_hash_join: Arc<HashJoinExec>,
+    /// Stage descriptor for the left pre-join mesh (stage 0 by convention).
+    pub left_stage: MppStage,
+    /// Stage descriptor for the right pre-join mesh (stage 1 by convention).
+    pub right_stage: MppStage,
+    /// Stage descriptor for the Partial→FinalPartitioned post-aggregate
+    /// shuffle mesh (stage 2 by convention).
+    pub postagg_stage: MppStage,
 }
 
 /// Build the MPP plan for a GROUP BY aggregate over a binary join.
@@ -364,6 +382,7 @@ pub fn build_groupby_agg_on_binary_join(
         drain_handle: inputs.left_drain,
         wrapped_schema: inputs.left_schema,
         tag: "gb_left",
+        stage: Some(inputs.left_stage),
     })?;
     let right_shuffled = wrap_with_mpp_shuffle(MppShuffleInputs {
         child: inputs.right_child,
@@ -371,6 +390,7 @@ pub fn build_groupby_agg_on_binary_join(
         drain_handle: inputs.right_drain,
         wrapped_schema: inputs.right_schema,
         tag: "gb_right",
+        stage: Some(inputs.right_stage),
     })?;
 
     // See `build_scalar_agg_on_binary_join` for the rationale behind this
@@ -409,6 +429,7 @@ pub fn build_groupby_agg_on_binary_join(
         drain_handle: inputs.postagg_drain,
         wrapped_schema: partial_schema.clone(),
         tag: "gb_postagg",
+        stage: Some(inputs.postagg_stage),
     })?;
 
     let final_agg = AggregateExec::try_new(
@@ -439,6 +460,10 @@ pub struct JoinOnlyInputs {
     /// downstream column indices valid.
     pub join_projection: Option<Vec<usize>>,
     pub join_type: JoinType,
+    /// Stage descriptor for the left pre-join mesh (stage 0 by convention).
+    pub left_stage: MppStage,
+    /// Stage descriptor for the right pre-join mesh (stage 1 by convention).
+    pub right_stage: MppStage,
 }
 
 /// Build the MPP plan for a join without an aggregate on top. Emits the
@@ -457,6 +482,7 @@ pub fn build_join_only(inputs: JoinOnlyInputs) -> Result<Arc<dyn ExecutionPlan>>
         drain_handle: inputs.left_drain,
         wrapped_schema: inputs.left_schema,
         tag: "join_left",
+        stage: Some(inputs.left_stage),
     })?;
     let right_shuffled = wrap_with_mpp_shuffle(MppShuffleInputs {
         child: inputs.right_child,
@@ -464,6 +490,7 @@ pub fn build_join_only(inputs: JoinOnlyInputs) -> Result<Arc<dyn ExecutionPlan>>
         drain_handle: inputs.right_drain,
         wrapped_schema: inputs.right_schema,
         tag: "join_right",
+        stage: Some(inputs.right_stage),
     })?;
 
     let join = HashJoinExec::try_new(

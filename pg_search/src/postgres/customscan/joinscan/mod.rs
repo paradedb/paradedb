@@ -1027,10 +1027,12 @@ impl JoinScan {
         }
 
         let n = crate::postgres::customscan::mpp::customscan_glue::mpp_worker_count();
+        let query_id = crate::postgres::customscan::mpp::session::derive_query_id();
         let broadcast = crate::postgres::customscan::mpp::session::MppPlanBroadcast::new(
             raw_plan_bytes.to_vec(),
             n,
             crate::postgres::customscan::mpp::session::MppSessionProfile::Join,
+            query_id,
         );
         let broadcast_bytes = match broadcast.serialize() {
             Ok(b) => b,

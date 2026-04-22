@@ -411,6 +411,36 @@ pub fn build_arrow_schema(which_fast_fields: &[WhichFastField]) -> arrow_schema:
     Arc::new(Schema::new(fields))
 }
 
+/// Resolve the `ctid` for a single `doc_address` using a cached per-segment [`FFType`].
+///
+/// On the first call for a given segment, this opens the `ctid` fast-field column and stores
+/// it in `cache`.  Subsequent calls for the same segment reuse the cached reader, avoiding the
+/// overhead of re-opening the column on every row.
+///
+/// # Panics
+/// Panics if the `ctid` fast field is absent for the given doc (should never happen in a
+/// well-formed ParadeDB index).
+#[inline]
+pub fn resolve_ctid(
+    cache: &mut Option<(tantivy::SegmentOrdinal, FFType)>,
+    searcher: &tantivy::Searcher,
+    doc_address: tantivy::DocAddress,
+) -> u64 {
+    let seg_ord = doc_address.segment_ord;
+    if cache.as_ref().is_none_or(|(o, _)| *o != seg_ord) {
+        *cache = Some((
+            seg_ord,
+            FFType::new_ctid(searcher.segment_reader(seg_ord).fast_fields()),
+        ));
+    }
+    cache
+        .as_ref()
+        .unwrap()
+        .1
+        .as_u64(doc_address.doc_id)
+        .expect("ctid should be present")
+}
+
 pub(crate) const NULL_TERM_ORDINAL: TermOrdinal = u64::MAX;
 
 /// `NULL_TERM_ORDINAL` represents NULL, and will be emitted last in the sorted order.

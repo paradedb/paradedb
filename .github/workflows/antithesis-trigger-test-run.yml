@@ -7,6 +7,9 @@
 name: Antithesis - Trigger Test Run
 
 on:
+  # Scheduled runs are only executed on paradedb-enterprise; on paradedb/paradedb
+  # (community) the job-level `if` below short-circuits the schedule trigger. The cron
+  # entry stays here so the same workflow file can be synced between the two repos.
   schedule:
     - cron: "0 2 * * 1-5" # At 02:00 UTC on every day-of-week from Monday through Friday
   pull_request:
@@ -32,7 +35,7 @@ jobs:
   antithesis-trigger-test-run:
     name: Test pg_search via Antithesis
     runs-on: ubicloud-standard-8-ubuntu-2404
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'antithesis')
+    if: (github.event_name == 'schedule' && github.repository == 'paradedb/paradedb-enterprise') || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'antithesis')
     strategy:
       matrix:
         pg_version: [18]

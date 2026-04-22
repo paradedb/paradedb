@@ -164,9 +164,9 @@ LIMIT 3;
            :       VisibilityFilterExec: tables=[d, f], metrics=[output_rows=50, output_bytes=1450.0 B, output_batches=1]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4], metrics=[output_rows=50, output_bytes=128.6 KB, output_batches=1, array_map_created_count=0, build_input_batches=1, build_input_rows=5, input_batches=1, input_rows=50, build_mem_used=344, avg_fanout=100% (50/50), probe_hit_rate=100% (50/50)]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=5, output_bytes=152.0 B, output_batches=1]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[rows_pruned=50, rows_scanned=100]
+           :             PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[output_rows=50, output_bytes=1882.0 B, output_batches=1, rows_pruned=50, rows_scanned=100]
 (16 rows)
 
 -- =============================================================================
@@ -670,9 +670,9 @@ LIMIT 5;
            :       VisibilityFilterExec: tables=[d, f], metrics=[output_rows=14.26 K, output_bytes=793.9 KB, output_batches=2]
            :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, document_id@1)], projection=[ctid_0@0, ctid_1@2, title@4], metrics=[output_rows=14.26 K, output_bytes=827.1 KB, output_batches=2, array_map_created_count=0, build_input_batches=1, build_input_rows=3, input_batches=4, input_rows=14.26 K, build_mem_used=228, avg_fanout=100% (14.26 K/14.26 K), probe_hit_rate=56% (14.26 K/25.52 K)]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=3, output_bytes=104.0 B, output_batches=1]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[rows_pruned=35.74 K, rows_scanned=50.00 K]
+           :             PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[output_rows=14.26 K, output_bytes=515.3 KB, output_batches=4, rows_pruned=35.74 K, rows_scanned=50.00 K]
 (16 rows)
 
 SELECT f.id, f.title

@@ -155,6 +155,14 @@ static MPP_WORKER_COUNT: GucSetting<i32> = GucSetting::<i32>::new(4);
 /// per participant, spill to a Postgres BufFile. 0 disables spilling (keep everything in RAM).
 static MPP_DRAIN_WATERMARK_MB: GucSetting<i32> = GucSetting::<i32>::new(256);
 
+/// Dark-launch switch for the P3 generic cut walker (`annotate_plan`). When
+/// on, `build_mpp_physical_plan` routes through a single shape-agnostic
+/// walker that inserts `MppNetworkBoundary`-stamped shuffle pairs; when off
+/// (the default), it uses the hand-rolled per-shape bridges. Lets us land
+/// the walker incrementally and A/B its output against the bridges without
+/// affecting end-user behaviour until P4 flips the default.
+static MPP_USE_GENERIC_WALKER: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -474,6 +482,18 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    GucRegistry::define_bool_guc(
+        c"paradedb.mpp_use_generic_walker",
+        c"Dark-launch switch for the P3 generic MPP cut walker",
+        c"When on, `build_mpp_physical_plan` routes through a single shape-agnostic walker \
+          that inserts `MppNetworkBoundary`-stamped shuffle pairs. When off (default), the \
+          hand-rolled per-shape bridges are used. Flip this per-session when A/B-testing the \
+          walker against the bridges.",
+        &MPP_USE_GENERIC_WALKER,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_int_guc(
         c"paradedb.mpp_drain_watermark_mb",
         c"High-water mark for MPP drain buffer (spill not yet implemented)",
@@ -679,6 +699,10 @@ pub fn mpp_worker_count() -> i32 {
 
 pub fn mpp_drain_watermark_mb() -> i32 {
     MPP_DRAIN_WATERMARK_MB.get()
+}
+
+pub fn mpp_use_generic_walker() -> bool {
+    MPP_USE_GENERIC_WALKER.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

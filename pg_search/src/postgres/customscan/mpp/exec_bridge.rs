@@ -171,6 +171,15 @@ pub fn build_mpp_physical_plan(
     mpp_state: &mut MppExecutionState,
     shape: MppPlanShape,
 ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
+    // Dark-launched dispatch: when `paradedb.mpp_use_generic_walker` is on,
+    // route through the P3 cut-walker instead of the shape-specific bridges.
+    // The walker currently returns `AnnotateError::NotYetImplemented`, so
+    // flipping the GUC in A/B testing fails loudly rather than silently
+    // falling back — that's intentional. Leave the GUC off in production.
+    if crate::gucs::mpp_use_generic_walker() {
+        return crate::postgres::customscan::mpp::walker::annotate_plan(standard, mpp_state, shape);
+    }
+
     match shape {
         MppPlanShape::ScalarAggOnBinaryJoin => {
             build_scalar_agg_on_binary_join_bridge(standard, mpp_state)

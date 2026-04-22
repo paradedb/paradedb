@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::boost::{query_to_boost, BoostType};
+use crate::api::operator::const_score::{query_to_const, ConstType};
 use crate::query::pdb_query::pdb;
 use pgrx::{extension_sql, pg_cast, pg_extern};
 
@@ -189,7 +190,7 @@ fn query_to_slop(mut input: pdb::Query, typmod: i32, _is_explicit: bool) -> Slop
 }
 
 #[pg_extern(immutable, parallel_safe)]
-fn text_array_to_slop(array: Vec<String>, typmod: i32, _is_explicit: bool) -> SlopType {
+pub(crate) fn text_array_to_slop(array: Vec<String>, typmod: i32, _is_explicit: bool) -> SlopType {
     let mut query = pdb::Query::UnclassifiedArray {
         array,
         fuzzy_data: None,
@@ -207,6 +208,11 @@ fn slop_to_query(input: SlopType) -> pdb::Query {
 #[pg_extern(immutable, parallel_safe)]
 fn slop_to_boost(input: SlopType, typmod: i32, is_explicit: bool) -> BoostType {
     query_to_boost(input.0, typmod, is_explicit)
+}
+
+#[pg_extern(immutable, parallel_safe)]
+fn slop_to_const(input: SlopType, typmod: i32, is_explicit: bool) -> ConstType {
+    query_to_const(input.0, typmod, is_explicit)
 }
 
 /// SQL `CAST` function used by Postgres to apply the `typmod` value after the type has been constructed
@@ -233,12 +239,14 @@ extension_sql!(
         CREATE CAST (text[] AS pdb.slop) WITH FUNCTION text_array_to_slop(text[], integer, boolean) AS ASSIGNMENT;
         CREATE CAST (pdb.query AS pdb.slop) WITH FUNCTION query_to_slop(pdb.query, integer, boolean) AS ASSIGNMENT;
         CREATE CAST (pdb.slop AS pdb.boost) WITH FUNCTION slop_to_boost(pdb.slop, integer, boolean) AS IMPLICIT;
+        CREATE CAST (pdb.slop AS pdb.const) WITH FUNCTION slop_to_const(pdb.slop, integer, boolean) AS IMPLICIT;
         CREATE CAST (pdb.slop AS pdb.slop) WITH FUNCTION slop_to_slop(pdb.slop, integer, boolean) AS IMPLICIT;
     "#,
     name = "cast_to_slop",
     requires = [
         query_to_slop,
         slop_to_boost,
+        slop_to_const,
         slop_to_slop,
         text_array_to_slop,
         "SlopType_final"

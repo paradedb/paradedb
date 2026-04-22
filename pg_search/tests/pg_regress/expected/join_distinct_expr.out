@@ -79,7 +79,7 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
+                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
                              :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
@@ -153,7 +153,7 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
+                             : AggregateExec: mode=Single, gby=[name@1 IS NULL as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
                              :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
@@ -230,7 +230,7 @@ ORDER BY p.name
                              : ProjectionExec: expr=[col_1@0 as col_1, col_3@1 as col_2, col_3@1 as col_3, ctid_0@2 as ctid_0, ctid_1@3 as ctid_1]
                              :   SortExec: TopK(fetch=10), expr=[col_3@1 ASC NULLS LAST], preserve_partitioning=[false]
                              :     ProjectionExec: expr=[col_1@0 as col_1, col_3@2 as col_3, ctid_0@3 as ctid_0, ctid_1@4 as ctid_1]
-                             :       AggregateExec: mode=Single, gby=[pdb_eval_expr_0(supplier_id@2, id@4) as col_1, name@3 as col_2, name@3 as col_3], aggr=[ctid_0, ctid_1]
+                             :       AggregateExec: mode=Single, gby=[supplier_id@2 * 10 + id@4 as col_1, name@3 as col_2, name@3 as col_3], aggr=[ctid_0, ctid_1]
                              :         VisibilityFilterExec: tables=[s, p]
                              :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, supplier_id@3, name@4, id@5]
                              :             CooperativeExec
@@ -303,7 +303,7 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
+                             : AggregateExec: mode=Single, gby=[CASE WHEN name@1 IS NOT NULL THEN name@1 ELSE N/A END as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
                              :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
@@ -377,7 +377,7 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8), supplier_id@3) as col_1, name@4 as col_2, name@1 as col_3], aggr=[ctid_0, ctid_1]
+                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_opexpr_9f86f13f(CAST(name@1 AS Utf8), supplier_id@3) as col_1, name@4 as col_2, name@1 as col_3], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
                              :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, supplier_id@4, name@5]
@@ -451,7 +451,7 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
+                             : AggregateExec: mode=Single, gby=[character_length(name@1) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
                              :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
@@ -526,7 +526,7 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
+                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@1 AS Utf8)) IS NULL as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=1
                              :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
@@ -574,7 +574,7 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
+                             : AggregateExec: mode=Single, gby=[name@1 IS NOT NULL as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
                              :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
@@ -646,7 +646,7 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
+                             : AggregateExec: mode=Single, gby=[character_length(name@1) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
                              :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
@@ -719,7 +719,7 @@ ORDER BY p.name
                            Order By: p.name asc
                            DataFusion Physical Plan: 
                              : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[pdb_eval_expr_0(supplier_id@2) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
+                             :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_f1ebe528(supplier_id@2) * 100 as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :     VisibilityFilterExec: tables=[s, p]
                              :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, supplier_id@3, name@4]
                              :         CooperativeExec
@@ -791,7 +791,7 @@ ORDER BY p.name
                            Order By: p.name asc
                            DataFusion Physical Plan: 
                              : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                             :   AggregateExec: mode=Single, gby=[pdb_eval_expr_0(supplier_id@2) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
+                             :   AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_eb551b6f(supplier_id@2) / 3 as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :     VisibilityFilterExec: tables=[s, p]
                              :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, supplier_id@3, name@4]
                              :         CooperativeExec
@@ -862,7 +862,7 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
+                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_44945b63(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
                              :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
@@ -934,7 +934,7 @@ ORDER BY p.name
                            Distinct: true
                            Order By: p.name asc
                            DataFusion Physical Plan: 
-                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_0(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
+                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_6978d23a(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
                              :   TantivyLookupExec: decode=[name]
                              :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
                              :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
@@ -981,6 +981,83 @@ ORDER BY p.name
             | tablet
  FastP      | 
             | 
+(9 rows)
+
+SET paradedb.enable_join_custom_scan = on;
+-- =============================================================================
+-- TEST 8b: CaseExpr — DISTINCT CASE WHEN col IS NOT NULL THEN col ELSE 'N/A' END
+-- =============================================================================
+-- Exercises the translator's CaseExpr path. EXPLAIN should show
+-- `CASE WHEN ... END` in the DataFusion plan, not a PgExprUdf wrapper.
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT CASE WHEN s.name IS NOT NULL THEN s.name ELSE 'N/A' END AS supplier_or_default, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+                                                                                                             QUERY PLAN                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Unique
+         ->  Sort
+               Sort Key: p.name, (CASE WHEN (s.name IS NOT NULL) THEN s.name ELSE 'N/A'::text END)
+               ->  Result
+                     ->  Custom Scan (ParadeDB Join Scan)
+                           Relation Tree: s INNER p
+                           Join Cond: p.supplier_id = s.id
+                           Limit: 10
+                           Distinct: true
+                           Order By: p.name asc
+                           DataFusion Physical Plan: 
+                             : AggregateExec: mode=Single, gby=[CASE WHEN name@1 IS NOT NULL THEN name@1 ELSE N/A END as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
+                             :   TantivyLookupExec: decode=[name]
+                             :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
+                             :       VisibilityFilterExec: tables=[s, p]
+                             :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :           CooperativeExec
+                             :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :           CooperativeExec
+                             :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(21 rows)
+
+SELECT DISTINCT CASE WHEN s.name IS NOT NULL THEN s.name ELSE 'N/A' END AS supplier_or_default, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+ supplier_or_default |      name       
+---------------------+-----------------
+ TechCorp            | 
+ TechCorp            | Headphones
+ TechCorp            | Keyboard
+ N/A                 | USB Cable
+ TechCorp            | WIRELESS ROUTER
+ TechCorp            | Wireless Mouse
+ N/A                 | tablet
+ FastParts           | 
+ N/A                 | 
+(9 rows)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT CASE WHEN s.name IS NOT NULL THEN s.name ELSE 'N/A' END AS supplier_or_default, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+ supplier_or_default |      name       
+---------------------+-----------------
+ TechCorp            | 
+ TechCorp            | Headphones
+ TechCorp            | Keyboard
+ N/A                 | USB Cable
+ TechCorp            | WIRELESS ROUTER
+ TechCorp            | Wireless Mouse
+ N/A                 | tablet
+ FastParts           | 
+ N/A                 | 
 (9 rows)
 
 SET paradedb.enable_join_custom_scan = on;
@@ -1042,6 +1119,85 @@ WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast
 (9 rows)
 
 -- No crash, no error, correct results via native PG.
+-- =============================================================================
+-- TEST 10: Mixed native + PgExprUdf in a single DISTINCT expression
+-- =============================================================================
+-- Outer `upper()` is in the pg_catalog native map; inner `md5()` isn't, so
+-- `try_wrap_as_udf` wraps the md5 FuncExpr. EXPLAIN should show
+-- `upper(pdb_eval_expr_funcexpr_*(...))` in the AggregateExec gby list —
+-- both native and UDF paths exercised in one projection.
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT upper(md5(s.name)) AS mixed_key, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+                                                                                                             QUERY PLAN                                                                                                              
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Unique
+         ->  Sort
+               Sort Key: p.name, (upper(md5(s.name)))
+               ->  Result
+                     ->  Custom Scan (ParadeDB Join Scan)
+                           Relation Tree: s INNER p
+                           Join Cond: p.supplier_id = s.id
+                           Limit: 10
+                           Distinct: true
+                           Order By: p.name asc
+                           DataFusion Physical Plan: 
+                             : AggregateExec: mode=Single, gby=[pdb_eval_expr_funcexpr_d16211df(CAST(name@1 AS Utf8)) as col_1, name@3 as col_2], aggr=[ctid_0, ctid_1]
+                             :   TantivyLookupExec: decode=[name]
+                             :     SegmentedTopKExec: expr=[col_2@1 ASC NULLS LAST], k=10
+                             :       VisibilityFilterExec: tables=[s, p]
+                             :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
+                             :           CooperativeExec
+                             :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"info","query_string":"electronics","lenient":null,"conjunction_mode":null}}}}
+                             :           CooperativeExec
+                             :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(21 rows)
+
+SELECT DISTINCT upper(md5(s.name)) AS mixed_key, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+            mixed_key             |      name       
+----------------------------------+-----------------
+ D9CE5A9B751D2E18071CC135E51C524B | 
+ D9CE5A9B751D2E18071CC135E51C524B | Headphones
+ D9CE5A9B751D2E18071CC135E51C524B | Keyboard
+                                  | USB Cable
+ D9CE5A9B751D2E18071CC135E51C524B | WIRELESS ROUTER
+ D9CE5A9B751D2E18071CC135E51C524B | Wireless Mouse
+                                  | tablet
+ 9818B8B1AAC79FB78ABE7B48D8ECC003 | 
+                                  | 
+(9 rows)
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT upper(md5(s.name)) AS mixed_key, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+            mixed_key             |      name       
+----------------------------------+-----------------
+ D9CE5A9B751D2E18071CC135E51C524B | 
+ D9CE5A9B751D2E18071CC135E51C524B | Headphones
+ D9CE5A9B751D2E18071CC135E51C524B | Keyboard
+                                  | USB Cable
+ D9CE5A9B751D2E18071CC135E51C524B | WIRELESS ROUTER
+ D9CE5A9B751D2E18071CC135E51C524B | Wireless Mouse
+                                  | tablet
+ 9818B8B1AAC79FB78ABE7B48D8ECC003 | 
+                                  | 
+(9 rows)
+
+SET paradedb.enable_join_custom_scan = on;
 -- =============================================================================
 -- CLEANUP
 -- =============================================================================

@@ -184,20 +184,20 @@ pub fn distribute_plan(
         // Partial agg with empty group keys on top of a HashJoin — scalar agg.
         (Some(agg), Some(_)) if agg.group_expr().expr().is_empty() => {
             validate_shape_matches(shape, MppPlanShape::ScalarAggOnBinaryJoin)?;
-            build_scalar_agg_topology(standard, mpp_state)?
+            distribute_plan_generic(MppPlanShape::ScalarAggOnBinaryJoin, standard, mpp_state)?
         }
         // Partial agg with group-by keys on top of a HashJoin — group-by agg.
         (Some(_), Some(_)) => {
             validate_shape_matches(shape, MppPlanShape::GroupByAggOnBinaryJoin)?;
-            build_groupby_agg_topology(standard, mpp_state)?
+            distribute_plan_generic(MppPlanShape::GroupByAggOnBinaryJoin, standard, mpp_state)?
         }
         // HashJoin without a Partial agg above — bare join.
         //
-        // Step 2d: routed through the DF-D-aligned generic pipeline
-        // (`prepare_for_mpp` → `insert_mpp_cuts` → `annotate_plan` →
-        // `_distribute_plan` → `finalize_for_mpp`). The two aggregate shapes
-        // stay on their legacy topology assemblers until their pre/post
-        // passes are ported.
+        // Step 2d: all three supported shapes route through the DF-D-aligned
+        // generic pipeline (`prepare_for_mpp` → `insert_mpp_cuts` →
+        // `annotate_plan` → `_distribute_plan` → `finalize_for_mpp`). The
+        // legacy topology assemblers below are retained `#[allow(dead_code)]`
+        // until Step 2e deletes them.
         (None, Some(_)) => {
             validate_shape_matches(shape, MppPlanShape::JoinOnly)?;
             distribute_plan_generic(MppPlanShape::JoinOnly, standard, mpp_state)?
@@ -884,10 +884,9 @@ fn prepare_for_mpp(
 ) -> DfResult<Arc<dyn ExecutionPlan>> {
     match shape {
         MppPlanShape::JoinOnly => prepare_join_only(plan),
-        MppPlanShape::ScalarAggOnBinaryJoin
-        | MppPlanShape::GroupByAggOnBinaryJoin
-        | MppPlanShape::GroupByAggSingleTable
-        | MppPlanShape::Ineligible => Ok(plan),
+        MppPlanShape::ScalarAggOnBinaryJoin => prepare_agg_on_binary_join(plan, false),
+        MppPlanShape::GroupByAggOnBinaryJoin => prepare_agg_on_binary_join(plan, true),
+        MppPlanShape::GroupByAggSingleTable | MppPlanShape::Ineligible => Ok(plan),
     }
 }
 
@@ -959,10 +958,9 @@ fn finalize_for_mpp(
 ) -> DfResult<Arc<dyn ExecutionPlan>> {
     match shape {
         MppPlanShape::JoinOnly => finalize_join_only(plan, mpp_state),
-        MppPlanShape::ScalarAggOnBinaryJoin
-        | MppPlanShape::GroupByAggOnBinaryJoin
-        | MppPlanShape::GroupByAggSingleTable
-        | MppPlanShape::Ineligible => Ok(plan),
+        MppPlanShape::ScalarAggOnBinaryJoin => finalize_scalar_agg(plan, mpp_state),
+        MppPlanShape::GroupByAggOnBinaryJoin => finalize_groupby_agg(plan, mpp_state),
+        MppPlanShape::GroupByAggSingleTable | MppPlanShape::Ineligible => Ok(plan),
     }
 }
 
@@ -1043,9 +1041,360 @@ fn run_visibility_ctid_resolver_rule(
     crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule.optimize(plan, &config)
 }
 
+/// Shared pre-pass for the two aggregate-on-binary-join shapes. Locates
+/// the topmost `AggregateExec(Partial|Single)` whose transitive child is a
+/// `HashJoinExec`, rebuilds the HJ subtree so
+/// [`insert_mpp_cuts`] sees a clean cut site, normalizes the aggregate
+/// mode to `Partial` (so [`rewrite_with_cuts`]'s Partial-only match
+/// fires), and returns just that Partial-rooted subtree. Outer wrappers
+/// in the standard plan (e.g. `AggregateExec(Final)` /
+/// `AggregateExec(FinalPartitioned)` / `CoalescePartitionsExec`) are
+/// dropped — the post-pass (`finalize_scalar_agg` /
+/// `finalize_groupby_agg`) rebuilds the correct `FinalPartitioned` wrap
+/// against the MPP-shuffled plan.
+///
+///  * `strip_repartition_layers` peels off `RepartitionExec` /
+///    `CoalesceBatchesExec` layers DataFusion inserted for single-
+///    process hash partitioning — `insert_mpp_cuts` will add its own
+///    `RepartitionExec(Hash)` cut markers; leaving the old layers in
+///    place would stack redundant partitioners.
+///  * `strip_dynamic_filters_in_subtree` removes the probe-side dynamic
+///    filter the `FilterPushdown` physical optimizer pushed into the
+///    `PgSearchScanPlan`. With a dynamic filter on the probe, rows
+///    destined for peer seats get dropped before they hit the shuffle
+///    (the build side hasn't populated the filter yet on this seat), and
+///    the row count drops to ~0 across the mesh. The post-pass re-applies
+///    the same `Arc<DynamicFilterPhysicalExpr>` as a `FilterExec` above
+///    the post-shuffle probe output where it's safe.
+///  * The HJ itself is rebuilt via
+///    `HashJoinExecBuilder::with_new_children` so `dynamic_filter`
+///    survives — `HashJoinExec::try_new` drops it.
+///
+/// `expect_group_by` — `false` for `ScalarAggOnBinaryJoin`, `true` for
+/// `GroupByAggOnBinaryJoin`. Disagreement with the aggregate's actual
+/// group_expr aborts with `DataFusionError::Plan`.
+fn prepare_agg_on_binary_join(
+    plan: Arc<dyn ExecutionPlan>,
+    expect_group_by: bool,
+) -> DfResult<Arc<dyn ExecutionPlan>> {
+    let partial = find_partial_agg(plan.as_ref()).ok_or_else(|| {
+        DataFusionError::Plan(
+            "mpp: prepare_agg_on_binary_join: could not locate AggregateExec(Partial|Single) \
+             in standard physical plan"
+                .into(),
+        )
+    })?;
+    let hash_join = find_hash_join(partial.input().as_ref()).ok_or_else(|| {
+        DataFusionError::Plan(
+            "mpp: prepare_agg_on_binary_join: AggregateExec child is not a HashJoinExec \
+             (through coalesce layers) — plan shape unexpected for binary-join aggregate"
+                .into(),
+        )
+    })?;
+
+    let has_group_by = !partial.group_expr().expr().is_empty();
+    if has_group_by != expect_group_by {
+        return Err(DataFusionError::Plan(format!(
+            "mpp: prepare_agg_on_binary_join: expected has_group_by={expect_group_by} but \
+             aggregate has {} group keys",
+            partial.group_expr().expr().len()
+        )));
+    }
+
+    // HJ subtree cleanup.
+    let new_left = strip_repartition_layers(Arc::clone(hash_join.left()));
+    let new_right =
+        strip_dynamic_filters_in_subtree(strip_repartition_layers(Arc::clone(hash_join.right())))?;
+    let new_hj: Arc<dyn ExecutionPlan> = hash_join
+        .builder()
+        .with_new_children(vec![new_left, new_right])?
+        .build_exec()?;
+
+    // Force AggregateMode::Partial — the standard plan may have `Single`
+    // (one-partition input), which `rewrite_with_cuts` doesn't match.
+    let group_by = partial.group_expr().clone();
+    let aggr_expr = partial.aggr_expr().to_vec();
+    let filter_expr = partial.filter_expr().to_vec();
+    let join_schema = new_hj.schema();
+    let new_partial: Arc<dyn ExecutionPlan> = Arc::new(AggregateExec::try_new(
+        AggregateMode::Partial,
+        group_by,
+        aggr_expr,
+        filter_expr,
+        new_hj,
+        join_schema,
+    )?);
+
+    Ok(new_partial)
+}
+
+/// Find the first `HashJoinExec` in `plan` via a depth-first traversal
+/// that descends into every child — unlike [`find_hash_join`] which only
+/// walks single-child pass-through nodes. Needed in the aggregate
+/// finalize paths because the walker output wraps the HJ inside
+/// [`ChainExec`] (2 children: `ShuffleExec` + `DrainGatherExec`), which
+/// the single-child walker would stop at.
+///
+/// Plans handled here contain exactly one `HashJoinExec`, so returning
+/// the first hit is unambiguous.
+fn find_hash_join_any(plan: &dyn ExecutionPlan) -> Option<&HashJoinExec> {
+    if let Some(hj) = plan.as_any().downcast_ref::<HashJoinExec>() {
+        return Some(hj);
+    }
+    for child in plan.children() {
+        if let Some(found) = find_hash_join_any(child.as_ref()) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// Find the first `AggregateExec(Partial)` in `plan` via a depth-first
+/// traversal that descends into every child — the walker output wraps
+/// the Partial inside `ChainExec` (2 children), so [`find_partial_agg`]'s
+/// single-child rule doesn't reach it. Used by the aggregate finalize
+/// paths to recover `aggr_expr` / `filter_expr` / output schema without
+/// re-threading them through the pre-pass.
+fn find_partial_agg_any(plan: &dyn ExecutionPlan) -> Option<&AggregateExec> {
+    if let Some(agg) = plan.as_any().downcast_ref::<AggregateExec>() {
+        if matches!(agg.mode(), AggregateMode::Partial) {
+            return Some(agg);
+        }
+    }
+    for child in plan.children() {
+        if let Some(found) = find_partial_agg_any(child.as_ref()) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// Build an MPP-shuffled replacement for the walker-output `HashJoinExec`,
+/// re-applying the dynamic-filter predicate above the right probe as a
+/// `FilterExec` (the original pushdown into `PgSearchScanPlan` was
+/// stripped in the pre-pass). The rebuild goes through the builder so
+/// `dynamic_filter` survives — `HashJoinExec::try_new` drops it. The
+/// partition mode stays whatever the standard plan picked (typically
+/// `Auto` / `CollectLeft`) because the walker-emitted `ChainExec` has a
+/// single output partition, which DataFusion's execute-time assertions
+/// accept under any mode.
+fn build_partitioned_hj_with_probe_filter(hj: &HashJoinExec) -> DfResult<Arc<dyn ExecutionPlan>> {
+    let hj_children = hj.children();
+    if hj_children.len() != 2 {
+        return Err(DataFusionError::Internal(format!(
+            "mpp: build_partitioned_hj_with_probe_filter: HashJoinExec expected 2 children, got {}",
+            hj_children.len()
+        )));
+    }
+    let left_shuffled = Arc::clone(hj_children[0]);
+    let right_shuffled = Arc::clone(hj_children[1]);
+
+    let right_probe: Arc<dyn ExecutionPlan> = match hj.dynamic_filter_for_test().cloned() {
+        Some(df) => Arc::new(FilterExec::try_new(df, right_shuffled)?),
+        None => right_shuffled,
+    };
+
+    hj.builder()
+        .with_new_children(vec![left_shuffled, right_probe])?
+        .build_exec()
+}
+
+/// Post-pass for [`MppPlanShape::ScalarAggOnBinaryJoin`]. The walker
+/// produced a tree shaped like
+///
+/// ```text
+/// ChainExec[scalar_final(FixedTargetPartitioner(0))]
+///   AggregateExec(Partial, empty group)
+///     HashJoinExec(original mode, dynamic_filter intact)
+///       ChainExec[scalar_left(HashPartitioner(left_keys))]
+///       ChainExec[scalar_right(HashPartitioner(right_keys))]
+/// ```
+///
+/// This pass:
+///  1. Emits the byte-exact `mpp: assembling ScalarAggOnBinaryJoin plan
+///     (participant=, total=, aggr_count=, join_keys=)` warning line so
+///     regress tests' `mpp_debug=on` output stays stable.
+///  2. Rebuilds the HJ with its right probe wrapped in a
+///     `FilterExec(dynamic_filter)` via
+///     [`build_partitioned_hj_with_probe_filter`], then grafts the
+///     replacement back through [`replace_first_hash_join`].
+///  3. Leader-only: wraps the root with `AggregateExec(FinalPartitioned,
+///     empty group)` using the Partial's `aggr_expr` / `filter_expr`.
+///     Workers return the grafted tree as-is — their output stream's
+///     `DrainGatherExec` reads nothing (every peer ships *to* the leader,
+///     not to workers), so the worker emits zero rows and PG's Gather
+///     sees exactly one row per query from the leader's final aggregate.
+fn finalize_scalar_agg(
+    plan: Arc<dyn ExecutionPlan>,
+    mpp_state: &MppExecutionState,
+) -> DfResult<Arc<dyn ExecutionPlan>> {
+    let hj = find_hash_join_any(plan.as_ref()).ok_or_else(|| {
+        DataFusionError::Internal(
+            "mpp: finalize_scalar_agg: HashJoinExec missing after _distribute_plan".into(),
+        )
+    })?;
+    let partial = find_partial_agg_any(plan.as_ref()).ok_or_else(|| {
+        DataFusionError::Internal(
+            "mpp: finalize_scalar_agg: AggregateExec(Partial) missing after _distribute_plan"
+                .into(),
+        )
+    })?;
+
+    let participant_index = mpp_state.participant_config().participant_index;
+    let total_participants = mpp_state.participant_config().total_participants;
+    let aggr_expr = partial.aggr_expr().to_vec();
+    let filter_expr = partial.filter_expr().to_vec();
+    let partial_schema = partial.schema();
+    let join_on_len = hj.on().len();
+
+    crate::mpp_log!(
+        "mpp: assembling ScalarAggOnBinaryJoin plan (participant={}, total={}, \
+         aggr_count={}, join_keys={})",
+        participant_index,
+        total_participants,
+        aggr_expr.len(),
+        join_on_len
+    );
+
+    let replacement_hj = build_partitioned_hj_with_probe_filter(hj)?;
+    let grafted = replace_first_hash_join(plan, replacement_hj)?.ok_or_else(|| {
+        DataFusionError::Internal(
+            "mpp: finalize_scalar_agg: replace_first_hash_join could not find target".into(),
+        )
+    })?;
+
+    if !mpp_state.is_leader() {
+        return Ok(grafted);
+    }
+
+    let final_agg = AggregateExec::try_new(
+        AggregateMode::FinalPartitioned,
+        PhysicalGroupBy::new_single(vec![]),
+        aggr_expr,
+        filter_expr,
+        grafted,
+        partial_schema,
+    )?;
+    Ok(Arc::new(final_agg))
+}
+
+/// Post-pass for [`MppPlanShape::GroupByAggOnBinaryJoin`]. The walker
+/// produced a tree shaped like
+///
+/// ```text
+/// ChainExec[gb_postagg(HashPartitioner(group_keys))]
+///   AggregateExec(Partial, group_by)
+///     HashJoinExec(original mode, dynamic_filter intact)
+///       ChainExec[gb_left(HashPartitioner(left_keys))]
+///       ChainExec[gb_right(HashPartitioner(right_keys))]
+/// ```
+///
+/// This pass:
+///  1. Emits the byte-exact `mpp: assembling GroupByAggOnBinaryJoin plan
+///     (participant=, total=, aggr_count=, group_keys=, join_keys=)`
+///     warning line.
+///  2. Rebuilds the HJ with its right probe wrapped in a
+///     `FilterExec(dynamic_filter)` and grafts the replacement back via
+///     [`replace_first_hash_join`].
+///  3. Inserts `CoalesceBatchesExec(target = 64 Ki rows)` between the
+///     Partial aggregate and the `gb_postagg` `ShuffleExec`. On the 25 M
+///     row benchmark this collapses ~191 batches per seat to ~24, keeping
+///     the post-agg shuffle payload under the 64 MiB shm_mq queue
+///     capacity so backpressure stays near zero while `FinalPartitioned`
+///     runs in parallel on every seat.
+///  4. Wraps the root with `AggregateExec(FinalPartitioned, group_by)`
+///     on every seat (no leader/worker asymmetry — each group lands on
+///     exactly one seat via the group-key hash shuffle, so every seat's
+///     Final emits a disjoint subset and PG's Gather concatenates
+///     without double-counting).
+fn finalize_groupby_agg(
+    plan: Arc<dyn ExecutionPlan>,
+    mpp_state: &MppExecutionState,
+) -> DfResult<Arc<dyn ExecutionPlan>> {
+    let hj = find_hash_join_any(plan.as_ref()).ok_or_else(|| {
+        DataFusionError::Internal(
+            "mpp: finalize_groupby_agg: HashJoinExec missing after _distribute_plan".into(),
+        )
+    })?;
+    let partial = find_partial_agg_any(plan.as_ref()).ok_or_else(|| {
+        DataFusionError::Internal(
+            "mpp: finalize_groupby_agg: AggregateExec(Partial) missing after _distribute_plan"
+                .into(),
+        )
+    })?;
+
+    let participant_index = mpp_state.participant_config().participant_index;
+    let total_participants = mpp_state.participant_config().total_participants;
+    let group_by = partial.group_expr().clone();
+    let num_group_keys = group_by.expr().len();
+    let aggr_expr = partial.aggr_expr().to_vec();
+    let filter_expr = partial.filter_expr().to_vec();
+    let partial_schema = partial.schema();
+    let join_on_len = hj.on().len();
+
+    crate::mpp_log!(
+        "mpp: assembling GroupByAggOnBinaryJoin plan (participant={}, total={}, \
+         aggr_count={}, group_keys={}, join_keys={})",
+        participant_index,
+        total_participants,
+        aggr_expr.len(),
+        num_group_keys,
+        join_on_len
+    );
+
+    // Phase 1: rebuild HJ with FilterExec on right probe, graft back.
+    let replacement_hj = build_partitioned_hj_with_probe_filter(hj)?;
+    let grafted = replace_first_hash_join(plan, replacement_hj)?.ok_or_else(|| {
+        DataFusionError::Internal(
+            "mpp: finalize_groupby_agg: replace_first_hash_join could not find target".into(),
+        )
+    })?;
+
+    // Phase 2: insert `CoalesceBatchesExec(65_536)` between the Partial
+    // aggregate and the `gb_postagg` ShuffleExec. The grafted tree's
+    // root is the `gb_postagg` ChainExec whose first child is the
+    // ShuffleExec; the ShuffleExec's single child is the Partial
+    // aggregate we want to wrap.
+    let chain_children = grafted.children();
+    if chain_children.len() != 2 {
+        return Err(DataFusionError::Internal(format!(
+            "mpp: finalize_groupby_agg: expected ChainExec root with 2 children, got {}",
+            chain_children.len()
+        )));
+    }
+    let shuffle = Arc::clone(chain_children[0]);
+    let drain_gather = Arc::clone(chain_children[1]);
+    let shuffle_children = shuffle.children();
+    if shuffle_children.len() != 1 {
+        return Err(DataFusionError::Internal(format!(
+            "mpp: finalize_groupby_agg: expected ShuffleExec with 1 child, got {}",
+            shuffle_children.len()
+        )));
+    }
+    let shuffle_child = Arc::clone(shuffle_children[0]);
+    let coalesced: Arc<dyn ExecutionPlan> =
+        Arc::new(CoalesceBatchesExec::new(shuffle_child, 65_536));
+    let new_shuffle = shuffle.with_new_children(vec![coalesced])?;
+    let new_chain = grafted.with_new_children(vec![new_shuffle, drain_gather])?;
+
+    // Phase 3: wrap with `FinalPartitioned` on every seat.
+    let final_agg = AggregateExec::try_new(
+        AggregateMode::FinalPartitioned,
+        group_by,
+        aggr_expr,
+        filter_expr,
+        new_chain,
+        partial_schema,
+    )?;
+    Ok(Arc::new(final_agg))
+}
+
 // ============================================================================
 // Topology assemblers — one per supported shape. Each one owns the full flow:
 // plan walk + mesh allocation + shuffle wiring + final DF operator composition.
+//
+// Step 2d: all three shapes route through `distribute_plan_generic` above;
+// these assemblers remain dead code until Step 2e deletes them.
 // ============================================================================
 
 /// `ScalarAggOnBinaryJoin`: `COUNT(*) FROM a JOIN b WHERE …`.
@@ -1065,6 +1414,7 @@ fn run_visibility_ctid_resolver_rule(
 /// Workers skip `FinalPartitioned` entirely and let `ShuffleExec` ship the
 /// sole Partial row to seat 0; PG's Gather above sees exactly one row per
 /// query (from the leader).
+#[allow(dead_code)]
 fn build_scalar_agg_topology(
     standard: Arc<dyn ExecutionPlan>,
     mpp_state: &mut MppExecutionState,
@@ -1254,6 +1604,7 @@ fn build_scalar_agg_topology(
 /// it collapses ~191 batches per seat to ~24, keeping payload under the
 /// 64 MiB shm_mq queue capacity so backpressure stays near zero while
 /// `FinalPartitioned` runs in parallel on every seat.
+#[allow(dead_code)]
 fn build_groupby_agg_topology(
     standard: Arc<dyn ExecutionPlan>,
     mpp_state: &mut MppExecutionState,
@@ -1716,6 +2067,7 @@ fn task_key_for(mpp_state: &MppExecutionState, stage: MppStage) -> MppTaskKey {
 /// whose transitive child (skipping `CoalescePartitionsExec` /
 /// `CoalesceBatchesExec`) is a `HashJoinExec`. Returns references into the
 /// original plan; the assembler then clones the pieces it needs.
+#[allow(dead_code)]
 fn find_partial_agg_and_join(
     plan: &dyn ExecutionPlan,
 ) -> DfResult<(&AggregateExec, &HashJoinExec)> {

@@ -575,11 +575,9 @@ impl datafusion::physical_plan::ExecutionPlan for ShuffleExec {
                 "ShuffleExec: with_new_children called after wiring was consumed".into(),
             ));
         };
-        Ok(std::sync::Arc::new(ShuffleExec::new(
-            children.into_iter().next().unwrap(),
-            wiring,
-            self.tag,
-        )))
+        let mut node = ShuffleExec::new(children.into_iter().next().unwrap(), wiring, self.tag);
+        node.input_stage = self.input_stage;
+        Ok(std::sync::Arc::new(node))
     }
 
     fn execute(

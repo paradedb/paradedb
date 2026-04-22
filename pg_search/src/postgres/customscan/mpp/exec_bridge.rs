@@ -163,41 +163,16 @@ fn take_meshes(state: &mut MppExecutionState, expected: usize) -> Vec<MeshHalves
 /// Consumes the `meshes` field of `mpp_state` (replacing it with an empty
 /// `Vec`). Safe to call at most once per scan lifecycle.
 ///
-/// Only [`MppPlanShape::ScalarAggOnBinaryJoin`] is implemented in milestone 1;
-/// other shapes `pgrx::error!` with a clear "not yet implemented in M1"
-/// message. Callers must pre-filter on shape before entering the MPP branch.
+/// Thin alias over [`walker::annotate_plan`] — the walker is the canonical
+/// entry point for all shape dispatch (P4). Kept as a free function so
+/// call sites in `aggregatescan/mod.rs` and `joinscan/mod.rs` don't need
+/// to reach into `mpp::walker` directly.
 pub fn build_mpp_physical_plan(
     standard: Arc<dyn ExecutionPlan>,
     mpp_state: &mut MppExecutionState,
     shape: MppPlanShape,
 ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
-    // Dark-launched dispatch: when `paradedb.mpp_use_generic_walker` is on,
-    // route through the P3 cut-walker instead of the shape-specific bridges.
-    // The walker currently returns `AnnotateError::NotYetImplemented`, so
-    // flipping the GUC in A/B testing fails loudly rather than silently
-    // falling back — that's intentional. Leave the GUC off in production.
-    if crate::gucs::mpp_use_generic_walker() {
-        return crate::postgres::customscan::mpp::walker::annotate_plan(standard, mpp_state, shape);
-    }
-
-    match shape {
-        MppPlanShape::ScalarAggOnBinaryJoin => {
-            build_scalar_agg_on_binary_join_bridge(standard, mpp_state)
-        }
-        MppPlanShape::GroupByAggOnBinaryJoin => {
-            build_groupby_agg_on_binary_join_bridge(standard, mpp_state)
-        }
-        MppPlanShape::JoinOnly => build_join_only_bridge(standard, mpp_state),
-        MppPlanShape::GroupByAggSingleTable => {
-            pgrx::error!("mpp: shape {:?} not yet implemented in M1", shape);
-        }
-        MppPlanShape::Ineligible => {
-            pgrx::error!(
-                "mpp: build_mpp_physical_plan invoked with Ineligible shape — \
-                 caller should have routed to the non-MPP serial path"
-            );
-        }
-    }
+    crate::postgres::customscan::mpp::walker::annotate_plan(standard, mpp_state, shape)
 }
 
 pub(super) fn build_scalar_agg_on_binary_join_bridge(

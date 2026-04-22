@@ -756,7 +756,7 @@ impl ParallelQueryCapable for JoinScan {
                 );
                 return Self::estimate_broadcast_dsm(state);
             };
-            let num_meshes = crate::postgres::customscan::mpp::shape::shuffles_required(shape);
+            let num_meshes = crate::postgres::customscan::mpp::walker::cut_count_for_shape(shape);
             if num_meshes == 0 {
                 return Self::estimate_broadcast_dsm(state);
             }
@@ -796,7 +796,7 @@ impl ParallelQueryCapable for JoinScan {
                 return;
             };
             let plan_bytes = plan_bytes.to_vec();
-            let num_meshes = crate::postgres::customscan::mpp::shape::shuffles_required(shape);
+            let num_meshes = crate::postgres::customscan::mpp::walker::cut_count_for_shape(shape);
             if num_meshes == 0 {
                 Self::initialize_broadcast_dsm(state, coordinate);
                 return;

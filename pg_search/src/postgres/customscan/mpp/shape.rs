@@ -508,25 +508,10 @@ pub fn build_join_only(inputs: JoinOnlyInputs) -> Result<Arc<dyn ExecutionPlan>>
 }
 
 // ============================================================================
-// Counting meshes needed per shape — useful for the DSM hook sizing pass
+// Cut counting moved to `walker::cut_count_for_shape` (P4). The walker is the
+// single source of truth for how many shuffles a shape produces, since the
+// DSM-estimate hooks now size the region from that helper.
 // ============================================================================
-
-/// How many independent shuffle meshes does this shape need?
-///
-/// - `ScalarAggOnBinaryJoin`: 3 (left + right pre-join + final-gather-to-leader)
-/// - `GroupByAggOnBinaryJoin`: 3 (left + right pre-join + post-Partial)
-/// - `GroupByAggSingleTable`: 1 (post-Partial)
-/// - `JoinOnly`: 2 (left + right pre-join)
-/// - `Ineligible`: 0 — not reachable through an MPP path
-pub fn shuffles_required(shape: MppPlanShape) -> u32 {
-    match shape {
-        MppPlanShape::ScalarAggOnBinaryJoin => 3,
-        MppPlanShape::GroupByAggOnBinaryJoin => 3,
-        MppPlanShape::GroupByAggSingleTable => 1,
-        MppPlanShape::JoinOnly => 2,
-        MppPlanShape::Ineligible => 0,
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -626,12 +611,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn shuffles_required_matches_shape_definition() {
-        assert_eq!(shuffles_required(MppPlanShape::ScalarAggOnBinaryJoin), 3);
-        assert_eq!(shuffles_required(MppPlanShape::GroupByAggOnBinaryJoin), 3);
-        assert_eq!(shuffles_required(MppPlanShape::GroupByAggSingleTable), 1);
-        assert_eq!(shuffles_required(MppPlanShape::JoinOnly), 2);
-        assert_eq!(shuffles_required(MppPlanShape::Ineligible), 0);
-    }
+    // `shuffles_required` was retired in P4 in favor of
+    // `walker::cut_count_for_shape`; the equivalent coverage lives in
+    // `walker::tests::cut_count_matches_expected_cuts_len` plus
+    // `expected_cuts_stamp_correct_stage_ids`.
 }

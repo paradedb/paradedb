@@ -23,7 +23,7 @@
 //! pulls Postgres backend symbols (`BufferBlocks`, `CurrentMemoryContext`, ...)
 //! into the unit-test binary that `cargo test` builds. Those symbols only exist
 //! inside a running `postgres` process, so dyld rejects the binary at startup.
-//! Tracked upstream as pgcentralfoundation/pgrx#2229.
+//! Tracked in paradedb/paradedb#3715 (ours) and pgcentralfoundation/pgrx#2229 (upstream).
 
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -45,6 +45,8 @@ use tantivy::TantivyError;
 /// Type alias for the filter query builder function.
 /// Set at runtime to keep PostgreSQL symbols out of the typetag registration path
 /// — see module docs.
+// TODO(paradedb/paradedb#3715, pgcentralfoundation/pgrx#2229): remove the function-pointer
+// indirection once typetag registration stops pulling PG symbols into the test binary.
 type BuildFilterQueryFn = fn(serde_json::Value, u32) -> anyhow::Result<Box<dyn Query>>;
 
 /// Global function pointer for building filter queries. Initialized in `_PG_init`.

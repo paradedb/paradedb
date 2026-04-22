@@ -26,8 +26,18 @@ concurrency:
 
 jobs:
   test-paradedb:
-    name: Test ParadeDB Docker Image
-    runs-on: ubicloud-standard-8-arm-ubuntu-2404
+    name: Test ParadeDB Docker Image (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubicloud-standard-2-ubuntu-2404
+            platform: linux/amd64
+          - arch: arm64
+            runner: ubicloud-standard-2-arm-ubuntu-2404
+            platform: linux/arm64
 
     steps:
       - name: Checkout Git Repository
@@ -81,13 +91,15 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       # We tag the image as `latest` so it can be picked up by `docker-compose.yml` for testing,
-      # and we set `push: false` since this is just a test build.
+      # and we set `push: false` since this is just a test build. Each matrix entry builds its
+      # own arch natively (via a runner on that arch) so `load: true` works and the `docker run`
+      # smoke tests below exercise the image natively — no emulation, no cross-arch shenanigans.
       - name: Build the ParadeDB Docker Image via Depot
         uses: depot/build-push-action@v1
         with:
           context: .
           file: docker/Dockerfile
-          platforms: linux/arm64
+          platforms: ${{ matrix.platform }}
           load: true
           push: false
           tags: paradedb/paradedb:latest

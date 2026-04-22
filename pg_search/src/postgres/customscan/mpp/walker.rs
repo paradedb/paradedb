@@ -415,6 +415,151 @@ fn _annotate_plan(
     Ok(annotation)
 }
 
+/// Pre-pass: rewrite a ParadeDB "standard" physical plan so it carries the
+/// `RepartitionExec(Hash)` / `CoalescePartitionsExec` markers the DF-D
+/// generic walker treats as cut triggers.
+///
+/// ParadeDB's standard plan (as produced by `exec_datafusion_aggregate`) is
+/// single-partition and emits neither marker: the `HashJoinExec` is
+/// `CollectLeft` with serial left/right scans, there's no upstream
+/// `RepartitionExec`, and the aggregate chain has no `CoalescePartitionsExec`
+/// above the `Partial` because there's only one input partition to begin
+/// with. Running [`annotate_plan`] directly over that plan yields zero
+/// boundary annotations.
+///
+/// This function closes that gap by shape:
+///
+/// * [`MppPlanShape::JoinOnly`] — wrap `HashJoinExec.left()` and `.right()`
+///   in `RepartitionExec(Hash(key))`. Two Shuffle triggers result.
+///
+/// * [`MppPlanShape::ScalarAggOnBinaryJoin`] — the two pre-join
+///   `RepartitionExec(Hash(key))` above, plus a `CoalescePartitionsExec`
+///   wrapping the `AggregateExec(Partial)`. The two pre-join wrappers give
+///   Shuffle triggers; the coalesce wrapper gives a Coalesce trigger above
+///   the Partial whose Step-2c rewrite emits a `FixedTargetPartitioner(0)`
+///   (final-gather to leader).
+///
+/// * [`MppPlanShape::GroupByAggOnBinaryJoin`] — the two pre-join
+///   `RepartitionExec(Hash(key))` above, plus a
+///   `RepartitionExec(Hash(group_keys))` wrapping the `AggregateExec(Partial)`.
+///   Three Shuffle triggers; the post-Partial one drives the postagg shuffle
+///   with a `HashPartitioner` in Step 2c.
+///
+/// The rewrite walks bottom-up so rewrites of descendants compose cleanly
+/// with rewrites of ancestors (e.g. the scalar-agg Partial wrap must see
+/// the already-shuffled join as its grandchild).
+///
+/// Not yet live — nothing calls this. Step 2c will wire
+/// `distribute_plan` through `insert_mpp_cuts` → `annotate_plan` →
+/// `_distribute_plan`.
+#[allow(dead_code)]
+pub(super) fn insert_mpp_cuts(
+    plan: Arc<dyn ExecutionPlan>,
+    shape: MppPlanShape,
+    total_participants: u32,
+) -> DfResult<Arc<dyn ExecutionPlan>> {
+    let kind = match shape {
+        MppPlanShape::ScalarAggOnBinaryJoin => CutKind::ScalarAgg,
+        MppPlanShape::GroupByAggOnBinaryJoin => CutKind::GroupByAgg,
+        MppPlanShape::JoinOnly => CutKind::JoinOnly,
+        MppPlanShape::GroupByAggSingleTable => {
+            return Err(DataFusionError::Plan(
+                "mpp: insert_mpp_cuts: GroupByAggSingleTable not yet supported".into(),
+            ));
+        }
+        MppPlanShape::Ineligible => {
+            return Err(DataFusionError::Plan(
+                "mpp: insert_mpp_cuts invoked on Ineligible shape — caller should have \
+                 routed to the non-MPP serial path"
+                    .into(),
+            ));
+        }
+    };
+    rewrite_with_cuts(plan, kind, total_participants)
+}
+
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
+enum CutKind {
+    ScalarAgg,
+    GroupByAgg,
+    JoinOnly,
+}
+
+#[allow(dead_code)]
+fn rewrite_with_cuts(
+    plan: Arc<dyn ExecutionPlan>,
+    kind: CutKind,
+    n: u32,
+) -> DfResult<Arc<dyn ExecutionPlan>> {
+    // Recurse into children first so rewrites compose bottom-up.
+    let original_children: Vec<Arc<dyn ExecutionPlan>> =
+        plan.children().iter().map(|c| Arc::clone(c)).collect();
+    let new_children: Vec<Arc<dyn ExecutionPlan>> = original_children
+        .iter()
+        .map(|c| rewrite_with_cuts(Arc::clone(c), kind, n))
+        .collect::<DfResult<Vec<_>>>()?;
+
+    let any_child_changed = original_children
+        .iter()
+        .zip(new_children.iter())
+        .any(|(a, b)| !Arc::ptr_eq(a, b));
+    let plan = if any_child_changed {
+        Arc::clone(&plan).with_new_children(new_children)?
+    } else {
+        plan
+    };
+
+    // HashJoinExec — wrap its left / right inputs with RepartitionExec(Hash)
+    // so the DF-D walker sees Shuffle triggers there. Does *not* touch the
+    // join's own node type, mode, or keys — the join itself still runs
+    // locally on each seat, operating on shuffle-gathered inputs.
+    if let Some(hj) = plan.as_any().downcast_ref::<HashJoinExec>() {
+        let join_on = hj.on().to_vec();
+        let left_keys: Vec<Arc<dyn PhysicalExpr>> =
+            join_on.iter().map(|(l, _)| Arc::clone(l)).collect();
+        let right_keys: Vec<Arc<dyn PhysicalExpr>> =
+            join_on.iter().map(|(_, r)| Arc::clone(r)).collect();
+
+        let new_left: Arc<dyn ExecutionPlan> = Arc::new(RepartitionExec::try_new(
+            Arc::clone(hj.left()),
+            Partitioning::Hash(left_keys, n as usize),
+        )?);
+        let new_right: Arc<dyn ExecutionPlan> = Arc::new(RepartitionExec::try_new(
+            Arc::clone(hj.right()),
+            Partitioning::Hash(right_keys, n as usize),
+        )?);
+        return Arc::clone(&plan).with_new_children(vec![new_left, new_right]);
+    }
+
+    // AggregateExec(Partial) — per-shape wrapping. Final/FinalPartitioned
+    // don't get wrapped; they're the stage above the cut.
+    if let Some(agg) = plan.as_any().downcast_ref::<AggregateExec>() {
+        if matches!(agg.mode(), AggregateMode::Partial) {
+            let group_exprs = agg.group_expr().expr();
+            match (kind, group_exprs.is_empty()) {
+                (CutKind::ScalarAgg, true) => {
+                    // Scalar agg: Coalesce trigger above the Partial.
+                    return Ok(Arc::new(CoalescePartitionsExec::new(plan)));
+                }
+                (CutKind::GroupByAgg, false) => {
+                    // Group-by agg: Shuffle trigger above the Partial,
+                    // hashed on the group-by keys.
+                    let group_keys: Vec<Arc<dyn PhysicalExpr>> =
+                        group_exprs.iter().map(|(e, _)| Arc::clone(e)).collect();
+                    return Ok(Arc::new(RepartitionExec::try_new(
+                        plan,
+                        Partitioning::Hash(group_keys, n as usize),
+                    )?));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Ok(plan)
+}
+
 // ============================================================================
 // Topology assemblers — one per supported shape. Each one owns the full flow:
 // plan walk + mesh allocation + shuffle wiring + final DF operator composition.
@@ -1627,5 +1772,163 @@ mod tests {
             Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
         let err = require_one_child(vec![mem_source(&schema), mem_source(&schema)]).unwrap_err();
         assert!(format!("{err}").contains("Expected exactly 1"));
+    }
+
+    // ========================================================================
+    // `insert_mpp_cuts` tests (dead-path scaffolding — Step 2b).
+    //
+    // These exercise the aggregate-wrapping half of the pre-pass on
+    // synthetic plans built from `MemorySourceConfig` +
+    // `AggregateExec(Partial)`. The `HashJoinExec` half is exercised by
+    // regression tests in Step 2d, when `insert_mpp_cuts` is wired into
+    // `distribute_plan`'s live path — building a synthetic `HashJoinExec`
+    // here would duplicate the fixture the regression tests already
+    // produce from real SQL.
+    // ========================================================================
+
+    fn partial_agg_over_mem_source(group_cols: Vec<&str>) -> Arc<dyn ExecutionPlan> {
+        let schema: SchemaRef =
+            Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
+        let input = mem_source(&schema);
+        let group_by_exprs: Vec<(Arc<dyn PhysicalExpr>, String)> = group_cols
+            .into_iter()
+            .map(|c| {
+                (
+                    Arc::new(Column::new(c, 0)) as Arc<dyn PhysicalExpr>,
+                    c.to_string(),
+                )
+            })
+            .collect();
+        Arc::new(
+            AggregateExec::try_new(
+                AggregateMode::Partial,
+                PhysicalGroupBy::new_single(group_by_exprs),
+                vec![],
+                vec![],
+                input,
+                schema.clone(),
+            )
+            .unwrap(),
+        )
+    }
+
+    #[test]
+    fn insert_mpp_cuts_scalar_wraps_partial_with_coalesce() {
+        let plan = partial_agg_over_mem_source(vec![]);
+        let rewritten = insert_mpp_cuts(plan, MppPlanShape::ScalarAggOnBinaryJoin, 2).unwrap();
+
+        // Root should be CoalescePartitionsExec; its sole child is the
+        // original Partial aggregate.
+        assert!(rewritten
+            .as_any()
+            .downcast_ref::<CoalescePartitionsExec>()
+            .is_some());
+        assert_eq!(rewritten.children().len(), 1);
+        let partial = rewritten.children()[0]
+            .as_any()
+            .downcast_ref::<AggregateExec>()
+            .expect("child is AggregateExec");
+        assert_eq!(*partial.mode(), AggregateMode::Partial);
+
+        // Cross-check: annotate_plan should see exactly one Coalesce boundary.
+        let annotated = annotate_plan(Arc::clone(&rewritten)).unwrap();
+        assert!(matches!(
+            annotated.plan_or_nb,
+            PlanOrNetworkBoundary::Plan(_)
+        ));
+        assert_eq!(annotated.children.len(), 1);
+        assert!(matches!(
+            annotated.children[0].plan_or_nb,
+            PlanOrNetworkBoundary::Coalesce
+        ));
+    }
+
+    #[test]
+    fn insert_mpp_cuts_groupby_wraps_partial_with_hash_repartition() {
+        let plan = partial_agg_over_mem_source(vec!["id"]);
+        let rewritten = insert_mpp_cuts(plan, MppPlanShape::GroupByAggOnBinaryJoin, 4).unwrap();
+
+        // Root should be RepartitionExec(Hash(id), 4); its sole child is
+        // the original Partial aggregate.
+        let repart = rewritten
+            .as_any()
+            .downcast_ref::<RepartitionExec>()
+            .expect("root is RepartitionExec");
+        match repart.partitioning() {
+            Partitioning::Hash(keys, n) => {
+                assert_eq!(keys.len(), 1);
+                assert_eq!(*n, 4);
+            }
+            other => panic!("expected Hash partitioning, got {other:?}"),
+        }
+        assert_eq!(rewritten.children().len(), 1);
+        let partial = rewritten.children()[0]
+            .as_any()
+            .downcast_ref::<AggregateExec>()
+            .expect("child is AggregateExec");
+        assert_eq!(*partial.mode(), AggregateMode::Partial);
+
+        // Cross-check: annotate_plan should see a Shuffle boundary on the
+        // RepartitionExec.
+        let annotated = annotate_plan(Arc::clone(&rewritten)).unwrap();
+        assert!(matches!(
+            annotated.plan_or_nb,
+            PlanOrNetworkBoundary::Shuffle
+        ));
+    }
+
+    #[test]
+    fn insert_mpp_cuts_scalar_does_not_wrap_groupby_partial() {
+        // A Partial *with* group keys under ScalarAgg shape should not be
+        // wrapped — rewrite_with_cuts matches on (kind, group_exprs.is_empty()).
+        let plan = partial_agg_over_mem_source(vec!["id"]);
+        let rewritten = insert_mpp_cuts(plan, MppPlanShape::ScalarAggOnBinaryJoin, 2).unwrap();
+
+        // Root is still the Partial — no CoalescePartitionsExec, no RepartitionExec.
+        assert!(rewritten.as_any().downcast_ref::<AggregateExec>().is_some());
+        assert!(rewritten
+            .as_any()
+            .downcast_ref::<CoalescePartitionsExec>()
+            .is_none());
+    }
+
+    #[test]
+    fn insert_mpp_cuts_groupby_does_not_wrap_scalar_partial() {
+        // A Partial *without* group keys under GroupByAgg shape should not
+        // be wrapped. The caller's classifier is responsible for picking
+        // the right shape — rewrite_with_cuts enforces the invariant by
+        // no-op-ing on the mismatched pair.
+        let plan = partial_agg_over_mem_source(vec![]);
+        let rewritten = insert_mpp_cuts(plan, MppPlanShape::GroupByAggOnBinaryJoin, 2).unwrap();
+
+        assert!(rewritten.as_any().downcast_ref::<AggregateExec>().is_some());
+        assert!(rewritten
+            .as_any()
+            .downcast_ref::<RepartitionExec>()
+            .is_none());
+    }
+
+    #[test]
+    fn insert_mpp_cuts_join_only_does_not_wrap_partial() {
+        // JoinOnly shape should leave any Partial aggregate alone — the
+        // only rewrite is on HashJoinExec children (exercised in regression).
+        let plan = partial_agg_over_mem_source(vec!["id"]);
+        let rewritten = insert_mpp_cuts(plan, MppPlanShape::JoinOnly, 2).unwrap();
+
+        assert!(rewritten.as_any().downcast_ref::<AggregateExec>().is_some());
+    }
+
+    #[test]
+    fn insert_mpp_cuts_rejects_ineligible() {
+        let plan = partial_agg_over_mem_source(vec![]);
+        let err = insert_mpp_cuts(plan, MppPlanShape::Ineligible, 2).unwrap_err();
+        assert!(format!("{err}").contains("Ineligible"));
+    }
+
+    #[test]
+    fn insert_mpp_cuts_rejects_single_table_groupby() {
+        let plan = partial_agg_over_mem_source(vec!["id"]);
+        let err = insert_mpp_cuts(plan, MppPlanShape::GroupByAggSingleTable, 2).unwrap_err();
+        assert!(format!("{err}").contains("GroupByAggSingleTable"));
     }
 }

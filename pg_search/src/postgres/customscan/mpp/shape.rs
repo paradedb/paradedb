@@ -48,11 +48,6 @@
 //! → HashJoin → emit rows (no aggregate).
 //!
 //! [`MppPlanShape::Ineligible`] — fall back to the non-MPP serial path.
-//!
-//! The walker, AggregateScan, and JoinScan consume this module in later PRs
-//! in the chain. Until then, the items below sit inert.
-
-#![allow(dead_code)]
 
 /// Classify a query so the dispatcher picks the right topology.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

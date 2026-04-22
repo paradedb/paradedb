@@ -29,3 +29,18 @@ WHERE
 ORDER BY
     d.title ASC                     -- Single Feature Sort (Parent Field)
 LIMIT 50;
+
+-- MPP join scan
+SET statement_timeout TO '300s'; SET work_mem TO '64MB'; SET paradedb.enable_join_custom_scan TO on; SET paradedb.enable_mpp TO on; SELECT DISTINCT
+    d.id,
+    d.title,
+    d.parents
+FROM documents d
+JOIN files f ON d.id = f."documentId"
+JOIN pages p ON f.id = p."fileId"
+WHERE
+    p."sizeInBytes" > 5000            -- Filter on the "Many" side
+    AND d.parents ||| 'parent group'
+ORDER BY
+    d.title ASC                     -- Single Feature Sort (Parent Field)
+LIMIT 50;

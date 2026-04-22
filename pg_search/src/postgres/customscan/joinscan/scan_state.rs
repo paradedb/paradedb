@@ -263,11 +263,6 @@ pub struct JoinScanState {
     /// reads `.len()`; `initialize_dsm_custom_scan` copies verbatim into DSM).
     /// `None` when MPP is off, the shape is ineligible, or plan serialization
     /// failed (logged; silently falls back to the non-MPP broadcast-join).
-    ///
-    /// Field stays inert until PR 6 wires the JoinScan MPP path; the
-    /// `#[allow(dead_code)]` pins the field so PR 5 compiles with
-    /// `-D warnings`.
-    #[allow(dead_code)]
     pub logical_plan_bytes: Option<bytes::Bytes>,
 
     /// Classified MPP shape for this query, populated alongside
@@ -275,7 +270,6 @@ pub struct JoinScanState {
     /// DSM and the per-shape builder used by `exec_bridge`. For JoinScan this
     /// is always `JoinOnly` (or `Ineligible`, which means `logical_plan_bytes`
     /// stays `None`).
-    #[allow(dead_code)]
     pub mpp_shape: Option<MppPlanShape>,
 
     /// MPP lifecycle state. Populated by `initialize_dsm_custom_scan` on the
@@ -285,7 +279,6 @@ pub struct JoinScanState {
     /// Declared LAST so it's the last field dropped — same rationale as
     /// `AggregateScanState::mpp_state`: it owns shm_mq handles pointing into
     /// DSM which must stay mapped until this drops.
-    #[allow(dead_code)]
     pub mpp_state: Option<MppExecutionState>,
 }
 

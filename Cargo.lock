@@ -1009,9 +1009,9 @@ dependencies = [
 
 [[package]]
 name = "cargo-platform"
-version = "0.3.3"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd0061da739915fae12ea00e16397555ed4371a6bb285431aab930f61b0aa4ba"
+checksum = "87a0c0e6148f11f01f32650a2ea02d532b2ad4e81d8bd41e6e565b5adc5e6082"
 dependencies = [
  "serde",
  "serde_core",
@@ -1038,7 +1038,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ef987d17b0a113becdd19d3d0022d04d7ef41f9efe4f3fb63ac44ba61df3ade9"
 dependencies = [
  "camino",
- "cargo-platform 0.3.3",
+ "cargo-platform 0.3.2",
  "semver",
  "serde",
  "serde_json",

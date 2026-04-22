@@ -67,6 +67,7 @@ impl<T> UnsafeCache<T> {
     }
 
     #[inline(always)]
+    #[allow(clippy::mut_from_ref)] // SAFETY: Postgres backends are single-threaded.
     unsafe fn get(&self) -> &mut VecDeque<T> {
         &mut *self.0.get()
     }

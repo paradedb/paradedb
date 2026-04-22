@@ -1,8 +1,7 @@
 # workflows/test-pg_search-docker.yml
 #
 # Test pg_search (Docker)
-# Test building and running the ParadeDB Docker Image. The build is performed via Depot to
-# match our `publish-paradedb-docker.yml` workflow.
+# Test building and running the ParadeDB Docker Image.
 
 name: Test pg_search (Docker)
 

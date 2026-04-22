@@ -92,7 +92,7 @@ use crate::postgres::customscan::mpp::shape::{
 use crate::postgres::customscan::mpp::shuffle::{
     FixedTargetPartitioner, HashPartitioner, RowPartitioner, ShuffleWiring,
 };
-use crate::postgres::customscan::mpp::stage::MppStage;
+use crate::postgres::customscan::mpp::stage::{MppStage, MppTaskKey};
 use crate::postgres::customscan::mpp::transport::{DrainBuffer, DrainHandle};
 use crate::postgres::customscan::mpp::worker::{LeaderMesh, WorkerMesh};
 use crate::scan::execution_plan::PgSearchScanPlan;
@@ -239,9 +239,31 @@ pub(super) fn build_scalar_agg_on_binary_join_bridge(
     let right_drain = spawn_drain(right_mesh.inbound);
     let final_drain = spawn_drain(final_mesh.inbound);
 
-    let left_outbound = attach_cooperative_drain(left_mesh.outbound, &left_drain);
-    let right_outbound = attach_cooperative_drain(right_mesh.outbound, &right_drain);
-    let final_outbound = attach_cooperative_drain(final_mesh.outbound, &final_drain);
+    // Mesh-index / stage-id contract (see module-level doc):
+    //   mesh 0 = left pre-join, stage_id = 0
+    //   mesh 1 = right pre-join, stage_id = 1
+    //   mesh 2 = final-gather-to-leader, stage_id = 2
+    //
+    // Compute stages up-front so we can stamp each sender's `FrameId`
+    // (P5 wire-format framing) before cooperative-drain attachment —
+    // both pass-throughs preserve the `FrameId` they receive.
+    let query_id = mpp_state.query_id();
+    let left_stage = MppStage::new(query_id, 0, total_participants);
+    let right_stage = MppStage::new(query_id, 1, total_participants);
+    let final_stage = MppStage::new(query_id, 2, total_participants);
+
+    let left_outbound = attach_cooperative_drain(
+        stamp_frame_ids(left_mesh.outbound, task_key_for(mpp_state, left_stage)),
+        &left_drain,
+    );
+    let right_outbound = attach_cooperative_drain(
+        stamp_frame_ids(right_mesh.outbound, task_key_for(mpp_state, right_stage)),
+        &right_drain,
+    );
+    let final_outbound = attach_cooperative_drain(
+        stamp_frame_ids(final_mesh.outbound, task_key_for(mpp_state, final_stage)),
+        &final_drain,
+    );
 
     let left_shuffle = build_shuffle_wiring(
         left_keys,
@@ -284,14 +306,6 @@ pub(super) fn build_scalar_agg_on_binary_join_bridge(
     );
 
     let is_leader = mpp_state.is_leader();
-    let query_id = mpp_state.query_id();
-    // Mesh-index / stage-id contract (see module-level doc):
-    //   mesh 0 = left pre-join, stage_id = 0
-    //   mesh 1 = right pre-join, stage_id = 1
-    //   mesh 2 = final-gather-to-leader, stage_id = 2
-    let left_stage = MppStage::new(query_id, 0, total_participants);
-    let right_stage = MppStage::new(query_id, 1, total_participants);
-    let final_stage = MppStage::new(query_id, 2, total_participants);
     build_scalar_agg_on_binary_join(
         ScalarAggOnBinaryJoinInputs {
             left_child,
@@ -356,9 +370,29 @@ pub(super) fn build_groupby_agg_on_binary_join_bridge(
     let right_drain = spawn_drain(right_mesh.inbound);
     let postagg_drain = spawn_drain(postagg_mesh.inbound);
 
-    let left_outbound = attach_cooperative_drain(left_mesh.outbound, &left_drain);
-    let right_outbound = attach_cooperative_drain(right_mesh.outbound, &right_drain);
-    let postagg_outbound = attach_cooperative_drain(postagg_mesh.outbound, &postagg_drain);
+    // Stage descriptors computed up-front so P5 `FrameId` stamping happens
+    // before cooperative-drain attachment (both passes preserve frame_id).
+    // Mesh-index / stage-id contract: mesh 0=left, 1=right, 2=postagg.
+    let query_id = mpp_state.query_id();
+    let left_stage = MppStage::new(query_id, 0, total_participants);
+    let right_stage = MppStage::new(query_id, 1, total_participants);
+    let postagg_stage = MppStage::new(query_id, 2, total_participants);
+
+    let left_outbound = attach_cooperative_drain(
+        stamp_frame_ids(left_mesh.outbound, task_key_for(mpp_state, left_stage)),
+        &left_drain,
+    );
+    let right_outbound = attach_cooperative_drain(
+        stamp_frame_ids(right_mesh.outbound, task_key_for(mpp_state, right_stage)),
+        &right_drain,
+    );
+    let postagg_outbound = attach_cooperative_drain(
+        stamp_frame_ids(
+            postagg_mesh.outbound,
+            task_key_for(mpp_state, postagg_stage),
+        ),
+        &postagg_drain,
+    );
 
     let left_shuffle = build_shuffle_wiring(
         left_keys,
@@ -412,12 +446,8 @@ pub(super) fn build_groupby_agg_on_binary_join_bridge(
 
     // Symmetric plan on every seat. Hash partitioning ensures each group
     // lands on exactly one seat's Final, so PG's Gather concatenates
-    // without double-count.
-    let query_id = mpp_state.query_id();
-    // Mesh-index / stage-id contract: mesh 0=left, 1=right, 2=postagg.
-    let left_stage = MppStage::new(query_id, 0, total_participants);
-    let right_stage = MppStage::new(query_id, 1, total_participants);
-    let postagg_stage = MppStage::new(query_id, 2, total_participants);
+    // without double-count. Stage descriptors were computed up-front above
+    // so `stamp_frame_ids` could tag each outbound sender.
     build_groupby_agg_on_binary_join(GroupByAggOnBinaryJoinInputs {
         left_child,
         right_child,
@@ -487,8 +517,21 @@ pub(super) fn build_join_only_bridge(
     let left_drain = spawn_drain(left_mesh.inbound);
     let right_drain = spawn_drain(right_mesh.inbound);
 
-    let left_outbound = attach_cooperative_drain(left_mesh.outbound, &left_drain);
-    let right_outbound = attach_cooperative_drain(right_mesh.outbound, &right_drain);
+    // Mesh-index / stage-id contract: mesh 0=left pre-join, 1=right pre-join.
+    // Stages computed up-front so `FrameId` stamping happens before
+    // cooperative-drain attachment.
+    let query_id = mpp_state.query_id();
+    let left_stage = MppStage::new(query_id, 0, total_participants);
+    let right_stage = MppStage::new(query_id, 1, total_participants);
+
+    let left_outbound = attach_cooperative_drain(
+        stamp_frame_ids(left_mesh.outbound, task_key_for(mpp_state, left_stage)),
+        &left_drain,
+    );
+    let right_outbound = attach_cooperative_drain(
+        stamp_frame_ids(right_mesh.outbound, task_key_for(mpp_state, right_stage)),
+        &right_drain,
+    );
 
     let left_shuffle = build_shuffle_wiring(
         left_keys,
@@ -517,11 +560,6 @@ pub(super) fn build_join_only_bridge(
         join_on.len(),
         join_type,
     );
-
-    let query_id = mpp_state.query_id();
-    // Mesh-index / stage-id contract: mesh 0=left pre-join, 1=right pre-join.
-    let left_stage = MppStage::new(query_id, 0, total_participants);
-    let right_stage = MppStage::new(query_id, 1, total_participants);
     let mpp_hash_join = build_join_only(JoinOnlyInputs {
         left_child,
         right_child,
@@ -649,6 +687,38 @@ fn attach_cooperative_drain(
         .into_iter()
         .map(|opt| opt.map(|s| s.with_cooperative_drain(Arc::clone(drain))))
         .collect()
+}
+
+/// Stamp every outbound sender in `senders` with a `FrameId` computed from
+/// the shared `task_key` (one per mesh — query_id + stage_id + our
+/// participant_index as `task_number`) plus the sender's position in the
+/// `Vec` as `partition`. Position == destination seat index today: the
+/// outbound vec is already built that way by `take_meshes`. P5b will
+/// decouple the two when multiple logical streams share one shm_mq.
+///
+/// Kept as a free function instead of a method on `ShuffleWiring` /
+/// `Vec<Option<MppSender>>` so each call site can pass a shape-specific
+/// task key without inventing a builder.
+fn stamp_frame_ids(
+    senders: Vec<Option<crate::postgres::customscan::mpp::transport::MppSender>>,
+    task_key: MppTaskKey,
+) -> Vec<Option<crate::postgres::customscan::mpp::transport::MppSender>> {
+    senders
+        .into_iter()
+        .enumerate()
+        .map(|(partition, opt)| opt.map(|s| s.with_frame_id(task_key, partition as u32)))
+        .collect()
+}
+
+/// Convenience: build an `MppTaskKey` identifying the local seat as the
+/// producer at a given stage. `task_number == participant_index` because
+/// the MPP mesh has one task per seat in every stage today.
+fn task_key_for(mpp_state: &MppExecutionState, stage: MppStage) -> MppTaskKey {
+    MppTaskKey {
+        query_id: stage.query_id,
+        stage_id: stage.stage_id,
+        task_number: mpp_state.participant_config().participant_index,
+    }
 }
 
 /// Walk a standard physical plan to find the top-most `AggregateExec(Partial)`
@@ -810,10 +880,47 @@ fn col_index(expr: &Arc<dyn PhysicalExpr>) -> Result<usize, DataFusionError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::postgres::customscan::mpp::transport::{in_proc_channel, MppSender};
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::physical_expr::expressions::{BinaryExpr, Literal};
     use datafusion::physical_expr::PhysicalExpr;
     use datafusion::scalar::ScalarValue;
+
+    #[test]
+    fn stamp_frame_ids_assigns_destination_partition_per_slot() {
+        // The vec slot index equals the destination seat today. If
+        // `stamp_frame_ids` ever stops using the slot index as partition,
+        // the wire format's routing guarantee breaks.
+        let (tx1, _rx1) = in_proc_channel(1);
+        let (tx3, _rx3) = in_proc_channel(1);
+        let senders: Vec<Option<MppSender>> = vec![
+            None, // seat 0 (self)
+            Some(MppSender::new(Box::new(tx1))),
+            None, // gap — simulates a partially-built mesh on a larger cluster
+            Some(MppSender::new(Box::new(tx3))),
+        ];
+
+        let stage = MppStage::new(0xa5a5, 2, 4);
+        let stamped = stamp_frame_ids(
+            senders,
+            MppTaskKey {
+                query_id: stage.query_id,
+                stage_id: stage.stage_id,
+                task_number: 0, // pretend we're seat 0
+            },
+        );
+
+        assert!(stamped[0].is_none());
+        let f1 = stamped[1].as_ref().unwrap().frame_id().unwrap();
+        assert_eq!(f1.partition, 1);
+        assert_eq!(f1.task_key.stage_id, 2);
+        assert_eq!(f1.task_key.task_number, 0);
+        assert_eq!(f1.task_key.query_id, 0xa5a5);
+
+        assert!(stamped[2].is_none());
+        let f3 = stamped[3].as_ref().unwrap().frame_id().unwrap();
+        assert_eq!(f3.partition, 3);
+    }
 
     #[test]
     fn col_index_plain_column() {

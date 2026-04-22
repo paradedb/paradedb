@@ -1611,13 +1611,13 @@ impl CustomScan for JoinScan {
                         mpp_state.is_leader()
                     );
                     let _guard = runtime.enter();
-                    match crate::postgres::customscan::mpp::exec_bridge::build_mpp_physical_plan(
+                    match crate::postgres::customscan::mpp::walker::distribute_plan(
                         standard_plan,
                         mpp_state,
                         shape,
                     ) {
                         Ok(p) => p,
-                        Err(e) => panic!("mpp: JoinScan build_mpp_physical_plan failed: {e}"),
+                        Err(e) => panic!("mpp: JoinScan distribute_plan failed: {e}"),
                     }
                 } else {
                     standard_plan

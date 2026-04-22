@@ -200,7 +200,7 @@ pub fn build_mpp_physical_plan(
     }
 }
 
-fn build_scalar_agg_on_binary_join_bridge(
+pub(super) fn build_scalar_agg_on_binary_join_bridge(
     standard: Arc<dyn ExecutionPlan>,
     mpp_state: &mut MppExecutionState,
 ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
@@ -340,7 +340,7 @@ fn build_scalar_agg_on_binary_join_bridge(
     )
 }
 
-fn build_groupby_agg_on_binary_join_bridge(
+pub(super) fn build_groupby_agg_on_binary_join_bridge(
     standard: Arc<dyn ExecutionPlan>,
     mpp_state: &mut MppExecutionState,
 ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {
@@ -468,7 +468,7 @@ fn build_groupby_agg_on_binary_join_bridge(
 /// an aggregate on top. Mirrors `build_scalar_agg_on_binary_join_bridge`
 /// without the Partial aggregate walk and the final-gather mesh — two meshes
 /// (left + right pre-join), no asymmetric leader/worker plan.
-fn build_join_only_bridge(
+pub(super) fn build_join_only_bridge(
     standard: Arc<dyn ExecutionPlan>,
     mpp_state: &mut MppExecutionState,
 ) -> Result<Arc<dyn ExecutionPlan>, DataFusionError> {

@@ -388,6 +388,186 @@ ORDER BY f.title ASC
 LIMIT 5;
 
 -- =============================================================================
+-- TEST 13: Visibility filtering — deleted rows must not appear in STK results
+-- =============================================================================
+-- Verifies that SegmentedTopKExec correctly filters MVCC-invisible (deleted)
+-- rows via its absorbed VisibilityFilterExec data. Both the prune-cycle check
+-- (maybe_compact) and the final-emit check (emit_final_topk) are exercised.
+
+DROP TABLE IF EXISTS stk_vis_files CASCADE;
+DROP TABLE IF EXISTS stk_vis_docs CASCADE;
+
+CREATE TABLE stk_vis_docs (
+    id TEXT PRIMARY KEY,
+    category TEXT
+);
+
+INSERT INTO stk_vis_docs (id, category) VALUES
+('vis-01', 'VISIBILITY_TEST alpha'),
+('vis-02', 'VISIBILITY_TEST beta'),
+('vis-03', 'VISIBILITY_TEST gamma');
+
+CREATE TABLE stk_vis_files (
+    id SERIAL PRIMARY KEY,
+    doc_id TEXT,
+    title TEXT
+);
+
+-- 15 files: titles 'Title 01'..'Title 15', round-robin across 3 docs.
+INSERT INTO stk_vis_files (doc_id, title)
+SELECT
+    'vis-' || LPAD(((i - 1) % 3 + 1)::TEXT, 2, '0'),
+    'Title ' || LPAD(i::TEXT, 2, '0')
+FROM generate_series(1, 15) AS i;
+
+CREATE INDEX stk_vis_docs_bm25_idx ON stk_vis_docs USING bm25 (id, category)
+WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
+
+CREATE INDEX stk_vis_files_bm25_idx ON stk_vis_files USING bm25 (id, doc_id, title)
+WITH (key_field = 'id', text_fields = '{"doc_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}}');
+
+-- Ground truth before deletion (STK OFF): all 15 rows, first 5 in ASC order.
+SET paradedb.enable_segmented_topk = off;
+
+SELECT f.id, f.title
+FROM stk_vis_files f
+WHERE f.doc_id IN (
+    SELECT d.id FROM stk_vis_docs d WHERE d.category @@@ 'VISIBILITY_TEST'
+)
+ORDER BY f.title ASC
+LIMIT 5;
+
+-- Delete 3 rows: these become dead MVCC tuples still visible to the BM25
+-- index but invisible to the heap. STK must not return them.
+DELETE FROM stk_vis_files WHERE title IN ('Title 01', 'Title 02', 'Title 03');
+
+-- Ground truth after deletion (STK OFF): deleted rows must be absent.
+SET paradedb.enable_segmented_topk = off;
+
+SELECT f.id, f.title
+FROM stk_vis_files f
+WHERE f.doc_id IN (
+    SELECT d.id FROM stk_vis_docs d WHERE d.category @@@ 'VISIBILITY_TEST'
+)
+ORDER BY f.title ASC
+LIMIT 5;
+
+-- STK ON ASC: must match ground truth (no deleted rows in result).
+SET paradedb.enable_segmented_topk = on;
+
+SELECT f.id, f.title
+FROM stk_vis_files f
+WHERE f.doc_id IN (
+    SELECT d.id FROM stk_vis_docs d WHERE d.category @@@ 'VISIBILITY_TEST'
+)
+ORDER BY f.title ASC
+LIMIT 5;
+
+-- STK ON DESC: deleted rows must also be absent from the top end.
+SELECT f.id, f.title
+FROM stk_vis_files f
+WHERE f.doc_id IN (
+    SELECT d.id FROM stk_vis_docs d WHERE d.category @@@ 'VISIBILITY_TEST'
+)
+ORDER BY f.title DESC
+LIMIT 5;
+
+-- STK ON, LIMIT > remaining: must return exactly 12 rows (15 inserted - 3 deleted).
+SELECT count(*) FROM (
+    SELECT f.id, f.title
+    FROM stk_vis_files f
+    WHERE f.doc_id IN (
+        SELECT d.id FROM stk_vis_docs d WHERE d.category @@@ 'VISIBILITY_TEST'
+    )
+    ORDER BY f.title ASC
+    LIMIT 100
+) sub;
+
+-- STK OFF: count must match STK ON.
+SET paradedb.enable_segmented_topk = off;
+
+SELECT count(*) FROM (
+    SELECT f.id, f.title
+    FROM stk_vis_files f
+    WHERE f.doc_id IN (
+        SELECT d.id FROM stk_vis_docs d WHERE d.category @@@ 'VISIBILITY_TEST'
+    )
+    ORDER BY f.title ASC
+    LIMIT 100
+) sub;
+
+RESET paradedb.enable_segmented_topk;
+
+DROP TABLE stk_vis_files CASCADE;
+DROP TABLE stk_vis_docs CASCADE;
+
+-- =============================================================================
+-- TEST 14: Regression — small segment (fewer than 2×k rows) must not be dropped
+--
+-- When a segment has fewer than 2×k rows, segment_cutoffs has no entry for it
+-- (QuickSelect never fires). The old is_some_and returned false on None, silently
+-- dropping every row from that segment. Fix: is_none_or passes all rows through
+-- when no cutoff entry exists.
+-- =============================================================================
+
+DROP TABLE IF EXISTS stk_small_docs CASCADE;
+DROP TABLE IF EXISTS stk_small_files CASCADE;
+
+CREATE TABLE stk_small_docs (id TEXT PRIMARY KEY, category TEXT);
+CREATE TABLE stk_small_files (id SERIAL PRIMARY KEY, doc_id TEXT, title TEXT);
+
+-- Only 4 rows total — well below 2×k=52 for LIMIT 26. No cutoff will ever be set.
+INSERT INTO stk_small_docs VALUES ('s1', 'SMALLTEST alpha'), ('s2', 'SMALLTEST beta');
+INSERT INTO stk_small_files (doc_id, title) VALUES
+    ('s1', 'Apple'), ('s1', 'Banana'), ('s2', 'Cherry'), ('s2', 'Date');
+
+CREATE INDEX ON stk_small_docs USING bm25 (id, category)
+    WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
+CREATE INDEX ON stk_small_files USING bm25 (id, doc_id, title)
+    WITH (key_field = 'id', text_fields = '{"doc_id": {"tokenizer": {"type": "keyword"}, "fast": true}, "title": {"fast": true}}');
+
+ANALYZE stk_small_docs;
+ANALYZE stk_small_files;
+
+-- Ground truth: STK OFF
+SET paradedb.enable_segmented_topk = off;
+
+SELECT count(*) FROM (
+    SELECT f.id FROM stk_small_files f
+    WHERE f.doc_id IN (SELECT d.id FROM stk_small_docs d WHERE d.category @@@ 'SMALLTEST')
+    ORDER BY f.title ASC LIMIT 26
+) sub;
+
+-- STK ON: must return same count (4), not 0.
+SET paradedb.enable_segmented_topk = on;
+
+SELECT count(*) FROM (
+    SELECT f.id FROM stk_small_files f
+    WHERE f.doc_id IN (SELECT d.id FROM stk_small_docs d WHERE d.category @@@ 'SMALLTEST')
+    ORDER BY f.title ASC LIMIT 26
+) sub;
+
+DROP TABLE stk_small_files CASCADE;
+DROP TABLE stk_small_docs CASCADE;
+
+-- =============================================================================
+-- TEST 15: Regression — LIMIT 0 must not panic (k=0 rejected at rule level)
+--
+-- With k=0, select_nth_unstable(k-1) underflows usize. The fix rejects
+-- Some(0) in segmented_topk_rule.rs before SegmentedTopKExec is injected.
+-- =============================================================================
+
+SET paradedb.enable_segmented_topk = on;
+
+SELECT f.id, f.title
+FROM stk_files f
+WHERE f.document_id IN (
+    SELECT d.id FROM stk_documents d WHERE d.category @@@ 'PROJECT_ALPHA'
+)
+ORDER BY f.title ASC
+LIMIT 0;
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 

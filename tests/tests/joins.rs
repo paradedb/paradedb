@@ -198,7 +198,8 @@ fn joinscan_self_join_matches_fallback(mut conn: PgConnection) -> Result<(), sql
         explain.contains("Custom Scan (ParadeDB Join Scan)"),
         "{explain}"
     );
-    assert!(explain.contains("VisibilityFilterExec"), "{explain}");
+    // VisibilityFilterExec is absorbed into SegmentedTopKExec — no longer a separate plan node.
+    assert!(!explain.contains("VisibilityFilterExec"), "{explain}");
     assert!(explain.contains("TantivyLookupExec"), "{explain}");
     assert!(explain.contains("SegmentedTopKExec"), "{explain}");
 
@@ -284,7 +285,8 @@ fn joinscan_self_join_duplicate_name_sort_matches_fallback(
         explain.contains("Custom Scan (ParadeDB Join Scan)"),
         "{explain}"
     );
-    assert!(explain.contains("VisibilityFilterExec"), "{explain}");
+    // VisibilityFilterExec is absorbed into SegmentedTopKExec — no longer a separate plan node.
+    assert!(!explain.contains("VisibilityFilterExec"), "{explain}");
     assert!(explain.contains("TantivyLookupExec"), "{explain}");
     assert!(explain.contains("SegmentedTopKExec"), "{explain}");
 

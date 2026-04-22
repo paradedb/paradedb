@@ -28,6 +28,12 @@
 //! P3's generic cut-rule walker (ported from `distribute_plan.rs`) will be the
 //! first consumer — at that point every boundary node gets a real
 //! [`MppStage`] stamped during the walk, replacing the `None` placeholder.
+//!
+//! Because the walker hasn't landed yet, every item in this module is
+//! intentionally dead in lib builds. The module-level `#![allow(dead_code)]`
+//! keeps CI green until P3 wires up the first production caller; remove it
+//! then.
+#![allow(dead_code)]
 
 use std::sync::Arc;
 

@@ -38,7 +38,8 @@ use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, JoinSource, RelNode, RelationAlias,
 };
 use crate::postgres::customscan::joinscan::scan_state::{
-    create_datafusion_session_context, register_source_table, SessionContextProfile,
+    create_datafusion_session_context, create_datafusion_session_context_mpp,
+    register_source_table, SessionContextProfile,
 };
 use crate::scan::info::RowEstimate;
 use crate::scan::PgSearchTableProvider;
@@ -65,6 +66,17 @@ use pgrx::pg_sys;
 /// specific session setup ever appears, this is the place to put it.
 pub fn create_aggregate_session_context() -> SessionContext {
     create_datafusion_session_context(SessionContextProfile::Aggregate)
+}
+
+/// MPP-aware variant. Applies the join-layer bug fixes required when the
+/// aggregate path runs as part of an MPP pipeline: skip `SortMergeJoinEnforcer`
+/// and disable `enable_join_dynamic_filter_pushdown`. Without this, the
+/// probe-side scan races with the exchange producer and silently drops rows
+/// before the dynamic filter stabilizes.
+pub fn create_aggregate_session_context_mpp(
+    mpp: &crate::postgres::customscan::mpp::MppParticipantConfig,
+) -> SessionContext {
+    create_datafusion_session_context_mpp(SessionContextProfile::Aggregate, mpp)
 }
 
 /// Build the complete DataFusion logical plan for an aggregate-on-join query:

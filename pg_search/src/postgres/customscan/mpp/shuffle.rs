@@ -448,6 +448,11 @@ pub struct ShuffleExec {
     /// in the row-count `mpp_log!` line emitted at stream EOF. Purely for
     /// tracing; no control flow depends on it.
     tag: &'static str,
+    /// Stage this boundary consumes from. `None` on construction; stamped by
+    /// [`crate::postgres::customscan::mpp::stage::MppNetworkBoundary::with_input_stage`].
+    /// P1 seam only — read only by tests today.
+    #[allow(dead_code)]
+    input_stage: Option<crate::postgres::customscan::mpp::stage::MppStage>,
 }
 
 impl std::fmt::Debug for ShuffleExec {
@@ -497,7 +502,29 @@ impl ShuffleExec {
             wiring: std::sync::Mutex::new(Some(wiring)),
             plan_properties,
             tag,
+            input_stage: None,
         }
+    }
+}
+
+impl crate::postgres::customscan::mpp::stage::MppNetworkBoundary for ShuffleExec {
+    fn input_stage(&self) -> Option<&crate::postgres::customscan::mpp::stage::MppStage> {
+        self.input_stage.as_ref()
+    }
+
+    fn with_input_stage(
+        &self,
+        stage: crate::postgres::customscan::mpp::stage::MppStage,
+    ) -> datafusion::common::Result<std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>>
+    {
+        let wiring = self.wiring.lock().unwrap().take().ok_or_else(|| {
+            DataFusionError::Internal(
+                "ShuffleExec::with_input_stage: wiring already consumed".into(),
+            )
+        })?;
+        let mut node = ShuffleExec::new(self.input.clone(), wiring, self.tag);
+        node.input_stage = Some(stage);
+        Ok(std::sync::Arc::new(node))
     }
 }
 
@@ -910,6 +937,12 @@ pub struct DrainGatherExec {
     tag: &'static str,
     /// Remembered so `DrainGatherStream` can log which seat received.
     participant_index: u32,
+    /// Stage this boundary consumes from (peers on the inbound mesh). `None`
+    /// on construction; stamped by
+    /// [`crate::postgres::customscan::mpp::stage::MppNetworkBoundary::with_input_stage`].
+    /// P1 seam only — read only by tests today.
+    #[allow(dead_code)]
+    input_stage: Option<crate::postgres::customscan::mpp::stage::MppStage>,
 }
 
 impl std::fmt::Debug for DrainGatherExec {
@@ -943,7 +976,34 @@ impl DrainGatherExec {
             plan_properties,
             tag,
             participant_index,
+            input_stage: None,
         }
+    }
+}
+
+impl crate::postgres::customscan::mpp::stage::MppNetworkBoundary for DrainGatherExec {
+    fn input_stage(&self) -> Option<&crate::postgres::customscan::mpp::stage::MppStage> {
+        self.input_stage.as_ref()
+    }
+
+    fn with_input_stage(
+        &self,
+        stage: crate::postgres::customscan::mpp::stage::MppStage,
+    ) -> datafusion::common::Result<std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>>
+    {
+        let handle = self.drain_handle.lock().unwrap().take().ok_or_else(|| {
+            DataFusionError::Internal(
+                "DrainGatherExec::with_input_stage: drain handle already consumed".into(),
+            )
+        })?;
+        let mut node = DrainGatherExec::new(
+            handle,
+            self.schema.clone(),
+            self.tag,
+            self.participant_index,
+        );
+        node.input_stage = Some(stage);
+        Ok(std::sync::Arc::new(node))
     }
 }
 
@@ -1925,5 +1985,72 @@ mod tests {
                 "seat {seat} only received {count}/1000 rows — partitioner is skewed"
             );
         }
+    }
+
+    /// P1 seam smoke test: both `ShuffleExec` and `DrainGatherExec` start with
+    /// `input_stage() == None`, and `with_input_stage` returns a fresh node
+    /// whose `input_stage()` reports the stamped [`MppStage`]. Verifies the
+    /// boundary trait is wired up so P3's walker can rely on it.
+    #[test]
+    fn mpp_network_boundary_round_trips_stage() {
+        use crate::postgres::customscan::mpp::stage::{MppNetworkBoundary, MppStage};
+        use datafusion::datasource::memory::MemorySourceConfig;
+
+        // ShuffleExec: construct with N=2 wiring, verify input_stage is None,
+        // then stamp a stage and verify the new node reports it.
+        let batch = sample_batch(4);
+        let schema = batch.schema();
+        let input = MemorySourceConfig::try_new_from_batches(schema.clone(), vec![batch]).unwrap();
+        let (tx, _rx) = in_proc_channel(4);
+        let wiring = ShuffleWiring {
+            partitioner: Arc::new(ModuloPartitioner::new(2)),
+            outbound_senders: vec![None, Some(MppSender::new(Box::new(tx)))],
+            participant_index: 0,
+            cooperative_drain: None,
+        };
+        let shuffle = ShuffleExec::new(input, wiring, "test");
+        assert!(shuffle.input_stage().is_none());
+
+        let stamped_shuffle = shuffle
+            .with_input_stage(MppStage::new(1, 0, 2))
+            .expect("with_input_stage should succeed on fresh node");
+        let as_boundary = stamped_shuffle
+            .as_any()
+            .downcast_ref::<ShuffleExec>()
+            .expect("stamped node is still a ShuffleExec");
+        assert_eq!(
+            as_boundary.input_stage().copied(),
+            Some(MppStage::new(1, 0, 2)),
+        );
+
+        // Re-stamping must fail because the wiring was consumed by the first
+        // call — enforces "P1 seam, walker stamps once" invariant.
+        let re_stamp_err = shuffle.with_input_stage(MppStage::new(1, 0, 2));
+        assert!(re_stamp_err.is_err());
+
+        // DrainGatherExec: same round trip.
+        let (_tx2, rx2) = in_proc_channel(4);
+        let receiver = MppReceiver::new(Box::new(rx2));
+        let drain_buffer = DrainBuffer::new(1);
+        let drain_handle = crate::postgres::customscan::mpp::transport::DrainHandle::spawn(
+            crate::postgres::customscan::mpp::transport::DrainConfig::new(
+                vec![receiver],
+                Arc::clone(&drain_buffer),
+            ),
+        );
+        let gather = DrainGatherExec::new(Arc::new(drain_handle), schema, "test", 0);
+        assert!(gather.input_stage().is_none());
+
+        let stamped_gather = gather
+            .with_input_stage(MppStage::new(1, 1, 2))
+            .expect("with_input_stage should succeed on fresh node");
+        let as_gather = stamped_gather
+            .as_any()
+            .downcast_ref::<DrainGatherExec>()
+            .expect("stamped node is still a DrainGatherExec");
+        assert_eq!(
+            as_gather.input_stage().copied(),
+            Some(MppStage::new(1, 1, 2)),
+        );
     }
 }

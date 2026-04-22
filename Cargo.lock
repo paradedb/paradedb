@@ -7901,7 +7901,7 @@ dependencies = [
  "tantivy-sstable",
  "tantivy-stacker",
  "tantivy-stemmers",
- "tantivy-tokenizer-api 0.6.0 (git+https://github.com/paradedb/tantivy.git?rev=84025b075a6ea71be2b9b2ba77ae30cd208ca3f5)",
+ "tantivy-tokenizer-api 0.6.0",
  "thiserror 2.0.18",
  "time",
  "typetag",
@@ -7962,7 +7962,7 @@ checksum = "128e01d2aab35a1e945d0d3ca0aa5a0ec29fb856c41bc34019d84ffa642d2253"
 dependencies = [
  "jieba-rs 0.8.0",
  "lazy_static",
- "tantivy-tokenizer-api 0.6.0 (git+https://github.com/paradedb/tantivy.git?rev=fd162e25a974daba1755a4dc3c024e390baa7a14)",
+ "tantivy-tokenizer-api 0.6.0",
 ]
 
 [[package]]
@@ -8031,14 +8031,6 @@ dependencies = [
 name = "tantivy-tokenizer-api"
 version = "0.6.0"
 source = "git+https://github.com/paradedb/tantivy.git?rev=84025b075a6ea71be2b9b2ba77ae30cd208ca3f5#84025b075a6ea71be2b9b2ba77ae30cd208ca3f5"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "tantivy-tokenizer-api"
-version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=fd162e25a974daba1755a4dc3c024e390baa7a14#fd162e25a974daba1755a4dc3c024e390baa7a14"
 dependencies = [
  "serde",
 ]

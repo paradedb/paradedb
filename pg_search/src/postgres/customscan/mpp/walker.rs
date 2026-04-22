@@ -192,9 +192,15 @@ pub fn distribute_plan(
             build_groupby_agg_topology(standard, mpp_state)?
         }
         // HashJoin without a Partial agg above — bare join.
+        //
+        // Step 2d: routed through the DF-D-aligned generic pipeline
+        // (`prepare_for_mpp` → `insert_mpp_cuts` → `annotate_plan` →
+        // `_distribute_plan` → `finalize_for_mpp`). The two aggregate shapes
+        // stay on their legacy topology assemblers until their pre/post
+        // passes are ported.
         (None, Some(_)) => {
             validate_shape_matches(shape, MppPlanShape::JoinOnly)?;
-            build_join_only_topology(standard, mpp_state)?
+            distribute_plan_generic(MppPlanShape::JoinOnly, standard, mpp_state)?
         }
         // Partial agg without HashJoin — e.g. GroupByAggSingleTable, not yet
         // wired through the assembler code.
@@ -253,26 +259,22 @@ fn validate_shape_matches(classified: MppPlanShape, derived: MppPlanShape) -> Df
 //     task-estimator I/O; ParadeDB's are sync because there's nothing to
 //     await.
 //
-// Nothing calls these yet. `distribute_plan` above still dispatches to the
-// three topology assemblers. The follow-up commits wire the pipeline:
+// Step 2d is live for `JoinOnly` — the dispatcher above routes that shape
+// through `distribute_plan_generic` (`prepare_for_mpp` → `insert_mpp_cuts` →
+// `annotate_plan` → `_distribute_plan` → `finalize_for_mpp`). The two
+// aggregate shapes still route through their legacy topology assemblers.
+// Follow-up work:
 //
-//   * 2b — `insert_mpp_cuts` pre-pass synthesizes the
-//     `RepartitionExec(Hash)` / `CoalescePartitionsExec` markers the DF-D
-//     triggers look for (ParadeDB's serial standard plans don't emit them).
-//   * 2c — `_distribute_plan` consumes `AnnotatedPlan` and emits the
-//     `ShuffleExec` / `DrainGatherExec` pairs via `wrap_with_mpp_shuffle`,
-//     plus ParadeDB-specific post-passes (probe-side dynamic-filter
-//     strip/re-apply, leader-only scalar `FinalPartitioned`, 64 Ki
-//     `CoalesceBatchesExec` for group-by, `VisibilityCtidResolverRule`
-//     re-run).
-//   * 2d — flip `distribute_plan` to route through the generic pipeline.
-//   * 2e — retire the three topology assemblers.
+//   * 2d — port prepare/finalize passes for `ScalarAggOnBinaryJoin` and
+//     `GroupByAggOnBinaryJoin` and flip their dispatcher arms.
+//   * 2e — delete `build_scalar_agg_topology`, `build_groupby_agg_topology`,
+//     `build_join_only_topology`, and shared helpers that have
+//     equivalents inside `emit_shuffle_cut`.
 // ============================================================================
 
 /// Annotation attached to a single [`ExecutionPlan`] that determines the kind
 /// of network boundary needed just below itself. Ported verbatim from DF-D
 /// minus the `Broadcast` variant (not applicable to ParadeDB).
-#[allow(dead_code)]
 pub(super) enum PlanOrNetworkBoundary {
     Plan(Arc<dyn ExecutionPlan>),
     Shuffle,
@@ -299,7 +301,6 @@ impl PlanOrNetworkBoundary {
 /// Wraps an [`ExecutionPlan`] and annotates it with information about whether
 /// it needs a network boundary below it. Ported from DF-D minus `task_count`
 /// (ParadeDB has a fixed N; no propagation pass).
-#[allow(dead_code)]
 pub(super) struct AnnotatedPlan {
     /// The annotated [`ExecutionPlan`].
     pub(super) plan_or_nb: PlanOrNetworkBoundary,
@@ -331,7 +332,6 @@ impl std::fmt::Debug for AnnotatedPlan {
 /// Ported verbatim from DF-D's `common/children_helpers.rs`. Used by
 /// `_distribute_plan` (Step 2c) to unwrap the single child beneath a
 /// network-boundary annotation when rewriting plans via `with_new_children`.
-#[allow(dead_code)]
 pub(super) fn require_one_child<L, T>(children: L) -> DfResult<Arc<dyn ExecutionPlan>>
 where
     L: AsRef<[T]>,
@@ -364,7 +364,6 @@ where
 /// because the serial plan emits neither trigger. Step 2b adds
 /// `insert_mpp_cuts`, a pre-pass that synthesizes the expected markers per
 /// [`MppPlanShape`] before this walker runs.
-#[allow(dead_code)]
 pub(super) fn annotate_plan(plan: Arc<dyn ExecutionPlan>) -> DfResult<AnnotatedPlan> {
     _annotate_plan(plan, None)
 }
@@ -450,10 +449,9 @@ fn _annotate_plan(
 /// with rewrites of ancestors (e.g. the scalar-agg Partial wrap must see
 /// the already-shuffled join as its grandchild).
 ///
-/// Not yet live — nothing calls this. Step 2c will wire
-/// `distribute_plan` through `insert_mpp_cuts` → `annotate_plan` →
-/// `_distribute_plan`.
-#[allow(dead_code)]
+/// Live since Step 2d for `JoinOnly`; the two aggregate shapes still
+/// route through the legacy topology assemblers, and will join this
+/// pipeline once their pre/post passes land.
 pub(super) fn insert_mpp_cuts(
     plan: Arc<dyn ExecutionPlan>,
     shape: MppPlanShape,
@@ -480,14 +478,12 @@ pub(super) fn insert_mpp_cuts(
 }
 
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
 enum CutKind {
     ScalarAgg,
     GroupByAgg,
     JoinOnly,
 }
 
-#[allow(dead_code)]
 fn rewrite_with_cuts(
     plan: Arc<dyn ExecutionPlan>,
     kind: CutKind,
@@ -575,7 +571,6 @@ fn rewrite_with_cuts(
 /// unit tests drive it with in-process channels.
 ///
 /// [`MppParticipantConfig`]: crate::postgres::customscan::mpp::MppParticipantConfig
-#[allow(dead_code)]
 pub(super) struct CutEmitCtx {
     /// Shape classification — consumed by [`tag_for_cut`] to derive the
     /// byte-exact tag string each boundary passes to
@@ -600,7 +595,6 @@ pub(super) struct CutEmitCtx {
     total_participants: u32,
 }
 
-#[allow(dead_code)]
 impl CutEmitCtx {
     /// Construct a context from the pieces of an [`MppExecutionState`] the
     /// walker actually needs. Pulls the mesh pool out of the state up front
@@ -675,7 +669,6 @@ impl CutEmitCtx {
 /// passes that the `distribute_plan` dispatcher orchestrates around this
 /// generic walker (Step 2d), keeping `_distribute_plan` itself as close
 /// to DF-D as the Rust 2021 / ParadeDB-constraint deltas allow.
-#[allow(dead_code)]
 pub(super) fn _distribute_plan(
     plan: AnnotatedPlan,
     ctx: &mut CutEmitCtx,
@@ -828,8 +821,7 @@ fn emit_shuffle_cut(
 ///   `RepartitionExec(Hash(group_keys))` that becomes a `Shuffle` at index 2.
 ///
 /// Mis-indexed cuts fall through to `"mpp_unknown_cut"` rather than panic —
-/// this is a dead-code scaffold and callers aren't live yet.
-#[allow(dead_code)]
+/// a panic would mask a real emit-arm regression.
 fn tag_for_cut(shape: MppPlanShape, cut_index: u32) -> &'static str {
     match (shape, cut_index) {
         (MppPlanShape::JoinOnly, 0) => "join_left",
@@ -842,6 +834,213 @@ fn tag_for_cut(shape: MppPlanShape, cut_index: u32) -> &'static str {
         (MppPlanShape::GroupByAggOnBinaryJoin, 2) => "gb_postagg",
         _ => "mpp_unknown_cut",
     }
+}
+
+// ============================================================================
+// Generic MPP pipeline (Step 2d). `distribute_plan_generic` composes the
+// shape-agnostic walker (`insert_mpp_cuts` → `annotate_plan` →
+// `_distribute_plan`) with explicit shape-specific pre-passes
+// (`prepare_for_mpp`) and post-passes (`finalize_for_mpp`). ParadeDB-specific
+// obligations that don't fit DF-D's generic emit model (probe-side dynamic
+// filter strip, HashJoinExec rebuild with `PartitionMode::Partitioned`,
+// CoalesceBatchesExec(65_536), leader-only FinalPartitioned,
+// VisibilityCtidResolverRule re-run) live in the pre/post passes — the
+// walker body stays verbatim-DF-D.
+//
+// The dispatcher above (`distribute_plan`) routes per shape: JoinOnly goes
+// through this pipeline (Step 2d); the two aggregate shapes stay on the
+// legacy topology assemblers below until their pre/post passes are wired
+// (still on the critical path for Step 2d follow-up).
+// ============================================================================
+
+/// Glue together the generic walker (`insert_mpp_cuts` → `annotate_plan` →
+/// `_distribute_plan`) with the shape-specific pre/post passes. Called by
+/// [`distribute_plan`] for shapes whose post-passes have been ported.
+fn distribute_plan_generic(
+    shape: MppPlanShape,
+    standard: Arc<dyn ExecutionPlan>,
+    mpp_state: &mut MppExecutionState,
+) -> DfResult<Arc<dyn ExecutionPlan>> {
+    let n = mpp_state.participant_config().total_participants;
+    let expected_cuts = cut_count_for_shape(shape) as usize;
+
+    let prepared = prepare_for_mpp(shape, standard)?;
+    let with_cuts = insert_mpp_cuts(prepared, shape, n)?;
+    let annotated = annotate_plan(with_cuts)?;
+    let mut ctx = CutEmitCtx::from_state(mpp_state, shape, expected_cuts);
+    let emitted = _distribute_plan(annotated, &mut ctx)?;
+    finalize_for_mpp(shape, emitted, mpp_state)
+}
+
+/// Shape-specific pre-pass. Runs before [`insert_mpp_cuts`] synthesizes
+/// the `RepartitionExec(Hash)` / `CoalescePartitionsExec` cut markers.
+///
+/// Currently only `JoinOnly` is wired; other shapes pass through
+/// unchanged because the dispatcher routes them to the legacy topology
+/// assemblers.
+fn prepare_for_mpp(
+    shape: MppPlanShape,
+    plan: Arc<dyn ExecutionPlan>,
+) -> DfResult<Arc<dyn ExecutionPlan>> {
+    match shape {
+        MppPlanShape::JoinOnly => prepare_join_only(plan),
+        MppPlanShape::ScalarAggOnBinaryJoin
+        | MppPlanShape::GroupByAggOnBinaryJoin
+        | MppPlanShape::GroupByAggSingleTable
+        | MppPlanShape::Ineligible => Ok(plan),
+    }
+}
+
+/// JoinOnly pre-pass. Rewrites the first `HashJoinExec` in `plan` so
+/// that [`insert_mpp_cuts`] sees a clean subtree below each side.
+///
+///  * `strip_repartition_layers` peels off any DataFusion-inserted
+///    `RepartitionExec` / `CoalesceBatchesExec` layers. `insert_mpp_cuts`
+///    will add its own `RepartitionExec(Hash)` marker; leaving the old
+///    layers in place would just stack redundant partitioners.
+///  * `strip_dynamic_filters_in_subtree` removes the probe-side dynamic
+///    filter the `FilterPushdown` physical optimizer pushed into the
+///    `PgSearchScanPlan`. With a dynamic filter on the probe, rows
+///    destined for peer seats get dropped before they hit the shuffle
+///    (the build side hasn't filled the filter yet on this seat), and
+///    the row count drops to ~0 across the mesh.
+///
+/// Outer wrappers (`VisibilityFilterExec`, `SegmentedTopKExec`, ...) are
+/// rebuilt by `with_new_children` so their subtree identity refreshes.
+/// Errors (via `DataFusionError::Plan`) when no `HashJoinExec` is found
+/// — the caller already validated the shape, so the absence would
+/// indicate a planner bug.
+fn prepare_join_only(plan: Arc<dyn ExecutionPlan>) -> DfResult<Arc<dyn ExecutionPlan>> {
+    fn walk(node: Arc<dyn ExecutionPlan>) -> DfResult<(Arc<dyn ExecutionPlan>, bool)> {
+        if let Some(hj) = node.as_any().downcast_ref::<HashJoinExec>() {
+            let new_left = strip_repartition_layers(Arc::clone(hj.left()));
+            let new_right =
+                strip_dynamic_filters_in_subtree(strip_repartition_layers(Arc::clone(hj.right())))?;
+            return Ok((node.with_new_children(vec![new_left, new_right])?, true));
+        }
+        let children = node.children();
+        if children.is_empty() {
+            return Ok((node, false));
+        }
+        let mut rebuilt = Vec::with_capacity(children.len());
+        let mut any_changed = false;
+        for child in children {
+            let (new, changed) = walk(Arc::clone(child))?;
+            if changed {
+                any_changed = true;
+            }
+            rebuilt.push(new);
+        }
+        if any_changed {
+            Ok((node.with_new_children(rebuilt)?, true))
+        } else {
+            Ok((node, false))
+        }
+    }
+    let (new_root, found) = walk(plan)?;
+    if !found {
+        return Err(DataFusionError::Plan(
+            "mpp: prepare_join_only: no HashJoinExec found in plan".into(),
+        ));
+    }
+    Ok(new_root)
+}
+
+/// Shape-specific post-pass. Runs after [`_distribute_plan`] emits the
+/// `ShuffleExec` / `DrainGatherExec` pairs.
+///
+/// Currently only `JoinOnly` is wired; other shapes pass through
+/// unchanged because the dispatcher routes them to the legacy topology
+/// assemblers.
+fn finalize_for_mpp(
+    shape: MppPlanShape,
+    plan: Arc<dyn ExecutionPlan>,
+    mpp_state: &MppExecutionState,
+) -> DfResult<Arc<dyn ExecutionPlan>> {
+    match shape {
+        MppPlanShape::JoinOnly => finalize_join_only(plan, mpp_state),
+        MppPlanShape::ScalarAggOnBinaryJoin
+        | MppPlanShape::GroupByAggOnBinaryJoin
+        | MppPlanShape::GroupByAggSingleTable
+        | MppPlanShape::Ineligible => Ok(plan),
+    }
+}
+
+/// JoinOnly post-pass. The generic walker's `Plan` arm called
+/// `with_new_children` on the `HashJoinExec` to stitch in the emitted
+/// shuffles. That preserves the original's `on` / `filter` /
+/// `projection` / `join_type`, but two MPP-specific fixups are still
+/// needed:
+///
+///  1. **Rebuild with `PartitionMode::Partitioned`.** The standard plan's
+///     HashJoin typically carries `PartitionMode::Auto` or `CollectLeft`.
+///     Under MPP the probe + build have already been partitioned by the
+///     shuffles, so the join must run per-partition against those
+///     outputs. `with_new_children` doesn't update the partition mode.
+///  2. **Re-run `VisibilityCtidResolverRule`.** `with_new_children`
+///     rebuilt any `VisibilityFilterExec` above the join via
+///     `VisibilityFilterExec::new`, which resets `ctid_resolvers` to
+///     empty. The resolver rule re-populates them against the new
+///     subtree.
+fn finalize_join_only(
+    plan: Arc<dyn ExecutionPlan>,
+    _mpp_state: &MppExecutionState,
+) -> DfResult<Arc<dyn ExecutionPlan>> {
+    let rebuilt = rebuild_hash_join_as_partitioned(plan)?;
+    run_visibility_ctid_resolver_rule(rebuilt)
+}
+
+/// Find the first `HashJoinExec` in `plan`, rebuild it via
+/// `HashJoinExec::try_new` with `PartitionMode::Partitioned` (preserving
+/// every other field), and graft back into the tree via
+/// [`replace_first_hash_join`] so outer wrappers
+/// (`VisibilityFilterExec`, `SegmentedTopKExec`, `TantivyLookupExec`,
+/// ...) refresh their subtree identity.
+fn rebuild_hash_join_as_partitioned(
+    plan: Arc<dyn ExecutionPlan>,
+) -> DfResult<Arc<dyn ExecutionPlan>> {
+    let hj = find_hash_join(plan.as_ref()).ok_or_else(|| {
+        DataFusionError::Internal(
+            "mpp: finalize_join_only: HashJoinExec missing after _distribute_plan".into(),
+        )
+    })?;
+    let left = Arc::clone(hj.left());
+    let right = Arc::clone(hj.right());
+    let on = hj.on().to_vec();
+    let filter = hj.filter().cloned();
+    let join_type = *hj.join_type();
+    let projection = hj.projection.as_deref().map(|s| s.to_vec());
+    let null_equality = hj.null_equality();
+    let null_aware = hj.null_aware;
+    let replacement: Arc<dyn ExecutionPlan> = Arc::new(HashJoinExec::try_new(
+        left,
+        right,
+        on,
+        filter,
+        &join_type,
+        projection,
+        PartitionMode::Partitioned,
+        null_equality,
+        null_aware,
+    )?);
+    replace_first_hash_join(plan, replacement)?.ok_or_else(|| {
+        DataFusionError::Internal(
+            "mpp: finalize_join_only: replace_first_hash_join could not find target".into(),
+        )
+    })
+}
+
+/// Re-run `VisibilityCtidResolverRule` on `plan` so any
+/// `VisibilityFilterExec` rebuilt by `with_new_children` (which resets
+/// its `ctid_resolvers` table) gets wired back to the scans in its fresh
+/// subtree.
+fn run_visibility_ctid_resolver_rule(
+    plan: Arc<dyn ExecutionPlan>,
+) -> DfResult<Arc<dyn ExecutionPlan>> {
+    use datafusion::common::config::ConfigOptions;
+    use datafusion::physical_optimizer::PhysicalOptimizerRule;
+    let config = ConfigOptions::default();
+    crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule.optimize(plan, &config)
 }
 
 // ============================================================================
@@ -1233,6 +1432,13 @@ fn build_groupby_agg_topology(
 /// surrounding `with_new_children` rebuild resets per-node state such as
 /// `VisibilityFilterExec::ctid_resolvers`, so we re-run the resolver
 /// rule against the grafted tree to re-wire those.
+///
+/// Step 2d: JoinOnly now routes through the generic walker pipeline
+/// (`distribute_plan_generic` + `prepare_for_mpp` + `finalize_for_mpp`).
+/// This assembler is kept during the staged rollout as a fallback path;
+/// Step 2e deletes it once all three shapes route through the generic
+/// pipeline and regress byte-exact.
+#[allow(dead_code)]
 fn build_join_only_topology(
     standard: Arc<dyn ExecutionPlan>,
     mpp_state: &mut MppExecutionState,

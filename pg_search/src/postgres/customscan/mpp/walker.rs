@@ -68,13 +68,15 @@
 //!
 //! # Status
 //!
-//! Entry point [`annotate_plan`] is the production path (walker default on
-//! in P4). The current implementation is a shape-dispatching wrapper: each
-//! match arm still calls the bridge function that owns the cut pattern for
-//! that shape. Cut-point discovery is surfaced via [`expected_cuts`] for
-//! logging and self-consistency checks; cut-insertion continues to live
-//! inside the bridges until a follow-up landing carves it out without
-//! perturbing byte-for-byte plan output.
+//! Entry point [`annotate_plan`] is the canonical production path (P4) —
+//! `exec_bridge::build_mpp_physical_plan` now just delegates here, and the
+//! old `paradedb.mpp_use_generic_walker` GUC has been removed. The current
+//! implementation is a shape-dispatching wrapper: each match arm calls a
+//! private bridge function that owns the cut pattern for that shape.
+//! Cut-point discovery is surfaced via [`expected_cuts`] for logging and
+//! self-consistency checks; cut-insertion continues to live inside the
+//! bridges until a follow-up landing carves it out without perturbing
+//! byte-for-byte plan output.
 
 use std::sync::Arc;
 
@@ -195,13 +197,9 @@ pub fn expected_cuts(
 
 /// How many shuffle cuts the walker will insert for `shape`. Replaces the
 /// old `shape::shuffles_required` — derived from [`expected_cuts`] so the
-/// two are guaranteed consistent.
-///
-/// Currently unused by production code: P4 swaps the DSM-estimate hook
-/// callers (`aggregatescan/mod.rs`, `joinscan/mod.rs`) from
-/// `shape::shuffles_required` to this. Kept `pub` so P4 can flip the
-/// callers without touching module visibility.
-#[allow(dead_code)]
+/// two are guaranteed consistent. Called by the DSM-estimate hooks in
+/// `aggregatescan/mod.rs` and `joinscan/mod.rs` to size the shared-memory
+/// region at plan time.
 pub fn cut_count_for_shape(shape: MppPlanShape) -> u32 {
     expected_cuts(shape, 0, 1).len() as u32
 }

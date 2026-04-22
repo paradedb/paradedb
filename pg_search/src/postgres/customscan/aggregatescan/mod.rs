@@ -2070,7 +2070,7 @@ impl ParallelQueryCapable for AggregateScan {
                 return 0;
             }
         };
-        let num_meshes = crate::postgres::customscan::mpp::shape::shuffles_required(shape);
+        let num_meshes = crate::postgres::customscan::mpp::walker::cut_count_for_shape(shape);
         if num_meshes == 0 {
             crate::mpp_log!("mpp: shape {:?} requires no shuffle; returning 0", shape);
             return 0;
@@ -2109,7 +2109,7 @@ impl ParallelQueryCapable for AggregateScan {
             Some(s) => s,
             None => return,
         };
-        let num_meshes = crate::postgres::customscan::mpp::shape::shuffles_required(shape);
+        let num_meshes = crate::postgres::customscan::mpp::walker::cut_count_for_shape(shape);
         if num_meshes == 0 {
             return;
         }

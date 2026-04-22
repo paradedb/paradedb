@@ -5,7 +5,7 @@ SELECT name, COUNT(*) FROM badges WHERE name ||| 'Question' GROUP BY name ORDER 
 SET paradedb.enable_aggregate_custom_scan TO on; SELECT name, COUNT(*) FROM badges WHERE name ||| 'Question' GROUP BY name;
 
 -- pdb.agg with GROUP BY
-SELECT name, pdb.agg('{"value_count": {"field": "name"}}') FROM badges WHERE name ||| 'Question' GROUP BY name;
+SELECT name, COUNT(name) FROM badges WHERE name ||| 'Question' and id @@@ pdb.all() GROUP BY name;
 
 -- pdb.agg with GROUP BY (mvcc disabled)
-SELECT name, pdb.agg('{"value_count": {"field": "name"}}', false) FROM badges WHERE name ||| 'Question' GROUP BY name;
+SELECT name, pdb.agg('{"value_count": {"field": "name"}}', false) FROM badges WHERE name ||| 'Question' and id @@@ pdb.all() GROUP BY name;

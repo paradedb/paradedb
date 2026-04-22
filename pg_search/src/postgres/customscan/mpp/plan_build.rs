@@ -82,6 +82,7 @@ use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use crate::postgres::customscan::mpp::chain::ChainExec;
 
 use crate::postgres::customscan::mpp::shuffle::{DrainGatherExec, ShuffleExec, ShuffleWiring};
+use crate::postgres::customscan::mpp::stage::{MppNetworkBoundary, MppStage};
 use crate::postgres::customscan::mpp::transport::DrainHandle;
 
 /// Inputs to [`wrap_with_mpp_shuffle`].
@@ -107,6 +108,18 @@ pub struct MppShuffleInputs {
     /// of `"left"`, `"right"`, `"postagg"`, `"final"`. Purely for tracing;
     /// no control flow depends on it.
     pub tag: &'static str,
+    /// Stage descriptor to stamp on both boundary nodes (the local
+    /// `ShuffleExec` send side and the peer-inbound `DrainGatherExec`). A
+    /// single mesh = one stage, so `ShuffleExec` and `DrainGatherExec` share
+    /// the same `MppStage`: the walker / bridge treats them as the two halves
+    /// of one cross-seat edge.
+    ///
+    /// `None` skips the stamp (legacy callers and tests that predate the
+    /// `MppNetworkBoundary` seam). The bridges in `exec_bridge.rs` always
+    /// pass `Some(...)`; once the generic cut walker (P3) lands and retires
+    /// the bridges we can tighten this to a non-optional field and delete the
+    /// legacy branch.
+    pub stage: Option<MppStage>,
 }
 
 /// Wrap a child plan with the MPP hash-shuffle topology.
@@ -139,6 +152,7 @@ pub fn wrap_with_mpp_shuffle(
         drain_handle,
         wrapped_schema,
         tag,
+        stage,
     } = inputs;
     let participant_index = wiring.participant_index;
 
@@ -156,16 +170,25 @@ pub fn wrap_with_mpp_shuffle(
     // Self-side: ShuffleExec partitions `child`'s stream by
     // `wiring.partitioner`, emits the rows whose hash lands on this seat,
     // and concurrently ships rows destined for peers through `wiring.outbound`.
-    let shuffle: Arc<dyn ExecutionPlan> = Arc::new(ShuffleExec::new(child, wiring, tag));
+    let shuffle_node = ShuffleExec::new(child, wiring, tag);
+    let shuffle: Arc<dyn ExecutionPlan> = match stage {
+        // Stamp the ShuffleExec via the `MppNetworkBoundary` seam. The trait
+        // method consumes `self.wiring` and produces a fresh `Arc`; the
+        // un-stamped `shuffle_node` is dropped immediately after.
+        Some(s) => MppNetworkBoundary::with_input_stage(&shuffle_node, s)?,
+        None => Arc::new(shuffle_node),
+    };
 
     // Peer-side: DrainGatherExec streams the batches the drain thread has
-    // pulled from this participant's inbound shm_mqs.
-    let gather: Arc<dyn ExecutionPlan> = Arc::new(DrainGatherExec::new(
-        drain_handle,
-        wrapped_schema.clone(),
-        tag,
-        participant_index,
-    ));
+    // pulled from this participant's inbound shm_mqs. Stamp with the *same*
+    // `MppStage` as the paired shuffle: one mesh = one stage, with local
+    // sender and peer-inbound receiver as its two halves.
+    let gather_node =
+        DrainGatherExec::new(drain_handle, wrapped_schema.clone(), tag, participant_index);
+    let gather: Arc<dyn ExecutionPlan> = match stage {
+        Some(s) => MppNetworkBoundary::with_input_stage(&gather_node, s)?,
+        None => Arc::new(gather_node),
+    };
 
     // Splice both streams, then coalesce into a single output partition so
     // downstream operators driven via `execute(0)` pull from both self AND
@@ -275,6 +298,7 @@ mod tests {
             drain_handle: Arc::new(drain_handle),
             wrapped_schema: schema.clone(),
             tag: "test",
+            stage: None,
         })
         .unwrap();
 

@@ -68,6 +68,19 @@ impl MppExecutionState {
     pub fn is_leader(&self) -> bool {
         matches!(self, MppExecutionState::Leader(_))
     }
+
+    /// Per-query identifier used to stamp every
+    /// [`MppStage`](crate::postgres::customscan::mpp::stage::MppStage) a
+    /// bridge or the generic cut walker builds. Leader derives it once at
+    /// plan time via
+    /// [`derive_query_id`](crate::postgres::customscan::mpp::session::derive_query_id)
+    /// and ships it to workers inside `MppPlanBroadcast`.
+    pub fn query_id(&self) -> u64 {
+        match self {
+            MppExecutionState::Leader(l) => l.query_id,
+            MppExecutionState::Worker(w) => w.query_id,
+        }
+    }
 }
 
 /// True when the `paradedb.enable_mpp` GUC is on AND the worker count is at

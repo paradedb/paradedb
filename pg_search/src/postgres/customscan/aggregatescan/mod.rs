@@ -737,10 +737,12 @@ impl AggregateScan {
                 // and corrupt adjacent DSA control blocks → crash at
                 // `dsa_release_in_place` during parallel-context teardown.
                 let n = crate::postgres::customscan::mpp::customscan_glue::mpp_worker_count();
+                let query_id = crate::postgres::customscan::mpp::session::derive_query_id();
                 let broadcast = crate::postgres::customscan::mpp::session::MppPlanBroadcast::new(
                     bytes.to_vec(),
                     n,
                     crate::postgres::customscan::mpp::session::MppSessionProfile::Aggregate,
+                    query_id,
                 );
                 let broadcast_bytes = match broadcast.serialize() {
                     Ok(b) => b,

@@ -90,6 +90,15 @@ pub unsafe fn init_mpp_dsm_leader(
     let dsm = compute_dsm_layout(&mesh, num_meshes, plan_broadcast_bytes.len())
         .map_err(|e| format!("mpp: compute_dsm_layout failed: {e}"))?;
 
+    // Peek `query_id` out of the broadcast before it's consumed into DSM.
+    // Workers recover it via `MppPlanBroadcast::deserialize`; the leader
+    // has no cheaper path (we could thread the pre-serialize value
+    // separately, but that's two copies of the same truth — one in the
+    // bytes, one in a side channel — and a drift hazard).
+    let query_id = MppPlanBroadcast::deserialize(&plan_broadcast_bytes)
+        .map_err(|e| format!("mpp: leader broadcast peek failed: {e}"))?
+        .query_id;
+
     let base = coordinate as *mut u8;
     let meshes = unsafe {
         initialize_dsm_as_leader(base, &dsm, &mesh, &plan_broadcast_bytes, seg)
@@ -102,6 +111,7 @@ pub unsafe fn init_mpp_dsm_leader(
             participant_index: 0,
             total_participants,
         },
+        query_id,
     })
 }
 
@@ -112,6 +122,10 @@ pub struct LeaderMppContext {
     /// One [`LeaderMesh`] per shuffle mesh, in the order the shape requested.
     pub meshes: Vec<LeaderMesh>,
     pub participant_config: super::MppParticipantConfig,
+    /// Per-query identifier the leader derived at plan time. Stamped on
+    /// every [`MppStage`](super::stage::MppStage) so workers and leader
+    /// agree on the key that keys cross-seat mesh traffic.
+    pub query_id: u64,
 }
 
 /// Worker's DSM-attach entry point. Reads the header, validates, attaches as
@@ -146,10 +160,12 @@ pub unsafe fn attach_mpp_dsm_worker(
     let broadcast = MppPlanBroadcast::deserialize(&plan_bytes)
         .map_err(|e| format!("mpp: plan deserialize failed: {e}"))?;
     let participant_config = broadcast.participant_config(participant_index);
+    let query_id = broadcast.query_id;
 
     Ok(WorkerMppContext {
         meshes: attach.meshes,
         participant_config,
+        query_id,
     })
 }
 
@@ -159,6 +175,8 @@ pub unsafe fn attach_mpp_dsm_worker(
 pub struct WorkerMppContext {
     pub meshes: Vec<crate::postgres::customscan::mpp::worker::WorkerMesh>,
     pub participant_config: super::MppParticipantConfig,
+    /// Per-query identifier read from the leader's broadcast.
+    pub query_id: u64,
 }
 
 #[cfg(test)]
@@ -226,7 +244,7 @@ mod tests {
         // path will crash; this one additionally documents the
         // why-it-matters so the regression is caught at code-review time.
         let raw_plan: Vec<u8> = (0..1024u32).map(|i| (i & 0xff) as u8).collect();
-        let bc = MppPlanBroadcast::new(raw_plan.clone(), 2, MppSessionProfile::Aggregate);
+        let bc = MppPlanBroadcast::new(raw_plan.clone(), 2, MppSessionProfile::Aggregate, 0);
         let broadcast_bytes = bc.serialize().unwrap();
         assert_ne!(
             broadcast_bytes.len(),

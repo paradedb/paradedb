@@ -68,11 +68,21 @@
 //!
 //! Entry point [`annotate_plan`] is behind
 //! `paradedb.mpp_use_generic_walker` (default off). When off, the bridges
-//! drive MPP exactly as today. When on, the bridges short-circuit to
-//! [`annotate_plan`]. The walker is not yet fully wired: the default
-//! implementation returns [`AnnotateError::NotYetImplemented`] so the
-//! leader can surface a clear error during A/B testing instead of silently
-//! falling back. P3's next commit replaces that stub with the real walker.
+//! drive MPP exactly as today. When on, [`build_mpp_physical_plan`] routes
+//! through [`annotate_plan`] instead.
+//!
+//! **Current implementation**: a thin dispatching wrapper that delegates to
+//! the existing per-shape bridge functions
+//! (`build_{scalar_agg,groupby_agg,join_only}_*_bridge`). No behaviour
+//! change from the bridges yet — the purpose is to lock in the dispatch
+//! seam, emit an `mpp_log!` so A/B tests can observe which path ran, and
+//! validate the visibility invariant (below) before swapping the body for
+//! a truly shape-agnostic cut walker in a follow-up commit.
+//!
+//! Follow-up commits will progressively carve cut discovery
+//! (`find_mpp_cut_points`) and cut insertion (`insert_shuffles`) out of the
+//! bridges into standalone walker helpers, then retire the bridges once
+//! the walker output matches byte-for-byte across the test suite.
 
 use std::sync::Arc;
 
@@ -82,56 +92,49 @@ use datafusion::physical_plan::ExecutionPlan;
 use super::customscan_glue::MppExecutionState;
 use super::shape::{shuffles_required, MppPlanShape};
 
-/// Errors from the cut walker that are distinct from DataFusion's
-/// `DataFusionError`. Surface as `DataFusionError::Plan` at the bridge
-/// boundary; the enum exists so callers can pattern-match in tests.
-#[derive(Debug)]
-pub enum AnnotateError {
-    /// P3 stub — real walker lands in the next commit. Kept as a named
-    /// variant (not just a `DataFusionError::NotImplemented`) so the
-    /// A/B-test harness can distinguish "GUC flipped but walker not
-    /// wired" from any other planning failure.
-    NotYetImplemented,
-}
-
-impl std::fmt::Display for AnnotateError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AnnotateError::NotYetImplemented => write!(
-                f,
-                "mpp: annotate_plan walker not yet implemented (stub); \
-                 unset paradedb.mpp_use_generic_walker to fall back to bridges"
-            ),
-        }
-    }
-}
-
-impl From<AnnotateError> for DataFusionError {
-    fn from(e: AnnotateError) -> Self {
-        DataFusionError::Plan(format!("{e}"))
-    }
-}
-
 /// Walk `standard` and rewrite it into an MPP-partitioned plan by
 /// identifying cut points and inserting `ShuffleExec` / `DrainGatherExec`
 /// pairs stamped with an [`MppStage`](super::stage::MppStage).
 ///
-/// `shape` is passed through so the walker can short-circuit to the right
-/// cut pattern when the standard-plan walk alone is ambiguous
-/// (e.g. distinguishing `ScalarAgg` from `GroupByAgg` by inspecting the
-/// `Partial` aggregate's `group_expr().expr().len()` works, but the
-/// shape is already computed at classification time so we accept it as a
-/// hint).
+/// `shape` is the classifier output from plan time. The walker uses it to
+/// dispatch to the right cut pattern; a future truly shape-agnostic
+/// implementation would re-derive the shape from the standard plan
+/// structure, but keeping `shape` as an explicit parameter lets us validate
+/// the classifier against the walker's derivation during the dark-launch.
 ///
-/// The `_mpp_state` handle will (next commit) be used to pull mesh
-/// wirings out and build `ShuffleWiring`s, mirroring what the bridges do
-/// today. Held as `&mut` because mesh extraction is destructive.
+/// Current body: a dispatching wrapper over the per-shape bridge functions
+/// in [`super::exec_bridge`]. See module-level doc for the migration plan.
 pub fn annotate_plan(
-    _standard: Arc<dyn ExecutionPlan>,
-    _mpp_state: &mut MppExecutionState,
-    _shape: MppPlanShape,
+    standard: Arc<dyn ExecutionPlan>,
+    mpp_state: &mut MppExecutionState,
+    shape: MppPlanShape,
 ) -> DfResult<Arc<dyn ExecutionPlan>> {
-    Err(AnnotateError::NotYetImplemented.into())
+    use super::exec_bridge;
+
+    crate::mpp_log!(
+        "mpp: annotate_plan walker dispatching shape={:?} (use_generic_walker=true)",
+        shape
+    );
+
+    match shape {
+        MppPlanShape::ScalarAggOnBinaryJoin => {
+            exec_bridge::build_scalar_agg_on_binary_join_bridge(standard, mpp_state)
+        }
+        MppPlanShape::GroupByAggOnBinaryJoin => {
+            exec_bridge::build_groupby_agg_on_binary_join_bridge(standard, mpp_state)
+        }
+        MppPlanShape::JoinOnly => exec_bridge::build_join_only_bridge(standard, mpp_state),
+        MppPlanShape::GroupByAggSingleTable => Err(DataFusionError::Plan(
+            "mpp: annotate_plan: GroupByAggSingleTable shape not yet implemented \
+             (bridges do not support it either)"
+                .into(),
+        )),
+        MppPlanShape::Ineligible => Err(DataFusionError::Plan(
+            "mpp: annotate_plan invoked with Ineligible shape — caller should have \
+             routed to the non-MPP serial path"
+                .into(),
+        )),
+    }
 }
 
 /// Upper bound on the number of cuts the walker can produce for any
@@ -164,16 +167,5 @@ mod tests {
         // tied at 3 meshes. If someone adds a shape with more meshes, this
         // assertion surfaces the mismatch.
         assert_eq!(worst_case_cut_count(), 3);
-    }
-
-    #[test]
-    fn stub_annotate_plan_returns_not_yet_implemented() {
-        // Matches the not-yet-implemented variant rather than formatting
-        // the error, so the test is robust to message tweaks.
-        let err_is_stub = matches!(
-            AnnotateError::NotYetImplemented,
-            AnnotateError::NotYetImplemented
-        );
-        assert!(err_is_stub);
     }
 }

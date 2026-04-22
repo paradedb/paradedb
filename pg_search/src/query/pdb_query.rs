@@ -99,22 +99,6 @@ pub mod pdb {
         }
     }
 
-    #[test]
-    fn fuzzy_data_roundtrip() {
-        proptest::proptest!(|(distance in 0u8..=255u8, prefix in 0..=1, transposition_cost_one in 0..=1)| {
-            let original = FuzzyData {
-                distance,
-                prefix: prefix == 1,
-                transposition_cost_one: transposition_cost_one == 1,
-            };
-
-            let typmod_repr:i32 = original.clone().into();
-            assert!(typmod_repr >= 0);  // can't be negative
-            let from_typmod:FuzzyData = typmod_repr.into();
-            assert_eq!(original, from_typmod);
-        })
-    }
-
     #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
     #[serde(rename_all = "snake_case")]
     pub struct SlopData {
@@ -2012,4 +1996,27 @@ fn exists(field: FieldName, searcher: &Searcher) -> Box<ExistsQuery> {
         .field_type()
         .is_json();
     Box::new(ExistsQuery::new(field.into_inner(), is_json))
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::pdb::FuzzyData;
+    use pgrx::prelude::*;
+
+    #[pg_test]
+    fn fuzzy_data_roundtrip() {
+        proptest::proptest!(|(distance in 0u8..=255u8, prefix in 0..=1, transposition_cost_one in 0..=1)| {
+            let original = FuzzyData {
+                distance,
+                prefix: prefix == 1,
+                transposition_cost_one: transposition_cost_one == 1,
+            };
+
+            let typmod_repr: i32 = original.clone().into();
+            assert!(typmod_repr >= 0); // can't be negative
+            let from_typmod: FuzzyData = typmod_repr.into();
+            assert_eq!(original, from_typmod);
+        })
+    }
 }

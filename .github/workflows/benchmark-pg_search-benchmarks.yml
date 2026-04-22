@@ -310,6 +310,22 @@ jobs:
           pr_label: ${{ steps.pr_label.outputs.result }}
           fail_on_error: ${{ inputs.fail_on_error || true }}
 
+      - name: Benchmark "stackoverflow" Dataset (20M)
+        if: >-
+          github.event_name != 'pull_request' ||
+          contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-stackoverflow"]'), github.event.label.name)
+        uses: ./.github/actions/benchmark-queries
+        with:
+          mode: existing
+          dataset: stackoverflow
+          size: 20m
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+          fail_on_error: ${{ inputs.fail_on_error || true }}
+
       - name: Benchmark "docs" Dataset (25M rows)
         if: >-
           github.event_name != 'pull_request' ||

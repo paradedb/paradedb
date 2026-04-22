@@ -87,18 +87,20 @@
                       // 52 still emits it as a plan node and we must recognize
                       // + reuse it.
 
+use std::borrow::Borrow;
 use std::sync::Arc;
 
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::common::{DataFusionError, Result as DfResult};
 use datafusion::physical_expr::expressions::Column;
-use datafusion::physical_expr::PhysicalExpr;
+use datafusion::physical_expr::{Partitioning, PhysicalExpr};
 use datafusion::physical_plan::aggregates::{AggregateExec, AggregateMode, PhysicalGroupBy};
 use datafusion::physical_plan::coalesce_batches::CoalesceBatchesExec;
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::filter::FilterExec;
 use datafusion::physical_plan::joins::{HashJoinExec, PartitionMode};
 use datafusion::physical_plan::repartition::RepartitionExec;
+use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
 use datafusion::physical_plan::ExecutionPlan;
 
 use super::customscan_glue::{MppExecutionState, DEFAULT_MPP_QUEUE_BYTES};
@@ -230,6 +232,187 @@ fn validate_shape_matches(classified: MppPlanShape, derived: MppPlanShape) -> Df
              but plan structure implies {derived:?}"
         )))
     }
+}
+
+// ============================================================================
+// Generic cut walker (dead-code scaffolding ported from
+// datafusion-contrib/datafusion-distributed).
+//
+// Port aims to match DF-D's `src/distributed_planner/plan_annotator.rs` and
+// `src/common/children_helpers.rs` as closely as ParadeDB allows. The three
+// deviations are all driven by ParadeDB constraints, not aesthetics:
+//
+//   * DF-D's `PlanOrNetworkBoundary::Broadcast` variant is dropped because
+//     ParadeDB doesn't do broadcast joins.
+//   * DF-D's `AnnotatedPlan::task_count` field is dropped because ParadeDB's
+//     participant count is fixed by `MppParticipantConfig::total_participants`
+//     at plan time — no task estimators, no cardinality scale factors, no
+//     propagation passes needed.
+//   * DF-D's `annotate_plan` / `_annotate_plan` are `async` to accommodate
+//     task-estimator I/O; ParadeDB's are sync because there's nothing to
+//     await.
+//
+// Nothing calls these yet. `distribute_plan` above still dispatches to the
+// three topology assemblers. The follow-up commits wire the pipeline:
+//
+//   * 2b — `insert_mpp_cuts` pre-pass synthesizes the
+//     `RepartitionExec(Hash)` / `CoalescePartitionsExec` markers the DF-D
+//     triggers look for (ParadeDB's serial standard plans don't emit them).
+//   * 2c — `_distribute_plan` consumes `AnnotatedPlan` and emits the
+//     `ShuffleExec` / `DrainGatherExec` pairs via `wrap_with_mpp_shuffle`,
+//     plus ParadeDB-specific post-passes (probe-side dynamic-filter
+//     strip/re-apply, leader-only scalar `FinalPartitioned`, 64 Ki
+//     `CoalesceBatchesExec` for group-by, `VisibilityCtidResolverRule`
+//     re-run).
+//   * 2d — flip `distribute_plan` to route through the generic pipeline.
+//   * 2e — retire the three topology assemblers.
+// ============================================================================
+
+/// Annotation attached to a single [`ExecutionPlan`] that determines the kind
+/// of network boundary needed just below itself. Ported verbatim from DF-D
+/// minus the `Broadcast` variant (not applicable to ParadeDB).
+#[allow(dead_code)]
+pub(super) enum PlanOrNetworkBoundary {
+    Plan(Arc<dyn ExecutionPlan>),
+    Shuffle,
+    Coalesce,
+}
+
+impl std::fmt::Debug for PlanOrNetworkBoundary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Plan(plan) => write!(f, "{}", plan.name()),
+            Self::Shuffle => write!(f, "[NetworkBoundary] Shuffle"),
+            Self::Coalesce => write!(f, "[NetworkBoundary] Coalesce"),
+        }
+    }
+}
+
+impl PlanOrNetworkBoundary {
+    #[allow(dead_code)]
+    pub(super) fn is_network_boundary(&self) -> bool {
+        matches!(self, Self::Shuffle | Self::Coalesce)
+    }
+}
+
+/// Wraps an [`ExecutionPlan`] and annotates it with information about whether
+/// it needs a network boundary below it. Ported from DF-D minus `task_count`
+/// (ParadeDB has a fixed N; no propagation pass).
+#[allow(dead_code)]
+pub(super) struct AnnotatedPlan {
+    /// The annotated [`ExecutionPlan`].
+    pub(super) plan_or_nb: PlanOrNetworkBoundary,
+    /// The annotated children of this [`ExecutionPlan`]. When
+    /// `plan_or_nb == Plan(p)`, this holds the annotated form of
+    /// `p.children()`. When `plan_or_nb` is a network boundary, this holds
+    /// the single node that sits below the boundary.
+    pub(super) children: Vec<AnnotatedPlan>,
+}
+
+impl std::fmt::Debug for AnnotatedPlan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn fmt_dbg(
+            f: &mut std::fmt::Formatter<'_>,
+            plan: &AnnotatedPlan,
+            depth: usize,
+        ) -> std::fmt::Result {
+            write!(f, "{}{:?}", " ".repeat(depth * 2), plan.plan_or_nb)?;
+            writeln!(f)?;
+            for child in plan.children.iter() {
+                fmt_dbg(f, child, depth + 1)?;
+            }
+            Ok(())
+        }
+        fmt_dbg(f, self, 0)
+    }
+}
+
+/// Ported verbatim from DF-D's `common/children_helpers.rs`. Used by
+/// `_distribute_plan` (Step 2c) to unwrap the single child beneath a
+/// network-boundary annotation when rewriting plans via `with_new_children`.
+#[allow(dead_code)]
+pub(super) fn require_one_child<L, T>(children: L) -> DfResult<Arc<dyn ExecutionPlan>>
+where
+    L: AsRef<[T]>,
+    T: Borrow<Arc<dyn ExecutionPlan>>,
+{
+    let children = children.as_ref();
+    if children.len() != 1 {
+        return Err(DataFusionError::Plan(format!(
+            "Expected exactly 1 children, got {}",
+            children.len()
+        )));
+    }
+    Ok(children[0].borrow().clone())
+}
+
+/// Annotates recursively an [`ExecutionPlan`] and its children with
+/// information about whether a network boundary is needed below it. Ported
+/// from DF-D's `annotate_plan` minus `async`, `DistributedConfig`,
+/// `TaskEstimator`, `children_isolator_unions`, `propagate_task_count`, and
+/// the `Broadcast` cut trigger (none of which apply to ParadeDB).
+///
+/// The two cut triggers preserved verbatim are:
+///
+/// * `RepartitionExec(Hash)` → annotate with `Shuffle`.
+/// * Any non-leaf plan whose parent is `CoalescePartitionsExec` or
+///   `SortPreservingMergeExec` → annotate with `Coalesce`.
+///
+/// Running this over ParadeDB's serial standard plan (as produced by
+/// `exec_datafusion_aggregate`) yields zero network-boundary annotations
+/// because the serial plan emits neither trigger. Step 2b adds
+/// `insert_mpp_cuts`, a pre-pass that synthesizes the expected markers per
+/// [`MppPlanShape`] before this walker runs.
+#[allow(dead_code)]
+pub(super) fn annotate_plan(plan: Arc<dyn ExecutionPlan>) -> DfResult<AnnotatedPlan> {
+    _annotate_plan(plan, None)
+}
+
+fn _annotate_plan(
+    plan: Arc<dyn ExecutionPlan>,
+    parent: Option<&Arc<dyn ExecutionPlan>>,
+) -> DfResult<AnnotatedPlan> {
+    let annotated_children: Vec<AnnotatedPlan> = plan
+        .children()
+        .into_iter()
+        .map(|child| _annotate_plan(Arc::clone(child), Some(&plan)))
+        .collect::<DfResult<Vec<_>>>()?;
+
+    // Wrap the node with a boundary node if the parent marks it.
+    let mut annotation = AnnotatedPlan {
+        plan_or_nb: PlanOrNetworkBoundary::Plan(Arc::clone(&plan)),
+        children: annotated_children,
+    };
+
+    // Upon reaching a hash repartition, we need to introduce a shuffle right above it.
+    if let Some(r_exec) = plan.as_any().downcast_ref::<RepartitionExec>() {
+        if matches!(r_exec.partitioning(), Partitioning::Hash(_, _)) {
+            annotation = AnnotatedPlan {
+                plan_or_nb: PlanOrNetworkBoundary::Shuffle,
+                children: vec![annotation],
+            };
+        }
+    } else if let Some(parent) = parent {
+        // DF-D expresses this as a single `else if let` + `&&` chain; Rust
+        // 2021 doesn't allow let-chains, so split into nested ifs. Comments
+        // preserved verbatim.
+        //
+        // If this node is a leaf node, putting a network boundary above is a bit wasteful, so
+        // we don't want to do it.
+        // If the parent is trying to coalesce all partitions into one, we need to introduce
+        // a network coalesce right below it (or in other words, above the current node)
+        if !plan.children().is_empty()
+            && (parent.as_any().is::<CoalescePartitionsExec>()
+                || parent.as_any().is::<SortPreservingMergeExec>())
+        {
+            annotation = AnnotatedPlan {
+                plan_or_nb: PlanOrNetworkBoundary::Coalesce,
+                children: vec![annotation],
+            };
+        }
+    }
+
+    Ok(annotation)
 }
 
 // ============================================================================
@@ -1269,4 +1452,180 @@ mod tests {
     // synthetic `ExecutionPlan`s would require wiring up enough of
     // `VisibilityFilterExec` + `ShuffleExec` to make the downcast fire,
     // which duplicates the fixture the bridges already exercise. Skipped.
+
+    // ========================================================================
+    // DF-D generic cut walker tests (dead-path scaffolding — Step 2a).
+    // ========================================================================
+
+    fn mem_source(schema: &SchemaRef) -> Arc<dyn ExecutionPlan> {
+        use datafusion::arrow::array::{Int32Array, RecordBatch};
+        use datafusion::datasource::memory::MemorySourceConfig;
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![Arc::new(Int32Array::from(vec![1, 2, 3]))],
+        )
+        .unwrap();
+        MemorySourceConfig::try_new_from_batches(schema.clone(), vec![batch]).unwrap()
+    }
+
+    #[test]
+    fn annotate_plan_detects_hash_repartition_as_shuffle() {
+        let schema: SchemaRef =
+            Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
+        let input = mem_source(&schema);
+        let key: Arc<dyn PhysicalExpr> = Arc::new(Column::new("id", 0));
+        let repart: Arc<dyn ExecutionPlan> =
+            Arc::new(RepartitionExec::try_new(input, Partitioning::Hash(vec![key], 2)).unwrap());
+
+        let annotated = annotate_plan(repart).unwrap();
+        // The trigger sits *above* the RepartitionExec, so the top of the
+        // annotated tree is the Shuffle boundary whose sole child is the
+        // RepartitionExec-as-Plan.
+        assert!(matches!(
+            annotated.plan_or_nb,
+            PlanOrNetworkBoundary::Shuffle
+        ));
+        assert_eq!(annotated.children.len(), 1);
+        assert!(matches!(
+            annotated.children[0].plan_or_nb,
+            PlanOrNetworkBoundary::Plan(_)
+        ));
+    }
+
+    #[test]
+    fn annotate_plan_round_robin_repartition_does_not_trigger_shuffle() {
+        let schema: SchemaRef =
+            Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
+        let input = mem_source(&schema);
+        let repart: Arc<dyn ExecutionPlan> =
+            Arc::new(RepartitionExec::try_new(input, Partitioning::RoundRobinBatch(2)).unwrap());
+
+        let annotated = annotate_plan(repart).unwrap();
+        // Non-hash repartitioning is not a DF-D cut trigger.
+        assert!(matches!(
+            annotated.plan_or_nb,
+            PlanOrNetworkBoundary::Plan(_)
+        ));
+    }
+
+    #[test]
+    fn annotate_plan_plain_plan_has_no_boundaries() {
+        fn assert_no_boundary(a: &AnnotatedPlan) {
+            assert!(
+                !a.plan_or_nb.is_network_boundary(),
+                "unexpected boundary: {:?}",
+                a.plan_or_nb
+            );
+            for c in &a.children {
+                assert_no_boundary(c);
+            }
+        }
+
+        let schema: SchemaRef =
+            Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
+        let input = mem_source(&schema);
+        let partial: Arc<dyn ExecutionPlan> = Arc::new(
+            AggregateExec::try_new(
+                AggregateMode::Partial,
+                PhysicalGroupBy::new_single(vec![]),
+                vec![],
+                vec![],
+                input,
+                schema.clone(),
+            )
+            .unwrap(),
+        );
+        let annotated = annotate_plan(partial).unwrap();
+        assert_no_boundary(&annotated);
+    }
+
+    #[test]
+    fn annotate_plan_coalesce_parent_triggers_coalesce_boundary() {
+        let schema: SchemaRef =
+            Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
+        let input = mem_source(&schema);
+        // Partial aggregation is non-leaf (children() non-empty) and its
+        // parent is CoalescePartitionsExec — this is the DF-D Coalesce
+        // trigger verbatim.
+        let partial: Arc<dyn ExecutionPlan> = Arc::new(
+            AggregateExec::try_new(
+                AggregateMode::Partial,
+                PhysicalGroupBy::new_single(vec![]),
+                vec![],
+                vec![],
+                input,
+                schema.clone(),
+            )
+            .unwrap(),
+        );
+        let coalesced: Arc<dyn ExecutionPlan> = Arc::new(CoalescePartitionsExec::new(partial));
+        let annotated = annotate_plan(coalesced).unwrap();
+
+        // Root is the CoalescePartitionsExec itself (annotated as Plan; the
+        // trigger only wraps the child that sits *under* the coalesce).
+        assert!(matches!(
+            annotated.plan_or_nb,
+            PlanOrNetworkBoundary::Plan(_)
+        ));
+        assert_eq!(annotated.children.len(), 1);
+        // The Partial aggregate has its parent as CoalescePartitionsExec, so
+        // the walker wraps it with Coalesce.
+        assert!(matches!(
+            annotated.children[0].plan_or_nb,
+            PlanOrNetworkBoundary::Coalesce
+        ));
+        // Inside the Coalesce annotation, the wrapped plan is the Partial
+        // aggregate.
+        assert_eq!(annotated.children[0].children.len(), 1);
+        assert!(matches!(
+            annotated.children[0].children[0].plan_or_nb,
+            PlanOrNetworkBoundary::Plan(_)
+        ));
+    }
+
+    #[test]
+    fn annotate_plan_leaf_under_coalesce_is_not_boundaried() {
+        // A true leaf node (no children) underneath CoalescePartitionsExec
+        // must not get a Coalesce boundary — DF-D's comment: "putting a
+        // network boundary above [a leaf] is a bit wasteful".
+        let schema: SchemaRef =
+            Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
+        let input = mem_source(&schema);
+        let coalesced: Arc<dyn ExecutionPlan> = Arc::new(CoalescePartitionsExec::new(input));
+        let annotated = annotate_plan(coalesced).unwrap();
+
+        assert!(matches!(
+            annotated.plan_or_nb,
+            PlanOrNetworkBoundary::Plan(_)
+        ));
+        assert_eq!(annotated.children.len(), 1);
+        assert!(matches!(
+            annotated.children[0].plan_or_nb,
+            PlanOrNetworkBoundary::Plan(_)
+        ));
+    }
+
+    #[test]
+    fn require_one_child_accepts_single_child() {
+        let schema: SchemaRef =
+            Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
+        let input = mem_source(&schema);
+        let got = require_one_child(vec![Arc::clone(&input)]).unwrap();
+        assert!(Arc::ptr_eq(&got, &input));
+    }
+
+    #[test]
+    fn require_one_child_rejects_zero_children() {
+        let empty: Vec<Arc<dyn ExecutionPlan>> = vec![];
+        let err = require_one_child(empty).unwrap_err();
+        assert!(format!("{err}").contains("Expected exactly 1"));
+    }
+
+    #[test]
+    fn require_one_child_rejects_many_children() {
+        let schema: SchemaRef =
+            Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
+        let err = require_one_child(vec![mem_source(&schema), mem_source(&schema)]).unwrap_err();
+        assert!(format!("{err}").contains("Expected exactly 1"));
+    }
 }

@@ -560,6 +560,113 @@ fn rewrite_with_cuts(
     Ok(plan)
 }
 
+/// Emit an [`ExecutionPlan`] from an [`AnnotatedPlan`], turning every
+/// network-boundary annotation into a concrete MPP rewrite. Ported in spirit
+/// from DF-D's `_distribute_plan`; ParadeDB deviates by having a single
+/// `Shuffle` emit path (no stage tree, no task estimators) and by tagging
+/// cuts with shape-aware labels so benchmark-log grep patterns keep working.
+///
+/// # Step 2c scope — structural traversal only
+///
+/// This iteration wires the `Plan` arm through `with_new_children` recursion,
+/// which is enough to exercise plan-tree round-tripping and cut counting. The
+/// `Shuffle` and `Coalesce` arms return `DataFusionError::Plan(...)` with a
+/// "not yet wired" message; Step 2c-ii replaces those errors with real
+/// [`wrap_with_mpp_shuffle`](crate::postgres::customscan::mpp::plan_build::wrap_with_mpp_shuffle)
+/// calls + ParadeDB post-passes (probe-side dynamic-filter strip, leader-only
+/// scalar `FinalPartitioned`, 64 Ki `CoalesceBatchesExec` insert for GROUP BY,
+/// `VisibilityCtidResolverRule` re-run).
+///
+/// `cut_index` is the bottom-up ordinal of the next boundary the walker
+/// encounters, threaded through the recursion so [`tag_for_cut`] can derive a
+/// byte-exact tag (`scalar_left` / `scalar_right` / `scalar_final`, etc.)
+/// matching the strings the existing topology assemblers emit.
+#[allow(dead_code)]
+pub(super) fn _distribute_plan(
+    plan: AnnotatedPlan,
+    shape: MppPlanShape,
+    cut_index: &mut u32,
+) -> DfResult<Arc<dyn ExecutionPlan>> {
+    // Recurse bottom-up so descendants' rewrites are in place before the
+    // current node's `with_new_children` call sees them. This matches DF-D's
+    // post-order traversal in `_distribute_plan`.
+    let new_children: Vec<Arc<dyn ExecutionPlan>> = plan
+        .children
+        .into_iter()
+        .map(|c| _distribute_plan(c, shape, cut_index))
+        .collect::<DfResult<Vec<_>>>()?;
+
+    match plan.plan_or_nb {
+        PlanOrNetworkBoundary::Plan(p) => {
+            if new_children.is_empty() {
+                Ok(p)
+            } else {
+                Arc::clone(&p).with_new_children(new_children)
+            }
+        }
+        PlanOrNetworkBoundary::Shuffle => {
+            // Every boundary has exactly one child (the subtree it sits
+            // above). DF-D enforces this with `require_one_child`.
+            let _child = require_one_child(&new_children)?;
+            let tag = tag_for_cut(shape, *cut_index);
+            *cut_index += 1;
+            Err(DataFusionError::Plan(format!(
+                "mpp: _distribute_plan: Shuffle emit for cut {tag} is not yet wired \
+                 (Step 2c-ii will replace this with wrap_with_mpp_shuffle + mesh allocation)"
+            )))
+        }
+        PlanOrNetworkBoundary::Coalesce => {
+            let _child = require_one_child(&new_children)?;
+            let tag = tag_for_cut(shape, *cut_index);
+            *cut_index += 1;
+            Err(DataFusionError::Plan(format!(
+                "mpp: _distribute_plan: Coalesce emit for cut {tag} is not yet wired \
+                 (Step 2c-ii will replace this with wrap_with_mpp_shuffle(FixedTargetPartitioner(0)))"
+            )))
+        }
+    }
+}
+
+/// Map a (shape, bottom-up cut index) pair to the byte-exact tag string the
+/// existing topology assemblers pass to `wrap_with_mpp_shuffle`. Keeps
+/// benchmark-log grep patterns and `mpp_trace` output unchanged across the
+/// generic-walker migration.
+///
+/// The cut ordinals below follow the post-order (children-first) traversal
+/// `_distribute_plan` performs against a plan produced by [`insert_mpp_cuts`]:
+///
+/// * `JoinOnly`: `HashJoinExec` has two children — left subtree first, then
+///   right subtree. After `insert_mpp_cuts` each is wrapped in
+///   `RepartitionExec(Hash)` that `annotate_plan` lifts to a `Shuffle`.
+///   Bottom-up visit order therefore yields indices 0 = `join_left`,
+///   1 = `join_right`.
+///
+/// * `ScalarAggOnBinaryJoin`: same two join-side cuts (0, 1) plus a top
+///   `CoalescePartitionsExec` over the `AggregateExec(Partial)` that
+///   `annotate_plan` lifts to a `Coalesce`. Bottom-up the join-side cuts
+///   come first (descendants visited before parents), then the scalar-final
+///   cut at index 2.
+///
+/// * `GroupByAggOnBinaryJoin`: same two join-side cuts (0, 1) plus a top
+///   `RepartitionExec(Hash(group_keys))` that becomes a `Shuffle` at index 2.
+///
+/// Mis-indexed cuts fall through to `"mpp_unknown_cut"` rather than panic —
+/// this is a dead-code scaffold and callers aren't live yet.
+#[allow(dead_code)]
+fn tag_for_cut(shape: MppPlanShape, cut_index: u32) -> &'static str {
+    match (shape, cut_index) {
+        (MppPlanShape::JoinOnly, 0) => "join_left",
+        (MppPlanShape::JoinOnly, 1) => "join_right",
+        (MppPlanShape::ScalarAggOnBinaryJoin, 0) => "scalar_left",
+        (MppPlanShape::ScalarAggOnBinaryJoin, 1) => "scalar_right",
+        (MppPlanShape::ScalarAggOnBinaryJoin, 2) => "scalar_final",
+        (MppPlanShape::GroupByAggOnBinaryJoin, 0) => "gb_left",
+        (MppPlanShape::GroupByAggOnBinaryJoin, 1) => "gb_right",
+        (MppPlanShape::GroupByAggOnBinaryJoin, 2) => "gb_postagg",
+        _ => "mpp_unknown_cut",
+    }
+}
+
 // ============================================================================
 // Topology assemblers — one per supported shape. Each one owns the full flow:
 // plan walk + mesh allocation + shuffle wiring + final DF operator composition.
@@ -1930,5 +2037,225 @@ mod tests {
         let plan = partial_agg_over_mem_source(vec!["id"]);
         let err = insert_mpp_cuts(plan, MppPlanShape::GroupByAggSingleTable, 2).unwrap_err();
         assert!(format!("{err}").contains("GroupByAggSingleTable"));
+    }
+
+    // ========================================================================
+    // `_distribute_plan` + `tag_for_cut` tests (dead-path scaffolding — Step 2c).
+    //
+    // Step 2c only wires the `Plan` arm (structural traversal via
+    // `with_new_children`). The `Shuffle` and `Coalesce` arms return
+    // `DataFusionError::Plan` with a "not yet wired" message; Step 2c-ii
+    // replaces those errors with real `wrap_with_mpp_shuffle` calls.
+    // ========================================================================
+
+    #[test]
+    fn tag_for_cut_covers_every_live_shape() {
+        assert_eq!(tag_for_cut(MppPlanShape::JoinOnly, 0), "join_left");
+        assert_eq!(tag_for_cut(MppPlanShape::JoinOnly, 1), "join_right");
+        assert_eq!(
+            tag_for_cut(MppPlanShape::ScalarAggOnBinaryJoin, 0),
+            "scalar_left"
+        );
+        assert_eq!(
+            tag_for_cut(MppPlanShape::ScalarAggOnBinaryJoin, 1),
+            "scalar_right"
+        );
+        assert_eq!(
+            tag_for_cut(MppPlanShape::ScalarAggOnBinaryJoin, 2),
+            "scalar_final"
+        );
+        assert_eq!(
+            tag_for_cut(MppPlanShape::GroupByAggOnBinaryJoin, 0),
+            "gb_left"
+        );
+        assert_eq!(
+            tag_for_cut(MppPlanShape::GroupByAggOnBinaryJoin, 1),
+            "gb_right"
+        );
+        assert_eq!(
+            tag_for_cut(MppPlanShape::GroupByAggOnBinaryJoin, 2),
+            "gb_postagg"
+        );
+    }
+
+    #[test]
+    fn tag_for_cut_unknown_pair_falls_through_to_placeholder() {
+        // Out-of-range indices and Ineligible / SingleTable shapes fall
+        // through to the placeholder rather than panic. Callers are not
+        // live yet; a panic would mask Step 2c-ii regressions.
+        assert_eq!(tag_for_cut(MppPlanShape::JoinOnly, 7), "mpp_unknown_cut");
+        assert_eq!(tag_for_cut(MppPlanShape::Ineligible, 0), "mpp_unknown_cut");
+        assert_eq!(
+            tag_for_cut(MppPlanShape::GroupByAggSingleTable, 0),
+            "mpp_unknown_cut"
+        );
+    }
+
+    #[test]
+    fn distribute_plan_round_trips_boundary_free_plan() {
+        // A plain MemorySourceConfig has no boundary triggers, so the
+        // traversal should emit a tree identical in structure to the input:
+        // one Plan annotation per original node, no errors, no children
+        // collapsed.
+        let schema: SchemaRef =
+            Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
+        let input = mem_source(&schema);
+        let annotated = annotate_plan(Arc::clone(&input)).unwrap();
+
+        let mut cut_index = 0u32;
+        let rebuilt = _distribute_plan(annotated, MppPlanShape::JoinOnly, &mut cut_index).unwrap();
+
+        // No boundaries ⇒ no cuts consumed.
+        assert_eq!(cut_index, 0);
+        // Leaf plan re-emitted verbatim (same Arc, since `with_new_children`
+        // is skipped when `new_children.is_empty()`).
+        assert!(Arc::ptr_eq(&rebuilt, &input));
+    }
+
+    #[test]
+    fn distribute_plan_recurses_through_plan_arms() {
+        // CoalescePartitionsExec over a Partial aggregate: the root is a
+        // Plan, the child is a Plan (the Partial is leaf-like-ish — it has
+        // a mem_source underneath, which is non-empty), and the grandchild
+        // is a leaf Plan. No boundaries anywhere, so _distribute_plan should
+        // rebuild the tree without errors and without incrementing cut_index.
+        //
+        // Guards against a regression where the `Plan` arm's
+        // `with_new_children` call drops or double-wraps descendants.
+        let schema: SchemaRef =
+            Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
+        let input = mem_source(&schema);
+        let partial: Arc<dyn ExecutionPlan> = Arc::new(
+            AggregateExec::try_new(
+                AggregateMode::Partial,
+                PhysicalGroupBy::new_single(vec![]),
+                vec![],
+                vec![],
+                input,
+                schema.clone(),
+            )
+            .unwrap(),
+        );
+
+        // Annotate — no boundaries expected (Partial's parent is a Plan
+        // annotation for the Partial itself, not a coalesce-trigger parent).
+        let annotated = annotate_plan(Arc::clone(&partial)).unwrap();
+        let mut cut_index = 0u32;
+        let rebuilt = _distribute_plan(
+            annotated,
+            MppPlanShape::ScalarAggOnBinaryJoin,
+            &mut cut_index,
+        )
+        .unwrap();
+
+        assert_eq!(cut_index, 0);
+        // Root must still be an AggregateExec(Partial). with_new_children
+        // on a single-child plan returns a fresh Arc even if the child is
+        // identical, so don't use Arc::ptr_eq on the root.
+        let rebuilt_agg = rebuilt
+            .as_any()
+            .downcast_ref::<AggregateExec>()
+            .expect("root is AggregateExec after round trip");
+        assert_eq!(*rebuilt_agg.mode(), AggregateMode::Partial);
+        assert_eq!(rebuilt.children().len(), 1);
+    }
+
+    #[test]
+    fn distribute_plan_shuffle_arm_errors_for_now() {
+        // Step 2c stubs the Shuffle emit path. annotate_plan on a
+        // RepartitionExec(Hash) produces a Shuffle annotation whose
+        // _distribute_plan call must return DataFusionError::Plan mentioning
+        // the tag and "not yet wired" — this pins the error shape so Step
+        // 2c-ii knows what to replace.
+        let schema: SchemaRef =
+            Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
+        let input = mem_source(&schema);
+        let hash_key: Vec<Arc<dyn PhysicalExpr>> = vec![Arc::new(Column::new("id", 0))];
+        let repart: Arc<dyn ExecutionPlan> =
+            Arc::new(RepartitionExec::try_new(input, Partitioning::Hash(hash_key, 2)).unwrap());
+        let annotated = annotate_plan(repart).unwrap();
+
+        let mut cut_index = 0u32;
+        let err = _distribute_plan(annotated, MppPlanShape::JoinOnly, &mut cut_index)
+            .expect_err("Shuffle arm stub must return an error");
+        let msg = format!("{err}");
+        assert!(msg.contains("Shuffle emit"), "unexpected error: {msg}");
+        assert!(msg.contains("join_left"), "unexpected error: {msg}");
+        assert!(msg.contains("not yet wired"), "unexpected error: {msg}");
+        // Index advanced exactly once — the `Shuffle` arm consumed a tag
+        // before returning.
+        assert_eq!(cut_index, 1);
+    }
+
+    #[test]
+    fn distribute_plan_coalesce_arm_errors_for_now() {
+        // CoalescePartitionsExec over a non-leaf child is the DF-D Coalesce
+        // trigger. annotate_plan produces a Coalesce annotation on the
+        // child (the Partial aggregate), which _distribute_plan must surface
+        // as a "Coalesce emit ... not yet wired" error tagged `scalar_final`
+        // when the shape is ScalarAggOnBinaryJoin and the only cut encountered
+        // is the final one.
+        let schema: SchemaRef =
+            Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
+        let input = mem_source(&schema);
+        let partial: Arc<dyn ExecutionPlan> = Arc::new(
+            AggregateExec::try_new(
+                AggregateMode::Partial,
+                PhysicalGroupBy::new_single(vec![]),
+                vec![],
+                vec![],
+                input,
+                schema.clone(),
+            )
+            .unwrap(),
+        );
+        let coalesced: Arc<dyn ExecutionPlan> = Arc::new(CoalescePartitionsExec::new(partial));
+        let annotated = annotate_plan(coalesced).unwrap();
+
+        let mut cut_index = 0u32;
+        let err = _distribute_plan(
+            annotated,
+            MppPlanShape::ScalarAggOnBinaryJoin,
+            &mut cut_index,
+        )
+        .expect_err("Coalesce arm stub must return an error");
+        let msg = format!("{err}");
+        assert!(msg.contains("Coalesce emit"), "unexpected error: {msg}");
+        // The only cut annotation in this tree is the coalesce over the
+        // Partial; with ScalarAggOnBinaryJoin shape it's the `scalar_left`
+        // tag at index 0 (this isn't a full scalar-agg tree — it's a
+        // minimal synthetic shape; the test proves the tag lookup runs,
+        // not that tag-to-shape is semantically correct in isolation).
+        assert!(msg.contains("scalar_left"), "unexpected error: {msg}");
+        assert!(msg.contains("not yet wired"), "unexpected error: {msg}");
+        assert_eq!(cut_index, 1);
+    }
+
+    #[test]
+    fn distribute_plan_cut_index_counts_bottom_up() {
+        // Build a two-Shuffle tree — RepartitionExec(Hash) wrapping
+        // RepartitionExec(Hash) wrapping a mem_source — so annotate_plan
+        // yields Shuffle(Shuffle(Plan(leaf))). Bottom-up traversal must
+        // fail on the *inner* Shuffle first (cut index 0), leaving the
+        // outer Shuffle un-visited. If the walker accidentally goes
+        // top-down, the tag would be `join_right` (index 1) instead of
+        // `join_left` (index 0).
+        let schema: SchemaRef =
+            Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
+        let input = mem_source(&schema);
+        let k0: Vec<Arc<dyn PhysicalExpr>> = vec![Arc::new(Column::new("id", 0))];
+        let inner: Arc<dyn ExecutionPlan> =
+            Arc::new(RepartitionExec::try_new(input, Partitioning::Hash(k0, 2)).unwrap());
+        let k1: Vec<Arc<dyn PhysicalExpr>> = vec![Arc::new(Column::new("id", 0))];
+        let outer: Arc<dyn ExecutionPlan> =
+            Arc::new(RepartitionExec::try_new(inner, Partitioning::Hash(k1, 2)).unwrap());
+        let annotated = annotate_plan(outer).unwrap();
+
+        let mut cut_index = 0u32;
+        let err = _distribute_plan(annotated, MppPlanShape::JoinOnly, &mut cut_index)
+            .expect_err("Shuffle stub must error");
+        // Bottom-up ⇒ inner cut first ⇒ `join_left`.
+        assert!(format!("{err}").contains("join_left"));
+        assert_eq!(cut_index, 1);
     }
 }

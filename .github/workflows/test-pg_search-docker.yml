@@ -1,7 +1,8 @@
 # workflows/test-pg_search-docker.yml
 #
 # Test pg_search (Docker)
-# Test building and running the ParadeDB Docker Image using Docker Compose.
+# Test building and running the ParadeDB Docker Image. The build is performed via Depot to
+# match our `publish-paradedb-docker.yml` workflow.
 
 name: Test pg_search (Docker)
 
@@ -72,21 +73,31 @@ jobs:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
+      # Cross-compilation is incredibly slow, so we use an external service called Depot to
+      # speed up container builds, mirroring our `publish-paradedb-docker.yml` workflow.
+      - name: Configure Depot CLI
+        uses: depot/setup-action@v1
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
-        with:
-          platforms: linux/amd64,linux/arm64
 
-      - name: Build the ParadeDB Docker Image via Docker Compose
-        working-directory: docker/
-        run: docker compose -f docker-compose.dev.yml build
+      - name: Build the ParadeDB Docker Image via Depot
+        uses: depot/build-push-action@v1
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/arm64
+          load: true
+          push: false
+          tags: paradedb/paradedb:latest
+          project: ${{ secrets.DEPOT_PROJECT }}
+          token: ${{ secrets.DEPOT_TOKEN }}
 
       # Start the ParadeDB Docker image using `docker run` to test the standalone Docker image.
       # We add a --tmpfs mount as a test of compatibility with the upstream `postgres` image.
-      # The `docker run` command will use the local ParadeDB image that we just built since we
-      # tagged it with `latest` in docker-compose.dev.yml.
+      # The `docker run` command uses the local ParadeDB image that we just built and loaded
+      # under the `paradedb/paradedb:latest` tag.
       - name: Start the ParadeDB Docker Image via Docker Run
-        working-directory: docker/
         run: |
           docker run -d \
             --name paradedb \

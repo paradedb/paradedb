@@ -332,6 +332,9 @@ pub fn search_field_config_from_type(
                 .unwrap_or_else(|| panic!("unknown search_tokenizer: {expr}"))
         });
 
+    let k1 = parsed_typmod.get("k1").and_then(|p| p.as_f32());
+    let b = parsed_typmod.get("b").and_then(|p| p.as_f32());
+
     if inner_typoid == pg_sys::JSONOID || inner_typoid == pg_sys::JSONBOID {
         Some(SearchFieldConfig::Json {
             indexed: true,
@@ -343,6 +346,8 @@ pub fn search_field_config_from_type(
             normalizer,
             column: None,
             expand_dots: true,
+            k1,
+            b,
         })
     } else {
         Some(SearchFieldConfig::Text {
@@ -354,6 +359,8 @@ pub fn search_field_config_from_type(
             record,
             normalizer,
             column: None,
+            k1,
+            b,
         })
     }
 }

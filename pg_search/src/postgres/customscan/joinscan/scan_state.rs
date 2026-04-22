@@ -84,8 +84,9 @@ use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::datafusion::translator::{
-    apply_join_level_filter, build_join_df, make_col, make_source_col, make_source_score_col,
-    CombinedMapper, JoinTypeAllowList, PredicateTranslator,
+    apply_join_level_filter, build_join_df_with_filter, make_col, make_source_col,
+    make_source_score_col, translate_pg_node_string, ColumnMapper, CombinedMapper,
+    JoinTypeAllowList, PredicateTranslator,
 };
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
@@ -116,6 +117,37 @@ fn resolve_var_to_df_col(
         let field = source.column_name(mapped)?;
         Some(make_source_col(source, &field))
     })
+}
+
+/// Adapter that lets `PredicateTranslator` resolve Vars against a
+/// `JoinCSClause` by delegating to [`resolve_var_to_df_col`].
+struct JoinClauseMapper<'a> {
+    join_clause: &'a JoinCSClause,
+}
+
+impl<'a> ColumnMapper for JoinClauseMapper<'a> {
+    fn map_var(&self, varno: pg_sys::Index, varattno: pg_sys::AttrNumber) -> Option<Expr> {
+        resolve_var_to_df_col(self.join_clause, varno, varattno)
+    }
+}
+
+/// Translate a `ChildProjection::Expression` via `PredicateTranslator`.
+///
+/// Known `pg_catalog` functions (length, upper, abs, etc.) map to native
+/// DataFusion functions; unknown functions fall back to `PgExprUdf` via
+/// `try_wrap_as_udf`.
+unsafe fn translate_child_projection_expr(
+    pg_expr_string: &str,
+    join_clause: &JoinCSClause,
+) -> Result<Expr> {
+    let sources = join_clause.plan.sources();
+    let mapper = JoinClauseMapper { join_clause };
+    translate_pg_node_string(
+        pg_expr_string,
+        &sources,
+        Box::new(mapper),
+        "ChildProjection::Expression",
+    )
 }
 
 /// Query planner that lowers JoinScan's custom logical nodes
@@ -263,7 +295,9 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
     use super::visibility_filter::VisibilityFilterOptimizerRule;
     use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
 
-    let mut builder = SessionStateBuilder::new().with_config(config);
+    let mut builder = SessionStateBuilder::new()
+        .with_config(config)
+        .with_default_features();
 
     // Inject visibility before late materialization so ctid lineage is analyzed
     // while DeferredCtid columns are still present in the logical plan.
@@ -427,6 +461,7 @@ struct RelNodeBuildCtx<'a> {
     join_clause: &'a JoinCSClause,
     translated_exprs: &'a [Expr],
     ctid_map: &'a crate::api::HashMap<pg_sys::Index, Expr>,
+    output_columns: &'a [OutputColumnInfo],
 }
 
 /// Recursively lowers a `RelNode` tree into a DataFusion `DataFrame`.
@@ -502,16 +537,16 @@ fn build_relnode_df<'a>(
             RelNode::Join(join) => {
                 let left_df = build_relnode_df(rctx, &join.left).await?;
                 let right_df = build_relnode_df(rctx, &join.right).await?;
-
-                let df = build_join_df(left_df, right_df, join, JoinTypeAllowList::All)?;
-
-                if join.filter.is_some() {
-                    return Err(DataFusionError::NotImplemented(
-                        "Non-equi join filters are not yet implemented".into(),
-                    ));
-                }
-
-                Ok(df)
+                let mut sources = join.left.sources();
+                sources.extend(join.right.sources());
+                build_join_df_with_filter(
+                    left_df,
+                    right_df,
+                    join,
+                    &sources,
+                    rctx.output_columns,
+                    JoinTypeAllowList::All,
+                )
             }
             RelNode::Filter(filter) => {
                 let df = build_relnode_df(rctx, &filter.input).await?;
@@ -593,6 +628,7 @@ fn build_clause_df<'a>(
             join_clause,
             translated_exprs: &translated_exprs,
             ctid_map: &ctid_map,
+            output_columns: &private_data.output_columns,
         };
         let df = build_relnode_df(&rctx, &join_clause.plan).await?;
 
@@ -663,46 +699,8 @@ fn apply_distinct_group_by(
         let col_alias = format!("col_{}", i + 1);
 
         let (expr, map_key) = match proj {
-            build::ChildProjection::Expression {
-                pg_expr_string,
-                input_vars,
-                result_type_oid,
-                ..
-            } => {
-                let udf_name = format!(
-                    "{}{}",
-                    crate::postgres::customscan::pg_expr_udf::PG_EXPR_UDF_PREFIX,
-                    i
-                );
-
-                let input_exprs: Vec<Expr> = input_vars
-                    .iter()
-                    .filter_map(|var_info| {
-                        resolve_var_to_df_col(join_clause, var_info.rti, var_info.attno)
-                    })
-                    .collect();
-
-                if input_exprs.len() != input_vars.len() {
-                    return Err(DataFusionError::Internal(format!(
-                        "PgExprUdf: could not resolve all input columns \
-                         (resolved {} of {})",
-                        input_exprs.len(),
-                        input_vars.len()
-                    )));
-                }
-
-                let udf = crate::postgres::customscan::pg_expr_udf::PgExprUdf::new(
-                    udf_name,
-                    pg_expr_string.clone(),
-                    input_vars.clone(),
-                    *result_type_oid,
-                );
-
-                let e =
-                    Expr::ScalarFunction(datafusion::logical_expr::expr::ScalarFunction::new_udf(
-                        Arc::new(datafusion::logical_expr::ScalarUDF::new_from_impl(udf)),
-                        input_exprs,
-                    ));
+            build::ChildProjection::Expression { pg_expr_string, .. } => {
+                let e = unsafe { translate_child_projection_expr(pg_expr_string, join_clause)? };
                 // Expressions don't participate in sort-step column mapping
                 (e, None)
             }
@@ -973,6 +971,16 @@ fn build_source_df<'a>(
             }
             if source.contains_rti(jk.inner_rti) {
                 if let Some(col) = source.column_name(jk.inner_attno) {
+                    required_early.insert(col);
+                }
+            }
+        }
+        // Columns referenced by `JoinNode.filter` (e.g. a disjunctive Semi/Anti
+        // `PgExpression`) must also be materialized eagerly — the filter is
+        // evaluated per row pair before the join emits anything.
+        for (rti, attno) in join_clause.plan.filter_input_vars() {
+            if source.contains_rti(rti) {
+                if let Some(col) = source.column_name(attno) {
                     required_early.insert(col);
                 }
             }

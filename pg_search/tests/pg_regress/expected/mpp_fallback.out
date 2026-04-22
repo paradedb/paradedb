@@ -151,10 +151,12 @@ WARNING:  mpp: flipping AggregateScan path parallel_workers=1 for shape ScalarAg
 WARNING:  mpp: stashed plan-broadcast bytes (shape=ScalarAggOnBinaryJoin) on AggregateScanState
 WARNING:  mpp: AggregateScan leader initialized DSM for 2 participants
 WARNING:  mpp: routing exec_datafusion_aggregate through shape ScalarAggOnBinaryJoin (is_leader=true)
+WARNING:  mpp: annotate_plan walker dispatching shape=ScalarAggOnBinaryJoin total=2 cuts=3
 WARNING:  mpp: assembling ScalarAggOnBinaryJoin plan (participant=0, total=2, aggr_count=1, join_keys=1)
 WARNING:  mpp: stashed plan-broadcast bytes (shape=ScalarAggOnBinaryJoin) on AggregateScanState
 WARNING:  mpp: AggregateScan worker 0 attached to DSM (2 participants)
 WARNING:  mpp: routing exec_datafusion_aggregate through shape ScalarAggOnBinaryJoin (is_leader=false)
+WARNING:  mpp: annotate_plan walker dispatching shape=ScalarAggOnBinaryJoin total=2 cuts=3
 WARNING:  mpp: assembling ScalarAggOnBinaryJoin plan (participant=1, total=2, aggr_count=1, join_keys=1)
  count 
 -------

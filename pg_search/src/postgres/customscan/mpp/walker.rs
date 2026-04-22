@@ -230,9 +230,8 @@ pub fn annotate_plan(
     let cuts = expected_cuts(shape, query_id, total);
 
     crate::mpp_log!(
-        "mpp: annotate_plan walker dispatching shape={:?} query_id={} total={} cuts={}",
+        "mpp: annotate_plan walker dispatching shape={:?} total={} cuts={}",
         shape,
-        query_id,
         total,
         cuts.len()
     );

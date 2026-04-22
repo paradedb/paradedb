@@ -114,17 +114,17 @@ WARNING:  mpp: flipping AggregateScan path parallel_workers=2 for shape ScalarAg
 WARNING:  mpp: stashed plan-broadcast bytes (shape=ScalarAggOnBinaryJoin) on AggregateScanState
 WARNING:  mpp: AggregateScan leader initialized DSM for 3 participants
 WARNING:  mpp: routing exec_datafusion_aggregate through shape ScalarAggOnBinaryJoin (is_leader=true)
-WARNING:  mpp: annotate_plan walker dispatching shape=ScalarAggOnBinaryJoin total=3 cuts=3
+WARNING:  mpp: distribute_plan walker dispatching shape=ScalarAggOnBinaryJoin total=3 cuts=3
 WARNING:  mpp: assembling ScalarAggOnBinaryJoin plan (participant=0, total=3, aggr_count=1, join_keys=1)
 WARNING:  mpp: stashed plan-broadcast bytes (shape=ScalarAggOnBinaryJoin) on AggregateScanState
 WARNING:  mpp: AggregateScan worker 0 attached to DSM (3 participants)
 WARNING:  mpp: routing exec_datafusion_aggregate through shape ScalarAggOnBinaryJoin (is_leader=false)
-WARNING:  mpp: annotate_plan walker dispatching shape=ScalarAggOnBinaryJoin total=3 cuts=3
+WARNING:  mpp: distribute_plan walker dispatching shape=ScalarAggOnBinaryJoin total=3 cuts=3
 WARNING:  mpp: assembling ScalarAggOnBinaryJoin plan (participant=1, total=3, aggr_count=1, join_keys=1)
 WARNING:  mpp: stashed plan-broadcast bytes (shape=ScalarAggOnBinaryJoin) on AggregateScanState
 WARNING:  mpp: AggregateScan worker 1 attached to DSM (3 participants)
 WARNING:  mpp: routing exec_datafusion_aggregate through shape ScalarAggOnBinaryJoin (is_leader=false)
-WARNING:  mpp: annotate_plan walker dispatching shape=ScalarAggOnBinaryJoin total=3 cuts=3
+WARNING:  mpp: distribute_plan walker dispatching shape=ScalarAggOnBinaryJoin total=3 cuts=3
 WARNING:  mpp: assembling ScalarAggOnBinaryJoin plan (participant=2, total=3, aggr_count=1, join_keys=1)
  mpp_count_with_debug 
 ----------------------
@@ -202,17 +202,17 @@ WARNING:  mpp: flipping AggregateScan path parallel_workers=2 for shape GroupByA
 WARNING:  mpp: stashed plan-broadcast bytes (shape=GroupByAggOnBinaryJoin) on AggregateScanState
 WARNING:  mpp: AggregateScan leader initialized DSM for 3 participants
 WARNING:  mpp: routing exec_datafusion_aggregate through shape GroupByAggOnBinaryJoin (is_leader=true)
-WARNING:  mpp: annotate_plan walker dispatching shape=GroupByAggOnBinaryJoin total=3 cuts=3
+WARNING:  mpp: distribute_plan walker dispatching shape=GroupByAggOnBinaryJoin total=3 cuts=3
 WARNING:  mpp: assembling GroupByAggOnBinaryJoin plan (participant=0, total=3, aggr_count=2, group_keys=1, join_keys=1)
 WARNING:  mpp: stashed plan-broadcast bytes (shape=GroupByAggOnBinaryJoin) on AggregateScanState
 WARNING:  mpp: AggregateScan worker 0 attached to DSM (3 participants)
 WARNING:  mpp: routing exec_datafusion_aggregate through shape GroupByAggOnBinaryJoin (is_leader=false)
-WARNING:  mpp: annotate_plan walker dispatching shape=GroupByAggOnBinaryJoin total=3 cuts=3
+WARNING:  mpp: distribute_plan walker dispatching shape=GroupByAggOnBinaryJoin total=3 cuts=3
 WARNING:  mpp: assembling GroupByAggOnBinaryJoin plan (participant=1, total=3, aggr_count=2, group_keys=1, join_keys=1)
 WARNING:  mpp: stashed plan-broadcast bytes (shape=GroupByAggOnBinaryJoin) on AggregateScanState
 WARNING:  mpp: AggregateScan worker 1 attached to DSM (3 participants)
 WARNING:  mpp: routing exec_datafusion_aggregate through shape GroupByAggOnBinaryJoin (is_leader=false)
-WARNING:  mpp: annotate_plan walker dispatching shape=GroupByAggOnBinaryJoin total=3 cuts=3
+WARNING:  mpp: distribute_plan walker dispatching shape=GroupByAggOnBinaryJoin total=3 cuts=3
 WARNING:  mpp: assembling GroupByAggOnBinaryJoin plan (participant=2, total=3, aggr_count=2, group_keys=1, join_keys=1)
   category   | cnt | max_rating 
 -------------+-----+------------

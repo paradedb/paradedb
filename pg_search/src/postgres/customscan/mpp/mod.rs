@@ -28,7 +28,6 @@
 pub mod chain;
 pub mod coordinator;
 pub mod customscan_glue;
-pub mod exec_bridge;
 pub mod mesh;
 pub mod plan_build;
 pub mod session;

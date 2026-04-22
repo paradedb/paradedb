@@ -1449,13 +1449,13 @@ impl AggregateScan {
                     mpp_state.is_leader()
                 );
                 let _guard = runtime.enter();
-                match crate::postgres::customscan::mpp::exec_bridge::build_mpp_physical_plan(
+                match crate::postgres::customscan::mpp::walker::distribute_plan(
                     standard_plan,
                     mpp_state,
                     shape,
                 ) {
                     Ok(p) => p,
-                    Err(e) => pgrx::error!("mpp: build_mpp_physical_plan failed: {e}"),
+                    Err(e) => pgrx::error!("mpp: distribute_plan failed: {e}"),
                 }
             } else {
                 standard_plan

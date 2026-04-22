@@ -10,7 +10,6 @@ on:
   push:
     branches:
       - main
-      - 0.*.x # Release branches
     paths:
       - "benchmarks/**"
       - "**/*.rs"

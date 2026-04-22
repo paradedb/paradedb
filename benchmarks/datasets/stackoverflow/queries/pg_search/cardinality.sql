@@ -7,7 +7,7 @@ SELECT COUNT(*) FROM (SELECT post_type_id FROM stackoverflow_posts WHERE body ||
 -- aggregate custom scan
 SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(*) FROM (SELECT post_type_id FROM stackoverflow_posts WHERE body ||| 'javascript' GROUP BY post_type_id);
 
--- pdb.agg without GROUP BY
+-- pdb.agg (under the hood) without GROUP BY
 SELECT COUNT(post_type_id) FROM stackoverflow_posts WHERE body ||| 'javascript' and id @@@ pdb.all();
 
 -- pdb.agg without GROUP BY (mvcc disabled)

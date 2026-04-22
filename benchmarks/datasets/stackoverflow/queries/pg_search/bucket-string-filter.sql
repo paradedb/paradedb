@@ -4,7 +4,7 @@ SELECT name, COUNT(*) FROM badges WHERE name ||| 'Question' GROUP BY name ORDER 
 -- aggregate custom scan
 SET paradedb.enable_aggregate_custom_scan TO on; SELECT name, COUNT(*) FROM badges WHERE name ||| 'Question' GROUP BY name;
 
--- pdb.agg with GROUP BY
+-- pdb.agg (under the hood) with GROUP BY
 SELECT name, COUNT(name) FROM badges WHERE name ||| 'Question' and id @@@ pdb.all() GROUP BY name;
 
 -- pdb.agg with GROUP BY (mvcc disabled)

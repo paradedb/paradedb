@@ -36,6 +36,7 @@ pub mod shape;
 pub mod shuffle;
 pub mod stage;
 pub mod transport;
+pub mod walker;
 pub mod worker;
 
 use serde::{Deserialize, Serialize};

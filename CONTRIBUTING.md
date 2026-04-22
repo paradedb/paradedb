@@ -29,7 +29,9 @@ work on the issue(s) you self-assigned, please use the `unassign me` link at the
 
 ### Development Workflow
 
-ParadeDB is a Postgres extension, `pg_search`, written in Rust and packaged either as a standalone binary or as a Docker image. The development of our Postgres extension is done via `pgrx`. Please review the Development section of the [pg_search README](/pg_search/README.md).
+ParadeDB is a Postgres extension, `pg_search`, written in Rust and packaged either as a standalone binary or as a Docker image. The development of our Postgres extension is done via `pgrx`.
+
+For instructions on setting up your development environment, building, and running `pg_search` locally, see the [pg_search README](/pg_search/README.md).
 
 ### Pull Request Workflow
 

@@ -112,6 +112,7 @@ SELECT * FROM ints WHERE i - j = 1 AND id @@@ pdb.all();
 (6 rows)
 
 SELECT * FROM ints WHERE i - j = 1 AND id @@@ pdb.all() ORDER BY id;
+WARNING:  heap filter on `((i - j) = 1)`: the column is not indexed in the bm25 index. This may impact query performance.
  id | i | j 
 ----+---+---
 (0 rows)

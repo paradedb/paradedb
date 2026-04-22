@@ -2049,6 +2049,7 @@ SELECT id, name, rating, in_stock
 FROM smoke_test
 WHERE id @@@ pdb.parse('category:Electronics') AND rating > 4.0 AND in_stock = true
 ORDER BY rating DESC, id;
+WARNING:  heap filter on `in_stock`: the column is not indexed in the bm25 index. This may impact query performance.
  id |       name        | rating | in_stock 
 ----+-------------------+--------+----------
   3 | Gaming Mouse      |    4.8 | t

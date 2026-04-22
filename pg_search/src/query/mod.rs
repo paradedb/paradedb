@@ -1265,16 +1265,20 @@ impl SearchQueryInput {
                 indexed_query,
                 field_filters,
             } => {
-                // Convert indexed query first
+                for filter in &field_filters {
+                    pgrx::warning!(
+                        "heap filter on `{}`: {}. This may impact query performance.",
+                        filter.heap_filter,
+                        filter.reason,
+                    );
+                }
+
                 let inner_output = recurse(*indexed_query)?;
-                // Use split_for_parent: zero-cost for QueryOnlyBuilder
                 let (indexed_tantivy_query, opt_output) = B::split_for_parent(inner_output);
 
-                // Is initialized in `begin_custom_scan` if `has_heap_filters`.
                 let expr_context = expr_context
                     .expect("An expression context must be provided when heap filtering.");
 
-                // Create combined query with heap field filters
                 let query = Box::new(heap_field_filter::HeapFilterQuery::new(
                     indexed_tantivy_query,
                     field_filters.clone(),

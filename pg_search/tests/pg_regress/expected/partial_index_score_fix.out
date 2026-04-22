@@ -79,6 +79,7 @@ SELECT id, description, category, rating, pdb.score(id) as score
 FROM partial_test
 WHERE description @@@ 'Apple' AND category = 'Electronics' AND rating >= 4
 ORDER BY score DESC;
+WARNING:  heap filter on `(rating >= 4)`: the column is not indexed in the bm25 index. This may impact query performance.
  id | description  |  category   | rating |   score    
 ----+--------------+-------------+--------+------------
   1 | Apple iPhone | Electronics |      5 | 0.47000363
@@ -113,6 +114,7 @@ FROM partial_test
 WHERE category = 'Electronics' AND rating >= 4
 AND id @@@ paradedb.all()
 ORDER BY rating DESC;
+WARNING:  heap filter on `(rating >= 4)`: the column is not indexed in the bm25 index. This may impact query performance.
  id |  description   |  category   | rating 
 ----+----------------+-------------+--------
   1 | Apple iPhone   | Electronics |      5

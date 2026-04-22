@@ -110,6 +110,10 @@ WHERE name &&& 'assist wireless' AND country_code = 'us';
 SELECT COUNT(*) as count
 FROM places 
 WHERE name &&& 'assist wireless' AND country_code = 'us';
+WARNING:  heap filter on `(country_code = 'us'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(country_code = 'us'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(country_code = 'us'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(country_code = 'us'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
  count 
 -------
  40000
@@ -173,6 +177,10 @@ WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ paradedb.all
 SELECT COUNT(*) as count
 FROM places 
 WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ paradedb.all();
+WARNING:  heap filter on `(country_code = 'us'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(country_code = 'us'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(country_code = 'us'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(country_code = 'us'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
  count 
 -------
  40000
@@ -185,6 +193,14 @@ WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ paradedb.all
 SELECT 
     (SELECT COUNT(*) FROM places WHERE name &&& 'assist wireless' AND country_code = 'us') as custom_scan_count,
     (SELECT COUNT(*) FROM places WHERE name &&& 'assist wireless' AND country_code = 'us' AND id @@@ paradedb.all()) as workaround_count;
+WARNING:  heap filter on `(country_code = 'us'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(country_code = 'us'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(country_code = 'us'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(country_code = 'us'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(country_code = 'us'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(country_code = 'us'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(country_code = 'us'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(country_code = 'us'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
  custom_scan_count | workaround_count 
 -------------------+------------------
              40000 |            40000

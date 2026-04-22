@@ -499,6 +499,9 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless' AND s.name = 'TechCorp'
 ORDER BY p.name
     LIMIT 10;
+WARNING:  heap filter on `(name = 'TechCorp'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(name = 'TechCorp'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
+WARNING:  heap filter on `(name = 'TechCorp'::text)`: the text column is not using the literal tokenizer, so equality/comparison operators cannot be pushed to the index. Use the @@@ operator for full-text search, or recreate the index with a literal tokenizer for this field. This may impact query performance.
                                                                                                     QUERY PLAN                                                                                                     
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit

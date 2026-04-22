@@ -374,6 +374,7 @@ FROM authors a
 INNER JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'science' OR b.content @@@ 'mystery' OR b.price > 25.00)
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
+WARNING:  heap filter on `(price > 25.00)`: the column is not indexed in the bm25 index. This may impact query performance.
    author_name   |      book_title      | author_score | book_score 
 -----------------+----------------------+--------------+------------
  J.K. Rowling    | Harry Potter Magic   |            0 |          0
@@ -396,6 +397,8 @@ INNER JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'smartphone' AND a.birth_year > 1950) 
    OR (b.content @@@ 'magic' AND b.publication_year > 1980)
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
+WARNING:  heap filter on `(publication_year > 1980)`: the column is not indexed in the bm25 index. This may impact query performance.
+WARNING:  heap filter on `(birth_year > 1950)`: the column is not indexed in the bm25 index. This may impact query performance.
  author_name  |      book_title      | author_score | book_score 
 --------------+----------------------+--------------+------------
  J.K. Rowling | Harry Potter Magic   |            0 |  1.3025584
@@ -429,6 +432,7 @@ WHERE (a.bio @@@ 'laptop')
   AND (a.birth_year > 1000)
   AND (c.name @@@ 'Electronics')
 ORDER BY a.id, author_score DESC;
+WARNING:  heap filter on `(birth_year > 1000)`: the column is not indexed in the bm25 index. This may impact query performance.
  author_name | author_score 
 -------------+--------------
 (0 rows)

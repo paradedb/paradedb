@@ -242,6 +242,7 @@ AND EXISTS(
     )
 )
 ORDER BY u.id;
+WARNING:  heap filter on `($3 = task_id)`: the column is not indexed in the bm25 index. This may impact query performance.
  id | name  
 ----+-------
   1 | Alice

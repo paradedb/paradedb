@@ -363,12 +363,12 @@ pub unsafe fn find_var_relation(
         // table it comes from along with its original column AttributeNumber
         pg_sys::RTEKind::RTE_SUBQUERY => {
             if (*rte).subquery.is_null() {
-                return (pg_sys::InvalidOid, pg_sys::InvalidAttrNumber as i16, None);
+                panic!("unable to determine Var relation as it belongs to a NULL subquery");
             }
             let targetlist = PgList::<pg_sys::TargetEntry>::from_pg((*(*rte).subquery).targetList);
-            let Some(te) = targetlist.get_ptr((*var).varattno as usize - 1) else {
-                return (pg_sys::InvalidOid, pg_sys::InvalidAttrNumber as i16, None);
-            };
+            let te = targetlist
+                .get_ptr((*var).varattno as usize - 1)
+                .expect("var should exist in subquery TargetList");
             ((*te).resorigtbl, (*te).resorigcol, Some(targetlist))
         }
 

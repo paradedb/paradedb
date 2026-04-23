@@ -103,31 +103,6 @@ use datafusion::execution::session_state::SessionStateBuilder;
 use datafusion::functions_aggregate::expr_fn::min;
 use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
 
-/// Insert an ORDER BY field name into `required_early`, plus — when the same
-/// heap attno is registered under a different name — the registered name too.
-///
-/// This matters when a column is indexed twice (once aliased, once as an
-/// unaliased expression): the ORDER BY feature carries the expression name
-/// (e.g. "company_name"), but the attno's schema-registered name may be the
-/// alias (e.g. "company_name_words"). Without also marking the registered
-/// name required-early, the table provider may defer the alias-named output
-/// that downstream DataFusion plans expect (#4850).
-fn insert_field_name_required_early(
-    source: &super::build::JoinSource,
-    name: &str,
-    required_early: &mut crate::api::HashSet<String>,
-) {
-    required_early.insert(name.to_string());
-    let attno = unsafe { get_source_attno_by_name(source, name) };
-    if let Some(attno) = attno {
-        if let Some(registered) = source.column_name(attno) {
-            if registered != name {
-                required_early.insert(registered);
-            }
-        }
-    }
-}
-
 /// Resolve a Postgres `(rti, attno)` reference to a DataFusion column expression
 /// by walking the join's plan sources and finding the first one that claims it.
 ///
@@ -987,6 +962,34 @@ fn build_source_df<'a>(
             .iter()
             .map(|f| f.field.clone())
             .collect();
+
+        /// Insert an ORDER BY field name into `required_early`, plus — when
+        /// the same heap attno is registered under a different name — the
+        /// registered name too.
+        ///
+        /// This matters when a column is indexed twice (once aliased, once
+        /// as an unaliased expression): the ORDER BY feature carries the
+        /// expression name (e.g. "company_name"), but the attno's
+        /// schema-registered name may be the alias
+        /// (e.g. "company_name_words"). Without also marking the registered
+        /// name required-early, the table provider may defer the
+        /// alias-named output that downstream DataFusion plans expect
+        /// (#4850).
+        fn insert_field_name_required_early(
+            source: &JoinSource,
+            name: &str,
+            required_early: &mut crate::api::HashSet<String>,
+        ) {
+            required_early.insert(name.to_string());
+            let attno = unsafe { get_source_attno_by_name(source, name) };
+            if let Some(attno) = attno {
+                if let Some(registered) = source.column_name(attno) {
+                    if registered != name {
+                        required_early.insert(registered);
+                    }
+                }
+            }
+        }
 
         let mut required_early: crate::api::HashSet<String> = Default::default();
         for jk in join_clause.plan.join_keys() {

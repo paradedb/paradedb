@@ -44,7 +44,6 @@ use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
 use crate::scan::info::FieldInfo;
 use pgrx::{pg_sys, PgList};
-use std::sync::OnceLock;
 
 /// Result type for `extract_join_tree_from_parse`: the plan tree, search
 /// predicates, multi-table predicate info, and raw PG Expr clause pointers.
@@ -71,34 +70,17 @@ pub struct JoinAggSource {
     pub relid: pg_sys::Oid,
     pub alias: Option<String>,
     pub bm25_index: Option<PgSearchRelation>,
-    /// Lazily populated attno → fast-field mapping for this relation.
-    /// Built once via [`JoinAggSource::column_name`] and shared across the
-    /// GROUP BY, aggregate argument, and aggregate ORDER BY resolution paths.
-    field_cache: OnceLock<Vec<FieldInfo>>,
+    /// Eagerly populated attno → fast-field mapping for this relation.
+    /// Built once in [`collect_join_agg_sources`] and flowed through to the
+    /// `JoinSourceCandidate` in [`build_scan_node`], so both
+    /// [`JoinAggSource::column_name`] and the downstream
+    /// [`JoinSource::column_name`] / `build_source_df` paths agree on the
+    /// BM25-registered field name for every heap attno. Empty when the
+    /// relation has no BM25 index.
+    pub fields: Vec<FieldInfo>,
 }
 
 impl JoinAggSource {
-    /// Walk every column in the heap tuple descriptor, resolving each through
-    /// the BM25 index. Returns an empty vec when there is no BM25 index
-    /// attached to this relation (nothing to pull up).
-    unsafe fn build_field_cache(&self) -> Vec<FieldInfo> {
-        let Some(bm25) = self.bm25_index.as_ref() else {
-            return Vec::new();
-        };
-        let heaprel = PgSearchRelation::open(self.relid);
-        let tupdesc = heaprel.tuple_desc();
-        let mut fields = Vec::new();
-        for attno in 1..=tupdesc.len() {
-            if let Some(field) = resolve_fast_field(attno as i32, &tupdesc, bm25) {
-                fields.push(FieldInfo {
-                    attno: attno as pg_sys::AttrNumber,
-                    field,
-                });
-            }
-        }
-        fields
-    }
-
     /// Resolve a heap attribute number to its DataFusion-facing column name
     /// via the BM25 index.
     ///
@@ -111,10 +93,7 @@ impl JoinAggSource {
     /// resolved field is a synthetic/unsupported kind (`Score`, `Junk`).
     /// Mirrors `JoinSource::column_name` in joinscan/build.rs.
     pub fn column_name(&self, attno: pg_sys::AttrNumber) -> Option<String> {
-        let fields = self
-            .field_cache
-            .get_or_init(|| unsafe { self.build_field_cache() });
-        fields
+        self.fields
             .iter()
             .find(|f| f.attno == attno)
             .and_then(|f| match &f.field {
@@ -122,6 +101,29 @@ impl JoinAggSource {
                 _ => Some(f.field.name()),
             })
     }
+}
+
+/// Walk every column in the heap tuple descriptor, resolving each through the
+/// given BM25 index. Returns an empty vec when `bm25_index` is `None`.
+unsafe fn collect_source_fields(
+    relid: pg_sys::Oid,
+    bm25_index: Option<&PgSearchRelation>,
+) -> Vec<FieldInfo> {
+    let Some(bm25) = bm25_index else {
+        return Vec::new();
+    };
+    let heaprel = PgSearchRelation::open(relid);
+    let tupdesc = heaprel.tuple_desc();
+    let mut fields = Vec::new();
+    for attno in 1..=tupdesc.len() {
+        if let Some(field) = resolve_fast_field(attno as i32, &tupdesc, bm25) {
+            fields.push(FieldInfo {
+                attno: attno as pg_sys::AttrNumber,
+                field,
+            });
+        }
+    }
+    fields
 }
 
 /// Extract all tables participating in the join from `input_rel.relids` and look up
@@ -141,12 +143,13 @@ pub unsafe fn collect_join_agg_sources(
             continue;
         };
 
+        let fields = collect_source_fields(relid, bm25_index.as_ref());
         sources.push(JoinAggSource {
             rti,
             relid,
             alias,
             bm25_index,
-            field_cache: OnceLock::new(),
+            fields,
         });
     }
 
@@ -360,6 +363,11 @@ unsafe fn build_scan_node(
         .with_heaprelid(source.relid)
         .with_indexrelid(bm25_index.oid())
         .with_sort_order(sort_order);
+
+    // Propagate the eagerly resolved BM25 fields so the downstream JoinSource
+    // (and everything built on it — AggregateIndexVarMapper, build_source_df)
+    // agrees with JoinAggSource::column_name on alias-aware field names.
+    candidate.fields = source.fields.clone();
 
     if let Some(ref alias) = source.alias {
         candidate = candidate.with_alias(alias.clone());

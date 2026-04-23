@@ -12,9 +12,16 @@ noindex: true
   WHERE description &&& 'shoes'::pdb.whitespace::pdb.boost(3);
   ```
 
+## Performance Improvements 🚀
+
+- Tighten Block-Max WAND pruning in the single-scorer path, improving query performance when many documents share the same score.
+- `|||` (OR) queries over a single term now use Block-Max WAND pruning.
+
 ## Stability Improvements 💪
 
 - Replicate missed v0.23.0 migrations in v0.23.1 so upgrades from earlier versions apply cleanly.
 - Return parameterized selectivity for non-`Const` BM25 operator arguments, improving plans for prepared statements.
+- Fix a panic in `terms` aggregations that could occur when a `missing` key was combined with an `include`/`exclude` filter on certain segments.
+- Correctly handle the missing sentinel in `terms` aggregations when combining `exclude` with `missing` on columns with zero unique values.
 
 The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.23.1).

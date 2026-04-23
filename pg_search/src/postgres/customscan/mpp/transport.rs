@@ -57,7 +57,7 @@ const FRAME_MAGIC: [u8; 4] = *b"MPPF";
 /// On-wire header that prefixes every framed batch. 24 bytes, little-endian.
 /// Mirrors the routing tuple that datafusion-distributed's `FlightAppMetadata`
 /// protobuf carries, minus the transport-specific fields (URL / worker addr)
-/// we don't need when every seat lives in the same DSM segment.
+/// we don't need when every participant lives in the same DSM segment.
 ///
 /// Fields:
 /// - `query_id` (8 B) — `MppExecutionState::query_id()` at plan time.
@@ -66,7 +66,7 @@ const FRAME_MAGIC: [u8; 4] = *b"MPPF";
 /// - `task_number` (4 B) — the *sender's* participant index; tells the
 ///   receiver which peer produced this batch.
 /// - `partition` (4 B) — the destination partition inside the stage's task.
-///   Today `partition == dest_seat_index` 1:1, but that decoupling is what
+///   Today `partition == dest_participant_index` 1:1, but that decoupling is what
 ///   P5b (channel flattening) needs to multiplex multiple logical streams
 ///   across one shm_mq per peer.
 ///

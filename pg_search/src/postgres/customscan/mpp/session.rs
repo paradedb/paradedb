@@ -153,7 +153,7 @@ pub struct MppPlanBroadcast {
     pub session_profile: MppSessionProfile,
     /// Per-query identifier stamped on every [`MppStage`] / [`MppTaskKey`]
     /// boundary descriptor. Workers reuse the same value so mesh framing
-    /// agrees across seats. Leader fills via [`derive_query_id`].
+    /// agrees across participants. Leader fills via [`derive_query_id`].
     ///
     /// [`MppStage`]: super::stage::MppStage
     /// [`MppTaskKey`]: super::stage::MppTaskKey

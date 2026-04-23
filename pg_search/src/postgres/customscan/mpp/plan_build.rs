@@ -47,7 +47,7 @@
 //! ```
 //!
 //! The output stream emits exactly the rows of `inner` that hash to this
-//! participant's seat — some from local computation, some from peers —
+//! participant — some from local computation, some from peers —
 //! merged into a single Arrow IPC-compatible `SendableRecordBatchStream`.
 //!
 //! Callers (AggregateScan, JoinScan MPP) compose `HashJoinExec`,
@@ -90,7 +90,7 @@ use crate::postgres::customscan::mpp::transport::DrainHandle;
 /// - `child`: the plan whose output rows should be hash-shuffled across the
 ///   mesh. Typically `Scan → Filter` for one side of a join.
 /// - `wiring`: the outbound half of this participant's mesh edge — one
-///   `MppSender` per peer seat, `None` at the self seat. `ShuffleExec`
+///   `MppSender` per peer participant, `None` at the self participant. `ShuffleExec`
 ///   consumes it.
 /// - `drain_handle`: the inbound half — a `DrainBuffer` whose drain thread
 ///   is reading peer-sent rows for this participant. `DrainGatherExec`
@@ -112,7 +112,7 @@ pub struct MppShuffleInputs {
     /// `ShuffleExec` send side and the peer-inbound `DrainGatherExec`). A
     /// single mesh = one stage, so `ShuffleExec` and `DrainGatherExec` share
     /// the same `MppStage`: the walker / bridge treats them as the two halves
-    /// of one cross-seat edge.
+    /// of one cross-participant edge.
     ///
     /// `None` skips the stamp (legacy callers and tests that predate the
     /// `MppNetworkBoundary` seam). The bridges in `exec_bridge.rs` always
@@ -125,7 +125,7 @@ pub struct MppShuffleInputs {
 /// Wrap a child plan with the MPP hash-shuffle topology.
 ///
 /// Output: a single-partition stream that contains
-///   - rows of `child` that hashed to this participant's seat (via
+///   - rows of `child` that hashed to this participant (via
 ///     `ShuffleExec` — peer-bound rows are shipped to `wiring.outbound`
 ///     before being dropped from the local stream);
 ///   - rows sent by peers via shm_mq that the drain thread has read into
@@ -168,7 +168,7 @@ pub fn wrap_with_mpp_shuffle(
     };
 
     // Self-side: ShuffleExec partitions `child`'s stream by
-    // `wiring.partitioner`, emits the rows whose hash lands on this seat,
+    // `wiring.partitioner`, emits the rows whose hash lands on this participant,
     // and concurrently ships rows destined for peers through `wiring.outbound`.
     let shuffle_node = ShuffleExec::new(child, wiring, tag);
     let shuffle: Arc<dyn ExecutionPlan> = match stage {
@@ -241,7 +241,7 @@ mod tests {
     }
 
     /// Drive a two-participant mesh in-process: our side shuffles a 10-row
-    /// input at seat 0 with `ModuloPartitioner(2)`, a simulated peer ships
+    /// input at participant 0 with `ModuloPartitioner(2)`, a simulated peer ships
     /// synthetic batches into our inbound drain. The wrapped stream should
     /// emit:
     ///
@@ -347,7 +347,7 @@ mod tests {
         // Union output: self-partition (even IDs) + peer-simulated (100, 200).
         emitted_ids.sort();
         assert_eq!(emitted_ids, vec![0, 2, 4, 6, 8, 100, 200]);
-        // Outbound: ShuffleExec shipped odd IDs (rows that hashed to seat 1).
+        // Outbound: ShuffleExec shipped odd IDs (rows that hashed to participant 1).
         outbound_ids.sort();
         assert_eq!(outbound_ids, vec![1, 3, 5, 7, 9]);
     }

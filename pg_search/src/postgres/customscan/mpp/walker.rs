@@ -42,10 +42,10 @@
 //! `VisibilityFilterExec` resolves per-segment packed DocAddress keys to
 //! heap TIDs using segment-local Tantivy state plus a ctid-resolver table
 //! keyed by `(plan_position, seg_ord)` that lists segments **local to this
-//! seat**. Every [`ShuffleExec`] cut must therefore sit **inside** the subtree
+//! participant**. Every [`ShuffleExec`] cut must therefore sit **inside** the subtree
 //! of every [`VisibilityFilterExec`] the plan contains — i.e. no
 //! `VisibilityFilterExec` may be a descendant of a `ShuffleExec`. Inverting
-//! that placement means a row from seat A would reach seat B's resolver with
+//! that placement means a row from participant A would reach participant B's resolver with
 //! a `seg_ord` that addresses A's segment catalog; the lookup would return
 //! the wrong heap TID (or panic in `heap_fetch` if the slot is absent).
 //! [`assert_visibility_invariant`] walks the finished MPP plan and rejects it
@@ -79,7 +79,7 @@
 //!   or **hash-partition on group keys** (group-by-agg, `HashPartitioner`).
 //!
 //! `JoinOnly` uses only meshes 0 and 1. Mesh ordering must be identical on
-//! every seat — the meshes themselves are symmetric, but a mismatch would
+//! every participant — the meshes themselves are symmetric, but a mismatch would
 //! route left rows to the right drain and break correctness.
 
 #![allow(deprecated)] // `CoalesceBatchesExec` is deprecated in favor of
@@ -511,7 +511,7 @@ fn rewrite_with_cuts(
     // HashJoinExec — wrap its left / right inputs with RepartitionExec(Hash)
     // so the DF-D walker sees Shuffle triggers there. Does *not* touch the
     // join's own node type, mode, or keys — the join itself still runs
-    // locally on each seat, operating on shuffle-gathered inputs.
+    // locally on each participant, operating on shuffle-gathered inputs.
     if let Some(hj) = plan.as_any().downcast_ref::<HashJoinExec>() {
         let join_on = hj.on().to_vec();
         let left_keys: Vec<Arc<dyn PhysicalExpr>> =
@@ -587,11 +587,11 @@ pub(super) struct CutEmitCtx {
     meshes: VecDeque<MeshHalves>,
     /// Per-query stamp used by [`MppStage::new`] for every boundary.
     query_id: u64,
-    /// Seat ordinal for this participant (0 = leader). Stamped onto
+    /// Participant ordinal for this participant (0 = leader). Stamped onto
     /// outbound senders as `task_number` and onto [`ShuffleWiring`] so
     /// `ShuffleExec` drops the self-partition sender slot.
     participant_index: u32,
-    /// Total seats in the mesh. Sizes every partitioner (`HashPartitioner`,
+    /// Total participants in the mesh. Sizes every partitioner (`HashPartitioner`,
     /// `FixedTargetPartitioner`).
     total_participants: u32,
 }
@@ -648,14 +648,14 @@ impl CutEmitCtx {
 /// underlying input directly with [`wrap_with_mpp_shuffle`] +
 /// `HashPartitioner`. Keeping the `RepartitionExec` around would add a
 /// redundant in-process partition that `ShuffleExec` already enforces
-/// across seats.
+/// across participants.
 ///
 /// # Coalesce emit
 ///
 /// The `Coalesce` boundary sits above the child of a
 /// `CoalescePartitionsExec` or `SortPreservingMergeExec`. The walker
-/// wraps that child with `FixedTargetPartitioner(0)` so every seat ships
-/// its rows to seat 0; the parent coalesce / merge is preserved in the
+/// wraps that child with `FixedTargetPartitioner(0)` so every participant ships
+/// its rows to participant 0; the parent coalesce / merge is preserved in the
 /// Plan arm above it and remains responsible for the final single-stream
 /// output shape.
 ///
@@ -901,8 +901,8 @@ fn prepare_for_mpp(
 ///  * `strip_dynamic_filters_in_subtree` removes the probe-side dynamic
 ///    filter the `FilterPushdown` physical optimizer pushed into the
 ///    `PgSearchScanPlan`. With a dynamic filter on the probe, rows
-///    destined for peer seats get dropped before they hit the shuffle
-///    (the build side hasn't filled the filter yet on this seat), and
+///    destined for peer participants get dropped before they hit the shuffle
+///    (the build side hasn't filled the filter yet on this participant), and
 ///    the row count drops to ~0 across the mesh.
 ///
 /// Outer wrappers (`VisibilityFilterExec`, `SegmentedTopKExec`, ...) are
@@ -1062,8 +1062,8 @@ fn run_visibility_ctid_resolver_rule(
 ///  * `strip_dynamic_filters_in_subtree` removes the probe-side dynamic
 ///    filter the `FilterPushdown` physical optimizer pushed into the
 ///    `PgSearchScanPlan`. With a dynamic filter on the probe, rows
-///    destined for peer seats get dropped before they hit the shuffle
-///    (the build side hasn't populated the filter yet on this seat), and
+///    destined for peer participants get dropped before they hit the shuffle
+///    (the build side hasn't populated the filter yet on this participant), and
 ///    the row count drops to ~0 across the mesh. The post-pass re-applies
 ///    the same `Arc<DynamicFilterPhysicalExpr>` as a `FilterExec` above
 ///    the post-shuffle probe output where it's safe.
@@ -1299,13 +1299,13 @@ fn finalize_scalar_agg(
 ///     [`replace_first_hash_join`].
 ///  3. Inserts `CoalesceBatchesExec(target = 64 Ki rows)` between the
 ///     Partial aggregate and the `gb_postagg` `ShuffleExec`. On the 25 M
-///     row benchmark this collapses ~191 batches per seat to ~24, keeping
+///     row benchmark this collapses ~191 batches per participant to ~24, keeping
 ///     the post-agg shuffle payload under the 64 MiB shm_mq queue
 ///     capacity so backpressure stays near zero while `FinalPartitioned`
-///     runs in parallel on every seat.
+///     runs in parallel on every participant.
 ///  4. Wraps the root with `AggregateExec(FinalPartitioned, group_by)`
-///     on every seat (no leader/worker asymmetry — each group lands on
-///     exactly one seat via the group-key hash shuffle, so every seat's
+///     on every participant (no leader/worker asymmetry — each group lands on
+///     exactly one participant via the group-key hash shuffle, so every participant's
 ///     Final emits a disjoint subset and PG's Gather concatenates
 ///     without double-counting).
 fn finalize_groupby_agg(
@@ -1378,7 +1378,7 @@ fn finalize_groupby_agg(
     let new_shuffle = shuffle.with_new_children(vec![coalesced])?;
     let new_chain = grafted.with_new_children(vec![new_shuffle, drain_gather])?;
 
-    // Phase 3: wrap with `FinalPartitioned` on every seat.
+    // Phase 3: wrap with `FinalPartitioned` on every participant.
     let final_agg = AggregateExec::try_new(
         AggregateMode::FinalPartitioned,
         group_by,
@@ -1493,7 +1493,7 @@ fn attach_cooperative_drain(
 /// Stamp every outbound sender in `senders` with a `FrameId` computed from
 /// the shared `task_key` (one per mesh — query_id + stage_id + our
 /// participant_index as `task_number`) plus the sender's position in the
-/// `Vec` as `partition`. Position == destination seat index today: the
+/// `Vec` as `partition`. Position == destination participant index today: the
 /// outbound vec is already built that way by `take_meshes`. P5b will
 /// decouple the two when multiple logical streams share one shm_mq.
 fn stamp_frame_ids(
@@ -1663,10 +1663,10 @@ fn replace_first_hash_join(
 ///
 /// Rationale (see module doc): `VisibilityFilterExec` resolves packed
 /// DocAddress → heap TID via a ctid-resolver table populated with segments
-/// local to this seat. If a shuffle sits above a visibility filter, the
+/// local to this participant. If a shuffle sits above a visibility filter, the
 /// filter operates on rows originating locally only (fine), but if a
 /// visibility filter sits below a shuffle we run the filter on rows that
-/// came in over shm_mq from a peer seat, whose `seg_ord` addresses the
+/// came in over shm_mq from a peer participant, whose `seg_ord` addresses the
 /// peer's segment catalog rather than ours — `heap_fetch` then returns
 /// garbage or panics.
 ///
@@ -1690,7 +1690,7 @@ fn walk_checking_visibility(node: &dyn ExecutionPlan, inside_shuffle: bool) -> D
         return Err(DataFusionError::Plan(
             "mpp: visibility invariant violated — VisibilityFilterExec appears below a \
              ShuffleExec. Segment-local ctid resolution cannot run on rows that crossed \
-             an shm_mq boundary from a peer seat (peer seg_ord addresses its own segment \
+             an shm_mq boundary from a peer participant (peer seg_ord addresses its own segment \
              catalog, not ours). Place every shuffle cut above any VisibilityFilterExec \
              in the standard plan."
                 .into(),
@@ -1731,13 +1731,13 @@ mod tests {
 
     #[test]
     fn stamp_frame_ids_assigns_destination_partition_per_slot() {
-        // The vec slot index equals the destination seat today. If
+        // The vec slot index equals the destination participant today. If
         // `stamp_frame_ids` ever stops using the slot index as partition,
         // the wire format's routing guarantee breaks.
         let (tx1, _rx1) = in_proc_channel(1);
         let (tx3, _rx3) = in_proc_channel(1);
         let senders: Vec<Option<MppSender>> = vec![
-            None, // seat 0 (self)
+            None, // participant 0 (self)
             Some(MppSender::new(Box::new(tx1))),
             None, // gap — simulates a partially-built mesh on a larger cluster
             Some(MppSender::new(Box::new(tx3))),
@@ -1749,7 +1749,7 @@ mod tests {
             MppTaskKey {
                 query_id: stage.query_id,
                 stage_id: stage.stage_id,
-                task_number: 0, // pretend we're seat 0
+                task_number: 0, // pretend we're participant 0
             },
         );
 
@@ -2180,8 +2180,8 @@ mod tests {
     // ========================================================================
 
     /// Build `count` empty mesh slots — each mesh has `count` outbound /
-    /// inbound edges per seat, with the self-seat slot left `None` so the
-    /// wiring matches what `take_meshes` would deliver at runtime. Seats
+    /// inbound edges per participant, with the self-participant slot left `None` so the
+    /// wiring matches what `take_meshes` would deliver at runtime. Participants
     /// other than `participant_index` get live `in_proc_channel`s; their
     /// receiver halves are dropped so the drain thread sees EOF instantly.
     fn synth_meshes(
@@ -2194,8 +2194,8 @@ mod tests {
         for _ in 0..mesh_count {
             let mut outbound: Vec<Option<MppSender>> = Vec::with_capacity(n);
             let mut inbound: Vec<Option<MppReceiver>> = Vec::with_capacity(n);
-            for seat in 0..n {
-                if seat as u32 == participant_index {
+            for participant in 0..n {
+                if participant as u32 == participant_index {
                     outbound.push(None);
                     inbound.push(None);
                     continue;

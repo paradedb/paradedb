@@ -76,3 +76,11 @@ SELECT 'this is a test. fn foo(arg: String) -> impl Foo<''a> { return 42; }'::pd
  {this,is,a,test,fn,foo,arg,string,impl,foo,a,return,42}
 (1 row)
 
+SELECT ARRAY['this is a test.', 'foo bar baz']::pdb.whitespace::text[];
+             array             
+-------------------------------
+ {this,is,a,test.,foo,bar,baz}
+(1 row)
+
+SELECT '"foo"'::jsonb::pdb.whitespace::text[];
+ERROR:  cannot tokenize a jsonb inline

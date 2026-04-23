@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::tokenizers::definitions::pdb::DatumWithType;
 use crate::postgres::catalog::{
     is_citext_oid, lookup_type_category, lookup_type_name, lookup_typoid,
 };
@@ -24,7 +25,6 @@ use pgrx::pgrx_sql_entity_graph::metadata::{
     ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
 };
 use pgrx::{pg_sys, set_varsize_4b, FromDatum, IntoDatum};
-use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::ptr::addr_of_mut;
 use tokenizers::chinese_convert::ConvertMode;
@@ -500,10 +500,6 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
     }
 }
 
-pub trait CowString {
-    fn to_str(&self) -> Cow<'_, str>;
-}
-
 pub trait DatumWrapper {
     #[allow(dead_code)]
     fn from_datum(datum: pg_sys::Datum) -> Self;
@@ -550,24 +546,58 @@ pub trait DatumWrapper {
     }
 }
 
-impl<T: DatumWrapper> CowString for T {
-    fn to_str(&self) -> Cow<'_, str> {
-        unsafe {
-            let varlena = self.as_datum().cast_mut_ptr::<pg_sys::varlena>();
-            let detoasted = pg_sys::pg_detoast_datum(varlena);
+// SAFETY: to_tokenize must be raw text or a tokenizer type
+unsafe fn tokenize<T>(to_tokenize: T, tokenizer: SearchTokenizer) -> Vec<String>
+where
+    T: DatumWrapper,
+{
+    let mut analyzer = tokenizer
+        .to_tantivy_tokenizer()
+        .expect("failed to convert tokenizer to tantivy tokenizer");
 
-            let s = convert_varlena_to_str_memoized(detoasted);
-            if std::ptr::eq(detoasted, varlena) {
-                // wasn't toasted, can do zero-copy
-                Cow::Borrowed(s)
-            } else {
-                // was toasted, so copy to owned Rust string and free the detoasted memory
-                let s = s.to_string();
-                pg_sys::pfree(detoasted.cast());
-                Cow::Owned(s)
+    let wrapper_datum = to_tokenize.as_datum();
+    let mut tokens = Vec::new();
+    let mut tokenize = |s: &str| {
+        let mut stream = analyzer.token_stream(s);
+
+        while stream.advance() {
+            let token = stream.token();
+            tokens.push(token.text.to_string());
+        }
+    };
+
+    // Check if this is a wrapped DatumWithType using magic number verification
+    // For text literals, PostgreSQL might pass them directly without wrapping
+    // due to LIKE = text in the type definition
+    // TODO is the LIKE doing anything useful if conversion is effectively mandatory?
+    if !DatumWithType::is_wrapped(wrapper_datum) {
+        // Not wrapped, it's raw text (or null)
+        let varlena = wrapper_datum.cast_mut_ptr::<pg_sys::varlena>();
+        let detoasted = pg_sys::pg_detoast_datum(varlena);
+
+        let s = convert_varlena_to_str_memoized(detoasted);
+        tokenize(s);
+        return tokens;
+    }
+
+    let typoid = DatumWithType::extract_typoid(wrapper_datum);
+    let original_datum = DatumWithType::extract_datum(wrapper_datum);
+    match typoid {
+        pg_sys::TEXTARRAYOID | pg_sys::VARCHARARRAYOID => {
+            let strings = <Vec<String> as pgrx::FromDatum>::from_datum(original_datum, false)
+                .expect("must have data");
+            for s in strings {
+                tokenize(&s)
             }
         }
+
+        _ => pgrx::error!(
+            "cannot tokenize a {} inline",
+            lookup_type_name(typoid).unwrap_or_else(|| "<unknown>".to_string())
+        ),
     }
+
+    tokens
 }
 
 struct GenericTypeWrapper<Type: DatumWrapper, SqlName: SqlNameMarker> {
@@ -604,6 +634,8 @@ impl<Type: DatumWrapper, SqlName: SqlNameMarker> IntoDatum for GenericTypeWrappe
 }
 
 impl<Type: DatumWrapper, SqlName: SqlNameMarker> FromDatum for GenericTypeWrapper<Type, SqlName> {
+    const GET_TYPOID: bool = true;
+
     unsafe fn from_polymorphic_datum(
         datum: pg_sys::Datum,
         is_null: bool,

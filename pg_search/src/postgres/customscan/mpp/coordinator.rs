@@ -23,11 +23,11 @@
 //!
 //! - `estimate_dsm_custom_scan` — leader, returns the DSM region size. Call
 //!   [`estimate_mpp_dsm`] with the serialized-plan length and mesh config.
-//! - `initialize_dsm_custom_scan` — leader, initializes DSM with leader seat
-//!   wiring. Call [`init_mpp_dsm_leader`] and stash the returned
+//! - `initialize_dsm_custom_scan` — leader, initializes DSM with the leader's
+//!   mesh wiring. Call [`init_mpp_dsm_leader`] and stash the returned
 //!   [`LeaderMesh`](super::worker::LeaderMesh) in execution state.
 //! - `initialize_worker_custom_scan` — worker, attaches to DSM with this
-//!   worker's seat wiring. Call [`attach_mpp_dsm_worker`] and stash the
+//!   worker's mesh wiring. Call [`attach_mpp_dsm_worker`] and stash the
 //!   returned [`WorkerMesh`](super::worker::WorkerMesh) + decoded plan.
 //!
 //! Each function is a thin wrapper over [`super::worker`] primitives plus a
@@ -124,18 +124,18 @@ pub struct LeaderMppContext {
     pub participant_config: super::MppParticipantConfig,
     /// Per-query identifier the leader derived at plan time. Stamped on
     /// every [`MppStage`](super::stage::MppStage) so workers and leader
-    /// agree on the key that keys cross-seat mesh traffic.
+    /// agree on the key that keys cross-participant mesh traffic.
     pub query_id: u64,
 }
 
 /// Worker's DSM-attach entry point. Reads the header, validates, attaches as
-/// sender/receiver for this worker's seat, and decodes the plan broadcast.
+/// sender/receiver for this worker's participant index, and decodes the plan broadcast.
 ///
 /// # Safety
 /// - `coordinate` must be the DSM region pointer the leader initialized.
 /// - `region_total` must match the DSM's attached size.
 /// - `worker_number` is the PG-assigned `ParallelWorkerNumber`; the worker's
-///   seat is `worker_number + 1` (leader is seat 0).
+///   participant index is `worker_number + 1` (leader is participant 0).
 /// - Caller is the worker backend and holds `pcxt` / `seg`.
 pub unsafe fn attach_mpp_dsm_worker(
     coordinate: *mut std::ffi::c_void,

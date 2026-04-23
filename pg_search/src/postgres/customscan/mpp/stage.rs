@@ -20,7 +20,7 @@
 //! Ported from datafusion-contrib/datafusion-distributed's
 //! `src/distributed_planner/network_boundary.rs` and `src/stage.rs`, with the
 //! transport-specific bits (Arrow Flight / gRPC `ExecutionTask.url`) dropped.
-//! In a PG parallel-worker world a "task" is a peer seat in the mesh, so
+//! In a PG parallel-worker world a "task" is a peer participant in the mesh, so
 //! `task_count` is enough — we don't need URLs or a `WorkerResolver`.
 //!
 //! This module is a P1 seam: the trait is defined and implemented on
@@ -39,7 +39,7 @@ use datafusion::physical_plan::ExecutionPlan;
 /// `stage_id` as it walks bottom-up, so the leaf stage is 0 and each boundary
 /// above it increments. `task_count` is the number of parallel tasks in the
 /// child sub-plan — for an in-process PG MPP query this equals
-/// `MppParticipantConfig.total_participants` (i.e. one task per seat), but we
+/// `MppParticipantConfig.total_participants` (i.e. one task per participant), but we
 /// keep it as a separate field to mirror datafusion-distributed's shape and
 /// leave room for future task-fan-out schemes.
 ///
@@ -65,12 +65,12 @@ impl MppStage {
     }
 }
 
-/// Wire identifier for a single stream between two seats.
+/// Wire identifier for a single stream between two participants.
 ///
 /// Mirrors datafusion-distributed's `TaskKey` protobuf
 /// (`src/worker/worker.proto:51-59`). P2 will frame every batch with
 /// `{MppTaskKey, partition, arrow_ipc_bytes}` so one `shm_mq` between two
-/// seats can carry multiple multiplexed streams (one per (stage, task,
+/// participants can carry multiple multiplexed streams (one per (stage, task,
 /// partition) tuple), which is what lets the cut-rule walker insert an
 /// arbitrary number of boundaries without allocating an `N*(N-1)` mesh per
 /// boundary.

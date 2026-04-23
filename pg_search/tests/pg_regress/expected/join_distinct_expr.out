@@ -1083,7 +1083,7 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: p, s)
+WARNING:  JoinScan not used: DISTINCT columns must be fast fields (tables: p, s)
                                                                                     QUERY PLAN                                                                                     
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -1114,7 +1114,7 @@ FROM dex_products p
 WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: p, s)
+WARNING:  JoinScan not used: DISTINCT columns must be fast fields (tables: p, s)
  supplier_json |      name       
 ---------------+-----------------
  "TechCorp"    | 

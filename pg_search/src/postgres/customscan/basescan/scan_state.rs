@@ -73,6 +73,13 @@ pub struct BaseScanState {
     pub const_score_node: Option<*mut pg_sys::Const>,
     pub score_funcoids: [pg_sys::Oid; 2],
 
+    /// Placeholder `Const` nodes that replace ORDER-BY `embedding <-> query`
+    /// `OpExpr`s in the scan's targetlist. At exec time we stuff the
+    /// already-computed TopK distance into each `Const`, so `ExecProject`
+    /// reads a literal instead of calling `l2_distance(embedding, query)`
+    /// and detoasting the heap vector.
+    pub const_distance_nodes: Vec<*mut pg_sys::Const>,
+
     pub const_snippet_nodes: HashMap<SnippetType, Vec<*mut pg_sys::Const>>,
 
     pub snippet_funcoids: [pg_sys::Oid; 2],

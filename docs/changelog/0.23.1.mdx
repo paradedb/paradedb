@@ -5,14 +5,16 @@ noindex: true
 
 ## New Features 🎉
 
-- Add support for inline tokenizers with relevance tuning.
+- Inline tokenizers can now be chained into relevance tuning casts (`pdb.boost`, `pdb.const`, `pdb.fuzzy`, `pdb.slop`). For example:
+
+  ```sql
+  SELECT * FROM mock_items
+  WHERE description &&& 'shoes'::pdb.whitespace::pdb.boost(3);
+  ```
 
 ## Stability Improvements 💪
 
-- Replicate missed v0.23.0 migrations in v0.23.1.
-- Return parameterized selectivity for non-`Const` BM25 operator arguments.
-- Upgrade pgrx to 0.18.0.
-- Update tantivy revision to include bug fixes.
-- Add baseline metrics to the `PgSearch` scan.
+- Replicate missed v0.23.0 migrations in v0.23.1 so upgrades from earlier versions apply cleanly.
+- Return parameterized selectivity for non-`Const` BM25 operator arguments, improving plans for prepared statements.
 
 The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.23.1).

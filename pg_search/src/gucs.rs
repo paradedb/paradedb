@@ -165,9 +165,10 @@ static MPP_WORKER_COUNT: GucSetting<i32> = GucSetting::<i32>::new(4);
 /// likely a per-query DSM cap than a raw per-edge byte count.
 static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(64 * 1024 * 1024);
 
-/// Cost gate for the bare-join (JoinOnly) MPP shape. If the smallest side of a binary join
-/// has fewer estimated rows than this threshold, skip MPP and let the non-MPP broadcast-join
-/// path run. Aggregate shapes are unaffected — only JoinOnly consults this value.
+/// Cost gate for binary-join MPP shapes (JoinOnly, ScalarAggOnBinaryJoin,
+/// GroupByAggOnBinaryJoin). If the smaller side's row estimate is below this
+/// threshold, skip MPP — the non-MPP broadcast-join path is cheaper when the
+/// small side fits in memory. Single-table shapes are unaffected.
 static MPP_MIN_JOIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(10_000);
 
 pub fn init() {
@@ -508,12 +509,13 @@ pub fn init() {
 
     GucRegistry::define_int_guc(
         c"paradedb.mpp_min_join_rows",
-        c"Minimum smaller-side rows before the JoinOnly MPP shape kicks in",
-        c"Cost gate for the bare-join (JoinOnly) MPP shape. If the smallest \
-          estimated side of a binary join has fewer rows than this threshold, \
-          skip MPP and let the non-MPP broadcast-join path run. Aggregate \
-          shapes are unaffected — only JoinOnly consults this value. Set to 0 \
-          to disable the gate (always run MPP when shape is eligible).",
+        c"Minimum smaller-side rows before binary-join MPP shapes kick in",
+        c"Cost gate for binary-join MPP shapes: JoinOnly and aggregate-on- \
+          binary-join (both scalar and group-by). If the smaller side's \
+          planner row estimate is below this threshold, skip MPP — the \
+          non-MPP broadcast-join path is cheaper when the small side fits \
+          in memory. Single-table aggregate shapes have no broadcast \
+          candidate and are not gated. Set to 0 to disable the gate.",
         &MPP_MIN_JOIN_ROWS,
         0,
         i32::MAX,

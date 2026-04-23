@@ -165,6 +165,11 @@ static MPP_WORKER_COUNT: GucSetting<i32> = GucSetting::<i32>::new(4);
 /// likely a per-query DSM cap than a raw per-edge byte count.
 static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(64 * 1024 * 1024);
 
+/// Cost gate for the bare-join (JoinOnly) MPP shape. If the smallest side of a binary join
+/// has fewer estimated rows than this threshold, skip MPP and let the non-MPP broadcast-join
+/// path run. Aggregate shapes are unaffected — only JoinOnly consults this value.
+static MPP_MIN_JOIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(10_000);
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -500,6 +505,21 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::UNIT_BYTE,
     );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.mpp_min_join_rows",
+        c"Minimum smaller-side rows before the JoinOnly MPP shape kicks in",
+        c"Cost gate for the bare-join (JoinOnly) MPP shape. If the smallest \
+          estimated side of a binary join has fewer rows than this threshold, \
+          skip MPP and let the non-MPP broadcast-join path run. Aggregate \
+          shapes are unaffected — only JoinOnly consults this value. Set to 0 \
+          to disable the gate (always run MPP when shape is eligible).",
+        &MPP_MIN_JOIN_ROWS,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -692,6 +712,10 @@ pub fn mpp_worker_count() -> i32 {
 
 pub fn mpp_queue_size() -> usize {
     MPP_QUEUE_SIZE.get() as usize
+}
+
+pub fn mpp_min_join_rows() -> i32 {
+    MPP_MIN_JOIN_ROWS.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

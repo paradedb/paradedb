@@ -1038,6 +1038,31 @@ impl JoinScan {
             return;
         }
 
+        // Cost gate: JoinOnly's shuffle overhead dominates for small joins
+        // (foreign_filter_local_sort, permissioned_search, semi_join_filter all
+        // regressed at low cardinality because the broadcast-join side costs
+        // O(1) while MPP pays a fixed shuffle setup). If the smallest side's
+        // planner row estimate is below `paradedb.mpp_min_join_rows`, stay on
+        // the non-MPP path.
+        let estimates: Vec<crate::scan::info::RowEstimate> = state
+            .custom_state()
+            .join_clause
+            .plan
+            .sources()
+            .iter()
+            .map(|s| s.scan_info.estimate)
+            .collect();
+        let min_rows = crate::gucs::mpp_min_join_rows();
+        if let Some(gated_rows) = join_only_gate_decision(&estimates, min_rows) {
+            crate::mpp_log!(
+                "mpp: JoinScan JoinOnly gated — smallest side estimated_rows={} < \
+                 mpp_min_join_rows={}; staying on non-MPP path",
+                gated_rows,
+                min_rows
+            );
+            return;
+        }
+
         let n = crate::postgres::customscan::mpp::customscan_glue::mpp_worker_count();
         let query_id = crate::postgres::customscan::mpp::session::derive_query_id();
         let broadcast = crate::postgres::customscan::mpp::session::MppPlanBroadcast::new(
@@ -2421,5 +2446,85 @@ fn render_plan_with_metrics(
     lines.push(line);
     for child in plan.children() {
         render_plan_with_metrics(child.as_ref(), indent + 1, include_timing, lines);
+    }
+}
+
+/// Pure decision helper for the JoinOnly MPP cost gate.
+///
+/// Returns `Some(n)` when the smallest known-side row estimate `n` is below
+/// `min_rows` — the caller should skip MPP. Returns `None` when the gate is
+/// disabled (`min_rows <= 0`), when no side has a `Known` estimate (treated as
+/// "not small" so un-ANALYZE'd tables don't silently bypass MPP), or when the
+/// smallest known estimate meets the threshold.
+fn join_only_gate_decision(
+    estimates: &[crate::scan::info::RowEstimate],
+    min_rows: i32,
+) -> Option<u64> {
+    if min_rows <= 0 {
+        return None;
+    }
+    let threshold = min_rows as u64;
+    let smallest_known = estimates
+        .iter()
+        .filter_map(|e| match e {
+            crate::scan::info::RowEstimate::Known(n) => Some(*n),
+            crate::scan::info::RowEstimate::Unknown => None,
+        })
+        .min()?;
+    (smallest_known < threshold).then_some(smallest_known)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::join_only_gate_decision;
+    use crate::scan::info::RowEstimate;
+
+    #[test]
+    fn gate_skips_mpp_when_smallest_side_below_threshold() {
+        let est = [RowEstimate::Known(500), RowEstimate::Known(1_000_000)];
+        assert_eq!(join_only_gate_decision(&est, 10_000), Some(500));
+    }
+
+    #[test]
+    fn gate_allows_mpp_when_all_sides_meet_threshold() {
+        let est = [RowEstimate::Known(50_000), RowEstimate::Known(1_000_000)];
+        assert_eq!(join_only_gate_decision(&est, 10_000), None);
+    }
+
+    #[test]
+    fn gate_allows_mpp_at_exact_threshold() {
+        let est = [RowEstimate::Known(10_000), RowEstimate::Known(1_000_000)];
+        assert_eq!(join_only_gate_decision(&est, 10_000), None);
+    }
+
+    #[test]
+    fn gate_disabled_when_threshold_is_zero() {
+        let est = [RowEstimate::Known(1), RowEstimate::Known(2)];
+        assert_eq!(join_only_gate_decision(&est, 0), None);
+    }
+
+    #[test]
+    fn gate_disabled_when_threshold_is_negative() {
+        let est = [RowEstimate::Known(1)];
+        assert_eq!(join_only_gate_decision(&est, -1), None);
+    }
+
+    #[test]
+    fn gate_allows_mpp_when_no_known_estimates() {
+        // Un-ANALYZE'd tables: don't silently gate MPP off.
+        let est = [RowEstimate::Unknown, RowEstimate::Unknown];
+        assert_eq!(join_only_gate_decision(&est, 10_000), None);
+    }
+
+    #[test]
+    fn gate_ignores_unknown_when_some_sides_known() {
+        // Smallest Known = 100, below 10_000 — gate fires despite the Unknown side.
+        let est = [RowEstimate::Unknown, RowEstimate::Known(100)];
+        assert_eq!(join_only_gate_decision(&est, 10_000), Some(100));
+    }
+
+    #[test]
+    fn gate_empty_estimates_returns_none() {
+        assert_eq!(join_only_gate_decision(&[], 10_000), None);
     }
 }

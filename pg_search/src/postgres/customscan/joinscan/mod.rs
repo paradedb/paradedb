@@ -901,7 +901,7 @@ impl ParallelQueryCapable for JoinScan {
                 }
                 Err(e) => {
                     // Worker-side attach failure is fatal because the
-                    // leader expects an MPP participant on this seat.
+                    // leader expects an MPP participant at this index.
                     pgrx::error!(
                         "mpp: JoinScan worker_init_dsm failed on worker {worker_number}: {e}"
                     );

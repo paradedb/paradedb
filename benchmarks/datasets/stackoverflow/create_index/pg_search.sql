@@ -15,7 +15,7 @@ USING bm25 (
     key_field = 'id'
 );
 
-CREATE INDEX badges_idx ON badges 
+CREATE INDEX badges_idx ON badges
 USING bm25 (
     id,
     (name::pdb.unicode_words('columnar=true')),
@@ -26,3 +26,13 @@ USING bm25 (
 ) WITH (
     key_field = 'id'
  );
+
+CREATE INDEX comments_idx ON comments
+USING bm25 (
+    id,
+    post_id,
+    score
+) WITH (
+    key_field = 'id',
+    sort_by = 'post_id ASC NULLS FIRST'
+);

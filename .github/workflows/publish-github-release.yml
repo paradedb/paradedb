@@ -147,9 +147,16 @@ jobs:
           fi
 
       # The tag_name will have "-rc.X" suffix and be marked as a prerelease for beta releases,
-      # and no suffix and marked as a full release for prod releases
+      # and no suffix and marked as a full release for prod releases.
+      #
+      # Pinned to v2.4.2: versions >= v2.5.0 create the tag ref in a way that does not
+      # propagate our PARADEDB_BOT_GITHUB_TOKEN PAT, so the resulting tag push is attributed
+      # to the default GITHUB_TOKEN. GitHub intentionally suppresses cascading workflow runs
+      # from GITHUB_TOKEN, which means the downstream `publish-*` workflows (triggered on
+      # `push: tags: v*`) never fire. v2.4.2 preserves the PAT on tag creation, so the tag
+      # push cascades correctly. Do not bump without verifying downstream workflows fire.
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2.6.1
+        uses: softprops/action-gh-release@v2.4.2
         with:
           tag_name: v${{ github.event.inputs.version }}
           target_commitish: ${{ github.ref_name }} # Deploy the branch that this workflow is being run from

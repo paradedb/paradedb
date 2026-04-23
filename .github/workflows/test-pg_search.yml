@@ -269,7 +269,14 @@ jobs:
         run: |
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
-          RUST_BACKTRACE=1 cargo llvm-cov --jobs $(nproc) --features pg${{ matrix.pg_version }} --no-default-features --lcov --output-path ../coverage-unit-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}.lcov
+          # Coverage builds retain pgrx_pg_sys FFI wrappers that non-coverage
+          # builds dead-code-eliminate. The extension loads into a live PG
+          # backend via dlopen, so those symbols resolve at runtime — but the
+          # PIE test executable has no backend and would fail at link time.
+          # No `pg_test` feature is enabled here, so no subprocess spawns the
+          # binary against a backend; ignoring unresolved object-file symbols
+          # is safe.
+          RUST_BACKTRACE=1 RUSTFLAGS="-C link-arg=-Wl,--unresolved-symbols=ignore-in-object-files" cargo llvm-cov --jobs $(nproc) --features pg${{ matrix.pg_version }} --no-default-features --lcov --output-path ../coverage-unit-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}.lcov
 
       - name: Run pg_search Integration Tests (pgrx-managed)
         if: matrix.pg_impl == 'pgrx'

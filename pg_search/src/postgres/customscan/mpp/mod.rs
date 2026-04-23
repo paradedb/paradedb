@@ -32,7 +32,7 @@ pub mod worker;
 
 use serde::{Deserialize, Serialize};
 
-/// Describes this participant's seat in an MPP query.
+/// Describes this participant's position in an MPP query.
 ///
 /// Injected into the DataFusion `SessionConfig` via `config_options` so downstream
 /// operators (optimizer rules, hash partitioners) can discover it without an

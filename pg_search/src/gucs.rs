@@ -140,7 +140,7 @@ static MPP_DEBUG: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// Dedicated diagnostic GUC for per-shuffle EOF row counts. These lines emit concurrently
 /// from every participant and can reorder between runs, so they're kept off `mpp_debug` to
 /// avoid flaking regress expected files. Turn this on in long-running benchmark queries to
-/// capture per-seat input/output row counts per shuffle at WARNING level (server log + CI
+/// capture per-participant input/output row counts per shuffle at WARNING level (server log + CI
 /// logs). When off, the same call sites route through `debug1!()` — still reachable via
 /// `SET log_min_messages = DEBUG1` but invisible to CI's default WARNING capture.
 static MPP_TRACE: GucSetting<bool> = GucSetting::<bool>::new(false);

@@ -322,12 +322,12 @@ pub unsafe fn edge_address(
 /// Leader-side: initialize a freshly-allocated MPP DSM region. Stamps the
 /// header, copies the plan bytes into place, and calls `shm_mq_create` for
 /// every directed edge in the mesh. Sets receiver for edges whose destination
-/// is the leader (seat 0); leader also attaches as sender for edges it
+/// is the leader (participant 0); leader also attaches as sender for edges it
 /// produces (src == 0). Worker-to-worker edges are created but unclaimed —
 /// the destination worker claims them during `attach_dsm_as_worker`.
 ///
 /// Returns the leader's outbound senders + inbound receivers (indexed by
-/// peer seat; self slot is `None`).
+/// peer participant; self slot is `None`).
 ///
 /// # Safety
 /// - `base` must point to a DSM region of at least `dsm.total` bytes.
@@ -397,8 +397,8 @@ pub struct LeaderMesh {
 /// - `base` must point to a DSM region of at least `region_total` bytes,
 ///   initialized by a leader via `initialize_dsm_as_leader` and still
 ///   attached to this process.
-/// - `participant_index` must be the seat the calling worker occupies
-///   (typically `ParallelWorkerNumber + 1` since leader is seat 0).
+/// - `participant_index` must be the index the calling worker occupies
+///   (typically `ParallelWorkerNumber + 1` since leader is participant 0).
 /// - Callable only from the worker backend thread, since it sets receiver /
 ///   sender procs to `MyProc`.
 pub unsafe fn attach_dsm_as_worker(
@@ -414,7 +414,7 @@ pub unsafe fn attach_dsm_as_worker(
         return Err("mpp: participant_index out of range");
     }
     if participant_index == 0 {
-        return Err("mpp: attach_dsm_as_worker called for leader seat");
+        return Err("mpp: attach_dsm_as_worker called for leader participant");
     }
 
     let n = header.total_participants;

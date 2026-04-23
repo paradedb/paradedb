@@ -26,7 +26,7 @@
 //! calling `create_datafusion_session_context_mpp`.
 //!
 //! The plan bytes are the same for every participant — participant identity
-//! comes from the worker's seat in the mesh, not from the plan encoding.
+//! comes from the worker's position in the mesh, not from the plan encoding.
 
 #![allow(dead_code)]
 
@@ -81,8 +81,8 @@ impl From<crate::postgres::customscan::joinscan::scan_state::SessionContextProfi
 pub const MPP_PLAN_BROADCAST_VERSION: u8 = 1;
 
 /// Bundle the leader writes into DSM at query start; every worker reads the
-/// same bytes and reconstructs its own `MppParticipantConfig` from the mesh
-/// seat.
+/// same bytes and reconstructs its own `MppParticipantConfig` from its
+/// participant index.
 ///
 /// Wire format: bincode 2 `config::standard()` (varint-encoded, intentional
 /// divergence from the persistent storage layer which uses `config::legacy()`
@@ -152,14 +152,15 @@ impl MppPlanBroadcast {
         Ok(decoded)
     }
 
-    /// Produce the per-participant config for the worker that occupies the
-    /// given seat. The leader is always seat 0.
+    /// Produce the per-participant config for the worker at the given
+    /// participant index. The leader is always index 0.
     ///
-    /// This uses `assert!` (not `debug_assert!`) because a silently bad seat
-    /// index in release builds would manifest as "hash partitioner drops
-    /// every row mapped to the nonexistent seat" — exactly the class of bug
-    /// that produced COUNT(*) = 0 in the prior attempt (see project memory
-    /// `project_mpp_correctness_bug.md`). Fail loudly at worker boot instead.
+    /// This uses `assert!` (not `debug_assert!`) because a silently bad
+    /// participant index in release builds would manifest as "hash
+    /// partitioner drops every row mapped to the nonexistent participant" —
+    /// exactly the class of bug that produced COUNT(*) = 0 in the prior
+    /// attempt (see project memory `project_mpp_correctness_bug.md`). Fail
+    /// loudly at worker boot instead.
     pub fn participant_config(&self, participant_index: u32) -> MppParticipantConfig {
         assert!(
             participant_index < self.total_participants,
@@ -192,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn participant_config_differs_per_seat() {
+    fn participant_config_differs_per_participant_index() {
         let bc = MppPlanBroadcast::new(vec![], 3, MppSessionProfile::Join);
         let leader = bc.participant_config(0);
         let w1 = bc.participant_config(1);
@@ -236,10 +237,11 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "participant_index")]
-    fn participant_config_panics_on_out_of_bounds_seat() {
+    fn participant_config_panics_on_out_of_bounds_index() {
         let bc = MppPlanBroadcast::new(vec![], 2, MppSessionProfile::Join);
-        // Seat 2 is out of bounds for total_participants=2; panic at boot
-        // time beats a silently dropped partition in production.
+        // Participant index 2 is out of bounds for total_participants=2;
+        // panic at boot time beats a silently dropped partition in
+        // production.
         let _ = bc.participant_config(2);
     }
 

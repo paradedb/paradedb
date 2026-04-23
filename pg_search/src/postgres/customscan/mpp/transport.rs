@@ -1088,8 +1088,8 @@ mod tests {
     #[ignore]
     fn throughput_postagg_shape() {
         // Sweeps batch size to show per-batch fixed cost vs per-row cost.
-        // 1.25M total rows ≈ what one seat ships through gb_postagg at
-        // 25M scale. 625K per seat × 2 = 1.25M.
+        // 1.25M total rows ≈ what one participant ships through gb_postagg at
+        // 25M scale. 625K per participant × 2 = 1.25M.
         for batch_rows in [128, 512, 2048, 8192, 32_768] {
             bench_throughput("postagg", postagg_shape_batch, batch_rows, 1_250_000);
         }
@@ -1098,7 +1098,7 @@ mod tests {
     #[test]
     #[ignore]
     fn throughput_probe_shape() {
-        // 12.5M total rows ≈ what one seat ships through gb_right at 25M.
+        // 12.5M total rows ≈ what one participant ships through gb_right at 25M.
         for batch_rows in [128, 512, 2048, 8192, 32_768] {
             bench_throughput("probe", probe_shape_batch, batch_rows, 12_500_000);
         }

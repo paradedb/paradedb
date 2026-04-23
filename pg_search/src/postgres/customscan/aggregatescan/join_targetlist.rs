@@ -26,9 +26,7 @@ use super::datafusion_build::{FilterExprBuildContext, JoinAggSource};
 use super::privdat::FilterExpr;
 use crate::api::SortDirection;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
-use crate::postgres::var::{
-    fieldname_from_var, find_one_aggref, find_one_var_and_fieldname, VarContext,
-};
+use crate::postgres::var::{find_one_aggref, find_one_var_and_fieldname, VarContext};
 use pgrx::pg_sys;
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
@@ -257,14 +255,12 @@ pub unsafe fn extract_aggregate_targetlist(
 
             let source = find_source_by_rti(sources, rti, "GROUP BY column")?;
 
-            let field_name = fieldname_from_var(source.relid, var, attno)
-                .ok_or_else(|| {
-                    format!(
-                        "could not resolve field name for column (RTI={}, attno={})",
-                        rti, attno
-                    )
-                })?
-                .into_inner();
+            let field_name = source.column_name(attno).ok_or_else(|| {
+                format!(
+                    "could not resolve field name for GROUP BY column (RTI={}, attno={})",
+                    rti, attno
+                )
+            })?;
 
             group_columns.push(JoinGroupColumn {
                 rti,
@@ -441,14 +437,12 @@ unsafe fn extract_aggref_field_refs(
 
         let source = find_source_by_rti(sources, rti, "aggregate argument")?;
 
-        let field_name = fieldname_from_var(source.relid, var, attno)
-            .ok_or_else(|| {
-                format!(
-                    "could not resolve field name for aggregate argument (RTI={}, attno={})",
-                    rti, attno
-                )
-            })?
-            .into_inner();
+        let field_name = source.column_name(attno).ok_or_else(|| {
+            format!(
+                "could not resolve field name for aggregate argument (RTI={}, attno={})",
+                rti, attno
+            )
+        })?;
 
         refs.push((rti, attno, field_name));
     }
@@ -501,14 +495,12 @@ unsafe fn extract_aggref_order_by(
 
         let source = find_source_by_rti(sources, rti, "aggregate ORDER BY")?;
 
-        let field_name = fieldname_from_var(source.relid, var, attno)
-            .ok_or_else(|| {
-                format!(
-                    "could not resolve field name for aggregate ORDER BY (RTI={}, attno={})",
-                    rti, attno
-                )
-            })?
-            .into_inner();
+        let field_name = source.column_name(attno).ok_or_else(|| {
+            format!(
+                "could not resolve field name for aggregate ORDER BY (RTI={}, attno={})",
+                rti, attno
+            )
+        })?;
 
         let direction =
             SortDirection::from_sort_op((*clause_ptr).sortop, (*clause_ptr).nulls_first)

@@ -146,10 +146,29 @@ jobs:
             echo "is_latest=false" >> $GITHUB_OUTPUT
           fi
 
+      # Create the tag ref ourselves, using the PARADEDB_BOT_GITHUB_TOKEN PAT, BEFORE
+      # calling softprops/action-gh-release. Since v2.5.0, that action publishes releases
+      # via a draft-first flow where the tag ref is created as a side effect of the
+      # publish API call, which does not emit a cascading `push` event — so our downstream
+      # `publish-*` workflows (triggered on `push: tags: v*`) never fire. Pushing the tag
+      # ref directly with the PAT here ensures the push event is attributed to the PAT and
+      # cascades to the downstream workflows. The subsequent release-creation step then
+      # attaches the release to the already-existing tag.
+      - name: Create Tag
+        env:
+          GH_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          echo "Creating tag v${{ github.event.inputs.version }} pointing at $sha"
+          gh api -X POST "repos/${{ github.repository }}/git/refs" \
+            -f ref="refs/tags/v${{ github.event.inputs.version }}" \
+            -f sha="$sha"
+
       # The tag_name will have "-rc.X" suffix and be marked as a prerelease for beta releases,
-      # and no suffix and marked as a full release for prod releases
+      # and no suffix and marked as a full release for prod releases. The tag has already been
+      # created in the step above, so this step just attaches the release to it.
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2.6.1
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ github.event.inputs.version }}
           target_commitish: ${{ github.ref_name }} # Deploy the branch that this workflow is being run from

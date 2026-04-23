@@ -19,8 +19,8 @@ use crate::api::{HashMap, HashSet};
 use crate::index::mvcc::{MvccSatisfies, PinCushion};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
-    DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
-    SegmentMetaEntryImmutable,
+    CustomExtensionId, DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails,
+    SegmentMetaEntry, SegmentMetaEntryImmutable,
 };
 use crate::postgres::storage::metadata::MetaPage;
 use anyhow::Result;
@@ -133,6 +133,9 @@ pub unsafe fn save_new_metas(
             let created_segment = incoming_segments.get(id).unwrap();
             let mut files = new_files.remove(id)?;
 
+            let custom = files
+                .remove(&SegmentComponent::Custom("cluster".to_string()))
+                .map(|(fe, _)| (CustomExtensionId::Cluster, fe));
             let meta_entry = SegmentMetaEntry::new_immutable(
                 *id,
                 created_segment.max_doc(),
@@ -151,6 +154,7 @@ pub unsafe fn save_new_metas(
                             file_entry,
                             num_deleted_docs: created_segment.num_deleted_docs(),
                         }),
+                    custom,
                 },
             );
 

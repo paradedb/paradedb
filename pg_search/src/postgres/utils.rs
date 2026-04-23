@@ -33,6 +33,8 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::var::find_vars;
 use crate::schema::{CategorizedFieldData, SearchField, SearchFieldType};
+use crate::vector::metric::{l2_normalize_in_place, VectorMetric};
+use crate::vector::PgVector;
 use anyhow::{anyhow, Result};
 use chrono::{NaiveDate, NaiveTime};
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
@@ -724,8 +726,19 @@ pub unsafe fn extract_field_attributes(
         }
 
         let pg_type = PgOid::from_untagged(attribute_type_oid);
-        let tantivy_type = SearchFieldType::try_from((pg_type, att_typmod, inner_typoid))
+        let mut tantivy_type = SearchFieldType::try_from((pg_type, att_typmod, inner_typoid))
             .unwrap_or_else(|e| panic!("{e}"));
+
+        // For vector fields, the real metric lives on the index
+        // attribute's opclass (pgvector convention) — not on the
+        // column type. Patch the placeholder L2 produced by
+        // `try_from` with the opclass-resolved metric so downstream
+        // (build, query) sees the correct one.
+        if let SearchFieldType::Vector(oid, dims, _) = tantivy_type {
+            let metric =
+                VectorMetric::from_index_attr(indexrel, attno as usize).unwrap_or_default();
+            tantivy_type = SearchFieldType::Vector(oid, dims, metric);
+        }
 
         // non-plain-attribute expressions that aren't cast to a tokenizer type are forced to use our `pdb.literal` tokenizer
         let missing_tokenizer_cast = expression.is_some()
@@ -832,8 +845,29 @@ pub unsafe fn row_to_search_document<'a>(
             {
                 document.add_field_value(search_field.field(), &OwnedValue::from(value));
             }
+        } else if let SearchFieldType::Vector(_, _, metric) = search_field.field_type() {
+            let mut vec = unsafe {
+                PgVector::from_datum(actual_datum, false)
+                    .expect("vector field datum should not be NULL")
+                    .0
+            };
+            // The TurboQuant codec is unit-sphere only — its Stage 1
+            // Lloyd-Max codebook is trained against the Beta marginal
+            // of unit-norm coordinates. Pre-normalize at the index
+            // boundary for both L2 and Cosine metrics so encoding
+            // doesn't saturate. (L2 on unit vectors ranks identically
+            // to cosine — see runtime_metric() — which is also what
+            // FAISS / ScaNN / pgvector's HNSW do internally.)
+            // InnerProduct is left un-normalized: the caller asked
+            // for magnitude-aware IP and the codec handles it.
+            if matches!(metric, VectorMetric::L2 | VectorMetric::Cosine) {
+                l2_normalize_in_place(&mut vec);
+            }
+            document.add_leaf_field_value(
+                search_field.field(),
+                tantivy::schema::document::ReferenceValueLeaf::Vector(&vec),
+            );
         } else {
-            // Check for NUMERIC field types that need special handling
             let tv = match search_field.field_type() {
                 SearchFieldType::Numeric64(_, scale) => {
                     TantivyValue::try_from_numeric_i64(actual_datum, scale)

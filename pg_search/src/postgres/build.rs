@@ -25,7 +25,9 @@ use crate::postgres::utils::{extract_field_attributes, ExtractedFieldAttribute};
 use crate::schema::{SearchFieldConfig, SearchFieldType, SearchIndexSchema};
 use anyhow::Result;
 use pgrx::*;
+use std::sync::Arc;
 use tantivy::schema::Schema;
+use tantivy::vector::cluster::plugin::ClusterPlugin;
 use tantivy::{Index, IndexSettings};
 use tokenizers::SearchTokenizer;
 
@@ -281,6 +283,9 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
             SearchFieldType::NumericBytes(..) => {
                 builder.add_bytes_field(name.as_ref(), config.clone())
             }
+            SearchFieldType::Vector(_, dims, metric) => {
+                builder.add_vector_field(name.as_ref(), dims, metric.into())
+            }
         };
     }
 
@@ -309,7 +314,12 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
         docstore_compress_dedicated_thread: false,
         ..IndexSettings::default()
     };
-    let _ = Index::create(directory, schema, settings)?;
+
+    let mut index = Index::create(directory, schema.clone(), settings)?;
+    if let Some(cfg) = index_relation.cluster_config(true) {
+        index.register_plugin(Arc::new(ClusterPlugin::new(cfg)));
+    }
+
     Ok(())
 }
 

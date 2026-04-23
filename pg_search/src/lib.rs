@@ -24,6 +24,7 @@ mod postgres;
 mod query;
 pub(crate) mod scan;
 mod schema;
+pub(crate) mod vector;
 
 pub mod gucs;
 pub mod parallel_worker;

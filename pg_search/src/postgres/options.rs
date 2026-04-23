@@ -1178,6 +1178,9 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
             indexed: true,
             fast: true,
         },
+        SearchFieldType::Vector(_, _, _) => {
+            panic!("vector fields cannot be used as key fields")
+        }
     }
 }
 

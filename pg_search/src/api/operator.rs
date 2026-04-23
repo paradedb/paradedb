@@ -1041,6 +1041,29 @@ CREATE OPERATOR CLASS anyelement_bm25_ops DEFAULT FOR TYPE anyelement USING bm25
     OPERATOR 1 pg_catalog.@@@(anyelement, text),                         /* for querying with a tantivy-compatible text query */
     OPERATOR 2 pg_catalog.@@@(anyelement, paradedb.searchqueryinput),    /* for querying with a paradedb.searchqueryinput structure */
     STORAGE anyelement;
+
+-- Vector opclasses, pgvector convention. These are pure metric tags
+-- — `STORAGE vector` only, no strategy operators or support functions.
+-- bm25 doesn't dispatch on the distance operator at index lookup
+-- time; the opclass exists so users can name the metric on the index
+-- attribute (`embedding vector_cosine_ops`), and we read it back at
+-- build time via `VectorMetric::from_index_attr`.
+--
+-- @@@ queries on other columns of the same index continue to work
+-- through `anyelement_bm25_ops`. The pgvector distance operators
+-- (<->, <=>, <#>) reach our scan via the ORDER BY pathkey path
+-- regardless of what's in the opclass.
+--
+-- vector_l2_ops is DEFAULT for `vector` columns under bm25 so that a
+-- bare `(embedding)` column spec still works (resolves to L2).
+CREATE OPERATOR CLASS public.vector_l2_ops DEFAULT FOR TYPE public.vector USING bm25 AS
+    STORAGE public.vector;
+
+CREATE OPERATOR CLASS public.vector_cosine_ops FOR TYPE public.vector USING bm25 AS
+    STORAGE public.vector;
+
+CREATE OPERATOR CLASS public.vector_ip_ops FOR TYPE public.vector USING bm25 AS
+    STORAGE public.vector;
 "#,
     name = "bm25_ops_anyelement_operator",
     requires = [

@@ -19,9 +19,11 @@ use crate::api::{HashMap, HashSet};
 use anyhow::Result;
 use pgrx::pg_sys;
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 use tantivy::index::SegmentId;
 use tantivy::indexer::{AddOperation, IndexWriterOptions, SegmentWriter};
 use tantivy::schema::Field;
+use tantivy::vector::cluster::plugin::ClusterPlugin;
 use tantivy::{
     directory::RamDirectory, Directory, Index, IndexMeta, IndexSettings, IndexWriter, Opstamp,
     Segment, SegmentMeta, TantivyDocument,
@@ -140,6 +142,9 @@ impl SerialIndexWriter {
 
         let directory = mvcc_satisfies.directory(index_relation);
         let mut index = Index::open(directory)?;
+        if let Some(cfg) = index_relation.cluster_config(true) {
+            index.register_plugin(Arc::new(ClusterPlugin::new(cfg)));
+        }
         let schema = index_relation.schema()?;
         setup_tokenizers(index_relation, &mut index)?;
         let ctid_field = schema.ctid_field();
@@ -352,8 +357,12 @@ pub struct SearchIndexMerger {
 }
 
 impl SearchIndexMerger {
-    pub fn open(directory: MVCCDirectory) -> Result<SearchIndexMerger> {
-        let index = Index::open(directory.clone())?;
+    pub fn open(indexrel: &PgSearchRelation) -> Result<SearchIndexMerger> {
+        let directory = MvccSatisfies::Mergeable.directory(indexrel);
+        let mut index = Index::open(directory.clone())?;
+        if let Some(cfg) = indexrel.cluster_config(true) {
+            index.register_plugin(Arc::new(ClusterPlugin::new(cfg)));
+        }
         Ok(Self {
             index,
             merged_segment_ids: Default::default(),

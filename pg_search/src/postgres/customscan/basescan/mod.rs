@@ -83,7 +83,7 @@ use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_S
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 
 use crate::postgres::customscan::limit_offset::extract_const_i64;
-use pgrx::{pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts};
+use pgrx::{pg_guard, pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::Index;
 
@@ -1486,7 +1486,8 @@ impl CustomScan for BaseScan {
 
                         let needs_special_projection = state.custom_state().need_scores()
                             || state.custom_state().need_snippets()
-                            || state.custom_state().window_aggregate_results.is_some();
+                            || state.custom_state().window_aggregate_results.is_some()
+                            || !state.custom_state().const_distance_nodes.is_empty();
 
                         if !needs_special_projection {
                             //
@@ -1516,6 +1517,20 @@ impl CustomScan for BaseScan {
                                     .expect("const_score_node should be set");
                                 (*const_score_node).constvalue = score.into_datum().unwrap();
                                 (*const_score_node).constisnull = false;
+                            }
+
+                            // Inject the vector distance into any placeholder
+                            // Const nodes that replaced ORDER-BY `<->` exprs.
+                            // TopK pushes `-distance` as the score, so
+                            // `-score` is the distance we want to emit.
+                            if !state.custom_state().const_distance_nodes.is_empty() {
+                                let distance = (-score) as f64;
+                                let distance_datum = distance.into_datum().expect("f64 into_datum");
+                                for &const_node in state.custom_state().const_distance_nodes.iter()
+                                {
+                                    (*const_node).constvalue = distance_datum;
+                                    (*const_node).constisnull = false;
+                                }
                             }
 
                             // Update window aggregate values
@@ -1714,6 +1729,25 @@ fn validate_topk_expectation(
             "Ensure ORDER BY columns are indexed. Numeric columns are fast by default. \
                  For string columns, use pdb.literal tokenizer"
                 .to_string(),
+        ),
+        PathKeyInfo::Unusable(UnusableReason::VectorMetricMismatch {
+            field_metric,
+            op_metric,
+        }) => (
+            format!(
+                "ORDER BY uses the {} ({:?}) operator but the index attribute was built with \
+                 the {} opclass ({:?})",
+                op_metric.operator(),
+                op_metric,
+                field_metric.opclass_name(),
+                field_metric,
+            ),
+            format!(
+                "Either change the ORDER BY operator to {} (matching the index opclass), \
+                 or rebuild the index with the {} opclass on the vector column.",
+                field_metric.operator(),
+                op_metric.opclass_name(),
+            ),
         ),
         PathKeyInfo::UsablePrefix(matched) => (
             format!(
@@ -2065,8 +2099,19 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
     let need_scores = state.custom_state().need_scores();
     let need_snippets = state.custom_state().need_snippets();
     let has_window_aggs = !state.custom_state().window_aggregates.is_empty();
+    // Vector-distance ORDER BY queries also need placeholder injection so
+    // the `embedding <-> query` OpExpr in the targetlist is replaced with
+    // a pre-computed Const at exec time (skipping `l2_distance` +
+    // `detoast_attr` per output row). We can't cheaply know at this point
+    // whether there's such an OpExpr, but the walker is idempotent and
+    // cheap on a miss, so we always run it and gate on whether it
+    // actually replaced anything.
+    let is_topk_vector_order = matches!(
+        state.custom_state().exec_method_type,
+        crate::postgres::customscan::builders::custom_path::ExecMethodType::TopK { .. }
+    );
 
-    if !need_scores && !need_snippets && !has_window_aggs {
+    if !need_scores && !need_snippets && !has_window_aggs && !is_topk_vector_order {
         // nothing to inject, use whatever we originally setup as our ProjectionInfo
         return;
     }
@@ -2095,10 +2140,74 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
         (targetlist, HashMap::default())
     };
 
+    // Inject vector-distance ORDER BY placeholders. When the ORDER BY is
+    // `embedding <-> query`, pg adds that `OpExpr` to the scan's targetlist
+    // as a junk column, then evaluates it per output row — triggering
+    // `detoast_attr` on the TOAST'd heap vector (~27 % of query time at
+    // LIMIT 100). TopK already has the exact same distance computed; stuff
+    // it into a Const placeholder so `ExecProject` skips the recompute.
+    let (targetlist, const_distance_nodes) = inject_vector_distance_placeholders(targetlist);
+
     state.custom_state_mut().placeholder_targetlist = Some(targetlist);
     state.custom_state_mut().const_score_node = Some(const_score_node);
     state.custom_state_mut().const_snippet_nodes = const_snippet_nodes;
     state.custom_state_mut().const_window_agg_nodes = const_window_agg_nodes;
+    state.custom_state_mut().const_distance_nodes = const_distance_nodes;
+}
+
+/// Walk `targetlist`, replacing every pgvector `<->` `OpExpr` (L2 distance)
+/// with a `Const(float8, null)` placeholder. Returns the rewritten targetlist
+/// and the list of `Const` nodes, in left-to-right order, so exec-time can
+/// fill them with the TopK-computed distance.
+unsafe fn inject_vector_distance_placeholders(
+    targetlist: *mut pg_sys::List,
+) -> (*mut pg_sys::List, Vec<*mut pg_sys::Const>) {
+    use crate::postgres::customscan::orderby::metric_for_opoid;
+
+    struct Ctx {
+        nodes: Vec<*mut pg_sys::Const>,
+    }
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        context: *mut std::ffi::c_void,
+    ) -> *mut pg_sys::Node {
+        if node.is_null() {
+            return std::ptr::null_mut();
+        }
+        if let Some(opexpr) = nodecast!(OpExpr, T_OpExpr, node) {
+            if metric_for_opoid((*opexpr).opno).is_some() {
+                let const_node = pg_sys::makeConst(
+                    pg_sys::FLOAT8OID,
+                    -1,
+                    pg_sys::Oid::INVALID,
+                    size_of::<f64>() as _,
+                    pg_sys::Datum::null(),
+                    true,
+                    true,
+                );
+                let ctx = &mut *context.cast::<Ctx>();
+                ctx.nodes.push(const_node);
+                return const_node.cast();
+            }
+        }
+        #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
+        {
+            let fnptr = walker as usize as *const ();
+            let walker: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
+                std::mem::transmute(fnptr);
+            pg_sys::expression_tree_mutator(node, Some(walker), context)
+        }
+        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        {
+            pg_sys::expression_tree_mutator_impl(node, Some(walker), context)
+        }
+    }
+
+    let mut ctx = Ctx { nodes: Vec::new() };
+    let new_tl = walker(targetlist.cast(), std::ptr::addr_of_mut!(ctx).cast());
+    (new_tl.cast(), ctx.nodes)
 }
 
 /// Inject placeholder Const nodes for window aggregates at execution time

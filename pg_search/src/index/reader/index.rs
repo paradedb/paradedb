@@ -41,12 +41,14 @@ use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResult
 use tantivy::aggregation::DistributedAggregationCollector;
 use tantivy::collector::sort_key::{
     ComparatorEnum, SortByBytes, SortByErasedType, SortBySimilarityScore, SortByStaticFastValue,
-    SortByString,
+    SortByString, SortByTurboQuantDistance,
 };
 use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
+use tantivy::vector::cluster::plugin::{ClusterPlugin, ProbeConfig};
+use tantivy::vector::turboquant::TurboQuantizer;
 use tantivy::{
     query::Query, schema::OwnedValue, DateTime, DocAddress, DocId, DocSet, Executor, IndexReader,
     ReloadPolicy, Score, Searcher, SegmentOrdinal, SegmentReader, TantivyDocument,
@@ -331,6 +333,9 @@ impl SearchIndexReader {
 
         let directory = mvcc_style.directory(index_relation);
         let mut index = Index::open(directory.clone())?;
+        if let Some(cfg) = index_relation.cluster_config(false) {
+            index.register_plugin(Arc::new(ClusterPlugin::new(cfg)));
+        }
         let total_segment_count = directory
             .total_segment_count()
             .load(std::sync::atomic::Ordering::Relaxed);
@@ -865,6 +870,37 @@ impl SearchIndexReader {
                 feature: OrderByFeature::NullTest { .. },
                 ..
             } => unreachable!("NullTest ORDER BY is only used in JoinScan"),
+            OrderByInfo {
+                feature:
+                    OrderByFeature::VectorDistance {
+                        name, query_vector, ..
+                    },
+                ..
+            } => {
+                let field = self
+                    .schema
+                    .search_field(name)
+                    .expect("vector field should exist in index schema");
+                let tantivy_field = field.field();
+
+                let dims = query_vector.len();
+                let quantizer = TurboQuantizer::new(dims, None, None);
+                let mut sort_computer =
+                    SortByTurboQuantDistance::new(query_vector.clone(), tantivy_field, quantizer);
+                let probe = ProbeConfig {
+                    max_probe: crate::gucs::vector_cluster_probes(),
+                    ..Default::default()
+                };
+                sort_computer = sort_computer.with_probe(probe);
+                TopKSearchResults::new_for_discarded_field(self.top_in_segments(
+                    segment_ids,
+                    sort_computer,
+                    erased_features,
+                    n,
+                    offset,
+                    aux_collector,
+                ))
+            }
         }
     }
 
@@ -1344,6 +1380,13 @@ impl SearchIndexReader {
                     feature: OrderByFeature::NullTest { .. },
                     ..
                 } => unreachable!("NullTest ORDER BY is only used in JoinScan"),
+                OrderByInfo {
+                    feature: OrderByFeature::VectorDistance { .. },
+                    ..
+                } => {
+                    // Vector distance cannot be a secondary sort key
+                    unimplemented!("Vector distance ORDER BY can only be the primary sort key")
+                }
             }
         }
 

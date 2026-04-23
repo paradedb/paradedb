@@ -129,6 +129,20 @@ static DYNAMIC_FILTER_BATCH_SIZE: GucSetting<i32> = GucSetting::<i32>::new(0);
 /// use per-segment ordinal pruning to reduce dictionary decoding.
 static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
 
+/// Per-segment cluster probe count for vector search. Caps the number
+/// of clusters whose docs are scored per query. Lower = faster but
+/// risks dropping valid top-K candidates whose cluster fell outside the
+/// probe set; higher = better recall but linearly more scoring work.
+/// Caps the adaptive probe iteration (initial pass + follow-up steps,
+/// terminating early when the top-K heap is full and the next
+/// un-probed centroid is too far). Defaults to 50, matching tantivy's
+/// internal `ProbeConfig` default.
+static VECTOR_CLUSTER_PROBES: GucSetting<i32> = GucSetting::<i32>::new(50);
+
+pub fn vector_cluster_probes() -> usize {
+    VECTOR_CLUSTER_PROBES.get() as usize
+}
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -319,6 +333,21 @@ pub fn init() {
         c"Enable recursive estimates in EXPLAIN VERBOSE",
         c"Shows estimated document counts for nested query components. Expensive operation, use for debugging only.",
         &EXPLAIN_RECURSIVE_ESTIMATES,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.vector_cluster_probes",
+        c"Cluster probe count cap for vector ORDER BY queries",
+        c"Caps the number of clusters per segment whose docs are scored on a vector \
+ORDER BY query. The collector iterates clusters adaptively (initial pass then +step \
+per follow-up, terminating early when the top-K heap is full and the next un-probed \
+centroid is too far) up to this cap. Lower values reduce latency at the cost of recall \
+(relevant clusters may be missed). Defaults to 50.",
+        &VECTOR_CLUSTER_PROBES,
+        1,
+        4096,
         GucContext::Userset,
         GucFlags::default(),
     );

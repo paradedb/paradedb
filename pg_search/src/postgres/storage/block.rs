@@ -275,18 +275,41 @@ pub struct SegmentMetaEntryImmutable {
     pub store: Option<FileEntry>,
     pub temp_store: Option<FileEntry>,
     pub delete: Option<DeleteEntry>,
+    /// Plugin-defined component. Today only `.cluster` (centroid
+    /// index + per-cluster batched TurboQuant records) is defined.
+    #[serde(default)]
+    pub custom: Option<(CustomExtensionId, FileEntry)>,
+}
+
+/// Numeric IDs for plugin file extensions, so SegmentMetaEntryImmutable
+/// can stay `Copy`.
+///
+/// Variants are persisted on-disk; do not renumber existing ones, only
+/// append.
+#[derive(Copy, Clone, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CustomExtensionId {
+    #[default]
+    Cluster = 0,
+}
+
+impl CustomExtensionId {
+    pub fn extension(&self) -> &'static str {
+        match self {
+            Self::Cluster => "cluster",
+        }
+    }
 }
 
 impl SegmentMetaEntryImmutable {
     pub fn path(uuid: &str, component: SegmentComponent) -> PathBuf {
-        if matches!(component, SegmentComponent::Delete) {
-            PathBuf::from(format!(
+        match component {
+            SegmentComponent::Delete => PathBuf::from(format!(
                 "{}.0.{}", // we can hardcode zero as the opstamp component of the path as it's not used by anyone
                 uuid,
                 SegmentComponent::Delete
-            ))
-        } else {
-            PathBuf::from(format!("{uuid}.{component}"))
+            )),
+            SegmentComponent::Custom(ref ext) => PathBuf::from(format!("{uuid}.{ext}")),
+            _ => PathBuf::from(format!("{uuid}.{component}")),
         }
     }
 
@@ -301,6 +324,13 @@ impl SegmentMetaEntryImmutable {
         for (file_entry, component) in self.file_entries() {
             if path == Self::path(uuid, component) {
                 return Some(*file_entry);
+            }
+        }
+        // Check custom plugin component
+        if let Some((ext_id, fe)) = self.custom.as_ref() {
+            let component = SegmentComponent::Custom(ext_id.extension().to_string());
+            if path == Self::path(uuid, component) {
+                return Some(*fe);
             }
         }
         None
@@ -335,6 +365,7 @@ impl SegmentMetaEntryImmutable {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum SegmentMetaEntryContent {
     Immutable(SegmentMetaEntryImmutable),
     Mutable(SegmentMetaEntryMutable),
@@ -648,16 +679,28 @@ impl SegmentMetaEntry {
     }
 
     pub fn get_component_paths(&self) -> impl Iterator<Item = PathBuf> + '_ {
-        let iter: Box<dyn Iterator<Item = PathBuf>> =
-            match self.content {
-                SegmentMetaEntryContent::Immutable(ref content) => {
-                    let uuid = self.segment_id().uuid_string();
-                    Box::new(content.file_entries().map(move |(_, component)| {
-                        SegmentMetaEntryImmutable::path(&uuid, component)
-                    }))
-                }
-                SegmentMetaEntryContent::Mutable(_) => Box::new(std::iter::empty()),
-            };
+        let iter: Box<dyn Iterator<Item = PathBuf>> = match self.content {
+            SegmentMetaEntryContent::Immutable(ref content) => {
+                let uuid = self.segment_id().uuid_string();
+                let uuid_clone = uuid.clone();
+                let standard = content
+                    .file_entries()
+                    .map(move |(_, component)| SegmentMetaEntryImmutable::path(&uuid, component));
+                let custom_paths: Vec<PathBuf> = content
+                    .custom
+                    .as_ref()
+                    .map(|(ext_id, _)| {
+                        SegmentMetaEntryImmutable::path(
+                            &uuid_clone,
+                            SegmentComponent::Custom(ext_id.extension().to_string()),
+                        )
+                    })
+                    .into_iter()
+                    .collect();
+                Box::new(standard.chain(custom_paths))
+            }
+            SegmentMetaEntryContent::Mutable(_) => Box::new(std::iter::empty()),
+        };
         iter
     }
 
@@ -672,10 +715,25 @@ impl SegmentMetaEntry {
                 Box::new(LinkedBytesList::open(indexrel, block).freeable_blocks())
             }
             SegmentMetaEntryContent::Immutable(ref content) => {
-                // Free all files.
-                Box::new(content.file_entries().flat_map(move |(file_entry, _)| {
-                    LinkedBytesList::open(indexrel, file_entry.starting_block).freeable_blocks()
-                }))
+                // Free all files including custom plugin files.
+                let custom_blocks: Vec<pg_sys::BlockNumber> = content
+                    .custom
+                    .as_ref()
+                    .map(|(_, fe)| {
+                        LinkedBytesList::open(indexrel, fe.starting_block)
+                            .freeable_blocks()
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                Box::new(
+                    content
+                        .file_entries()
+                        .flat_map(move |(file_entry, _)| {
+                            LinkedBytesList::open(indexrel, file_entry.starting_block)
+                                .freeable_blocks()
+                        })
+                        .chain(custom_blocks),
+                )
             }
             SegmentMetaEntryContent::Mutable(ref content) => {
                 // Free the content list.

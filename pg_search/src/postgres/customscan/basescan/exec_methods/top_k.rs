@@ -282,6 +282,31 @@ impl ExecMethod for TopKScanExecState {
             }
         }
 
+        // Resolve any parameterized vector ORDER BY query vectors (generic
+        // prepared-statement plans where `<-> $1` left a Param node behind
+        // at planning time). We mutate both copies — the canonical one in
+        // `state.exec_method_type` and our local clone — so subsequent
+        // reads see the bound floats.
+        unsafe {
+            let estate = (*cstate).ss.ps.state;
+            if !estate.is_null() {
+                if let ExecMethodType::TopK {
+                    orderby_info: Some(infos),
+                    ..
+                } = &mut state.exec_method_type
+                {
+                    for info in infos.iter_mut() {
+                        info.resolve_param(estate);
+                    }
+                }
+                if let Some(infos) = self.orderby_info.as_mut() {
+                    for info in infos.iter_mut() {
+                        info.resolve_param(estate);
+                    }
+                }
+            }
+        }
+
         // Call the default init behavior first
         self.reset(state);
 

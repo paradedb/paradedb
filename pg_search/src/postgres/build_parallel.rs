@@ -16,7 +16,6 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::gucs;
-use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{
     IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
 };
@@ -372,7 +371,43 @@ impl WorkerBuildState {
             self.try_merge(true)?;
         }
 
+        // When the vector plugin is in `defer_clustering` mode
+        // (enabled on the merge-path `ClusterConfig` whenever
+        // `indexrel.is_create_index()`), each segment that this
+        // worker flushed directly and did NOT combine via try_merge
+        // has an empty `.cluster` file. The merge path always
+        // clusters regardless of the defer flag, so a single-source
+        // `merge_segments(&[id])` rebuilds the cluster for that one
+        // segment.
+        //
+        // Crucially, this runs on the worker thread — so N workers
+        // rebuild their own segments in parallel, rather than the
+        // leader rebuilding all N segments serially.
+        if self.indexrel.needs_cluster_rebuild() {
+            self.rebuild_deferred_clusters()?;
+            unsafe { garbage_collect_index(&self.indexrel, self.current_xid, self.next_xid) };
+        }
+
         unsafe { set_ps_display_remove_suffix() };
+        Ok(())
+    }
+
+    /// For each segment this worker still holds in `unmerged_metas`
+    /// (i.e. it didn't get folded into a larger merge), run a
+    /// single-source `merge_segments` to go through
+    /// `ClusterPlugin::merge` and populate its `.cluster` file. Each
+    /// rebuild produces a new segment and orphans the old one, so the
+    /// caller is responsible for running `garbage_collect_index`
+    /// afterwards.
+    fn rebuild_deferred_clusters(&mut self) -> anyhow::Result<()> {
+        if self.unmerged_metas.is_empty() {
+            return Ok(());
+        }
+        let mut merger = SearchIndexMerger::open(&self.indexrel)?;
+        for meta in &self.unmerged_metas {
+            let sid = meta.id();
+            merger.merge_segments(std::slice::from_ref(&sid))?;
+        }
         Ok(())
     }
 
@@ -445,8 +480,7 @@ impl WorkerBuildState {
             segment_ids_to_merge.len(),
             segment_ids_to_merge
         );
-        let directory = MvccSatisfies::Mergeable.directory(&self.indexrel);
-        let mut merger = SearchIndexMerger::open(directory)?;
+        let mut merger = SearchIndexMerger::open(&self.indexrel)?;
         unsafe { set_ps_display_suffix(MERGING.as_ptr()) };
         merger.merge_segments(&segment_ids_to_merge)?;
 

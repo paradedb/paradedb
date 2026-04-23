@@ -15,9 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 //! Provides a reference-counted wrapper around an open Postgres [`pg_sys::Relation`].
+use crate::api::HashMap;
 use crate::postgres::build::is_bm25_index;
+use crate::postgres::catalog::is_pgvector_oid;
 use crate::postgres::options::BM25IndexOptions;
 use crate::schema::SearchIndexSchema;
+use crate::vector::metric::VectorMetric;
+use crate::vector::sampler::{NoopSamplerFactory, PgHeapVectorSamplerFactory, VectorFieldInfo};
 use pgrx::{name_data_to_str, pg_sys, PgList, PgTupleDesc};
 use std::cell::RefCell;
 use std::error::Error;
@@ -25,6 +29,13 @@ use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
 use std::ptr::NonNull;
 use std::rc::Rc;
+use std::sync::Arc;
+use tantivy::schema::{Field, FieldType};
+use tantivy::vector::cluster::kmeans::KMeansConfig;
+use tantivy::vector::cluster::plugin::{ClusterConfig, ClusterFieldConfig};
+use tantivy::vector::cluster::sampler::VectorSamplerFactory;
+use tantivy::vector::rotation::{DynamicRotator, RotatorType};
+use tantivy::vector::turboquant::TurboQuantizer;
 use tantivy::TantivyError;
 
 type NeedClose = bool;
@@ -354,5 +365,125 @@ impl PgSearchRelation {
     /// or an error if the schema cannot be loaded.
     pub fn field_supports_aggregate(&self, field: &str) -> Result<bool, SchemaError> {
         self.schema().map(|s| s.field_supports_aggregate(field))
+    }
+
+    /// Whether this index has at least one vector field AND we're in a
+    /// context where build-time clustering was deferred
+    /// (`is_create_index()` is still set). Used by the parallel
+    /// build worker to decide whether to do a per-worker cluster-rebuild
+    /// pass after its final commit.
+    pub fn needs_cluster_rebuild(&self) -> bool {
+        if !self.is_create_index() {
+            return false;
+        }
+        let Ok(schema) = self.schema() else {
+            return false;
+        };
+        let tantivy_schema: tantivy::schema::Schema = schema.into();
+        let has_vector = tantivy_schema
+            .fields()
+            .any(|(_, entry)| matches!(entry.field_type(), FieldType::Vector(_)));
+        has_vector
+    }
+
+    /// Build a `ClusterConfig` for registering the cluster plugin on
+    /// this index. Returns `None` if the index has no vector fields.
+    ///
+    /// `with_heap_sampler=true` wires up a `PgHeapVectorSampler` that
+    /// re-reads full-precision vectors from the heap during k-means
+    /// training (used on merge / build paths). `with_heap_sampler=false`
+    /// uses a no-op sampler (read path; never re-trains).
+    pub fn cluster_config(&self, with_heap_sampler: bool) -> Option<ClusterConfig> {
+        let schema = self.schema().ok()?;
+        let tantivy_schema: tantivy::schema::Schema = schema.into();
+
+        let vector_fields: Vec<(Field, usize, VectorMetric)> = tantivy_schema
+            .fields()
+            .filter_map(|(field, entry)| match entry.field_type() {
+                FieldType::Vector(opts) => Some((field, opts.dimensions, opts.metric.into())),
+                _ => None,
+            })
+            .collect();
+        if vector_fields.is_empty() {
+            return None;
+        }
+
+        // Pick the sampler factory: heap-backed for merge / build (k-means
+        // training re-reads full-precision vectors via ctid), no-op for
+        // the read path. The heap-backed factory walks the heap relation
+        // tuple desc once to map each schema vector field to its heap
+        // attno; dims + metric already come from the schema.
+        let sampler_factory: Arc<dyn VectorSamplerFactory> = with_heap_sampler
+            .then(|| self.heap_relation())
+            .flatten()
+            .map(|heap_rel| {
+                let tupdesc = heap_rel.tuple_desc();
+                let attno_by_name: HashMap<&str, pg_sys::AttrNumber> = (0..tupdesc.len())
+                    .filter_map(|i| {
+                        let attr = tupdesc.get(i)?;
+                        is_pgvector_oid(attr.type_oid().value())
+                            .then(|| (attr.name(), (i + 1) as pg_sys::AttrNumber))
+                    })
+                    .collect();
+                let field_info: HashMap<Field, VectorFieldInfo> = vector_fields
+                    .iter()
+                    .filter_map(|&(field, dims, metric)| {
+                        let name = tantivy_schema.get_field_name(field);
+                        let attno = *attno_by_name.get(name)?;
+                        Some((
+                            field,
+                            VectorFieldInfo {
+                                attno,
+                                dims,
+                                metric,
+                            },
+                        ))
+                    })
+                    .collect();
+                if field_info.is_empty() {
+                    Arc::new(NoopSamplerFactory) as Arc<dyn VectorSamplerFactory>
+                } else {
+                    Arc::new(PgHeapVectorSamplerFactory::new(heap_rel.oid(), field_info))
+                }
+            })
+            .unwrap_or_else(|| Arc::new(NoopSamplerFactory));
+
+        let field_configs: Vec<ClusterFieldConfig> = vector_fields
+            .iter()
+            .map(|&(field, dims, metric)| {
+                let rotator = Arc::new(DynamicRotator::new(dims, RotatorType::FhtKacRotator, 42));
+                let padded_dims = rotator.padded_dim();
+                ClusterFieldConfig::new(
+                    field,
+                    dims,
+                    padded_dims,
+                    metric.runtime_metric(),
+                    rotator,
+                    42,
+                    TurboQuantizer::new(dims, None, None),
+                )
+            })
+            .collect();
+
+        Some(ClusterConfig {
+            fields: field_configs,
+            clustering_threshold: 1000,
+            num_clusters_fn: Arc::new(|n| (n as f64 / 250.0).ceil() as usize),
+            // K-means iterations dominate the build. The cluster centroids
+            // are only used for probe pruning at query time — recall comes
+            // from the per-doc TurboQuant records, not from how perfectly
+            // the centroids partition the space — so a small number of
+            // iterations is fine. 5 iterations recovers most of the recall
+            // benefit at ~1/5 the time. Sample is capped at 16k to bound
+            // per-segment cost.
+            kmeans: KMeansConfig {
+                niter: 5,
+                ..KMeansConfig::default()
+            },
+            sample_ratio: 0.1,
+            sample_cap: 16_384,
+            sampler_factory,
+            defer_clustering: self.is_create_index(),
+        })
     }
 }

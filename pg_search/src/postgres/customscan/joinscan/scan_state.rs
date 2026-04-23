@@ -428,7 +428,7 @@ fn create_datafusion_session_context_inner(
     // groups × rows_per_group rows instead of ~distinct_groups rows.
     //
     // On the 25M `aggregate_join_groupby` bench this fanout was ~7× (gb_postagg
-    // rows_in = 22M across seats for 3.1M distinct groups), and 22M rows
+    // rows_in = 22M across participants for 3.1M distinct groups), and 22M rows
     // through shm_mq saturated the shuffle for > 600s. Single-process
     // DataFusion never pays that cost because there's no shuffle; the skip
     // probe is a pure win in single-process. For MPP it is the dominant cost.

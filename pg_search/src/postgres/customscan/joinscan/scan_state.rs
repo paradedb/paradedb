@@ -118,9 +118,6 @@ fn insert_field_name_required_early(
     required_early: &mut crate::api::HashSet<String>,
 ) {
     required_early.insert(name.to_string());
-    // SAFETY: `get_source_attno_by_name` opens a Postgres heap relation via
-    // FFI, which is only safe on the Postgres backend thread — the same
-    // thread this planning-stage helper runs on.
     let attno = unsafe { get_source_attno_by_name(source, name) };
     if let Some(attno) = attno {
         if let Some(registered) = source.column_name(attno) {

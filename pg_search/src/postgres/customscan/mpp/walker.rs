@@ -555,7 +555,29 @@ fn rewrite_with_cuts(
                         Partitioning::Hash(group_keys, n as usize),
                     )?));
                 }
-                _ => {}
+                (CutKind::ScalarAgg, false) => {
+                    return Err(DataFusionError::Plan(format!(
+                        "mpp: rewrite_with_cuts: ScalarAgg cut expected a Partial \
+                         aggregate with no group-by keys, but found {} group-by key(s); \
+                         classifier and physical plan disagree",
+                        group_exprs.len()
+                    )));
+                }
+                (CutKind::GroupByAgg, true) => {
+                    return Err(DataFusionError::Plan(
+                        "mpp: rewrite_with_cuts: GroupByAgg cut expected a Partial \
+                         aggregate with at least one group-by key, but found a scalar \
+                         Partial aggregate; classifier and physical plan disagree"
+                            .to_string(),
+                    ));
+                }
+                (CutKind::JoinOnly, _) => {
+                    return Err(DataFusionError::Plan(
+                        "mpp: rewrite_with_cuts: JoinOnly cut should not encounter a \
+                         Partial aggregate — join-only plans have no aggregate stage"
+                            .to_string(),
+                    ));
+                }
             }
         }
     }
@@ -2129,44 +2151,37 @@ mod tests {
     }
 
     #[test]
-    fn insert_mpp_cuts_scalar_does_not_wrap_groupby_partial() {
-        // A Partial *with* group keys under ScalarAgg shape should not be
-        // wrapped — rewrite_with_cuts matches on (kind, group_exprs.is_empty()).
+    fn insert_mpp_cuts_scalar_rejects_groupby_partial() {
+        // A Partial *with* group keys under ScalarAgg shape is a
+        // classifier/plan disagreement — must surface as an explicit error
+        // so a miscategorized query can't silently fall through.
         let plan = partial_agg_over_mem_source(vec!["id"]);
-        let rewritten = insert_mpp_cuts(plan, MppPlanShape::ScalarAggOnBinaryJoin, 2).unwrap();
-
-        // Root is still the Partial — no CoalescePartitionsExec, no RepartitionExec.
-        assert!(rewritten.as_any().downcast_ref::<AggregateExec>().is_some());
-        assert!(rewritten
-            .as_any()
-            .downcast_ref::<CoalescePartitionsExec>()
-            .is_none());
+        let err = insert_mpp_cuts(plan, MppPlanShape::ScalarAggOnBinaryJoin, 2).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("ScalarAgg"), "msg was: {msg}");
+        assert!(msg.contains("group-by"), "msg was: {msg}");
     }
 
     #[test]
-    fn insert_mpp_cuts_groupby_does_not_wrap_scalar_partial() {
-        // A Partial *without* group keys under GroupByAgg shape should not
-        // be wrapped. The caller's classifier is responsible for picking
-        // the right shape — rewrite_with_cuts enforces the invariant by
-        // no-op-ing on the mismatched pair.
+    fn insert_mpp_cuts_groupby_rejects_scalar_partial() {
+        // A Partial *without* group keys under GroupByAgg shape — same
+        // classifier/plan disagreement, must error.
         let plan = partial_agg_over_mem_source(vec![]);
-        let rewritten = insert_mpp_cuts(plan, MppPlanShape::GroupByAggOnBinaryJoin, 2).unwrap();
-
-        assert!(rewritten.as_any().downcast_ref::<AggregateExec>().is_some());
-        assert!(rewritten
-            .as_any()
-            .downcast_ref::<RepartitionExec>()
-            .is_none());
+        let err = insert_mpp_cuts(plan, MppPlanShape::GroupByAggOnBinaryJoin, 2).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("GroupByAgg"), "msg was: {msg}");
+        assert!(msg.contains("scalar Partial"), "msg was: {msg}");
     }
 
     #[test]
-    fn insert_mpp_cuts_join_only_does_not_wrap_partial() {
-        // JoinOnly shape should leave any Partial aggregate alone — the
-        // only rewrite is on HashJoinExec children (exercised in regression).
+    fn insert_mpp_cuts_join_only_rejects_partial() {
+        // JoinOnly plans have no aggregate stage; encountering a Partial
+        // aggregate means the classifier picked the wrong shape.
         let plan = partial_agg_over_mem_source(vec!["id"]);
-        let rewritten = insert_mpp_cuts(plan, MppPlanShape::JoinOnly, 2).unwrap();
-
-        assert!(rewritten.as_any().downcast_ref::<AggregateExec>().is_some());
+        let err = insert_mpp_cuts(plan, MppPlanShape::JoinOnly, 2).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("JoinOnly"), "msg was: {msg}");
+        assert!(msg.contains("Partial aggregate"), "msg was: {msg}");
     }
 
     #[test]

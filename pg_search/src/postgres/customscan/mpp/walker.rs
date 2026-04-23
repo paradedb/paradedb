@@ -909,6 +909,16 @@ fn prepare_for_mpp(
 ///    destined for peer participants get dropped before they hit the shuffle
 ///    (the build side hasn't filled the filter yet on this participant), and
 ///    the row count drops to ~0 across the mesh.
+///  * Any `SortPreservingMergeExec` / `CoalescePartitionsExec` that sits
+///    between the plan root and the `HashJoinExec` is stripped. DataFusion
+///    inserts these so a multi-partition HashJoin output can be merged for
+///    an outer `ORDER BY` / `LIMIT`; under MPP each participant's
+///    `ShuffleExec` already delivers a single input partition, the join is
+///    single-partition on each participant, and per-participant sorted
+///    streams are merged by Postgres' `GatherMerge` above the custom scan.
+///    Leaving the layer in place makes [`annotate_plan`] emit a spurious
+///    `Coalesce` cut (one more than [`cut_count_for_shape`] allocates),
+///    which aborts `_distribute_plan` with "out of mesh slots".
 ///
 /// Outer wrappers (`VisibilityFilterExec`, `SegmentedTopKExec`, ...) are
 /// rebuilt by `with_new_children` so their subtree identity refreshes.
@@ -937,6 +947,14 @@ fn prepare_join_only(plan: Arc<dyn ExecutionPlan>) -> DfResult<Arc<dyn Execution
             rebuilt.push(new);
         }
         if any_changed {
+            // Strip `SortPreservingMergeExec` / `CoalescePartitionsExec`
+            // layers that sit above the HashJoin. See the module doc above.
+            if rebuilt.len() == 1
+                && (node.as_any().is::<SortPreservingMergeExec>()
+                    || node.as_any().is::<CoalescePartitionsExec>())
+            {
+                return Ok((Arc::clone(&rebuilt[0]), true));
+            }
             Ok((node.with_new_children(rebuilt)?, true))
         } else {
             Ok((node, false))
@@ -2163,6 +2181,105 @@ mod tests {
         let plan = partial_agg_over_mem_source(vec!["id"]);
         let err = insert_mpp_cuts(plan, MppPlanShape::GroupByAggSingleTable, 2).unwrap_err();
         assert!(format!("{err}").contains("GroupByAggSingleTable"));
+    }
+
+    /// Build a minimal `HashJoinExec` joining two `MemorySourceConfig`
+    /// inputs on a single integer key column (shared schema with one
+    /// `id: Int32` column). Used by the `prepare_join_only` regression
+    /// tests below.
+    fn hash_join_over_mem_sources() -> Arc<dyn ExecutionPlan> {
+        use datafusion::common::NullEquality;
+        use datafusion::logical_expr::JoinType;
+        let schema: SchemaRef =
+            Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
+        let left = mem_source(&schema);
+        let right = mem_source(&schema);
+        let on: Vec<(Arc<dyn PhysicalExpr>, Arc<dyn PhysicalExpr>)> = vec![(
+            Arc::new(Column::new("id", 0)),
+            Arc::new(Column::new("id", 0)),
+        )];
+        Arc::new(
+            HashJoinExec::try_new(
+                left,
+                right,
+                on,
+                None,
+                &JoinType::Inner,
+                None,
+                PartitionMode::Auto,
+                NullEquality::NullEqualsNothing,
+                false,
+            )
+            .unwrap(),
+        )
+    }
+
+    #[test]
+    fn prepare_join_only_strips_sort_preserving_merge_above_hash_join() {
+        // Regression for bench run #24814164803 on PR #4872: at 25M rows a
+        // JoinOnly plan with `ORDER BY ... LIMIT` has a
+        // `SortPreservingMergeExec` above the `HashJoinExec`. Without
+        // stripping, `annotate_plan` flags the SPM-child as a `Coalesce`
+        // boundary (3rd cut), but `cut_count_for_shape(JoinOnly) = 2`, so
+        // `_distribute_plan` panics with "out of mesh slots at cut 2".
+        use datafusion::physical_expr::LexOrdering;
+        use datafusion::physical_expr::PhysicalSortExpr;
+        let hj = hash_join_over_mem_sources();
+        let sort_key: Arc<dyn PhysicalExpr> = Arc::new(Column::new("id", 0));
+        let ordering = LexOrdering::new(vec![PhysicalSortExpr {
+            expr: sort_key,
+            options: Default::default(),
+        }])
+        .expect("non-empty ordering");
+        let spm: Arc<dyn ExecutionPlan> =
+            Arc::new(SortPreservingMergeExec::new(ordering, Arc::clone(&hj)));
+
+        let prepared = prepare_join_only(spm).unwrap();
+
+        // The SPM layer is gone; the prepared root is the rewritten HJE.
+        assert!(prepared
+            .as_any()
+            .downcast_ref::<SortPreservingMergeExec>()
+            .is_none());
+        assert!(prepared.as_any().downcast_ref::<HashJoinExec>().is_some());
+
+        // And the post-prepare plan now yields exactly 2 annotations once
+        // `insert_mpp_cuts` runs — matching `cut_count_for_shape(JoinOnly)`.
+        let with_cuts = insert_mpp_cuts(prepared, MppPlanShape::JoinOnly, 2).unwrap();
+        let annotated = annotate_plan(with_cuts).unwrap();
+        let mut shuffle_count = 0usize;
+        let mut coalesce_count = 0usize;
+        fn count(node: &AnnotatedPlan, shuffle: &mut usize, coalesce: &mut usize) {
+            match node.plan_or_nb {
+                PlanOrNetworkBoundary::Shuffle => *shuffle += 1,
+                PlanOrNetworkBoundary::Coalesce => *coalesce += 1,
+                PlanOrNetworkBoundary::Plan(_) => {}
+            }
+            for c in &node.children {
+                count(c, shuffle, coalesce);
+            }
+        }
+        count(&annotated, &mut shuffle_count, &mut coalesce_count);
+        assert_eq!(shuffle_count, 2, "expected 2 Shuffle cuts for JoinOnly");
+        assert_eq!(coalesce_count, 0, "expected no Coalesce cuts for JoinOnly");
+    }
+
+    #[test]
+    fn prepare_join_only_strips_coalesce_partitions_above_hash_join() {
+        // Same invariant for `CoalescePartitionsExec`, which DataFusion
+        // inserts above the HashJoin when the outer plan doesn't require
+        // ordering but does require a single-partition gather.
+        let hj = hash_join_over_mem_sources();
+        let coalesce: Arc<dyn ExecutionPlan> =
+            Arc::new(CoalescePartitionsExec::new(Arc::clone(&hj)));
+
+        let prepared = prepare_join_only(coalesce).unwrap();
+
+        assert!(prepared
+            .as_any()
+            .downcast_ref::<CoalescePartitionsExec>()
+            .is_none());
+        assert!(prepared.as_any().downcast_ref::<HashJoinExec>().is_some());
     }
 
     // ========================================================================

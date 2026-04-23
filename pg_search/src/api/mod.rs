@@ -28,8 +28,8 @@ pub mod tokenizers;
 pub mod window_aggregate;
 
 use pgrx::{
-    direct_function_call, extension_sql, pg_cast, pg_sys, InOutFuncs, IntoDatum, PostgresType,
-    StringInfo,
+    direct_function_call, extension_sql, pg_cast, pg_sys, FromDatum, InOutFuncs, IntoDatum,
+    PostgresType, StringInfo,
 };
 
 pub use aggregate::{
@@ -43,6 +43,9 @@ use std::ffi::CStr;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
 use tantivy::json_utils::split_json_path;
+
+use crate::vector::metric::{l2_normalize_in_place, VectorMetric};
+use crate::vector::PgVector;
 
 #[derive(Debug, Clone)]
 #[repr(transparent)]
@@ -385,6 +388,24 @@ pub enum OrderByFeature {
         inner: Box<OrderByFeature>,
         nulltesttype: NullTestKind,
     },
+    VectorDistance {
+        name: FieldName,
+        rti: u32,
+        /// The query vector. Empty when `query_vector_param_id` is `Some` and
+        /// has not yet been resolved at execution time.
+        query_vector: Vec<f32>,
+        /// `Some(paramid)` when the query vector is supplied as a Postgres
+        /// `Param` (e.g. a prepared statement / generic-plan parameter binding).
+        /// At execution time the basescan resolves it from
+        /// `EState.es_param_list_info` and writes the floats into `query_vector`.
+        #[serde(default)]
+        query_vector_param_id: Option<i32>,
+        /// Metric implied by the operator that drove this ORDER BY
+        /// (`<->` → L2, `<=>` → Cosine, `<#>` → InnerProduct). Drives
+        /// EXPLAIN output and whether the resolved query vector is
+        /// L2-normalized for cosine/L2 ordering.
+        metric: VectorMetric,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -409,6 +430,9 @@ impl std::fmt::Display for OrderByFeature {
                 };
                 write!(f, "{inner} {test}")
             }
+            Self::VectorDistance { name, metric, .. } => {
+                write!(f, "{name} {} vector", metric.operator())
+            }
         }
     }
 }
@@ -423,5 +447,78 @@ pub struct OrderByInfo {
 impl OrderByInfo {
     pub fn is_score(&self) -> bool {
         matches!(self.feature, OrderByFeature::Score { .. })
+    }
+
+    /// If this `OrderByInfo` carries a parameterized vector ORDER BY
+    /// (`<-> $1` style, generic-plan prepared statement), look up the
+    /// bound `Param` value in the executor's `es_param_list_info`,
+    /// convert it to `Vec<f32>`, optionally L2-normalize for cosine,
+    /// and overwrite `query_vector` so downstream search code sees a
+    /// concrete vector.
+    ///
+    /// No-op for `OrderByFeature::VectorDistance` whose param ID is
+    /// already `None` (i.e. the vector was a literal `Const`), and
+    /// for every other `OrderByFeature` variant.
+    pub unsafe fn resolve_param(&mut self, estate: *mut pgrx::pg_sys::EState) {
+        let OrderByFeature::VectorDistance {
+            query_vector,
+            query_vector_param_id,
+            metric,
+            ..
+        } = &mut self.feature
+        else {
+            return;
+        };
+        let Some(paramid) = *query_vector_param_id else {
+            return;
+        };
+        let param_list = (*estate).es_param_list_info;
+        assert!(
+            !param_list.is_null(),
+            "es_param_list_info is NULL but vector ORDER BY references Param ${paramid}"
+        );
+        let idx = (paramid - 1) as usize;
+        assert!(
+            idx < (*param_list).numParams as usize,
+            "vector ORDER BY param_id {paramid} out of range (numParams={})",
+            (*param_list).numParams
+        );
+
+        // Materialize the param value. If the slot is already evaluated
+        // (PREPARE/EXECUTE-style binding sets PARAM_FLAG_CONST up front),
+        // read it directly. Otherwise (plpgsql SPI's lazy path) invoke
+        // `paramFetch` with a stack-local workspace, matching what the
+        // normal executor does in `ExecEvalParamExtern`. Passing
+        // `prm=NULL` to plpgsql's fetch callback crashes — it writes into
+        // the caller-provided buffer when non-null and expects one for
+        // out-of-band reads.
+        let slot = &(*param_list)
+            .params
+            .as_slice((*param_list).numParams as usize)[idx];
+        let (value, isnull) = if (slot.pflags & pg_sys::PARAM_FLAG_CONST as u16) != 0 {
+            (slot.value, slot.isnull)
+        } else if let Some(fetch) = (*param_list).paramFetch {
+            let mut prmdata = pg_sys::ParamExternData {
+                value: pg_sys::Datum::null(),
+                isnull: true,
+                pflags: 0,
+                ptype: pg_sys::InvalidOid,
+            };
+            let prm = fetch(param_list, paramid, false, &mut prmdata);
+            assert!(!prm.is_null(), "paramFetch returned NULL for ${paramid}");
+            ((*prm).value, (*prm).isnull)
+        } else {
+            (slot.value, slot.isnull)
+        };
+        assert!(!isnull, "vector ORDER BY parameter ${paramid} is NULL");
+
+        let mut floats = PgVector::from_datum(value, false)
+            .expect("vector ORDER BY parameter should not be NULL")
+            .0;
+        if metric.requires_unit_norm() {
+            l2_normalize_in_place(&mut floats);
+        }
+        *query_vector = floats;
+        *query_vector_param_id = None;
     }
 }

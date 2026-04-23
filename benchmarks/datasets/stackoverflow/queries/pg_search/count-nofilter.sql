@@ -5,7 +5,7 @@ SELECT COUNT(*) FROM stackoverflow_posts WHERE id @@@ pdb.all();
 SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(*) FROM stackoverflow_posts WHERE id @@@ pdb.all();
 
 -- pdb.agg (under the hood) without GROUP BY
-SELECT COUNT(ctid) FROM stackoverflow_posts WHERE id @@@ pdb.all();
+SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(ctid) FROM stackoverflow_posts WHERE id @@@ pdb.all();
 
 -- pdb.agg without GROUP BY (mvcc disabled)
 SELECT pdb.agg('{"value_count": {"field": "ctid"}}', false) FROM stackoverflow_posts WHERE id @@@ pdb.all();

@@ -24,7 +24,7 @@ use std::ffi::CStr;
 pub(crate) mod pdb {
     use crate::api::operator::{boost, const_score, fuzzy, slop};
     use crate::api::tokenizers::{
-        CowString, DatumWrapper, GenericTypeWrapper, JsonMarker, JsonbMarker, SqlNameMarker,
+        tokenize, DatumWrapper, GenericTypeWrapper, JsonMarker, JsonbMarker, SqlNameMarker,
         TextArrayMarker, UuidMarker, VarcharArrayMarker,
     };
     use macros::generate_tokenizer_sql;
@@ -71,7 +71,7 @@ pub(crate) mod pdb {
     /// data, along with proper cleanup when the wrapper is freed. This would make the wrapper
     /// fully self-contained and safe regardless of the input datum's lifetime.
     #[repr(C)]
-    pub struct AliasDatumWithType {
+    pub struct DatumWithType {
         vl_len_: i32,               // varlena header
         magic: u32,                 // magic number to identify wrapped datums
         typoid: pg_sys::Oid,        // original type OID
@@ -82,10 +82,10 @@ pub(crate) mod pdb {
     // PostgreSQL text values cannot contain embedded nulls, making false positives impossible
     const ALIAS_MAGIC: u32 = 0x414C0053; // 'A', 'L', 0x00, 'S'
 
-    impl AliasDatumWithType {
+    impl DatumWithType {
         unsafe fn new(datum: pg_sys::Datum, typoid: pg_sys::Oid) -> *mut Self {
-            let size = std::mem::size_of::<AliasDatumWithType>();
-            let ptr = pg_sys::palloc(size) as *mut AliasDatumWithType;
+            let size = std::mem::size_of::<DatumWithType>();
+            let ptr = pg_sys::palloc(size) as *mut DatumWithType;
 
             // Since pdb.alias is defined as LIKE = text, PostgreSQL treats it as a varlena
             // (variable-length) type. All varlena types must have a valid size header in the
@@ -110,29 +110,52 @@ pub(crate) mod pdb {
             ptr
         }
 
-        /// Check if a datum is a wrapped AliasDatumWithType by verifying size and magic number
+        /// Check if a datum is a wrapped DatumWithType by verifying size and magic number
         pub unsafe fn is_wrapped(wrapper: pg_sys::Datum) -> bool {
-            let ptr = wrapper.cast_mut_ptr::<AliasDatumWithType>();
+            let ptr = wrapper.cast_mut_ptr::<DatumWithType>();
             if ptr.is_null() {
                 return false;
             }
 
             let vl_len = pgrx::varlena::varsize_any(ptr.cast::<pg_sys::varlena>());
-            let expected_size = std::mem::size_of::<AliasDatumWithType>();
+            let expected_size = std::mem::size_of::<DatumWithType>();
 
             // Check both size AND magic number to avoid false positives
-            vl_len == expected_size && (*ptr).magic == ALIAS_MAGIC
+            // NOTE: if ptr is TEXT than ptr.magic could be unaligned
+            vl_len == expected_size
+                && ptr
+                    .byte_add(std::mem::offset_of!(DatumWithType, magic))
+                    .cast::<u32>()
+                    .read_unaligned()
+                    == ALIAS_MAGIC
         }
 
         pub unsafe fn extract_datum(wrapper: pg_sys::Datum) -> pg_sys::Datum {
-            let ptr = wrapper.cast_mut_ptr::<AliasDatumWithType>();
+            let ptr = wrapper.cast_mut_ptr::<DatumWithType>();
             (*ptr).datum_value
         }
 
-        unsafe fn extract_typoid(wrapper: pg_sys::Datum) -> pg_sys::Oid {
-            let ptr = wrapper.cast_mut_ptr::<AliasDatumWithType>();
+        pub unsafe fn extract_typoid(wrapper: pg_sys::Datum) -> pg_sys::Oid {
+            let ptr = wrapper.cast_mut_ptr::<DatumWithType>();
             (*ptr).typoid
         }
+    }
+
+    unsafe fn wrap_generic_type<InTy, InMarker, OutTy, OutMarker>(
+        input: GenericTypeWrapper<InTy, InMarker>,
+    ) -> GenericTypeWrapper<OutTy, OutMarker>
+    where
+        InTy: DatumWrapper,
+        OutTy: DatumWrapper,
+        InMarker: SqlNameMarker,
+        OutMarker: SqlNameMarker,
+    {
+        // Wrap datum and original typoid in a custom structure
+        let wrapper_ptr = unsafe { DatumWithType::new(input.datum, input.typoid) };
+
+        // Return the wrapper with the original typoid preserved
+        // This allows PostgreSQL to track array vs scalar types correctly
+        GenericTypeWrapper::new(pg_sys::Datum::from(wrapper_ptr), input.typoid)
     }
 
     macro_rules! cast_alias {
@@ -146,16 +169,11 @@ pub(crate) mod pdb {
 
                 #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
                 unsafe fn [<$fn_prefix _to_alias>](
-                    arr: GenericTypeWrapper<$rust_ty, [<$marker Marker>]>,
+                    mut arr: GenericTypeWrapper<$rust_ty, [<$marker Marker>]>,
                 ) -> GenericTypeWrapper<Alias, AliasMarker> {
-                    let original_typoid: pg_sys::Oid = $typoid;
-
-                    // Wrap datum and original typoid in a custom structure
-                    let wrapper_ptr = AliasDatumWithType::new(arr.datum, original_typoid);
-
-                    // Return the wrapper with the original typoid preserved
-                    // This allows PostgreSQL to track array vs scalar types correctly
-                    GenericTypeWrapper::new(pg_sys::Datum::from(wrapper_ptr), original_typoid)
+                    // TODO probably not needed but maintains old behavior
+                    arr.typoid = $typoid;
+                    wrap_generic_type(arr)
                 }
             }
         };
@@ -254,19 +272,7 @@ pub(crate) mod pdb {
                     super::super::apply_typmod(&mut tokenizer, typmod);
                 }
 
-                let mut analyzer = tokenizer
-                    .to_tantivy_tokenizer()
-                    .expect("failed to convert tokenizer to tantivy tokenizer");
-
-                let s = s.to_str();
-                let mut stream = analyzer.token_stream(&s);
-
-                let mut tokens = Vec::new();
-                while stream.advance() {
-                    let token = stream.token();
-                    tokens.push(token.text.to_string());
-                }
-                tokens
+                unsafe { tokenize(s, tokenizer) }
             }
 
             paste! {
@@ -299,35 +305,35 @@ pub(crate) mod pdb {
                 fn $json_cast_name(
                     json: GenericTypeWrapper<pgrx::Json, JsonMarker>,
                 ) -> GenericTypeWrapper<$rust_name, [<$rust_name JsonMarker>]> {
-                    GenericTypeWrapper::new(json.datum, json.typoid)
+                    unsafe { wrap_generic_type(json) }
                 }
 
                 #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
                 unsafe fn $jsonb_cast_name(
                     jsonb: GenericTypeWrapper<pgrx::JsonB, JsonbMarker>,
                 ) -> GenericTypeWrapper<$rust_name, [<$rust_name JsonbMarker>]> {
-                    GenericTypeWrapper::new(jsonb.datum, jsonb.typoid)
+                    unsafe { wrap_generic_type(jsonb) }
                 }
 
                 #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
                 unsafe fn $uuid_cast_name(
                     uuid: GenericTypeWrapper<pgrx::datum::Uuid, UuidMarker>,
                 ) -> GenericTypeWrapper<$rust_name, [<$rust_name UuidMarker>]> {
-                    GenericTypeWrapper::new(uuid.datum, uuid.typoid)
+                    unsafe { wrap_generic_type(uuid) }
                 }
 
                 #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
                 unsafe fn $text_array_cast_name(
                     arr: GenericTypeWrapper<Vec<String>, TextArrayMarker>,
                 ) -> GenericTypeWrapper<$rust_name, [<$rust_name TextArrayMarker>]> {
-                    GenericTypeWrapper::new(arr.datum, arr.typoid)
+                    unsafe { wrap_generic_type(arr) }
                 }
 
                 #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
                 unsafe fn $varchar_array_cast_name(
                     arr: GenericTypeWrapper<Vec<String>, VarcharArrayMarker>,
                 ) -> GenericTypeWrapper<$rust_name, [<$rust_name VarcharArrayMarker>]> {
-                    GenericTypeWrapper::new(arr.datum, arr.typoid)
+                    unsafe { wrap_generic_type(arr) }
                 }
 
                 #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
@@ -391,12 +397,12 @@ pub(crate) mod pdb {
         unsafe {
             let wrapper_datum = input.as_datum();
 
-            // Check if this is a wrapped AliasDatumWithType using magic number verification
+            // Check if this is a wrapped DatumWithType using magic number verification
             // For text literals, PostgreSQL might pass them directly without wrapping
             // due to LIKE = text in the type definition
-            if AliasDatumWithType::is_wrapped(wrapper_datum) {
-                let typoid = AliasDatumWithType::extract_typoid(wrapper_datum);
-                let original_datum = AliasDatumWithType::extract_datum(wrapper_datum);
+            if DatumWithType::is_wrapped(wrapper_datum) {
+                let typoid = DatumWithType::extract_typoid(wrapper_datum);
+                let original_datum = DatumWithType::extract_datum(wrapper_datum);
 
                 // Get the output function for the original type
                 let mut typoutput: pg_sys::Oid = pg_sys::InvalidOid;

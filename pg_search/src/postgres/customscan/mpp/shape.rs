@@ -28,7 +28,7 @@
 //!
 //! [`MppPlanShape::ScalarAggOnBinaryJoin`] — e.g., `SELECT COUNT(*) FROM f
 //! JOIN p WHERE ...`. Per worker: pre-join shuffle of each side → HashJoin →
-//! AggregateExec(Partial). Partial rows are shipped to seat 0 and finalized
+//! AggregateExec(Partial). Partial rows are shipped to participant 0 and finalized
 //! by a single `AggregateExec(FinalPartitioned)` on the leader; workers
 //! emit zero rows so PG's Gather sees exactly one row per query.
 //!

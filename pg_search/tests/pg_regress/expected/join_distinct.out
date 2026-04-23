@@ -536,7 +536,7 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 10;
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: p, s)
+WARNING:  JoinScan not used: DISTINCT columns must be fast fields (tables: p, s)
                                                                                       QUERY PLAN                                                                                       
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -574,7 +574,7 @@ FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
     LIMIT 10;
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: p, s)
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, s)
                                                                                    QUERY PLAN                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -608,7 +608,7 @@ FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
     LIMIT 3;
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: p, s)
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, s)
  count 
 -------
      5
@@ -627,7 +627,7 @@ FROM dist_products p
          JOIN dist_suppliers s ON p.supplier_id = s.id
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name;
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: p, s)
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: p, s)
                                                                                    QUERY PLAN                                                                                    
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique

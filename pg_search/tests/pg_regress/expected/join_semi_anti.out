@@ -168,7 +168,7 @@ AND id NOT IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: table_a, table_b)
+WARNING:  JoinScan not used: join keys must be fast fields (tables: table_a, table_b)
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: table_a, table_b)
                                                                                       QUERY PLAN                                                                                      
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -218,7 +218,7 @@ AND id NOT IN (
 AND id @@@ 'category:"target_category"'
 ORDER BY id ASC
 LIMIT 10;
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: table_a, table_b)
+WARNING:  JoinScan not used: join keys must be fast fields (tables: table_a, table_b)
 WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: RIGHTSEMI, UNIQUEINNER, UNIQUEOUTER) (tables: table_a, table_b)
  id  |    category     
 -----+-----------------

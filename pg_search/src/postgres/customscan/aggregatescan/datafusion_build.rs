@@ -42,7 +42,9 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars, expr_contains_any_operator};
 use crate::postgres::var::fieldname_from_var;
 use crate::query::SearchQueryInput;
+use crate::scan::info::FieldInfo;
 use pgrx::{pg_sys, PgList};
+use std::sync::OnceLock;
 
 /// Result type for `extract_join_tree_from_parse`: the plan tree, search
 /// predicates, multi-table predicate info, and raw PG Expr clause pointers.
@@ -69,6 +71,57 @@ pub struct JoinAggSource {
     pub relid: pg_sys::Oid,
     pub alias: Option<String>,
     pub bm25_index: Option<PgSearchRelation>,
+    /// Lazily populated attno → fast-field mapping for this relation.
+    /// Built once via [`JoinAggSource::column_name`] and shared across the
+    /// GROUP BY, aggregate argument, and aggregate ORDER BY resolution paths.
+    field_cache: OnceLock<Vec<FieldInfo>>,
+}
+
+impl JoinAggSource {
+    /// Walk every column in the heap tuple descriptor, resolving each through
+    /// the BM25 index. Returns an empty vec when there is no BM25 index
+    /// attached to this relation (nothing to pull up).
+    unsafe fn build_field_cache(&self) -> Vec<FieldInfo> {
+        let Some(bm25) = self.bm25_index.as_ref() else {
+            return Vec::new();
+        };
+        let heaprel = PgSearchRelation::open(self.relid);
+        let tupdesc = heaprel.tuple_desc();
+        let mut fields = Vec::new();
+        for attno in 1..=tupdesc.len() {
+            if let Some(field) = resolve_fast_field(attno as i32, &tupdesc, bm25) {
+                fields.push(FieldInfo {
+                    attno: attno as pg_sys::AttrNumber,
+                    field,
+                });
+            }
+        }
+        fields
+    }
+
+    /// Resolve a heap attribute number to its DataFusion-facing column name
+    /// via the BM25 index.
+    ///
+    /// Returns the BM25 field name (which may be an alias like
+    /// `"company_name_words"`), **not** the heap attribute name. This keeps
+    /// GROUP BY, aggregate argument, and aggregate ORDER BY field names in
+    /// sync with the DataFusion schema built by `build_source_df` (see #4849).
+    ///
+    /// Returns `None` when the column has no pullable fast field or when the
+    /// resolved field is a synthetic/unsupported kind (`Score`, `Junk`).
+    /// Mirrors `JoinSource::column_name` in joinscan/build.rs.
+    pub fn column_name(&self, attno: pg_sys::AttrNumber) -> Option<String> {
+        let fields = self
+            .field_cache
+            .get_or_init(|| unsafe { self.build_field_cache() });
+        fields
+            .iter()
+            .find(|f| f.attno == attno)
+            .and_then(|f| match &f.field {
+                WhichFastField::Score | WhichFastField::Junk(_) => None,
+                _ => Some(f.field.name()),
+            })
+    }
 }
 
 /// Extract all tables participating in the join from `input_rel.relids` and look up
@@ -93,6 +146,7 @@ pub unsafe fn collect_join_agg_sources(
             relid,
             alias,
             bm25_index,
+            field_cache: OnceLock::new(),
         });
     }
 

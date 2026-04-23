@@ -71,6 +71,7 @@ use futures::future::{FutureExt, LocalBoxFuture};
 use pgrx::pg_sys;
 use tantivy::index::SegmentId;
 
+use super::planning::get_source_attno_by_name;
 use crate::api::{NullTestKind, OrderByFeature, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::datafusion::memory::create_memory_pool;
@@ -962,6 +963,34 @@ fn build_source_df<'a>(
             .map(|f| f.field.clone())
             .collect();
 
+        /// Insert an ORDER BY field name into `required_early`, plus — when
+        /// the same heap attno is registered under a different name — the
+        /// registered name too.
+        ///
+        /// This matters when a column is indexed twice (once aliased, once
+        /// as an unaliased expression): the ORDER BY feature carries the
+        /// expression name (e.g. "company_name"), but the attno's
+        /// schema-registered name may be the alias
+        /// (e.g. "company_name_words"). Without also marking the registered
+        /// name required-early, the table provider may defer the
+        /// alias-named output that downstream DataFusion plans expect
+        /// (#4850).
+        fn insert_field_name_required_early(
+            source: &JoinSource,
+            name: &str,
+            required_early: &mut crate::api::HashSet<String>,
+        ) {
+            required_early.insert(name.to_string());
+            let attno = unsafe { get_source_attno_by_name(source, name) };
+            if let Some(attno) = attno {
+                if let Some(registered) = source.column_name(attno) {
+                    if registered != name {
+                        required_early.insert(registered);
+                    }
+                }
+            }
+        }
+
         let mut required_early: crate::api::HashSet<String> = Default::default();
         for jk in join_clause.plan.join_keys() {
             if source.contains_rti(jk.outer_rti) {
@@ -1006,7 +1035,11 @@ fn build_source_df<'a>(
                 match &info.feature {
                     OrderByFeature::Field { name, rti } => {
                         if source.contains_rti(*rti) {
-                            required_early.insert(name.as_ref().to_string());
+                            insert_field_name_required_early(
+                                source,
+                                name.as_ref(),
+                                &mut required_early,
+                            );
                         }
                     }
                     OrderByFeature::Var { rti, attno, .. } => {
@@ -1021,7 +1054,11 @@ fn build_source_df<'a>(
                     OrderByFeature::NullTest { inner, .. } => match inner.as_ref() {
                         OrderByFeature::Field { name, rti } => {
                             if source.contains_rti(*rti) {
-                                required_early.insert(name.as_ref().to_string());
+                                insert_field_name_required_early(
+                                    source,
+                                    name.as_ref(),
+                                    &mut required_early,
+                                );
                             }
                         }
                         OrderByFeature::Var { rti, attno, .. } => {

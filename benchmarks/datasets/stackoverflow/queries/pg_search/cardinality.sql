@@ -16,6 +16,7 @@ SELECT pdb.agg('{"value_count": {"field": "post_type_id"}}', false) FROM stackov
 -- high-cardinality aggregate scan
 SELECT tags, COUNT(*), MIN(score), MAX(score), SUM(score) FROM stackoverflow_posts WHERE body ||| 'javascript' GROUP BY tags;
 
+SET work_mem = 4GB;
 -- high-cardinality aggregate scan using pdb.agg
 SELECT tags, pdb.agg('{"value_count": {"field": "tags"}}') as count, pdb.agg('{"min": {"field": "score"}}') as min, pdb.agg('{"max": {"field": "score"}}') as max, pdb.agg('{"sum": {"field": "score"}}') as sum FROM stackoverflow_posts WHERE body ||| 'javascript' GROUP BY tags;
 

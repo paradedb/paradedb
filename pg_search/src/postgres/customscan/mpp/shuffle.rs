@@ -21,13 +21,13 @@
 //! `ShuffleExec` DataFusion operator composes:
 //!
 //! - [`RowPartitioner`] is the trait `ShuffleExec` calls per batch to decide
-//!   which destination seat each row belongs to.
+//!   which destination participant each row belongs to.
 //! - [`HashPartitioner`] is the production impl — a hash over join key columns
 //!   modulo N participants. Uses DataFusion's `create_hashes` helper with a
 //!   seed that matches DataFusion's own `REPARTITION_RANDOM_STATE`
 //!   (`datafusion::physical_plan::repartition` uses `with_seeds(0,0,0,0)`).
 //!   Routing is therefore stable across workers — every worker that sees the
-//!   same input rows places them on the same seat. Downstream `HashJoinExec`
+//!   same input rows places them on the same participant. Downstream `HashJoinExec`
 //!   and `AggregateExec` intentionally use *different* seeds internally (see
 //!   their `HASH_JOIN_SEED` / `AGGREGATION_HASH_SEED` constants); that is by
 //!   design to avoid hash collisions between routing and internal hash
@@ -68,7 +68,7 @@ fn mpp_trace_flag() -> bool {
     }
 }
 
-/// Assigns each row of a `RecordBatch` to one of N destination seats.
+/// Assigns each row of a `RecordBatch` to one of N destination participants.
 ///
 /// Implementations must return exactly `batch.num_rows()` values, each in
 /// `0..total_participants`. `ShuffleExec` uses this at the top of its
@@ -146,10 +146,10 @@ impl RowPartitioner for HashPartitioner {
     }
 }
 
-/// Route every row to one fixed destination seat. Used by the MPP scalar-
-/// aggregate final-gather step: workers ship their Partial row to seat 0 so
+/// Route every row to one fixed destination participant. Used by the MPP scalar-
+/// aggregate final-gather step: workers ship their Partial row to participant 0 so
 /// the leader can run `AggregateExec(FinalPartitioned)` on the combined
-/// stream. Leader's self-partition is the target seat, so nothing is shipped
+/// stream. Leader's self-partition is the target participant, so nothing is shipped
 /// out; its drain receives N-1 partials and it emits exactly one final row.
 /// Workers' self-partition is empty (target != self), so their
 /// `FinalPartitioned` sees 0 rows and emits 0 rows — PG's Gather on top
@@ -185,7 +185,7 @@ impl RowPartitioner for FixedTargetPartitioner {
 
 /// Test-only partitioner: row `i` -> destination `i % total_participants`.
 ///
-/// Not suitable for production because adjacent rows land on different seats
+/// Not suitable for production because adjacent rows land on different participants
 /// regardless of their join key, which would break HashJoin/Aggregate
 /// correctness. Useful in unit tests because the routing is trivially
 /// predictable without committing to a specific hash output.
@@ -214,11 +214,11 @@ impl RowPartitioner for ModuloPartitioner {
     }
 }
 
-/// Scatter a `RecordBatch` into one sub-batch per destination seat.
+/// Scatter a `RecordBatch` into one sub-batch per destination participant.
 ///
 /// Returns a `Vec` of length `total_participants`. Each entry is either:
-/// - `Some(sub_batch)` if one or more rows of `batch` routed to that seat; or
-/// - `None` if no rows routed to that seat (skip a send round-trip).
+/// - `Some(sub_batch)` if one or more rows of `batch` routed to that participant; or
+/// - `None` if no rows routed to that participant (skip a send round-trip).
 ///
 /// Row order within each sub-batch matches the original batch. Uses
 /// `arrow::compute::take` so the implementation is zero-copy per-column for
@@ -336,9 +336,9 @@ fn concat_batches(
 ///
 /// Inside each input batch we push the self-partition to `push_self` *first*,
 /// then the peer sub-batches. That means a local downstream operator
-/// (e.g., FinalAgg on our seat) can start consuming the self-partition even
+/// (e.g., FinalAgg on our participant) can start consuming the self-partition even
 /// while some peer sender is blocked on back-pressure. If we pushed peers
-/// first, a full-sender stall on seat 0 would indirectly stall our own
+/// first, a full-sender stall on participant 0 would indirectly stall our own
 /// consumer because it never sees any self rows until the stall unblocks.
 ///
 /// This is the non-streaming core of `ShuffleExec`: the DataFusion operator
@@ -392,7 +392,7 @@ where
             let Some(sub) = sub else { continue };
             let sender = outbound_senders[dest_idx].as_ref().ok_or_else(|| {
                 DataFusionError::Internal(format!(
-                    "run_shuffle_pump: no outbound sender for seat {dest_idx}"
+                    "run_shuffle_pump: no outbound sender for participant {dest_idx}"
                 ))
             })?;
             sender.send_batch(&sub)?;
@@ -411,8 +411,8 @@ where
 /// stream EOF / abort so peer receivers cleanly observe detach.
 pub struct ShuffleWiring {
     pub partitioner: std::sync::Arc<dyn RowPartitioner>,
-    /// One slot per seat, length = `partitioner.total_participants()`.
-    /// Seat `participant_index` must be `None`; all other seats must be
+    /// One slot per participant, length = `partitioner.total_participants()`.
+    /// Participant `participant_index` must be `None`; all other participants must be
     /// `Some(MppSender)`. `ShuffleExec::new` asserts this invariant.
     pub outbound_senders: Vec<Option<crate::postgres::customscan::mpp::transport::MppSender>>,
     pub participant_index: u32,
@@ -479,7 +479,7 @@ impl ShuffleExec {
         );
         assert!(
             wiring.outbound_senders[wiring.participant_index as usize].is_none(),
-            "ShuffleExec: self seat's sender slot must be None"
+            "ShuffleExec: self participant sender slot must be None"
         );
 
         use datafusion::physical_expr::EquivalenceProperties;
@@ -588,9 +588,9 @@ struct ShuffleStream {
     participant_index: u32,
     /// Total rows read from `child`.
     rows_in: u64,
-    /// Rows kept for this participant's self seat (queued to `self_queue`).
+    /// Rows kept for this participant itself (queued to `self_queue`).
     rows_self: u64,
-    /// Rows sent to each peer seat. Indexed by destination seat. Entry at
+    /// Rows sent to each peer participant. Indexed by destination participant. Entry at
     /// `participant_index` stays 0 (no self-send).
     rows_sent: Vec<u64>,
     /// Number of input batches pulled from child. Average batch size at EOF
@@ -613,7 +613,7 @@ struct ShuffleStream {
     /// peers when local outbound is backed up.
     time_in_coop_drain: std::time::Duration,
     /// Cumulative time inside `HashPartitioner::partition_for_each_row` — the
-    /// per-row hash that picks each row's destination seat.
+    /// per-row hash that picks each row's destination participant.
     time_in_partition: std::time::Duration,
     /// Cumulative time inside `split_batch_by_partition` — the Arrow `take`
     /// kernel that materializes per-destination sub-batches.
@@ -707,7 +707,7 @@ impl ShuffleStream {
             let drain_in_spin_ms = self.time_in_coop_drain_in_spin.as_secs_f64() * 1000.0;
             if crate::gucs::mpp_trace() {
                 pgrx::warning!(
-                    "mpp: ShuffleStream[{}] seat={} EOF rows_in={} batches_in={} self={} sent=[{}] wall_ms={:.1} child_ms={:.1} process_ms={:.1} coop_drain_ms={:.1} part_ms={:.1} split_ms={:.1} encode_ms={:.1} send_wait_ms={:.1} drain_in_spin_ms={:.1} spin_iters={}",
+                    "mpp: ShuffleStream[{}] participant={} EOF rows_in={} batches_in={} self={} sent=[{}] wall_ms={:.1} child_ms={:.1} process_ms={:.1} coop_drain_ms={:.1} part_ms={:.1} split_ms={:.1} encode_ms={:.1} send_wait_ms={:.1} drain_in_spin_ms={:.1} spin_iters={}",
                     self.tag,
                     self.participant_index,
                     self.rows_in,
@@ -727,7 +727,7 @@ impl ShuffleStream {
                 );
             } else {
                 pgrx::debug1!(
-                    "mpp: ShuffleStream[{}] seat={} EOF rows_in={} self={} sent=[{}]",
+                    "mpp: ShuffleStream[{}] participant={} EOF rows_in={} self={} sent=[{}]",
                     self.tag,
                     self.participant_index,
                     self.rows_in,
@@ -777,7 +777,7 @@ impl ShuffleStream {
             let Some(sub) = sub else { continue };
             let sender = wiring.outbound_senders[dest_idx].as_ref().ok_or_else(|| {
                 DataFusionError::Internal(format!(
-                    "ShuffleStream: no outbound sender for seat {dest_idx}"
+                    "ShuffleStream: no outbound sender for participant {dest_idx}"
                 ))
             })?;
             let sub_rows = sub.num_rows() as u64;
@@ -908,7 +908,7 @@ pub struct DrainGatherExec {
     /// Diagnostic label — same value the sibling `ShuffleExec` uses so a
     /// mesh's send-side and receive-side logs line up by tag.
     tag: &'static str,
-    /// Remembered so `DrainGatherStream` can log which seat received.
+    /// Remembered so `DrainGatherStream` can log which participant received.
     participant_index: u32,
 }
 
@@ -1055,7 +1055,7 @@ impl DrainGatherStream {
             let pop_ms = self.time_in_pop.as_secs_f64() * 1000.0;
             if crate::gucs::mpp_trace() {
                 pgrx::warning!(
-                    "mpp: DrainGatherStream[{}] seat={} EOF rows_received={} batches_received={} wall_ms={:.1} drain_ms={:.1} pop_ms={:.1} pending_polls={}",
+                    "mpp: DrainGatherStream[{}] participant={} EOF rows_received={} batches_received={} wall_ms={:.1} drain_ms={:.1} pop_ms={:.1} pending_polls={}",
                     self.tag,
                     self.participant_index,
                     self.rows_received,
@@ -1067,7 +1067,7 @@ impl DrainGatherStream {
                 );
             } else {
                 pgrx::debug1!(
-                    "mpp: DrainGatherStream[{}] seat={} EOF rows_received={} batches_received={}",
+                    "mpp: DrainGatherStream[{}] participant={} EOF rows_received={} batches_received={}",
                     self.tag,
                     self.participant_index,
                     self.rows_received,
@@ -1316,8 +1316,8 @@ mod tests {
     ) -> (Vec<RecordBatch>, Vec<RecordBatch>) {
         let (tx, rx) = in_proc_channel(16);
         let senders: Vec<Option<MppSender>> = vec![
-            None,                               // seat 0 = self, no sender
-            Some(MppSender::new(Box::new(tx))), // seat 1 = peer
+            None,                               // participant 0 = self, no sender
+            Some(MppSender::new(Box::new(tx))), // participant 1 = peer
         ];
 
         let mut self_batches = Vec::new();
@@ -1353,7 +1353,7 @@ mod tests {
 
     #[test]
     fn pump_routes_self_and_peer_partitions_end_to_end() {
-        // Row i -> seat (i % 2). With 6 input rows: self gets 0,2,4; peer
+        // Row i -> participant (i % 2). With 6 input rows: self gets 0,2,4; peer
         // gets 1,3,5. Verifies the full stack: partition → scatter → send
         // over in-proc channel → drain thread → drain buffer.
         let input = vec![sample_batch(6)];
@@ -1427,12 +1427,12 @@ mod tests {
 
     #[test]
     fn pump_errors_when_peer_slot_is_none() {
-        // Seat 1 should route rows to a peer, but there's no MppSender.
+        // Participant 1 should route rows to a peer, but there's no MppSender.
         // Must fail with a meaningful error rather than silently drop data.
         let partitioner = ModuloPartitioner::new(2);
         let senders: Vec<Option<MppSender>> = vec![None, None];
         let result = run_shuffle_pump(
-            vec![Ok(sample_batch(2))], // row 0 -> seat 0 (self), row 1 -> seat 1 (peer)
+            vec![Ok(sample_batch(2))], // row 0 -> participant 0 (self), row 1 -> participant 1 (peer)
             &partitioner,
             senders,
             0,
@@ -1440,7 +1440,10 @@ mod tests {
         );
         assert!(result.is_err());
         let msg = format!("{}", result.unwrap_err());
-        assert!(msg.contains("no outbound sender for seat 1"), "got: {msg}");
+        assert!(
+            msg.contains("no outbound sender for participant 1"),
+            "got: {msg}"
+        );
     }
 
     #[test]
@@ -1460,7 +1463,7 @@ mod tests {
         use datafusion::prelude::SessionContext;
         use futures::StreamExt;
 
-        // N=2 mesh as participant 0. Row i -> seat i % 2: self gets
+        // N=2 mesh as participant 0. Row i -> participant i % 2: self gets
         // 0,2,4,6,8; peer gets 1,3,5,7,9.
         let batch = sample_batch(10);
         let schema = batch.schema();
@@ -1560,7 +1563,7 @@ mod tests {
         let (out_tx, out_rx) = in_proc_channel(16); // outbound to peer
         let (in_tx, in_rx) = in_proc_channel(16); // inbound from peer
 
-        // Our ShuffleExec at seat 0 in an N=2 mesh. Peer = seat 1.
+        // Our ShuffleExec at participant 0 in an N=2 mesh. Peer = participant 1.
         let wiring = ShuffleWiring {
             partitioner: Arc::new(ModuloPartitioner::new(2)),
             outbound_senders: vec![None, Some(MppSender::new(Box::new(out_tx)))],
@@ -1906,8 +1909,8 @@ mod tests {
     }
 
     #[test]
-    fn hash_partitioner_distributes_across_seats() {
-        // Over 1000 rows with 4 seats, every seat should get at least some.
+    fn hash_partitioner_distributes_across_participants() {
+        // Over 1000 rows with 4 participants, every participant should get at least some.
         // This is a statistical claim that should hold for any non-adversarial
         // hash.
         let batch = sample_batch(1000);
@@ -1917,10 +1920,10 @@ mod tests {
         for d in &dests {
             counts[*d as usize] += 1;
         }
-        for (seat, count) in counts.iter().enumerate() {
+        for (participant, count) in counts.iter().enumerate() {
             assert!(
                 *count > 100,
-                "seat {seat} only received {count}/1000 rows — partitioner is skewed"
+                "participant {participant} only received {count}/1000 rows — partitioner is skewed"
             );
         }
     }

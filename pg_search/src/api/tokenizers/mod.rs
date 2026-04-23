@@ -21,7 +21,7 @@ use crate::postgres::catalog::{
 use once_cell::sync::Lazy;
 use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
 use pgrx::pgrx_sql_entity_graph::metadata::{
-    ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
+    ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
 };
 use pgrx::{pg_sys, set_varsize_4b, FromDatum, IntoDatum};
 use std::borrow::Cow;
@@ -576,16 +576,21 @@ struct GenericTypeWrapper<Type: DatumWrapper, SqlName: SqlNameMarker> {
     __marker: PhantomData<(Type, SqlName)>,
 }
 
+// `SqlName::SQL_NAME` deliberately includes the `pdb.` prefix even though the
+// tokenizer types in `definitions.rs` drop it. The asymmetry is intentional:
+// `GenericTypeWrapper<T, S>` is a generic monomorphization that pgrx 0.18 cannot
+// resolve through its schema graph, so the literal is emitted verbatim with no
+// auto-prefix. The bare tokenizer types are graph-resolved, so pgrx prepends the
+// schema for them and we must not double it.
 unsafe impl<Type: DatumWrapper, SqlName: SqlNameMarker> SqlTranslatable
     for GenericTypeWrapper<Type, SqlName>
 {
-    fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-        Ok(SqlMapping::As(SqlName::SQL_NAME.into()))
-    }
-
-    fn return_sql() -> Result<Returns, ReturnsError> {
-        Ok(Returns::One(SqlMapping::As(SqlName::SQL_NAME.into())))
-    }
+    const TYPE_IDENT: &'static str = pgrx::pgrx_resolved_type!(GenericTypeWrapper<Type, SqlName>);
+    const TYPE_ORIGIN: TypeOrigin = TypeOrigin::External;
+    const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
+        Ok(SqlMappingRef::literal(SqlName::SQL_NAME));
+    const RETURN_SQL: Result<ReturnsRef, ReturnsError> =
+        Ok(ReturnsRef::One(SqlMappingRef::literal(SqlName::SQL_NAME)));
 }
 
 impl<Type: DatumWrapper, SqlName: SqlNameMarker> IntoDatum for GenericTypeWrapper<Type, SqlName> {

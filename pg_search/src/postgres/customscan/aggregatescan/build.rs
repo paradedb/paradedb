@@ -363,7 +363,8 @@ impl AggregateCSClause {
                 OrderByFeature::Field { name, .. } => Some(name.to_string()),
                 OrderByFeature::Score { .. }
                 | OrderByFeature::Var { .. }
-                | OrderByFeature::NullTest { .. } => None,
+                | OrderByFeature::NullTest { .. }
+                | OrderByFeature::VectorDistance { .. } => None,
             })
             .collect()
     }

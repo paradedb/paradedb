@@ -36,11 +36,12 @@ use crate::postgres::rel_get_bm25_index;
 use crate::postgres::var::{
     fieldname_from_var, find_one_var_and_fieldname, strip_identity_wrappers, VarContext,
 };
-use crate::schema::{SearchField, SearchIndexSchema};
-use pgrx::{direct_function_call, pg_sys, IntoDatum, PgList};
+use crate::schema::{SearchField, SearchFieldType, SearchIndexSchema};
+use crate::vector::metric::VectorMetric;
+use pgrx::{direct_function_call, pg_sys, FromDatum, IntoDatum, PgList};
 
 /// The type of sort expression found in an ORDER BY clause.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum SortExpressionType {
     /// Sorting by search score: `ORDER BY pdb.score(...)`
     Score,
@@ -50,6 +51,27 @@ pub enum SortExpressionType {
     Raw,
     /// Sorting by an expression that matched an indexed expression in `pg_index.indexprs`.
     IndexedExpression,
+    /// Sorting by vector distance: `ORDER BY col <-> '[...]'`.
+    /// Carries the resolved query vector (if a `Const`), or the
+    /// `Param` ID to resolve at execution time (if a parameterized
+    /// generic plan), plus the metric implied by the operator
+    /// (`<->` → L2, `<=>` → Cosine, `<#>` → InnerProduct). Whether
+    /// to L2-normalize is derived from `metric.requires_unit_norm()`.
+    VectorDistance {
+        query_vector: Vec<f32>,
+        query_vector_param_id: Option<i32>,
+        metric: VectorMetric,
+    },
+    /// Sorting by a vector distance operator whose implied metric
+    /// disagrees with the index attribute's opclass — e.g. `<=>`
+    /// (cosine) on a column built with `vector_l2_ops`. We refuse to
+    /// silently rank by the index's metric instead of the operator
+    /// the user asked for; the planner falls back to a non-index
+    /// sort. Only carried for diagnostics in the planner warning.
+    VectorMetricMismatch {
+        field_metric: VectorMetric,
+        op_metric: VectorMetric,
+    },
 }
 
 /// Reason why pathkeys cannot be used for Top K execution
@@ -61,6 +83,13 @@ pub enum UnusableReason {
     PrefixOnly { matched: usize },
     /// Columns are not indexed with fast=true or not sortable
     NotSortable,
+    /// ORDER BY uses a vector distance operator whose implied metric
+    /// disagrees with the index attribute's opclass (e.g. `<=>` on a
+    /// column built with `vector_l2_ops`).
+    VectorMetricMismatch {
+        field_metric: VectorMetric,
+        op_metric: VectorMetric,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -221,6 +250,14 @@ pub unsafe fn analyze_sort_expression(
         }
     }
 
+    if let Some(info) = index_info {
+        if let Some((var, vector_sort)) = extract_vector_distance(node, context, info.schema) {
+            let (relid, attno) = context.var_relation(var);
+            let field_name = fieldname_from_var(relid, var, attno);
+            return Some((vector_sort, var, field_name));
+        }
+    }
+
     if let Some(var) = extract_lower_var(node) {
         let (relid, attno) = context.var_relation(var);
         let field_name = fieldname_from_var(relid, var, attno);
@@ -229,6 +266,141 @@ pub unsafe fn analyze_sort_expression(
 
     if let Some((var, field_name)) = find_one_var_and_fieldname(context, node) {
         return Some((SortExpressionType::Raw, var, Some(field_name)));
+    }
+
+    None
+}
+
+/// Map a pgvector distance operator OID to its implied `VectorMetric`.
+/// Returns `None` if `opoid` is not one of `<->`, `<=>`, or `<#>`.
+pub(crate) fn metric_for_opoid(opoid: pg_sys::Oid) -> Option<VectorMetric> {
+    use std::sync::OnceLock;
+    static OP_METRICS: OnceLock<[(pg_sys::Oid, VectorMetric); 3]> = OnceLock::new();
+    let cached = OP_METRICS.get_or_init(|| unsafe {
+        let lookup = |sig: &std::ffi::CStr| -> pg_sys::Oid {
+            direct_function_call::<pg_sys::Oid>(pg_sys::regoperatorin, &[sig.into_datum()])
+                .unwrap_or(pg_sys::Oid::INVALID)
+        };
+        [
+            (lookup(c"<->(vector,vector)"), VectorMetric::L2),
+            (lookup(c"<=>(vector,vector)"), VectorMetric::Cosine),
+            (lookup(c"<#>(vector,vector)"), VectorMetric::InnerProduct),
+        ]
+    });
+    cached
+        .iter()
+        .find(|(oid, _)| *oid != pg_sys::Oid::INVALID && *oid == opoid)
+        .map(|(_, metric)| *metric)
+}
+
+/// Try to interpret `node` as a reference to an indexed vector
+/// column. Accepts only a direct `T_Var` whose schema entry resolves
+/// to `SearchFieldType::Vector` — pgvector convention. The metric
+/// travels via the index attribute's opclass (see
+/// `VectorMetric::from_index_attr`); the column type itself
+/// is just plain `vector`, so there is no cast wrapper to unwrap.
+unsafe fn resolve_vector_expr(
+    node: *mut pg_sys::Node,
+    context: VarContext,
+    schema: &SearchIndexSchema,
+) -> Option<(*mut pg_sys::Var, VectorMetric)> {
+    if node.is_null() || (*node).type_ != pg_sys::NodeTag::T_Var {
+        return None;
+    }
+    let var = node as *mut pg_sys::Var;
+    let (relid, attno) = context.var_relation(var);
+    let field_name = fieldname_from_var(relid, var, attno)?;
+    let field_type = schema.get_field_type(field_name.root())?;
+    if let SearchFieldType::Vector(_, _, metric) = field_type {
+        return Some((var, metric));
+    }
+    None
+}
+
+/// Detect `col <-> '[...]'` vector distance expression.
+/// Returns (column Var, sort expression descriptor) on match.
+///
+/// The operator's implied metric (`<->` → L2, `<=>` → Cosine,
+/// `<#>` → InnerProduct) must equal the indexed field's metric;
+/// a mismatch (e.g. `<=>` against an L2-metric field) bails so
+/// Postgres can pick a non-index plan instead of silently returning
+/// results ranked by the wrong distance.
+unsafe fn extract_vector_distance(
+    node: *mut pg_sys::Node,
+    context: VarContext,
+    schema: &SearchIndexSchema,
+) -> Option<(*mut pg_sys::Var, SortExpressionType)> {
+    let opexpr = nodecast!(OpExpr, T_OpExpr, node)?;
+    let op_metric = metric_for_opoid((*opexpr).opno)?;
+
+    let args = PgList::<pg_sys::Node>::from_pg((*opexpr).args);
+    if args.len() != 2 {
+        return None;
+    }
+
+    let left = args.get_ptr(0)?;
+    let right = args.get_ptr(1)?;
+
+    // One side must be a direct Var on the indexed vector column; the
+    // other carries the query vector. The metric travels via the index
+    // attribute's opclass (pgvector convention), not via a cast on the
+    // column, so there's no wrapper expression to unwrap here.
+    let (var_node, field_metric, value_node) =
+        if let Some((var, metric)) = resolve_vector_expr(left, context, schema) {
+            (var, metric, right)
+        } else if let Some((var, metric)) = resolve_vector_expr(right, context, schema) {
+            (var, metric, left)
+        } else {
+            return None;
+        };
+
+    if field_metric != op_metric {
+        return Some((
+            var_node,
+            SortExpressionType::VectorMetricMismatch {
+                field_metric,
+                op_metric,
+            },
+        ));
+    }
+
+    if let Some(const_node) = nodecast!(Const, T_Const, value_node) {
+        if (*const_node).constisnull {
+            return None;
+        }
+        let datum = (*const_node).constvalue;
+        let mut query_vector = unsafe { crate::vector::PgVector::from_datum(datum, false) }
+            .expect("vector ORDER BY constant should not be NULL")
+            .0;
+        if op_metric.requires_unit_norm() {
+            crate::vector::metric::l2_normalize_in_place(&mut query_vector);
+        }
+        return Some((
+            var_node,
+            SortExpressionType::VectorDistance {
+                query_vector,
+                query_vector_param_id: None,
+                metric: op_metric,
+            },
+        ));
+    }
+
+    if let Some(param) = nodecast!(Param, T_Param, value_node) {
+        // Only PARAM_EXTERN values (prepared-statement bindings) live in
+        // EState.es_param_list_info. PARAM_EXEC (subplan params) require
+        // a different resolution path that we don't yet support — leave
+        // those queries to fall back to a regular sort.
+        if (*param).paramkind != pg_sys::ParamKind::PARAM_EXTERN {
+            return None;
+        }
+        return Some((
+            var_node,
+            SortExpressionType::VectorDistance {
+                query_vector: Vec::new(),
+                query_vector_param_id: Some((*param).paramid),
+                metric: op_metric,
+            },
+        ));
     }
 
     None
@@ -400,6 +572,37 @@ where
                             }
                         }
                     }
+                    SortExpressionType::VectorDistance {
+                        ref query_vector,
+                        query_vector_param_id,
+                        metric,
+                    } => {
+                        if let Some(field_name) = field_name_opt {
+                            pathkey_styles.push(OrderByStyle::VectorDistance {
+                                pathkey,
+                                name: field_name,
+                                rti,
+                                query_vector: query_vector.clone(),
+                                query_vector_param_id,
+                                metric,
+                            });
+                            found_valid_member = true;
+                            break;
+                        }
+                    }
+                    SortExpressionType::VectorMetricMismatch {
+                        field_metric,
+                        op_metric,
+                    } => {
+                        // Don't keep iterating other equivalence-class
+                        // members — the user clearly intended this
+                        // metric and we want the warning to surface
+                        // that specific reason.
+                        return PathKeyInfo::Unusable(UnusableReason::VectorMetricMismatch {
+                            field_metric,
+                            op_metric,
+                        });
+                    }
                 }
             }
         }
@@ -550,6 +753,14 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
                 if !search_field.is_fast() {
                     return false;
                 }
+            }
+            SortExpressionType::VectorDistance { .. } => {
+                // Vector distance is always valid if the field exists in the index
+                continue;
+            }
+            SortExpressionType::VectorMetricMismatch { .. } => {
+                // Operator/opclass disagreement; not pushable.
+                return false;
             }
         }
     }

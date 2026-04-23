@@ -1609,6 +1609,26 @@ fn find_hash_join(plan: &dyn ExecutionPlan) -> Option<&HashJoinExec> {
     None
 }
 
+/// Runtime-installed indirection over `PgSearchScanPlan::strip_dynamic_filters_from_dyn`.
+///
+/// A direct call would plant `<PgSearchScanPlan as ExecutionPlan>`'s vtable in
+/// every caller's static reachable graph. Under `cargo llvm-cov` (instrumentation
+/// disables DCE), that vtable pulls `execute()` → pgrx FFI wrappers
+/// (`LockBuffer`, …) → `CurrentMemoryContext` as an unresolved GLOB_DAT reloc,
+/// and the PIE test binary then fails ld.so load. Same mitigation pattern as
+/// `aggregatescan/filterquery.rs::BUILD_FILTER_QUERY_FN` — see paradedb#3715,
+/// pgcentralfoundation/pgrx#2229.
+type StripDynamicFiltersFn = fn(Arc<dyn ExecutionPlan>) -> DfResult<Arc<dyn ExecutionPlan>>;
+static STRIP_DYNAMIC_FILTERS_FN: std::sync::OnceLock<StripDynamicFiltersFn> =
+    std::sync::OnceLock::new();
+
+/// Install the real implementation. Called from `_PG_init`; because `_PG_init`
+/// is unreachable from `#[test]`, the function pointer stays out of the test
+/// binary's static reachable graph.
+pub fn init_mpp_strip_dynamic_filters() {
+    STRIP_DYNAMIC_FILTERS_FN.get_or_init(|| PgSearchScanPlan::strip_dynamic_filters_from_dyn);
+}
+
 /// Walk a join-input subtree and replace every `PgSearchScanPlan` with a
 /// copy whose `dynamic_filters` Vec is empty. The `FilterPushdown` physical
 /// optimizer pushed the HashJoin's dynamic-filter Arc into the probe-side
@@ -1618,7 +1638,14 @@ fn strip_dynamic_filters_in_subtree(
     node: Arc<dyn ExecutionPlan>,
 ) -> DfResult<Arc<dyn ExecutionPlan>> {
     if node.as_any().downcast_ref::<PgSearchScanPlan>().is_some() {
-        return PgSearchScanPlan::strip_dynamic_filters_from_dyn(node);
+        let f = STRIP_DYNAMIC_FILTERS_FN.get().ok_or_else(|| {
+            DataFusionError::Internal(
+                "mpp: init_mpp_strip_dynamic_filters() not called — \
+                 should be wired from _PG_init"
+                    .into(),
+            )
+        })?;
+        return f(node);
     }
 
     let children = node.children();

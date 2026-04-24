@@ -11,6 +11,9 @@ PGDATA=${PGDATA:-/var/lib/postgresql/data}
 # environment variables.
 CONF_FILE="$PGDATA/postgresql.auto.conf"
 
+# Ensure the file is always owned by postgres on exit, even if the script fails midway.
+trap 'chown postgres:postgres "$CONF_FILE" 2>/dev/null || true' EXIT
+
 tune_param() {
   local param=$1
   local value=$2
@@ -18,7 +21,6 @@ tune_param() {
 
   if [ ! -f "$CONF_FILE" ]; then
     touch "$CONF_FILE"
-    chown postgres:postgres "$CONF_FILE" 2>/dev/null || echo "ParadeDB auto-tune: Warning: could not chown $CONF_FILE"
   fi
 
   # 1. Highest Priority: Docker Environment Variable Override (Always Overwrites)
@@ -150,7 +152,3 @@ tune_param "random_page_cost" "1.1" "${PG_TUNE_RANDOM_PAGE_COST:-}"
 tune_param "effective_io_concurrency" "200" "${PG_TUNE_EFFECTIVE_IO_CONCURRENCY:-}"
 
 echo "ParadeDB auto-tune: Configuration written to $CONF_FILE"
-
-# CRITICAL: GNU sed -i creates a temp file and renames it, changing the owner to root.
-# We must chown the file back to postgres at the very end so ALTER SYSTEM continues to work.
-chown postgres:postgres "$CONF_FILE" 2>/dev/null || echo "ParadeDB auto-tune: Warning: could not chown $CONF_FILE at exit"

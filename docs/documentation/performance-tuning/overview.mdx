@@ -23,6 +23,8 @@ SET maintenance_work_mem = '8GB'
 If ParadeDB is deployed with [CloudNativePG](/deploy/self-hosted/kubernetes), these settings should be set in your
 `.tfvars` file.
 
+If ParadeDB is deployed with [Docker](/deploy/docker), PostgreSQL settings are automatically tuned based on detected container resource limits. See the [Docker Auto-Tuning](/deploy/docker#docker-auto-tuning) section for configuration options.
+
 ```hcl .tfvars
 postgresql = {
     parameters = {

@@ -83,9 +83,13 @@ LIMIT 10;
 
 -- =====================================================================
 -- MPP enabled: must return the same rows (set-equality, then row-order).
+-- `mpp_min_join_rows` must be 0 here: the default (10k rows) would gate
+-- out this small dataset and silently fall through to the serial path,
+-- defeating the point of the test.
 -- =====================================================================
 SET paradedb.enable_mpp TO on;
 SET paradedb.mpp_worker_count TO 2;
+SET paradedb.mpp_min_join_rows TO 0;
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT p.id, p.description, r.rating
 FROM mpp_join_products p
@@ -161,6 +165,7 @@ LIMIT 10;
 -- =====================================================================
 RESET paradedb.enable_mpp;
 RESET paradedb.mpp_worker_count;
+RESET paradedb.mpp_min_join_rows;
 RESET paradedb.enable_join_custom_scan;
 DROP TABLE mpp_join_reviews;
 DROP TABLE mpp_join_products;

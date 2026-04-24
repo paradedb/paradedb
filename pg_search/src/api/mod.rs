@@ -449,6 +449,26 @@ impl OrderByInfo {
         matches!(self.feature, OrderByFeature::Score { .. })
     }
 
+    pub fn is_vector_distance(&self) -> bool {
+        matches!(self.feature, OrderByFeature::VectorDistance { .. })
+    }
+
+    /// If the ORDER BY is a vector distance, return
+    /// `(field_name, query_vector, metric)`. The query vector must
+    /// already have been resolved (see `resolve_param`). Returns `None`
+    /// for any other feature variant.
+    pub fn as_vector_distance(&self) -> Option<(&FieldName, &[f32], VectorMetric)> {
+        match &self.feature {
+            OrderByFeature::VectorDistance {
+                name,
+                query_vector,
+                metric,
+                ..
+            } => Some((name, query_vector.as_slice(), *metric)),
+            _ => None,
+        }
+    }
+
     /// If this `OrderByInfo` carries a parameterized vector ORDER BY
     /// (`<-> $1` style, generic-plan prepared statement), look up the
     /// bound `Param` value in the executor's `es_param_list_info`,

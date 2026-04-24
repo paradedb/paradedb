@@ -93,7 +93,7 @@ impl TopKScanExecState {
         // calculated as (1 + (1 + n_dead) / (1 + n_live)) * limit_fetch_multiplier
         // where n_dead and n_live are the number of dead and live tuples in the heaprel
         // and limit_fetch_multiplier is a GUC
-        let scale_factor = unsafe {
+        let mut scale_factor = unsafe {
             let n_dead = direct_function_call::<i64>(
                 pg_sys::pg_stat_get_dead_tuples,
                 &[heaprelid.into_datum()],
@@ -107,6 +107,20 @@ impl TopKScanExecState {
 
             1.0 + ((1.0 + n_dead as f64) / (1.0 + n_live as f64))
         } * crate::gucs::limit_fetch_multiplier();
+
+        // If the ORDER BY is a vector distance and the user asked for
+        // exact-distance rerank, over-fetch by that multiplier so the
+        // rerank pass has enough approximate candidates to pick a
+        // correct top-K from. Truncation happens in the rerank step.
+        if orderby_info
+            .as_ref()
+            .is_some_and(|infos| infos.iter().any(|i| i.is_vector_distance()))
+        {
+            let rerank = crate::gucs::vector_rerank_multiplier();
+            if rerank > 1.0 {
+                scale_factor *= rerank;
+            }
+        }
 
         Self {
             limit,
@@ -143,7 +157,6 @@ impl TopKScanExecState {
     ///    allows all of the workers to load balance the work of searching the segments.
     ///    b. Nth execution: eagerly emits all segments which were previously collected. This is
     ///    necessary to allow for re-scans (when a Top K result later proves not to be visible)
-    ///    to consistently revisit the same segments.
     fn segments_to_query<'s>(
         &'s self,
         search_reader: &SearchIndexReader,
@@ -264,6 +277,57 @@ impl TopKScanExecState {
                 (te_idx, datum)
             })
             .collect()
+    }
+
+    /// Replace the approximate top-K results with exact-distance
+    /// reranked ones.
+    ///
+    /// No-op when the ORDER BY isn't a resolved vector distance, when
+    /// the heap has no pgvector column of that name, or when the
+    /// results are empty.
+    fn rerank_vector_results(&mut self, state: &BaseScanState) {
+        let Some(orderby_info) = self.orderby_info.as_ref() else {
+            return;
+        };
+        // We only rerank the first vector-distance ORDER BY. Mixed
+        // ORDER BY with a vector component first is the only supported
+        // shape today; later features are used as tie-breakers against
+        // the exact-scored top-K.
+        let Some((field_name, query_vec, metric)) = orderby_info
+            .iter()
+            .find_map(|info| info.as_vector_distance())
+        else {
+            return;
+        };
+        if query_vec.is_empty() {
+            return;
+        }
+
+        let searcher = self.search_reader.as_ref().unwrap().searcher();
+        let schema = searcher.index().schema();
+        let Ok(field) = schema.get_field(&field_name.root()) else {
+            return;
+        };
+
+        let heaprel = state.heaprel();
+        let attno_by_name = super::rerank::heap_attno_by_vector_name(heaprel);
+        let Some(&attno) = attno_by_name.get(schema.get_field_name(field)) else {
+            return;
+        };
+
+        let query_vec_owned = query_vec.to_vec();
+        let final_n = self.limit();
+        self.search_results.rerank_remaining(|candidates| {
+            super::rerank::rerank_by_heap_vectors(
+                candidates,
+                searcher,
+                heaprel,
+                attno,
+                &query_vec_owned,
+                metric,
+                final_n,
+            )
+        });
     }
 }
 
@@ -410,6 +474,17 @@ impl ExecMethod for TopKScanExecState {
                     self.offset,
                 )
         };
+
+        // Exact-distance rerank for vector ORDER BY. The collector
+        // above over-fetched by `vector_rerank_multiplier` when
+        // active (see scale_factor init), and this pass trims back
+        // to `self.limit()` using heap-fetched full-precision vectors.
+        // No-op when the GUC is 1.0 or when the ORDER BY isn't a
+        // vector distance.
+        let rerank_mult = crate::gucs::vector_rerank_multiplier();
+        if rerank_mult > 1.0 {
+            self.rerank_vector_results(state);
+        }
 
         // If aggregates were executed, publish their results in our state for projection during
         // the scan.

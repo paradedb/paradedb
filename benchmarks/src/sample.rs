@@ -124,8 +124,8 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     };
     let sql = format!(
         "CREATE TABLE sampled_{name} AS \
-        (SELECT * FROM  read_parquet('{local_path}') ORDER BY {pk}) \
-         USING SAMPLE {sample_arg} REPEATABLE({seed})",
+        WITH ordered AS (SELECT * FROM  read_parquet('{local_path}') ORDER BY {pk}) \
+        SELECT * FROM ordered USING SAMPLE {sample_arg} REPEATABLE({seed})",
         name = root.name,
         local_path = local_glob,
         pk = root.primary_key,

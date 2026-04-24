@@ -508,6 +508,22 @@ pub fn adjust_maintenance_work_mem(nlaunched: usize) -> NonZeroUsize {
     NonZeroUsize::new(per_worker_budget * nlaunched).unwrap()
 }
 
+/// Hardcoded estimate of in-memory bytes consumed per doc during a merge.
+///
+/// Used to convert `maintenance_work_mem` into a doc-count budget, so we can cap
+/// how many docs are pulled into a single merge candidate without OOMing.  The
+/// value is intentionally conservative: tantivy's merge keeps per-field readers
+/// and posting buffers in memory, and 1 KB/doc is a rough floor that empirically
+/// keeps peak RSS near `maintenance_work_mem` on text-heavy workloads.
+const MERGE_BYTES_PER_DOC: usize = 1024;
+
+/// Returns the maximum number of docs that should participate in a single merge,
+/// derived from `maintenance_work_mem` and the [`MERGE_BYTES_PER_DOC`] estimate.
+pub fn merge_doc_budget() -> usize {
+    let mwm_as_bytes = unsafe { pg_sys::maintenance_work_mem as usize } * 1024;
+    (mwm_as_bytes / MERGE_BYTES_PER_DOC).max(1)
+}
+
 pub fn adjust_work_mem() -> NonZeroUsize {
     let wm_as_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
     let wm_as_bytes = wm_as_bytes.clamp(

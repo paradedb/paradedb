@@ -27,9 +27,16 @@ pub struct DatasetConfig {
     #[serde(default)]
     pub s3_base_path: Option<String>,
 }
+impl DatasetConfig {
+    pub fn all_table_names(&self) -> impl Iterator<Item = &str> {
+        let tables_iter = self.tables.iter().map(|t| t.name.as_str());
+        let root_iter = std::iter::once(self.root_table.name.as_str());
+        root_iter.chain(tables_iter)
+    }
+}
 
-#[derive(Deserialize)]
 /// For deterministic sampling, `primary_key` must reference a column with unique, non-null values for all rows
+#[derive(Deserialize)]
 pub struct RootTableConfig {
     pub name: String,
     pub primary_key: String,
@@ -46,7 +53,19 @@ pub struct TableConfig {
 pub fn load_dataset_config(path: &str) -> Result<DatasetConfig> {
     let content =
         std::fs::read_to_string(path).with_context(|| format!("Failed to read config '{path}'"))?;
-    toml::from_str(&content).with_context(|| format!("Failed to parse config '{path}'"))
+    let config: DatasetConfig =
+        toml::from_str(&content).with_context(|| format!("Failed to parse config '{path}'"))?;
+    if config
+        .tables
+        .iter()
+        .any(|t| t.name == config.root_table.name)
+    {
+        bail!(
+            "Multiple tables with root table name '{}' defined in config '{path}'",
+            config.root_table.name,
+        );
+    }
+    Ok(config)
 }
 
 /// Returns table indices in topological order (children only, excludes root).
@@ -77,8 +96,9 @@ pub fn topological_order(config: &DatasetConfig) -> Result<Vec<usize>> {
     for table in &config.tables {
         if !processed.contains(table.name.as_str()) {
             bail!(
-                "Table '{}' could not be processed. Its parent '{}' is not in the config or there is a cycle.",
+                "Table '{}' could not be processed. Its parent '{}' is not the root table '{}', or is not in the config, or there is a cycle.",
                 table.name,
+                config.root_table.name,
                 table.parent,
             );
         }

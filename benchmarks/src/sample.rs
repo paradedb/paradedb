@@ -68,11 +68,9 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     let input = args.input.trim_end_matches('/');
     let output = args.output.trim_end_matches('/');
 
-    let mut table_names: Vec<&str> = config.tables.iter().map(|t| t.name.as_str()).collect();
-    table_names.push(&config.root_table.name);
-    validate_input(&table_names, &conn, input)?;
+    validate_input(config.all_table_names(), &conn, input)?;
     if !args.dry_run {
-        validate_output(&table_names, &conn, output)?;
+        validate_output(config.all_table_names(), &conn, output)?;
     }
 
     // Determine processing order.
@@ -176,12 +174,12 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
             "CREATE TABLE sampled_{name} AS \
              SELECT DISTINCT c.* \
              FROM read_parquet('{glob}') c \
-             WHERE c.\"{jk}\" IN 
-                (SELECT {pk} from sampled_{parent})",
+             WHERE c.\"{child_col}\" IN 
+                (SELECT {parent_col} from sampled_{parent})",
             name = table.name,
             parent = table.parent,
-            jk = table.join_col,
-            pk = table.parent_join_col,
+            child_col = table.join_col,
+            parent_col = table.parent_join_col,
         );
         conn.execute_batch(&sql)
             .with_context(|| format!("Failed to sample child table '{}'", table.name))?;
@@ -204,7 +202,6 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     // Write output.
     println!("\nWriting sampled parquet files...");
     write_sample_table(&conn, &root.name, output)?;
-    // others
     for &idx in &order {
         write_sample_table(&conn, &config.tables[idx].name, output)?;
     }

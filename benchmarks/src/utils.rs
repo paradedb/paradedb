@@ -42,11 +42,15 @@ pub fn open_duckdb_conn() -> Result<Connection> {
 }
 
 /// check that each table has at least one parquet file at the input location
-pub fn validate_input(tables: &[&str], conn: &Connection, input: &str) -> Result<()> {
+pub fn validate_input<'a>(
+    tables: impl Iterator<Item = &'a str>,
+    conn: &Connection,
+    input: &str,
+) -> Result<()> {
     println!("Validating input path...");
     let mut missing_tables: Vec<String> = Vec::new();
 
-    for table in tables.iter() {
+    for table in tables {
         let input_glob = format!("{input}/{table}/*.parquet");
         let input_file_count: usize = conn
             .query_row(
@@ -77,11 +81,15 @@ pub fn validate_input(tables: &[&str], conn: &Connection, input: &str) -> Result
 }
 
 /// check that the output location for each table is empty
-pub fn validate_output(tables: &[&str], conn: &Connection, output: &str) -> Result<()> {
+pub fn validate_output<'a>(
+    tables: impl Iterator<Item = &'a str>,
+    conn: &Connection,
+    output: &str,
+) -> Result<()> {
     println!("Validating output path...");
     let mut filled_outputs: Vec<String> = Vec::new();
 
-    for table in tables.iter() {
+    for table in tables {
         let output_glob = format!("{output}/{table}/*");
         let output_file_count: usize = conn
             .query_row(

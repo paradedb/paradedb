@@ -665,8 +665,7 @@ fn load_external_data(
     let duckdb_conn =
         utils::open_duckdb_conn().with_context(|| "Failed to open DuckDB connection")?;
 
-    for table in &config.tables {
-        let table_name = &table.name;
+    for table_name in config.all_table_names() {
         let csv_source = format!("{source_path}/{table_name}");
         let table_temp_dir = format!("{temp_dir}/{table_name}");
         std::fs::create_dir_all(&table_temp_dir)

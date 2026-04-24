@@ -25,13 +25,17 @@
 //! (identical `total_participants`, distinct `participant_index`) before
 //! calling `create_datafusion_session_context_mpp`.
 //!
-//! The plan bytes are the same for every participant — participant identity
-//! comes from the worker's position in the mesh, not from the plan encoding.
+//! The broadcast bytes are byte-identical across participants; the physical
+//! plans each participant builds from those bytes are structurally similar
+//! but not literally identical — each one injects its own segment shard and
+//! participant index at physical-planning time. Participant identity comes
+//! from the worker's position in the mesh, not from the plan encoding.
 
 #![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 
+use crate::postgres::customscan::joinscan::scan_state::SessionContextProfile;
 use crate::postgres::customscan::mpp::MppParticipantConfig;
 
 /// Wire-format tag for the DataFusion session profile. Distinct from the
@@ -48,11 +52,8 @@ pub enum MppSessionProfile {
     Aggregate = 1,
 }
 
-impl From<MppSessionProfile>
-    for crate::postgres::customscan::joinscan::scan_state::SessionContextProfile
-{
+impl From<MppSessionProfile> for SessionContextProfile {
     fn from(wire: MppSessionProfile) -> Self {
-        use crate::postgres::customscan::joinscan::scan_state::SessionContextProfile;
         match wire {
             MppSessionProfile::Join => SessionContextProfile::Join,
             MppSessionProfile::Aggregate => SessionContextProfile::Aggregate,
@@ -60,13 +61,8 @@ impl From<MppSessionProfile>
     }
 }
 
-impl From<crate::postgres::customscan::joinscan::scan_state::SessionContextProfile>
-    for MppSessionProfile
-{
-    fn from(
-        executor: crate::postgres::customscan::joinscan::scan_state::SessionContextProfile,
-    ) -> Self {
-        use crate::postgres::customscan::joinscan::scan_state::SessionContextProfile;
+impl From<SessionContextProfile> for MppSessionProfile {
+    fn from(executor: SessionContextProfile) -> Self {
         match executor {
             SessionContextProfile::Join => MppSessionProfile::Join,
             SessionContextProfile::Aggregate => MppSessionProfile::Aggregate,
@@ -227,7 +223,6 @@ mod tests {
 
     #[test]
     fn enum_round_trips_via_from_impls() {
-        use crate::postgres::customscan::joinscan::scan_state::SessionContextProfile;
         for wire in [MppSessionProfile::Join, MppSessionProfile::Aggregate] {
             let executor: SessionContextProfile = wire.into();
             let wire2: MppSessionProfile = executor.into();

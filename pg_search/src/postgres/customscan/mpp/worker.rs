@@ -46,7 +46,7 @@
 
 #![allow(dead_code)]
 
-use crate::postgres::customscan::mpp::mesh::{MeshLayout, ShmMqReceiver, ShmMqSender};
+use crate::postgres::customscan::mpp::mesh::{edge_slot, MeshLayout, ShmMqReceiver, ShmMqSender};
 use crate::postgres::customscan::mpp::transport::{MppReceiver, MppSender};
 use pgrx::pg_sys;
 use std::mem::size_of;
@@ -312,7 +312,6 @@ pub unsafe fn edge_address(
     src: u32,
     dst: u32,
 ) -> *mut u8 {
-    use crate::postgres::customscan::mpp::mesh::edge_slot;
     let slot = edge_slot(src, dst, header.total_participants);
     let mesh_base = header.mesh_base_offset(mesh_idx) as usize;
     let byte_offset = mesh_base + slot * (header.aligned_queue_bytes as usize);
@@ -495,6 +494,7 @@ impl WorkerAttach {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::postgres::customscan::mpp::mesh::aligned_queue_bytes;
 
     fn sample_header() -> (MeshLayout, DsmLayout, MppDsmHeader) {
         let mesh = MeshLayout::new(4, 8 * 1024);
@@ -600,10 +600,7 @@ mod tests {
         let dsm = compute_dsm_layout(&layout, 1, 0).unwrap();
         assert_eq!(dsm.plan_len, 0);
         assert_eq!(dsm.mesh_offset, dsm.plan_offset);
-        assert_eq!(
-            dsm.mesh_bytes,
-            2 * crate::postgres::customscan::mpp::mesh::aligned_queue_bytes(8 * 1024)
-        );
+        assert_eq!(dsm.mesh_bytes, 2 * aligned_queue_bytes(8 * 1024));
     }
 
     #[test]

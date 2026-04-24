@@ -40,6 +40,7 @@
 
 use pgrx::pg_sys;
 
+use crate::mpp_log;
 use crate::parallel_worker::mqueue::{
     MessageQueueReceiver, MessageQueueRecvError, MessageQueueSendError, MessageQueueSender,
 };
@@ -176,7 +177,7 @@ impl BatchChannelSender for ShmMqSender {
                 DataFusionError::Execution("mpp: shm_mq send would block".into())
             }
             MessageQueueSendError::Unknown(code) => {
-                crate::mpp_log!("mpp: shm_mq send unknown code {code}");
+                mpp_log!("mpp: shm_mq send unknown code {code}");
                 DataFusionError::Execution(format!("mpp: shm_mq send unknown code {code}"))
             }
         })
@@ -203,7 +204,7 @@ impl BatchChannelSender for ShmMqSender {
                 Ok(false)
             }
             Err(MessageQueueSendError::Unknown(code)) => {
-                crate::mpp_log!("mpp: shm_mq try_send unknown code {code}");
+                mpp_log!("mpp: shm_mq try_send unknown code {code}");
                 Err(DataFusionError::Execution(format!(
                     "mpp: shm_mq try_send unknown code {code}"
                 )))
@@ -275,7 +276,7 @@ impl BatchChannelReceiver for ShmMqReceiver {
                 // this source and the query surfaces the failure upstream.
                 // Log first so the underlying code is visible in benchmark
                 // logs when `paradedb.mpp_debug` is on.
-                crate::mpp_log!("mpp: shm_mq recv unknown code {code}, treating as detached");
+                mpp_log!("mpp: shm_mq recv unknown code {code}, treating as detached");
                 RecvOutcome::Detached
             }
         }

@@ -717,7 +717,7 @@ impl BatchChannelReceiver for InProcReceiver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use datafusion::arrow::array::{Int32Array, StringArray};
+    use datafusion::arrow::array::{Int32Array, Int64Array, StringArray, UInt64Array};
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use std::sync::Arc as StdArc;
     use std::thread;
@@ -977,7 +977,6 @@ mod tests {
     /// `aggregate_join_groupby`: a grouping key (title string) plus two
     /// partial-aggregate accumulators (COUNT u64, SUM i64).
     fn postagg_shape_batch(rows: usize) -> RecordBatch {
-        use datafusion::arrow::array::{Int64Array, UInt64Array};
         let schema = StdArc::new(Schema::new(vec![
             Field::new("title", DataType::Utf8, false),
             Field::new("count_partial", DataType::UInt64, false),
@@ -999,7 +998,6 @@ mod tests {
     /// Row shape matching the probe-side shuffle in the same query:
     /// `pages.fileId` (u64) plus `pages.sizeInBytes` (i64).
     fn probe_shape_batch(rows: usize) -> RecordBatch {
-        use datafusion::arrow::array::{Int64Array, UInt64Array};
         let schema = StdArc::new(Schema::new(vec![
             Field::new("fileId", DataType::UInt64, false),
             Field::new("sizeInBytes", DataType::Int64, false),

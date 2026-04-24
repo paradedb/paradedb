@@ -17,9 +17,9 @@
 
 //! MPP (Massively Parallel Processing) plan partitioning for JoinScan and AggregateScan.
 //!
-//! Issue #4152. Hash-partitions every table by the join key and shuffles intermediate
-//! rows between workers through PostgreSQL `shm_mq` queues, so each row is scanned
-//! exactly once. Guarded by `paradedb.enable_mpp` (default off).
+//! Hash-partitions every table by the join key and shuffles intermediate rows between
+//! workers through PostgreSQL `shm_mq` queues, so each row is scanned exactly once.
+//! Guarded by `paradedb.enable_mpp` (default off).
 //!
 //! Transport deadlock-avoidance relies on one dedicated drain thread per participant
 //! that reads all inbound queues into a spillable local buffer — this decouples

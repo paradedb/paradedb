@@ -243,17 +243,6 @@ impl CustomScan for AggregateScan {
             let has_pathkeys = unsafe {
                 !(*root).query_pathkeys.is_null() && pg_sys::list_length((*root).query_pathkeys) > 0
             };
-            // Separately check for an explicit SQL ORDER BY clause. GROUP BY
-            // without ORDER BY sets query_pathkeys (group_pathkeys) but leaves
-            // parse->sortClause empty — and for the MPP path we can aggref-
-            // replace plan.targetlist in that case, since no Sort node will
-            // be placed above us to care about the Aggrefs.
-            let has_sort_clause = unsafe {
-                let parse = (*root).parse;
-                !parse.is_null()
-                    && !(*parse).sortClause.is_null()
-                    && pg_sys::list_length((*parse).sortClause) > 0
-            };
 
             let clause_count = clause_count_val;
             let best_path = builder.args().best_path;
@@ -323,7 +312,6 @@ impl CustomScan for AggregateScan {
                 // path): aggrefs stay in plan.targetlist so Postgres's
                 // `make_sort_from_pathkeys` can find them. Replacement is
                 // deferred to `create_custom_scan_state` (execution time).
-                let _ = has_sort_clause; // previously gated on this; now unused
                 cscan
             }
         }
@@ -2043,9 +2031,10 @@ unsafe fn get_aggregate_name(aggref: *mut pg_sys::Aggref) -> String {
 // ----------------------------------------------------------------------------
 // ParallelQueryCapable for AggregateScan — delegation surface for the MPP
 // lifecycle hooks. `create_custom_path` flags the path parallel-safe via
-// `CustomPathBuilder::set_parallel(nworkers)` when `mpp_eligible_for_aggregate()`
-// is true; `begin_custom_scan` serializes the logical plan and stashes the
-// bytes on `AggregateScanState`; `exec_datafusion_aggregate` routes through
+// `CustomPathBuilder::set_parallel(nworkers)` when `maybe_flip_mpp_parallel`
+// determines the shape is MPP-eligible; `begin_custom_scan` serializes the
+// logical plan and stashes the bytes on `AggregateScanState`;
+// `exec_datafusion_aggregate` routes through
 // `mpp::plan_build::build_mpp_aggregate_plan` when `mpp_state` is `Some`.
 // ----------------------------------------------------------------------------
 impl ParallelQueryCapable for AggregateScan {
@@ -2137,12 +2126,21 @@ impl ParallelQueryCapable for AggregateScan {
     }
 
     fn reinitialize_dsm_custom_scan(
-        _state: &mut CustomScanStateWrapper<Self>,
+        state: &mut CustomScanStateWrapper<Self>,
         _pcxt: *mut pg_sys::ParallelContext,
         _coordinate: *mut std::os::raw::c_void,
     ) {
         // Rescan is out of scope. A rescanned MPP aggregate would need a
-        // full mesh teardown + rebuild.
+        // full mesh teardown + rebuild; silently no-op'ing would let the
+        // second scan reuse the first scan's drained queues and return
+        // wrong results. Only loud-error when MPP is actually active on
+        // this scan state — non-MPP paths have no rescan restrictions.
+        if state.custom_state().mpp_state.is_some() {
+            pgrx::error!(
+                "mpp: AggregateScan rescan not supported — rerun the query \
+                 without rescan (e.g. avoid nested-loop driving this node)"
+            );
+        }
     }
 
     fn initialize_worker_custom_scan(
@@ -2167,15 +2165,29 @@ impl ParallelQueryCapable for AggregateScan {
         // the process dies with the query.
         //
         // For region_total, we read the header's own `region_total`
-        // field (the first 8 bytes of the header's final u64). This
-        // loses the independence of the check but is the only source
-        // available without a seg pointer. A defense-in-depth
-        // independent check can land later via `dsm_find_mapping` +
-        // `dsm_segment_map_length`.
+        // field. This loses the independence of the check but is the
+        // only source available without a seg pointer. A defense-in-
+        // depth independent check can land later via `dsm_find_mapping`
+        // + `dsm_segment_map_length`.
+        //
+        // Validate magic BEFORE trusting `region_total`: a corrupt or
+        // pre-init DSM region can hand us a bogus size, and blindly
+        // passing it to `worker_init_dsm` would subvert the region-size
+        // bounds check in `MppDsmHeader::validate` (which compares
+        // `header.region_total` against the caller-supplied size —
+        // tautological if we sourced both from the same place).
         let region_total = unsafe {
             let header = std::ptr::read_unaligned(
                 coordinate as *const crate::postgres::customscan::mpp::worker::MppDsmHeader,
             );
+            if header.magic != crate::postgres::customscan::mpp::worker::MPP_DSM_MAGIC {
+                pgrx::error!(
+                    "mpp: worker DSM attach found bogus header magic 0x{:08x} \
+                     (expected 0x{:08x}) — refusing to trust region_total",
+                    header.magic,
+                    crate::postgres::customscan::mpp::worker::MPP_DSM_MAGIC,
+                );
+            }
             header.region_total
         };
         let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
@@ -2208,29 +2220,4 @@ impl ParallelQueryCapable for AggregateScan {
             }
         }
     }
-}
-
-/// Eligibility predicate for firing the MPP path from `create_custom_path`.
-///
-/// Rules:
-///   * `paradedb.enable_mpp` ON AND `paradedb.mpp_worker_count` >= 2
-///   * Aggregate is over a JOIN (RELOPT_JOINREL), not a single table
-///   * Only COUNT / SUM / MIN / MAX / AVG / BOOL_* / STDDEV_* / VAR_*
-///     aggregates — no DISTINCT, ARRAY_AGG, STRING_AGG
-///   * GROUP BY keys are simple column references
-///
-/// Kept here so the eligibility rule has one canonical home.
-#[allow(dead_code)]
-pub fn mpp_eligible_for_aggregate(input_rel_kind: pg_sys::RelOptKind::Type) -> bool {
-    if !crate::postgres::customscan::mpp::customscan_glue::mpp_is_active() {
-        return false;
-    }
-    // Milestone 1: only fire MPP on aggregate-over-JOIN. Single-table
-    // aggregates already run serially fast enough that the shuffle cost
-    // would dominate. RELOPT_OTHER_JOINREL covers partition-wise join
-    // rollups — same semantics, just a different RelOptKind tag.
-    matches!(
-        input_rel_kind,
-        pg_sys::RelOptKind::RELOPT_JOINREL | pg_sys::RelOptKind::RELOPT_OTHER_JOINREL
-    )
 }

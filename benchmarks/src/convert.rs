@@ -48,7 +48,8 @@ pub fn run_convert(args: ConvertArgs) -> Result<()> {
     let input = args.input.trim_end_matches('/');
     let output = args.output.trim_end_matches('/');
 
-    validate_input_output(&args.tables, &conn, input, output)?;
+    let tables: Vec<&str> = args.tables.iter().map(|t| t.as_ref()).collect();
+    validate_input_output(&tables, &conn, input, output)?;
 
     if args.dry_run {
         println!("\nDry run: counting planned conversions...");

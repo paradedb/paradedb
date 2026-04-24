@@ -31,7 +31,7 @@ pub struct DatasetConfig {
 #[derive(Deserialize)]
 pub struct RootTableConfig {
     pub name: String,
-    pub _primary_key: String,
+    pub primary_key: String,
 }
 
 #[derive(Deserialize, Clone)]
@@ -104,7 +104,7 @@ mod tests {
         DatasetConfig {
             root_table: RootTableConfig {
                 name: root_table.to_string(),
-                _primary_key: format!("{root_table}_pk"),
+                primary_key: format!("{root_table}_pk"),
             },
             sampling_seed: 42,
             tables,

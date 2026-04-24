@@ -44,7 +44,7 @@ pub fn open_duckdb_conn() -> Result<Connection> {
 /// check that each table has at least one parquet file, and that the output location for each
 /// table is empty
 pub fn validate_input_output(
-    tables: &[String],
+    tables: &[&str],
     conn: &Connection,
     input: &str,
     output: &str,
@@ -76,11 +76,11 @@ pub fn validate_input_output(
 
         if !input_exists {
             println!("  {table}: no parquet files found at '{input_glob}'");
-            missing_tables.push(table.clone());
+            missing_tables.push(table.to_string());
         }
         if !output_empty {
             println!("  {table}: output directory not empty '{output_glob}'");
-            filled_outputs.push(table.clone());
+            filled_outputs.push(table.to_string());
         }
         if input_exists && output_empty {
             println!("  {table}: ok");

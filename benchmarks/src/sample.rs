@@ -68,14 +68,15 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     let input = args.input.trim_end_matches('/');
     let output = args.output.trim_end_matches('/');
 
-    let table_names: Vec<String> = config.tables.iter().map(|t| t.name.clone()).collect();
+    let mut table_names: Vec<&str> = config.tables.iter().map(|t| t.name.as_str()).collect();
+    table_names.push(&config.root_table.name);
     validate_input_output(&table_names, &conn, input, output)?;
 
     // Determine processing order.
     let order = topological_order(&config)?;
 
     // Sample the root table.
-    let root = &config.tables[order[0]];
+    let root = config.root_table;
     let root_glob = parquet_glob_pattern(input, &root.name);
     let total_rows = count_rows(&conn, &root_glob)?;
 
@@ -123,10 +124,11 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     };
     let sql = format!(
         "CREATE TABLE sampled_{name} AS \
-         SELECT * FROM  read_parquet('{local_path}') \
+         SELECT * FROM  read_parquet('{local_path}') ORDER BY {pk} \
          USING SAMPLE {sample_arg} REPEATABLE({seed})",
         name = root.name,
         local_path = local_glob,
+        pk = root.primary_key,
         sample_arg = sample_arg,
         seed = config.sampling_seed,
     );

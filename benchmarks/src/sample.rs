@@ -160,14 +160,11 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     // Sample child tables by joining against their sampled parent.
     for &idx in &order[1..] {
         let table = &config.tables[idx];
-        let parent = table.parent.as_ref().unwrap();
-        let parent_join_key = table.parent_join_col.as_ref().unwrap();
-        let join_key = table.join_col.as_ref().unwrap();
         let glob = parquet_glob_pattern(input, &table.name);
 
         println!(
-            "Sampling child table '{}' (parent: '{parent}')...",
-            table.name
+            "Sampling child table '{}' (parent: '{}')...",
+            table.name, table.parent,
         );
 
         let sql = format!(
@@ -177,9 +174,9 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
              WHERE c.\"{jk}\" IN 
                 (SELECT {pk} from sampled_{parent})",
             name = table.name,
-            parent = parent,
-            jk = join_key,
-            pk = parent_join_key,
+            parent = table.parent,
+            jk = table.join_col,
+            pk = table.parent_join_col,
         );
         conn.execute_batch(&sql)
             .with_context(|| format!("Failed to sample child table '{}'", table.name))?;

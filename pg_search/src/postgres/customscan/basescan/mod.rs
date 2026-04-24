@@ -1562,7 +1562,30 @@ impl CustomScan for BaseScan {
 
                 ExecState::Virtual { slot } => {
                     state.custom_state_mut().virtual_tuple_count += 1;
-                    return slot;
+
+                    let needs_special_projection = state.custom_state().need_scores()
+                        || !state.custom_state().snippet_generators.is_empty()
+                        || state.custom_state().window_aggregate_results.is_some();
+
+                    if needs_special_projection {
+                        return slot;
+                    }
+
+                    unsafe {
+                        let planstate = state.planstate();
+                        let proj_info = pg_sys::ExecBuildProjectionInfo(
+                            state
+                                .custom_state()
+                                .placeholder_targetlist
+                                .expect("placeholder_targetlist must be set"),
+                            (*planstate).ps_ExprContext,
+                            (*planstate).ps_ResultTupleSlot,
+                            planstate,
+                            (*slot).tts_tupleDescriptor,
+                        );
+                        (*(*proj_info).pi_exprContext).ecxt_scantuple = slot;
+                        return pg_sys::ExecProject(proj_info);
+                    }
                 }
             }
         }

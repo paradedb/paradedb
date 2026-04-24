@@ -110,7 +110,7 @@ pub fn validate_output<'a>(
 
     if !filled_outputs.is_empty() {
         bail!(
-            "Output directories not empty for {} table(s): {} Aborting before doing any work.",
+            "Output directories not empty for {} table(s): {}. Aborting before doing any work.",
             filled_outputs.len(),
             filled_outputs.join(", "),
         );

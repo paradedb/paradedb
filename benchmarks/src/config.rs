@@ -27,7 +27,9 @@ pub struct DatasetConfig {
     #[serde(default)]
     pub s3_base_path: Option<String>,
 }
+
 impl DatasetConfig {
+    /// Returns an iterator containing the root table name, then all of the other table names
     pub fn all_table_names(&self) -> impl Iterator<Item = &str> {
         let tables_iter = self.tables.iter().map(|t| t.name.as_str());
         let root_iter = std::iter::once(self.root_table.name.as_str());
@@ -35,10 +37,10 @@ impl DatasetConfig {
     }
 }
 
-/// For deterministic sampling, `primary_key` must reference a column with unique, non-null values for all rows
 #[derive(Deserialize)]
 pub struct RootTableConfig {
     pub name: String,
+    /// For deterministic sampling, `primary_key` must reference a column with unique, non-null values for all rows
     pub primary_key: String,
 }
 
@@ -55,17 +57,19 @@ pub fn load_dataset_config(path: &str) -> Result<DatasetConfig> {
         std::fs::read_to_string(path).with_context(|| format!("Failed to read config '{path}'"))?;
     let config: DatasetConfig =
         toml::from_str(&content).with_context(|| format!("Failed to parse config '{path}'"))?;
-    if config
-        .tables
-        .iter()
-        .any(|t| t.name == config.root_table.name)
-    {
-        bail!(
-            "Multiple tables with root table name '{}' defined in config '{path}'",
-            config.root_table.name,
-        );
-    }
+    validate_config(&config).with_context(|| format!("Invalid config '{path}'"))?;
     Ok(config)
+}
+
+fn validate_config(config: &DatasetConfig) -> Result<()> {
+    let mut seen_names: HashSet<&str> = HashSet::new();
+    seen_names.insert(config.root_table.name.as_str());
+    for table in &config.tables {
+        if !seen_names.insert(table.name.as_str()) {
+            bail!("Duplicate table name '{}'", table.name);
+        }
+    }
+    Ok(())
 }
 
 /// Returns table indices in topological order (children only, excludes root).
@@ -192,5 +196,23 @@ mod tests {
     fn error_missing_parent_reference() {
         let config = make_config("orders", vec![make_table("line_items", "nonexistent")]);
         assert!(topological_order(&config).is_err());
+    }
+
+    #[test]
+    fn error_duplicate_of_root_in_tables() {
+        let config = make_config("orders", vec![make_table("orders", "orders")]);
+        assert!(validate_config(&config).is_err());
+    }
+
+    #[test]
+    fn error_duplicate_within_tables() {
+        let config = make_config(
+            "orders",
+            vec![
+                make_table("line_items", "orders"),
+                make_table("line_items", "orders"),
+            ],
+        );
+        assert!(validate_config(&config).is_err());
     }
 }

@@ -210,11 +210,7 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     Ok(())
 }
 
-fn write_sample_table(
-    conn: &duckdb::Connection,
-    table_name: &str,
-    output: &str,
-) -> anyhow::Result<()> {
+fn write_sample_table(conn: &duckdb::Connection, table_name: &str, output: &str) -> Result<()> {
     println!("  Writing '{}'...", table_name);
     let sql = format!(
         "COPY sampled_{name} TO '{output}/{name}' (FORMAT PARQUET, PER_THREAD_OUTPUT true)",

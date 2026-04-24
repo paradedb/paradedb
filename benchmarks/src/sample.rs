@@ -76,7 +76,7 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     let order = topological_order(&config)?;
 
     // Sample the root table.
-    let root = config.root_table;
+    let root = &config.root_table;
     let root_glob = parquet_glob_pattern(input, &root.name);
     let total_rows = count_rows(&conn, &root_glob)?;
 
@@ -124,7 +124,7 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     };
     let sql = format!(
         "CREATE TABLE sampled_{name} AS \
-        WITH ordered AS (SELECT * FROM  read_parquet('{local_path}') ORDER BY {pk}) \
+        WITH ordered AS (SELECT * FROM  read_parquet('{local_path}') ORDER BY \"{pk}\") \
         SELECT * FROM ordered USING SAMPLE {sample_arg} REPEATABLE({seed})",
         name = root.name,
         local_path = local_glob,
@@ -160,7 +160,7 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     println!("  {} sampled: {sampled_root_count} rows", root.name);
 
     // Sample child tables by joining against their sampled parent.
-    for &idx in &order[..] {
+    for &idx in &order {
         let table = &config.tables[idx];
         let glob = parquet_glob_pattern(input, &table.name);
 
@@ -200,8 +200,21 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
 
     // Write output.
     println!("\nWriting sampled parquet files...");
-    // root
-    let table_name = root.name;
+    write_sample_table(&conn, &root.name, output)?;
+    // others
+    for &idx in &order {
+        write_sample_table(&conn, &config.tables[idx].name, output)?;
+    }
+
+    println!("\nSampling complete.");
+    Ok(())
+}
+
+fn write_sample_table(
+    conn: &duckdb::Connection,
+    table_name: &str,
+    output: &str,
+) -> anyhow::Result<()> {
     println!("  Writing '{}'...", table_name);
     let sql = format!(
         "COPY sampled_{name} TO '{output}/{name}' (FORMAT PARQUET, PER_THREAD_OUTPUT true)",
@@ -211,21 +224,5 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     conn.execute_batch(&sql)
         .with_context(|| format!("Failed to write sampled table '{}'", table_name))?;
     println!("  {}: done", table_name);
-
-    // others
-    for &idx in &order {
-        let table = &config.tables[idx];
-        println!("  Writing '{}'...", table.name);
-        let sql = format!(
-            "COPY sampled_{name} TO '{output}/{name}' (FORMAT PARQUET, PER_THREAD_OUTPUT true)",
-            name = table.name,
-            output = output,
-        );
-        conn.execute_batch(&sql)
-            .with_context(|| format!("Failed to write sampled table '{}'", table.name))?;
-        println!("  {}: done", table.name);
-    }
-
-    println!("\nSampling complete.");
     Ok(())
 }

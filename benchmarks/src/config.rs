@@ -29,12 +29,13 @@ pub struct DatasetConfig {
 }
 
 #[derive(Deserialize)]
+/// For deterministic sampling, `primary_key` must reference a column with unique, non-null values for all rows
 pub struct RootTableConfig {
     pub name: String,
     pub primary_key: String,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize)]
 pub struct TableConfig {
     pub name: String,
     pub parent: String,
@@ -50,7 +51,7 @@ pub fn load_dataset_config(path: &str) -> Result<DatasetConfig> {
 
 /// Returns table indices in topological order (children only, excludes root).
 pub fn topological_order(config: &DatasetConfig) -> Result<Vec<usize>> {
-    let mut order = Vec::with_capacity(config.tables.len() + 1);
+    let mut order = Vec::with_capacity(config.tables.len());
     let mut processed: HashSet<&str> = HashSet::new();
 
     // Start with the root table.
@@ -65,7 +66,6 @@ pub fn topological_order(config: &DatasetConfig) -> Result<Vec<usize>> {
                 continue;
             }
             if processed.contains(table.parent.as_str()) {
-                // Validate that child tables have the required keys.
                 order.push(i);
                 processed.insert(&table.name);
                 progress = true;
@@ -165,7 +165,6 @@ mod tests {
             ],
         );
         let order = topological_order(&config).unwrap();
-        // Root (orders=idx2) must come first, then line_items(idx1), then shipments(idx0).
         assert_eq!(order, vec![1, 0]);
     }
 

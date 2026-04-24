@@ -166,6 +166,7 @@ use self::scan_state::{
 };
 use crate::api::HashSet;
 use crate::api::OrderByFeature;
+use crate::gucs::mpp_min_join_rows;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::builders::custom_path::{CustomPathBuilder, Flags};
@@ -177,18 +178,34 @@ use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_fields;
 use crate::postgres::customscan::limit_offset::LimitOffset;
+use crate::postgres::customscan::mpp::customscan_glue::{
+    leader_estimate_dsm, leader_init_dsm, mpp_is_active, mpp_worker_count as mpp_glue_worker_count,
+    worker_init_dsm,
+};
+use crate::postgres::customscan::mpp::session::{
+    derive_query_id, MppPlanBroadcast, MppSessionProfile,
+};
+use crate::postgres::customscan::mpp::shape::{
+    broadcast_side_gate, classify as classify_shape, ClassifyInputs, MppPlanShape,
+};
+use crate::postgres::customscan::mpp::walker::{cut_count_for_shape, distribute_plan};
+use crate::postgres::customscan::mpp::worker::{MppDsmHeader, MPP_DSM_MAGIC};
+use crate::postgres::customscan::mpp::MppShardConfig;
 use crate::postgres::customscan::parallel::compute_nworkers;
 use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
 use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
+use crate::scan::info::RowEstimate;
 use datafusion::physical_plan::displayable;
 use datafusion::physical_plan::metrics::MetricValue;
 use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
 use futures::StreamExt;
 use pgrx::{pg_guard, pg_sys, PgList};
 use std::ffi::{c_void, CStr};
+use std::ptr;
+use std::sync::Arc;
 
 #[derive(Default)]
 pub struct JoinScan;
@@ -338,7 +355,7 @@ unsafe fn is_limit_pushdown_safe(
     #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
     let all_rels = (*root).all_query_rels;
 
-    let mut absorbed_bms: *mut pg_sys::Bitmapset = std::ptr::null_mut();
+    let mut absorbed_bms: *mut pg_sys::Bitmapset = ptr::null_mut();
     for rti in &absorbed_rtis {
         absorbed_bms = pg_sys::bms_add_member(absorbed_bms, *rti as i32);
     }
@@ -665,11 +682,8 @@ impl JoinScan {
         // `total_participants - 1`, and `worker_init_dsm` errors with
         // "participant_index out of range". Mirrors the AggregateScan MPP
         // path's `maybe_flip_mpp_parallel`.
-        let nworkers = if nworkers > 0
-            && join_clause.plan.sources().len() == 2
-            && crate::postgres::customscan::mpp::customscan_glue::mpp_is_active()
-        {
-            let n = crate::postgres::customscan::mpp::customscan_glue::mpp_worker_count() as usize;
+        let nworkers = if nworkers > 0 && join_clause.plan.sources().len() == 2 && mpp_is_active() {
+            let n = mpp_glue_worker_count() as usize;
             n.saturating_sub(1).max(1)
         } else {
             nworkers
@@ -689,7 +703,7 @@ impl JoinScan {
             let processes = processes as u64;
             let partitioning_idx = join_clause.partitioning_source_index();
             for (idx, source) in join_clause.plan.sources_mut().into_iter().enumerate() {
-                if let crate::scan::info::RowEstimate::Known(n) = source.scan_info.estimate {
+                if let RowEstimate::Known(n) = source.scan_info.estimate {
                     source.scan_info.estimated_rows_per_worker = if idx == partitioning_idx {
                         Some(n / processes)
                     } else {
@@ -699,7 +713,7 @@ impl JoinScan {
             }
         } else {
             for source in join_clause.plan.sources_mut() {
-                if let crate::scan::info::RowEstimate::Known(n) = source.scan_info.estimate {
+                if let RowEstimate::Known(n) = source.scan_info.estimate {
                     source.scan_info.estimated_rows_per_worker = Some(n);
                 }
             }
@@ -731,7 +745,7 @@ impl JoinScan {
             flags: Flags::Force as u32,
             methods: JoinScan::custom_path_methods(),
             custom_private: private_data.into(),
-            custom_paths: std::ptr::null_mut(),
+            custom_paths: ptr::null_mut(),
             ..Default::default()
         };
 
@@ -768,14 +782,11 @@ impl ParallelQueryCapable for JoinScan {
                 );
                 return Self::estimate_broadcast_dsm(state);
             };
-            let num_meshes = crate::postgres::customscan::mpp::walker::cut_count_for_shape(shape);
+            let num_meshes = cut_count_for_shape(shape);
             if num_meshes == 0 {
                 return Self::estimate_broadcast_dsm(state);
             }
-            return match crate::postgres::customscan::mpp::customscan_glue::leader_estimate_dsm(
-                plan_bytes.len(),
-                num_meshes,
-            ) {
+            return match leader_estimate_dsm(plan_bytes.len(), num_meshes) {
                 Ok(sz) => sz,
                 Err(e) => {
                     crate::mpp_log!(
@@ -808,17 +819,13 @@ impl ParallelQueryCapable for JoinScan {
                 return;
             };
             let plan_bytes = plan_bytes.to_vec();
-            let num_meshes = crate::postgres::customscan::mpp::walker::cut_count_for_shape(shape);
+            let num_meshes = cut_count_for_shape(shape);
             if num_meshes == 0 {
                 Self::initialize_broadcast_dsm(state, coordinate);
                 return;
             }
             let seg = unsafe { (*pcxt).seg };
-            let ctx = unsafe {
-                crate::postgres::customscan::mpp::customscan_glue::leader_init_dsm(
-                    coordinate, plan_bytes, num_meshes, seg,
-                )
-            };
+            let ctx = unsafe { leader_init_dsm(coordinate, plan_bytes, num_meshes, seg) };
             match ctx {
                 Ok(leader_ctx) => {
                     crate::mpp_log!(
@@ -869,25 +876,15 @@ impl ParallelQueryCapable for JoinScan {
         // `MppDsmHeader` read AggregateScan uses — we don't have
         // `mpp_shape` on the worker side (that state doesn't propagate
         // through PrivateData), so we inspect the region itself.
-        if crate::postgres::customscan::mpp::customscan_glue::mpp_is_active()
-            && !coordinate.is_null()
-            && Self::dsm_looks_like_mpp(coordinate)
-        {
+        if mpp_is_active() && !coordinate.is_null() && Self::dsm_looks_like_mpp(coordinate) {
             debug_assert!(state.custom_state().mpp_state.is_none());
             let region_total = unsafe {
-                let header = std::ptr::read_unaligned(
-                    coordinate as *const crate::postgres::customscan::mpp::worker::MppDsmHeader,
-                );
+                let header = ptr::read_unaligned(coordinate as *const MppDsmHeader);
                 header.region_total
             };
             let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
             let ctx = unsafe {
-                crate::postgres::customscan::mpp::customscan_glue::worker_init_dsm(
-                    coordinate,
-                    region_total,
-                    worker_number,
-                    std::ptr::null_mut(),
-                )
+                worker_init_dsm(coordinate, region_total, worker_number, ptr::null_mut())
             };
             match ctx {
                 Ok(worker_ctx) => {
@@ -994,10 +991,8 @@ impl JoinScan {
     /// magic won't match and we fall through to the broadcast-join branch.
     fn dsm_looks_like_mpp(coordinate: *mut c_void) -> bool {
         unsafe {
-            let header = std::ptr::read_unaligned(
-                coordinate as *const crate::postgres::customscan::mpp::worker::MppDsmHeader,
-            );
-            header.magic == crate::postgres::customscan::mpp::worker::MPP_DSM_MAGIC
+            let header = ptr::read_unaligned(coordinate as *const MppDsmHeader);
+            header.magic == MPP_DSM_MAGIC
         }
     }
 
@@ -1012,8 +1007,6 @@ impl JoinScan {
     /// the MPP fields `None` and the scan silently falls back to the non-MPP
     /// broadcast-join path — same ops-friendly behavior as AggregateScan.
     fn maybe_stash_mpp_plan_bytes(state: &mut CustomScanStateWrapper<Self>) {
-        use crate::postgres::customscan::mpp::shape::{classify, ClassifyInputs, MppPlanShape};
-
         let Some(raw_plan_bytes) = state.custom_state().logical_plan.as_ref() else {
             crate::mpp_log!(
                 "mpp: JoinScan begin_custom_scan has no logical_plan bytes; MPP falls back"
@@ -1023,7 +1016,7 @@ impl JoinScan {
         let raw_plan_bytes = raw_plan_bytes.clone();
 
         let n_join_tables = state.custom_state().join_clause.plan.sources().len();
-        let shape = classify(&ClassifyInputs {
+        let shape = classify_shape(&ClassifyInputs {
             n_join_tables,
             has_group_by: false,
             all_aggregates_splittable: true,
@@ -1043,7 +1036,7 @@ impl JoinScan {
         // that regime (replicate the small side, probe with the large).
         // Threshold of 0 disables the gate. See
         // [`crate::postgres::customscan::mpp::shape::broadcast_side_gate`].
-        let estimates: Vec<crate::scan::info::RowEstimate> = state
+        let estimates: Vec<RowEstimate> = state
             .custom_state()
             .join_clause
             .plan
@@ -1051,10 +1044,8 @@ impl JoinScan {
             .iter()
             .map(|s| s.scan_info.estimate)
             .collect();
-        let min_rows = crate::gucs::mpp_min_join_rows();
-        if let Some(gated_rows) =
-            crate::postgres::customscan::mpp::shape::broadcast_side_gate(&estimates, min_rows)
-        {
+        let min_rows = mpp_min_join_rows();
+        if let Some(gated_rows) = broadcast_side_gate(&estimates, min_rows) {
             crate::mpp_log!(
                 "mpp: JoinScan {:?} gated — smallest side estimated_rows={} < \
                  mpp_min_join_rows={}; staying on non-MPP path",
@@ -1065,12 +1056,12 @@ impl JoinScan {
             return;
         }
 
-        let n = crate::postgres::customscan::mpp::customscan_glue::mpp_worker_count();
-        let query_id = crate::postgres::customscan::mpp::session::derive_query_id();
-        let broadcast = crate::postgres::customscan::mpp::session::MppPlanBroadcast::new(
+        let n = mpp_glue_worker_count();
+        let query_id = derive_query_id();
+        let broadcast = MppPlanBroadcast::new(
             raw_plan_bytes.to_vec(),
             n,
-            crate::postgres::customscan::mpp::session::MppSessionProfile::Join,
+            MppSessionProfile::Join,
             query_id,
         );
         let broadcast_bytes = match broadcast.serialize() {
@@ -1533,7 +1524,7 @@ impl CustomScan for JoinScan {
 
             // Stash MPP plan-broadcast bytes + shape when MPP is active.
             // Non-fatal on failure (logged + falls back to broadcast-join).
-            if crate::postgres::customscan::mpp::customscan_glue::mpp_is_active() {
+            if mpp_is_active() {
                 Self::maybe_stash_mpp_plan_bytes(state);
             }
         }
@@ -1607,15 +1598,12 @@ impl CustomScan for JoinScan {
                             SessionContextProfile::Join,
                             &cfg,
                         );
-                        ctx.state_ref()
-                            .write()
-                            .config_mut()
-                            .set_extension(std::sync::Arc::new(
-                                crate::postgres::customscan::mpp::MppShardConfig {
-                                    participant_index: cfg.participant_index,
-                                    total_participants: cfg.total_participants,
-                                },
-                            ));
+                        ctx.state_ref().write().config_mut().set_extension(Arc::new(
+                            MppShardConfig {
+                                participant_index: cfg.participant_index,
+                                total_participants: cfg.total_participants,
+                            },
+                        ));
                         ctx
                     }
                     _ => create_datafusion_session_context(SessionContextProfile::Join),
@@ -1650,11 +1638,7 @@ impl CustomScan for JoinScan {
                         mpp_state.is_leader()
                     );
                     let _guard = runtime.enter();
-                    match crate::postgres::customscan::mpp::walker::distribute_plan(
-                        standard_plan,
-                        mpp_state,
-                        shape,
-                    ) {
+                    match distribute_plan(standard_plan, mpp_state, shape) {
                         Ok(p) => p,
                         Err(e) => panic!("mpp: JoinScan distribute_plan failed: {e}"),
                     }
@@ -1723,7 +1707,7 @@ impl CustomScan for JoinScan {
                         state.custom_state_mut().batch_index = 0;
                     }
                     Some(Err(e)) => panic!("DataFusion execution failed: {}", e),
-                    None => return std::ptr::null_mut(),
+                    None => return ptr::null_mut(),
                 }
             }
         }

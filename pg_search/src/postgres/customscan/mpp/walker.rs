@@ -91,7 +91,7 @@ use std::borrow::Borrow;
 use std::collections::VecDeque;
 use std::fmt;
 use std::mem;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 #[cfg(test)]
 use datafusion::arrow::datatypes::SchemaRef;
@@ -1619,8 +1619,7 @@ fn find_hash_join(plan: &dyn ExecutionPlan) -> Option<&HashJoinExec> {
 /// `aggregatescan/filterquery.rs::BUILD_FILTER_QUERY_FN` — see paradedb#3715,
 /// pgcentralfoundation/pgrx#2229.
 type StripDynamicFiltersFn = fn(Arc<dyn ExecutionPlan>) -> DfResult<Arc<dyn ExecutionPlan>>;
-static STRIP_DYNAMIC_FILTERS_FN: std::sync::OnceLock<StripDynamicFiltersFn> =
-    std::sync::OnceLock::new();
+static STRIP_DYNAMIC_FILTERS_FN: OnceLock<StripDynamicFiltersFn> = OnceLock::new();
 
 /// Install the real implementation. Called from `_PG_init`; because `_PG_init`
 /// is unreachable from `#[test]`, the function pointer stays out of the test

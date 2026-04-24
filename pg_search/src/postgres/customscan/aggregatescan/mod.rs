@@ -77,7 +77,7 @@ use crate::postgres::customscan::mpp::session::{
     derive_query_id, MppPlanBroadcast, MppSessionProfile,
 };
 use crate::postgres::customscan::mpp::shape::{
-    classify as classify_shape, ClassifyInputs, MppPlanShape,
+    broadcast_side_gate, classify as classify_shape, ClassifyInputs, MppPlanShape,
 };
 use crate::postgres::customscan::mpp::walker::{cut_count_for_shape, distribute_plan};
 use crate::postgres::customscan::mpp::worker::{MppDsmHeader, MPP_DSM_MAGIC};
@@ -97,6 +97,7 @@ use std::sync::Arc;
 use tantivy::schema::OwnedValue;
 
 use crate::scan::codec::serialize_logical_plan;
+use crate::scan::info::RowEstimate;
 
 #[derive(Default)]
 pub struct AggregateScan;
@@ -699,7 +700,7 @@ impl AggregateScan {
         // below. Harvested here (cheaply, from the PG-side join tree) so we
         // don't have to walk the DataFusion logical plan to recover them
         // after it's built.
-        let source_estimates: Vec<crate::scan::info::RowEstimate> = plan
+        let source_estimates: Vec<RowEstimate> = plan
             .sources()
             .iter()
             .map(|s| s.scan_info.estimate)
@@ -744,13 +745,8 @@ impl AggregateScan {
                 // (GroupByAggSingleTable) have no broadcast candidate and are
                 // not gated.
                 if shape.is_binary_join() {
-                    let min_rows = crate::gucs::mpp_min_join_rows();
-                    if let Some(gated_rows) =
-                        crate::postgres::customscan::mpp::shape::broadcast_side_gate(
-                            &source_estimates,
-                            min_rows,
-                        )
-                    {
+                    let min_rows = gucs::mpp_min_join_rows();
+                    if let Some(gated_rows) = broadcast_side_gate(&source_estimates, min_rows) {
                         crate::mpp_log!(
                             "mpp: AggregateScan {:?} gated — smallest side \
                              estimated_rows={} < mpp_min_join_rows={}; staying on \

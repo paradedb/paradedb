@@ -67,16 +67,23 @@ pub enum MppPlanShape {
 /// Shape-classification inputs. Kept as plain fields rather than a reference
 /// to a larger state so callers can construct it from whatever they have
 /// (RelNode walk, AggregateCSClause inspection, test synthetic data).
+#[derive(Debug, Clone)]
 pub struct ClassifyInputs {
     /// Number of tables in the join. 0 = no join, 1 = single table,
     /// 2 = binary join, >=3 = multi-table join.
     pub n_join_tables: usize,
-    /// True if the query has a GROUP BY clause with at least one column.
+    /// True if the query has at least one GROUP BY expression the MPP
+    /// shuffle can hash-partition on. Callers must exclude group-by
+    /// expressions whose value is not stable across workers (volatile
+    /// functions, session-dependent casts) — those break the "each group
+    /// lives on exactly one worker" invariant.
     pub has_group_by: bool,
     /// True if every aggregate function in the targetlist is one of
     /// COUNT/SUM/MIN/MAX/AVG/BOOL_*/STDDEV_*/VAR_* — the set with a safe
     /// Partial/Final split. `false` for COUNT(DISTINCT), ARRAY_AGG,
-    /// STRING_AGG, ordered-set, hypothetical-set aggregates.
+    /// STRING_AGG, ordered-set, hypothetical-set aggregates. When
+    /// `has_aggregate=false`, this field is irrelevant and callers
+    /// conventionally pass `true`.
     pub all_aggregates_splittable: bool,
     /// True if the query has at least one aggregate (COUNT, SUM, …). When
     /// `false`, we're classifying a join-only shape.

@@ -83,6 +83,7 @@ use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::TaskContext;
 use datafusion::physical_optimizer::filter_pushdown::FilterPushdown;
 
+use crate::gucs::is_columnar_sort_enabled;
 use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::datafusion::translator::{
     apply_join_level_filter, build_join_df_with_filter, make_col, make_source_col,
@@ -92,6 +93,9 @@ use crate::postgres::customscan::datafusion::translator::{
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
 };
+use crate::postgres::customscan::mpp::customscan_glue::MppExecutionState;
+use crate::postgres::customscan::mpp::shape::MppPlanShape;
+use crate::postgres::customscan::mpp::MppParticipantConfig;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
@@ -272,7 +276,7 @@ pub struct JoinScanState {
     /// is always `JoinOnly` (or `Ineligible`, which means `logical_plan_bytes`
     /// stays `None`).
     #[allow(dead_code)]
-    pub mpp_shape: Option<crate::postgres::customscan::mpp::shape::MppPlanShape>,
+    pub mpp_shape: Option<MppPlanShape>,
 
     /// MPP lifecycle state. Populated by `initialize_dsm_custom_scan` on the
     /// leader or `initialize_worker_custom_scan` on a worker when MPP is
@@ -282,7 +286,7 @@ pub struct JoinScanState {
     /// `AggregateScanState::mpp_state`: it owns shm_mq handles pointing into
     /// DSM which must stay mapped until this drops.
     #[allow(dead_code)]
-    pub mpp_state: Option<crate::postgres::customscan::mpp::customscan_glue::MppExecutionState>,
+    pub mpp_state: Option<MppExecutionState>,
 }
 
 impl JoinScanState {
@@ -336,7 +340,7 @@ pub enum SessionContextProfile {
 ///      with the exchange producer and emit zero rows.
 pub(crate) fn build_base_session_with_mpp(
     config: SessionConfig,
-    mpp: Option<&crate::postgres::customscan::mpp::MppParticipantConfig>,
+    mpp: Option<&MppParticipantConfig>,
 ) -> SessionStateBuilder {
     use super::visibility_filter::VisibilityFilterOptimizerRule;
     use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
@@ -360,7 +364,7 @@ pub(crate) fn build_base_session_with_mpp(
     // `None`.
     let mpp_active = mpp.is_some();
 
-    if crate::gucs::is_columnar_sort_enabled() && !mpp_active {
+    if is_columnar_sort_enabled() && !mpp_active {
         builder = builder.with_physical_optimizer_rule(Arc::new(SortMergeJoinEnforcer::new()));
     }
 
@@ -398,14 +402,14 @@ pub fn create_datafusion_session_context(profile: SessionContextProfile) -> Sess
 #[allow(dead_code)] // first caller is the MPP path
 pub fn create_datafusion_session_context_mpp(
     profile: SessionContextProfile,
-    mpp: &crate::postgres::customscan::mpp::MppParticipantConfig,
+    mpp: &MppParticipantConfig,
 ) -> SessionContext {
     create_datafusion_session_context_inner(profile, Some(mpp))
 }
 
 fn create_datafusion_session_context_inner(
     profile: SessionContextProfile,
-    mpp: Option<&crate::postgres::customscan::mpp::MppParticipantConfig>,
+    mpp: Option<&MppParticipantConfig>,
 ) -> SessionContext {
     let mut config = SessionConfig::new().with_target_partitions(1);
     if matches!(profile, SessionContextProfile::Join) {
@@ -449,7 +453,7 @@ fn create_datafusion_session_context_inner(
 
     match profile {
         SessionContextProfile::Join => {
-            if crate::gucs::is_columnar_sort_enabled() && !mpp_active {
+            if is_columnar_sort_enabled() && !mpp_active {
                 builder = builder.with_physical_optimizer_rule(Arc::new(
                     FilterPushdown::new_post_optimization(),
                 ));

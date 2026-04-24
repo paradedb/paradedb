@@ -22,9 +22,13 @@ use crate::postgres::customscan::aggregatescan::privdat::{DataFusionTopK, Filter
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, MultiTablePredicateInfo, RelNode,
 };
+use crate::postgres::customscan::mpp::customscan_glue::MppExecutionState;
+use crate::postgres::customscan::mpp::shape::MppPlanShape;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::PgSearchRelation;
+
+use std::vec::IntoIter;
 
 use arrow_array::RecordBatch;
 use datafusion::physical_plan::SendableRecordBatchStream;
@@ -34,7 +38,7 @@ use pgrx::pg_sys;
 pub enum ExecutionState {
     #[default]
     NotStarted,
-    Emitting(std::vec::IntoIter<AggregationResultsRow>),
+    Emitting(IntoIter<AggregationResultsRow>),
     Completed,
 }
 
@@ -135,7 +139,7 @@ pub struct AggregateScanState {
     /// `logical_plan_bytes`. Drives the number of shuffle meshes the
     /// coordinator allocates in DSM and the per-shape plan builder used
     /// at exec time. `None` whenever `logical_plan_bytes` is `None`.
-    pub mpp_shape: Option<crate::postgres::customscan::mpp::shape::MppPlanShape>,
+    pub mpp_shape: Option<MppPlanShape>,
 
     /// MPP lifecycle state. Populated by `initialize_dsm_custom_scan`
     /// (leader) or `initialize_worker_custom_scan` (worker) when
@@ -155,7 +159,7 @@ pub struct AggregateScanState {
     /// handle must `join()` its drain thread before the DSM detaches,
     /// so don't move `mpp_state` earlier in this struct without revisiting
     /// the Drop chain.
-    pub mpp_state: Option<crate::postgres::customscan::mpp::customscan_glue::MppExecutionState>,
+    pub mpp_state: Option<MppExecutionState>,
 }
 
 impl AggregateScanState {

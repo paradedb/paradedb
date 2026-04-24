@@ -69,6 +69,19 @@ use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, build_task_context};
 use crate::postgres::customscan::limit_offset::LimitOffset;
+use crate::postgres::customscan::mpp::customscan_glue::{
+    leader_estimate_dsm, leader_init_dsm, mpp_is_active, mpp_worker_count as mpp_glue_worker_count,
+    worker_init_dsm,
+};
+use crate::postgres::customscan::mpp::session::{
+    derive_query_id, MppPlanBroadcast, MppSessionProfile,
+};
+use crate::postgres::customscan::mpp::shape::{
+    classify as classify_shape, ClassifyInputs, MppPlanShape,
+};
+use crate::postgres::customscan::mpp::walker::{cut_count_for_shape, distribute_plan};
+use crate::postgres::customscan::mpp::worker::{MppDsmHeader, MPP_DSM_MAGIC};
+use crate::postgres::customscan::mpp::MppShardConfig;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{range_table, CreateUpperPathsHookArgs, CustomScan};
@@ -78,8 +91,12 @@ use crate::postgres::utils::{add_vars_to_tlist, is_unnest_func, make_text_const}
 use crate::postgres::PgSearchRelation;
 use chrono::{DateTime as ChronoDateTime, Utc};
 use pgrx::{pg_sys, PgList, PgMemoryContexts, PgTupleDesc};
-use std::ffi::CStr;
+use std::ffi::{c_void, CStr};
+use std::ptr;
+use std::sync::Arc;
 use tantivy::schema::OwnedValue;
+
+use crate::scan::codec::serialize_logical_plan;
 
 #[derive(Default)]
 pub struct AggregateScan;
@@ -496,7 +513,7 @@ impl CustomScan for AggregateScan {
             // on `mpp_is_active()` so non-MPP queries pay zero cost.
             // Failures inside the helper are non-fatal (log + fall back).
             let explain_only = (eflags & pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) != 0;
-            if !explain_only && crate::postgres::customscan::mpp::customscan_glue::mpp_is_active() {
+            if !explain_only && mpp_is_active() {
                 Self::maybe_stash_mpp_plan_bytes(state);
             }
             return;
@@ -691,25 +708,23 @@ impl AggregateScan {
         };
 
         let ctx = create_aggregate_session_context();
-        let plan_and_shape: datafusion::common::Result<(
-            bytes::Bytes,
-            crate::postgres::customscan::mpp::shape::MppPlanShape,
-        )> = rt.block_on(async {
-            let logical = build_join_aggregate_plan(
-                &plan,
-                &targetlist,
-                topk.as_ref(),
-                &jlp,
-                custom_exprs,
-                custom_scan_tlist,
-                having.as_ref(),
-                &ctx,
-            )
-            .await?;
-            let shape = Self::classify_logical_plan(&logical);
-            let bytes = crate::scan::codec::serialize_logical_plan(&logical)?;
-            Ok((bytes, shape))
-        });
+        let plan_and_shape: datafusion::common::Result<(bytes::Bytes, MppPlanShape)> =
+            rt.block_on(async {
+                let logical = build_join_aggregate_plan(
+                    &plan,
+                    &targetlist,
+                    topk.as_ref(),
+                    &jlp,
+                    custom_exprs,
+                    custom_scan_tlist,
+                    having.as_ref(),
+                    &ctx,
+                )
+                .await?;
+                let shape = Self::classify_logical_plan(&logical);
+                let bytes = serialize_logical_plan(&logical)?;
+                Ok((bytes, shape))
+            });
 
         match plan_and_shape {
             Ok((bytes, shape)) => {
@@ -724,12 +739,12 @@ impl AggregateScan {
                 // DSM init path to overrun the PG-allocated `shm_toc` region
                 // and corrupt adjacent DSA control blocks → crash at
                 // `dsa_release_in_place` during parallel-context teardown.
-                let n = crate::postgres::customscan::mpp::customscan_glue::mpp_worker_count();
-                let query_id = crate::postgres::customscan::mpp::session::derive_query_id();
-                let broadcast = crate::postgres::customscan::mpp::session::MppPlanBroadcast::new(
+                let n = mpp_glue_worker_count();
+                let query_id = derive_query_id();
+                let broadcast = MppPlanBroadcast::new(
                     bytes.to_vec(),
                     n,
-                    crate::postgres::customscan::mpp::session::MppSessionProfile::Aggregate,
+                    MppSessionProfile::Aggregate,
                     query_id,
                 );
                 let broadcast_bytes = match broadcast.serialize() {
@@ -761,9 +776,7 @@ impl AggregateScan {
     /// inspects aggregate function names for splittability. Runs once per
     /// MPP-eligible query; keep side-effect free so it can be called during
     /// plan-stash.
-    fn classify_logical_plan(
-        plan: &datafusion::logical_expr::LogicalPlan,
-    ) -> crate::postgres::customscan::mpp::shape::MppPlanShape {
+    fn classify_logical_plan(plan: &datafusion::logical_expr::LogicalPlan) -> MppPlanShape {
         use datafusion::common::tree_node::TreeNode;
         use datafusion::logical_expr::LogicalPlan;
         let mut n_table_scans: usize = 0;
@@ -793,14 +806,12 @@ impl AggregateScan {
         })
         .ok();
 
-        crate::postgres::customscan::mpp::shape::classify(
-            &crate::postgres::customscan::mpp::shape::ClassifyInputs {
-                n_join_tables: n_table_scans,
-                has_group_by,
-                all_aggregates_splittable,
-                has_aggregate,
-            },
-        )
+        classify_shape(&ClassifyInputs {
+            n_join_tables: n_table_scans,
+            has_group_by,
+            all_aggregates_splittable,
+            has_aggregate,
+        })
     }
 
     /// Early-path classification used at `create_custom_path` time, before
@@ -814,7 +825,7 @@ impl AggregateScan {
     fn classify_path_shape(
         sources: &[crate::postgres::customscan::aggregatescan::datafusion_build::JoinAggSource],
         targetlist: &crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList,
-    ) -> crate::postgres::customscan::mpp::shape::MppPlanShape {
+    ) -> MppPlanShape {
         use crate::postgres::customscan::aggregatescan::join_targetlist::AggKind;
         let n_join_tables = sources.len();
         let has_group_by = !targetlist.group_columns.is_empty();
@@ -836,14 +847,12 @@ impl AggregateScan {
                     | AggKind::VarPop
             ) && !a.distinct
         });
-        crate::postgres::customscan::mpp::shape::classify(
-            &crate::postgres::customscan::mpp::shape::ClassifyInputs {
-                n_join_tables,
-                has_group_by,
-                all_aggregates_splittable,
-                has_aggregate,
-            },
-        )
+        classify_shape(&ClassifyInputs {
+            n_join_tables,
+            has_group_by,
+            all_aggregates_splittable,
+            has_aggregate,
+        })
     }
 
     /// If the query is MPP-eligible, flip the path's `parallel_safe` /
@@ -858,8 +867,8 @@ impl AggregateScan {
         sources: &[crate::postgres::customscan::aggregatescan::datafusion_build::JoinAggSource],
         targetlist: &crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList,
     ) -> CustomPathBuilder<Self> {
-        use crate::postgres::customscan::mpp::shape::MppPlanShape;
-        if !crate::postgres::customscan::mpp::customscan_glue::mpp_is_active() {
+        use MppPlanShape;
+        if !mpp_is_active() {
             return builder;
         }
         let shape = Self::classify_path_shape(sources, targetlist);
@@ -874,7 +883,7 @@ impl AggregateScan {
         if !activate {
             return builder;
         }
-        let n = crate::postgres::customscan::mpp::customscan_glue::mpp_worker_count() as usize;
+        let n = mpp_glue_worker_count() as usize;
         // `mpp_worker_count` clamps to >= 2, but be defensive.
         let nworkers = n.saturating_sub(1).max(1);
         crate::mpp_log!(
@@ -1128,7 +1137,7 @@ impl AggregateScan {
         state: &mut CustomScanStateWrapper<Self>,
     ) -> *mut pg_sys::TupleTableSlot {
         let Some(row) = Self::advance_tantivy_state(state) else {
-            return std::ptr::null_mut();
+            return ptr::null_mut();
         };
 
         unsafe {
@@ -1297,10 +1306,7 @@ impl AggregateScan {
         // `IsParallelWorker` is a C macro (`ParallelWorkerNumber >= 0`);
         // pgrx exposes the underlying int but not the macro, so inline it.
         let is_parallel_worker = unsafe { pg_sys::ParallelWorkerNumber } >= 0;
-        if is_parallel_worker
-            && crate::postgres::customscan::mpp::customscan_glue::mpp_is_active()
-            && state.custom_state().mpp_state.is_none()
-        {
+        if is_parallel_worker && mpp_is_active() && state.custom_state().mpp_state.is_none() {
             pgrx::error!(
                 "mpp: parallel worker reached exec_datafusion_aggregate without \
                  MppExecutionState — worker DSM attach did not run. Wrong-result \
@@ -1380,12 +1386,10 @@ impl AggregateScan {
                     ctx.state_ref()
                         .write()
                         .config_mut()
-                        .set_extension(std::sync::Arc::new(
-                            crate::postgres::customscan::mpp::MppShardConfig {
-                                participant_index: cfg.participant_index,
-                                total_participants: cfg.total_participants,
-                            },
-                        ));
+                        .set_extension(Arc::new(MppShardConfig {
+                            participant_index: cfg.participant_index,
+                            total_participants: cfg.total_participants,
+                        }));
                     ctx
                 }
                 _ => create_aggregate_session_context(),
@@ -1437,11 +1441,7 @@ impl AggregateScan {
                     mpp_state.is_leader()
                 );
                 let _guard = runtime.enter();
-                match crate::postgres::customscan::mpp::walker::distribute_plan(
-                    standard_plan,
-                    mpp_state,
-                    shape,
-                ) {
+                match distribute_plan(standard_plan, mpp_state, shape) {
                     Ok(p) => p,
                     Err(e) => pgrx::error!("mpp: distribute_plan failed: {e}"),
                 }
@@ -1517,7 +1517,7 @@ impl AggregateScan {
                 }
                 None => {
                     // Stream exhausted — no more results
-                    return std::ptr::null_mut();
+                    return ptr::null_mut();
                 }
             }
         }
@@ -1828,7 +1828,7 @@ pub(crate) unsafe extern "C-unwind" fn aggref_mutator(
     context: *mut core::ffi::c_void,
 ) -> *mut pg_sys::Node {
     if node.is_null() {
-        return std::ptr::null_mut();
+        return ptr::null_mut();
     }
 
     if (*node).type_ == pg_sys::NodeTag::T_Aggref {
@@ -1882,12 +1882,12 @@ unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
     }
 
     // Build a new target list with Aggrefs replaced by placeholders and UNNEST stripped
-    let mut new_targetlist: *mut pg_sys::List = std::ptr::null_mut();
+    let mut new_targetlist: *mut pg_sys::List = ptr::null_mut();
     for te in targetlist.iter_ptr() {
         let new_te = pg_sys::flatCopyTargetEntry(te);
 
         // Use the mutator to replace any Aggref or UNNEST nodes in the expression
-        let new_expr = aggref_mutator((*te).expr as *mut pg_sys::Node, std::ptr::null_mut());
+        let new_expr = aggref_mutator((*te).expr as *mut pg_sys::Node, ptr::null_mut());
         (*new_te).expr = new_expr as *mut pg_sys::Expr;
 
         new_targetlist = pg_sys::lappend(new_targetlist, new_te.cast());
@@ -2042,7 +2042,7 @@ impl ParallelQueryCapable for AggregateScan {
         state: &mut CustomScanStateWrapper<Self>,
         _pcxt: *mut pg_sys::ParallelContext,
     ) -> pg_sys::Size {
-        if !crate::postgres::customscan::mpp::customscan_glue::mpp_is_active() {
+        if !mpp_is_active() {
             return 0;
         }
         let Some(plan_bytes) = state.custom_state().logical_plan_bytes.as_ref() else {
@@ -2059,15 +2059,12 @@ impl ParallelQueryCapable for AggregateScan {
                 return 0;
             }
         };
-        let num_meshes = crate::postgres::customscan::mpp::walker::cut_count_for_shape(shape);
+        let num_meshes = cut_count_for_shape(shape);
         if num_meshes == 0 {
             crate::mpp_log!("mpp: shape {:?} requires no shuffle; returning 0", shape);
             return 0;
         }
-        match crate::postgres::customscan::mpp::customscan_glue::leader_estimate_dsm(
-            plan_bytes.len(),
-            num_meshes,
-        ) {
+        match leader_estimate_dsm(plan_bytes.len(), num_meshes) {
             Ok(sz) => sz,
             Err(e) => {
                 crate::mpp_log!("mpp: leader_estimate_dsm failed: {e}; returning 0");
@@ -2079,10 +2076,10 @@ impl ParallelQueryCapable for AggregateScan {
     fn initialize_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
         pcxt: *mut pg_sys::ParallelContext,
-        coordinate: *mut std::os::raw::c_void,
+        coordinate: *mut c_void,
     ) {
         debug_assert!(state.custom_state().mpp_state.is_none());
-        if !crate::postgres::customscan::mpp::customscan_glue::mpp_is_active() {
+        if !mpp_is_active() {
             return;
         }
         if coordinate.is_null() {
@@ -2098,16 +2095,12 @@ impl ParallelQueryCapable for AggregateScan {
             Some(s) => s,
             None => return,
         };
-        let num_meshes = crate::postgres::customscan::mpp::walker::cut_count_for_shape(shape);
+        let num_meshes = cut_count_for_shape(shape);
         if num_meshes == 0 {
             return;
         }
         let seg = unsafe { (*pcxt).seg };
-        let ctx = unsafe {
-            crate::postgres::customscan::mpp::customscan_glue::leader_init_dsm(
-                coordinate, plan_bytes, num_meshes, seg,
-            )
-        };
+        let ctx = unsafe { leader_init_dsm(coordinate, plan_bytes, num_meshes, seg) };
         match ctx {
             Ok(leader_ctx) => {
                 crate::mpp_log!(
@@ -2128,7 +2121,7 @@ impl ParallelQueryCapable for AggregateScan {
     fn reinitialize_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
         _pcxt: *mut pg_sys::ParallelContext,
-        _coordinate: *mut std::os::raw::c_void,
+        _coordinate: *mut c_void,
     ) {
         // Rescan is out of scope. A rescanned MPP aggregate would need a
         // full mesh teardown + rebuild; silently no-op'ing would let the
@@ -2146,10 +2139,10 @@ impl ParallelQueryCapable for AggregateScan {
     fn initialize_worker_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
         _toc: *mut pg_sys::shm_toc,
-        coordinate: *mut std::os::raw::c_void,
+        coordinate: *mut c_void,
     ) {
         debug_assert!(state.custom_state().mpp_state.is_none());
-        if !crate::postgres::customscan::mpp::customscan_glue::mpp_is_active() {
+        if !mpp_is_active() {
             return;
         }
         if coordinate.is_null() {
@@ -2177,26 +2170,24 @@ impl ParallelQueryCapable for AggregateScan {
         // `header.region_total` against the caller-supplied size —
         // tautological if we sourced both from the same place).
         let region_total = unsafe {
-            let header = std::ptr::read_unaligned(
-                coordinate as *const crate::postgres::customscan::mpp::worker::MppDsmHeader,
-            );
-            if header.magic != crate::postgres::customscan::mpp::worker::MPP_DSM_MAGIC {
+            let header = ptr::read_unaligned(coordinate as *const MppDsmHeader);
+            if header.magic != MPP_DSM_MAGIC {
                 pgrx::error!(
                     "mpp: worker DSM attach found bogus header magic 0x{:08x} \
                      (expected 0x{:08x}) — refusing to trust region_total",
                     header.magic,
-                    crate::postgres::customscan::mpp::worker::MPP_DSM_MAGIC,
+                    MPP_DSM_MAGIC,
                 );
             }
             header.region_total
         };
         let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
         let ctx = unsafe {
-            crate::postgres::customscan::mpp::customscan_glue::worker_init_dsm(
+            worker_init_dsm(
                 coordinate,
                 region_total,
                 worker_number,
-                std::ptr::null_mut(), // seg unknown to worker init; shm_mq_attach handles NULL
+                ptr::null_mut(), // seg unknown to worker init; shm_mq_attach handles NULL
             )
         };
         match ctx {

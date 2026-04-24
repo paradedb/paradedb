@@ -20,7 +20,7 @@ use clap::Parser;
 use duckdb::Connection;
 use std::time::Instant;
 
-use crate::config::{load_dataset_config, topological_order};
+use crate::config::load_dataset_config;
 use crate::utils::{open_duckdb_conn, validate_input, validate_output};
 
 #[derive(Parser)]
@@ -61,7 +61,7 @@ fn count_rows(conn: &Connection, glob: &str) -> Result<u64> {
 }
 
 pub fn run_sample(args: SampleArgs) -> Result<()> {
-    let config = load_dataset_config(&args.config)?;
+    let (config, order) = load_dataset_config(&args.config)?;
 
     let conn = open_duckdb_conn()?;
 
@@ -74,7 +74,6 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     }
 
     // Determine processing order.
-    let order = topological_order(&config)?;
 
     // Sample the root table.
     let root = &config.root_table;
@@ -201,11 +200,9 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
 
     // Write output.
     println!("\nWriting sampled parquet files...");
-    write_sample_table(&conn, &root.name, output)?;
-    for &idx in &order {
-        write_sample_table(&conn, &config.tables[idx].name, output)?;
+    for table_name in config.all_table_names() {
+        write_sample_table(&conn, table_name, output)?;
     }
-
     println!("\nSampling complete.");
     Ok(())
 }

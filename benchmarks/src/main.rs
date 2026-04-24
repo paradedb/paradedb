@@ -616,7 +616,7 @@ fn load_external_data(
 ) -> anyhow::Result<()> {
     // Read dataset config for table names and S3 path.
     let config_path = format!("datasets/{dataset}/config.toml");
-    let config = config::load_dataset_config(&config_path)
+    let (config, _) = config::load_dataset_config(&config_path)
         .with_context(|| format!("Failed to load config '{config_path}'"))?;
 
     // Determine CSV data source path.

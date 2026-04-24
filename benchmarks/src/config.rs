@@ -30,7 +30,7 @@ pub struct DatasetConfig {
 
 impl DatasetConfig {
     /// Returns an iterator containing the root table name, then all of the other table names
-    pub fn all_table_names(&self) -> impl Iterator<Item = &str> {
+    pub(crate) fn all_table_names(&self) -> impl Iterator<Item = &str> {
         let tables_iter = self.tables.iter().map(|t| t.name.as_str());
         let root_iter = std::iter::once(self.root_table.name.as_str());
         root_iter.chain(tables_iter)
@@ -52,13 +52,15 @@ pub struct TableConfig {
     pub join_col: String,
 }
 
-pub fn load_dataset_config(path: &str) -> Result<DatasetConfig> {
+/// Returns the dataset config, and the topological order for the non-root tables
+pub fn load_dataset_config(path: &str) -> Result<(DatasetConfig, Vec<usize>)> {
     let content =
         std::fs::read_to_string(path).with_context(|| format!("Failed to read config '{path}'"))?;
     let config: DatasetConfig =
         toml::from_str(&content).with_context(|| format!("Failed to parse config '{path}'"))?;
     validate_config(&config).with_context(|| format!("Invalid config '{path}'"))?;
-    Ok(config)
+    let order = topological_order(&config)?;
+    Ok((config, order))
 }
 
 fn validate_config(config: &DatasetConfig) -> Result<()> {
@@ -73,7 +75,7 @@ fn validate_config(config: &DatasetConfig) -> Result<()> {
 }
 
 /// Returns table indices in topological order (children only, excludes root).
-pub fn topological_order(config: &DatasetConfig) -> Result<Vec<usize>> {
+fn topological_order(config: &DatasetConfig) -> Result<Vec<usize>> {
     let mut order = Vec::with_capacity(config.tables.len());
     let mut processed: HashSet<&str> = HashSet::new();
 

@@ -160,7 +160,7 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     println!("  {} sampled: {sampled_root_count} rows", root.name);
 
     // Sample child tables by joining against their sampled parent.
-    for &idx in &order[1..] {
+    for &idx in &order[..] {
         let table = &config.tables[idx];
         let glob = parquet_glob_pattern(input, &table.name);
 
@@ -200,6 +200,19 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
 
     // Write output.
     println!("\nWriting sampled parquet files...");
+    // root
+    let table_name = root.name;
+    println!("  Writing '{}'...", table_name);
+    let sql = format!(
+        "COPY sampled_{name} TO '{output}/{name}' (FORMAT PARQUET, PER_THREAD_OUTPUT true)",
+        name = table_name,
+        output = output,
+    );
+    conn.execute_batch(&sql)
+        .with_context(|| format!("Failed to write sampled table '{}'", table_name))?;
+    println!("  {}: done", table_name);
+
+    // others
     for &idx in &order {
         let table = &config.tables[idx];
         println!("  Writing '{}'...", table.name);

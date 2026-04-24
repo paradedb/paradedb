@@ -145,6 +145,22 @@ impl TopKSearchResults {
     pub fn take_aggregation_results(&mut self) -> Option<IntermediateAggregationResults> {
         self.aggregation_results.take()
     }
+
+    /// Drain the remaining (unconsumed) results, apply a transformation,
+    /// and replace the internal iterator with the transformed Vec.
+    /// Used by the exec layer to inject an exact-distance rerank pass
+    /// after the quantized top-K is collected. `original_len` is
+    /// updated to match the new length.
+    pub fn rerank_remaining<F>(&mut self, f: F)
+    where
+        F: FnOnce(Vec<(SearchIndexScore, DocAddress)>) -> Vec<(SearchIndexScore, DocAddress)>,
+    {
+        let drained: Vec<(SearchIndexScore, DocAddress)> =
+            std::mem::replace(&mut self.results, Vec::new().into_iter()).collect();
+        let transformed = f(drained);
+        self.results_original_len = transformed.len();
+        self.results = transformed.into_iter();
+    }
 }
 
 /// A set of search results across multiple segments.

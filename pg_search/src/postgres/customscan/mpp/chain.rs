@@ -216,6 +216,7 @@ mod tests {
     use datafusion::arrow::array::{Int32Array, RecordBatch};
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::datasource::memory::MemorySourceConfig;
+    use datafusion::physical_plan::ExecutionPlanProperties;
     use datafusion::prelude::SessionContext;
 
     fn batch(vals: &[i32]) -> RecordBatch {
@@ -276,7 +277,6 @@ mod tests {
         let second =
             MemorySourceConfig::try_new_from_batches(schema.clone(), vec![batch(&[2])]).unwrap();
         let chain = ChainExec::try_new(first, second, schema).unwrap();
-        use datafusion::physical_plan::ExecutionPlanProperties;
         assert_eq!(chain.output_partitioning().partition_count(), 1);
     }
 }

@@ -32,6 +32,7 @@ use tantivy::index::SegmentId;
 use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::customscan::mpp::MppShardConfig;
 use crate::postgres::customscan::parallel::{checkout_segment, list_segment_ids};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
@@ -732,7 +733,7 @@ impl TableProvider for PgSearchTableProvider {
         // parallelization story.
         let mpp_shard = state
             .config()
-            .get_extension::<crate::postgres::customscan::mpp::MppShardConfig>()
+            .get_extension::<MppShardConfig>()
             .map(|cfg| (cfg.participant_index, cfg.total_participants));
         // TODO: We should support limit pushdown here to allow providing a batch size hint
         // to the Scanner.

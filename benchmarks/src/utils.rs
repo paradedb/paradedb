@@ -67,7 +67,7 @@ pub fn validate_input(tables: &[&str], conn: &Connection, input: &str) -> Result
 
     if !missing_tables.is_empty() {
         bail!(
-            "No parquet files found for {} table(s): {}. Aborting before any conversion work.",
+            "No parquet files found for {} table(s): {}. Aborting before doing any work.",
             missing_tables.len(),
             missing_tables.join(", ")
         );
@@ -102,7 +102,7 @@ pub fn validate_output(tables: &[&str], conn: &Connection, output: &str) -> Resu
 
     if !filled_outputs.is_empty() {
         bail!(
-            "Output directories not empty for {} table(s): {} Aborting before any conversion work.",
+            "Output directories not empty for {} table(s): {} Aborting before doing any work.",
             filled_outputs.len(),
             filled_outputs.join(", "),
         );

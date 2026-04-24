@@ -18,7 +18,7 @@
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 
-use crate::utils::{open_duckdb_conn, validate_input_output};
+use crate::utils::{open_duckdb_conn, validate_input, validate_output};
 
 #[derive(Parser)]
 pub struct ConvertArgs {
@@ -49,7 +49,8 @@ pub fn run_convert(args: ConvertArgs) -> Result<()> {
     let output = args.output.trim_end_matches('/');
 
     let tables: Vec<&str> = args.tables.iter().map(|t| t.as_ref()).collect();
-    validate_input_output(&tables, &conn, input, output)?;
+    validate_input(&tables, &conn, input)?;
+    validate_output(&tables, &conn, output)?;
 
     if args.dry_run {
         println!("\nDry run: counting planned conversions...");

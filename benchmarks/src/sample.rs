@@ -21,7 +21,7 @@ use duckdb::Connection;
 use std::time::Instant;
 
 use crate::config::{load_dataset_config, topological_order};
-use crate::utils::{open_duckdb_conn, validate_input_output};
+use crate::utils::{open_duckdb_conn, validate_input, validate_output};
 
 #[derive(Parser)]
 pub struct SampleArgs {
@@ -70,7 +70,10 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
 
     let mut table_names: Vec<&str> = config.tables.iter().map(|t| t.name.as_str()).collect();
     table_names.push(&config.root_table.name);
-    validate_input_output(&table_names, &conn, input, output)?;
+    validate_input(&table_names, &conn, input)?;
+    if !args.dry_run {
+        validate_output(&table_names, &conn, output)?;
+    }
 
     // Determine processing order.
     let order = topological_order(&config)?;

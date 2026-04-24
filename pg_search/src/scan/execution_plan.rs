@@ -123,7 +123,8 @@ pub struct PgSearchScanPlan {
     pub indexrelid: u32,
     /// The JoinScan source identity when visibility is deferred.
     deferred_ctid_plan_position: Option<usize>,
-    /// Sort order preserved for `shard` to rebuild equivalence properties.
+    /// Sort order preserved across `with_filter_pushdown` rebuilds so the
+    /// rebuilt plan keeps its equivalence properties.
     sort_order: Option<SortByField>,
 }
 

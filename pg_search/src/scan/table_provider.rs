@@ -547,7 +547,6 @@ impl PgSearchTableProvider {
     /// `SortPreservingMergeExec` across the partitions. Since there is no competition
     /// with other workers for these segments, no prefetching or throttling is necessary.
     #[allow(clippy::too_many_arguments)]
-    #[allow(clippy::too_many_arguments)]
     fn create_eager_scan(
         &self,
         reader: &SearchIndexReader,
@@ -603,7 +602,6 @@ impl PgSearchTableProvider {
     /// We require `planner_estimated_rows` to be passed in because a lazy scan cannot know
     /// exactly which segments it will end up scanning at planning time to sum their individual
     /// sizes. Instead, it relies on the estimated partition size computed during query planning.
-    #[allow(clippy::too_many_arguments)]
     #[allow(clippy::too_many_arguments)]
     fn create_lazy_scan(
         &self,

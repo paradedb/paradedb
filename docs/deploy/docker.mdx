@@ -12,13 +12,16 @@ ParadeDB automatically detects container resource limits (CPU/RAM) and optimizes
 
 ### Configuration Environment Variables
 
-| Variable | Default | Description |
-| :--- | :--- | :--- |
-| `PG_TUNE_ENABLED` | `true` | Set to `false` to disable auto-tuning. **Note:** In Kubernetes, this defaults to `false` to avoid conflicts with operators. Set to `true` to force enable in K8s. |
-| `PG_TUNE_FORCE` | `false` | By default, the script will not overwrite manual `ALTER SYSTEM` changes. Set to `true` to allow the script to overwrite existing settings (required for auto-scaling on restart). |
-| `PG_TUNE_MAX_CONNECTIONS` | `100` | Used to calculate `work_mem` accurately if you plan to change the connection limit. |
+**`PG_TUNE_ENABLED`** (default: `true`)
+Set to `false` to disable auto-tuning. In Kubernetes, this defaults to `false` to avoid conflicts with operators. Set to `true` to force enable in K8s.
 
-Users can also pin specific parameters by setting `PG_TUNE_<PARAMETER_NAME>` (e.g., `PG_TUNE_SHARED_BUFFERS=1GB`).
+**`PG_TUNE_FORCE`** (default: `false`)
+By default, the script will not overwrite manual `ALTER SYSTEM` changes. Set to `true` to allow the script to overwrite existing settings (required for auto-scaling on restart).
+
+**`PG_TUNE_MAX_CONNECTIONS`** (default: `100`)
+Used to calculate `work_mem` accurately if you plan to change the connection limit.
+
+You can also pin specific parameters by setting `PG_TUNE_<PARAMETER_NAME>` — for example, `PG_TUNE_SHARED_BUFFERS=1GB`.
 
 ### How Auto-Tuning Works
 

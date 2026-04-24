@@ -43,10 +43,31 @@
 
 #![allow(dead_code)]
 
+use std::any::Any;
+use std::collections::VecDeque;
+use std::fmt;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
+use std::time::{Duration, Instant};
+
 use datafusion::arrow::array::{RecordBatch, UInt64Array};
 use datafusion::arrow::compute::take;
+use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::common::hash_utils::create_hashes;
-use datafusion::common::DataFusionError;
+use datafusion::common::{DataFusionError, Result as DFResult};
+use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
+use datafusion::physical_expr::EquivalenceProperties;
+use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion::physical_plan::{
+    DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
+};
+
+#[cfg(not(test))]
+use crate::gucs::mpp_trace;
+use crate::postgres::customscan::mpp::transport::{
+    DrainHandle, DrainItem, MppSender, SendBatchStats,
+};
 
 /// GUC read wrapper that is inert under `cfg(test)`.
 ///
@@ -60,7 +81,7 @@ use datafusion::common::DataFusionError;
 fn mpp_trace_flag() -> bool {
     #[cfg(not(test))]
     {
-        crate::gucs::mpp_trace()
+        mpp_trace()
     }
     #[cfg(test)]
     {
@@ -289,7 +310,7 @@ pub fn split_batch_by_partition(
 /// side doesn't need this — the DrainBuffer just yields sub-batches directly.
 #[cfg(test)]
 fn concat_batches(
-    schema: &datafusion::arrow::datatypes::SchemaRef,
+    schema: &SchemaRef,
     batches: impl IntoIterator<Item = RecordBatch>,
 ) -> Result<RecordBatch, DataFusionError> {
     let collected: Vec<RecordBatch> = batches.into_iter().collect();
@@ -348,7 +369,7 @@ fn concat_batches(
 pub fn run_shuffle_pump<I>(
     input: I,
     partitioner: &dyn RowPartitioner,
-    outbound_senders: Vec<Option<crate::postgres::customscan::mpp::transport::MppSender>>,
+    outbound_senders: Vec<Option<MppSender>>,
     participant_index: u32,
     mut push_self: impl FnMut(RecordBatch) -> Result<(), DataFusionError>,
 ) -> Result<(), DataFusionError>
@@ -410,11 +431,11 @@ where
 /// operator owns the senders for the query's lifetime and drops them at
 /// stream EOF / abort so peer receivers cleanly observe detach.
 pub struct ShuffleWiring {
-    pub partitioner: std::sync::Arc<dyn RowPartitioner>,
+    pub partitioner: Arc<dyn RowPartitioner>,
     /// One slot per participant, length = `partitioner.total_participants()`.
     /// Participant `participant_index` must be `None`; all other participants must be
     /// `Some(MppSender)`. `ShuffleExec::new` asserts this invariant.
-    pub outbound_senders: Vec<Option<crate::postgres::customscan::mpp::transport::MppSender>>,
+    pub outbound_senders: Vec<Option<MppSender>>,
     pub participant_index: u32,
     /// Our inbound-side drain handle for the same mesh. When set,
     /// `ShuffleStream::poll_next` proactively calls
@@ -424,8 +445,7 @@ pub struct ShuffleWiring {
     /// never drains, peers can't ship to it, and the mesh deadlocks on
     /// one-sided pressure (observed as a 120s timeout on
     /// `aggregate_join_groupby - alternative 2` at 25M rows).
-    pub cooperative_drain:
-        Option<std::sync::Arc<crate::postgres::customscan::mpp::transport::DrainHandle>>,
+    pub cooperative_drain: Option<Arc<DrainHandle>>,
 }
 
 /// DataFusion `ExecutionPlan` that hashes every input row and ships non-self
@@ -443,17 +463,17 @@ pub struct ShuffleWiring {
 /// would require re-planning the query and re-attaching a fresh mesh — not
 /// supported today; the `Option` returns an error on re-execute.
 pub struct ShuffleExec {
-    input: std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
-    wiring: std::sync::Mutex<Option<ShuffleWiring>>,
-    plan_properties: std::sync::Arc<datafusion::physical_plan::PlanProperties>,
+    input: Arc<dyn ExecutionPlan>,
+    wiring: Mutex<Option<ShuffleWiring>>,
+    plan_properties: Arc<PlanProperties>,
     /// Diagnostic label — e.g. "left", "right", "postagg", "final". Echoed
     /// in the row-count `mpp_log!` line emitted at stream EOF. Purely for
     /// tracing; no control flow depends on it.
     tag: &'static str,
 }
 
-impl std::fmt::Debug for ShuffleExec {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for ShuffleExec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ShuffleExec")
             .field("input", &self.input)
             .field("tag", &self.tag)
@@ -462,11 +482,7 @@ impl std::fmt::Debug for ShuffleExec {
 }
 
 impl ShuffleExec {
-    pub fn new(
-        input: std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
-        wiring: ShuffleWiring,
-        tag: &'static str,
-    ) -> Self {
+    pub fn new(input: Arc<dyn ExecutionPlan>, wiring: ShuffleWiring, tag: &'static str) -> Self {
         let n = wiring.partitioner.total_participants();
         assert_eq!(
             wiring.outbound_senders.len(),
@@ -482,12 +498,8 @@ impl ShuffleExec {
             "ShuffleExec: self participant sender slot must be None"
         );
 
-        use datafusion::physical_expr::EquivalenceProperties;
-        use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
-        use datafusion::physical_plan::{Partitioning, PlanProperties};
-
         let eq_properties = EquivalenceProperties::new(input.schema());
-        let plan_properties = std::sync::Arc::new(PlanProperties::new(
+        let plan_properties = Arc::new(PlanProperties::new(
             eq_properties,
             Partitioning::UnknownPartitioning(1),
             EmissionType::Incremental,
@@ -496,45 +508,40 @@ impl ShuffleExec {
 
         Self {
             input,
-            wiring: std::sync::Mutex::new(Some(wiring)),
+            wiring: Mutex::new(Some(wiring)),
             plan_properties,
             tag,
         }
     }
 }
 
-impl datafusion::physical_plan::DisplayAs for ShuffleExec {
-    fn fmt_as(
-        &self,
-        _t: datafusion::physical_plan::DisplayFormatType,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+impl DisplayAs for ShuffleExec {
+    fn fmt_as(&self, _t: DisplayFormatType, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "ShuffleExec")
     }
 }
 
-impl datafusion::physical_plan::ExecutionPlan for ShuffleExec {
+impl ExecutionPlan for ShuffleExec {
     fn name(&self) -> &str {
         "ShuffleExec"
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
+    fn as_any(&self) -> &dyn Any {
         self
     }
 
-    fn properties(&self) -> &std::sync::Arc<datafusion::physical_plan::PlanProperties> {
+    fn properties(&self) -> &Arc<PlanProperties> {
         &self.plan_properties
     }
 
-    fn children(&self) -> Vec<&std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
+    fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
         vec![&self.input]
     }
 
     fn with_new_children(
-        self: std::sync::Arc<Self>,
-        children: Vec<std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>>,
-    ) -> datafusion::common::Result<std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>>
-    {
+        self: Arc<Self>,
+        children: Vec<Arc<dyn ExecutionPlan>>,
+    ) -> DFResult<Arc<dyn ExecutionPlan>> {
         if children.len() != 1 {
             return Err(DataFusionError::Internal(format!(
                 "ShuffleExec expects exactly one child, got {}",
@@ -550,7 +557,7 @@ impl datafusion::physical_plan::ExecutionPlan for ShuffleExec {
                 "ShuffleExec: with_new_children called after wiring was consumed".into(),
             ));
         };
-        Ok(std::sync::Arc::new(ShuffleExec::new(
+        Ok(Arc::new(ShuffleExec::new(
             children.into_iter().next().unwrap(),
             wiring,
             self.tag,
@@ -560,8 +567,8 @@ impl datafusion::physical_plan::ExecutionPlan for ShuffleExec {
     fn execute(
         &self,
         _partition: usize,
-        context: std::sync::Arc<datafusion::execution::TaskContext>,
-    ) -> datafusion::common::Result<datafusion::execution::SendableRecordBatchStream> {
+        context: Arc<TaskContext>,
+    ) -> DFResult<SendableRecordBatchStream> {
         let wiring = self
             .wiring
             .lock()
@@ -577,11 +584,11 @@ impl datafusion::physical_plan::ExecutionPlan for ShuffleExec {
 
 /// Internal stream wrapper for `ShuffleExec::execute`.
 struct ShuffleStream {
-    child: datafusion::execution::SendableRecordBatchStream,
+    child: SendableRecordBatchStream,
     wiring: Option<ShuffleWiring>,
-    self_queue: std::collections::VecDeque<RecordBatch>,
+    self_queue: VecDeque<RecordBatch>,
     done: bool,
-    schema: datafusion::arrow::datatypes::SchemaRef,
+    schema: SchemaRef,
     /// Diagnostic label for the `mpp_log!` row-count report at EOF.
     tag: &'static str,
     /// Remembered `participant_index` for logging after `wiring` is dropped.
@@ -601,33 +608,33 @@ struct ShuffleStream {
     /// Wall-clock instant of the first poll — used to report total stream
     /// lifetime at EOF. Gated behind `mpp_trace`; set only when the GUC is on
     /// so overhead is zero on the hot path in non-traced runs.
-    first_poll_at: Option<std::time::Instant>,
+    first_poll_at: Option<Instant>,
     /// Cumulative time spent inside the child's `poll_next`. Approximates
     /// "upstream wait" for this shuffle.
-    time_in_child: std::time::Duration,
+    time_in_child: Duration,
     /// Cumulative time spent in `process_batch` (partition compute + split +
     /// peer sends). Approximates this shuffle's own CPU cost.
-    time_in_process: std::time::Duration,
+    time_in_process: Duration,
     /// Cumulative time inside the cooperative inbound-drain polls at the top
     /// of `poll_next`. Approximates cost paid on the sender side to un-stall
     /// peers when local outbound is backed up.
-    time_in_coop_drain: std::time::Duration,
+    time_in_coop_drain: Duration,
     /// Cumulative time inside `HashPartitioner::partition_for_each_row` — the
     /// per-row hash that picks each row's destination participant.
-    time_in_partition: std::time::Duration,
+    time_in_partition: Duration,
     /// Cumulative time inside `split_batch_by_partition` — the Arrow `take`
     /// kernel that materializes per-destination sub-batches.
-    time_in_split: std::time::Duration,
+    time_in_split: Duration,
     /// Cumulative time inside Arrow-IPC `encode_batch` (from `send_batch_traced`).
-    time_in_encode: std::time::Duration,
+    time_in_encode: Duration,
     /// Cumulative wall time waiting on a full outbound queue (retry-spin
     /// after the first failed `try_send_bytes`). This is the MPP equivalent
     /// of "send-side blocked on peer".
-    time_in_send_wait: std::time::Duration,
+    time_in_send_wait: Duration,
     /// Cumulative `poll_drain_pass` time while stuck in the send-retry spin.
     /// A subset of `time_in_send_wait`; separating it tells us whether the
     /// wait is spent draining inbound (productive) or yielding (not productive).
-    time_in_coop_drain_in_spin: std::time::Duration,
+    time_in_coop_drain_in_spin: Duration,
     /// Count of failed `try_send_bytes` attempts across all outbound sends.
     /// Divide by `sum(rows_sent to peers / rows_per_batch)` to get avg spin
     /// iters per send; large values → outbound is chronically full.
@@ -636,9 +643,9 @@ struct ShuffleStream {
 
 impl ShuffleStream {
     fn new(
-        child: datafusion::execution::SendableRecordBatchStream,
+        child: SendableRecordBatchStream,
         wiring: ShuffleWiring,
-        schema: datafusion::arrow::datatypes::SchemaRef,
+        schema: SchemaRef,
         tag: &'static str,
     ) -> Self {
         let total = wiring.partitioner.total_participants() as usize;
@@ -646,7 +653,7 @@ impl ShuffleStream {
         Self {
             child,
             wiring: Some(wiring),
-            self_queue: std::collections::VecDeque::new(),
+            self_queue: VecDeque::new(),
             done: false,
             schema,
             tag,
@@ -657,14 +664,14 @@ impl ShuffleStream {
             batches_in: 0,
             logged_eof: false,
             first_poll_at: None,
-            time_in_child: std::time::Duration::ZERO,
-            time_in_process: std::time::Duration::ZERO,
-            time_in_coop_drain: std::time::Duration::ZERO,
-            time_in_partition: std::time::Duration::ZERO,
-            time_in_split: std::time::Duration::ZERO,
-            time_in_encode: std::time::Duration::ZERO,
-            time_in_send_wait: std::time::Duration::ZERO,
-            time_in_coop_drain_in_spin: std::time::Duration::ZERO,
+            time_in_child: Duration::ZERO,
+            time_in_process: Duration::ZERO,
+            time_in_coop_drain: Duration::ZERO,
+            time_in_partition: Duration::ZERO,
+            time_in_split: Duration::ZERO,
+            time_in_encode: Duration::ZERO,
+            time_in_send_wait: Duration::ZERO,
+            time_in_coop_drain_in_spin: Duration::ZERO,
             send_spin_iters: 0,
         }
     }
@@ -705,7 +712,7 @@ impl ShuffleStream {
             let encode_ms = self.time_in_encode.as_secs_f64() * 1000.0;
             let send_wait_ms = self.time_in_send_wait.as_secs_f64() * 1000.0;
             let drain_in_spin_ms = self.time_in_coop_drain_in_spin.as_secs_f64() * 1000.0;
-            if crate::gucs::mpp_trace() {
+            if mpp_trace() {
                 pgrx::warning!(
                     "mpp: ShuffleStream[{}] participant={} EOF rows_in={} batches_in={} self={} sent=[{}] wall_ms={:.1} child_ms={:.1} process_ms={:.1} coop_drain_ms={:.1} part_ms={:.1} split_ms={:.1} encode_ms={:.1} send_wait_ms={:.1} drain_in_spin_ms={:.1} spin_iters={}",
                     self.tag,
@@ -751,13 +758,13 @@ impl ShuffleStream {
         let wiring = self.wiring.as_ref().ok_or_else(|| {
             DataFusionError::Internal("ShuffleStream: wiring missing mid-stream".into())
         })?;
-        let t_part = trace_on.then(std::time::Instant::now);
+        let t_part = trace_on.then(Instant::now);
         let dests = wiring.partitioner.partition_for_each_row(&batch)?;
         if let Some(t0) = t_part {
             self.time_in_partition += t0.elapsed();
         }
         let n = wiring.partitioner.total_participants();
-        let t_split = trace_on.then(std::time::Instant::now);
+        let t_split = trace_on.then(Instant::now);
         let mut subs = split_batch_by_partition(&batch, &dests, n)?;
         if let Some(t0) = t_split {
             self.time_in_split += t0.elapsed();
@@ -768,7 +775,7 @@ impl ShuffleStream {
             self.rows_self += self_sub.num_rows() as u64;
             self.self_queue.push_back(self_sub);
         }
-        let mut send_stats = crate::postgres::customscan::mpp::transport::SendBatchStats::default();
+        let mut send_stats = SendBatchStats::default();
         for (dest_idx, sub) in subs.into_iter().enumerate() {
             if dest_idx as u32 == wiring.participant_index {
                 debug_assert!(sub.is_none());
@@ -795,24 +802,21 @@ impl ShuffleStream {
 }
 
 impl futures::Stream for ShuffleStream {
-    type Item = datafusion::common::Result<RecordBatch>;
+    type Item = DFResult<RecordBatch>;
 
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // Timing: record first-poll instant so EOF can report total lifetime.
         // Gated on the GUC so a non-traced run pays nothing beyond a branch.
         let trace_on = mpp_trace_flag();
         if trace_on && self.first_poll_at.is_none() {
-            self.first_poll_at = Some(std::time::Instant::now());
+            self.first_poll_at = Some(Instant::now());
         }
         // 1. Drain any queued self-partition batches first.
         if let Some(batch) = self.self_queue.pop_front() {
-            return std::task::Poll::Ready(Some(Ok(batch)));
+            return Poll::Ready(Some(Ok(batch)));
         }
         if self.done {
-            return std::task::Poll::Ready(None);
+            return Poll::Ready(None);
         }
 
         // Proactive inbound drain: while we're producing + shipping, keep
@@ -826,7 +830,7 @@ impl futures::Stream for ShuffleStream {
         // moving in the meantime.
         if let Some(wiring) = self.wiring.as_ref() {
             if let Some(drain) = wiring.cooperative_drain.as_ref() {
-                let t0 = trace_on.then(std::time::Instant::now);
+                let t0 = trace_on.then(Instant::now);
                 let _ = drain.poll_drain_pass();
                 if let Some(t0) = t0 {
                     self.time_in_coop_drain += t0.elapsed();
@@ -835,28 +839,28 @@ impl futures::Stream for ShuffleStream {
         }
 
         loop {
-            let t_child = trace_on.then(std::time::Instant::now);
-            let res = futures::Stream::poll_next(std::pin::Pin::new(&mut self.child), cx);
+            let t_child = trace_on.then(Instant::now);
+            let res = futures::Stream::poll_next(Pin::new(&mut self.child), cx);
             if let Some(t0) = t_child {
                 self.time_in_child += t0.elapsed();
             }
             match res {
-                std::task::Poll::Pending => return std::task::Poll::Pending,
-                std::task::Poll::Ready(None) => {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(None) => {
                     // Child exhausted — drop senders to signal peer EOF.
                     self.wiring.take();
                     self.done = true;
                     self.log_eof();
-                    return std::task::Poll::Ready(None);
+                    return Poll::Ready(None);
                 }
-                std::task::Poll::Ready(Some(Err(e))) => {
+                Poll::Ready(Some(Err(e))) => {
                     self.wiring.take();
                     self.done = true;
                     self.log_eof();
-                    return std::task::Poll::Ready(Some(Err(e)));
+                    return Poll::Ready(Some(Err(e)));
                 }
-                std::task::Poll::Ready(Some(Ok(batch))) => {
-                    let t_proc = trace_on.then(std::time::Instant::now);
+                Poll::Ready(Some(Ok(batch))) => {
+                    let t_proc = trace_on.then(Instant::now);
                     let result = self.process_batch(batch);
                     if let Some(t0) = t_proc {
                         self.time_in_process += t0.elapsed();
@@ -864,7 +868,7 @@ impl futures::Stream for ShuffleStream {
                     match result {
                         Ok(()) => {
                             if let Some(self_batch) = self.self_queue.pop_front() {
-                                return std::task::Poll::Ready(Some(Ok(self_batch)));
+                                return Poll::Ready(Some(Ok(self_batch)));
                             }
                             // No self-partition in this batch; pull the next one.
                             continue;
@@ -873,7 +877,7 @@ impl futures::Stream for ShuffleStream {
                             self.wiring.take();
                             self.done = true;
                             self.log_eof();
-                            return std::task::Poll::Ready(Some(Err(e)));
+                            return Poll::Ready(Some(Err(e)));
                         }
                     }
                 }
@@ -882,8 +886,8 @@ impl futures::Stream for ShuffleStream {
     }
 }
 
-impl datafusion::execution::RecordBatchStream for ShuffleStream {
-    fn schema(&self) -> datafusion::arrow::datatypes::SchemaRef {
+impl RecordBatchStream for ShuffleStream {
+    fn schema(&self) -> SchemaRef {
         self.schema.clone()
     }
 }
@@ -900,11 +904,9 @@ impl datafusion::execution::RecordBatchStream for ShuffleStream {
 /// panic), closing the zombie-thread class of bugs the first review round
 /// flagged.
 pub struct DrainGatherExec {
-    drain_handle: std::sync::Mutex<
-        Option<std::sync::Arc<crate::postgres::customscan::mpp::transport::DrainHandle>>,
-    >,
-    schema: datafusion::arrow::datatypes::SchemaRef,
-    plan_properties: std::sync::Arc<datafusion::physical_plan::PlanProperties>,
+    drain_handle: Mutex<Option<Arc<DrainHandle>>>,
+    schema: SchemaRef,
+    plan_properties: Arc<PlanProperties>,
     /// Diagnostic label — same value the sibling `ShuffleExec` uses so a
     /// mesh's send-side and receive-side logs line up by tag.
     tag: &'static str,
@@ -912,8 +914,8 @@ pub struct DrainGatherExec {
     participant_index: u32,
 }
 
-impl std::fmt::Debug for DrainGatherExec {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for DrainGatherExec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DrainGatherExec")
             .field("tag", &self.tag)
             .finish_non_exhaustive()
@@ -922,23 +924,20 @@ impl std::fmt::Debug for DrainGatherExec {
 
 impl DrainGatherExec {
     pub fn new(
-        drain_handle: std::sync::Arc<crate::postgres::customscan::mpp::transport::DrainHandle>,
-        schema: datafusion::arrow::datatypes::SchemaRef,
+        drain_handle: Arc<DrainHandle>,
+        schema: SchemaRef,
         tag: &'static str,
         participant_index: u32,
     ) -> Self {
-        use datafusion::physical_expr::EquivalenceProperties;
-        use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
-        use datafusion::physical_plan::{Partitioning, PlanProperties};
         let eq = EquivalenceProperties::new(schema.clone());
-        let plan_properties = std::sync::Arc::new(PlanProperties::new(
+        let plan_properties = Arc::new(PlanProperties::new(
             eq,
             Partitioning::UnknownPartitioning(1),
             EmissionType::Incremental,
             Boundedness::Bounded,
         ));
         Self {
-            drain_handle: std::sync::Mutex::new(Some(drain_handle)),
+            drain_handle: Mutex::new(Some(drain_handle)),
             schema,
             plan_properties,
             tag,
@@ -947,38 +946,33 @@ impl DrainGatherExec {
     }
 }
 
-impl datafusion::physical_plan::DisplayAs for DrainGatherExec {
-    fn fmt_as(
-        &self,
-        _t: datafusion::physical_plan::DisplayFormatType,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+impl DisplayAs for DrainGatherExec {
+    fn fmt_as(&self, _t: DisplayFormatType, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "DrainGatherExec")
     }
 }
 
-impl datafusion::physical_plan::ExecutionPlan for DrainGatherExec {
+impl ExecutionPlan for DrainGatherExec {
     fn name(&self) -> &str {
         "DrainGatherExec"
     }
 
-    fn as_any(&self) -> &dyn std::any::Any {
+    fn as_any(&self) -> &dyn Any {
         self
     }
 
-    fn properties(&self) -> &std::sync::Arc<datafusion::physical_plan::PlanProperties> {
+    fn properties(&self) -> &Arc<PlanProperties> {
         &self.plan_properties
     }
 
-    fn children(&self) -> Vec<&std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
+    fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
         vec![]
     }
 
     fn with_new_children(
-        self: std::sync::Arc<Self>,
-        children: Vec<std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>>,
-    ) -> datafusion::common::Result<std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>>
-    {
+        self: Arc<Self>,
+        children: Vec<Arc<dyn ExecutionPlan>>,
+    ) -> DFResult<Arc<dyn ExecutionPlan>> {
         if !children.is_empty() {
             return Err(DataFusionError::Internal(format!(
                 "DrainGatherExec expects zero children, got {}",
@@ -991,8 +985,8 @@ impl datafusion::physical_plan::ExecutionPlan for DrainGatherExec {
     fn execute(
         &self,
         _partition: usize,
-        _context: std::sync::Arc<datafusion::execution::TaskContext>,
-    ) -> datafusion::common::Result<datafusion::execution::SendableRecordBatchStream> {
+        _context: Arc<TaskContext>,
+    ) -> DFResult<SendableRecordBatchStream> {
         let handle =
             self.drain_handle.lock().unwrap().take().ok_or_else(|| {
                 DataFusionError::Internal("DrainGatherExec: already executed".into())
@@ -1007,8 +1001,8 @@ impl datafusion::physical_plan::ExecutionPlan for DrainGatherExec {
             batches_received: 0,
             logged_eof: false,
             first_poll_at: None,
-            time_in_drain_pass: std::time::Duration::ZERO,
-            time_in_pop: std::time::Duration::ZERO,
+            time_in_drain_pass: Duration::ZERO,
+            time_in_pop: Duration::ZERO,
             pending_polls: 0,
         };
         Ok(Box::pin(stream))
@@ -1016,20 +1010,20 @@ impl datafusion::physical_plan::ExecutionPlan for DrainGatherExec {
 }
 
 struct DrainGatherStream {
-    handle: Option<std::sync::Arc<crate::postgres::customscan::mpp::transport::DrainHandle>>,
+    handle: Option<Arc<DrainHandle>>,
     done: bool,
-    schema: datafusion::arrow::datatypes::SchemaRef,
+    schema: SchemaRef,
     tag: &'static str,
     participant_index: u32,
     rows_received: u64,
     batches_received: u64,
     logged_eof: bool,
     /// First-poll instant (gated on `mpp_trace`). Total stream lifetime at EOF.
-    first_poll_at: Option<std::time::Instant>,
+    first_poll_at: Option<Instant>,
     /// Cumulative time in `poll_drain_pass` (shm_mq receive + IPC decode).
-    time_in_drain_pass: std::time::Duration,
+    time_in_drain_pass: Duration,
     /// Cumulative time in `poll_pop_front` on the drain buffer.
-    time_in_pop: std::time::Duration,
+    time_in_pop: Duration,
     /// Count of times `poll_next` returned `Pending` (buffer empty). High
     /// counts with small throughput means we're re-waking without producing.
     pending_polls: u64,
@@ -1053,7 +1047,7 @@ impl DrainGatherStream {
                 .unwrap_or(0.0);
             let drain_ms = self.time_in_drain_pass.as_secs_f64() * 1000.0;
             let pop_ms = self.time_in_pop.as_secs_f64() * 1000.0;
-            if crate::gucs::mpp_trace() {
+            if mpp_trace() {
                 pgrx::warning!(
                     "mpp: DrainGatherStream[{}] participant={} EOF rows_received={} batches_received={} wall_ms={:.1} drain_ms={:.1} pop_ms={:.1} pending_polls={}",
                     self.tag,
@@ -1079,18 +1073,15 @@ impl DrainGatherStream {
 }
 
 impl futures::Stream for DrainGatherStream {
-    type Item = datafusion::common::Result<RecordBatch>;
+    type Item = DFResult<RecordBatch>;
 
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let trace_on = mpp_trace_flag();
         if trace_on && self.first_poll_at.is_none() {
-            self.first_poll_at = Some(std::time::Instant::now());
+            self.first_poll_at = Some(Instant::now());
         }
         if self.done {
-            return std::task::Poll::Ready(None);
+            return Poll::Ready(None);
         }
         let handle = self
             .handle
@@ -1108,7 +1099,7 @@ impl futures::Stream for DrainGatherStream {
         // (e.g., the peer `ShuffleExec`s shipping rows via `shm_mq_send`).
         let coop = handle.is_cooperative();
         if coop {
-            let t0 = trace_on.then(std::time::Instant::now);
+            let t0 = trace_on.then(Instant::now);
             let res = handle.poll_drain_pass();
             if let Some(t0) = t0 {
                 self.time_in_drain_pass += t0.elapsed();
@@ -1120,7 +1111,7 @@ impl futures::Stream for DrainGatherStream {
                     if let Some(h) = self.handle.take() {
                         let _ = h.shutdown();
                     }
-                    return std::task::Poll::Ready(Some(Err(e)));
+                    return Poll::Ready(Some(Err(e)));
                 }
             }
         }
@@ -1130,7 +1121,7 @@ impl futures::Stream for DrainGatherStream {
         // next poll runs another drain pass — the buffer's waker only fires
         // when *this* pass produced data, which doesn't happen when every
         // receiver is still `Empty`.
-        let t_pop = trace_on.then(std::time::Instant::now);
+        let t_pop = trace_on.then(Instant::now);
         let item_opt = buffer.poll_pop_front(cx.waker());
         if let Some(t0) = t_pop {
             self.time_in_pop += t0.elapsed();
@@ -1142,11 +1133,11 @@ impl futures::Stream for DrainGatherStream {
             if coop {
                 cx.waker().wake_by_ref();
             }
-            return std::task::Poll::Pending;
+            return Poll::Pending;
         };
 
         match item {
-            crate::postgres::customscan::mpp::transport::DrainItem::Batch(b) => {
+            DrainItem::Batch(b) => {
                 // Validate schema: peer-shipped batches went through
                 // `encode_batch` → `decode_batch`, whose reconstructed
                 // schema comes from IPC metadata, not from what we expected
@@ -1158,7 +1149,7 @@ impl futures::Stream for DrainGatherStream {
                     if let Some(h) = self.handle.take() {
                         let _ = h.shutdown();
                     }
-                    return std::task::Poll::Ready(Some(Err(DataFusionError::Internal(format!(
+                    return Poll::Ready(Some(Err(DataFusionError::Internal(format!(
                         "DrainGatherExec: peer batch schema {:?} disagrees with expected {:?}",
                         b.schema(),
                         self.schema
@@ -1166,9 +1157,9 @@ impl futures::Stream for DrainGatherStream {
                 }
                 self.rows_received += b.num_rows() as u64;
                 self.batches_received += 1;
-                std::task::Poll::Ready(Some(Ok(b)))
+                Poll::Ready(Some(Ok(b)))
             }
-            crate::postgres::customscan::mpp::transport::DrainItem::Eof => {
+            DrainItem::Eof => {
                 self.done = true;
                 self.log_eof();
                 // Join the drain thread deterministically so the plan's
@@ -1176,17 +1167,17 @@ impl futures::Stream for DrainGatherStream {
                 // pointers.
                 if let Some(h) = self.handle.take() {
                     if let Err(e) = h.shutdown() {
-                        return std::task::Poll::Ready(Some(Err(e)));
+                        return Poll::Ready(Some(Err(e)));
                     }
                 }
-                std::task::Poll::Ready(None)
+                Poll::Ready(None)
             }
         }
     }
 }
 
-impl datafusion::execution::RecordBatchStream for DrainGatherStream {
-    fn schema(&self) -> datafusion::arrow::datatypes::SchemaRef {
+impl RecordBatchStream for DrainGatherStream {
+    fn schema(&self) -> SchemaRef {
         self.schema.clone()
     }
 }
@@ -1195,11 +1186,19 @@ impl datafusion::execution::RecordBatchStream for DrainGatherStream {
 mod tests {
     use super::*;
     use crate::postgres::customscan::mpp::transport::{
-        in_proc_channel, DrainBuffer, DrainItem, MppReceiver, MppSender,
+        in_proc_channel, DrainBuffer, DrainConfig, DrainItem, MppReceiver, MppSender,
     };
-    use datafusion::arrow::array::{Int32Array, StringArray};
+    use datafusion::arrow::array::{
+        Int32Array, Int64Array, RecordBatch as ArrowBatch, StringArray,
+    };
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
-    use std::sync::Arc;
+    use datafusion::datasource::memory::MemorySourceConfig;
+    use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
+    use datafusion::physical_plan::union::UnionExec;
+    use datafusion::physical_plan::ExecutionPlanProperties;
+    use datafusion::prelude::SessionContext;
+    use futures::StreamExt;
+    use std::thread;
 
     fn sample_batch(rows: i32) -> RecordBatch {
         let schema = Arc::new(Schema::new(vec![
@@ -1335,12 +1334,8 @@ mod tests {
         // we exercise the actual drain path end-to-end.
         let receiver = MppReceiver::new(Box::new(rx));
         let buffer = DrainBuffer::new(1);
-        let drain_handle = crate::postgres::customscan::mpp::transport::DrainHandle::spawn(
-            crate::postgres::customscan::mpp::transport::DrainConfig::new(
-                vec![receiver],
-                Arc::clone(&buffer),
-            ),
-        );
+        let drain_handle =
+            DrainHandle::spawn(DrainConfig::new(vec![receiver], Arc::clone(&buffer)));
 
         let mut peer_batches = Vec::new();
         while let DrainItem::Batch(b) = buffer.pop_front() {
@@ -1459,10 +1454,6 @@ mod tests {
 
     #[test]
     fn shuffle_exec_emits_only_self_partition() {
-        use datafusion::datasource::memory::MemorySourceConfig;
-        use datafusion::prelude::SessionContext;
-        use futures::StreamExt;
-
         // N=2 mesh as participant 0. Row i -> participant i % 2: self gets
         // 0,2,4,6,8; peer gets 1,3,5,7,9.
         let batch = sample_batch(10);
@@ -1476,8 +1467,7 @@ mod tests {
             participant_index: 0,
             cooperative_drain: None,
         };
-        let shuffle: Arc<dyn datafusion::physical_plan::ExecutionPlan> =
-            Arc::new(ShuffleExec::new(input, wiring, "test"));
+        let shuffle: Arc<dyn ExecutionPlan> = Arc::new(ShuffleExec::new(input, wiring, "test"));
 
         // Run the output stream to completion.
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -1511,12 +1501,7 @@ mod tests {
         // Peer side: drain the channel and confirm we got 1, 3, 5, 7, 9.
         let receiver = MppReceiver::new(Box::new(rx));
         let buf = DrainBuffer::new(1);
-        let handle = crate::postgres::customscan::mpp::transport::DrainHandle::spawn(
-            crate::postgres::customscan::mpp::transport::DrainConfig::new(
-                vec![receiver],
-                Arc::clone(&buf),
-            ),
-        );
+        let handle = DrainHandle::spawn(DrainConfig::new(vec![receiver], Arc::clone(&buf)));
         let mut peer_ids: Vec<i32> = Vec::new();
         while let DrainItem::Batch(b) = buf.pop_front() {
             peer_ids.extend(
@@ -1550,11 +1535,6 @@ mod tests {
         // UnionExec emits 5 + 2 = 7 rows. We assert on the exact ID
         // multiset, with the peer side explicitly arriving *after* self
         // because Union preserves child order.
-        use datafusion::datasource::memory::MemorySourceConfig;
-        use datafusion::physical_plan::union::UnionExec;
-        use datafusion::physical_plan::ExecutionPlanProperties;
-        use datafusion::prelude::SessionContext;
-        use futures::StreamExt;
 
         let batch = sample_batch(10);
         let schema = batch.schema();
@@ -1570,8 +1550,7 @@ mod tests {
             participant_index: 0,
             cooperative_drain: None,
         };
-        let shuffle: Arc<dyn datafusion::physical_plan::ExecutionPlan> =
-            Arc::new(ShuffleExec::new(input, wiring, "test"));
+        let shuffle: Arc<dyn ExecutionPlan> = Arc::new(ShuffleExec::new(input, wiring, "test"));
 
         // Simulated peer: spawn a thread that pushes two synthetic batches
         // into `in_tx` with a small delay between them so the buffer is
@@ -1580,10 +1559,10 @@ mod tests {
         // (as an earlier version did), batches would all be buffered
         // before the stream ran and the async contract would be untested.
         let peer_schema = schema.clone();
-        let peer_thread = std::thread::spawn(move || {
+        let peer_thread = thread::spawn(move || {
             let sender = MppSender::new(Box::new(in_tx));
             for (id, name) in [(100i32, "peer100"), (200i32, "peer200")] {
-                std::thread::sleep(std::time::Duration::from_millis(10));
+                thread::sleep(Duration::from_millis(10));
                 let batch = RecordBatch::try_new(
                     peer_schema.clone(),
                     vec![
@@ -1600,20 +1579,18 @@ mod tests {
         // DrainHandle draining the inbound channel into a DrainBuffer.
         let receiver = MppReceiver::new(Box::new(in_rx));
         let drain_buffer = DrainBuffer::new(1);
-        let drain_handle = crate::postgres::customscan::mpp::transport::DrainHandle::spawn(
-            crate::postgres::customscan::mpp::transport::DrainConfig::new(
-                vec![receiver],
-                Arc::clone(&drain_buffer),
-            ),
-        );
-        let gather: Arc<dyn datafusion::physical_plan::ExecutionPlan> = Arc::new(
-            DrainGatherExec::new(Arc::new(drain_handle), schema, "test", 0),
-        );
+        let drain_handle =
+            DrainHandle::spawn(DrainConfig::new(vec![receiver], Arc::clone(&drain_buffer)));
+        let gather: Arc<dyn ExecutionPlan> = Arc::new(DrainGatherExec::new(
+            Arc::new(drain_handle),
+            schema,
+            "test",
+            0,
+        ));
 
         // Union: ShuffleExec emits first, then DrainGatherExec (Union
         // preserves child order).
-        let union: Arc<dyn datafusion::physical_plan::ExecutionPlan> =
-            UnionExec::try_new(vec![shuffle, gather]).unwrap();
+        let union: Arc<dyn ExecutionPlan> = UnionExec::try_new(vec![shuffle, gather]).unwrap();
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -1640,12 +1617,8 @@ mod tests {
         // verify the ShuffleExec did, in fact, ship its peer rows.
         let receiver = MppReceiver::new(Box::new(out_rx));
         let out_buffer = DrainBuffer::new(1);
-        let out_handle = crate::postgres::customscan::mpp::transport::DrainHandle::spawn(
-            crate::postgres::customscan::mpp::transport::DrainConfig::new(
-                vec![receiver],
-                Arc::clone(&out_buffer),
-            ),
-        );
+        let out_handle =
+            DrainHandle::spawn(DrainConfig::new(vec![receiver], Arc::clone(&out_buffer)));
         let mut outbound_ids = Vec::new();
         while let DrainItem::Batch(b) = out_buffer.pop_front() {
             outbound_ids.extend(
@@ -1675,23 +1648,16 @@ mod tests {
     fn drain_gather_exec_yields_eof_on_empty_peer() {
         // Peer immediately drops the sender without shipping anything.
         // DrainGatherExec must yield `None` cleanly via the waker path.
-        use datafusion::prelude::SessionContext;
-        use futures::StreamExt;
 
         let (tx, rx) = in_proc_channel(4);
         drop(MppSender::new(Box::new(tx))); // immediate EOF
 
         let receiver = MppReceiver::new(Box::new(rx));
         let buffer = DrainBuffer::new(1);
-        let handle = crate::postgres::customscan::mpp::transport::DrainHandle::spawn(
-            crate::postgres::customscan::mpp::transport::DrainConfig::new(
-                vec![receiver],
-                Arc::clone(&buffer),
-            ),
-        );
+        let handle = DrainHandle::spawn(DrainConfig::new(vec![receiver], Arc::clone(&buffer)));
 
         let schema = sample_batch(1).schema();
-        let gather: Arc<dyn datafusion::physical_plan::ExecutionPlan> =
+        let gather: Arc<dyn ExecutionPlan> =
             Arc::new(DrainGatherExec::new(Arc::new(handle), schema, "test", 0));
 
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -1712,10 +1678,6 @@ mod tests {
 
     #[test]
     fn drain_gather_exec_rejects_schema_mismatch() {
-        use datafusion::arrow::array::Int64Array;
-        use datafusion::prelude::SessionContext;
-        use futures::StreamExt;
-
         // Peer ships a batch with an Int64 id column; the DrainGatherExec
         // was told the schema has Int32. The stream must surface an error
         // rather than silently emit the mismatched batch.
@@ -1732,17 +1694,15 @@ mod tests {
 
         let receiver = MppReceiver::new(Box::new(rx));
         let buffer = DrainBuffer::new(1);
-        let handle = crate::postgres::customscan::mpp::transport::DrainHandle::spawn(
-            crate::postgres::customscan::mpp::transport::DrainConfig::new(
-                vec![receiver],
-                Arc::clone(&buffer),
-            ),
-        );
+        let handle = DrainHandle::spawn(DrainConfig::new(vec![receiver], Arc::clone(&buffer)));
 
         let expected_schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
-        let gather: Arc<dyn datafusion::physical_plan::ExecutionPlan> = Arc::new(
-            DrainGatherExec::new(Arc::new(handle), expected_schema, "test", 0),
-        );
+        let gather: Arc<dyn ExecutionPlan> = Arc::new(DrainGatherExec::new(
+            Arc::new(handle),
+            expected_schema,
+            "test",
+            0,
+        ));
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -1761,9 +1721,6 @@ mod tests {
 
     #[test]
     fn drain_gather_exec_yields_all_buffered_batches() {
-        use datafusion::prelude::SessionContext;
-        use futures::StreamExt;
-
         // Set up a drain handle whose drain thread reads from an in-proc
         // channel. Push 3 batches through the channel, then drop the sender
         // to signal EOF. DrainGatherExec should yield exactly those 3
@@ -1771,12 +1728,7 @@ mod tests {
         let (tx, rx) = in_proc_channel(8);
         let receiver = MppReceiver::new(Box::new(rx));
         let buffer = DrainBuffer::new(1);
-        let handle = crate::postgres::customscan::mpp::transport::DrainHandle::spawn(
-            crate::postgres::customscan::mpp::transport::DrainConfig::new(
-                vec![receiver],
-                Arc::clone(&buffer),
-            ),
-        );
+        let handle = DrainHandle::spawn(DrainConfig::new(vec![receiver], Arc::clone(&buffer)));
 
         // Sender feeds 3 sample batches then drops (→ EOF).
         let sender = MppSender::new(Box::new(tx));
@@ -1786,7 +1738,7 @@ mod tests {
         drop(sender);
 
         let schema = sample_batch(1).schema();
-        let gather: Arc<dyn datafusion::physical_plan::ExecutionPlan> =
+        let gather: Arc<dyn ExecutionPlan> =
             Arc::new(DrainGatherExec::new(Arc::new(handle), schema, "test", 0));
 
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -1807,74 +1759,54 @@ mod tests {
 
     #[test]
     fn shuffle_exec_propagates_child_errors() {
-        use datafusion::arrow::array::RecordBatch as ArrowBatch;
-        use datafusion::prelude::SessionContext;
-        use futures::StreamExt;
-
         // Custom child that errors on first poll.
         #[derive(Debug)]
         struct ErroringExec {
-            schema: datafusion::arrow::datatypes::SchemaRef,
-            properties: std::sync::Arc<datafusion::physical_plan::PlanProperties>,
+            schema: SchemaRef,
+            properties: Arc<PlanProperties>,
         }
 
-        impl datafusion::physical_plan::DisplayAs for ErroringExec {
-            fn fmt_as(
-                &self,
-                _t: datafusion::physical_plan::DisplayFormatType,
-                f: &mut std::fmt::Formatter<'_>,
-            ) -> std::fmt::Result {
+        impl DisplayAs for ErroringExec {
+            fn fmt_as(&self, _t: DisplayFormatType, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(f, "ErroringExec")
             }
         }
 
-        impl datafusion::physical_plan::ExecutionPlan for ErroringExec {
+        impl ExecutionPlan for ErroringExec {
             fn name(&self) -> &str {
                 "ErroringExec"
             }
-            fn as_any(&self) -> &dyn std::any::Any {
+            fn as_any(&self) -> &dyn Any {
                 self
             }
-            fn properties(&self) -> &std::sync::Arc<datafusion::physical_plan::PlanProperties> {
+            fn properties(&self) -> &Arc<PlanProperties> {
                 &self.properties
             }
-            fn children(
-                &self,
-            ) -> Vec<&std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
+            fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
                 vec![]
             }
             fn with_new_children(
-                self: std::sync::Arc<Self>,
-                _children: Vec<std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>>,
-            ) -> datafusion::common::Result<
-                std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
-            > {
+                self: Arc<Self>,
+                _children: Vec<Arc<dyn ExecutionPlan>>,
+            ) -> DFResult<Arc<dyn ExecutionPlan>> {
                 Ok(self)
             }
             fn execute(
                 &self,
                 _partition: usize,
-                _context: std::sync::Arc<datafusion::execution::TaskContext>,
-            ) -> datafusion::common::Result<datafusion::execution::SendableRecordBatchStream>
-            {
+                _context: Arc<TaskContext>,
+            ) -> DFResult<SendableRecordBatchStream> {
                 let schema = self.schema.clone();
                 let stream = futures::stream::once(async move {
                     Err::<ArrowBatch, _>(DataFusionError::Execution("synthetic".into()))
                 });
-                Ok(Box::pin(
-                    datafusion::physical_plan::stream::RecordBatchStreamAdapter::new(
-                        schema, stream,
-                    ),
-                ))
+                Ok(Box::pin(RecordBatchStreamAdapter::new(schema, stream)))
             }
         }
 
         let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
-        let input_exec: Arc<dyn datafusion::physical_plan::ExecutionPlan> = {
-            use datafusion::physical_expr::EquivalenceProperties;
-            use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
-            use datafusion::physical_plan::{Partitioning, PlanProperties};
-            let props = std::sync::Arc::new(PlanProperties::new(
+        let input_exec: Arc<dyn ExecutionPlan> = {
+            let props = Arc::new(PlanProperties::new(
                 EquivalenceProperties::new(schema.clone()),
                 Partitioning::UnknownPartitioning(1),
                 EmissionType::Incremental,
@@ -1893,7 +1825,7 @@ mod tests {
             participant_index: 0,
             cooperative_drain: None,
         };
-        let shuffle: Arc<dyn datafusion::physical_plan::ExecutionPlan> =
+        let shuffle: Arc<dyn ExecutionPlan> =
             Arc::new(ShuffleExec::new(input_exec, wiring, "test"));
 
         let rt = tokio::runtime::Builder::new_current_thread()

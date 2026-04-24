@@ -139,8 +139,20 @@ static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// internal `ProbeConfig` default.
 static VECTOR_CLUSTER_PROBES: GucSetting<i32> = GucSetting::<i32>::new(50);
 
+/// Over-fetch factor for exact-distance rerank. When > 1.0, the vector
+/// ORDER BY collector fetches `ceil(n * multiplier)` quantized candidates,
+/// then the custom scan reloads each candidate's raw vector from the
+/// heap and re-sorts by exact distance before truncating to `n`. At 1.0
+/// (default) the approximate quantized scores are final — no rerank.
+/// Trades latency (one heap fetch per over-fetched candidate) for recall.
+static VECTOR_RERANK_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(1.0);
+
 pub fn vector_cluster_probes() -> usize {
     VECTOR_CLUSTER_PROBES.get() as usize
+}
+
+pub fn vector_rerank_multiplier() -> f64 {
+    VECTOR_RERANK_MULTIPLIER.get()
 }
 
 pub fn init() {
@@ -348,6 +360,20 @@ centroid is too far) up to this cap. Lower values reduce latency at the cost of 
         &VECTOR_CLUSTER_PROBES,
         1,
         4096,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_rerank_multiplier",
+        c"Over-fetch factor for exact-distance rerank of vector ORDER BY",
+        c"When greater than 1.0, the collector fetches ceil(n * multiplier) quantized \
+candidates and the custom scan reloads each candidate's raw vector from the heap to \
+re-sort by exact distance before truncating to n. 1.0 disables rerank. Higher values \
+improve recall at the cost of per-query heap fetches. Defaults to 1.0.",
+        &VECTOR_RERANK_MULTIPLIER,
+        1.0,
+        100.0,
         GucContext::Userset,
         GucFlags::default(),
     );

@@ -156,7 +156,8 @@ jobs:
   report-results:
     name: Report Results
     if: always()
-    needs: [detect-changes, discover-upgrade-starting-points, test-pg_search-upgrade]
+    needs:
+      [detect-changes, discover-upgrade-starting-points, test-pg_search-upgrade]
     runs-on: ubuntu-latest
     steps:
       - name: Evaluate CI Results

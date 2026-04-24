@@ -35,13 +35,16 @@
 //! glue from the lower-level DSM math so future refactors on either side
 //! stay localized.
 
+use std::ffi::c_void;
+
 use pgrx::pg_sys;
 
 use crate::postgres::customscan::mpp::mesh::MeshLayout;
 use crate::postgres::customscan::mpp::session::MppPlanBroadcast;
 use crate::postgres::customscan::mpp::worker::{
-    attach_dsm_as_worker, compute_dsm_layout, initialize_dsm_as_leader, LeaderMesh,
+    attach_dsm_as_worker, compute_dsm_layout, initialize_dsm_as_leader, LeaderMesh, WorkerMesh,
 };
+use crate::postgres::customscan::mpp::MppParticipantConfig;
 
 /// Compute the exact DSM size the MPP custom scan needs for a plan of
 /// `plan_bytes_len` bytes, N participants, `num_meshes` independent shuffle
@@ -74,7 +77,7 @@ pub fn estimate_mpp_dsm(
 /// treat this as an abort condition and tear down the parallel context
 /// rather than retrying.
 pub unsafe fn init_mpp_dsm_leader(
-    coordinate: *mut std::ffi::c_void,
+    coordinate: *mut c_void,
     plan_broadcast_bytes: Vec<u8>,
     total_participants: u32,
     num_meshes: u32,
@@ -107,7 +110,7 @@ pub unsafe fn init_mpp_dsm_leader(
 
     Ok(LeaderMppContext {
         meshes,
-        participant_config: super::MppParticipantConfig {
+        participant_config: MppParticipantConfig {
             participant_index: 0,
             total_participants,
         },
@@ -121,7 +124,7 @@ pub unsafe fn init_mpp_dsm_leader(
 pub struct LeaderMppContext {
     /// One [`LeaderMesh`] per shuffle mesh, in the order the shape requested.
     pub meshes: Vec<LeaderMesh>,
-    pub participant_config: super::MppParticipantConfig,
+    pub participant_config: MppParticipantConfig,
     /// Per-query identifier the leader derived at plan time. Stamped on
     /// every [`MppStage`](super::stage::MppStage) so workers and leader
     /// agree on the key that keys cross-participant mesh traffic.
@@ -138,7 +141,7 @@ pub struct LeaderMppContext {
 ///   participant index is `worker_number + 1` (leader is participant 0).
 /// - Caller is the worker backend and holds `pcxt` / `seg`.
 pub unsafe fn attach_mpp_dsm_worker(
-    coordinate: *mut std::ffi::c_void,
+    coordinate: *mut c_void,
     region_total: u64,
     worker_number: i32,
     seg: *mut pg_sys::dsm_segment,
@@ -173,8 +176,8 @@ pub unsafe fn attach_mpp_dsm_worker(
 /// constructs a session with `participant_config` and wires the returned
 /// meshes into `ShuffleExec` (one mesh per shuffle).
 pub struct WorkerMppContext {
-    pub meshes: Vec<crate::postgres::customscan::mpp::worker::WorkerMesh>,
-    pub participant_config: super::MppParticipantConfig,
+    pub meshes: Vec<WorkerMesh>,
+    pub participant_config: MppParticipantConfig,
     /// Per-query identifier read from the leader's broadcast.
     pub query_id: u64,
 }

@@ -89,13 +89,17 @@
 
 use std::borrow::Borrow;
 use std::collections::VecDeque;
+use std::fmt;
+use std::mem;
 use std::sync::Arc;
 
 #[cfg(test)]
 use datafusion::arrow::datatypes::SchemaRef;
+use datafusion::common::config::ConfigOptions;
 use datafusion::common::{DataFusionError, Result as DfResult};
 use datafusion::physical_expr::expressions::Column;
 use datafusion::physical_expr::{Partitioning, PhysicalExpr};
+use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::aggregates::{AggregateExec, AggregateMode, PhysicalGroupBy};
 use datafusion::physical_plan::coalesce_batches::CoalesceBatchesExec;
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
@@ -105,10 +109,15 @@ use datafusion::physical_plan::repartition::RepartitionExec;
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
 use datafusion::physical_plan::ExecutionPlan;
 
+use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
+use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
+
 use super::customscan_glue::{MppExecutionState, DEFAULT_MPP_QUEUE_BYTES};
 use super::plan_build::{wrap_with_mpp_shuffle, MppShuffleInputs};
 use super::shape::MppPlanShape;
-use super::shuffle::{FixedTargetPartitioner, HashPartitioner, RowPartitioner, ShuffleWiring};
+use super::shuffle::{
+    FixedTargetPartitioner, HashPartitioner, RowPartitioner, ShuffleExec, ShuffleWiring,
+};
 use super::stage::{MppStage, MppTaskKey};
 use super::transport::{DrainBuffer, DrainHandle, MppReceiver, MppSender};
 use super::worker::{LeaderMesh, WorkerMesh};
@@ -282,8 +291,8 @@ pub(super) enum PlanOrNetworkBoundary {
     Coalesce,
 }
 
-impl std::fmt::Debug for PlanOrNetworkBoundary {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for PlanOrNetworkBoundary {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Plan(plan) => write!(f, "{}", plan.name()),
             Self::Shuffle => write!(f, "[NetworkBoundary] Shuffle"),
@@ -312,13 +321,9 @@ pub(super) struct AnnotatedPlan {
     pub(super) children: Vec<AnnotatedPlan>,
 }
 
-impl std::fmt::Debug for AnnotatedPlan {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        fn fmt_dbg(
-            f: &mut std::fmt::Formatter<'_>,
-            plan: &AnnotatedPlan,
-            depth: usize,
-        ) -> std::fmt::Result {
+impl fmt::Debug for AnnotatedPlan {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fn fmt_dbg(f: &mut fmt::Formatter<'_>, plan: &AnnotatedPlan, depth: usize) -> fmt::Result {
             write!(f, "{}{:?}", " ".repeat(depth * 2), plan.plan_or_nb)?;
             writeln!(f)?;
             for child in plan.children.iter() {
@@ -1036,10 +1041,8 @@ fn rebuild_hash_join_as_partitioned(
 fn run_visibility_ctid_resolver_rule(
     plan: Arc<dyn ExecutionPlan>,
 ) -> DfResult<Arc<dyn ExecutionPlan>> {
-    use datafusion::common::config::ConfigOptions;
-    use datafusion::physical_optimizer::PhysicalOptimizerRule;
     let config = ConfigOptions::default();
-    crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule.optimize(plan, &config)
+    VisibilityCtidResolverRule.optimize(plan, &config)
 }
 
 /// Shared pre-pass for the two aggregate-on-binary-join shapes. Locates
@@ -1433,7 +1436,7 @@ impl From<WorkerMesh> for MeshHalves {
 fn take_meshes(state: &mut MppExecutionState, expected: usize) -> Vec<MeshHalves> {
     match state {
         MppExecutionState::Leader(ctx) => {
-            let taken = std::mem::take(&mut ctx.meshes);
+            let taken = mem::take(&mut ctx.meshes);
             if taken.len() != expected {
                 pgrx::error!(
                     "mpp: leader meshes.len()={} but shape expected {}",
@@ -1444,7 +1447,7 @@ fn take_meshes(state: &mut MppExecutionState, expected: usize) -> Vec<MeshHalves
             taken.into_iter().map(MeshHalves::from).collect()
         }
         MppExecutionState::Worker(ctx) => {
-            let taken = std::mem::take(&mut ctx.meshes);
+            let taken = mem::take(&mut ctx.meshes);
             if taken.len() != expected {
                 pgrx::error!(
                     "mpp: worker meshes.len()={} but shape expected {}",
@@ -1677,9 +1680,6 @@ pub fn assert_visibility_invariant(plan: &Arc<dyn ExecutionPlan>) -> DfResult<()
 }
 
 fn walk_checking_visibility(node: &dyn ExecutionPlan, inside_shuffle: bool) -> DfResult<()> {
-    use super::shuffle::ShuffleExec;
-    use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
-
     let is_shuffle = node.as_any().downcast_ref::<ShuffleExec>().is_some();
     let is_visibility = node
         .as_any()
@@ -1707,8 +1707,12 @@ fn walk_checking_visibility(node: &dyn ExecutionPlan, inside_shuffle: bool) -> D
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::postgres::customscan::mpp::stage::MppNetworkBoundary;
     use crate::postgres::customscan::mpp::transport::{in_proc_channel, MppSender};
+    use datafusion::arrow::array::{Int32Array, RecordBatch};
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
+    use datafusion::datasource::memory::MemorySourceConfig;
+    use datafusion::logical_expr::Operator;
     use datafusion::physical_expr::expressions::{BinaryExpr, Literal};
     use datafusion::scalar::ScalarValue;
 
@@ -1775,11 +1779,7 @@ mod tests {
     fn col_index_rejects_non_column() {
         let left: Arc<dyn PhysicalExpr> = Arc::new(Column::new("id", 0));
         let right: Arc<dyn PhysicalExpr> = Arc::new(Literal::new(ScalarValue::Int32(Some(0))));
-        let expr: Arc<dyn PhysicalExpr> = Arc::new(BinaryExpr::new(
-            left,
-            datafusion::logical_expr::Operator::Plus,
-            right,
-        ));
+        let expr: Arc<dyn PhysicalExpr> = Arc::new(BinaryExpr::new(left, Operator::Plus, right));
         let err = col_index(&expr).unwrap_err();
         assert!(
             format!("{err}").contains("not a plain Column"),
@@ -1789,9 +1789,6 @@ mod tests {
 
     #[test]
     fn find_partial_agg_walks_through_coalesce_and_final() {
-        use datafusion::arrow::array::{Int32Array, RecordBatch};
-        use datafusion::datasource::memory::MemorySourceConfig;
-
         let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
         let batch = RecordBatch::try_new(
             schema.clone(),
@@ -1842,8 +1839,6 @@ mod tests {
     // ========================================================================
 
     fn mem_source(schema: &SchemaRef) -> Arc<dyn ExecutionPlan> {
-        use datafusion::arrow::array::{Int32Array, RecordBatch};
-        use datafusion::datasource::memory::MemorySourceConfig;
         let batch = RecordBatch::try_new(
             schema.clone(),
             vec![Arc::new(Int32Array::from(vec![1, 2, 3]))],
@@ -2227,21 +2222,13 @@ mod tests {
     /// Walk `plan` and collect every `ShuffleExec`. Sorted by
     /// `input_stage.stage_id` so tests can assert tag/stage_id pairings in
     /// emit order regardless of which subtree the walker descended first.
-    fn collect_shuffle_execs(
-        plan: &Arc<dyn ExecutionPlan>,
-    ) -> Vec<&crate::postgres::customscan::mpp::shuffle::ShuffleExec> {
+    fn collect_shuffle_execs(plan: &Arc<dyn ExecutionPlan>) -> Vec<&ShuffleExec> {
         // Emulate a trait-method traversal without writing a full Visitor:
         // recursively borrow each node, try the downcast, descend into the
         // node's children. `ShuffleExec` is the only type we care about so
         // the single-type collector is adequate.
-        fn recurse<'a>(
-            plan: &'a Arc<dyn ExecutionPlan>,
-            out: &mut Vec<&'a crate::postgres::customscan::mpp::shuffle::ShuffleExec>,
-        ) {
-            if let Some(s) = plan
-                .as_any()
-                .downcast_ref::<crate::postgres::customscan::mpp::shuffle::ShuffleExec>()
-            {
+        fn recurse<'a>(plan: &'a Arc<dyn ExecutionPlan>, out: &mut Vec<&'a ShuffleExec>) {
+            if let Some(s) = plan.as_any().downcast_ref::<ShuffleExec>() {
                 out.push(s);
             }
             for child in plan.children() {
@@ -2370,7 +2357,6 @@ mod tests {
         // input_stage stage_id 0. The underlying `RepartitionExec` layer
         // is dropped — its purpose was only to carry the hash-key
         // annotation to the walker.
-        use crate::postgres::customscan::mpp::stage::MppNetworkBoundary;
 
         let schema: SchemaRef =
             Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
@@ -2414,7 +2400,6 @@ mod tests {
         // emit must use tag `scalar_left` (this is a minimal synthetic
         // tree — the test proves the emit runs, not that the tag is
         // semantically correct for a real scalar-agg plan).
-        use crate::postgres::customscan::mpp::stage::MppNetworkBoundary;
 
         let schema: SchemaRef =
             Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
@@ -2456,7 +2441,6 @@ mod tests {
         // Plan(leaf))))). Bottom-up emit assigns cut_index 0 to the inner
         // shuffle (`join_left`) and cut_index 1 to the outer (`join_right`).
         // If the walker ever goes top-down, the stage_ids invert.
-        use crate::postgres::customscan::mpp::stage::MppNetworkBoundary;
 
         let schema: SchemaRef =
             Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));

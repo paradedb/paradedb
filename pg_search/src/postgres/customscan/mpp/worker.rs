@@ -44,10 +44,13 @@
 //! [`ShmMqReceiver`](super::mesh::ShmMqReceiver). Here we only own the
 //! sizing/offset math and the header layout.
 
+use std::mem::size_of;
+use std::ptr;
+
+use pgrx::pg_sys;
+
 use crate::postgres::customscan::mpp::mesh::{edge_slot, MeshLayout, ShmMqReceiver, ShmMqSender};
 use crate::postgres::customscan::mpp::transport::{MppReceiver, MppSender};
-use pgrx::pg_sys;
-use std::mem::size_of;
 
 /// Magic number stamped at the head of an MPP DSM region. Distinct from any
 /// of the other Postgres DSM magic numbers in the crate; workers assert this
@@ -277,7 +280,7 @@ pub struct DsmLayout {
 /// `plan_len == usize::MAX` fails cleanly instead of wrapping.
 #[inline]
 fn align_up_maxalign_checked(n: usize) -> Option<usize> {
-    const MA: usize = pgrx::pg_sys::MAXIMUM_ALIGNOF as usize;
+    const MA: usize = pg_sys::MAXIMUM_ALIGNOF as usize;
     let rem = n % MA;
     if rem == 0 {
         return Some(n);
@@ -344,8 +347,8 @@ pub unsafe fn initialize_dsm_as_leader(
 
     let header = MppDsmHeader::from_layout(mesh, dsm);
     unsafe {
-        std::ptr::write(base as *mut MppDsmHeader, header);
-        std::ptr::copy_nonoverlapping(plan_bytes.as_ptr(), base.add(dsm.plan_offset), dsm.plan_len);
+        ptr::write(base as *mut MppDsmHeader, header);
+        ptr::copy_nonoverlapping(plan_bytes.as_ptr(), base.add(dsm.plan_offset), dsm.plan_len);
     }
 
     let n = mesh.total_participants;
@@ -404,7 +407,7 @@ pub unsafe fn attach_dsm_as_worker(
     participant_index: u32,
     seg: *mut pg_sys::dsm_segment,
 ) -> Result<WorkerAttach, &'static str> {
-    let header = unsafe { std::ptr::read_unaligned(base as *const MppDsmHeader) };
+    let header = unsafe { ptr::read_unaligned(base as *const MppDsmHeader) };
     header.validate(region_total)?;
 
     if participant_index >= header.total_participants {
@@ -478,11 +481,7 @@ impl WorkerAttach {
     pub unsafe fn copy_plan_bytes(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(self.plan_bytes_len);
         unsafe {
-            std::ptr::copy_nonoverlapping(
-                self.plan_bytes_ptr,
-                out.as_mut_ptr(),
-                self.plan_bytes_len,
-            );
+            ptr::copy_nonoverlapping(self.plan_bytes_ptr, out.as_mut_ptr(), self.plan_bytes_len);
             out.set_len(self.plan_bytes_len);
         }
         out
@@ -560,9 +559,9 @@ mod tests {
         let plan_len = 12_345;
         let dsm = compute_dsm_layout(&layout, 1, plan_len).unwrap();
         assert!(dsm.plan_offset >= size_of::<MppDsmHeader>());
-        assert_eq!(dsm.plan_offset % pgrx::pg_sys::MAXIMUM_ALIGNOF as usize, 0);
+        assert_eq!(dsm.plan_offset % pg_sys::MAXIMUM_ALIGNOF as usize, 0);
         assert!(dsm.mesh_offset >= dsm.plan_offset + plan_len);
-        assert_eq!(dsm.mesh_offset % pgrx::pg_sys::MAXIMUM_ALIGNOF as usize, 0);
+        assert_eq!(dsm.mesh_offset % pg_sys::MAXIMUM_ALIGNOF as usize, 0);
         assert_eq!(dsm.mesh_bytes, layout.dsm_queue_bytes_checked().unwrap());
         assert_eq!(dsm.total, dsm.mesh_offset + dsm.mesh_bytes);
         assert_eq!(dsm.plan_len, plan_len);
@@ -628,7 +627,7 @@ mod tests {
 
     #[test]
     fn align_up_maxalign_rounds_correctly() {
-        let ma = pgrx::pg_sys::MAXIMUM_ALIGNOF as usize;
+        let ma = pg_sys::MAXIMUM_ALIGNOF as usize;
         assert_eq!(align_up_maxalign_checked(0), Some(0));
         assert_eq!(align_up_maxalign_checked(1), Some(ma));
         assert_eq!(align_up_maxalign_checked(ma), Some(ma));
@@ -650,13 +649,13 @@ mod tests {
 
         let mut buf = vec![0u8; size_of::<MppDsmHeader>() * 2];
         unsafe {
-            std::ptr::copy_nonoverlapping(
+            ptr::copy_nonoverlapping(
                 &original as *const MppDsmHeader as *const u8,
                 buf.as_mut_ptr(),
                 size_of::<MppDsmHeader>(),
             );
         }
-        let read_back = unsafe { std::ptr::read_unaligned(buf.as_ptr() as *const MppDsmHeader) };
+        let read_back = unsafe { ptr::read_unaligned(buf.as_ptr() as *const MppDsmHeader) };
         read_back.validate(dsm.total as u64).unwrap();
         assert_eq!(read_back.magic, MPP_DSM_MAGIC);
         assert_eq!(read_back.build_hash, MPP_BUILD_HASH);

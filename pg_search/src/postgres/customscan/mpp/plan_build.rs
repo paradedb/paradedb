@@ -229,6 +229,8 @@ mod tests {
     use datafusion::physical_plan::ExecutionPlanProperties;
     use datafusion::prelude::SessionContext;
     use futures::StreamExt;
+    use std::thread;
+    use std::time::Duration;
 
     fn sample_batch(rows: i32) -> RecordBatch {
         let schema = Arc::new(Schema::new(vec![
@@ -269,10 +271,10 @@ mod tests {
         // Simulated peer: ship two synthetic batches with a small delay so
         // the drain thread actually waits on the waker path at least once.
         let peer_schema = schema.clone();
-        let peer_thread = std::thread::spawn(move || {
+        let peer_thread = thread::spawn(move || {
             let sender = MppSender::new(Box::new(in_tx));
             for (id, name) in [(100i32, "peer100"), (200i32, "peer200")] {
-                std::thread::sleep(std::time::Duration::from_millis(10));
+                thread::sleep(Duration::from_millis(10));
                 let b = RecordBatch::try_new(
                     peer_schema.clone(),
                     vec![

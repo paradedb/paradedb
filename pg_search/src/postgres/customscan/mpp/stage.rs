@@ -31,6 +31,7 @@
 
 use std::sync::Arc;
 
+use datafusion::common::Result as DFResult;
 use datafusion::physical_plan::ExecutionPlan;
 
 /// Identifies a sub-plan rooted at a network boundary.
@@ -109,10 +110,7 @@ pub trait MppNetworkBoundary: ExecutionPlan {
     /// existing state (wiring, drain handle, etc.) is moved into the new
     /// instance — calling `with_input_stage` a second time on the original
     /// node will fail because those one-shot resources have been consumed.
-    fn with_input_stage(
-        &self,
-        stage: MppStage,
-    ) -> datafusion::common::Result<Arc<dyn ExecutionPlan>>;
+    fn with_input_stage(&self, stage: MppStage) -> DFResult<Arc<dyn ExecutionPlan>>;
 }
 
 #[cfg(test)]

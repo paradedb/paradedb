@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The version to set for the ParadeDB release. This publishes the latest commit of the chosen branch and tags it with the provided version."
+        description: "The version to set for the ParadeDB release (e.g. 0.22.0). This publishes the latest commit of the chosen branch and tags it with the provided version."
         required: true
         default: ""
       pg_version:

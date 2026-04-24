@@ -94,23 +94,17 @@ pub fn mpp_is_active() -> bool {
 /// the MPP code paths assume at least 2 participants; callers that see
 /// `< 2` here should fall back to the non-MPP path via [`mpp_is_active`].
 pub fn mpp_worker_count() -> u32 {
-    // `max(2)` rather than `clamp(2, ...)`: GUC is already `i32`-bounded,
-    // and naive `clamp(2, u32::MAX as i32)` underflows the upper bound to -1.
     crate::gucs::mpp_worker_count().max(2) as u32
 }
 
-/// Per-edge shm_mq queue capacity in bytes. Fixed at 8 MiB — matches the
-/// reference attempt's sizing and comfortably holds typical Arrow IPC
-/// partial-aggregate batches. Eventually this should come from a GUC so
-/// ops can tune without recompiling, but 8 MiB is sufficient for the
-/// milestone-1 benchmark target.
-// 64 MiB per directed edge, per mesh. The 25M-row benchmark's
-// GROUP BY variant ships ~100 MiB of Partial rows through the postagg
-// mesh per participant; at 8 MiB per edge the queue fills repeatedly
-// and the cooperative-drain spin consumes most of the budget. 64 MiB
-// lets each Partial burst fit in a single queue without backpressure,
-// at the cost of a larger DSM allocation (N×(N-1)×num_meshes×64 MiB —
-// 768 MiB at N=2 × 3 meshes, ~2.3 GiB at N=4 × 3 meshes).
+/// Per-edge shm_mq queue capacity in bytes. 64 MiB per directed edge, per
+/// mesh. The 25M-row benchmark's GROUP BY variant ships ~100 MiB of Partial
+/// rows through the postagg mesh per participant; smaller queues fill
+/// repeatedly and the cooperative-drain spin consumes most of the budget.
+/// 64 MiB lets each Partial burst fit in a single queue without backpressure,
+/// at the cost of a larger DSM allocation (N×(N-1)×num_meshes×64 MiB —
+/// 768 MiB at N=2 × 3 meshes, ~2.3 GiB at N=4 × 3 meshes). Eventually this
+/// should come from a GUC so ops can tune without recompiling.
 pub const DEFAULT_MPP_QUEUE_BYTES: usize = 64 * 1024 * 1024;
 
 /// Customscan `estimate_dsm_custom_scan` implementation for an MPP-enabled

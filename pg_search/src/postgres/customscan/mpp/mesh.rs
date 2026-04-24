@@ -36,6 +36,10 @@
 //! are in this file so the full production transport stack lives next to the
 //! layout math.
 
+use std::ptr;
+use std::thread::{self, ThreadId};
+
+use datafusion::common::DataFusionError;
 use pgrx::pg_sys;
 
 use crate::mpp_log;
@@ -45,7 +49,6 @@ use crate::parallel_worker::mqueue::{
 use crate::postgres::customscan::mpp::transport::{
     BatchChannelReceiver, BatchChannelSender, RecvOutcome,
 };
-use datafusion::common::DataFusionError;
 
 /// Compute the linear slot index for a directed edge `src -> dst` in an
 /// N-participant mesh. `src == dst` is invalid (self-partition bypasses the
@@ -132,7 +135,7 @@ impl MeshLayout {
 /// itself self-disables in release.
 pub struct ShmMqSender {
     inner: MessageQueueSender,
-    attach_thread: std::thread::ThreadId,
+    attach_thread: ThreadId,
 }
 
 // SAFETY: see struct doc. Production callers keep the sender on the main
@@ -150,7 +153,7 @@ impl ShmMqSender {
         unsafe {
             Self {
                 inner: MessageQueueSender::new(seg, mq),
-                attach_thread: std::thread::current().id(),
+                attach_thread: thread::current().id(),
             }
         }
     }
@@ -159,7 +162,7 @@ impl ShmMqSender {
 impl BatchChannelSender for ShmMqSender {
     fn send_bytes(&self, bytes: &[u8]) -> Result<(), DataFusionError> {
         debug_assert_eq!(
-            std::thread::current().id(),
+            thread::current().id(),
             self.attach_thread,
             "ShmMqSender::send_bytes called from a thread other than the one that \
              called attach(); shm_mq_send uses WaitLatch + CHECK_FOR_INTERRUPTS which \
@@ -183,7 +186,7 @@ impl BatchChannelSender for ShmMqSender {
 
     fn try_send_bytes(&self, bytes: &[u8]) -> Result<bool, DataFusionError> {
         debug_assert_eq!(
-            std::thread::current().id(),
+            thread::current().id(),
             self.attach_thread,
             "ShmMqSender::try_send_bytes called from a thread other than the one that \
              called attach(); shm_mq_send touches process-global Postgres primitives \
@@ -253,7 +256,7 @@ impl ShmMqReceiver {
     pub unsafe fn attach_existing(seg: *mut pg_sys::dsm_segment, mq: *mut pg_sys::shm_mq) -> Self {
         unsafe {
             pg_sys::shm_mq_set_receiver(mq, pg_sys::MyProc);
-            let handle = pg_sys::shm_mq_attach(mq, seg, std::ptr::null_mut());
+            let handle = pg_sys::shm_mq_attach(mq, seg, ptr::null_mut());
             Self {
                 inner: MessageQueueReceiver::from_raw_handle(handle),
             }
@@ -283,6 +286,7 @@ impl BatchChannelReceiver for ShmMqReceiver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
     fn edge_slot_packs_without_self_edges() {
@@ -317,7 +321,7 @@ mod tests {
     fn edge_slot_is_injective() {
         // Every (src, dst) pair maps to a unique slot in [0, N*(N-1))
         for n in [2u32, 3, 4, 5, 8] {
-            let mut seen = std::collections::HashSet::new();
+            let mut seen = HashSet::new();
             for src in 0..n {
                 for dst in 0..n {
                     if src == dst {

@@ -40,12 +40,16 @@
 //! `ParallelQueryCapable` impl is five lines of delegation and never touches
 //! raw shm_mq FFI directly.
 
+use std::ffi::c_void;
+
 use pgrx::pg_sys;
 
+use crate::gucs::{enable_mpp, mpp_worker_count as guc_mpp_worker_count};
 use crate::postgres::customscan::mpp::coordinator::{
     attach_mpp_dsm_worker, estimate_mpp_dsm, init_mpp_dsm_leader, LeaderMppContext,
     WorkerMppContext,
 };
+use crate::postgres::customscan::mpp::MppParticipantConfig;
 
 /// Per-query MPP state a customscan's execution state stores. Distinct
 /// variants for leader vs worker because the two have different wiring
@@ -58,7 +62,7 @@ pub enum MppExecutionState {
 }
 
 impl MppExecutionState {
-    pub fn participant_config(&self) -> &crate::postgres::customscan::mpp::MppParticipantConfig {
+    pub fn participant_config(&self) -> &MppParticipantConfig {
         match self {
             MppExecutionState::Leader(l) => &l.participant_config,
             MppExecutionState::Worker(w) => &w.participant_config,
@@ -87,14 +91,14 @@ impl MppExecutionState {
 /// least 2. The customscan checks this before announcing parallel-safe
 /// paths; if false, the non-MPP serial path is used.
 pub fn mpp_is_active() -> bool {
-    crate::gucs::enable_mpp() && crate::gucs::mpp_worker_count() >= 2
+    enable_mpp() && guc_mpp_worker_count() >= 2
 }
 
 /// Read the configured MPP worker count from GUC. Clamps below at 2 because
 /// the MPP code paths assume at least 2 participants; callers that see
 /// `< 2` here should fall back to the non-MPP path via [`mpp_is_active`].
 pub fn mpp_worker_count() -> u32 {
-    crate::gucs::mpp_worker_count().max(2) as u32
+    guc_mpp_worker_count().max(2) as u32
 }
 
 /// Per-edge shm_mq queue capacity in bytes. 64 MiB per directed edge, per
@@ -137,7 +141,7 @@ pub fn leader_estimate_dsm(plan_bytes_len: usize, num_meshes: u32) -> Result<pg_
 ///   allocated and corrupts adjacent `shm_toc` allocations (including the
 ///   DSA control regions used by parallel tuple queues).
 pub unsafe fn leader_init_dsm(
-    coordinate: *mut std::ffi::c_void,
+    coordinate: *mut c_void,
     plan_broadcast_bytes: Vec<u8>,
     num_meshes: u32,
     seg: *mut pg_sys::dsm_segment,
@@ -176,7 +180,7 @@ pub unsafe fn leader_init_dsm(
 ///   (trading the independence of the validation check for the ability
 ///   to initialize without a seg pointer).
 pub unsafe fn worker_init_dsm(
-    coordinate: *mut std::ffi::c_void,
+    coordinate: *mut c_void,
     region_total: u64,
     worker_number: i32,
     seg: *mut pg_sys::dsm_segment,
@@ -192,12 +196,13 @@ pub unsafe fn worker_init_dsm(
 mod tests {
     use super::*;
 
+    use crate::postgres::customscan::mpp::mesh::aligned_queue_bytes;
+
     #[test]
     fn default_queue_bytes_is_maxalign_safe() {
         // 8 MiB must be a multiple of MAXIMUM_ALIGNOF so
         // `aligned_queue_bytes(DEFAULT_MPP_QUEUE_BYTES) == DEFAULT_MPP_QUEUE_BYTES`.
-        let aligned =
-            crate::postgres::customscan::mpp::mesh::aligned_queue_bytes(DEFAULT_MPP_QUEUE_BYTES);
+        let aligned = aligned_queue_bytes(DEFAULT_MPP_QUEUE_BYTES);
         assert_eq!(aligned, DEFAULT_MPP_QUEUE_BYTES);
     }
 

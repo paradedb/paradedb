@@ -28,10 +28,11 @@ use crate::api::HashMap;
 use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, WhichFastField};
 use crate::nodecast;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
-use crate::postgres::customscan::basescan::privdat::Limit;
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
+use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::parallel::checkout_segment;
+use crate::postgres::customscan::parameterized_value::ParameterizedValue;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::SortByField;
 use crate::postgres::rel::PgSearchRelation;
@@ -321,7 +322,7 @@ impl ColumnarExecState {
     pub fn new(
         which_fast_fields: Vec<WhichFastField>,
         extra_fast_fields: Vec<WhichFastField>,
-        limit: Option<usize>,
+        limit_offset: Option<LimitOffset>,
         sort_order: Option<SortByField>,
     ) -> Self {
         // Build scanner fields: projected + extra + [Ctid]
@@ -356,9 +357,13 @@ impl ColumnarExecState {
             None => ColumnarExecStrategy::Unsorted,
         };
 
-        // If there is a limit, then we use a batch size hint which is a small multiple of the
-        // limit, in case of dead tuples.
-        let batch_size_hint = limit.map(|limit| limit * 2);
+        // If there is a static limit, use a batch size hint that is a small
+        // multiple of the limit (in case of dead tuples). For parameterized
+        // limits, we resolve the hint in `init` once `EState` is available.
+        let batch_size_hint = limit_offset
+            .as_ref()
+            .and_then(|lo| lo.static_fetch())
+            .map(|fetch| fetch * 2);
         Self {
             inner: Inner::new(which_fast_fields),
             scanner_fast_fields,
@@ -597,15 +602,27 @@ impl ExecMethod for ColumnarExecState {
     /// * `state` - The current scan state containing query information
     /// * `cstate` - PostgreSQL's custom scan state pointer
     fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
-        // Resolve parameterized limit for batch size hint
+        // Resolve parameterized LIMIT/OFFSET for batch size hint at execution time.
         if self.batch_size_hint.is_none() {
-            if let ExecMethodType::Columnar { ref mut limit, .. } = state.exec_method_type {
-                if let Some(param_limit) = limit.as_ref().filter(|l| l.static_value().is_none()) {
+            if let ExecMethodType::Columnar {
+                ref mut limit_offset,
+                ..
+            } = state.exec_method_type
+            {
+                let needs_resolve = limit_offset
+                    .as_ref()
+                    .map(|lo| !lo.has_static_limit())
+                    .unwrap_or(false);
+                if needs_resolve {
+                    let lo = limit_offset.as_mut().unwrap();
                     unsafe {
                         let estate = (*cstate).ss.ps.state;
-                        let resolved = param_limit.resolve(estate);
-                        self.batch_size_hint = Some(resolved * 2);
-                        *limit = Some(Limit::Static(resolved));
+                        if let Some(resolved) = lo.fetch(estate) {
+                            self.batch_size_hint = Some(resolved * 2);
+                            // Mirror back so EXPLAIN sees a static value.
+                            lo.limit = ParameterizedValue::Static(resolved as i64);
+                            lo.offset = None;
+                        }
                     }
                 }
             }

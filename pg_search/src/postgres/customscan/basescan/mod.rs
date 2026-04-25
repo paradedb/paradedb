@@ -36,7 +36,7 @@ use crate::index::reader::index::{SearchIndexReader, MAX_TOPK_FEATURES};
 use crate::postgres::customscan::basescan::exec_methods::{
     fast_fields, normal::NormalScanExecState, ExecState,
 };
-use crate::postgres::customscan::basescan::privdat::{Limit, PrivateData};
+use crate::postgres::customscan::basescan::privdat::PrivateData;
 use crate::postgres::customscan::basescan::projections::score::uses_scores;
 use crate::postgres::customscan::basescan::projections::snippet::{
     snippet_funcoids, snippet_positions_funcoids, snippets_funcoids, uses_snippets, SnippetType,
@@ -82,7 +82,7 @@ use crate::schema::SearchIndexSchema;
 use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 
-use crate::postgres::customscan::limit_offset::extract_const_i64;
+use crate::postgres::customscan::limit_offset::LimitOffset;
 use pgrx::{pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::Index;
@@ -409,52 +409,64 @@ unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool
     false
 }
 
-/// Check if the query's target list contains only set-returning functions (e.g. `unnest()`) which
-/// are safe for use with our LIMIT optimization, and if so, then return the LIMIT from the parse.
+/// Returns true if the target list contains a set-returning function that we
+/// cannot prove is safe to push LIMIT through. Only `unnest` is recognized as
+/// limit-safe (it produces at least as many rows as it consumes).
 ///
-/// Only set returning functions which produce at least as many rows as they consume are safe.
-unsafe fn maybe_limit_from_parse(root: *mut pg_sys::PlannerInfo) -> Option<f64> {
+/// Used as a guard alongside `has_non_pushable_predicates` to decide whether
+/// pushing a LIMIT into the scan would silently produce fewer rows than
+/// PostgreSQL's outer Limit node expects.
+unsafe fn has_unsafe_srf(root: *mut pg_sys::PlannerInfo) -> bool {
     if root.is_null() || (*root).parse.is_null() || (*(*root).parse).targetList.is_null() {
-        return None;
+        return false;
     }
     let parse = *(*root).parse;
-    // non-Const LIMIT is not a thing we can handle here
-    let limit = extract_const_i64(parse.limitCount).map(|v| v as f64)?;
-
-    let offset = if parse.limitOffset.is_null() {
-        0.0
-    } else if let Some(offset_const) = nodecast!(Const, T_Const, parse.limitOffset) {
-        i64::from_datum((*offset_const).constvalue, (*offset_const).constisnull)
-            .map(|v| v as f64)?
-    } else {
-        // non-Const OFFSET is not a thing we can handle here
-        return None;
-    };
-
-    let mut found_limit_safe_srf = false;
     let target_list = PgList::<pg_sys::TargetEntry>::from_pg(parse.targetList);
     for te in target_list.iter_ptr() {
-        if !(*te).expr.is_null() && pg_sys::expression_returns_set((*te).expr.cast()) {
-            // It's a set-returning function, is it one we approve of?
-            if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
-                if is_unnest_func((*func_expr).funcid) {
-                    found_limit_safe_srf = true;
-                } else {
-                    // We don't recognize this SRF, and can't vouch for it.
-                    return None;
-                }
+        if (*te).expr.is_null() {
+            continue;
+        }
+        if !pg_sys::expression_returns_set((*te).expr.cast()) {
+            continue;
+        }
+        // SRF found — only `unnest` is known to be safe.
+        if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
+            if !is_unnest_func((*func_expr).funcid) {
+                return true;
+            }
+        } else {
+            // Some other SRF expression we can't classify.
+            return true;
+        }
+    }
+    false
+}
+
+/// Returns true if the target list contains an `unnest` set-returning function.
+/// PG sets `limit_tuples == -1.0` whenever a SRF is present (it can't predict
+/// how many input rows produce K output rows), so we need this independent
+/// signal to know that a SRF-driven LIMIT pushdown is still safe through the
+/// row-preserving `unnest` semantics.
+unsafe fn has_safe_srf(root: *mut pg_sys::PlannerInfo) -> bool {
+    if root.is_null() || (*root).parse.is_null() || (*(*root).parse).targetList.is_null() {
+        return false;
+    }
+    let parse = *(*root).parse;
+    let target_list = PgList::<pg_sys::TargetEntry>::from_pg(parse.targetList);
+    for te in target_list.iter_ptr() {
+        if (*te).expr.is_null() {
+            continue;
+        }
+        if !pg_sys::expression_returns_set((*te).expr.cast()) {
+            continue;
+        }
+        if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
+            if is_unnest_func((*func_expr).funcid) {
+                return true;
             }
         }
     }
-
-    // A LIMIT was applied in the parse for our node, but is being handled elsewhere
-    // due to a set-returning-function that we know produces at least as many tuples as
-    // it is given.
-    if found_limit_safe_srf {
-        Some(limit + offset)
-    } else {
-        None
-    }
+    false
 }
 
 /// Returns `true` if any predicate in `baserestrictinfo` cannot be fully
@@ -484,6 +496,34 @@ unsafe fn has_non_pushable_predicates(
     }
 
     false
+}
+
+/// Returns true if the query's LIMIT can safely be pushed into this scan node.
+///
+/// Three conditions must hold:
+///   1. This rel bounds the output cardinality (single rel, partitioned, or
+///      the driving side of a LEFT LATERAL join). Without this, pushing LIMIT
+///      to the inner side of a join would silently truncate results.
+///   2. No non-pushable predicates sit between this scan and the LIMIT.
+///   3. No unsafe SRFs (anything other than `unnest`) in the target list.
+///
+/// Independent of whether PG's `limit_tuples` is set or the LIMIT involves a
+/// `Param` — that's the caller's policy decision.
+unsafe fn is_limit_pushdown_safe(
+    root: *mut pg_sys::PlannerInfo,
+    rel: *mut pg_sys::RelOptInfo,
+    baserels: *mut pg_sys::Bitmapset,
+    rti: pg_sys::Index,
+    quals: &Option<Qual>,
+) -> bool {
+    let rel_is_single_or_partitioned = pg_sys::bms_equal((*rel).relids, baserels)
+        || range_table::is_partitioned_table_setup(root, (*rel).relids, baserels);
+    let is_left_driven_lateral =
+        is_left_join_lateral(root, rel) && where_clause_only_references_left(root, rti);
+
+    (rel_is_single_or_partitioned || is_left_driven_lateral)
+        && !has_non_pushable_predicates(rel, quals)
+        && !has_unsafe_srf(root)
 }
 
 impl CustomScan for BaseScan {
@@ -673,44 +713,31 @@ impl CustomScan for BaseScan {
             // If so, we want to be aggressive with parallelism to enable Parallel Hash Join
             let is_join_context = pg_sys::bms_num_members(baserels) > 1;
 
-            let limit = if (*builder.args().root).limit_tuples > -1.0 {
-                // Check if this is a single relation or a partitioned table setup
-                let rel_is_single_or_partitioned = pg_sys::bms_equal((*rel).relids, baserels)
-                    || range_table::is_partitioned_table_setup(
+            // Push the LIMIT/OFFSET into this scan when one of:
+            //   - PG already proved it safe (`limit_tuples > -1.0`)
+            //   - The value is a Param (PG can't evaluate at plan time but we
+            //     can at exec time — issue #4665)
+            //   - The target list contains a row-preserving SRF like `unnest`
+            //     (PG zeroed out `limit_tuples` because of the SRF, but the
+            //     SRF doesn't drop input rows so `limit + offset` rows
+            //     fetched here is still enough)
+            // Local safety checks (topology, predicates, unsafe SRFs) gate all
+            // three cases.
+            let raw_limit_offset = LimitOffset::from_root(builder.args().root);
+            let limit_offset = raw_limit_offset.filter(|lo| {
+                let pg_says_pushable = (*builder.args().root).limit_tuples > -1.0;
+                let has_param = lo.has_any_param();
+                let has_safe_srf_override = has_safe_srf(builder.args().root);
+
+                (pg_says_pushable || has_param || has_safe_srf_override)
+                    && is_limit_pushdown_safe(
                         builder.args().root,
-                        (*rel).relids,
+                        rel,
                         baserels,
-                    );
-
-                // Check for LEFT JOIN LATERAL where left side drives the query
-                let is_left_driven_lateral = is_left_join_lateral(builder.args().root, rel)
-                    && where_clause_only_references_left(builder.args().root, rti);
-
-                if rel_is_single_or_partitioned || is_left_driven_lateral {
-                    if has_non_pushable_predicates(rel, &Some(quals.clone())) {
-                        None
-                    } else {
-                        Some((*builder.args().root).limit_tuples)
-                    }
-                } else {
-                    None
-                }
-            } else {
-                let raw = maybe_limit_from_parse(builder.args().root);
-                if raw.is_some() && has_non_pushable_predicates(rel, &Some(quals.clone())) {
-                    None
-                } else {
-                    raw
-                }
-            };
-
-            let limit = if let Some(l) = limit {
-                Some(Limit::Static(l.round() as usize))
-            } else if !(*builder.args().root).parse.is_null() {
-                Limit::from_param((*(*builder.args().root).parse).limitCount)
-            } else {
-                None
-            };
+                        rti,
+                        &Some(quals.clone()),
+                    )
+            });
 
             // Get all columns referenced by this RTE throughout the entire query
             let referenced_columns = collect_maybe_fast_field_referenced_columns(rti, rel);
@@ -718,7 +745,7 @@ impl CustomScan for BaseScan {
             // Save the count of referenced columns for decision-making
             custom_private.set_referenced_columns_count(referenced_columns.len());
 
-            let has_any_limit = limit.is_some();
+            let has_any_limit = limit_offset.is_some();
             let is_maybe_topk = has_any_limit && topk_pathkey_info.is_usable();
 
             // When collecting which_fast_fields, analyze the entire set of referenced columns,
@@ -760,16 +787,17 @@ impl CustomScan for BaseScan {
                 estimate_selectivity(&bm25_index, query.clone()).unwrap_or(UNKNOWN_SELECTIVITY)
             };
 
-            let float_limit = match &limit {
-                Some(Limit::Static(n)) => Some(*n as f64),
-                _ => None,
-            };
+            // For costing/parallelism: prefer a real planning estimate over a
+            // missing one when LIMIT is parameterized. Without this, GENERIC
+            // prepared plans produce float_limit=None and the parallel-worker
+            // estimator collapses (issue #4665).
+            let float_limit = limit_offset.as_ref().map(|lo| lo.planning_estimate());
 
             custom_private.set_heaprelid(table.oid());
             custom_private.set_indexrelid(bm25_index.oid());
             custom_private.set_range_table_index(rti);
             custom_private.set_query(query);
-            custom_private.set_limit(limit);
+            custom_private.set_limit_offset(limit_offset.clone());
             custom_private.set_segment_count(segment_count);
 
             // Determine whether we might be able to sort.
@@ -1669,7 +1697,7 @@ fn validate_topk_expectation(
     }
 
     // Check if this query should be using Top K
-    let has_limit = privdata.limit().is_some();
+    let has_limit = privdata.limit_offset().is_some();
     let has_search_query = privdata.query().is_some();
     let no_group_by = privdata.window_aggregates().is_empty();
 
@@ -1685,7 +1713,7 @@ fn validate_topk_expectation(
     }
 
     // At this point: should_use_topk is true AND we're not using Top K - emit warning
-    let limit = privdata.limit().as_ref().unwrap();
+    let limit = privdata.limit_offset().as_ref().unwrap().limit.to_string();
     let method_name = match chosen_method {
         ExecMethodType::Normal => "Normal",
         ExecMethodType::Columnar { .. } => "Columnar",
@@ -1776,11 +1804,11 @@ fn choose_exec_method(
 ) -> Vec<ExecMethodType> {
     // See if we can use Top K.
     // A known limit value or a parameterized limit (value resolved at execution time) both qualify.
-    if let Some(limit) = privdata.limit().clone() {
+    if let Some(lo) = privdata.limit_offset().clone() {
         if let Some(orderby_info) = privdata.maybe_orderby_info() {
             let method = ExecMethodType::TopK {
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
-                limit: limit.clone(),
+                limit_offset: lo.clone(),
                 orderby_info: Some(orderby_info.clone()),
                 window_aggregates: privdata.window_aggregates().clone(),
             };
@@ -1796,7 +1824,7 @@ fn choose_exec_method(
         if matches!(topk_pathkey_info, PathKeyInfo::None) {
             let method = ExecMethodType::TopK {
                 heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
-                limit,
+                limit_offset: lo,
                 orderby_info: None,
                 window_aggregates: privdata.window_aggregates().clone(),
             };
@@ -1816,12 +1844,12 @@ fn choose_exec_method(
     if is_capable {
         let mut methods = Vec::new();
 
-        let limit = privdata.limit().clone();
+        let lo = privdata.limit_offset().clone();
 
         // Always create the Unsorted variant
         methods.push(ExecMethodType::Columnar {
             which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
-            limit: limit.clone(),
+            limit_offset: lo.clone(),
             sort_order: None,
         });
 
@@ -1839,7 +1867,7 @@ fn choose_exec_method(
             if let Some(sort_order) = sort_order {
                 methods.push(ExecMethodType::Columnar {
                     which_fast_fields: privdata.planned_which_fast_fields().clone().unwrap(),
-                    limit,
+                    limit_offset: lo,
                     sort_order: Some(sort_order),
                 });
             }
@@ -1883,21 +1911,17 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
             .assign_exec_method(NormalScanExecState::default(), Some(ExecMethodType::Normal)),
         ExecMethodType::TopK {
             heaprelid,
-            limit,
+            limit_offset,
             orderby_info,
             window_aggregates: _,
         } => builder.custom_state().assign_exec_method(
-            exec_methods::top_k::TopKScanExecState::new(
-                heaprelid,
-                limit.static_value(),
-                orderby_info,
-            ),
+            exec_methods::top_k::TopKScanExecState::new(heaprelid, limit_offset, orderby_info),
             None,
         ),
 
         ExecMethodType::Columnar {
             which_fast_fields,
-            limit,
+            limit_offset,
             sort_order,
         } => {
             // Compute effective sort_order at execution time from PrivateData's use_sorted_path().
@@ -1954,7 +1978,7 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
                     exec_methods::fast_fields::columnar::ColumnarExecState::new(
                         which_fast_fields,
                         extra_fast_fields,
-                        limit.as_ref().and_then(Limit::static_value),
+                        limit_offset,
                         effective_sort_order,
                     ),
                     None,

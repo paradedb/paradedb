@@ -126,6 +126,89 @@ EXECUTE issue_4665_generic_plim('technology', 10);
 
 DEALLOCATE issue_4665_generic_plim;
 
+-- ============================================================================
+-- Parameterized OFFSET: LIMIT 5 OFFSET $2 in both modes (must match)
+-- ============================================================================
+SET plan_cache_mode = force_custom_plan;
+
+PREPARE issue_4665_off_custom(text, int) AS
+SELECT id FROM issue_4665_test
+WHERE content ||| $1
+ORDER BY pdb.score(id) DESC
+LIMIT 5 OFFSET $2;
+
+EXECUTE issue_4665_off_custom('technology', 5);
+
+DEALLOCATE issue_4665_off_custom;
+
+SET plan_cache_mode = force_generic_plan;
+
+PREPARE issue_4665_off_generic(text, int) AS
+SELECT id FROM issue_4665_test
+WHERE content ||| $1
+ORDER BY pdb.score(id) DESC
+LIMIT 5 OFFSET $2;
+
+EXECUTE issue_4665_off_generic('technology', 5);
+
+DEALLOCATE issue_4665_off_generic;
+
+-- ============================================================================
+-- Parameterized LIMIT + OFFSET: LIMIT $2 OFFSET $3 in both modes (must match)
+-- ============================================================================
+SET plan_cache_mode = force_custom_plan;
+
+PREPARE issue_4665_both_custom(text, int, int) AS
+SELECT id FROM issue_4665_test
+WHERE content ||| $1
+ORDER BY pdb.score(id) DESC
+LIMIT $2 OFFSET $3;
+
+EXECUTE issue_4665_both_custom('technology', 5, 5);
+
+DEALLOCATE issue_4665_both_custom;
+
+SET plan_cache_mode = force_generic_plan;
+
+PREPARE issue_4665_both_generic(text, int, int) AS
+SELECT id FROM issue_4665_test
+WHERE content ||| $1
+ORDER BY pdb.score(id) DESC
+LIMIT $2 OFFSET $3;
+
+EXECUTE issue_4665_both_generic('technology', 5, 5);
+
+DEALLOCATE issue_4665_both_generic;
+
+-- ============================================================================
+-- Parameterized LIMIT + Const OFFSET: LIMIT $2 OFFSET 5
+-- The pre-fix bug: GENERIC mode returned 0 rows because TopK fetched only
+-- LIMIT rows and then PG's outer Limit OFFSET 5 skipped all of them.
+-- ============================================================================
+SET plan_cache_mode = force_custom_plan;
+
+PREPARE issue_4665_plimcoff_custom(text, int) AS
+SELECT id FROM issue_4665_test
+WHERE content ||| $1
+ORDER BY pdb.score(id) DESC
+LIMIT $2 OFFSET 5;
+
+EXECUTE issue_4665_plimcoff_custom('technology', 5);
+
+DEALLOCATE issue_4665_plimcoff_custom;
+
+SET plan_cache_mode = force_generic_plan;
+
+PREPARE issue_4665_plimcoff_generic(text, int) AS
+SELECT id FROM issue_4665_test
+WHERE content ||| $1
+ORDER BY pdb.score(id) DESC
+LIMIT $2 OFFSET 5;
+
+EXECUTE issue_4665_plimcoff_generic('technology', 5);
+
+DEALLOCATE issue_4665_plimcoff_generic;
+
 -- Cleanup
 DROP TABLE issue_4665_test CASCADE;
 RESET max_parallel_workers_per_gather;

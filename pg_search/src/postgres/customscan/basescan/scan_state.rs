@@ -318,7 +318,7 @@ impl BaseScanState {
 
     pub fn limit(&self) -> Option<usize> {
         match &self.exec_method_type {
-            ExecMethodType::TopK { limit, .. } => limit.static_value(),
+            ExecMethodType::TopK { limit_offset, .. } => limit_offset.static_fetch(),
             _ => None,
         }
     }

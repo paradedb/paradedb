@@ -393,3 +393,194 @@ fn generic_plan_natural_transition_issue_4665(mut conn: PgConnection) {
 
     "DEALLOCATE stmt_nat".execute(&mut conn);
 }
+
+/// Parameterized OFFSET must produce correct results in GENERIC mode.
+///
+/// Pre-fix bugs:
+///   - LIMIT 5 OFFSET $2: GENERIC fell back to ColumnarExecState (full scan
+///     + Sort), producing a different row order than CUSTOM.
+///   - LIMIT $1 OFFSET 5: GENERIC's TopK fetched only `LIMIT` rows; PG's outer
+///     Limit OFFSET 5 then skipped them all, returning **0 rows**.
+///   - LIMIT $1 OFFSET $2: same TopK undercount bug.
+///
+/// All three cases must now return identical rows to the unprepared baseline.
+#[rstest]
+fn generic_plan_parameterized_offset(mut conn: PgConnection) {
+    r#"
+    DROP TABLE IF EXISTS param_offset_test CASCADE;
+    CREATE TABLE param_offset_test (
+        id SERIAL PRIMARY KEY,
+        content TEXT
+    );
+    INSERT INTO param_offset_test (content)
+    SELECT 'document about technology number ' || i
+    FROM generate_series(1, 200) AS i;
+    CREATE INDEX param_offset_idx ON param_offset_test
+    USING bm25 (id, content) WITH (key_field = 'id');
+    "#
+    .execute(&mut conn);
+
+    // Baseline: constant LIMIT + constant OFFSET
+    let baseline = "SELECT id FROM param_offset_test
+                    WHERE content ||| 'technology'
+                    ORDER BY pdb.score(id) DESC
+                    LIMIT 5 OFFSET 5"
+        .fetch::<(i32,)>(&mut conn);
+    assert_eq!(baseline.len(), 5, "baseline should return 5 rows");
+
+    // --- Case 1: Const LIMIT + Param OFFSET ---
+    "SET plan_cache_mode = force_custom_plan".execute(&mut conn);
+    "PREPARE off1_c(text, int) AS
+     SELECT id FROM param_offset_test WHERE content ||| $1
+     ORDER BY pdb.score(id) DESC LIMIT 5 OFFSET $2"
+        .execute(&mut conn);
+    let custom_1 = "EXECUTE off1_c('technology', 5)".fetch::<(i32,)>(&mut conn);
+    "DEALLOCATE off1_c".execute(&mut conn);
+
+    "SET plan_cache_mode = force_generic_plan".execute(&mut conn);
+    "PREPARE off1_g(text, int) AS
+     SELECT id FROM param_offset_test WHERE content ||| $1
+     ORDER BY pdb.score(id) DESC LIMIT 5 OFFSET $2"
+        .execute(&mut conn);
+    let generic_1 = "EXECUTE off1_g('technology', 5)".fetch::<(i32,)>(&mut conn);
+    "DEALLOCATE off1_g".execute(&mut conn);
+
+    assert_eq!(custom_1, baseline, "Case 1 CUSTOM must match baseline");
+    assert_eq!(generic_1, baseline, "Case 1 GENERIC must match baseline");
+
+    // --- Case 2: Param LIMIT + Const OFFSET (was returning 0 rows) ---
+    "SET plan_cache_mode = force_custom_plan".execute(&mut conn);
+    "PREPARE off2_c(text, int) AS
+     SELECT id FROM param_offset_test WHERE content ||| $1
+     ORDER BY pdb.score(id) DESC LIMIT $2 OFFSET 5"
+        .execute(&mut conn);
+    let custom_2 = "EXECUTE off2_c('technology', 5)".fetch::<(i32,)>(&mut conn);
+    "DEALLOCATE off2_c".execute(&mut conn);
+
+    "SET plan_cache_mode = force_generic_plan".execute(&mut conn);
+    "PREPARE off2_g(text, int) AS
+     SELECT id FROM param_offset_test WHERE content ||| $1
+     ORDER BY pdb.score(id) DESC LIMIT $2 OFFSET 5"
+        .execute(&mut conn);
+    let generic_2 = "EXECUTE off2_g('technology', 5)".fetch::<(i32,)>(&mut conn);
+    "DEALLOCATE off2_g".execute(&mut conn);
+
+    assert_eq!(custom_2, baseline, "Case 2 CUSTOM must match baseline");
+    assert_eq!(
+        generic_2, baseline,
+        "Case 2 GENERIC must match baseline (was returning 0 rows pre-fix)"
+    );
+
+    // --- Case 3: Param LIMIT + Param OFFSET ---
+    "SET plan_cache_mode = force_custom_plan".execute(&mut conn);
+    "PREPARE off3_c(text, int, int) AS
+     SELECT id FROM param_offset_test WHERE content ||| $1
+     ORDER BY pdb.score(id) DESC LIMIT $2 OFFSET $3"
+        .execute(&mut conn);
+    let custom_3 = "EXECUTE off3_c('technology', 5, 5)".fetch::<(i32,)>(&mut conn);
+    "DEALLOCATE off3_c".execute(&mut conn);
+
+    "SET plan_cache_mode = force_generic_plan".execute(&mut conn);
+    "PREPARE off3_g(text, int, int) AS
+     SELECT id FROM param_offset_test WHERE content ||| $1
+     ORDER BY pdb.score(id) DESC LIMIT $2 OFFSET $3"
+        .execute(&mut conn);
+    let generic_3 = "EXECUTE off3_g('technology', 5, 5)".fetch::<(i32,)>(&mut conn);
+    "DEALLOCATE off3_g".execute(&mut conn);
+
+    assert_eq!(custom_3, baseline, "Case 3 CUSTOM must match baseline");
+    assert_eq!(generic_3, baseline, "Case 3 GENERIC must match baseline");
+
+    "RESET plan_cache_mode".execute(&mut conn);
+}
+
+/// JoinScan must survive parameterized LIMIT (was previously disabled with
+/// NOTICE: "JoinScan not used: activation checks failed (LIMIT / ...)").
+#[rstest]
+fn joinscan_survives_parameterized_limit(mut conn: PgConnection) {
+    "SET paradedb.enable_join_custom_scan = on".execute(&mut conn);
+    "SET max_parallel_workers_per_gather = 0".execute(&mut conn);
+    "SET enable_indexscan TO OFF".execute(&mut conn);
+
+    r#"
+    DROP TABLE IF EXISTS js_prods CASCADE;
+    DROP TABLE IF EXISTS js_cats CASCADE;
+    CREATE TABLE js_prods (
+        id SERIAL PRIMARY KEY,
+        name TEXT,
+        cat_id INT
+    );
+    CREATE TABLE js_cats (
+        id SERIAL PRIMARY KEY,
+        label TEXT
+    );
+    INSERT INTO js_cats (label) VALUES ('electronics'), ('clothing'), ('food');
+    INSERT INTO js_prods (name, cat_id)
+    SELECT 'product ' || i || ' in electronics', 1 + (i % 3)
+    FROM generate_series(1, 100) AS i;
+    CREATE INDEX js_prods_idx ON js_prods
+    USING bm25 (id, name, cat_id) WITH (key_field = 'id');
+    CREATE INDEX js_cats_idx ON js_cats
+    USING bm25 (id, label) WITH (key_field = 'id');
+    "#
+    .execute(&mut conn);
+
+    // CUSTOM mode with parameterized LIMIT
+    "SET plan_cache_mode = force_custom_plan".execute(&mut conn);
+    "PREPARE js_c(text, int) AS
+     SELECT p.id, p.name FROM js_prods p
+     JOIN js_cats c ON p.cat_id = c.id
+     WHERE p.name ||| $1
+     ORDER BY pdb.score(p.id) DESC
+     LIMIT $2"
+        .execute(&mut conn);
+    let mut custom_results = "EXECUTE js_c('electronics', 10)".fetch::<(i32, String)>(&mut conn);
+    "DEALLOCATE js_c".execute(&mut conn);
+
+    // GENERIC mode with parameterized LIMIT
+    "SET plan_cache_mode = force_generic_plan".execute(&mut conn);
+    "PREPARE js_g(text, int) AS
+     SELECT p.id, p.name FROM js_prods p
+     JOIN js_cats c ON p.cat_id = c.id
+     WHERE p.name ||| $1
+     ORDER BY pdb.score(p.id) DESC
+     LIMIT $2"
+        .execute(&mut conn);
+    let mut generic_results = "EXECUTE js_g('electronics', 10)".fetch::<(i32, String)>(&mut conn);
+    "DEALLOCATE js_g".execute(&mut conn);
+
+    // All `electronics` matches share identical scores, so the ORDER BY tie is
+    // unstable. Compare the *set* of rows by sorting first — what matters is
+    // that JoinScan produces a correct top-10 in both modes.
+    custom_results.sort_by_key(|r| r.0);
+    generic_results.sort_by_key(|r| r.0);
+    assert_eq!(
+        custom_results, generic_results,
+        "JoinScan with param LIMIT must return the same set of rows in both modes"
+    );
+    assert!(!custom_results.is_empty(), "should have join results");
+    assert_eq!(custom_results.len(), 10, "LIMIT $2=10 must be respected");
+
+    // GENERIC plan must actually use JoinScan (not fall back to NestedLoop).
+    "SET plan_cache_mode = force_generic_plan".execute(&mut conn);
+    "PREPARE js_g_explain(text, int) AS
+     SELECT p.id, p.name FROM js_prods p
+     JOIN js_cats c ON p.cat_id = c.id
+     WHERE p.name ||| $1
+     ORDER BY pdb.score(p.id) DESC
+     LIMIT $2"
+        .execute(&mut conn);
+    let (plan,) = "EXPLAIN (FORMAT JSON) EXECUTE js_g_explain('electronics', 10)"
+        .fetch_one::<(Value,)>(&mut conn);
+    let plan_text = format!("{plan:#}");
+    assert!(
+        plan_text.contains("ParadeDB Join Scan"),
+        "GENERIC mode with param LIMIT must keep JoinScan: {plan_text}"
+    );
+    "DEALLOCATE js_g_explain".execute(&mut conn);
+
+    "RESET plan_cache_mode".execute(&mut conn);
+    "RESET paradedb.enable_join_custom_scan".execute(&mut conn);
+    "RESET max_parallel_workers_per_gather".execute(&mut conn);
+    "RESET enable_indexscan".execute(&mut conn);
+}

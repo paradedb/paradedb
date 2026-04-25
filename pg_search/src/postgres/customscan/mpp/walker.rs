@@ -112,7 +112,7 @@ use datafusion::physical_plan::ExecutionPlan;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
 use crate::scan::visibility_ctid_resolver_rule::VisibilityCtidResolverRule;
 
-use super::customscan_glue::{MppExecutionState, DEFAULT_MPP_QUEUE_BYTES};
+use super::customscan_glue::MppExecutionState;
 use super::plan_build::{wrap_with_mpp_shuffle, MppShuffleInputs};
 use super::shape::MppPlanShape;
 use super::shuffle::{
@@ -1467,7 +1467,6 @@ fn spawn_drain(inbound: Vec<Option<MppReceiver>>) -> Arc<DrainHandle> {
     let num_sources = receivers.len();
     // `DrainBuffer::new(0)` would flip to EOF immediately; give it at least 1.
     let buffer = DrainBuffer::new(num_sources.max(1) as u32);
-    let _ = DEFAULT_MPP_QUEUE_BYTES; // referenced only for docs consistency
 
     // Cooperative (not thread-backed) drain: pgrx's `check_active_thread`
     // panics any pg FFI call from non-backend threads, so spawning a

@@ -101,25 +101,18 @@ pub fn mpp_worker_count() -> u32 {
     guc_mpp_worker_count().max(2) as u32
 }
 
-/// Per-edge shm_mq queue capacity in bytes. 64 MiB per directed edge, per
-/// mesh. The 25M-row benchmark's GROUP BY variant ships ~100 MiB of Partial
-/// rows through the postagg mesh per participant; smaller queues fill
-/// repeatedly and the cooperative-drain spin consumes most of the budget.
-/// 64 MiB lets each Partial burst fit in a single queue without backpressure,
-/// at the cost of a larger DSM allocation (N×(N-1)×num_meshes×64 MiB —
-/// 768 MiB at N=2 × 3 meshes, ~2.3 GiB at N=4 × 3 meshes). Eventually this
-/// should come from a GUC so ops can tune without recompiling.
-pub const DEFAULT_MPP_QUEUE_BYTES: usize = 64 * 1024 * 1024;
-
 /// Customscan `estimate_dsm_custom_scan` implementation for an MPP-enabled
 /// plan. Given the serialized logical plan length, returns the total DSM
 /// bytes the coordinator will need.
+///
+/// Per-edge queue size is read from `paradedb.mpp_queue_size` (default
+/// 64 MiB; see the GUC's doc comment for sizing rationale and DSM cost).
 ///
 /// Call from the customscan's `ParallelQueryCapable::estimate_dsm_custom_scan`
 /// when [`mpp_is_active`] is true.
 pub fn leader_estimate_dsm(plan_bytes_len: usize, num_meshes: u32) -> Result<pg_sys::Size, String> {
     let n = mpp_worker_count();
-    estimate_mpp_dsm(plan_bytes_len, n, num_meshes, DEFAULT_MPP_QUEUE_BYTES)
+    estimate_mpp_dsm(plan_bytes_len, n, num_meshes, crate::gucs::mpp_queue_size())
         .map(|sz| sz as pg_sys::Size)
         .map_err(|e| format!("mpp: estimate DSM failed: {e}"))
 }
@@ -157,7 +150,7 @@ pub unsafe fn leader_init_dsm(
             plan_broadcast_bytes,
             n,
             num_meshes,
-            DEFAULT_MPP_QUEUE_BYTES,
+            crate::gucs::mpp_queue_size(),
             seg,
         )?
     };
@@ -200,10 +193,12 @@ mod tests {
 
     #[test]
     fn default_queue_bytes_is_maxalign_safe() {
-        // 8 MiB must be a multiple of MAXIMUM_ALIGNOF so
-        // `aligned_queue_bytes(DEFAULT_MPP_QUEUE_BYTES) == DEFAULT_MPP_QUEUE_BYTES`.
-        let aligned = aligned_queue_bytes(DEFAULT_MPP_QUEUE_BYTES);
-        assert_eq!(aligned, DEFAULT_MPP_QUEUE_BYTES);
+        // The GUC default (64 MiB) must be a multiple of MAXIMUM_ALIGNOF so
+        // `aligned_queue_bytes` is a no-op for the default and the queue
+        // capacity reported to operators matches what `shm_mq` actually uses.
+        let default = 64 * 1024 * 1024;
+        let aligned = aligned_queue_bytes(default);
+        assert_eq!(aligned, default);
     }
 
     #[test]

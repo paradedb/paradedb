@@ -14,13 +14,11 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SHOW paradedb.enable_mpp;
 SHOW paradedb.mpp_debug;
 SHOW paradedb.mpp_worker_count;
-SHOW paradedb.mpp_drain_watermark_mb;
 
 -- Defaults: MPP is off until explicitly enabled.
 SELECT current_setting('paradedb.enable_mpp')::bool AS enable_mpp_default_off;
 SELECT current_setting('paradedb.mpp_debug')::bool AS mpp_debug_default_off;
 SELECT current_setting('paradedb.mpp_worker_count')::int AS worker_count_default;
-SELECT current_setting('paradedb.mpp_drain_watermark_mb')::int AS watermark_default_mb;
 
 -- Toggle the boolean GUCs and verify they stick.
 SET paradedb.enable_mpp TO on;
@@ -55,12 +53,6 @@ BEGIN
     END;
 END$$;
 
--- Drain watermark: 0 disables spill, values > 0 enable it.
-SET paradedb.mpp_drain_watermark_mb TO 0;
-SELECT current_setting('paradedb.mpp_drain_watermark_mb')::int AS watermark_zero;
-SET paradedb.mpp_drain_watermark_mb TO 256;
-SELECT current_setting('paradedb.mpp_drain_watermark_mb')::int AS watermark_256;
-
 -- MPP GUCs must not affect non-MPP queries at all. Run a trivial query
 -- with mpp_debug on to confirm it's a no-op (no warnings except the
 -- expected ones) and results are correct.
@@ -71,4 +63,3 @@ SET paradedb.mpp_debug TO off;
 RESET paradedb.enable_mpp;
 RESET paradedb.mpp_debug;
 RESET paradedb.mpp_worker_count;
-RESET paradedb.mpp_drain_watermark_mb;

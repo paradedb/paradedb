@@ -126,12 +126,14 @@ impl MeshLayout {
 /// main backend thread, so production use always satisfies this contract.
 ///
 /// In debug builds the thread id captured at [`ShmMqSender::attach`] is
-/// asserted on every `send_bytes` — a regression that moves the sender to a
-/// non-backend thread will panic instead of silently invoking unsafe PG
-/// primitives off-thread.
+/// asserted on every `send_bytes` via `debug_assert_eq!` — a regression that
+/// moves the sender to a non-backend thread will panic instead of silently
+/// invoking unsafe PG primitives off-thread. The field is kept in release
+/// builds too (8 bytes per sender) so the `debug_assert_eq!` call sites can
+/// stay clean of `#[cfg(debug_assertions)]` annotations; the assertion macro
+/// itself self-disables in release.
 pub struct ShmMqSender {
     inner: MessageQueueSender,
-    #[cfg(debug_assertions)]
     attach_thread: std::thread::ThreadId,
 }
 
@@ -150,7 +152,6 @@ impl ShmMqSender {
         unsafe {
             Self {
                 inner: MessageQueueSender::new(seg, mq),
-                #[cfg(debug_assertions)]
                 attach_thread: std::thread::current().id(),
             }
         }
@@ -159,7 +160,6 @@ impl ShmMqSender {
 
 impl BatchChannelSender for ShmMqSender {
     fn send_bytes(&self, bytes: &[u8]) -> Result<(), DataFusionError> {
-        #[cfg(debug_assertions)]
         debug_assert_eq!(
             std::thread::current().id(),
             self.attach_thread,
@@ -184,7 +184,6 @@ impl BatchChannelSender for ShmMqSender {
     }
 
     fn try_send_bytes(&self, bytes: &[u8]) -> Result<bool, DataFusionError> {
-        #[cfg(debug_assertions)]
         debug_assert_eq!(
             std::thread::current().id(),
             self.attach_thread,

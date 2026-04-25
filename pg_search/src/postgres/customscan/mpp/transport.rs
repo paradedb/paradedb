@@ -348,8 +348,10 @@ impl MppSender {
             // Would-block: pull from our own mesh's inbound so peers' sends
             // to us unblock. Without this interleave two participants
             // blocking on symmetric sends deadlock — neither gets to drain.
+            // Errors propagate so a peer detaching mid-spin doesn't leave the
+            // sender looping forever on a closed mesh.
             let t_drain = std::time::Instant::now();
-            let _ = drain.poll_drain_pass();
+            drain.poll_drain_pass()?;
             stats.coop_drain_in_spin += t_drain.elapsed();
             std::thread::yield_now();
         }
@@ -523,9 +525,14 @@ impl DrainHandle {
     /// reports `Empty` bounds each pass by queue depth rather than by
     /// spin-loop iteration count.
     ///
-    /// Returns `Ok(true)` if anything changed (a batch pushed or a source
-    /// marked done), `Ok(false)` if nothing changed in this pass.
-    pub fn poll_drain_pass(&self) -> Result<bool, DataFusionError> {
+    /// Returns `Ok(())` once every cooperative receiver has been pulled until
+    /// `Empty` (or detached). A previous version returned a `bool` indicating
+    /// whether any progress had been made; no caller used it (the
+    /// cooperative-spin loop in [`MppSender::send_batch`] retries on its own
+    /// `try_send_bytes` regardless of drain progress), so the return is now
+    /// just `Result<()>` so transport errors propagate instead of being
+    /// silently dropped at the call site.
+    pub fn poll_drain_pass(&self) -> Result<(), DataFusionError> {
         // Bound per-source pulls per call. The upper limit exists to give
         // the caller a chance to re-try its own send between drains —
         // otherwise a participant with a very fast peer could drain
@@ -535,9 +542,8 @@ impl DrainHandle {
         let mut guard = self.coop_receivers.lock().unwrap();
         let Some(slots) = guard.as_mut() else {
             // Thread-backed handle — caller should read from buffer directly.
-            return Ok(false);
+            return Ok(());
         };
-        let mut progress = false;
         for slot in slots.iter_mut() {
             let Some(rx) = slot.as_ref() else {
                 continue;
@@ -546,13 +552,11 @@ impl DrainHandle {
                 match rx.try_recv_batch() {
                     RecvBatchOutcome::Batch(b) => {
                         self.buffer.push_batch(b);
-                        progress = true;
                     }
                     RecvBatchOutcome::Empty => break,
                     RecvBatchOutcome::Detached => {
                         *slot = None;
                         self.buffer.notify_source_done();
-                        progress = true;
                         break;
                     }
                     RecvBatchOutcome::Error(e) => {
@@ -563,7 +567,7 @@ impl DrainHandle {
                 }
             }
         }
-        Ok(progress)
+        Ok(())
     }
 
     /// True if this handle drains cooperatively (no background thread).

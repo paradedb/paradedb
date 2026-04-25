@@ -151,10 +151,6 @@ static MPP_TRACE: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// at exec time, so users in constrained environments see fewer.
 static MPP_WORKER_COUNT: GucSetting<i32> = GucSetting::<i32>::new(4);
 
-/// When the in-memory drain buffer for incoming MPP batches grows past this many megabytes
-/// per participant, spill to a Postgres BufFile. 0 disables spilling (keep everything in RAM).
-static MPP_DRAIN_WATERMARK_MB: GucSetting<i32> = GucSetting::<i32>::new(256);
-
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -473,20 +469,6 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::default(),
     );
-
-    GucRegistry::define_int_guc(
-        c"paradedb.mpp_drain_watermark_mb",
-        c"High-water mark for MPP drain buffer (spill not yet implemented)",
-        c"Reserved. When the in-memory drain buffer per participant exceeds this \
-          many megabytes, incoming batches will spill to a Postgres BufFile-backed \
-          temp file. Spilling is not yet wired up; the GUC is defined now so future \
-          benchmarks can exercise the cap without schema churn.",
-        &MPP_DRAIN_WATERMARK_MB,
-        0,
-        i32::MAX,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -675,10 +657,6 @@ pub fn mpp_trace() -> bool {
 
 pub fn mpp_worker_count() -> i32 {
     MPP_WORKER_COUNT.get()
-}
-
-pub fn mpp_drain_watermark_mb() -> i32 {
-    MPP_DRAIN_WATERMARK_MB.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

@@ -305,7 +305,7 @@ fn align_up_maxalign_checked(n: usize) -> Option<usize> {
 /// - `src` and `dst` must be less than `header.total_participants` and not
 ///   equal to each other.
 #[inline]
-pub unsafe fn edge_address(
+unsafe fn edge_address(
     base: *mut u8,
     header: &MppDsmHeader,
     mesh_idx: u32,

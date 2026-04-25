@@ -432,41 +432,8 @@ impl WorkerBuildState {
             };
 
             self.unmerged_metas.sort_by_key(|entry| entry.max_doc());
-
-            // cap the chunk by the per-merge doc budget so a single merge can't
-            // pull in more docs than `maintenance_work_mem` can hold (sized by
-            // [`gucs::MERGE_BYTES_PER_DOC`]).  We walk the sorted prefix and stop
-            // once adding the next segment would exceed the budget; we always
-            // include at least 2 segments so progress is guaranteed.
-            let doc_budget = gucs::merge_doc_budget();
-            let mut bounded_chunk_size = 0usize;
-            let mut running_docs: usize = 0;
-            for entry in self.unmerged_metas.iter().take(chunk_size) {
-                let next_docs = running_docs.saturating_add(entry.max_doc() as usize);
-                if bounded_chunk_size >= 2 && next_docs > doc_budget {
-                    break;
-                }
-                running_docs = next_docs;
-                bounded_chunk_size += 1;
-            }
-
-            if bounded_chunk_size < 2 {
-                pgrx::debug1!(
-                    "try_merge: skipping merge because the smallest two segments ({} docs) already exceed merge_doc_budget {}",
-                    running_docs,
-                    doc_budget
-                );
-                return Ok(());
-            }
-
-            if bounded_chunk_size < chunk_size {
-                pgrx::debug1!(
-                    "try_merge: trimming chunk_size from {chunk_size} to {bounded_chunk_size} to fit merge_doc_budget {doc_budget} (running_docs: {running_docs})"
-                );
-            }
-
             self.unmerged_metas
-                .drain(..bounded_chunk_size)
+                .drain(..chunk_size)
                 .map(|entry| entry.id())
                 .collect::<Vec<_>>()
         };
@@ -797,6 +764,19 @@ mod plan {
                 "heap byte size ({byte_size}) is less than 15MB, creating a single segment"
             );
             return 1;
+        }
+
+        // Floor the target segment count by what `maintenance_work_mem` can actually merge in
+        // one shot.  If the user asked for fewer segments than the doc budget allows, the
+        // per-worker chunking math would eventually try to merge more docs than fit in memory;
+        // bumping the target up means each chunk naturally stays under [`gucs::merge_doc_budget`].
+        let doc_budget = gucs::merge_doc_budget();
+        let min_segments_for_budget = (reltuples / doc_budget as f64).ceil() as usize;
+        if min_segments_for_budget > target_segment_count {
+            pgrx::debug1!(
+                "bumping target_segment_count from {target_segment_count} to {min_segments_for_budget} to keep per-merge docs under merge_doc_budget ({doc_budget}); reltuples: {reltuples}"
+            );
+            return min_segments_for_budget;
         }
 
         target_segment_count

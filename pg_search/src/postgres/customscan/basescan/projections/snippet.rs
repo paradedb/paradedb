@@ -270,7 +270,7 @@ pub mod pdb {
         limit: default!(Option<i32>, "NULL"),
         offset: default!(Option<i32>, "NULL"),
     ) -> String {
-        panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+        panic!("pdb.snippet() requires a WHERE clause with a ParadeDB search operator (e.g. pdb.term, pdb.parse, pdb.fuzzy). See https://docs.paradedb.com for details. If this query already has a search operator, please report at https://github.com/paradedb/paradedb/issues/new/choose");
     }
 
     #[allow(unused_variables)]
@@ -284,7 +284,7 @@ pub mod pdb {
         offset: default!(Option<i32>, "NULL"),
         sort_by: default!(String, "'score'"),
     ) -> Vec<String> {
-        panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+        panic!("pdb.snippets() requires a WHERE clause with a ParadeDB search operator (e.g. pdb.term, pdb.parse, pdb.fuzzy). See https://docs.paradedb.com for details. If this query already has a search operator, please report at https://github.com/paradedb/paradedb/issues/new/choose");
     }
 
     #[allow(unused_variables)]
@@ -308,7 +308,7 @@ AS 'MODULE_PATHNAME', 'snippet_positions_from_relation_wrapper';
         limit: default!(Option<i32>, "NULL"),
         offset: default!(Option<i32>, "NULL"),
     ) -> IntArray2D {
-        panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+        panic!("pdb.snippet_positions() requires a WHERE clause with a ParadeDB search operator (e.g. pdb.term, pdb.parse, pdb.fuzzy). See https://docs.paradedb.com for details. If this query already has a search operator, please report at https://github.com/paradedb/paradedb/issues/new/choose");
     }
 }
 
@@ -325,7 +325,7 @@ fn paradedb_snippet_from_relation(
     limit: default!(Option<i32>, "NULL"),
     offset: default!(Option<i32>, "NULL"),
 ) -> Option<String> {
-    panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+    panic!("paradedb.snippet() requires a WHERE clause with a ParadeDB search operator (e.g. paradedb.term, paradedb.parse, paradedb.fuzzy). See https://docs.paradedb.com for details. If this query already has a search operator, please report at https://github.com/paradedb/paradedb/issues/new/choose");
 }
 
 #[warn(deprecated)]
@@ -340,7 +340,7 @@ fn paradedb_snippets_from_relation(
     offset: default!(Option<i32>, "NULL"),
     sort_by: default!(String, "'score'"),
 ) -> Option<Vec<String>> {
-    panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+    panic!("paradedb.snippets() requires a WHERE clause with a ParadeDB search operator (e.g. paradedb.term, paradedb.parse, paradedb.fuzzy). See https://docs.paradedb.com for details. If this query already has a search operator, please report at https://github.com/paradedb/paradedb/issues/new/choose");
 }
 
 #[warn(deprecated)]
@@ -365,7 +365,7 @@ fn paradedb_snippet_positions_from_relation(
     limit: default!(Option<i32>, "NULL"),
     offset: default!(Option<i32>, "NULL"),
 ) -> pdb::IntArray2D {
-    panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+    panic!("paradedb.snippet_positions() requires a WHERE clause with a ParadeDB search operator (e.g. paradedb.term, paradedb.parse, paradedb.fuzzy). See https://docs.paradedb.com for details. If this query already has a search operator, please report at https://github.com/paradedb/paradedb/issues/new/choose");
 }
 
 extension_sql!(

@@ -1146,8 +1146,8 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
                 record: IndexRecordOption::Basic,
                 normalizer: SearchNormalizer::Raw,
                 column: None,
-            k1: None,
-            b: None,
+                k1: None,
+                b: None,
             }
         }
         SearchFieldType::Ltree(_) => SearchFieldConfig::Facet,

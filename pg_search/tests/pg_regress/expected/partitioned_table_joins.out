@@ -50,6 +50,34 @@ select * from orders_part where customer_name ||| 'Nobody';
 ----------+------------+----------------+-------------+---------------+----------
 (0 rows)
 
+-- Added as requested
+EXPLAIN SELECT * FROM orders_part WHERE customer_name ||| 'John';
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Append  (cost=10.00..30.05 rows=3 width=548)
+   ->  Custom Scan (ParadeDB Base Scan) on orders_part_0 orders_part_1  (cost=10.00..10.01 rows=1 width=548)
+         Table: orders_part_0
+         Index: orders_part_0_order_id_part_key_product_id_order_total_cust_idx
+         Segment Count: 1
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"with_index":{"query":{"match":{"field":"customer_name","value":"John","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}}}
+   ->  Custom Scan (ParadeDB Base Scan) on orders_part_1 orders_part_2  (cost=10.00..10.01 rows=1 width=548)
+         Table: orders_part_1
+         Index: orders_part_1_order_id_part_key_product_id_order_total_cust_idx
+         Segment Count: 1
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"with_index":{"query":{"match":{"field":"customer_name","value":"John","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}}}
+   ->  Custom Scan (ParadeDB Base Scan) on orders_part_empty orders_part_3  (cost=10.00..10.01 rows=1 width=548)
+         Table: orders_part_empty
+         Index: orders_part_empty_order_id_part_key_product_id_order_total__idx
+         Segment Count: 0
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"with_index":{"query":{"match":{"field":"customer_name","value":"John","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}}}
+(22 rows)
+
 -- Cleanup
 drop table orders_part cascade;
 drop table items cascade;

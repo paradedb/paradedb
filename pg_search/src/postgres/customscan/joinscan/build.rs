@@ -1197,8 +1197,10 @@ impl Default for RelNode {
 pub struct JoinCSClause {
     /// The root of the relational execution tree.
     pub plan: RelNode,
-    /// The LIMIT and OFFSET value from the query, if any.
-    pub limit_offset: LimitOffset,
+    /// The LIMIT and OFFSET value from the query, if any. Held in
+    /// `LimitOffset` form so parameterized values are resolved at execution
+    /// time rather than dropped at planning time.
+    pub limit_offset: Option<LimitOffset>,
     /// Join-level search predicates (Tantivy queries to execute).
     pub join_level_predicates: Vec<JoinLevelSearchPredicate>,
     /// Heap conditions (PostgreSQL expressions referencing both sides).
@@ -1217,7 +1219,7 @@ impl JoinCSClause {
     pub fn new(plan: RelNode) -> Self {
         let mut clause = Self {
             plan,
-            limit_offset: Default::default(),
+            limit_offset: None,
             join_level_predicates: Vec::new(),
             multi_table_predicates: Vec::new(),
             order_by: Vec::new(),
@@ -1231,13 +1233,8 @@ impl JoinCSClause {
         clause
     }
 
-    pub fn with_limit(mut self, limit: Option<u32>) -> Self {
-        self.limit_offset.limit = limit;
-        self
-    }
-
-    pub fn with_offset(mut self, offset: Option<u32>) -> Self {
-        self.limit_offset.offset = offset;
+    pub fn with_limit_offset(mut self, lo: Option<LimitOffset>) -> Self {
+        self.limit_offset = lo;
         self
     }
 

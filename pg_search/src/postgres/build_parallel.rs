@@ -766,6 +766,19 @@ mod plan {
             return 1;
         }
 
+        // Floor the target segment count by what `maintenance_work_mem` can actually merge in
+        // one shot.  If the user asked for fewer segments than the doc budget allows, the
+        // per-worker chunking math would eventually try to merge more docs than fit in memory;
+        // bumping the target up means each chunk naturally stays under [`gucs::merge_doc_budget`].
+        let doc_budget = gucs::merge_doc_budget();
+        let min_segments_for_budget = (reltuples / doc_budget as f64).ceil() as usize;
+        if min_segments_for_budget > target_segment_count {
+            pgrx::debug1!(
+                "bumping target_segment_count from {target_segment_count} to {min_segments_for_budget} to keep per-merge docs under merge_doc_budget ({doc_budget}); reltuples: {reltuples}"
+            );
+            return min_segments_for_budget;
+        }
+
         target_segment_count
     }
 

@@ -811,6 +811,15 @@ impl ShuffleStream {
 impl futures::Stream for ShuffleStream {
     type Item = DFResult<RecordBatch>;
 
+    /// Hand-rolled `Stream` impl rather than `async-stream` + `select!` over
+    /// a `tokio::sync::mpsc` queue. The poll body interleaves three
+    /// concerns on the same backend thread: pulling from `child`, shipping
+    /// outbound via `shm_mq_send`, and pumping `poll_drain_pass` so peers
+    /// can drain us. A `select!` over async-only sources cannot express
+    /// the cooperative drain step because the `shm_mq` FFI is synchronous
+    /// and there is no second async task to wake us when inbound bytes
+    /// arrive — the consumer that runs the drain *is* this same task.
+    /// Tracked as a post-merge readability follow-up.
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // Timing: record first-poll instant so EOF can report total lifetime.
         // Gated on the GUC so a non-traced run pays nothing beyond a branch.

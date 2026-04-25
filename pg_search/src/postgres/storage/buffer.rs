@@ -20,7 +20,7 @@ use crate::postgres::storage::block::{BM25PageSpecialData, PgItem};
 use crate::postgres::storage::fsm::v2::V2FSM;
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use crate::postgres::storage::metadata::MetaPage;
-use crate::postgres::storage::utils::{BM25Page, RelationBufferAccess};
+use crate::postgres::storage::utils::{BM25Page, BufferAccessStrategyHolder, RelationBufferAccess};
 use pgrx::pg_sys;
 use stable_deref_trait::StableDeref;
 use std::mem::size_of;
@@ -734,6 +734,16 @@ impl PageHeaderMethods for pg_sys::PageHeaderData {
 pub struct BufferManager {
     rbufacc: RelationBufferAccess,
     fsm_blockno: Option<pg_sys::BlockNumber>,
+    /// Strategy applied to *read-only* buffer acquisitions
+    /// ([`Self::get_buffer`], [`Self::pinned_buffer`]). Write-path methods
+    /// (`get_buffer_mut`, cleanup, etc.) deliberately ignore this so that
+    /// e.g. a `BAS_BULKREAD` strategy cannot accidentally evict buffers we
+    /// are about to modify.
+    ///
+    /// `BufferAccessStrategyHolder` is `Send + Sync`, which lets
+    /// `BufferManager` auto-derive `Send + Sync` without a blanket
+    /// `unsafe impl` on the outer type.
+    strategy: BufferAccessStrategyHolder,
 }
 
 impl BufferManager {
@@ -741,7 +751,20 @@ impl BufferManager {
         Self {
             rbufacc: RelationBufferAccess::open(rel),
             fsm_blockno: None,
+            strategy: BufferAccessStrategyHolder::NULL,
         }
+    }
+
+    /// Set the [`BufferAccessStrategyHolder`] used when reading existing
+    /// buffers via the read-only methods ([`Self::get_buffer`] and
+    /// [`Self::pinned_buffer`]). Write-path methods are unaffected.
+    ///
+    /// For example, pass the result of
+    /// [`crate::postgres::storage::utils::bulkread_strategy`] to prevent
+    /// bulk reads from evicting active buffers in the shared buffer cache.
+    pub(crate) fn with_strategy(mut self, strategy: BufferAccessStrategyHolder) -> Self {
+        self.strategy = strategy;
+        self
     }
 
     pub fn fsm(&mut self) -> impl FreeSpaceManager {
@@ -846,13 +869,21 @@ impl BufferManager {
 
     pub fn pinned_buffer(&self, blockno: pg_sys::BlockNumber) -> PinnedBuffer {
         block_tracker::track!(Pinned, blockno);
-        PinnedBuffer::new(self.rbufacc.get_buffer(blockno, None))
+        PinnedBuffer::new(self.rbufacc.get_buffer_extended(
+            blockno,
+            self.strategy.as_ptr(),
+            pg_sys::ReadBufferMode::RBM_NORMAL,
+            None,
+        ))
     }
 
     pub fn get_buffer(&self, blockno: pg_sys::BlockNumber) -> Buffer {
-        let pg_buffer = self
-            .rbufacc
-            .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_SHARE));
+        let pg_buffer = self.rbufacc.get_buffer_extended(
+            blockno,
+            self.strategy.as_ptr(),
+            pg_sys::ReadBufferMode::RBM_NORMAL,
+            Some(pg_sys::BUFFER_LOCK_SHARE),
+        );
 
         block_tracker::track!(Read, blockno);
         Buffer::new(pg_buffer)
@@ -874,10 +905,15 @@ impl BufferManager {
         block_tracker::track!(Write, blockno);
         BufferMut {
             dirty: false,
-            inner: Buffer::new(
-                self.rbufacc
-                    .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE)),
-            ),
+            inner: Buffer::new(self.rbufacc.get_buffer_extended(
+                blockno,
+                // Write paths deliberately bypass `self.strategy`: a
+                // `BAS_BULKREAD` ring would evict buffers we are about to
+                // modify, and we never want that.
+                std::ptr::null_mut(),
+                pg_sys::ReadBufferMode::RBM_NORMAL,
+                Some(pg_sys::BUFFER_LOCK_EXCLUSIVE),
+            )),
         }
     }
 
@@ -897,7 +933,13 @@ impl BufferManager {
     #[allow(dead_code)]
     pub fn get_buffer_conditional(&mut self, blockno: pg_sys::BlockNumber) -> Option<BufferMut> {
         unsafe {
-            let pg_buffer = self.rbufacc.get_buffer(blockno, None);
+            // Write path — see `get_buffer_mut`.
+            let pg_buffer = self.rbufacc.get_buffer_extended(
+                blockno,
+                std::ptr::null_mut(),
+                pg_sys::ReadBufferMode::RBM_NORMAL,
+                None,
+            );
             if pg_sys::ConditionalLockBuffer(pg_buffer) {
                 block_tracker::track!(Conditional, blockno);
                 Some(BufferMut {
@@ -913,7 +955,13 @@ impl BufferManager {
 
     pub fn get_buffer_for_cleanup(&mut self, blockno: pg_sys::BlockNumber) -> BufferMut {
         unsafe {
-            let pg_buffer = self.rbufacc.get_buffer(blockno, None);
+            // Cleanup path — see `get_buffer_mut`.
+            let pg_buffer = self.rbufacc.get_buffer_extended(
+                blockno,
+                std::ptr::null_mut(),
+                pg_sys::ReadBufferMode::RBM_NORMAL,
+                None,
+            );
             block_tracker::track!(Cleanup, blockno);
             pg_sys::LockBufferForCleanup(pg_buffer);
             BufferMut {
@@ -928,7 +976,13 @@ impl BufferManager {
         blockno: pg_sys::BlockNumber,
     ) -> Option<BufferMut> {
         unsafe {
-            let pg_buffer = self.rbufacc.get_buffer(blockno, None);
+            // Cleanup path — see `get_buffer_mut`.
+            let pg_buffer = self.rbufacc.get_buffer_extended(
+                blockno,
+                std::ptr::null_mut(),
+                pg_sys::ReadBufferMode::RBM_NORMAL,
+                None,
+            );
             if pg_sys::ConditionalLockBufferForCleanup(pg_buffer) {
                 block_tracker::track!(ConditionalCleanup, blockno);
                 Some(BufferMut {

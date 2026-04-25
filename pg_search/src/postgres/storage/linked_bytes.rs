@@ -27,6 +27,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::blocklist;
 use crate::postgres::storage::buffer::{init_new_buffer, BufferManager, PageHeaderMethods};
 use crate::postgres::storage::fsm::FreeSpaceManager;
+use crate::postgres::storage::utils::BufferAccessStrategyHolder;
 
 use anyhow::Result;
 use parking_lot::Mutex;
@@ -215,6 +216,14 @@ impl LinkedBytesList {
             blocklist_reader: Default::default(),
             read_cache: Mutex::new(VecDeque::with_capacity(BLOCK_CACHE_SIZE)),
         }
+    }
+
+    /// Set the [`BufferAccessStrategyHolder`] used when reading buffers in
+    /// this list. The strategy only affects read-only buffer acquisitions;
+    /// see [`BufferManager::with_strategy`] for details.
+    pub(crate) fn with_strategy(mut self, strategy: BufferAccessStrategyHolder) -> Self {
+        self.bman = self.bman.with_strategy(strategy);
+        self
     }
 
     /// Create a new [`LinkedBytesList`] in the specified `indexrel`'s block storage.  This method

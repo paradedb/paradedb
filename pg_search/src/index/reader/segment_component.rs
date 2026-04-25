@@ -18,6 +18,7 @@
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::FileEntry;
 
+use crate::postgres::storage::utils::BufferAccessStrategyHolder;
 use crate::postgres::storage::LinkedBytesList;
 use anyhow::Result;
 use std::io::Error;
@@ -35,6 +36,27 @@ pub struct SegmentComponentReader {
 impl SegmentComponentReader {
     pub unsafe fn new(indexrel: &PgSearchRelation, entry: FileEntry) -> Self {
         let block_list = LinkedBytesList::open(indexrel, entry.starting_block);
+
+        Self { block_list, entry }
+    }
+
+    /// Like [`Self::new`], but uses the given [`BufferAccessStrategyHolder`]
+    /// when reading buffers.
+    ///
+    /// Pass
+    /// [`crate::postgres::storage::utils::bulkread_strategy`]
+    /// to prevent merge reads from evicting active buffers.
+    ///
+    /// # Safety
+    ///
+    /// Same requirements as [`Self::new`].
+    pub(crate) unsafe fn new_with_strategy(
+        indexrel: &PgSearchRelation,
+        entry: FileEntry,
+        strategy: BufferAccessStrategyHolder,
+    ) -> Self {
+        let block_list =
+            LinkedBytesList::open(indexrel, entry.starting_block).with_strategy(strategy);
 
         Self { block_list, entry }
     }

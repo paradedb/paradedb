@@ -207,6 +207,15 @@ impl DrainBuffer {
     /// `Poll::Pending` instead of blocking the executor thread — critical
     /// under peer-to-peer backpressure, where a blocking wait could deadlock
     /// with this worker's own outbound pump.
+    ///
+    /// Why hand-rolled instead of `tokio::sync::mpsc`: the producer side is
+    /// a real OS thread (the drain thread) that blocks inside the `shm_mq`
+    /// FFI; it cannot be a Tokio task because `shm_mq_receive` has no async
+    /// readiness signal. Swapping `DrainBuffer` for `mpsc::unbounded_channel`
+    /// and calling `rx.poll_recv(cx)` on the consumer is plausible, but the
+    /// producer stays an OS thread regardless, and the small
+    /// `Mutex<Option<Waker>>` is the entire delta — not load-bearing for
+    /// correctness. Tracked as a post-merge follow-up.
     pub fn poll_pop_front(&self, waker: &std::task::Waker) -> Option<DrainItem> {
         let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
         if let Some(batch) = guard.queue.pop_front() {

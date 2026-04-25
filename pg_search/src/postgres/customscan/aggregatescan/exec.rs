@@ -17,7 +17,7 @@
 
 use crate::gucs;
 
-use crate::aggregate::{execute_aggregate, AggregateRequest};
+use crate::aggregate::{execute_aggregate, scrub_null_sentinels, AggregateRequest};
 use crate::api::HashMap;
 use crate::customscan::aggregatescan::build::{
     AggregationKey, DocCountKey, FilterSentinelKey, GroupedKey,
@@ -35,6 +35,13 @@ use tantivy::aggregation::agg_result::{
 use tantivy::aggregation::metric::SingleMetricResult as TantivySingleMetricResult;
 use tantivy::aggregation::Key;
 use tantivy::schema::OwnedValue;
+
+fn to_json_value_scrubbed<T: serde::Serialize + ?Sized>(val: &T) -> serde_json::Value {
+    let mut v = serde_json::to_value(val)
+        .unwrap_or_else(|e| pgrx::error!("Failed to serialize aggregate: {}", e));
+    scrub_null_sentinels(&mut v);
+    v
+}
 
 /// Unified result type for aggregates
 /// Can hold either a standard metric (f64) or a custom aggregate (JSON)
@@ -157,8 +164,7 @@ impl From<MetricResult> for AggregateResult {
             | TantivyMetricResult::Max(r) => AggregateResult::Metric(r),
             // Complex metrics (Stats, Percentiles, etc.) - serialize to JSON
             other => {
-                let json_value = serde_json::to_value(&other)
-                    .unwrap_or_else(|e| pgrx::error!("Failed to serialize metric: {}", e));
+                let json_value = to_json_value_scrubbed(&other);
                 AggregateResult::Json(json_value)
             }
         }
@@ -187,10 +193,7 @@ pub fn aggregate_result_to_datum(
             // If expected type is JSONB (for pdb.agg() custom aggregates),
             // serialize the entire metric result to match Tantivy's JSON format
             if expected_typoid == pg_sys::JSONBOID {
-                // Serialize the SingleMetricResult to JSON
-                let json_value = serde_json::to_value(&metric).unwrap_or_else(|e| {
-                    pgrx::error!("Failed to serialize metric result to JSON: {}", e)
-                });
+                let json_value = to_json_value_scrubbed(&metric);
                 JsonB(json_value).into_datum()
             } else if is_datetime_type(expected_typoid) {
                 // For date/time types, Tantivy stores DateTime values in fast fields as nanoseconds
@@ -366,9 +369,7 @@ impl AggregationResults {
                             .push(Some(MetricResult(metric.clone()).into()));
                     }
                     other => {
-                        let json_value = serde_json::to_value(other).unwrap_or_else(|e| {
-                            pgrx::error!("Failed to serialize aggregate: {}", e)
-                        });
+                        let json_value = to_json_value_scrubbed(other);
                         row.aggregates.push(Some(AggregateResult::Json(json_value)));
                     }
                 }
@@ -415,8 +416,7 @@ impl AggregationResults {
                 // For all other results (custom aggregates and other bucket types), serialize as JSON
                 // For custom aggregates (pdb.agg), this preserves all nested aggregations
                 other => {
-                    let json_value = serde_json::to_value(&other)
-                        .unwrap_or_else(|e| pgrx::error!("Failed to serialize aggregate: {}", e));
+                    let json_value = to_json_value_scrubbed(&other);
                     aggregates.push(Some(AggregateResult::Json(json_value)));
                 }
             }
@@ -527,10 +527,7 @@ impl AggregationResults {
                                     found_metrics.push(Some(MetricResult(metric.clone()).into()));
                                 }
                                 other => {
-                                    let json_value =
-                                        serde_json::to_value(other).unwrap_or_else(|e| {
-                                            pgrx::error!("Failed to serialize aggregate: {}", e)
-                                        });
+                                    let json_value = to_json_value_scrubbed(other);
                                     found_metrics.push(Some(AggregateResult::Json(json_value)));
                                 }
                             }

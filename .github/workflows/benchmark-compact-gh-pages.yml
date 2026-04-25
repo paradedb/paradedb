@@ -1,0 +1,97 @@
+# workflows/benchmark-compact-gh-pages.yml
+#
+# Benchmark Compact gh-pages
+# Squash the `gh-pages` branch to a single orphan commit holding the current
+# tree. The benchmark publish workflows append one commit per run, which has
+# accumulated to a branch much larger than its working tree. This job runs
+# weekly to keep the branch small.
+
+name: Benchmark Compact gh-pages
+
+on:
+  schedule:
+    - cron: "0 4 * * 0" # Every Sunday at 04:00 UTC
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+# Don't run two compactions at once. Don't cancel an in-flight run either,
+# since it ends in a force-push and a half-run is wasted work.
+concurrency:
+  group: benchmark-compact-gh-pages
+  cancel-in-progress: false
+
+jobs:
+  benchmark-compact-gh-pages:
+    name: Squash gh-pages to a Single Commit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Skip if Benchmark Workflows are Running
+        id: gate
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo;
+            const benchmarkWorkflows = [
+              'benchmark-pg_search-benchmarks.yml',
+              'benchmark-pg_search-stressgres.yml',
+              'benchmark-backfill.yml',
+            ];
+            for (const workflow_id of benchmarkWorkflows) {
+              for (const status of ['in_progress', 'queued']) {
+                const { data } = await github.rest.actions.listWorkflowRuns({
+                  owner, repo, workflow_id, status, per_page: 1,
+                });
+                if (data.total_count > 0) {
+                  core.setOutput('skip', 'true');
+                  core.warning(`Skipping: ${workflow_id} has a ${status} run.`);
+                  return;
+                }
+              }
+            }
+            core.setOutput('skip', 'false');
+
+      - name: Checkout Git Repository at ref=gh-pages
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/checkout@v6
+        with:
+          ref: gh-pages
+          fetch-depth: 1
+
+      - name: Squash and Force-Push gh-pages
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          git config user.name "Benchmark Compact gh-pages Job"
+          git config user.email "developers@paradedb.com"
+
+          # Capture the tip we checked out so --force-with-lease can detect
+          # any benchmark publish that lands while we're running and abort
+          # rather than overwriting it.
+          original_tip=$(git rev-parse HEAD)
+
+          # Skip if gh-pages is already a single commit — nothing to compact.
+          parent_count=$(git cat-file -p "$original_tip" | grep -c '^parent ' || true)
+          if [ "$parent_count" -eq 0 ]; then
+            echo "gh-pages is already a single orphan commit; nothing to compact."
+            exit 0
+          fi
+
+          # Build an orphan branch holding the current tree as a single commit.
+          git checkout --orphan compact-tmp
+          git add -A
+          git commit -m "Compact gh-pages history"
+
+          git push --force-with-lease="refs/heads/gh-pages:$original_tip" \
+            origin HEAD:refs/heads/gh-pages
+
+      - name: Notify Slack on Failure (scheduled only)
+        if: failure() && github.event_name == 'schedule'
+        run: |
+          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          MESSAGE="<!here> \`benchmark-compact-gh-pages\` workflow failed in \`${{ github.repository }}\` -- investigate. GitHub Action Logs: ${GITHUB_RUN_URL}"
+          curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}

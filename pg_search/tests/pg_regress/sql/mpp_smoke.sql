@@ -14,11 +14,13 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SHOW paradedb.enable_mpp;
 SHOW paradedb.mpp_debug;
 SHOW paradedb.mpp_worker_count;
+SHOW paradedb.mpp_queue_size;
 
 -- Defaults: MPP is off until explicitly enabled.
 SELECT current_setting('paradedb.enable_mpp')::bool AS enable_mpp_default_off;
 SELECT current_setting('paradedb.mpp_debug')::bool AS mpp_debug_default_off;
 SELECT current_setting('paradedb.mpp_worker_count')::int AS worker_count_default;
+SELECT current_setting('paradedb.mpp_queue_size') AS queue_size_default;
 
 -- Toggle the boolean GUCs and verify they stick.
 SET paradedb.enable_mpp TO on;
@@ -53,6 +55,31 @@ BEGIN
     END;
 END$$;
 
+-- Queue size: accepts standard Postgres byte units (kB, MB, GB).
+SET paradedb.mpp_queue_size TO '32MB';
+SELECT current_setting('paradedb.mpp_queue_size') AS queue_size_after_32mb;
+SET paradedb.mpp_queue_size TO '1GB';
+SELECT current_setting('paradedb.mpp_queue_size') AS queue_size_after_1gb;
+SET paradedb.mpp_queue_size TO '64MB';
+SELECT current_setting('paradedb.mpp_queue_size') AS queue_size_back_to_default;
+
+-- Out-of-range queue size must fail (GUC min=64kB, max=1GB).
+DO $$
+BEGIN
+    BEGIN
+        PERFORM set_config('paradedb.mpp_queue_size', '4kB', true);
+        RAISE EXCEPTION 'expected mpp_queue_size=4kB to be rejected';
+    EXCEPTION WHEN invalid_parameter_value THEN
+        RAISE NOTICE 'mpp_queue_size=4kB correctly rejected';
+    END;
+    BEGIN
+        PERFORM set_config('paradedb.mpp_queue_size', '2GB', true);
+        RAISE EXCEPTION 'expected mpp_queue_size=2GB to be rejected';
+    EXCEPTION WHEN invalid_parameter_value THEN
+        RAISE NOTICE 'mpp_queue_size=2GB correctly rejected';
+    END;
+END$$;
+
 -- MPP GUCs must not affect non-MPP queries at all. Run a trivial query
 -- with mpp_debug on to confirm it's a no-op (no warnings except the
 -- expected ones) and results are correct.
@@ -63,3 +90,4 @@ SET paradedb.mpp_debug TO off;
 RESET paradedb.enable_mpp;
 RESET paradedb.mpp_debug;
 RESET paradedb.mpp_worker_count;
+RESET paradedb.mpp_queue_size;

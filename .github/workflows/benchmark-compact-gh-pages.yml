@@ -62,6 +62,35 @@ jobs:
           ref: gh-pages
           fetch-depth: 1
 
+      - name: Trim Old Entries in data.js Files
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          MAX_ENTRIES: "500"
+        run: |
+          set -euo pipefail
+          for f in benchmarks/data.js stressgres/data.js; do
+            [ -f "$f" ] || continue
+            node -e '
+              const fs = require("fs");
+              const path = process.argv[1];
+              const max = parseInt(process.env.MAX_ENTRIES, 10);
+              const prefix = "window.BENCHMARK_DATA = ";
+              const raw = fs.readFileSync(path, "utf8");
+              const json = raw.startsWith(prefix) ? raw.slice(prefix.length) : raw;
+              const data = JSON.parse(json);
+              let trimmed = 0;
+              for (const k of Object.keys(data.entries)) {
+                const arr = data.entries[k];
+                if (arr.length > max) {
+                  trimmed += arr.length - max;
+                  data.entries[k] = arr.slice(-max);
+                }
+              }
+              fs.writeFileSync(path, prefix + JSON.stringify(data, null, 2));
+              console.log(`Trimmed ${trimmed} entries from ${path}`);
+            ' "$f"
+          done
+
       - name: Squash and Force-Push gh-pages
         if: steps.gate.outputs.skip != 'true'
         run: |
@@ -81,10 +110,11 @@ jobs:
             exit 0
           fi
 
-          # Build an orphan branch holding the current tree as a single commit.
+          # Build an orphan branch holding the current tree (with trimmed
+          # data.js files) as a single commit.
           git checkout --orphan compact-tmp
           git add -A
-          git commit -m "Compact gh-pages history"
+          git commit -m "Compact gh-pages history and trim data.js entries"
 
           git push --force-with-lease="refs/heads/gh-pages:$original_tip" \
             origin HEAD:refs/heads/gh-pages

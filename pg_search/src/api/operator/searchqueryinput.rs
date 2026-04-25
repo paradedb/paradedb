@@ -21,6 +21,7 @@ use crate::gucs::per_tuple_cost;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::index::IndexKind;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::locate_bm25_index;
@@ -184,7 +185,6 @@ pub fn search_with_query_input(
         let index_relation =
             PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
 
-        use crate::postgres::index::IndexKind;
         let index_kind = IndexKind::for_index(index_relation)
             .expect("search_with_query_input: valid index kind required");
 
@@ -194,19 +194,13 @@ pub fn search_with_query_input(
         let mut matches = crate::api::HashSet::default();
 
         for child_relation in index_kind.partitions() {
-            let child_oid = child_relation.oid();
-
-            let search_reader = match SearchIndexReader::open(
+            let search_reader = SearchIndexReader::open(
                 &child_relation,
                 search_query_input.clone(),
                 false,
                 MvccSatisfies::Snapshot,
-            ) {
-                Ok(reader) => reader,
-                Err(e) => {
-                    pgrx::error!("search_with_query_input: failed to open SearchIndexReader for index {}: {}", child_oid, e);
-                }
-            };
+            )
+            .expect("search_with_query_input: failed to open SearchIndexReader");
 
             let schema = search_reader.schema();
             let key_field_name = schema.key_field_name();

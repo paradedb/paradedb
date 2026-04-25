@@ -59,3 +59,4 @@ CLAUDE.local.md
 
 .github/scripts/verify
 __pycache__
+.clinerules

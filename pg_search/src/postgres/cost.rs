@@ -49,12 +49,7 @@ pub unsafe extern "C-unwind" fn amcostestimate(
         .unwrap_or(1.0) as f64;
 
     let page_estimate = if indexrel.relkind() == pg_sys::RELKIND_PARTITIONED_INDEX {
-        unsafe {
-            indexrel
-                .heap_relation()
-                .map(|heap| (*heap.rd_rel).relpages as u32)
-                .unwrap_or(0)
-        }
+        0u32
     } else {
         unsafe {
             pg_sys::RelationGetNumberOfBlocksInFork(

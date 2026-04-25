@@ -1394,15 +1394,14 @@ impl CustomScan for BaseScan {
             }
 
             // setup the structures we need to do mvcc checking and heap fetching
-            if state.custom_state().heaprel().relkind() != pg_sys::RELKIND_PARTITIONED_TABLE {
-                state.custom_state_mut().visibility_checker =
-                    Some(VisibilityChecker::with_rel_and_snap(
-                        state.custom_state().heaprel(),
-                        pg_sys::GetActiveSnapshot(),
-                    ));
-                state.custom_state_mut().doc_from_heap_state =
-                    Some(HeapFetchState::new(state.custom_state().heaprel()));
-            }
+
+            state.custom_state_mut().visibility_checker =
+                Some(VisibilityChecker::with_rel_and_snap(
+                    state.custom_state().heaprel(),
+                    pg_sys::GetActiveSnapshot(),
+                ));
+            state.custom_state_mut().doc_from_heap_state =
+                Some(HeapFetchState::new(state.custom_state().heaprel()));
 
             // and finally, get the custom scan itself properly initialized
             let tupdesc = state.custom_state().heaptupdesc();

@@ -38,9 +38,7 @@ impl IndexKind {
             pg_sys::RELKIND_PARTITIONED_INDEX => {
                 // Locate the child index Oids, and open them.
                 let child_array: Vec<pg_sys::Oid> = Spi::get_one_with_args(
-                    "SELECT array_agg(relid::oid) 
-                     FROM pg_partition_tree($1) 
-                     WHERE isleaf;",
+                    "SELECT array_agg(inhrelid::oid) FROM pg_inherits WHERE inhparent = $1;",
                     &[index_relation.oid().into()],
                 )
                 .expect("failed to lookup child partitions")

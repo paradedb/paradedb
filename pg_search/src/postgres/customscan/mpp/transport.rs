@@ -327,6 +327,13 @@ impl MppSender {
         };
         let mut first_try = true;
         let t_wait_start = std::time::Instant::now();
+        // This spin is synchronous and runs on the backend thread that
+        // DataFusion calls `poll_next` on; there is no Tokio runtime in the
+        // MPP transport path, so neither `yield_now` nor `poll_drain_pass`
+        // can starve an async executor. The cooperative `poll_drain_pass`
+        // call below pulls peer sends *on the same thread*, which is what
+        // breaks the symmetric N×N send/receive deadlock — an async-style
+        // `await` would not work here because we have no executor to wake.
         loop {
             // `pgrx::check_for_interrupts!()` pulls in PG symbols
             // (`ProcessInterrupts`, `PG_exception_stack`, `CopyErrorData`, …)

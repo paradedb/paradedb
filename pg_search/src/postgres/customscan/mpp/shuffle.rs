@@ -366,7 +366,7 @@ fn concat_batches(
 /// composes this same logic inside a `Stream::poll_next`, but the synchronous
 /// form is unit-testable without setting up a DataFusion runtime.
 #[cfg(test)]
-pub fn run_shuffle_pump<I>(
+fn run_shuffle_pump<I>(
     input: I,
     partitioner: &dyn RowPartitioner,
     outbound_senders: Vec<Option<MppSender>>,
@@ -681,11 +681,18 @@ impl ShuffleStream {
             return;
         }
         self.logged_eof = true;
-        // `pgrx::warning!` / `pgrx::debug1!` expand to `ereport` which pulls
-        // PG FFI symbols (`errstart`, `errfinish`, `palloc0`, …) that aren't
-        // linked into the crate's `--tests` / llvm-cov build. Under
-        // `--instrument-coverage` DCE is disabled, so gate the whole body in
-        // non-test builds. Tests don't exercise ShuffleStream poll paths.
+        // The body is gated out of `cargo test --lib` (i.e., `cfg(test)`)
+        // because `pgrx::warning!` / `pgrx::debug1!` expand to `ereport`,
+        // which pulls PG FFI symbols (`errstart`, `errfinish`, `palloc0`, …)
+        // that aren't linked into the unit-test binary. The
+        // `cargo test --lib` target is not a `pg_test` target — it never
+        // boots a Postgres backend, so it cannot resolve those symbols at
+        // link time. Runtime gating on `mpp_trace()` would be enough were
+        // it not for `--instrument-coverage`, under which DCE is disabled
+        // and the macros are reached at link time even when the GUC is
+        // false. The runtime EOF path itself *is* exercised by unit tests
+        // (e.g., `drain_gather_exec_yields_eof_on_empty_peer`); they just
+        // don't need the trace output.
         #[cfg(not(test))]
         {
             let sent_summary = self
@@ -1035,10 +1042,13 @@ impl DrainGatherStream {
             return;
         }
         self.logged_eof = true;
-        // See sibling ShuffleStream::log_eof comment: `pgrx::{warning,debug1}!`
-        // pull PG FFI symbols that aren't linked in the `--tests`/llvm-cov
-        // build. Under `--instrument-coverage` DCE is disabled so gate the
-        // whole body out of test builds. Tests never exercise this path.
+        // See `ShuffleStream::log_eof` for the full reasoning: the body is
+        // gated out of `cargo test --lib` because `pgrx::{warning,debug1}!`
+        // pull PG FFI symbols that aren't linked into the unit-test binary,
+        // and `--instrument-coverage` defeats runtime DCE on
+        // `mpp_trace()`. The `DrainGatherStream::poll_next` EOF path itself
+        // *is* exercised by unit tests (e.g.,
+        // `drain_gather_exec_yields_all_buffered_batches`).
         #[cfg(not(test))]
         {
             let wall_ms = self

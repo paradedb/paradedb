@@ -255,6 +255,12 @@ impl PgSearchRelation {
         unsafe { (*self.as_ptr()).rd_id }
     }
 
+    pub fn relkind(&self) -> u8 {
+        #[allow(clippy::unnecessary_cast)]
+        let kind = unsafe { (*self.rd_rel).relkind as u8 };
+        kind
+    }
+
     pub fn rel_oid(&self) -> Option<pg_sys::Oid> {
         if self.rd_index.is_null() {
             None

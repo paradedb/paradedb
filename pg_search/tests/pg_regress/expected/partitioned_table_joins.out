@@ -1,0 +1,84 @@
+CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
+-- Setup test tables
+drop table if exists orders_part cascade;
+drop table if exists items cascade;
+drop table if exists orders cascade;
+call paradedb.create_bm25_test_table(schema_name => 'public', table_name => 'items', table_type => 'Items');
+call paradedb.create_bm25_test_table(schema_name => 'public', table_name => 'orders', table_type => 'Orders');
+-- Create item index
+create index items_idx on items using bm25 (id, description) with (key_field = 'id');
+-- Setup partitioned orders table
+create table orders_part (
+    like orders,
+    part_key int not null,
+    primary key (order_id, part_key)
+) partition by list (part_key);
+create table orders_part_0 partition of orders_part for values in (0);
+create table orders_part_1 partition of orders_part for values in (1);
+-- Insert data
+insert into orders_part select *, order_id % 2 from orders;
+-- Create partition index
+create index orders_part_idx on orders_part
+using bm25 (order_id, part_key, product_id, order_total, customer_name) with (key_field = 'order_id');
+-- Test the join across the partition
+select o.order_id, o.customer_name, i.description 
+from orders_part o 
+join items i on o.product_id = i.id 
+where i.description ||| 'keyboard' or o.customer_name ||| 'John' 
+order by o.order_total desc, o.order_id desc limit 5;
+ order_id |  customer_name   |       description        
+----------+------------------+--------------------------
+       57 | Natasha Romanoff | Plastic Keyboard
+       27 | Natasha Romanoff | Plastic Keyboard
+       41 | David White      | Ergonomic metal keyboard
+       11 | David White      | Ergonomic metal keyboard
+        4 | John Doe         | Plastic Keyboard
+(5 rows)
+
+-- Direct query 
+select * from orders_part where customer_name ||| 'John';
+ order_id | product_id | order_quantity | order_total | customer_name | part_key 
+----------+------------+----------------+-------------+---------------+----------
+        4 |          2 |              6 |      501.87 | John Doe      |        0
+        1 |          1 |              3 |       99.99 | John Doe      |        1
+(2 rows)
+
+-- Edge case: Create and query an empty partition
+create table orders_part_empty partition of orders_part for values in (999);
+select * from orders_part where customer_name ||| 'Nobody';
+ order_id | product_id | order_quantity | order_total | customer_name | part_key 
+----------+------------+----------------+-------------+---------------+----------
+(0 rows)
+
+-- Added as requested
+EXPLAIN SELECT * FROM orders_part WHERE customer_name ||| 'John';
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Append  (cost=10.00..30.05 rows=3 width=548)
+   ->  Custom Scan (ParadeDB Base Scan) on orders_part_0 orders_part_1  (cost=10.00..10.01 rows=1 width=548)
+         Table: orders_part_0
+         Index: orders_part_0_order_id_part_key_product_id_order_total_cust_idx
+         Segment Count: 1
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"with_index":{"query":{"match":{"field":"customer_name","value":"John","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}}}
+   ->  Custom Scan (ParadeDB Base Scan) on orders_part_1 orders_part_2  (cost=10.00..10.01 rows=1 width=548)
+         Table: orders_part_1
+         Index: orders_part_1_order_id_part_key_product_id_order_total_cust_idx
+         Segment Count: 1
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"with_index":{"query":{"match":{"field":"customer_name","value":"John","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}}}
+   ->  Custom Scan (ParadeDB Base Scan) on orders_part_empty orders_part_3  (cost=10.00..10.01 rows=1 width=548)
+         Table: orders_part_empty
+         Index: orders_part_empty_order_id_part_key_product_id_order_total__idx
+         Segment Count: 0
+         Exec Method: NormalScanExecState
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"with_index":{"query":{"match":{"field":"customer_name","value":"John","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}}}
+(22 rows)
+
+-- Cleanup
+drop table orders_part cascade;
+drop table items cascade;
+drop table orders cascade;

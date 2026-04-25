@@ -412,6 +412,36 @@ ORDER BY p.name
 SET paradedb.enable_join_custom_scan = on;
 
 -- =============================================================================
+-- TEST 8b: CaseExpr — DISTINCT CASE WHEN col IS NOT NULL THEN col ELSE 'N/A' END
+-- =============================================================================
+-- Exercises the translator's CaseExpr path. EXPLAIN should show
+-- `CASE WHEN ... END` in the DataFusion plan, not a PgExprUdf wrapper.
+
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT CASE WHEN s.name IS NOT NULL THEN s.name ELSE 'N/A' END AS supplier_or_default, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+
+SELECT DISTINCT CASE WHEN s.name IS NOT NULL THEN s.name ELSE 'N/A' END AS supplier_or_default, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT CASE WHEN s.name IS NOT NULL THEN s.name ELSE 'N/A' END AS supplier_or_default, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+SET paradedb.enable_join_custom_scan = on;
+
+-- =============================================================================
 -- TEST 9: Unsupported result type — graceful fallback to native PG
 -- =============================================================================
 -- to_jsonb returns JSONB which is not in is_arrow_convertible.
@@ -435,6 +465,37 @@ ORDER BY p.name
     LIMIT 10;
 
 -- No crash, no error, correct results via native PG.
+
+-- =============================================================================
+-- TEST 10: Mixed native + PgExprUdf in a single DISTINCT expression
+-- =============================================================================
+-- Outer `upper()` is in the pg_catalog native map; inner `md5()` isn't, so
+-- `try_wrap_as_udf` wraps the md5 FuncExpr. EXPLAIN should show
+-- `upper(pdb_eval_expr_funcexpr_*(...))` in the AggregateExec gby list —
+-- both native and UDF paths exercised in one projection.
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT upper(md5(s.name)) AS mixed_key, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+
+SELECT DISTINCT upper(md5(s.name)) AS mixed_key, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+
+SET paradedb.enable_join_custom_scan = off;
+SELECT DISTINCT upper(md5(s.name)) AS mixed_key, p.name
+FROM dex_products p
+         JOIN dex_suppliers s ON p.supplier_id = s.id
+WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+ORDER BY p.name
+    LIMIT 10;
+SET paradedb.enable_join_custom_scan = on;
 
 -- =============================================================================
 -- CLEANUP

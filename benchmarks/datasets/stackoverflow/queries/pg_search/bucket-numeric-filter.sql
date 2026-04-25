@@ -4,8 +4,8 @@ SELECT post_type_id, COUNT(*) FROM stackoverflow_posts WHERE body ||| 'javascrip
 -- aggregate custom scan
 SET paradedb.enable_aggregate_custom_scan TO on; SELECT post_type_id, COUNT(*) FROM stackoverflow_posts WHERE body ||| 'javascript' GROUP BY post_type_id;
 
--- pdb.agg with GROUP BY
-SELECT post_type_id, pdb.agg('{"value_count": {"field": "post_type_id"}}') FROM stackoverflow_posts WHERE body ||| 'javascript' GROUP BY post_type_id;
+-- pdb.agg (under the hood) with GROUP BY
+SET paradedb.enable_aggregate_custom_scan TO on; SELECT post_type_id, COUNT(post_type_id) FROM stackoverflow_posts WHERE body ||| 'javascript' GROUP BY post_type_id;
 
 -- pdb.agg with GROUP BY (mvcc disabled)
 SELECT post_type_id, pdb.agg('{"value_count": {"field": "post_type_id"}}', false) FROM stackoverflow_posts WHERE body ||| 'javascript' GROUP BY post_type_id;

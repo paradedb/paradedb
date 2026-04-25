@@ -46,7 +46,9 @@ use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::filter_pushdown::{
     ChildPushdownResult, FilterPushdownPhase, FilterPushdownPropagation, PushedDown,
 };
-use datafusion::physical_plan::metrics::{ExecutionPlanMetricsSet, MetricBuilder, MetricsSet};
+use datafusion::physical_plan::metrics::{
+    BaselineMetrics, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet, RecordOutput,
+};
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
 use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
@@ -353,11 +355,13 @@ impl ExecutionPlan for PgSearchScanPlan {
         let rows_pruned = has_dynamic_filters
             .then(|| MetricBuilder::new(&self.metrics).counter("rows_pruned", partition));
 
+        let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
         let schema = self.properties.eq_properties.schema().clone();
         let dynamic_filters = self.dynamic_filters.clone();
 
         let stream_gen = async_stream::try_stream! {
             loop {
+                let timer = baseline_metrics.elapsed_compute().timer();
                 let pre_filters = build_filters(&dynamic_filters, &schema);
                 let pre_filters_wrapper = if pre_filters.is_empty() {
                     None
@@ -368,13 +372,17 @@ impl ExecutionPlan for PgSearchScanPlan {
                     })
                 };
 
-                match scanner.next(
+                let next_batch = scanner.next(
                     &ffhelper,
                     &mut visibility,
                     pre_filters_wrapper.as_ref(),
-                ) {
+                );
+                timer.done();
+
+                match next_batch {
                     Some(batch) => {
-                        yield batch.to_record_batch(&schema);
+                        let record_batch = batch.to_record_batch(&schema);
+                        yield record_batch.record_output(&baseline_metrics);
                     }
                     None => {
                         // Flush pre-materialization filter stats from Scanner.
@@ -388,6 +396,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                     }
                 }
             }
+            baseline_metrics.done();
         };
 
         // SAFETY: pg_search operates in a single-threaded Tokio executor within Postgres,

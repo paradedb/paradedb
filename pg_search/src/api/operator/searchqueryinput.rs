@@ -25,10 +25,10 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
-use crate::{nodecast, UNKNOWN_SELECTIVITY};
+use crate::{nodecast, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use pgrx::callconv::{Arg, ArgAbi};
 use pgrx::pgrx_sql_entity_graph::metadata::{
-    ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
+    ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
 };
 use pgrx::{
     check_for_interrupts, pg_extern, pg_func_extra, pg_getarg_datum_raw, pg_getarg_type, pg_sys,
@@ -101,14 +101,14 @@ unsafe impl<'fcx> ArgAbi<'fcx> for FakeAnyElement {
     }
 }
 
+// Unlike `FakeSearchQueryInput` below, this does not borrow another type's resolution
+// because `anyelement` is a Postgres pseudo-type with no graph entry to depend on.
 unsafe impl SqlTranslatable for FakeAnyElement {
-    fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-        Ok(SqlMapping::As("anyelement".into()))
-    }
-
-    fn return_sql() -> Result<Returns, ReturnsError> {
-        Err(ReturnsError::Datum)
-    }
+    const TYPE_IDENT: &'static str = pgrx::pgrx_resolved_type!(FakeAnyElement);
+    const TYPE_ORIGIN: TypeOrigin = TypeOrigin::External;
+    const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
+        Ok(SqlMappingRef::literal("anyelement"));
+    const RETURN_SQL: Result<ReturnsRef, ReturnsError> = Err(ReturnsError::Datum);
 }
 
 unsafe impl<'fcx> ArgAbi<'fcx> for FakeSearchQueryInput {
@@ -118,13 +118,15 @@ unsafe impl<'fcx> ArgAbi<'fcx> for FakeSearchQueryInput {
 }
 
 unsafe impl SqlTranslatable for FakeSearchQueryInput {
-    fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-        Ok(SqlMapping::As("SearchQueryInput".into()))
-    }
-
-    fn return_sql() -> Result<Returns, ReturnsError> {
-        Err(ReturnsError::Datum)
-    }
+    // This is intentionally borrowing `SearchQueryInput`'s `TYPE_IDENT`: current
+    // pgrx tolerates two Rust types sharing that identifier, and we rely on that
+    // observed behavior so the SQL graph still emits `CREATE TYPE SearchQueryInput`
+    // before any function that consumes this fake wrapper.
+    const TYPE_IDENT: &'static str = <SearchQueryInput as SqlTranslatable>::TYPE_IDENT;
+    const TYPE_ORIGIN: TypeOrigin = <SearchQueryInput as SqlTranslatable>::TYPE_ORIGIN;
+    const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
+        <SearchQueryInput as SqlTranslatable>::ARGUMENT_SQL;
+    const RETURN_SQL: Result<ReturnsRef, ReturnsError> = Err(ReturnsError::Datum);
 }
 
 #[allow(unused_variables)]
@@ -274,16 +276,20 @@ pub fn query_input_restrict(
                 PgList::<pg_sys::Node>::from_pg(args.unwrap()?.cast_mut_ptr::<pg_sys::List>());
 
             let var = nodecast!(Var, T_Var, args.get_ptr(0)?)?;
-            let const_ = nodecast!(Const, T_Const, args.get_ptr(1)?)?;
+            let rhs = args.get_ptr(1)?;
 
-            let (heaprelid, _, _) = find_var_relation(var, info);
-            let indexrel = locate_bm25_index(heaprelid)?;
-
-            // create the search query from the rhs Const node
-            let search_query_input =
-                SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
-
-            estimate_selectivity(&indexrel, search_query_input)
+            match (*rhs).type_ {
+                pg_sys::NodeTag::T_Const => {
+                    let const_ = rhs.cast::<pg_sys::Const>();
+                    let (heaprelid, _, _) = find_var_relation(var, info);
+                    let indexrel = locate_bm25_index(heaprelid)?;
+                    let search_query_input =
+                        SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
+                    estimate_selectivity(&indexrel, search_query_input)
+                }
+                pg_sys::NodeTag::T_Param => Some(PARAMETERIZED_SELECTIVITY),
+                _ => None,
+            }
         }
     }
 

@@ -21,6 +21,7 @@ WITH (key_field='id');
 from django.db import connection, models
 from django.db.models import F, Func, Value
 from paradedb.indexes import BM25Index, IndexExpression
+from paradedb.search import Tokenizer
 
 with connection.schema_editor() as schema_editor:
     schema_editor.add_index(
@@ -38,7 +39,9 @@ with connection.schema_editor() as schema_editor:
                         output_field=models.TextField(),
                     ),
                     alias="description_concat",
-                    tokenizer="simple",
+                    tokenizer=Tokenizer.simple(
+                        options={"alias": "description_concat"}
+                    ),
                 ),
             ],
             key_field="id",
@@ -49,14 +52,14 @@ with connection.schema_editor() as schema_editor:
 
 ```python SQLAlchemy
 from sqlalchemy import Index
-from paradedb.sqlalchemy import indexing
+from paradedb.sqlalchemy import indexing, tokenizer
 
 idx = Index(
     "search_idx",
     indexing.BM25Field(MockItem.id),
     indexing.BM25Field(
         MockItem.description + " " + MockItem.category,
-        tokenizer=indexing.tokenize.simple(alias="description_concat"),
+        tokenizer=tokenizer.simple(options={"alias": "description_concat"}),
     ),
     postgresql_using="bm25",
     postgresql_with={"key_field": "id"},
@@ -72,8 +75,7 @@ ActiveRecord::Base.connection.add_bm25_index(
   fields: {
     id: {},
     "(description || ' ' || category)" => {
-      tokenizer: :simple,
-      alias: "description_concat"
+      tokenizer: Tokenizer.simple(options: { alias: "description_concat" })
     }
   },
   key_field: :id,

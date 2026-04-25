@@ -1,0 +1,1080 @@
+-- Tests for Semi and Anti Joins with disjunctive (OR) join conditions.
+-- Verifies the fix for https://github.com/paradedb/paradedb/issues/4776:
+-- when a NOT EXISTS/EXISTS subquery uses OR across multiple equalities,
+-- JoinScan should absorb the join using DataFusion's NestedLoopJoinExec
+-- (cross-join + filter) instead of falling back to Postgres's Nested Loop.
+
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+DROP TABLE IF EXISTS items CASCADE;
+CREATE TABLE items (
+    id bigint NOT NULL PRIMARY KEY,
+    name text,
+    alt_name text,
+    category text
+);
+
+INSERT INTO items (id, name, alt_name, category)
+SELECT
+    i,
+    'name_' || i,
+    CASE WHEN i % 3 = 0 THEN 'alt_' || i ELSE NULL END,
+    CASE WHEN i % 2 = 0 THEN 'target' ELSE 'other' END
+FROM generate_series(1, 500) as i;
+
+DROP TABLE IF EXISTS exclusions CASCADE;
+CREATE TABLE exclusions (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    pattern text,
+    reason text
+);
+
+-- Populate exclusions so roughly half of items are excluded via `name` match
+-- and a smaller slice is excluded via `alt_name` match. Includes a few
+-- patterns that match both name and alt_name to exercise the OR branching.
+INSERT INTO exclusions (pattern, reason)
+SELECT 'name_' || i, 'name-based'
+FROM generate_series(1, 250) as i
+WHERE i % 5 = 0;
+
+INSERT INTO exclusions (pattern, reason)
+SELECT 'alt_' || i, 'alt-based'
+FROM generate_series(1, 500) as i
+WHERE i % 3 = 0 AND i % 15 = 0;
+
+CREATE INDEX items_idx ON items
+USING bm25 (id, name, alt_name, category)
+WITH (
+    key_field = id,
+    text_fields = '{
+        "name": {"fast": true, "tokenizer": {"type": "keyword"}},
+        "alt_name": {"fast": true, "tokenizer": {"type": "keyword"}},
+        "category": {"fast": true, "tokenizer": {"type": "keyword"}, "normalizer": "lowercase"}
+    }'
+);
+
+CREATE INDEX exclusions_idx ON exclusions
+USING bm25 (id, pattern, reason)
+WITH (
+    key_field = id,
+    text_fields = '{
+        "pattern": {"fast": true, "tokenizer": {"type": "keyword"}},
+        "reason": {"fast": true, "tokenizer": {"type": "keyword"}}
+    }'
+);
+
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 1. NOT EXISTS with 2-arm OR join condition (the core repro)
+-- =====================================================================
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern = i.alt_name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern = i.alt_name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+-- =====================================================================
+-- 2. EXISTS with 2-arm OR join condition
+-- =====================================================================
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern = i.alt_name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id ASC
+LIMIT 10;
+
+SELECT i.id
+FROM items i
+WHERE EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern = i.alt_name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id ASC
+LIMIT 10;
+
+-- =====================================================================
+-- 3. NOT EXISTS with 3-arm OR
+-- =====================================================================
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (
+          e.pattern = i.name
+          OR e.pattern = i.alt_name
+          OR e.pattern = i.category
+      )
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (
+          e.pattern = i.name
+          OR e.pattern = i.alt_name
+          OR e.pattern = i.category
+      )
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+-- =====================================================================
+-- 4. Correctness cross-check: compare JoinScan result with JoinScan off
+-- =====================================================================
+-- Capture the result with JoinScan enabled, then again with it off, and
+-- diff them. They must match.
+SET paradedb.enable_join_custom_scan TO off;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern = i.alt_name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 5. Generic function in disjunctive filter: native DataFusion evaluation
+-- =====================================================================
+-- A disjunction where one arm uses a pg_catalog function (length()).
+-- PredicateTranslator maps it to DataFusion's native character_length(),
+-- allowing JoinScan to absorb the full expression. The EXPLAIN should
+-- show character_length(...) in the physical plan, not a PgExprUdf.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR length(e.pattern) > 100)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR length(e.pattern) > 100)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+-- =====================================================================
+-- 6. NOT EXISTS with inequality operator (<>)
+-- =====================================================================
+-- A single <> comparison. The old EquiKeyDisjunction shape could not
+-- represent this; PgExpression carries the full OpExpr, so PredicateTranslator
+-- maps it to Operator::NotEq.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND e.id <> i.id
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND e.id <> i.id
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND e.id <> i.id
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 7. NOT EXISTS with mixed operators in OR (> and =)
+-- =====================================================================
+-- Disjunction of > and =, both Var-vs-Var. Both operators are supported
+-- by PredicateTranslator.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.id > i.id OR e.pattern = i.name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.id > i.id OR e.pattern = i.name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.id > i.id OR e.pattern = i.name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 8. EXISTS with Var = Const in an OR arm
+-- =====================================================================
+-- One arm compares a Var to a bigint literal. The old EquiKeyDisjunction
+-- shape required Var-vs-Var on every arm; PgExpression has no such
+-- restriction — PredicateTranslator::translate_const handles INT8OID.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.id = 42::bigint)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SELECT i.id
+FROM items i
+WHERE EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.id = 42::bigint)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.id = 42::bigint)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 9. NOT EXISTS with AND nested inside OR
+-- =====================================================================
+-- Nested BoolExpr(AND) inside BoolExpr(OR). PredicateTranslator handles
+-- both boolean operators recursively.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (
+          (e.pattern = i.name AND e.id > i.id)
+          OR e.pattern = i.alt_name
+      )
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (
+          (e.pattern = i.name AND e.id > i.id)
+          OR e.pattern = i.alt_name
+      )
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (
+          (e.pattern = i.name AND e.id > i.id)
+          OR e.pattern = i.alt_name
+      )
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 10. Single equi-key Semi/Anti regression
+-- =====================================================================
+-- A plain Var = Var NOT EXISTS with no OR must still go through the
+-- equi-key path (HashJoinExec), not PgExpression/NestedLoopJoinExec.
+-- Regression guard: single equalities must not be routed through the
+-- new disjunctive-filter absorption.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND e.pattern = i.name
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND e.pattern = i.name
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND e.pattern = i.name
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 11. NULL semantics on OR arms
+-- =====================================================================
+-- Restrict the outer side to rows where `i.alt_name IS NULL` by targeting
+-- odd ids (category:"other") — the setup leaves `alt_name` NULL whenever
+-- `i % 3 != 0`. Verifies that NULL comparisons inside disjunctive arms
+-- produce the same result under DataFusion's NestedLoopJoinExec as under
+-- PostgreSQL's native Nested Loop Anti Join.
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern = i.alt_name)
+)
+AND i.id @@@ 'category:"other"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern = i.alt_name)
+)
+AND i.id @@@ 'category:"other"'
+ORDER BY i.id DESC
+LIMIT 10;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 12. RelabelType path with varchar columns
+-- =====================================================================
+-- varchar columns force PostgreSQL to wrap each Var in a RelabelType
+-- (varchar -> text) before the equality operator. This exercises the
+-- translator's RelabelType-stripping path for disjunctive filters; if
+-- broken, JoinScan would fall back to a Nested Loop Anti Join.
+DROP TABLE IF EXISTS items_vc CASCADE;
+DROP TABLE IF EXISTS exclusions_vc CASCADE;
+
+CREATE TABLE items_vc (
+    id bigint NOT NULL PRIMARY KEY,
+    name varchar(100),
+    alt_name varchar(100),
+    category varchar(100)
+);
+INSERT INTO items_vc (id, name, alt_name, category)
+SELECT
+    i,
+    ('name_' || i)::varchar(100),
+    CASE WHEN i % 3 = 0 THEN ('alt_' || i)::varchar(100) ELSE NULL END,
+    (CASE WHEN i % 2 = 0 THEN 'target' ELSE 'other' END)::varchar(100)
+FROM generate_series(1, 200) as i;
+
+CREATE TABLE exclusions_vc (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    pattern varchar(100)
+);
+INSERT INTO exclusions_vc (pattern)
+SELECT ('name_' || i)::varchar(100)
+FROM generate_series(1, 100) as i
+WHERE i % 5 = 0;
+
+CREATE INDEX items_vc_idx ON items_vc
+USING bm25 (id, name, alt_name, category)
+WITH (
+    key_field = id,
+    text_fields = '{
+        "name": {"fast": true, "tokenizer": {"type": "keyword"}},
+        "alt_name": {"fast": true, "tokenizer": {"type": "keyword"}},
+        "category": {"fast": true, "tokenizer": {"type": "keyword"}, "normalizer": "lowercase"}
+    }'
+);
+
+CREATE INDEX exclusions_vc_idx ON exclusions_vc
+USING bm25 (id, pattern)
+WITH (
+    key_field = id,
+    text_fields = '{
+        "pattern": {"fast": true, "tokenizer": {"type": "keyword"}}
+    }'
+);
+
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items_vc i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions_vc e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern = i.alt_name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SELECT i.id
+FROM items_vc i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions_vc e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern = i.alt_name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items_vc i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions_vc e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern = i.alt_name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 10;
+SET paradedb.enable_join_custom_scan TO on;
+
+DROP TABLE items_vc CASCADE;
+DROP TABLE exclusions_vc CASCADE;
+
+-- =====================================================================
+-- 13. upper() in EXISTS semi-join filter (native DataFusion)
+-- =====================================================================
+-- EXPLAIN should show `upper(...)` in the physical plan and JoinScan
+-- should absorb the whole semi-join (no "JoinScan not used" warning).
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND upper(e.pattern) = upper(i.name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id ASC
+LIMIT 5;
+
+SELECT i.id
+FROM items i
+WHERE EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND upper(e.pattern) = upper(i.name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id ASC
+LIMIT 5;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND upper(e.pattern) = upper(i.name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id ASC
+LIMIT 5;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 14. COALESCE() in NOT EXISTS anti-join filter (native DataFusion)
+-- =====================================================================
+-- EXPLAIN should show `coalesce(...)` natively, not a PgExprUdf wrapper.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND COALESCE(e.pattern, '') = i.name
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND COALESCE(e.pattern, '') = i.name
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND COALESCE(e.pattern, '') = i.name
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 15. IS NULL arm in disjunctive anti-join filter (native DataFusion)
+-- =====================================================================
+-- EXPLAIN should show `IS NULL` natively and JoinScan should absorb the
+-- disjunction.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern IS NULL)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern IS NULL)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.pattern = i.name OR e.pattern IS NULL)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 16. CASE WHEN in anti-join filter (native DataFusion)
+-- =====================================================================
+-- EXPLAIN should show `CASE WHEN ... END` natively, not a PgExprUdf.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND CASE WHEN e.pattern IS NOT NULL THEN e.pattern ELSE '' END = i.name
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND CASE WHEN e.pattern IS NOT NULL THEN e.pattern ELSE '' END = i.name
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND CASE WHEN e.pattern IS NOT NULL THEN e.pattern ELSE '' END = i.name
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 17. Arithmetic OpExpr (`*`) maps natively
+-- =====================================================================
+-- `translate_op_expr` now handles `+`, `-`, `*`, `/`, `%` — the `(e.id * 2)`
+-- subtree maps directly to `Operator::Multiply`. EXPLAIN should contain a
+-- native multiplication (e.g. `id * 2`) and NO `pdb_eval_expr_opexpr_*`.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.id * 2) > i.id
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.id * 2) > i.id
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (e.id * 2) > i.id
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 18. Mixed native + UDF in one disjunction
+-- =====================================================================
+-- `upper()` is in the pg_catalog map → native; `md5()` is not →
+-- `try_wrap_as_udf` wraps the md5 FuncExpr. EXPLAIN should show `upper`
+-- on one arm and `pdb_eval_expr_funcexpr_*` on the other.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (upper(e.pattern) = i.name OR md5(e.pattern) = 'never-matches')
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (upper(e.pattern) = i.name OR md5(e.pattern) = 'never-matches')
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (upper(e.pattern) = i.name OR md5(e.pattern) = 'never-matches')
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 19. Tier 1 — ALL NATIVE: every function maps to DataFusion
+-- =====================================================================
+-- `character_length` (via the `length` alias) is in
+-- `translate_known_func`'s pg_catalog map; arithmetic comparisons `>`,
+-- `<>`, and the boolean `OR` are native structural. Var references on
+-- both sides of the disjunction resolve via the mapper. The EXPLAIN
+-- should contain NO `pdb_eval_expr_*` UDFs anywhere.
+--
+-- Note: `upper` / `lower` / `btrim` / `trim` / `ltrim` / `rtrim` are
+-- intentionally excluded from the native map (collation-aware — see
+-- tier 22), so an "all native" case can't use them.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (length(e.pattern) > length(i.name) OR e.id <> i.id)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (length(e.pattern) > length(i.name) OR e.id <> i.id)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (length(e.pattern) > length(i.name) OR e.id <> i.id)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 20. Tier 2 — MIXED native + PgExprUdf in a single predicate
+-- =====================================================================
+-- Cross-table disjunction: `length()` maps natively via
+-- `character_length`; `upper()` is collation-aware and excluded from the
+-- native map, so it's wrapped as a PgExprUdf. The disjunction spans both
+-- tables so the whole tree is absorbed at the join level (not pushed
+-- down as a single-table heap filter). EXPLAIN should contain BOTH
+-- native `character_length(...)` AND `pdb_eval_expr_funcexpr_*` in the
+-- same plan.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (length(e.pattern) > length(i.name) OR upper(e.pattern) = i.name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (length(e.pattern) > length(i.name) OR upper(e.pattern) = i.name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND (length(e.pattern) > length(i.name) OR upper(e.pattern) = i.name)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 21. Tier 3 — PURE PgExprUdf: every function → UDF
+-- =====================================================================
+-- Neither `md5` nor `to_hex` is in the pg_catalog map, so both FuncExprs
+-- are wrapped by `try_wrap_as_udf`. The top-level `=`, `<>`, `AND` are
+-- native structural combinators, but every function-producing subtree
+-- is UDF-wrapped. EXPLAIN should contain only `pdb_eval_expr_funcexpr_*`
+-- wrappers and NO native pg_catalog scalar function names.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND md5(e.pattern) = md5(i.name)
+      AND to_hex(e.id) <> to_hex(i.id)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND md5(e.pattern) = md5(i.name)
+      AND to_hex(e.id) <> to_hex(i.id)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id
+FROM items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM exclusions e
+    WHERE e.id @@@ paradedb.all()
+      AND md5(e.pattern) = md5(i.name)
+      AND to_hex(e.id) <> to_hex(i.id)
+)
+AND i.id @@@ 'category:"target"'
+ORDER BY i.id DESC
+LIMIT 5;
+SET paradedb.enable_join_custom_scan TO on;
+
+-- =====================================================================
+-- 22. Collation-aware UDF: upper() under a non-default collation
+-- =====================================================================
+-- `upper`, `lower`, `btrim`, `trim`, `ltrim`, `rtrim` are intentionally
+-- excluded from `translate_known_func`'s native map because DataFusion
+-- implements them with Rust's Unicode rules, which don't always match
+-- PostgreSQL's locale-specific behavior. Instead they go through
+-- `try_wrap_as_udf` → `ExecEvalExpr`, which invokes PG's own
+-- implementation and honors the column's / expression's collation.
+--
+-- The dataset below is seeded with *case-varying* strings so that
+-- `upper(pattern) = upper(name)` matches pairs that plain `=` cannot.
+-- The test runs three queries back to back:
+--
+--   A. NOT EXISTS with `upper(... COLLATE "C") = upper(... COLLATE "C")`
+--      on JoinScan — case-insensitive match → rows whose name has NO
+--      case-insensitive peer in patterns survive.
+--   B. The same query with a plain `=` comparison — case-sensitive →
+--      rows whose name has no *exact* peer in patterns survive. Because
+--      the data is all case-mismatched, no row is excluded and every
+--      coll_item returns, proving the `upper()` wrapping in (A) is
+--      actually doing something the plain `=` isn't.
+--   C. Re-run (A) with JoinScan off — must return byte-identical rows
+--      to (A), proving the UDF → ExecEvalExpr path preserves PG-correct
+--      locale semantics. A future regression that adds `upper`/`lower`
+--      back to the native map would show up here as an ON-vs-OFF diff.
+DROP TABLE IF EXISTS coll_items CASCADE;
+DROP TABLE IF EXISTS coll_patterns CASCADE;
+
+-- Table layout is shaped for the disjunctive Semi/Anti absorption path:
+-- each NOT EXISTS below has the form
+--   (p.id = i.pattern_id OR <case predicate>)
+-- — a disjunction of one equi-key-shaped arm and one collation-aware
+-- predicate. Because every row uses `pattern_id = 99` (which never
+-- matches a real `coll_patterns.id`), the equi arm contributes
+-- nothing: the case predicate is the sole discriminator. That makes
+-- (A) vs (B) diverge purely on `upper()` vs plain `=`.
+CREATE TABLE coll_items (
+    id bigint PRIMARY KEY,
+    name text,
+    pattern_id bigint
+);
+INSERT INTO coll_items (id, name, pattern_id) VALUES
+    (1, 'Alpha',   99),  -- case-insensitive pair with 'ALPHA'
+    (2, 'beta',    99),  -- pairs with 'BETA'
+    (3, 'GAMMA',   99),  -- pairs with 'gamma'
+    (4, 'Delta',   99),  -- no case-insensitive peer
+    (5, 'epsilon', 99);  -- no case-insensitive peer
+
+CREATE TABLE coll_patterns (
+    id bigint PRIMARY KEY,
+    pattern text
+);
+INSERT INTO coll_patterns (id, pattern) VALUES
+    (1, 'ALPHA'),
+    (2, 'BETA'),
+    (3, 'gamma');
+
+CREATE INDEX coll_items_idx ON coll_items
+    USING bm25 (id, name, pattern_id)
+    WITH (
+        key_field = id,
+        text_fields = '{"name": {"fast": true, "tokenizer": {"type": "keyword"}}}',
+        numeric_fields = '{"pattern_id": {"fast": true}}'
+    );
+CREATE INDEX coll_patterns_idx ON coll_patterns
+    USING bm25 (id, pattern)
+    WITH (
+        key_field = id,
+        text_fields = '{"pattern": {"fast": true, "tokenizer": {"type": "keyword"}}}'
+    );
+
+-- (A) Disjunctive equi-key OR `upper(... COLLATE "C")` — JoinScan's
+-- disjunctive-absorption path routes the whole predicate through
+-- PgExpression → NestedLoopJoinExec, where the UDF fallback evaluates
+-- `upper()` with PG-correct semantics. Because every row has
+-- `pattern_id = 99` (no matching p.id), the equi arm contributes
+-- nothing: the `upper()` comparison is the sole discriminator.
+-- Expected survivors: Delta, epsilon — items 1–3 pair case-insensitively
+-- with their patterns and are excluded.
+EXPLAIN (COSTS OFF, TIMING OFF)
+SELECT i.id, i.name
+FROM coll_items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM coll_patterns p
+    WHERE p.id @@@ paradedb.all()
+      AND (p.id = i.pattern_id
+           OR upper(p.pattern COLLATE "C") = upper(i.name COLLATE "C"))
+)
+AND i.id @@@ paradedb.all()
+ORDER BY i.id
+LIMIT 10;
+
+SELECT i.id, i.name
+FROM coll_items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM coll_patterns p
+    WHERE p.id @@@ paradedb.all()
+      AND (p.id = i.pattern_id
+           OR upper(p.pattern COLLATE "C") = upper(i.name COLLATE "C"))
+)
+AND i.id @@@ paradedb.all()
+ORDER BY i.id
+LIMIT 10;
+
+-- (B) Same disjunction, but with a plain `=` in place of `upper(...)`.
+-- The equi arm still contributes nothing (pattern_id=99), so this is
+-- case-sensitive: none of items 1–3 match their paired pattern on exact
+-- case, and every row survives. Contrasts with (A) to prove upper() is
+-- genuinely being evaluated.
+SELECT i.id, i.name
+FROM coll_items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM coll_patterns p
+    WHERE p.id @@@ paradedb.all()
+      AND (p.id = i.pattern_id
+           OR p.pattern = i.name)
+)
+AND i.id @@@ paradedb.all()
+ORDER BY i.id
+LIMIT 10;
+
+-- (C) Re-run (A) with JoinScan off; rows must match (A) byte-for-byte.
+-- If someone re-adds `upper`/`lower` to the native map and DataFusion's
+-- Unicode implementation diverges from PG's locale-aware `upper` for
+-- the COLLATE "C" clause, (A) and (C) will disagree here.
+SET paradedb.enable_join_custom_scan TO off;
+SELECT i.id, i.name
+FROM coll_items i
+WHERE NOT EXISTS (
+    SELECT 1 FROM coll_patterns p
+    WHERE p.id @@@ paradedb.all()
+      AND (p.id = i.pattern_id
+           OR upper(p.pattern COLLATE "C") = upper(i.name COLLATE "C"))
+)
+AND i.id @@@ paradedb.all()
+ORDER BY i.id
+LIMIT 10;
+SET paradedb.enable_join_custom_scan TO on;
+
+DROP TABLE coll_items CASCADE;
+DROP TABLE coll_patterns CASCADE;
+
+-- Cleanup
+DROP TABLE items CASCADE;
+DROP TABLE exclusions CASCADE;
+
+RESET paradedb.enable_join_custom_scan;

@@ -63,7 +63,8 @@ jobs:
           shared-key: pg${{ matrix.pg_version }}
           cache-targets: true
           cache-all-crates: true
-          save-if: ${{ github.event_name != 'pull_request' }}
+          # We don't save the cache here to avoid thrashing. The cache is only saved on the nightly run of test-pg_search.yml
+          save-if: false
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |

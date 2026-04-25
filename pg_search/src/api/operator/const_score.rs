@@ -46,7 +46,7 @@ mod sql_datum_support {
     use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
     use pgrx::nullable::Nullable;
     use pgrx::pgrx_sql_entity_graph::metadata::{
-        ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
+        ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
     };
     use pgrx::{pg_sys, FromDatum, IntoDatum};
 
@@ -83,13 +83,12 @@ mod sql_datum_support {
     }
 
     unsafe impl SqlTranslatable for ConstType {
-        fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-            Ok(SqlMapping::As("pdb.const".into()))
-        }
-
-        fn return_sql() -> Result<Returns, ReturnsError> {
-            Ok(Returns::One(SqlMapping::As("pdb.const".into())))
-        }
+        const TYPE_IDENT: &'static str = pgrx::pgrx_resolved_type!(ConstType);
+        const TYPE_ORIGIN: TypeOrigin = TypeOrigin::External;
+        const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
+            Ok(SqlMappingRef::literal("pdb.const"));
+        const RETURN_SQL: Result<ReturnsRef, ReturnsError> =
+            Ok(ReturnsRef::One(SqlMappingRef::literal("pdb.const")));
     }
 
     unsafe impl BoxRet for ConstType {
@@ -212,7 +211,11 @@ pub fn query_to_const(input: pdb::Query, typmod: i32, _is_explicit: bool) -> Con
 }
 
 #[pg_extern(immutable, parallel_safe)]
-fn text_array_to_const(array: Vec<String>, typmod: i32, _is_explicit: bool) -> ConstType {
+pub(crate) fn text_array_to_const(
+    array: Vec<String>,
+    typmod: i32,
+    _is_explicit: bool,
+) -> ConstType {
     let const_ = deserialize_i32_to_f32(typmod);
     let query = pdb::Query::UnclassifiedArray {
         array,

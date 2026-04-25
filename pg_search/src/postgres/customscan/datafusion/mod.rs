@@ -27,5 +27,6 @@
 //! and the `RelNode` family of relation-tree types into this module as well.
 
 pub mod explain;
+mod expr_translators;
 pub mod memory;
 pub mod translator;

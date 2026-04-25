@@ -17,8 +17,13 @@
 
 //! FilterQuery - a tantivy QueryBuilder for PostgreSQL filter aggregations.
 //!
-//! Uses a function pointer to defer PostgreSQL-dependent query building to runtime,
-//! which is required to avoid linker errors in pgrx_embed.
+//! Uses a function pointer to defer PostgreSQL-dependent query building to runtime.
+//! Without this indirection, `#[typetag::serde]` emits "life before main"
+//! registration code that references `FilterQuery::build_query` directly, which
+//! pulls Postgres backend symbols (`BufferBlocks`, `CurrentMemoryContext`, ...)
+//! into the unit-test binary that `cargo test` builds. Those symbols only exist
+//! inside a running `postgres` process, so dyld rejects the binary at startup.
+//! Tracked in paradedb/paradedb#3715 (ours) and pgcentralfoundation/pgrx#2229 (upstream).
 
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -38,14 +43,13 @@ use tantivy::tokenizer::TokenizerManager;
 use tantivy::TantivyError;
 
 /// Type alias for the filter query builder function.
-/// This function is set at runtime to avoid pulling PostgreSQL symbols into pgrx_embed.
-/// Takes the JSON-serialized query and indexrelid.
+/// Set at runtime to keep PostgreSQL symbols out of the typetag registration path
+/// — see module docs.
+// TODO(paradedb/paradedb#3715, pgcentralfoundation/pgrx#2229): remove the function-pointer
+// indirection once typetag registration stops pulling PG symbols into the test binary.
 type BuildFilterQueryFn = fn(serde_json::Value, u32) -> anyhow::Result<Box<dyn Query>>;
 
-/// Global function pointer for building filter queries.
-/// This is initialized at extension load time via `init_filter_query_builder()`.
-/// Using a function pointer breaks the link-time dependency on PostgreSQL symbols,
-/// allowing the pgrx_embed binary to be built without them.
+/// Global function pointer for building filter queries. Initialized in `_PG_init`.
 static BUILD_FILTER_QUERY_FN: std::sync::OnceLock<BuildFilterQueryFn> = std::sync::OnceLock::new();
 
 /// Initialize the query builder. Call from `_PG_init`.
@@ -83,9 +87,6 @@ impl From<FilterQuery> for AggregationVariants {
 #[typetag::serde]
 impl QueryBuilder for FilterQuery {
     fn build_query(&self, _: &Schema, _: &TokenizerManager) -> tantivy::Result<Box<dyn Query>> {
-        // Get the builder function that was initialized at extension load time.
-        // This indirection via function pointer avoids pulling PostgreSQL symbols
-        // into the pgrx_embed binary at link time.
         let build_fn = BUILD_FILTER_QUERY_FN
             .get()
             .expect("call init_filter_query_builder() in _PG_init");

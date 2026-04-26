@@ -197,7 +197,10 @@ impl BaseScan {
                         std::ptr::NonNull::new(expr_context),
                     );
 
-                snippet_type.configure_generator(&mut new_generator.1);
+                let estate = unsafe { (*csstate).ss.ps.state };
+                unsafe {
+                    snippet_type.configure_generator(&mut new_generator.1, estate);
+                }
 
                 *generator = Some(new_generator.1);
             }
@@ -1567,7 +1570,8 @@ impl CustomScan for BaseScan {
                                 // that we could use a wider tuple slot to fetch the extra columns that
                                 // we need during our initial lookup above (but then we'd need to copy
                                 // into the correctly shaped slot for this scan).
-                                maybe_project_snippets(state.custom_state(), ctid);
+                                let estate = state.csstate.ss.ps.state;
+                                maybe_project_snippets(state.custom_state(), ctid, estate);
 
                                 let planstate = state.planstate();
 
@@ -2443,7 +2447,11 @@ fn is_range_query_string(query_string: &str) -> bool {
 /// Project configured snippets (if any).
 ///
 /// Must be called inside the per-tuple `MemoryContext`.
-unsafe fn maybe_project_snippets(state: &BaseScanState, ctid: u64) {
+unsafe fn maybe_project_snippets(
+    state: &BaseScanState,
+    ctid: u64,
+    estate: *mut pg_sys::EState,
+) {
     if !state.need_snippets() {
         return;
     }
@@ -2451,7 +2459,7 @@ unsafe fn maybe_project_snippets(state: &BaseScanState, ctid: u64) {
     for (snippet_type, const_snippet_nodes) in &state.const_snippet_nodes {
         match snippet_type {
             SnippetType::SingleText(_, _, _) => {
-                let snippet = state.make_snippet(ctid, snippet_type);
+                let snippet = state.make_snippet(ctid, snippet_type, estate);
 
                 for const_ in const_snippet_nodes {
                     match &snippet {
@@ -2467,7 +2475,7 @@ unsafe fn maybe_project_snippets(state: &BaseScanState, ctid: u64) {
                 }
             }
             SnippetType::MultipleText(_, _, _, _) => {
-                let snippets = state.make_snippets(ctid, snippet_type);
+                let snippets = state.make_snippets(ctid, snippet_type, estate);
 
                 for const_ in const_snippet_nodes {
                     match &snippets {

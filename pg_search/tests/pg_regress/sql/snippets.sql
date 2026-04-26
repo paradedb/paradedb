@@ -110,5 +110,90 @@ SELECT id, pdb.snippets(content, max_num_chars => 20, sort_by => 'position') FRO
 -- Test with an invalid sort_by value
 SELECT id, pdb.snippets(content, sort_by => 'invalid') FROM snippets_test WHERE content @@@ 'lazy' AND id = 1;
 
+-- =====================================================================
+-- Parameterized snippet arguments (issue: snippet panics on 6th EXECUTE)
+--
+-- Pre-fix: every formatting argument (start_tag, end_tag, max_num_chars,
+-- limit, offset, sort_by) had to be a Const. In GENERIC plan mode (the
+-- 6th+ EXECUTE of a prepared statement), Params survive into the planner
+-- and the snippet extractor panicked with "arguments must be literals".
+--
+-- We exercise both CUSTOM and GENERIC modes against the same table so
+-- the expected output proves they produce identical results.
+-- =====================================================================
+
+\echo '--- Parameterized snippet arguments (CUSTOM vs GENERIC) ---'
+
+-- pdb.snippet with parameterized start_tag and end_tag
+SET plan_cache_mode = force_custom_plan;
+PREPARE snip_param_c(text, text, text) AS
+SELECT id, pdb.snippet(content, $2, $3)
+FROM snippets_test
+WHERE content @@@ $1
+ORDER BY id;
+EXECUTE snip_param_c('lazy', '[', ']');
+DEALLOCATE snip_param_c;
+
+SET plan_cache_mode = force_generic_plan;
+PREPARE snip_param_g(text, text, text) AS
+SELECT id, pdb.snippet(content, $2, $3)
+FROM snippets_test
+WHERE content @@@ $1
+ORDER BY id;
+EXECUTE snip_param_g('lazy', '[', ']');
+DEALLOCATE snip_param_g;
+
+-- pdb.snippets with parameterized sort_by + max_num_chars
+SET plan_cache_mode = force_custom_plan;
+PREPARE snips_param_c(text, int, text) AS
+SELECT id, pdb.snippets(content, max_num_chars => $2, sort_by => $3)
+FROM snippets_test
+WHERE content @@@ $1 AND id = 8
+ORDER BY id;
+EXECUTE snips_param_c('term1 OR term2', 20, 'position');
+DEALLOCATE snips_param_c;
+
+SET plan_cache_mode = force_generic_plan;
+PREPARE snips_param_g(text, int, text) AS
+SELECT id, pdb.snippets(content, max_num_chars => $2, sort_by => $3)
+FROM snippets_test
+WHERE content @@@ $1 AND id = 8
+ORDER BY id;
+EXECUTE snips_param_g('term1 OR term2', 20, 'position');
+DEALLOCATE snips_param_g;
+
+-- pdb.snippet_positions with parameterized limit and offset.
+-- The point of this test is "doesn't panic on 6th EXECUTE in GENERIC mode".
+SET plan_cache_mode = force_custom_plan;
+PREPARE snip_pos_c(text, int, int) AS
+SELECT id, pdb.snippet_positions(content, $2, $3) IS NOT NULL AS has_positions
+FROM snippets_test
+WHERE content @@@ $1 AND id = 1;
+EXECUTE snip_pos_c('lazy', 5, 0);
+DEALLOCATE snip_pos_c;
+
+SET plan_cache_mode = force_generic_plan;
+PREPARE snip_pos_g(text, int, int) AS
+SELECT id, pdb.snippet_positions(content, $2, $3) IS NOT NULL AS has_positions
+FROM snippets_test
+WHERE content @@@ $1 AND id = 1;
+EXECUTE snip_pos_g('lazy', 5, 0);
+DEALLOCATE snip_pos_g;
+
+-- Parameterized sort_by with an invalid value must still error at exec time
+-- (validation moved from planning to execution to support Param values).
+SET plan_cache_mode = force_generic_plan;
+PREPARE snips_bad_sort_g(text, text) AS
+SELECT id, pdb.snippets(content, sort_by => $2)
+FROM snippets_test
+WHERE content @@@ $1 AND id = 1;
+\set VERBOSITY terse
+SELECT 'expecting error from pdb.snippets sort_by validation:';
+EXECUTE snips_bad_sort_g('lazy', 'invalid');
+\set VERBOSITY default
+DEALLOCATE snips_bad_sort_g;
+
+RESET plan_cache_mode;
+
 -- Cleanup
 DROP TABLE snippets_test;

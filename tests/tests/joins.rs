@@ -224,7 +224,6 @@ fn joinscan_self_join_matches_fallback(mut conn: PgConnection) -> Result<(), sql
 }
 
 #[rstest]
-#[ignore = "known issue: duplicate-name sort keys above JoinScan can diverge from fallback ordering"]
 fn joinscan_self_join_duplicate_name_sort_matches_fallback(
     mut conn: PgConnection,
 ) -> Result<(), sqlx::Error> {

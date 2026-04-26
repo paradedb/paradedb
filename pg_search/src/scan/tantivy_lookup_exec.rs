@@ -95,7 +95,8 @@ impl TantivyLookupExec {
                 .iter()
                 .filter_map(|sort_expr| {
                     if let Some(col) = sort_expr.expr.as_any().downcast_ref::<Column>() {
-                        if let Ok(new_idx) = output_schema.index_of(col.name()) {
+                        let new_idx = col.index();
+                        if new_idx < output_schema.fields().len() {
                             let new_col =
                                 Arc::new(Column::new(col.name(), new_idx)) as Arc<dyn PhysicalExpr>;
                             return Some(datafusion::physical_expr::PhysicalSortExpr {

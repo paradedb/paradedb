@@ -35,7 +35,10 @@ use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_contains_any_operator, pg_search_extension_installed};
 use once_cell::sync::Lazy;
 use pgrx::{pg_guard, pg_sys, PgList, PgMemoryContexts};
+use std::any::{type_name, TypeId};
 use std::collections::{hash_map::Entry, HashMap};
+use std::mem::size_of_val;
+use std::ptr;
 
 unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
     let forced = path.flags & Flags::Force as u32 != 0;
@@ -45,19 +48,19 @@ unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
     // Clear both complete and partial candidates up front so neither a regular path nor a
     // Gather-built parallel path can outcompete us.
     if forced {
-        (*rel).pathlist = std::ptr::null_mut();
-        (*rel).partial_pathlist = std::ptr::null_mut();
+        (*rel).pathlist = ptr::null_mut();
+        (*rel).partial_pathlist = ptr::null_mut();
     }
 
-    let mut custom_path = PgMemoryContexts::CurrentMemoryContext
-        .copy_ptr_into(&mut path, std::mem::size_of_val(&path));
+    let mut custom_path =
+        PgMemoryContexts::CurrentMemoryContext.copy_ptr_into(&mut path, size_of_val(&path));
 
     if (*custom_path).path.parallel_aware {
         // add the partial path since the user-generated plan is parallel aware
         pg_sys::add_partial_path(rel, custom_path.cast());
 
         // remove all the existing possible paths
-        (*rel).pathlist = std::ptr::null_mut();
+        (*rel).pathlist = ptr::null_mut();
 
         // then make another copy of it, increase its costs really, really high and
         // submit it as a regular path too, immediately after clearing out all the other
@@ -65,8 +68,8 @@ unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
         //
         // We don't want postgres to choose this path, but we have to have at least one
         // non-partial path available for it to consider
-        let copy = PgMemoryContexts::CurrentMemoryContext
-            .copy_ptr_into(&mut path, std::mem::size_of_val(&path));
+        let copy =
+            PgMemoryContexts::CurrentMemoryContext.copy_ptr_into(&mut path, size_of_val(&path));
         (*copy).path.parallel_aware = false;
         (*copy).path.total_cost = 1000000000.0;
         (*copy).path.startup_cost = 1000000000.0;
@@ -84,7 +87,7 @@ where
     CS: CustomScan<Args = RelPathlistHookArgs> + 'static,
 {
     unsafe {
-        static mut PREV_HOOKS: Lazy<HashMap<std::any::TypeId, pg_sys::set_rel_pathlist_hook_type>> =
+        static mut PREV_HOOKS: Lazy<HashMap<TypeId, pg_sys::set_rel_pathlist_hook_type>> =
             Lazy::new(Default::default);
 
         #[pg_guard]
@@ -98,7 +101,7 @@ where
         {
             unsafe {
                 #[allow(static_mut_refs)]
-                if let Some(Some(prev_hook)) = PREV_HOOKS.get(&std::any::TypeId::of::<CS>()) {
+                if let Some(Some(prev_hook)) = PREV_HOOKS.get(&TypeId::of::<CS>()) {
                     (*prev_hook)(root, rel, rti, rte);
                 }
 
@@ -107,8 +110,8 @@ where
         }
 
         #[allow(static_mut_refs)]
-        match PREV_HOOKS.entry(std::any::TypeId::of::<CS>()) {
-            Entry::Occupied(_) => panic!("{} is already registered", std::any::type_name::<CS>()),
+        match PREV_HOOKS.entry(TypeId::of::<CS>()) {
+            Entry::Occupied(_) => panic!("{} is already registered", type_name::<CS>()),
             Entry::Vacant(entry) => entry.insert(pg_sys::set_rel_pathlist_hook),
         };
 
@@ -162,9 +165,8 @@ where
     CS: CustomScan<Args = JoinPathlistHookArgs> + 'static,
 {
     unsafe {
-        static mut PREV_HOOKS: Lazy<
-            HashMap<std::any::TypeId, pg_sys::set_join_pathlist_hook_type>,
-        > = Lazy::new(Default::default);
+        static mut PREV_HOOKS: Lazy<HashMap<TypeId, pg_sys::set_join_pathlist_hook_type>> =
+            Lazy::new(Default::default);
 
         #[pg_guard]
         extern "C-unwind" fn __priv_callback<CS>(
@@ -179,7 +181,7 @@ where
         {
             unsafe {
                 #[allow(static_mut_refs)]
-                if let Some(Some(prev_hook)) = PREV_HOOKS.get(&std::any::TypeId::of::<CS>()) {
+                if let Some(Some(prev_hook)) = PREV_HOOKS.get(&TypeId::of::<CS>()) {
                     (*prev_hook)(root, joinrel, outerrel, innerrel, jointype, extra);
                 }
 
@@ -190,8 +192,8 @@ where
         }
 
         #[allow(static_mut_refs)]
-        match PREV_HOOKS.entry(std::any::TypeId::of::<CS>()) {
-            Entry::Occupied(_) => panic!("{} is already registered", std::any::type_name::<CS>()),
+        match PREV_HOOKS.entry(TypeId::of::<CS>()) {
+            Entry::Occupied(_) => panic!("{} is already registered", type_name::<CS>()),
             Entry::Vacant(entry) => entry.insert(pg_sys::set_join_pathlist_hook),
         };
 
@@ -245,9 +247,8 @@ where
     CS: CustomScan<Args = CreateUpperPathsHookArgs> + 'static,
 {
     unsafe {
-        static mut PREV_HOOKS: Lazy<
-            HashMap<std::any::TypeId, pg_sys::create_upper_paths_hook_type>,
-        > = Lazy::new(Default::default);
+        static mut PREV_HOOKS: Lazy<HashMap<TypeId, pg_sys::create_upper_paths_hook_type>> =
+            Lazy::new(Default::default);
 
         #[pg_guard]
         extern "C-unwind" fn __priv_callback<CS>(
@@ -261,7 +262,7 @@ where
         {
             unsafe {
                 #[allow(static_mut_refs)]
-                if let Some(Some(prev_hook)) = PREV_HOOKS.get(&std::any::TypeId::of::<CS>()) {
+                if let Some(Some(prev_hook)) = PREV_HOOKS.get(&TypeId::of::<CS>()) {
                     (*prev_hook)(root, stage, input_rel, output_rel, extra);
                 }
 
@@ -270,8 +271,8 @@ where
         }
 
         #[allow(static_mut_refs)]
-        match PREV_HOOKS.entry(std::any::TypeId::of::<CS>()) {
-            Entry::Occupied(_) => panic!("{} is already registered", std::any::type_name::<CS>()),
+        match PREV_HOOKS.entry(TypeId::of::<CS>()) {
+            Entry::Occupied(_) => panic!("{} is already registered", type_name::<CS>()),
             Entry::Vacant(entry) => entry.insert(pg_sys::create_upper_paths_hook),
         };
 
@@ -324,9 +325,93 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
         ));
 
         for path in paths {
-            add_path(output_rel, path);
+            add_upper_path(root, output_rel, path);
         }
     }
+}
+
+/// Upper-rel variant of [`add_path`]. `add_path` handles base/join rels well
+/// because PG's path generator calls `generate_useful_gather_paths()` AFTER
+/// the `set_rel_pathlist_hook` fires — so a partial path added there still
+/// gets wrapped in a `Gather` by core. For `UPPERREL_GROUP_AGG`, the
+/// sequence is reversed: core has already finished gather-path generation
+/// before `create_upper_paths_hook` runs, and any partial path we add at
+/// this stage is orphaned.
+///
+/// This helper wraps the MPP-ready parallel-aware custom path with an
+/// explicit `GatherPath` via `pg_sys::create_gather_path` and adds that to
+/// `output_rel->pathlist`, which is the one PG's grouping-path chooser
+/// compares against the serial aggregate path. Non-parallel custom paths
+/// fall through to the same `add_path` behavior used everywhere else.
+unsafe fn add_upper_path(
+    root: *mut pg_sys::PlannerInfo,
+    rel: *mut pg_sys::RelOptInfo,
+    mut path: pg_sys::CustomPath,
+) {
+    let forced = path.flags & Flags::Force as u32 != 0;
+    path.flags ^= Flags::Force as u32;
+
+    if forced {
+        (*rel).pathlist = ptr::null_mut();
+        (*rel).partial_pathlist = ptr::null_mut();
+    }
+
+    if path.path.parallel_aware {
+        // The MPP path itself is parallel-safe; PG needs to see it as a
+        // partial path so it and the Gather wrapper agree about workers.
+        let partial_copy =
+            PgMemoryContexts::CurrentMemoryContext.copy_ptr_into(&mut path, size_of_val(&path));
+        pg_sys::add_partial_path(rel, partial_copy.cast());
+
+        // Wrap with Gather so the grouping-path chooser actually sees a
+        // runnable parallel plan in `output_rel->pathlist`. Use the rel's
+        // reltarget directly so Gather's pathtarget structurally equals
+        // `final_target` — otherwise `create_ordered_paths` adds a
+        // ProjectionPath (→ Result plan node) above the Sort, whose
+        // targetlist carries unreplaceable Aggrefs that crash setrefs
+        // with "Aggref found in non-Agg plan node".
+        //
+        // Aggrefs in Gather.tlist get rewritten to Var(OUTER_VAR, N) by
+        // setrefs so long as the subplan (CustomScan) tlist carries
+        // structurally-equal Aggrefs — see `set_customscan_references`
+        // and `fix_upper_expr` for the matching logic.
+        let gather_target = (*rel).reltarget;
+
+        let mut rows = (*partial_copy).path.rows;
+        let gather = pg_sys::create_gather_path(
+            root,
+            rel,
+            partial_copy.cast::<pg_sys::Path>(),
+            gather_target,
+            ptr::null_mut(),
+            &mut rows,
+        );
+
+        // Clear competing paths so the chooser actually considers Gather;
+        // otherwise a single-worker serial aggregate path with matching
+        // total cost may win by tie-break. We re-add a high-cost serial
+        // fallback below so PG always has something non-partial to pick.
+        (*rel).pathlist = ptr::null_mut();
+
+        pg_sys::add_path(rel, gather.cast());
+
+        // High-cost serial fallback: same as non-upper-rel `add_path`.
+        // Keeps a non-parallel path in the list for cases where the
+        // Gather wrapper can't run (e.g., max_parallel_workers == 0).
+        let fallback =
+            PgMemoryContexts::CurrentMemoryContext.copy_ptr_into(&mut path, size_of_val(&path));
+        (*fallback).path.parallel_aware = false;
+        (*fallback).path.parallel_safe = false;
+        (*fallback).path.parallel_workers = 0;
+        (*fallback).path.total_cost = 1_000_000_000.0;
+        (*fallback).path.startup_cost = 1_000_000_000.0;
+        pg_sys::add_path(rel, fallback.cast());
+        return;
+    }
+
+    let serial =
+        PgMemoryContexts::CurrentMemoryContext.copy_ptr_into(&mut path, size_of_val(&path));
+    pg_sys::add_path(rel, serial.cast());
 }
 
 /// Static variable to store the previous planner hook (e.g., from Citus or other extensions)

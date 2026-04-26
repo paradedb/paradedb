@@ -29,3 +29,18 @@ GROUP BY
 ORDER BY
     last_activity DESC            -- Single Feature Sort (Computed Aggregate)
 LIMIT 10;
+
+-- MPP join scan
+SET statement_timeout TO '300s'; SET paradedb.enable_join_custom_scan TO on; SET paradedb.enable_mpp TO on; SELECT
+    f.id,
+    f.title,
+    MAX(p."createdAt") as last_activity
+FROM files f
+JOIN pages p ON f.id = p."fileId"
+WHERE
+    f.content ||| 'Section'       -- Search Term
+GROUP BY
+    f.id, f.title
+ORDER BY
+    last_activity DESC            -- Single Feature Sort (Computed Aggregate)
+LIMIT 10;

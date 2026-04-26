@@ -25,33 +25,17 @@
 //! that reads all inbound queues into a spillable local buffer — this decouples
 //! consumer-side backpressure from producer-side backpressure.
 
-// MPP infrastructure modules. The walker and its supporting primitives sit
-// without live callers until AggregateScan (PR 5) and JoinScan (PR 6) hook
-// them into the customscan DSM lifecycle, so we opt the whole subtree out of
-// dead-code lints for this PR and drop the allow in PR 5.
-#[allow(dead_code)]
 pub mod chain;
-#[allow(dead_code)]
 pub mod coordinator;
-#[allow(dead_code)]
 pub mod customscan_glue;
-#[allow(dead_code)]
 pub mod mesh;
-#[allow(dead_code)]
 pub mod plan_build;
-#[allow(dead_code)]
 pub mod session;
-#[allow(dead_code)]
 pub mod shape;
-#[allow(dead_code)]
 pub mod shuffle;
-#[allow(dead_code)]
 pub mod stage;
-#[allow(dead_code)]
 pub mod transport;
-#[allow(dead_code)]
 pub mod walker;
-#[allow(dead_code)]
 pub mod worker;
 
 use serde::{Deserialize, Serialize};

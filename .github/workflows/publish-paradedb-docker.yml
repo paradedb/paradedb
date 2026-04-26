@@ -117,9 +117,17 @@ jobs:
             echo "is_latest=false" >> $GITHUB_OUTPUT
           fi
 
-      # Cross-compilation is incredibly slow, so we use an external service called Depot to
-      # speed up container builds for universal images. We could eventually replace this with
-      # Docker Build Cloud once they add support for multiple concurrent builders.
+      # Official releases need a single universal image so that the same tag (e.g. `paradedb:latest`)
+      # works on both amd64 and arm64 hosts — pulling clients pick the right manifest entry for their
+      # arch. That requires producing both arches under one tag, which means cross-compiling at least
+      # one of them. Cross-compilation via `docker buildx` (under QEMU emulation) is prohibitively
+      # slow for a build this size, so we offload to Depot, which provides native builders on both
+      # arches and stitches them into a single multi-arch manifest. (We could eventually replace this
+      # with Docker Build Cloud once it supports multiple concurrent builders.)
+      #
+      # Note: this is why `test-pg_search-docker.yml` doesn't use Depot — that workflow only smoke-tests
+      # per-arch, so it can build natively in parallel via a matrix and skip Depot (and the secrets
+      # Depot requires, which forks don't have access to).
       - name: Configure Depot CLI
         uses: depot/setup-action@v1
 

@@ -91,7 +91,7 @@ use std::borrow::Borrow;
 use std::collections::VecDeque;
 use std::fmt;
 use std::mem;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 #[cfg(test)]
 use datafusion::arrow::datatypes::SchemaRef;
@@ -555,7 +555,29 @@ fn rewrite_with_cuts(
                         Partitioning::Hash(group_keys, n as usize),
                     )?));
                 }
-                _ => {}
+                (CutKind::ScalarAgg, false) => {
+                    return Err(DataFusionError::Plan(format!(
+                        "mpp: rewrite_with_cuts: ScalarAgg cut expected a Partial \
+                         aggregate with no group-by keys, but found {} group-by key(s); \
+                         classifier and physical plan disagree",
+                        group_exprs.len()
+                    )));
+                }
+                (CutKind::GroupByAgg, true) => {
+                    return Err(DataFusionError::Plan(
+                        "mpp: rewrite_with_cuts: GroupByAgg cut expected a Partial \
+                         aggregate with at least one group-by key, but found a scalar \
+                         Partial aggregate; classifier and physical plan disagree"
+                            .to_string(),
+                    ));
+                }
+                (CutKind::JoinOnly, _) => {
+                    return Err(DataFusionError::Plan(
+                        "mpp: rewrite_with_cuts: JoinOnly cut should not encounter a \
+                         Partial aggregate — join-only plans have no aggregate stage"
+                            .to_string(),
+                    ));
+                }
             }
         }
     }
@@ -909,6 +931,16 @@ fn prepare_for_mpp(
 ///    destined for peer participants get dropped before they hit the shuffle
 ///    (the build side hasn't filled the filter yet on this participant), and
 ///    the row count drops to ~0 across the mesh.
+///  * Any `SortPreservingMergeExec` / `CoalescePartitionsExec` that sits
+///    between the plan root and the `HashJoinExec` is stripped. DataFusion
+///    inserts these so a multi-partition HashJoin output can be merged for
+///    an outer `ORDER BY` / `LIMIT`; under MPP each participant's
+///    `ShuffleExec` already delivers a single input partition, the join is
+///    single-partition on each participant, and per-participant sorted
+///    streams are merged by Postgres' `GatherMerge` above the custom scan.
+///    Leaving the layer in place makes [`annotate_plan`] emit a spurious
+///    `Coalesce` cut (one more than [`cut_count_for_shape`] allocates),
+///    which aborts `_distribute_plan` with "out of mesh slots".
 ///
 /// Outer wrappers (`VisibilityFilterExec`, `SegmentedTopKExec`, ...) are
 /// rebuilt by `with_new_children` so their subtree identity refreshes.
@@ -937,6 +969,14 @@ fn prepare_join_only(plan: Arc<dyn ExecutionPlan>) -> DfResult<Arc<dyn Execution
             rebuilt.push(new);
         }
         if any_changed {
+            // Strip `SortPreservingMergeExec` / `CoalescePartitionsExec`
+            // layers that sit above the HashJoin. See the module doc above.
+            if rebuilt.len() == 1
+                && (node.as_any().is::<SortPreservingMergeExec>()
+                    || node.as_any().is::<CoalescePartitionsExec>())
+            {
+                return Ok((Arc::clone(&rebuilt[0]), true));
+            }
             Ok((node.with_new_children(rebuilt)?, true))
         } else {
             Ok((node, false))
@@ -1569,6 +1609,25 @@ fn find_hash_join(plan: &dyn ExecutionPlan) -> Option<&HashJoinExec> {
     None
 }
 
+/// Runtime-installed indirection over `PgSearchScanPlan::strip_dynamic_filters_from_dyn`.
+///
+/// A direct call would plant `<PgSearchScanPlan as ExecutionPlan>`'s vtable in
+/// every caller's static reachable graph. Under `cargo llvm-cov` (instrumentation
+/// disables DCE), that vtable pulls `execute()` → pgrx FFI wrappers
+/// (`LockBuffer`, …) → `CurrentMemoryContext` as an unresolved GLOB_DAT reloc,
+/// and the PIE test binary then fails ld.so load. Same mitigation pattern as
+/// `aggregatescan/filterquery.rs::BUILD_FILTER_QUERY_FN` — see paradedb#3715,
+/// pgcentralfoundation/pgrx#2229.
+type StripDynamicFiltersFn = fn(Arc<dyn ExecutionPlan>) -> DfResult<Arc<dyn ExecutionPlan>>;
+static STRIP_DYNAMIC_FILTERS_FN: OnceLock<StripDynamicFiltersFn> = OnceLock::new();
+
+/// Install the real implementation. Called from `_PG_init`; because `_PG_init`
+/// is unreachable from `#[test]`, the function pointer stays out of the test
+/// binary's static reachable graph.
+pub fn init_mpp_strip_dynamic_filters() {
+    STRIP_DYNAMIC_FILTERS_FN.get_or_init(|| PgSearchScanPlan::strip_dynamic_filters_from_dyn);
+}
+
 /// Walk a join-input subtree and replace every `PgSearchScanPlan` with a
 /// copy whose `dynamic_filters` Vec is empty. The `FilterPushdown` physical
 /// optimizer pushed the HashJoin's dynamic-filter Arc into the probe-side
@@ -1578,7 +1637,14 @@ fn strip_dynamic_filters_in_subtree(
     node: Arc<dyn ExecutionPlan>,
 ) -> DfResult<Arc<dyn ExecutionPlan>> {
     if node.as_any().downcast_ref::<PgSearchScanPlan>().is_some() {
-        return PgSearchScanPlan::strip_dynamic_filters_from_dyn(node);
+        let f = STRIP_DYNAMIC_FILTERS_FN.get().ok_or_else(|| {
+            DataFusionError::Internal(
+                "mpp: init_mpp_strip_dynamic_filters() not called — \
+                 should be wired from _PG_init"
+                    .into(),
+            )
+        })?;
+        return f(node);
     }
 
     let children = node.children();
@@ -2111,44 +2177,37 @@ mod tests {
     }
 
     #[test]
-    fn insert_mpp_cuts_scalar_does_not_wrap_groupby_partial() {
-        // A Partial *with* group keys under ScalarAgg shape should not be
-        // wrapped — rewrite_with_cuts matches on (kind, group_exprs.is_empty()).
+    fn insert_mpp_cuts_scalar_rejects_groupby_partial() {
+        // A Partial *with* group keys under ScalarAgg shape is a
+        // classifier/plan disagreement — must surface as an explicit error
+        // so a miscategorized query can't silently fall through.
         let plan = partial_agg_over_mem_source(vec!["id"]);
-        let rewritten = insert_mpp_cuts(plan, MppPlanShape::ScalarAggOnBinaryJoin, 2).unwrap();
-
-        // Root is still the Partial — no CoalescePartitionsExec, no RepartitionExec.
-        assert!(rewritten.as_any().downcast_ref::<AggregateExec>().is_some());
-        assert!(rewritten
-            .as_any()
-            .downcast_ref::<CoalescePartitionsExec>()
-            .is_none());
+        let err = insert_mpp_cuts(plan, MppPlanShape::ScalarAggOnBinaryJoin, 2).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("ScalarAgg"), "msg was: {msg}");
+        assert!(msg.contains("group-by"), "msg was: {msg}");
     }
 
     #[test]
-    fn insert_mpp_cuts_groupby_does_not_wrap_scalar_partial() {
-        // A Partial *without* group keys under GroupByAgg shape should not
-        // be wrapped. The caller's classifier is responsible for picking
-        // the right shape — rewrite_with_cuts enforces the invariant by
-        // no-op-ing on the mismatched pair.
+    fn insert_mpp_cuts_groupby_rejects_scalar_partial() {
+        // A Partial *without* group keys under GroupByAgg shape — same
+        // classifier/plan disagreement, must error.
         let plan = partial_agg_over_mem_source(vec![]);
-        let rewritten = insert_mpp_cuts(plan, MppPlanShape::GroupByAggOnBinaryJoin, 2).unwrap();
-
-        assert!(rewritten.as_any().downcast_ref::<AggregateExec>().is_some());
-        assert!(rewritten
-            .as_any()
-            .downcast_ref::<RepartitionExec>()
-            .is_none());
+        let err = insert_mpp_cuts(plan, MppPlanShape::GroupByAggOnBinaryJoin, 2).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("GroupByAgg"), "msg was: {msg}");
+        assert!(msg.contains("scalar Partial"), "msg was: {msg}");
     }
 
     #[test]
-    fn insert_mpp_cuts_join_only_does_not_wrap_partial() {
-        // JoinOnly shape should leave any Partial aggregate alone — the
-        // only rewrite is on HashJoinExec children (exercised in regression).
+    fn insert_mpp_cuts_join_only_rejects_partial() {
+        // JoinOnly plans have no aggregate stage; encountering a Partial
+        // aggregate means the classifier picked the wrong shape.
         let plan = partial_agg_over_mem_source(vec!["id"]);
-        let rewritten = insert_mpp_cuts(plan, MppPlanShape::JoinOnly, 2).unwrap();
-
-        assert!(rewritten.as_any().downcast_ref::<AggregateExec>().is_some());
+        let err = insert_mpp_cuts(plan, MppPlanShape::JoinOnly, 2).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("JoinOnly"), "msg was: {msg}");
+        assert!(msg.contains("Partial aggregate"), "msg was: {msg}");
     }
 
     #[test]
@@ -2163,6 +2222,105 @@ mod tests {
         let plan = partial_agg_over_mem_source(vec!["id"]);
         let err = insert_mpp_cuts(plan, MppPlanShape::GroupByAggSingleTable, 2).unwrap_err();
         assert!(format!("{err}").contains("GroupByAggSingleTable"));
+    }
+
+    /// Build a minimal `HashJoinExec` joining two `MemorySourceConfig`
+    /// inputs on a single integer key column (shared schema with one
+    /// `id: Int32` column). Used by the `prepare_join_only` regression
+    /// tests below.
+    fn hash_join_over_mem_sources() -> Arc<dyn ExecutionPlan> {
+        use datafusion::common::NullEquality;
+        use datafusion::logical_expr::JoinType;
+        let schema: SchemaRef =
+            Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
+        let left = mem_source(&schema);
+        let right = mem_source(&schema);
+        let on: Vec<(Arc<dyn PhysicalExpr>, Arc<dyn PhysicalExpr>)> = vec![(
+            Arc::new(Column::new("id", 0)),
+            Arc::new(Column::new("id", 0)),
+        )];
+        Arc::new(
+            HashJoinExec::try_new(
+                left,
+                right,
+                on,
+                None,
+                &JoinType::Inner,
+                None,
+                PartitionMode::Auto,
+                NullEquality::NullEqualsNothing,
+                false,
+            )
+            .unwrap(),
+        )
+    }
+
+    #[test]
+    fn prepare_join_only_strips_sort_preserving_merge_above_hash_join() {
+        // Regression for bench run #24814164803 on PR #4872: at 25M rows a
+        // JoinOnly plan with `ORDER BY ... LIMIT` has a
+        // `SortPreservingMergeExec` above the `HashJoinExec`. Without
+        // stripping, `annotate_plan` flags the SPM-child as a `Coalesce`
+        // boundary (3rd cut), but `cut_count_for_shape(JoinOnly) = 2`, so
+        // `_distribute_plan` panics with "out of mesh slots at cut 2".
+        use datafusion::physical_expr::LexOrdering;
+        use datafusion::physical_expr::PhysicalSortExpr;
+        let hj = hash_join_over_mem_sources();
+        let sort_key: Arc<dyn PhysicalExpr> = Arc::new(Column::new("id", 0));
+        let ordering = LexOrdering::new(vec![PhysicalSortExpr {
+            expr: sort_key,
+            options: Default::default(),
+        }])
+        .expect("non-empty ordering");
+        let spm: Arc<dyn ExecutionPlan> =
+            Arc::new(SortPreservingMergeExec::new(ordering, Arc::clone(&hj)));
+
+        let prepared = prepare_join_only(spm).unwrap();
+
+        // The SPM layer is gone; the prepared root is the rewritten HJE.
+        assert!(prepared
+            .as_any()
+            .downcast_ref::<SortPreservingMergeExec>()
+            .is_none());
+        assert!(prepared.as_any().downcast_ref::<HashJoinExec>().is_some());
+
+        // And the post-prepare plan now yields exactly 2 annotations once
+        // `insert_mpp_cuts` runs — matching `cut_count_for_shape(JoinOnly)`.
+        let with_cuts = insert_mpp_cuts(prepared, MppPlanShape::JoinOnly, 2).unwrap();
+        let annotated = annotate_plan(with_cuts).unwrap();
+        let mut shuffle_count = 0usize;
+        let mut coalesce_count = 0usize;
+        fn count(node: &AnnotatedPlan, shuffle: &mut usize, coalesce: &mut usize) {
+            match node.plan_or_nb {
+                PlanOrNetworkBoundary::Shuffle => *shuffle += 1,
+                PlanOrNetworkBoundary::Coalesce => *coalesce += 1,
+                PlanOrNetworkBoundary::Plan(_) => {}
+            }
+            for c in &node.children {
+                count(c, shuffle, coalesce);
+            }
+        }
+        count(&annotated, &mut shuffle_count, &mut coalesce_count);
+        assert_eq!(shuffle_count, 2, "expected 2 Shuffle cuts for JoinOnly");
+        assert_eq!(coalesce_count, 0, "expected no Coalesce cuts for JoinOnly");
+    }
+
+    #[test]
+    fn prepare_join_only_strips_coalesce_partitions_above_hash_join() {
+        // Same invariant for `CoalescePartitionsExec`, which DataFusion
+        // inserts above the HashJoin when the outer plan doesn't require
+        // ordering but does require a single-partition gather.
+        let hj = hash_join_over_mem_sources();
+        let coalesce: Arc<dyn ExecutionPlan> =
+            Arc::new(CoalescePartitionsExec::new(Arc::clone(&hj)));
+
+        let prepared = prepare_join_only(coalesce).unwrap();
+
+        assert!(prepared
+            .as_any()
+            .downcast_ref::<CoalescePartitionsExec>()
+            .is_none());
+        assert!(prepared.as_any().downcast_ref::<HashJoinExec>().is_some());
     }
 
     // ========================================================================

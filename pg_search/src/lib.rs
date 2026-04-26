@@ -127,6 +127,10 @@ pub unsafe extern "C-unwind" fn _PG_init() {
 
     // Initialize the filter query builder
     customscan::aggregatescan::filterquery::init_filter_query_builder();
+
+    // Install MPP walker's runtime indirection for `PgSearchScanPlan::strip_dynamic_filters_from_dyn`.
+    // See `mpp::walker::STRIP_DYNAMIC_FILTERS_FN` for why this cannot be called statically.
+    customscan::mpp::walker::init_mpp_strip_dynamic_filters();
 }
 
 #[pg_extern]

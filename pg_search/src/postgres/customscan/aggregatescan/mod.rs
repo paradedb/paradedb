@@ -77,7 +77,7 @@ use crate::postgres::customscan::mpp::session::{
     derive_query_id, MppPlanBroadcast, MppSessionProfile,
 };
 use crate::postgres::customscan::mpp::shape::{
-    classify as classify_shape, ClassifyInputs, MppPlanShape,
+    broadcast_side_gate, classify as classify_shape, ClassifyInputs, MppPlanShape,
 };
 use crate::postgres::customscan::mpp::walker::{cut_count_for_shape, distribute_plan};
 use crate::postgres::customscan::mpp::worker::{MppDsmHeader, MPP_DSM_MAGIC};
@@ -97,6 +97,7 @@ use std::sync::Arc;
 use tantivy::schema::OwnedValue;
 
 use crate::scan::codec::serialize_logical_plan;
+use crate::scan::info::RowEstimate;
 
 #[derive(Default)]
 pub struct AggregateScan;
@@ -695,6 +696,15 @@ impl AggregateScan {
         let custom_exprs = df_state.custom_exprs;
         let custom_scan_tlist = df_state.custom_scan_tlist;
         let having = df_state.having_filter.clone();
+        // Snapshot source row estimates for the broadcast-side cost gate
+        // below. Harvested here (cheaply, from the PG-side join tree) so we
+        // don't have to walk the DataFusion logical plan to recover them
+        // after it's built.
+        let source_estimates: Vec<RowEstimate> = plan
+            .sources()
+            .iter()
+            .map(|s| s.scan_info.estimate)
+            .collect();
 
         let rt = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -728,6 +738,26 @@ impl AggregateScan {
 
         match plan_and_shape {
             Ok((bytes, shape)) => {
+                // Cost gate: for binary-join shapes (Scalar / GroupBy agg on
+                // binary join), if the smallest source is small enough to
+                // broadcast-join cheaply, skip MPP's pre-join shuffle and let
+                // the non-MPP path run. Single-table shapes
+                // (GroupByAggSingleTable) have no broadcast candidate and are
+                // not gated.
+                if shape.is_binary_join() {
+                    let min_rows = gucs::mpp_min_join_rows();
+                    if let Some(gated_rows) = broadcast_side_gate(&source_estimates, min_rows) {
+                        crate::mpp_log!(
+                            "mpp: AggregateScan {:?} gated — smallest side \
+                             estimated_rows={} < mpp_min_join_rows={}; staying on \
+                             non-MPP path",
+                            shape,
+                            gated_rows,
+                            min_rows
+                        );
+                        return;
+                    }
+                }
                 // Wrap the raw logical plan in `MppPlanBroadcast` and
                 // bincode-serialize *now* so `logical_plan_bytes.len()` equals
                 // the exact bytes that will later be copied into DSM. If we

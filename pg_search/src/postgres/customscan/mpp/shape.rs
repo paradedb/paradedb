@@ -49,6 +49,8 @@
 //!
 //! [`MppPlanShape::Ineligible`] — fall back to the non-MPP serial path.
 
+use crate::scan::info::RowEstimate;
+
 /// Classify a query so the dispatcher picks the right topology.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum MppPlanShape {
@@ -57,6 +59,47 @@ pub enum MppPlanShape {
     GroupByAggSingleTable,
     JoinOnly,
     Ineligible,
+}
+
+impl MppPlanShape {
+    /// True for shapes whose MPP plan shuffles both sides of a binary join.
+    /// These shapes have a "broadcast candidate" (the smaller side), so a
+    /// cost gate on the smaller-side row estimate is meaningful: if the
+    /// smaller side is small, the non-MPP broadcast-join path wins and the
+    /// shuffle setup cost is wasted. Single-table shapes (no broadcast
+    /// candidate) return false and skip the gate.
+    pub fn is_binary_join(&self) -> bool {
+        matches!(
+            self,
+            MppPlanShape::JoinOnly
+                | MppPlanShape::ScalarAggOnBinaryJoin
+                | MppPlanShape::GroupByAggOnBinaryJoin
+        )
+    }
+}
+
+/// Pure decision helper for the broadcast-side MPP cost gate.
+///
+/// Returns `Some(n)` when the smallest known-side row estimate `n` is below
+/// `min_rows` — the caller should skip MPP. Returns `None` when the gate is
+/// disabled (`min_rows <= 0`), when no side has a `Known` estimate (treated
+/// as "not small" so un-ANALYZE'd tables don't silently bypass MPP), or when
+/// the smallest known estimate meets the threshold.
+///
+/// Intended for shapes where [`MppPlanShape::is_binary_join`] returns true.
+pub fn broadcast_side_gate(estimates: &[RowEstimate], min_rows: i32) -> Option<u64> {
+    if min_rows <= 0 {
+        return None;
+    }
+    let threshold = min_rows as u64;
+    let smallest_known = estimates
+        .iter()
+        .filter_map(|e| match e {
+            RowEstimate::Known(n) => Some(*n),
+            RowEstimate::Unknown => None,
+        })
+        .min()?;
+    (smallest_known < threshold).then_some(smallest_known)
 }
 
 /// Shape-classification inputs. Kept as plain fields rather than a reference
@@ -171,5 +214,67 @@ mod tests {
             classify(&inputs(3, true, false, true)),
             MppPlanShape::Ineligible
         );
+    }
+
+    #[test]
+    fn is_binary_join_covers_all_join_shapes() {
+        assert!(MppPlanShape::JoinOnly.is_binary_join());
+        assert!(MppPlanShape::ScalarAggOnBinaryJoin.is_binary_join());
+        assert!(MppPlanShape::GroupByAggOnBinaryJoin.is_binary_join());
+        assert!(!MppPlanShape::GroupByAggSingleTable.is_binary_join());
+        assert!(!MppPlanShape::Ineligible.is_binary_join());
+    }
+
+    mod broadcast_gate {
+        use super::super::broadcast_side_gate;
+        use crate::scan::info::RowEstimate;
+
+        #[test]
+        fn skips_mpp_when_smallest_side_below_threshold() {
+            let est = [RowEstimate::Known(500), RowEstimate::Known(1_000_000)];
+            assert_eq!(broadcast_side_gate(&est, 10_000), Some(500));
+        }
+
+        #[test]
+        fn allows_mpp_when_all_sides_meet_threshold() {
+            let est = [RowEstimate::Known(50_000), RowEstimate::Known(1_000_000)];
+            assert_eq!(broadcast_side_gate(&est, 10_000), None);
+        }
+
+        #[test]
+        fn allows_mpp_at_exact_threshold() {
+            let est = [RowEstimate::Known(10_000), RowEstimate::Known(1_000_000)];
+            assert_eq!(broadcast_side_gate(&est, 10_000), None);
+        }
+
+        #[test]
+        fn disabled_when_threshold_is_zero() {
+            let est = [RowEstimate::Known(1), RowEstimate::Known(2)];
+            assert_eq!(broadcast_side_gate(&est, 0), None);
+        }
+
+        #[test]
+        fn disabled_when_threshold_is_negative() {
+            let est = [RowEstimate::Known(1)];
+            assert_eq!(broadcast_side_gate(&est, -1), None);
+        }
+
+        #[test]
+        fn allows_mpp_when_no_known_estimates() {
+            // Un-ANALYZE'd tables: don't silently gate MPP off.
+            let est = [RowEstimate::Unknown, RowEstimate::Unknown];
+            assert_eq!(broadcast_side_gate(&est, 10_000), None);
+        }
+
+        #[test]
+        fn ignores_unknown_when_some_sides_known() {
+            let est = [RowEstimate::Unknown, RowEstimate::Known(100)];
+            assert_eq!(broadcast_side_gate(&est, 10_000), Some(100));
+        }
+
+        #[test]
+        fn empty_estimates_returns_none() {
+            assert_eq!(broadcast_side_gate(&[], 10_000), None);
+        }
     }
 }

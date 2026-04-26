@@ -81,6 +81,11 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR chair';
 -- =====================================================================
 SET paradedb.enable_mpp TO on;
 SET paradedb.mpp_worker_count TO 3;
+-- Disable the broadcast-side cost gate: these tables are intentionally
+-- tiny (40x200 rows) to exercise the MPP pipeline. In production the
+-- `mpp_min_join_rows` default (10_000) would opt out of MPP for this
+-- size; here we force MPP on so the pipeline gets tested.
+SET paradedb.mpp_min_join_rows TO 0;
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*)
@@ -161,6 +166,7 @@ SET paradedb.mpp_debug TO off;
 -- Restore defaults + clean up.
 RESET paradedb.enable_mpp;
 RESET paradedb.mpp_worker_count;
+RESET paradedb.mpp_min_join_rows;
 RESET paradedb.enable_aggregate_custom_scan;
 
 DROP TABLE mpp_exec_reviews;

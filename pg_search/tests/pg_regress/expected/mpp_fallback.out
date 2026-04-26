@@ -99,6 +99,10 @@ ORDER BY p.category;
 -- =====================================================================
 SET paradedb.enable_mpp TO on;
 SET paradedb.mpp_worker_count TO 2;
+-- Disable the broadcast-side cost gate: these tables are intentionally
+-- tiny to exercise the MPP pipeline's shape classification + plan-stash
+-- path. Production default (10_000) would opt out of MPP for this size.
+SET paradedb.mpp_min_join_rows TO 0;
 -- Same EXPLAIN + query as above.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT COUNT(*)
@@ -167,6 +171,7 @@ SET paradedb.mpp_debug TO off;
 -- Restore defaults.
 RESET paradedb.enable_mpp;
 RESET paradedb.mpp_worker_count;
+RESET paradedb.mpp_min_join_rows;
 RESET paradedb.enable_aggregate_custom_scan;
 DROP TABLE mpp_fb_reviews;
 DROP TABLE mpp_fb_products;

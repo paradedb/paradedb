@@ -1,0 +1,37 @@
+---
+title: Docker
+description: How to deploy ParadeDB with Docker
+canonical: https://docs.paradedb.com/deploy/docker
+---
+
+ParadeDB provides Docker images for easy deployment to any container platform. These images package PostgreSQL and `pg_search` together.
+
+## Docker Auto-Tuning
+
+ParadeDB automatically detects container resource limits (CPU/RAM) and optimizes PostgreSQL configuration on startup.
+
+### Configuration Environment Variables
+
+**`PG_TUNE_ENABLED`** (default: `true`)
+Set to `false` to disable auto-tuning. In Kubernetes, this defaults to `false` to avoid conflicts with operators. Set to `true` to force enable in K8s.
+
+**`PG_TUNE_FORCE`** (default: `false`)
+By default, the script will not overwrite manual `ALTER SYSTEM` changes. Set to `true` to allow the script to overwrite existing settings (required for auto-scaling on restart).
+
+**`PG_TUNE_MAX_CONNECTIONS`** (default: `100`)
+Used to calculate `work_mem` accurately if you plan to change the connection limit.
+
+You can also pin specific parameters by setting `PG_TUNE_<PARAMETER_NAME>` — for example, `PG_TUNE_SHARED_BUFFERS=1GB`.
+
+### How Auto-Tuning Works
+
+The auto-tuning script (`tune-postgresql.sh`) runs when the container starts and:
+
+1. Detects cgroup memory limits (v1 and v2) and CPU quotas
+2. Calculates optimal PostgreSQL settings based on available resources
+3. Writes to `postgresql.auto.conf` (same file used by `ALTER SYSTEM`)
+4. Respects existing manual settings unless `PG_TUNE_FORCE=true`
+
+### Kubernetes Note
+
+When running in Kubernetes, auto-tuning is disabled by default to avoid conflicts with CloudNativePG operators. To enable it, set `PG_TUNE_ENABLED=true`.

@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 #
 # Updates the cargoHash in nix/pg_search.nix by building the cargoDeps
 # derivation with a fake hash and extracting the correct one from the error.

@@ -47,9 +47,8 @@ use std::any::Any;
 use std::collections::VecDeque;
 use std::fmt;
 use std::future::poll_fn;
-use std::pin::Pin;
 use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll};
+use std::task::Poll;
 use std::time::{Duration, Instant};
 
 use datafusion::arrow::array::{RecordBatch, UInt64Array};
@@ -57,7 +56,7 @@ use datafusion::arrow::compute::take;
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::common::hash_utils::create_hashes;
 use datafusion::common::{DataFusionError, Result as DFResult};
-use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
+use datafusion::execution::{SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::EquivalenceProperties;
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
@@ -600,96 +599,50 @@ impl ExecutionPlan for ShuffleExec {
             .ok_or_else(|| DataFusionError::Internal("ShuffleExec: already executed".into()))?;
         let child_stream = self.input.execute(0, context)?;
         let schema = self.input.schema();
-        let stream = ShuffleStream::new(child_stream, wiring, schema.clone(), self.tag);
-        Ok(Box::pin(stream))
+        let stream = build_shuffle_stream(child_stream, wiring, schema.clone(), self.tag);
+        Ok(Box::pin(RecordBatchStreamAdapter::new(schema, stream)))
     }
 }
 
-/// Internal stream wrapper for `ShuffleExec::execute`.
-struct ShuffleStream {
-    child: SendableRecordBatchStream,
+/// Mutable per-stream state for [`build_shuffle_stream`]. Kept as a
+/// struct (rather than scattered locals) so [`process_batch`] can mutate
+/// row counters, push to the self-queue, and accumulate trace metrics
+/// in one place.
+struct ShuffleState {
+    /// Set on entry; taken to `None` once the child is exhausted (or
+    /// errors mid-stream) so peer senders detach and signal EOF.
     wiring: Option<ShuffleWiring>,
+    /// Sub-batches destined for this participant, queued for the next
+    /// `yield` from the outer loop. Drained before pulling another
+    /// child batch.
     self_queue: VecDeque<RecordBatch>,
-    done: bool,
-    schema: SchemaRef,
-    /// Diagnostic label for the `mpp_log!` row-count report at EOF.
-    tag: &'static str,
-    /// Remembered `participant_index` for logging after `wiring` is dropped.
     participant_index: u32,
-    /// Total rows read from `child`.
     rows_in: u64,
-    /// Rows kept for this participant itself (queued to `self_queue`).
     rows_self: u64,
-    /// Rows sent to each peer participant. Indexed by destination participant. Entry at
-    /// `participant_index` stays 0 (no self-send).
+    /// Per-destination row counts for the EOF trace. Indexed by
+    /// destination participant; entry at `participant_index` stays 0.
     rows_sent: Vec<u64>,
-    /// Number of input batches pulled from child. Average batch size at EOF
-    /// is `rows_in / batches_in` — useful for spotting small-batch overhead.
     batches_in: u64,
-    /// Set when the EOF `mpp_log!` line has been emitted so we don't double-log.
-    logged_eof: bool,
-    /// Wall-clock instant of the first poll — used to report total stream
-    /// lifetime at EOF. Gated behind `mpp_trace`; set only when the GUC is on
-    /// so overhead is zero on the hot path in non-traced runs.
-    first_poll_at: Option<Instant>,
-    /// Cumulative time spent inside the child's `poll_next`. Approximates
-    /// "upstream wait" for this shuffle.
-    time_in_child: Duration,
-    /// Cumulative time spent in `process_batch` (partition compute + split +
-    /// peer sends). Approximates this shuffle's own CPU cost.
-    time_in_process: Duration,
-    /// Cumulative time inside the cooperative inbound-drain polls at the top
-    /// of `poll_next`. Approximates cost paid on the sender side to un-stall
-    /// peers when local outbound is backed up.
-    time_in_coop_drain: Duration,
-    /// Cumulative time inside `HashPartitioner::partition_for_each_row` — the
-    /// per-row hash that picks each row's destination participant.
     time_in_partition: Duration,
-    /// Cumulative time inside `split_batch_by_partition` — the Arrow `take`
-    /// kernel that materializes per-destination sub-batches.
     time_in_split: Duration,
-    /// Cumulative time inside Arrow-IPC `encode_batch` (from `send_batch_traced`).
     time_in_encode: Duration,
-    /// Cumulative wall time waiting on a full outbound queue (retry-spin
-    /// after the first failed `try_send_bytes`). This is the MPP equivalent
-    /// of "send-side blocked on peer".
     time_in_send_wait: Duration,
-    /// Cumulative `poll_drain_pass` time while stuck in the send-retry spin.
-    /// A subset of `time_in_send_wait`; separating it tells us whether the
-    /// wait is spent draining inbound (productive) or yielding (not productive).
     time_in_coop_drain_in_spin: Duration,
-    /// Count of failed `try_send_bytes` attempts across all outbound sends.
-    /// Divide by `sum(rows_sent to peers / rows_per_batch)` to get avg spin
-    /// iters per send; large values → outbound is chronically full.
     send_spin_iters: u64,
 }
 
-impl ShuffleStream {
-    fn new(
-        child: SendableRecordBatchStream,
-        wiring: ShuffleWiring,
-        schema: SchemaRef,
-        tag: &'static str,
-    ) -> Self {
+impl ShuffleState {
+    fn new(wiring: ShuffleWiring) -> Self {
         let total = wiring.partitioner.total_participants() as usize;
         let participant_index = wiring.participant_index;
         Self {
-            child,
             wiring: Some(wiring),
             self_queue: VecDeque::new(),
-            done: false,
-            schema,
-            tag,
             participant_index,
             rows_in: 0,
             rows_self: 0,
             rows_sent: vec![0u64; total],
             batches_in: 0,
-            logged_eof: false,
-            first_poll_at: None,
-            time_in_child: Duration::ZERO,
-            time_in_process: Duration::ZERO,
-            time_in_coop_drain: Duration::ZERO,
             time_in_partition: Duration::ZERO,
             time_in_split: Duration::ZERO,
             time_in_encode: Duration::ZERO,
@@ -699,92 +652,15 @@ impl ShuffleStream {
         }
     }
 
-    fn log_eof(&mut self) {
-        if self.logged_eof {
-            return;
-        }
-        self.logged_eof = true;
-        // The body is gated out of `cargo test --lib` (i.e., `cfg(test)`)
-        // because `pgrx::warning!` / `pgrx::debug1!` expand to `ereport`,
-        // which pulls PG FFI symbols (`errstart`, `errfinish`, `palloc0`, …)
-        // that aren't linked into the unit-test binary. The
-        // `cargo test --lib` target is not a `pg_test` target — it never
-        // boots a Postgres backend, so it cannot resolve those symbols at
-        // link time. Runtime gating on `mpp_trace()` would be enough were
-        // it not for `--instrument-coverage`, under which DCE is disabled
-        // and the macros are reached at link time even when the GUC is
-        // false. The runtime EOF path itself *is* exercised by unit tests
-        // (e.g., `drain_gather_exec_yields_eof_on_empty_peer`); they just
-        // don't need the trace output.
-        #[cfg(not(test))]
-        {
-            let sent_summary = self
-                .rows_sent
-                .iter()
-                .enumerate()
-                .map(|(i, n)| format!("->{i}={n}"))
-                .collect::<Vec<_>>()
-                .join(",");
-            // Per-participant EOF trace. Kept off `mpp_debug` because these lines
-            // emit concurrently from every participant and reorder run-to-run —
-            // at WARNING under mpp_debug they flaked regress expected files.
-            // Gated on the dedicated `mpp_trace` GUC so benchmarks can capture
-            // row counts in CI (WARNING stream) without affecting regress.
-            let wall_ms = self
-                .first_poll_at
-                .map(|t| t.elapsed().as_secs_f64() * 1000.0)
-                .unwrap_or(0.0);
-            let child_ms = self.time_in_child.as_secs_f64() * 1000.0;
-            let process_ms = self.time_in_process.as_secs_f64() * 1000.0;
-            let coop_ms = self.time_in_coop_drain.as_secs_f64() * 1000.0;
-            let part_ms = self.time_in_partition.as_secs_f64() * 1000.0;
-            let split_ms = self.time_in_split.as_secs_f64() * 1000.0;
-            let encode_ms = self.time_in_encode.as_secs_f64() * 1000.0;
-            let send_wait_ms = self.time_in_send_wait.as_secs_f64() * 1000.0;
-            let drain_in_spin_ms = self.time_in_coop_drain_in_spin.as_secs_f64() * 1000.0;
-            if mpp_trace() {
-                pgrx::warning!(
-                    "mpp: ShuffleStream[{}] participant={} EOF rows_in={} batches_in={} self={} sent=[{}] wall_ms={:.1} child_ms={:.1} process_ms={:.1} coop_drain_ms={:.1} part_ms={:.1} split_ms={:.1} encode_ms={:.1} send_wait_ms={:.1} drain_in_spin_ms={:.1} spin_iters={}",
-                    self.tag,
-                    self.participant_index,
-                    self.rows_in,
-                    self.batches_in,
-                    self.rows_self,
-                    sent_summary,
-                    wall_ms,
-                    child_ms,
-                    process_ms,
-                    coop_ms,
-                    part_ms,
-                    split_ms,
-                    encode_ms,
-                    send_wait_ms,
-                    drain_in_spin_ms,
-                    self.send_spin_iters,
-                );
-            } else {
-                pgrx::debug1!(
-                    "mpp: ShuffleStream[{}] participant={} EOF rows_in={} self={} sent=[{}]",
-                    self.tag,
-                    self.participant_index,
-                    self.rows_in,
-                    self.rows_self,
-                    sent_summary
-                );
-            }
-        }
-    }
-
-    /// Process one input batch: partition, push self-sub to queue, send peer
-    /// subs. Returns Ok(()) on success, Err otherwise.
-    fn process_batch(&mut self, batch: RecordBatch) -> Result<(), DataFusionError> {
+    /// Process one input batch: partition rows, queue our self-share,
+    /// ship peer-shares via `MppSender`. Mutates row/timing counters.
+    fn process_batch(&mut self, batch: RecordBatch, trace_on: bool) -> DFResult<()> {
         let rows = batch.num_rows() as u64;
         if rows == 0 {
             return Ok(());
         }
         self.rows_in += rows;
         self.batches_in += 1;
-        let trace_on = mpp_trace_flag();
         let wiring = self.wiring.as_ref().ok_or_else(|| {
             DataFusionError::Internal("ShuffleStream: wiring missing mid-stream".into())
         })?;
@@ -831,103 +707,188 @@ impl ShuffleStream {
     }
 }
 
-impl futures::Stream for ShuffleStream {
-    type Item = DFResult<RecordBatch>;
+/// Build the async stream that powers [`ShuffleExec`]. Pulls batches from
+/// `child`, partitions each by row, ships peer-shares via the `MppSender`s
+/// in `wiring`, and yields the local participant's share back up the plan.
+///
+/// The body interleaves three concerns on a single task: pulling from
+/// `child`, shipping outbound via `shm_mq_send`, and pumping the
+/// cooperative inbound drain so peer `MppSender`s can keep flushing into
+/// us. The drain is synchronous because `shm_mq` has no async readiness
+/// signal; an `async-stream` body shaped around it (rather than a
+/// `select!` over async sources) keeps the cooperative step explicit.
+fn build_shuffle_stream(
+    mut child: SendableRecordBatchStream,
+    wiring: ShuffleWiring,
+    _schema: SchemaRef,
+    tag: &'static str,
+) -> impl Stream<Item = DFResult<RecordBatch>> + Send {
+    use futures::StreamExt;
 
-    /// Hand-rolled `Stream` impl rather than `async-stream` + `select!` over
-    /// a `tokio::sync::mpsc` queue. The poll body interleaves three
-    /// concerns on the same backend thread: pulling from `child`, shipping
-    /// outbound via `shm_mq_send`, and pumping `poll_drain_pass` so peers
-    /// can drain us. A `select!` over async-only sources cannot express
-    /// the cooperative drain step because the `shm_mq` FFI is synchronous
-    /// and there is no second async task to wake us when inbound bytes
-    /// arrive — the consumer that runs the drain *is* this same task.
-    /// Tracked as a post-merge readability follow-up.
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // Timing: record first-poll instant so EOF can report total lifetime.
-        // Gated on the GUC so a non-traced run pays nothing beyond a branch.
+    async_stream::stream! {
         let trace_on = mpp_trace_flag();
-        if trace_on && self.first_poll_at.is_none() {
-            self.first_poll_at = Some(Instant::now());
-        }
-        // 1. Drain any queued self-partition batches first.
-        if let Some(batch) = self.self_queue.pop_front() {
-            return Poll::Ready(Some(Ok(batch)));
-        }
-        if self.done {
-            return Poll::Ready(None);
-        }
+        let first_poll_at = trace_on.then(Instant::now);
+        let mut time_in_child = Duration::ZERO;
+        let mut time_in_process = Duration::ZERO;
+        let mut time_in_coop_drain = Duration::ZERO;
+        let mut state = ShuffleState::new(wiring);
 
-        // Proactive inbound drain: while we're producing + shipping, keep
-        // consuming peer-shipped batches into our DrainBuffer. Without
-        // this, a participant whose outbound sends succeed fast never
-        // drains its inbound, peers' sends to us can't un-stall, and the
-        // mesh deadlocks on asymmetric pressure (observed as a 120s
-        // statement timeout on `aggregate_join_groupby - alternative 2`
-        // at 25M rows). The DrainBuffer is consumed later by
-        // `DrainGatherStream::poll_next` — this just keeps the pipe
-        // moving in the meantime.
-        if let Some(wiring) = self.wiring.as_ref() {
-            if let Some(drain) = wiring.cooperative_drain.as_ref() {
-                let t0 = trace_on.then(Instant::now);
-                let _ = drain.poll_drain_pass();
-                if let Some(t0) = t0 {
-                    self.time_in_coop_drain += t0.elapsed();
-                }
+        let outcome: DFResult<()> = 'pump: loop {
+            // 1. Drain any queued self-partition batches first; each
+            //    yield re-enters the loop and re-runs the inbound drain
+            //    below before pulling another child batch.
+            if let Some(b) = state.self_queue.pop_front() {
+                yield Ok(b);
+                continue 'pump;
             }
-        }
 
-        loop {
-            let t_child = trace_on.then(Instant::now);
-            let res = futures::Stream::poll_next(Pin::new(&mut self.child), cx);
-            if let Some(t0) = t_child {
-                self.time_in_child += t0.elapsed();
-            }
-            match res {
-                Poll::Pending => return Poll::Pending,
-                Poll::Ready(None) => {
-                    // Child exhausted — drop senders to signal peer EOF.
-                    self.wiring.take();
-                    self.done = true;
-                    self.log_eof();
-                    return Poll::Ready(None);
-                }
-                Poll::Ready(Some(Err(e))) => {
-                    self.wiring.take();
-                    self.done = true;
-                    self.log_eof();
-                    return Poll::Ready(Some(Err(e)));
-                }
-                Poll::Ready(Some(Ok(batch))) => {
-                    let t_proc = trace_on.then(Instant::now);
-                    let result = self.process_batch(batch);
-                    if let Some(t0) = t_proc {
-                        self.time_in_process += t0.elapsed();
-                    }
-                    match result {
-                        Ok(()) => {
-                            if let Some(self_batch) = self.self_queue.pop_front() {
-                                return Poll::Ready(Some(Ok(self_batch)));
-                            }
-                            // No self-partition in this batch; pull the next one.
-                            continue;
-                        }
-                        Err(e) => {
-                            self.wiring.take();
-                            self.done = true;
-                            self.log_eof();
-                            return Poll::Ready(Some(Err(e)));
-                        }
+            // 2. Proactive inbound drain: while we're producing + shipping,
+            //    keep consuming peer-shipped batches into our DrainBuffer.
+            //    Without this, a participant whose outbound sends succeed
+            //    fast never drains its inbound, peers' sends to us can't
+            //    un-stall, and the mesh deadlocks on asymmetric pressure
+            //    (observed as a 120s statement timeout on
+            //    `aggregate_join_groupby - alternative 2` at 25M rows).
+            //    The DrainBuffer is consumed later by `DrainGatherStream`
+            //    — this just keeps the pipe moving in the meantime.
+            if let Some(w) = state.wiring.as_ref() {
+                if let Some(drain) = w.cooperative_drain.as_ref() {
+                    let t0 = trace_on.then(Instant::now);
+                    let _ = drain.poll_drain_pass();
+                    if let Some(t0) = t0 {
+                        time_in_coop_drain += t0.elapsed();
                     }
                 }
             }
+
+            // 3. Pull child batches until one produces a self-row (handled
+            //    on the next outer iteration) or the child exhausts.
+            'pull: loop {
+                let t_child = trace_on.then(Instant::now);
+                let next = child.next().await;
+                if let Some(t0) = t_child {
+                    time_in_child += t0.elapsed();
+                }
+                match next {
+                    None => break 'pump Ok(()),
+                    Some(Err(e)) => break 'pump Err(e),
+                    Some(Ok(batch)) => {
+                        let t_proc = trace_on.then(Instant::now);
+                        let result = state.process_batch(batch, trace_on);
+                        if let Some(t0) = t_proc {
+                            time_in_process += t0.elapsed();
+                        }
+                        if let Err(e) = result {
+                            break 'pump Err(e);
+                        }
+                        if !state.self_queue.is_empty() {
+                            // Hand off to the outer loop so the queued
+                            // self-batch yields and the inbound drain
+                            // re-runs before we pull again.
+                            continue 'pump;
+                        }
+                        // No self-partition in this batch — keep pulling.
+                        continue 'pull;
+                    }
+                }
+            }
+        };
+
+        // EOF / error tail: drop wiring so peer senders detach and signal
+        // EOF downstream, then emit the trace line. Drained self_queue
+        // entries (if any remained) are intentionally discarded — the
+        // original poll_next behavior on Err / unexpected-None matches.
+        state.wiring.take();
+        log_shuffle_eof(
+            tag,
+            &state,
+            ShuffleTimings {
+                first_poll_at,
+                time_in_child,
+                time_in_process,
+                time_in_coop_drain,
+            },
+        );
+        if let Err(e) = outcome {
+            yield Err(e);
         }
     }
 }
 
-impl RecordBatchStream for ShuffleStream {
-    fn schema(&self) -> SchemaRef {
-        self.schema.clone()
+/// Wall-clock timings carried alongside [`ShuffleState`] in
+/// [`build_shuffle_stream`]; emitted at EOF by [`log_shuffle_eof`].
+struct ShuffleTimings {
+    /// Set only when `mpp_trace_flag()` was on at first poll.
+    first_poll_at: Option<Instant>,
+    time_in_child: Duration,
+    time_in_process: Duration,
+    /// Cooperative inbound-drain time at the top of each loop iteration
+    /// (excludes the in-spin drain accounted for inside `send_batch_traced`).
+    time_in_coop_drain: Duration,
+}
+
+/// Trace-line emitter for [`build_shuffle_stream`]'s EOF path. Gated out
+/// of `cargo test --lib` for the same reason as
+/// [`log_drain_gather_eof`]: the unit-test target is not a `pg_test`
+/// target and can't link the FFI symbols `pgrx::{warning,debug1}!`
+/// expand into via `ereport`. The runtime EOF path itself *is* exercised
+/// by tests.
+fn log_shuffle_eof(tag: &'static str, state: &ShuffleState, t: ShuffleTimings) {
+    #[cfg(not(test))]
+    {
+        let sent_summary = state
+            .rows_sent
+            .iter()
+            .enumerate()
+            .map(|(i, n)| format!("->{i}={n}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let wall_ms = t
+            .first_poll_at
+            .map(|s| s.elapsed().as_secs_f64() * 1000.0)
+            .unwrap_or(0.0);
+        let child_ms = t.time_in_child.as_secs_f64() * 1000.0;
+        let process_ms = t.time_in_process.as_secs_f64() * 1000.0;
+        let coop_ms = t.time_in_coop_drain.as_secs_f64() * 1000.0;
+        let part_ms = state.time_in_partition.as_secs_f64() * 1000.0;
+        let split_ms = state.time_in_split.as_secs_f64() * 1000.0;
+        let encode_ms = state.time_in_encode.as_secs_f64() * 1000.0;
+        let send_wait_ms = state.time_in_send_wait.as_secs_f64() * 1000.0;
+        let drain_in_spin_ms = state.time_in_coop_drain_in_spin.as_secs_f64() * 1000.0;
+        if mpp_trace() {
+            pgrx::warning!(
+                "mpp: ShuffleStream[{}] participant={} EOF rows_in={} batches_in={} self={} sent=[{}] wall_ms={:.1} child_ms={:.1} process_ms={:.1} coop_drain_ms={:.1} part_ms={:.1} split_ms={:.1} encode_ms={:.1} send_wait_ms={:.1} drain_in_spin_ms={:.1} spin_iters={}",
+                tag,
+                state.participant_index,
+                state.rows_in,
+                state.batches_in,
+                state.rows_self,
+                sent_summary,
+                wall_ms,
+                child_ms,
+                process_ms,
+                coop_ms,
+                part_ms,
+                split_ms,
+                encode_ms,
+                send_wait_ms,
+                drain_in_spin_ms,
+                state.send_spin_iters,
+            );
+        } else {
+            pgrx::debug1!(
+                "mpp: ShuffleStream[{}] participant={} EOF rows_in={} self={} sent=[{}]",
+                tag,
+                state.participant_index,
+                state.rows_in,
+                state.rows_self,
+                sent_summary
+            );
+        }
+    }
+    #[cfg(test)]
+    {
+        let _ = (tag, state, t);
     }
 }
 

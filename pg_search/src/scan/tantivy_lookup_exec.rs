@@ -2,9 +2,9 @@ use std::any::Any;
 use std::sync::Arc;
 
 use crate::index::fast_fields_helper::{
-    ords_to_bytes_array, ords_to_string_array, CanonicalColumn, FFHelper, FFType,
+    ords_to_bytes_array, ords_to_string_array, partition_by_segment, CanonicalColumn, FFHelper,
+    FFType,
 };
-use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::UnsafeSendStream;
 
 use arrow_array::{new_null_array, Array, ArrayRef, RecordBatch, UInt64Array, UnionArray};
@@ -362,10 +362,8 @@ fn materialize_deferred_column(
         }
     }
 
-    // 1. Group requests by segment ordinal to process one segment at a time.
-    let mut state_0_by_seg: crate::api::HashMap<SegmentOrdinal, Vec<(usize, DocId)>> =
-        crate::api::HashMap::default();
-    if !state_0_rows.is_empty() {
+    // 1. Group State 0 requests by segment ordinal to process one segment at a time.
+    let state_0_by_seg = if !state_0_rows.is_empty() {
         let doc_address_child = union_array
             .child(0)
             .as_any()
@@ -375,15 +373,13 @@ fn materialize_deferred_column(
                     "expected UInt64Array for doc_address child in deferred union".into(),
                 )
             })?;
-        for &row in &state_0_rows {
-            let packed = doc_address_child.value(offsets[row] as usize);
-            let (seg_ord, doc_id) = unpack_doc_address(packed);
-            state_0_by_seg
-                .entry(seg_ord)
-                .or_default()
-                .push((row, doc_id));
-        }
-    }
+        let packed_iter = state_0_rows
+            .iter()
+            .map(|&row| (row, doc_address_child.value(offsets[row] as usize)));
+        partition_by_segment(packed_iter)
+    } else {
+        Default::default()
+    };
 
     let mut state_1_by_seg: crate::api::HashMap<SegmentOrdinal, Vec<(usize, Option<TermOrdinal>)>> =
         crate::api::HashMap::default();
@@ -476,15 +472,8 @@ fn materialize_deferred_column(
             Ok(())
         };
 
-    // Sort seg_ords to ensure deterministic behavior across executions.
-    let mut seg_ords_0: Vec<SegmentOrdinal> = state_0_by_seg.keys().copied().collect();
-    seg_ords_0.sort_unstable();
-
-    for seg_ord in seg_ords_0 {
-        let rows = state_0_by_seg.remove(&seg_ord).ok_or_else(|| {
-            DataFusionError::Execution(format!("Segment {} missing from state 0 map", seg_ord))
-        })?;
-
+    // Process State 0: resolve doc_ids to term ordinals, then dictionary-decode.
+    for (seg_ord, rows) in state_0_by_seg {
         let ids: Vec<DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
         let mut term_ords: Vec<Option<TermOrdinal>> = vec![None; ids.len()];
 
@@ -505,6 +494,7 @@ fn materialize_deferred_column(
         process_ordinals(seg_ord, rows_with_ords)?;
     }
 
+    // Sort seg_ords to ensure deterministic behavior across executions.
     let mut seg_ords_1: Vec<SegmentOrdinal> = state_1_by_seg.keys().copied().collect();
     seg_ords_1.sort_unstable();
 

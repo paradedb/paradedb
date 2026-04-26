@@ -15,12 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::BTreeMap;
 use std::convert::identity;
 use std::sync::{Arc, OnceLock};
 
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::types_arrow::date_time_to_ts_nanos;
+use crate::scan::deferred_encode::unpack_doc_address;
 use crate::schema::SearchFieldType;
 
 use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
@@ -439,6 +441,57 @@ pub fn resolve_ctid(
         .1
         .as_u64(doc_address.doc_id)
         .expect("ctid should be present")
+}
+
+/// Groups packed doc addresses by segment ordinal, returning a `BTreeMap` that
+/// iterates in segment-sorted order.
+///
+/// `packed_iter` yields `(row_index, packed_doc_address)` pairs where each packed
+/// value encodes `(segment_ord, doc_id)` via [`crate::scan::deferred_encode::pack_doc_addresses`].
+pub fn partition_by_segment(
+    packed_iter: impl Iterator<Item = (usize, u64)>,
+) -> BTreeMap<SegmentOrdinal, Vec<(usize, DocId)>> {
+    let mut by_seg: BTreeMap<SegmentOrdinal, Vec<(usize, DocId)>> = BTreeMap::new();
+    for (row_idx, packed) in packed_iter {
+        let (seg_ord, doc_id) = unpack_doc_address(packed);
+        by_seg.entry(seg_ord).or_default().push((row_idx, doc_id));
+    }
+    by_seg
+}
+
+/// Partitions packed doc addresses by segment ordinal, invokes a caller-supplied
+/// resolver for each segment's batch of doc IDs, and scatters the results back
+/// into original row order.
+///
+/// `packed_iter` yields `(row_index, packed_doc_address)` pairs where each packed
+/// value encodes `(segment_ord, doc_id)` via [`crate::scan::deferred_encode::pack_doc_addresses`].
+///
+/// `resolve_segment` is called once per distinct segment with `(segment_ord, doc_ids)` and
+/// must return a `Vec<Option<T>>` parallel to `doc_ids`.
+///
+/// Returns a `Vec<Option<T>>` of length `num_rows` with each resolved value placed
+/// at its original row position. Rows not present in `packed_iter` remain `None`.
+pub fn resolve_by_segment<T, F>(
+    packed_iter: impl Iterator<Item = (usize, u64)>,
+    num_rows: usize,
+    mut resolve_segment: F,
+) -> Result<Vec<Option<T>>>
+where
+    F: FnMut(SegmentOrdinal, &[DocId]) -> Result<Vec<Option<T>>>,
+{
+    let by_seg = partition_by_segment(packed_iter);
+
+    let mut output: Vec<Option<T>> = Vec::with_capacity(num_rows);
+    output.resize_with(num_rows, || None);
+
+    for (seg_ord, rows) in by_seg {
+        let doc_ids: Vec<DocId> = rows.iter().map(|(_, id)| *id).collect();
+        let resolved = resolve_segment(seg_ord, &doc_ids)?;
+        for ((row_idx, _), value) in rows.into_iter().zip(resolved) {
+            output[row_idx] = value;
+        }
+    }
+    Ok(output)
 }
 
 pub(crate) const NULL_TERM_ORDINAL: TermOrdinal = u64::MAX;

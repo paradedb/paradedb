@@ -76,7 +76,6 @@ use crate::postgres::customscan::joinscan::build::{JoinType, RelNode};
 use crate::postgres::customscan::joinscan::CtidColumn;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
-use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::UnsafeSendStream;
 use crate::scan::table_provider::{PgSearchTableProvider, VisibilitySourceMetadata};
 use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
@@ -866,7 +865,6 @@ impl ExecutionPlan for VisibilityFilterExec {
                 col_idx,
                 checker: visibility,
                 resolver,
-                deferred_ctid_state: DeferredCtidMaterializationState::default(),
                 ctid_input: Vec::new(),
                 visibility_results: Vec::new(),
             });
@@ -901,70 +899,30 @@ impl ExecutionPlan for VisibilityFilterExec {
 // Deferred ctid materialization
 // ---------------------------------------------------------------------------
 
-#[derive(Default)]
-struct DeferredCtidMaterializationState {
-    requests: Vec<(u32, usize, u32)>,
-    segment_doc_ids: Vec<u32>,
-    segment_ctids: Vec<Option<u64>>,
-    resolved_ctids: Vec<Option<u64>>,
-}
-
 /// Resolves packed DocAddresses (UInt64) to real ctids via FFHelper.
 ///
 /// Each packed value encodes (segment_ord, doc_id). The FFHelper's ctid()
 /// column is used to look up the real ctid for each document.
-///
-/// TODO: This request-partitioning pattern is duplicated in `materialize_deferred_column`
-/// in `tantivy_lookup_exec.rs`. Both should be unified and optimized with Arrow
-/// kernels where possible.
 fn materialize_deferred_ctid(
     ffhelper: &FFHelper,
     doc_addr_array: &UInt64Array,
-    state: &mut DeferredCtidMaterializationState,
 ) -> Result<ArrayRef> {
     let num_rows = doc_addr_array.len();
-    state.requests.clear();
-    state.resolved_ctids.clear();
-    state.resolved_ctids.resize(num_rows, None);
+    let packed_iter = (0..num_rows)
+        .filter(|&i| !doc_addr_array.is_null(i))
+        .map(|i| (i, doc_addr_array.value(i)));
 
-    // Sort by segment so each fast-field column can be batch-read with a single
-    // `as_u64s` call per segment.
-    for i in 0..num_rows {
-        if !doc_addr_array.is_null(i) {
-            let (seg_ord, doc_id) = unpack_doc_address(doc_addr_array.value(i));
-            state.requests.push((seg_ord, i, doc_id));
-        }
-    }
-    state.requests.sort_unstable_by_key(|request| request.0);
+    let resolved = crate::index::fast_fields_helper::resolve_by_segment(
+        packed_iter,
+        num_rows,
+        |seg_ord, doc_ids| {
+            let mut ctids = vec![None; doc_ids.len()];
+            ffhelper.ctid(seg_ord).as_u64s(doc_ids, &mut ctids);
+            Ok(ctids)
+        },
+    )?;
 
-    let mut offset = 0;
-    while offset < state.requests.len() {
-        let seg_ord = state.requests[offset].0;
-        let mut end = offset + 1;
-        while end < state.requests.len() && state.requests[end].0 == seg_ord {
-            end += 1;
-        }
-
-        let rows = &state.requests[offset..end];
-        state.segment_doc_ids.clear();
-        state
-            .segment_doc_ids
-            .extend(rows.iter().map(|(_, _, doc_id)| *doc_id));
-        if state.segment_ctids.len() < rows.len() {
-            state.segment_ctids.resize(rows.len(), None);
-        }
-        let segment_ctids = &mut state.segment_ctids[..rows.len()];
-        segment_ctids.fill(None);
-        let ctid_col = ffhelper.ctid(seg_ord);
-        ctid_col.as_u64s(&state.segment_doc_ids, segment_ctids);
-
-        for ((_, row_idx, _), maybe_ctid) in rows.iter().zip(segment_ctids.iter()) {
-            state.resolved_ctids[*row_idx] = *maybe_ctid;
-        }
-        offset = end;
-    }
-
-    Ok(uint64_array_from_options(&state.resolved_ctids))
+    Ok(uint64_array_from_options(&resolved))
 }
 
 fn uint64_array_from_options(values: &[Option<u64>]) -> ArrayRef {
@@ -985,7 +943,6 @@ struct CtidCheckerEntry {
     /// Always present: `VisibilityCtidResolverRule` guarantees wiring, and
     /// `execute()` validates at runtime.
     resolver: Arc<FFHelper>,
-    deferred_ctid_state: DeferredCtidMaterializationState,
     ctid_input: Vec<Option<u64>>,
     visibility_results: Vec<Option<u64>>,
 }
@@ -1033,11 +990,7 @@ fn filter_batch(
                 entry.col_idx
             ))
         })?;
-        let resolved = materialize_deferred_ctid(
-            &entry.resolver,
-            doc_addr_array,
-            &mut entry.deferred_ctid_state,
-        )?;
+        let resolved = materialize_deferred_ctid(&entry.resolver, doc_addr_array)?;
         columns[entry.col_idx] = resolved;
     }
 

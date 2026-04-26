@@ -197,8 +197,8 @@ impl BaseScan {
                         std::ptr::NonNull::new(expr_context),
                     );
 
-                let estate = unsafe { (*csstate).ss.ps.state };
                 unsafe {
+                    let estate = (*csstate).ss.ps.state;
                     snippet_type.configure_generator(&mut new_generator.1, estate);
                 }
 
@@ -2447,19 +2447,19 @@ fn is_range_query_string(query_string: &str) -> bool {
 /// Project configured snippets (if any).
 ///
 /// Must be called inside the per-tuple `MemoryContext`.
-unsafe fn maybe_project_snippets(
-    state: &BaseScanState,
-    ctid: u64,
-    estate: *mut pg_sys::EState,
-) {
+unsafe fn maybe_project_snippets(state: &BaseScanState, ctid: u64, estate: *mut pg_sys::EState) {
     if !state.need_snippets() {
         return;
     }
 
     for (snippet_type, const_snippet_nodes) in &state.const_snippet_nodes {
         match snippet_type {
-            SnippetType::SingleText(_, _, _) => {
-                let snippet = state.make_snippet(ctid, snippet_type, estate);
+            SnippetType::SingleText(_, config, _) => {
+                // Resolve start/end tags once per snippet type; for Static
+                // values this avoids cloning the String per tuple.
+                let start_tag = config.resolve_start_tag(estate);
+                let end_tag = config.resolve_end_tag(estate);
+                let snippet = state.make_snippet(ctid, snippet_type, &start_tag, &end_tag);
 
                 for const_ in const_snippet_nodes {
                     match &snippet {
@@ -2474,8 +2474,10 @@ unsafe fn maybe_project_snippets(
                     }
                 }
             }
-            SnippetType::MultipleText(_, _, _, _) => {
-                let snippets = state.make_snippets(ctid, snippet_type, estate);
+            SnippetType::MultipleText(_, config, _, _) => {
+                let start_tag = config.resolve_start_tag(estate);
+                let end_tag = config.resolve_end_tag(estate);
+                let snippets = state.make_snippets(ctid, snippet_type, &start_tag, &end_tag);
 
                 for const_ in const_snippet_nodes {
                     match &snippets {

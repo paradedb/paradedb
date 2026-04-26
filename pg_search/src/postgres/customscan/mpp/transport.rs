@@ -223,8 +223,16 @@ impl DrainBuffer {
         if guard.cancelled || guard.sources_done >= guard.num_sources {
             return Some(DrainItem::Eof);
         }
-        // Register (or replace) the waker. Only one consumer at a time is
-        // expected — DrainGatherStream — so simple replacement is fine.
+        // One consumer at a time — DrainGatherStream is the only caller,
+        // and a future plan that wired two readers off the same handle
+        // would silently drop one waker on every register. The check is
+        // a debug_assert so it's free in release; if the invariant is
+        // ever lifted, switch to a `Vec<Waker>` and wake all.
+        debug_assert!(
+            guard.waker.is_none() || guard.waker.as_ref().unwrap().will_wake(waker),
+            "DrainBuffer::poll_pop_front: second consumer registered a different waker — \
+             only one consumer is supported per buffer"
+        );
         guard.waker = Some(waker.clone());
         None
     }

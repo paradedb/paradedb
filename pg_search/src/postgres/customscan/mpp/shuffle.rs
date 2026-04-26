@@ -17,8 +17,13 @@
 
 //! Shuffle operator primitives for MPP.
 //!
-//! Today this file carries the pure-function primitives that the forthcoming
-//! `ShuffleExec` DataFusion operator composes:
+//! Carries both the pure-function primitives and the DataFusion operators
+//! that compose them. The operators ([`ShuffleExec`] for the producer side,
+//! [`DrainGatherExec`] for the consumer side) live in this file alongside
+//! the primitives so a reader can step from "row → destination" through
+//! "Stream poll body" without crossing files.
+//!
+//! Primitives:
 //!
 //! - [`RowPartitioner`] is the trait `ShuffleExec` calls per batch to decide
 //!   which destination participant each row belongs to.
@@ -29,9 +34,9 @@
 //!   Routing is therefore stable across workers — every worker that sees the
 //!   same input rows places them on the same participant. Downstream `HashJoinExec`
 //!   and `AggregateExec` intentionally use *different* seeds internally (see
-//!   their `HASH_JOIN_SEED` / `AGGREGATION_HASH_SEED` constants); that is by
-//!   design to avoid hash collisions between routing and internal hash
-//!   tables, and has no bearing on our shuffle correctness.
+//!   their `HASH_JOIN_SEED` / `AGGREGATION_HASH_SEED` constants) — that
+//!   keeps routing distribution and internal hash-table distribution
+//!   decoupled, and has no bearing on our shuffle correctness.
 //! - [`ModuloPartitioner`] is the test-only variant that routes row `i` to
 //!   destination `i % N`, so tests can verify routing without committing to
 //!   a specific hash output.
@@ -44,11 +49,8 @@
 #![allow(dead_code)]
 
 use std::any::Any;
-use std::collections::VecDeque;
 use std::fmt;
-use std::future::poll_fn;
 use std::sync::{Arc, Mutex};
-use std::task::Poll;
 use std::time::{Duration, Instant};
 
 use datafusion::arrow::array::{RecordBatch, UInt64Array};
@@ -64,32 +66,13 @@ use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
 };
 use futures::Stream;
+use tokio::task::yield_now;
 
 #[cfg(not(test))]
 use crate::gucs::mpp_trace;
 use crate::postgres::customscan::mpp::transport::{
     DrainHandle, DrainItem, MppSender, SendBatchStats,
 };
-
-/// Yield to the executor for one tick. Used by `async_stream::stream!`
-/// bodies that drive cooperative work (drain pumping, outbound shipping)
-/// on the same task that consumes from a `DrainBuffer` — there is no
-/// other task to wake the buffer, so yielding gives the scheduler a
-/// chance to run sibling tasks (e.g. peer `ShuffleExec`s producing the
-/// data we're waiting for) before our next loop iteration.
-async fn yield_to_executor() {
-    let mut yielded = false;
-    poll_fn(move |cx| {
-        if yielded {
-            Poll::Ready(())
-        } else {
-            yielded = true;
-            cx.waker().wake_by_ref();
-            Poll::Pending
-        }
-    })
-    .await;
-}
 
 /// GUC read wrapper that is inert under `cfg(test)`.
 ///
@@ -521,6 +504,16 @@ impl ShuffleExec {
         );
 
         let eq_properties = EquivalenceProperties::new(input.schema());
+        // `UnknownPartitioning(1)` is intentional even though the rows
+        // emerging from the shuffle *are* hash-partitioned by
+        // `wiring.partitioner.key_columns`. MPP plans are hand-built —
+        // there is no `EnforceDistribution` rule running over them — so
+        // declaring `Partitioning::Hash(...)` would buy us nothing and
+        // would force us to materialise `Arc<dyn PhysicalExpr>`s for the
+        // key columns just to satisfy the API. If the planner ever runs
+        // `EnforceDistribution` over an MPP plan, revisit this so a
+        // downstream `HashJoinExec(Partitioned)` doesn't insert a
+        // redundant `RepartitionExec` on top of us.
         let plan_properties = Arc::new(PlanProperties::new(
             eq_properties,
             Partitioning::UnknownPartitioning(1),
@@ -599,7 +592,7 @@ impl ExecutionPlan for ShuffleExec {
             .ok_or_else(|| DataFusionError::Internal("ShuffleExec: already executed".into()))?;
         let child_stream = self.input.execute(0, context)?;
         let schema = self.input.schema();
-        let stream = build_shuffle_stream(child_stream, wiring, schema.clone(), self.tag);
+        let stream = build_shuffle_stream(child_stream, wiring, self.tag);
         Ok(Box::pin(RecordBatchStreamAdapter::new(schema, stream)))
     }
 }
@@ -612,10 +605,11 @@ struct ShuffleState {
     /// Set on entry; taken to `None` once the child is exhausted (or
     /// errors mid-stream) so peer senders detach and signal EOF.
     wiring: Option<ShuffleWiring>,
-    /// Sub-batches destined for this participant, queued for the next
-    /// `yield` from the outer loop. Drained before pulling another
-    /// child batch.
-    self_queue: VecDeque<RecordBatch>,
+    /// Sub-batch destined for this participant, queued for the next
+    /// `yield` from the outer loop. At most one entry: each input batch
+    /// produces a single self-share (or none), drained before pulling
+    /// another child batch.
+    self_queue: Option<RecordBatch>,
     participant_index: u32,
     rows_in: u64,
     rows_self: u64,
@@ -637,7 +631,7 @@ impl ShuffleState {
         let participant_index = wiring.participant_index;
         Self {
             wiring: Some(wiring),
-            self_queue: VecDeque::new(),
+            self_queue: None,
             participant_index,
             rows_in: 0,
             rows_self: 0,
@@ -679,7 +673,11 @@ impl ShuffleState {
         // Self first (see run_shuffle_pump docstring for rationale).
         if let Some(self_sub) = subs[wiring.participant_index as usize].take() {
             self.rows_self += self_sub.num_rows() as u64;
-            self.self_queue.push_back(self_sub);
+            // Slot is always free here: process_batch only runs when the
+            // outer pump has just yielded any prior self-share, and each
+            // input batch produces at most one self-share.
+            debug_assert!(self.self_queue.is_none(), "self_queue overwrite");
+            self.self_queue = Some(self_sub);
         }
         let mut send_stats = SendBatchStats::default();
         for (dest_idx, sub) in subs.into_iter().enumerate() {
@@ -720,7 +718,6 @@ impl ShuffleState {
 fn build_shuffle_stream(
     mut child: SendableRecordBatchStream,
     wiring: ShuffleWiring,
-    _schema: SchemaRef,
     tag: &'static str,
 ) -> impl Stream<Item = DFResult<RecordBatch>> + Send {
     use futures::StreamExt;
@@ -737,7 +734,7 @@ fn build_shuffle_stream(
             // 1. Drain any queued self-partition batches first; each
             //    yield re-enters the loop and re-runs the inbound drain
             //    below before pulling another child batch.
-            if let Some(b) = state.self_queue.pop_front() {
+            if let Some(b) = state.self_queue.take() {
                 yield Ok(b);
                 continue 'pump;
             }
@@ -781,7 +778,7 @@ fn build_shuffle_stream(
                         if let Err(e) = result {
                             break 'pump Err(e);
                         }
-                        if !state.self_queue.is_empty() {
+                        if state.self_queue.is_some() {
                             // Hand off to the outer loop so the queued
                             // self-batch yields and the inbound drain
                             // re-runs before we pull again.
@@ -795,9 +792,11 @@ fn build_shuffle_stream(
         };
 
         // EOF / error tail: drop wiring so peer senders detach and signal
-        // EOF downstream, then emit the trace line. Drained self_queue
-        // entries (if any remained) are intentionally discarded — the
-        // original poll_next behavior on Err / unexpected-None matches.
+        // EOF downstream, then emit the trace line. A self-share that
+        // happened to land in the queue right before an error is
+        // intentionally discarded — DataFusion's contract for a yielded
+        // `Err` is that no subsequent items follow, so emitting the
+        // queued batch first would mislead aggregators above us.
         state.wiring.take();
         log_shuffle_eof(
             tag,
@@ -1032,6 +1031,16 @@ fn build_drain_gather_stream(
         // shutdown + log_eof tail below; using a local `Result` keeps the
         // tail in one place rather than duplicating it at every exit.
         let outcome: DFResult<()> = 'drain: loop {
+            // A peer that crashes before sending its detach leaves us
+            // pinned in the cooperative loop until statement_timeout;
+            // honor query cancel so the consumer can exit promptly.
+            // Gated out of `cargo test --lib` for the same reason as
+            // the `MppSender::send_batch_traced` spin: the macro pulls
+            // `ProcessInterrupts` / `PG_exception_stack` / `CopyErrorData`
+            // FFI symbols that aren't linked into the unit-test binary.
+            #[cfg(not(test))]
+            pgrx::check_for_interrupts!();
+
             if coop {
                 let t0 = trace_on.then(Instant::now);
                 let res = handle.poll_drain_pass();
@@ -1039,6 +1048,11 @@ fn build_drain_gather_stream(
                     time_in_drain_pass += t0.elapsed();
                 }
                 if let Err(e) = res {
+                    // Any batches already pushed into the buffer by an
+                    // earlier successful pass are intentionally discarded:
+                    // DataFusion's contract for a yielded `Err` is that no
+                    // subsequent items follow, so partial results would
+                    // mislead aggregators above us.
                     break 'drain Err(e);
                 }
             }
@@ -1079,7 +1093,7 @@ fn build_drain_gather_stream(
                     if trace_on {
                         pending_polls += 1;
                     }
-                    yield_to_executor().await;
+                    yield_now().await;
                 }
             }
         };

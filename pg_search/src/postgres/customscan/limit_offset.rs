@@ -15,10 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::nodecast;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
 use crate::DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE;
-use pgrx::{pg_sys, FromDatum};
+use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 
 /// LIMIT and OFFSET extracted from a query, with values that may be either
@@ -106,11 +105,7 @@ impl LimitOffset {
     /// Returns true if either LIMIT or OFFSET is a Param (i.e., this came from
     /// a GENERIC prepared plan where PG couldn't fold the value to a Const).
     pub fn has_any_param(&self) -> bool {
-        matches!(self.limit, ParameterizedValue::Param { .. })
-            || self
-                .offset
-                .as_ref()
-                .is_some_and(|o| matches!(o, ParameterizedValue::Param { .. }))
+        self.limit.is_param() || self.offset.as_ref().is_some_and(|o| o.is_param())
     }
 
     /// Resolves the LIMIT at execution time. Returns `None` if the value
@@ -165,14 +160,3 @@ impl LimitOffset {
     }
 }
 
-/// Extract a `Const` node's value as `i64`. Returns `None` if the node is null,
-/// not a `Const`, or the datum is null.
-///
-/// Retained for callers that intentionally reject non-Const inputs (e.g.,
-/// `is_minmax_implicit_limit`, which only matches PG's MIN/MAX rewrite where
-/// the LIMIT 1 is always a Const).
-#[allow(dead_code)]
-pub unsafe fn extract_const_i64(node: *mut pg_sys::Node) -> Option<i64> {
-    let const_node = nodecast!(Const, T_Const, node)?;
-    i64::from_datum((*const_node).constvalue, (*const_node).constisnull)
-}

@@ -108,6 +108,11 @@ where
             _ => None,
         }
     }
+
+    /// Returns true if this value is a `Param` (deferred to execution time).
+    pub fn is_param(&self) -> bool {
+        matches!(self, ParameterizedValue::Param { .. })
+    }
 }
 
 // Manual Hash/Eq/PartialEq impls (rather than `derive`) so each trait bound is

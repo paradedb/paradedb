@@ -26,6 +26,7 @@ use crate::nodecast;
 use pgrx::{pg_sys, FromDatum, PgList};
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ParameterizedValue<T>
@@ -105,6 +106,39 @@ where
         match self {
             ParameterizedValue::Static(v) => Some(v),
             _ => None,
+        }
+    }
+}
+
+// Manual Hash/Eq/PartialEq impls (rather than `derive`) so each trait bound is
+// only required when the concrete `T` actually needs it. Several callers store
+// `ParameterizedValue<T>` inside a `HashMap` key (e.g., snippet configs in
+// `SnippetType`), so this is required for the type to be usable in those
+// contexts. Two `Param { param_id: N }` values compare equal regardless of T,
+// because the param ID is the only identity at planning time.
+impl<T: Clone + PartialEq> PartialEq for ParameterizedValue<T> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Static(a), Self::Static(b)) => a == b,
+            (Self::Param { param_id: a }, Self::Param { param_id: b }) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl<T: Clone + Eq> Eq for ParameterizedValue<T> {}
+
+impl<T: Clone + Hash> Hash for ParameterizedValue<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Self::Static(v) => {
+                0u8.hash(state);
+                v.hash(state);
+            }
+            Self::Param { param_id } => {
+                1u8.hash(state);
+                param_id.hash(state);
+            }
         }
     }
 }

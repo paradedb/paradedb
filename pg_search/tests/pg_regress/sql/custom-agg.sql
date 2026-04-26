@@ -1265,3 +1265,59 @@ SELECT
   LIMIT 25;
 
 DROP TABLE test_window_order;
+
+-- =====================================================================
+-- Parameterized pdb.agg() (issue: panic on 6th EXECUTE)
+--
+-- Pre-fix: pdb.agg() requires a Const JSON spec at planning time so the
+-- AggregateScan can build the Tantivy aggregation plan. In GENERIC plan
+-- mode (the 6th+ EXECUTE), the Param survived into the planner and the
+-- extractor panicked with "pdb.agg argument must be a constant",
+-- crashing the backend.
+--
+-- Post-fix: AggregateScan declines pushdown via Err (NOTICE emitted),
+-- and PostgreSQL falls back to the placeholder pdb.agg which returns a
+-- normal SQL error. The contract this test enforces is "no backend
+-- crash" — the connection survives and a follow-up query works.
+-- =====================================================================
+
+\echo '--- Parameterized pdb.agg() must not crash the backend ---'
+
+CREATE TABLE agg_param_test (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    category TEXT
+);
+INSERT INTO agg_param_test (description, category)
+SELECT 'document ' || i, (ARRAY['a','b','c'])[1 + (i % 3)]
+FROM generate_series(1, 100) AS i;
+CREATE INDEX agg_param_test_idx ON agg_param_test
+USING bm25 (id, description, category)
+WITH (key_field = 'id', text_fields = '{"category": {"fast": true}}');
+
+-- Baseline: constant JSON literal pushes through AggregateScan.
+SELECT pdb.agg('{"terms":{"field":"category"}}'::jsonb) IS NOT NULL AS got_result
+FROM agg_param_test
+WHERE description ||| 'document';
+
+-- GENERIC plan with parameterized JSON. Run several times to land on the
+-- generic plan (PG switches to GENERIC after the 5th execute by default
+-- under `force_generic_plan` it is immediate). The query is expected to
+-- ERROR (XX000 from the placeholder), but the backend must stay alive.
+SET plan_cache_mode = force_generic_plan;
+PREPARE agg_param_g(jsonb) AS
+SELECT pdb.agg($1)
+FROM agg_param_test
+WHERE description ||| 'document';
+
+\set VERBOSITY terse
+SELECT 'expecting error from placeholder pdb.agg in GENERIC mode:';
+EXECUTE agg_param_g('{"terms":{"field":"category"}}');
+\set VERBOSITY default
+
+-- Sanity check: backend is still alive.
+SELECT 1 AS backend_still_alive;
+
+DEALLOCATE agg_param_g;
+RESET plan_cache_mode;
+DROP TABLE agg_param_test;

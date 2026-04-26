@@ -256,12 +256,20 @@ impl BaseScanState {
         self.visibility_checker.as_mut().unwrap()
     }
 
-    pub fn make_snippet(&self, ctid: u64, snippet_type: &SnippetType) -> Option<String> {
+    pub fn make_snippet(
+        &self,
+        ctid: u64,
+        snippet_type: &SnippetType,
+        estate: *mut pg_sys::EState,
+    ) -> Option<String> {
         let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
         let generator = self.snippet_generators.get(snippet_type)?.as_ref()?;
         let mut snippet = generator.snippet(&text);
         if let SnippetType::SingleText(_, config, _) = snippet_type {
-            snippet.set_snippet_prefix_postfix(&config.start_tag, &config.end_tag);
+            // start_tag/end_tag may be parameterized — resolve from EState here.
+            let start_tag = unsafe { config.resolve_start_tag(estate) };
+            let end_tag = unsafe { config.resolve_end_tag(estate) };
+            snippet.set_snippet_prefix_postfix(&start_tag, &end_tag);
         }
 
         let html = snippet.to_html();
@@ -272,15 +280,27 @@ impl BaseScanState {
         }
     }
 
-    pub fn make_snippets(&self, ctid: u64, snippet_type: &SnippetType) -> Option<Vec<String>> {
+    pub fn make_snippets(
+        &self,
+        ctid: u64,
+        snippet_type: &SnippetType,
+        estate: *mut pg_sys::EState,
+    ) -> Option<Vec<String>> {
         let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
         let generator = self.snippet_generators.get(snippet_type)?.as_ref()?;
+        // Resolve once outside the per-snippet loop — the values are constant
+        // for the lifetime of this query execution.
+        let resolved_tags = if let SnippetType::MultipleText(_, config, _, _) = snippet_type {
+            unsafe { Some((config.resolve_start_tag(estate), config.resolve_end_tag(estate))) }
+        } else {
+            None
+        };
         let snippets: Vec<_> = generator
             .snippets(&text)
             .into_iter()
             .flat_map(|mut snippet| {
-                if let SnippetType::MultipleText(_, config, _, _) = snippet_type {
-                    snippet.set_snippet_prefix_postfix(&config.start_tag, &config.end_tag);
+                if let Some((start, end)) = &resolved_tags {
+                    snippet.set_snippet_prefix_postfix(start, end);
                 }
 
                 let html = snippet.to_html();

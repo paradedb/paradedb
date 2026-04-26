@@ -412,64 +412,49 @@ unsafe fn query_has_window_agg_functions(root: *mut pg_sys::PlannerInfo) -> bool
     false
 }
 
-/// Returns true if the target list contains a set-returning function that we
-/// cannot prove is safe to push LIMIT through. Only `unnest` is recognized as
-/// limit-safe (it produces at least as many rows as it consumes).
-///
-/// Used as a guard alongside `has_non_pushable_predicates` to decide whether
-/// pushing a LIMIT into the scan would silently produce fewer rows than
-/// PostgreSQL's outer Limit node expects.
-unsafe fn has_unsafe_srf(root: *mut pg_sys::PlannerInfo) -> bool {
-    if root.is_null() || (*root).parse.is_null() || (*(*root).parse).targetList.is_null() {
-        return false;
-    }
-    let parse = *(*root).parse;
-    let target_list = PgList::<pg_sys::TargetEntry>::from_pg(parse.targetList);
-    for te in target_list.iter_ptr() {
-        if (*te).expr.is_null() {
-            continue;
-        }
-        if !pg_sys::expression_returns_set((*te).expr.cast()) {
-            continue;
-        }
-        // SRF found — only `unnest` is known to be safe.
-        if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
-            if !is_unnest_func((*func_expr).funcid) {
-                return true;
-            }
-        } else {
-            // Some other SRF expression we can't classify.
-            return true;
-        }
-    }
-    false
+/// Classification of any set-returning function found in the target list,
+/// used to decide whether pushing LIMIT through this scan is safe. PG sets
+/// `limit_tuples == -1.0` whenever any SRF is present, so we walk once and
+/// distinguish between "no SRF / safe (unnest only) / unsafe".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TargetListSrf {
+    None,
+    Safe,
+    Unsafe,
 }
 
-/// Returns true if the target list contains an `unnest` set-returning function.
-/// PG sets `limit_tuples == -1.0` whenever a SRF is present (it can't predict
-/// how many input rows produce K output rows), so we need this independent
-/// signal to know that a SRF-driven LIMIT pushdown is still safe through the
-/// row-preserving `unnest` semantics.
-unsafe fn has_safe_srf(root: *mut pg_sys::PlannerInfo) -> bool {
+impl TargetListSrf {
+    fn is_safe(self) -> bool {
+        matches!(self, TargetListSrf::Safe)
+    }
+    fn is_unsafe(self) -> bool {
+        matches!(self, TargetListSrf::Unsafe)
+    }
+}
+
+/// Walk the target list once and classify any SRFs. Only `unnest` is
+/// row-preserving (and therefore limit-safe); everything else is treated as
+/// unsafe so LIMIT pushdown stops above the scan.
+unsafe fn classify_target_list_srf(root: *mut pg_sys::PlannerInfo) -> TargetListSrf {
     if root.is_null() || (*root).parse.is_null() || (*(*root).parse).targetList.is_null() {
-        return false;
+        return TargetListSrf::None;
     }
-    let parse = *(*root).parse;
-    let target_list = PgList::<pg_sys::TargetEntry>::from_pg(parse.targetList);
+    let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*(*root).parse).targetList);
+    let mut found_safe = false;
     for te in target_list.iter_ptr() {
-        if (*te).expr.is_null() {
+        if (*te).expr.is_null() || !pg_sys::expression_returns_set((*te).expr.cast()) {
             continue;
         }
-        if !pg_sys::expression_returns_set((*te).expr.cast()) {
-            continue;
-        }
-        if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
-            if is_unnest_func((*func_expr).funcid) {
-                return true;
-            }
+        match nodecast!(FuncExpr, T_FuncExpr, (*te).expr) {
+            Some(func_expr) if is_unnest_func((*func_expr).funcid) => found_safe = true,
+            _ => return TargetListSrf::Unsafe,
         }
     }
-    false
+    if found_safe {
+        TargetListSrf::Safe
+    } else {
+        TargetListSrf::None
+    }
 }
 
 /// Returns `true` if any predicate in `baserestrictinfo` cannot be fully
@@ -526,7 +511,7 @@ unsafe fn is_limit_pushdown_safe(
 
     (rel_is_single_or_partitioned || is_left_driven_lateral)
         && !has_non_pushable_predicates(rel, quals)
-        && !has_unsafe_srf(root)
+        && !classify_target_list_srf(root).is_unsafe()
 }
 
 impl CustomScan for BaseScan {
@@ -718,21 +703,19 @@ impl CustomScan for BaseScan {
 
             // Push the LIMIT/OFFSET into this scan when one of:
             //   - PG already proved it safe (`limit_tuples > -1.0`)
-            //   - The value is a Param (PG can't evaluate at plan time but we
-            //     can at exec time — issue #4665)
-            //   - The target list contains a row-preserving SRF like `unnest`
-            //     (PG zeroed out `limit_tuples` because of the SRF, but the
-            //     SRF doesn't drop input rows so `limit + offset` rows
-            //     fetched here is still enough)
-            // Local safety checks (topology, predicates, unsafe SRFs) gate all
-            // three cases.
+            //   - The value is a Param (PG can't evaluate at plan time but
+            //     we can at exec time)
+            //   - A row-preserving `unnest` SRF zeroed PG's `limit_tuples`,
+            //     but `limit + offset` rows here is still enough
+            // `is_limit_pushdown_safe` then gates on topology + predicates +
+            // unsafe SRFs.
             let raw_limit_offset = LimitOffset::from_root(builder.args().root);
             let limit_offset = raw_limit_offset.filter(|lo| {
                 let pg_says_pushable = (*builder.args().root).limit_tuples > -1.0;
-                let has_param = lo.has_any_param();
-                let has_safe_srf_override = has_safe_srf(builder.args().root);
+                let unnest_override =
+                    classify_target_list_srf(builder.args().root).is_safe();
 
-                (pg_says_pushable || has_param || has_safe_srf_override)
+                (pg_says_pushable || lo.has_any_param() || unnest_override)
                     && is_limit_pushdown_safe(
                         builder.args().root,
                         rel,
@@ -790,10 +773,9 @@ impl CustomScan for BaseScan {
                 estimate_selectivity(&bm25_index, query.clone()).unwrap_or(UNKNOWN_SELECTIVITY)
             };
 
-            // For costing/parallelism: prefer a real planning estimate over a
-            // missing one when LIMIT is parameterized. Without this, GENERIC
-            // prepared plans produce float_limit=None and the parallel-worker
-            // estimator collapses (issue #4665).
+            // Use planning_estimate for costing so parameterized limits still
+            // contribute a non-zero row estimate (otherwise the parallel-worker
+            // estimator collapses).
             let float_limit = limit_offset.as_ref().map(|lo| lo.planning_estimate());
 
             custom_private.set_heaprelid(table.oid());

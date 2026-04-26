@@ -640,8 +640,6 @@ impl JoinScan {
 
         let startup_cost = crate::DEFAULT_STARTUP_COST;
         let total_cost = startup_cost + 1.0;
-        // Parameterized LIMIT/OFFSET still get a planning_estimate so we don't
-        // collapse the worker estimate (issue #4665).
         let mut result_rows = limit_offset
             .as_ref()
             .map(|lo| lo.planning_estimate())

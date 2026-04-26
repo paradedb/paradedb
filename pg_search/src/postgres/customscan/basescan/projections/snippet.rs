@@ -110,23 +110,14 @@ pub struct SnippetConfig {
 }
 
 impl SnippetConfig {
-    /// Resolve `start_tag` at execution time, falling back to the default when
-    /// the parameter resolves to NULL.
     pub unsafe fn resolve_start_tag(&self, estate: *mut pg_sys::EState) -> String {
-        self.start_tag
-            .resolve(estate)
-            .unwrap_or_else(|| DEFAULT_SNIPPET_PREFIX.to_string())
+        resolve_tag_or_default(&self.start_tag, estate, DEFAULT_SNIPPET_PREFIX)
     }
 
-    /// Resolve `end_tag` at execution time, falling back to the default when
-    /// the parameter resolves to NULL.
     pub unsafe fn resolve_end_tag(&self, estate: *mut pg_sys::EState) -> String {
-        self.end_tag
-            .resolve(estate)
-            .unwrap_or_else(|| DEFAULT_SNIPPET_POSTFIX.to_string())
+        resolve_tag_or_default(&self.end_tag, estate, DEFAULT_SNIPPET_POSTFIX)
     }
 
-    /// Resolve `max_num_chars` at execution time, falling back to the default.
     pub unsafe fn resolve_max_num_chars(&self, estate: *mut pg_sys::EState) -> usize {
         let v = self
             .max_num_chars
@@ -135,6 +126,14 @@ impl SnippetConfig {
         assert!(v >= 0, "max_num_chars must not be negative");
         v as usize
     }
+}
+
+unsafe fn resolve_tag_or_default(
+    tag: &ParameterizedValue<String>,
+    estate: *mut pg_sys::EState,
+    default: &str,
+) -> String {
+    tag.resolve(estate).unwrap_or_else(|| default.to_string())
 }
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
@@ -588,6 +587,23 @@ pub unsafe fn uses_snippets(
     context.snippet_type
 }
 
+/// Resolve the field arg (always arg 0) of a snippet function to its
+/// indexed `FieldName`. Returns `None` if the arg isn't a single Var.
+#[inline]
+unsafe fn extract_snippet_field_attname(
+    args: &PgList<pg_sys::Node>,
+    planning_rti: pg_sys::Index,
+    attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
+) -> Option<FieldName> {
+    let field_arg = find_one_var(args.get_ptr(0).unwrap())?;
+    Some(
+        attname_lookup
+            .get(&(planning_rti as _, (*field_arg).varattno as _))
+            .cloned()
+            .expect("Var attname should be in lookup"),
+    )
+}
+
 #[inline(always)]
 pub unsafe fn extract_snippet(
     func: *mut pg_sys::FuncExpr,
@@ -601,11 +617,7 @@ pub unsafe fn extract_snippet(
     let args = PgList::<pg_sys::Node>::from_pg((*func).args);
     assert!(args.len() == 6);
 
-    let field_arg = find_one_var(args.get_ptr(0).unwrap())?;
-    let attname = attname_lookup
-        .get(&(planning_rti as _, (*field_arg).varattno as _))
-        .cloned()
-        .expect("Var attname should be in lookup");
+    let attname = extract_snippet_field_attname(&args, planning_rti, attname_lookup)?;
 
     // All formatting/limit args may be either Const (resolved at planning
     // time) or extern Param (resolved at execution time in GENERIC plan
@@ -643,11 +655,7 @@ pub unsafe fn extract_snippets(
     let args = PgList::<pg_sys::Node>::from_pg((*func).args);
     assert!(args.len() == 7);
 
-    let field_arg = find_one_var(args.get_ptr(0).unwrap())?;
-    let attname = attname_lookup
-        .get(&(planning_rti as _, (*field_arg).varattno as _))
-        .cloned()
-        .expect("Var attname should be in lookup");
+    let attname = extract_snippet_field_attname(&args, planning_rti, attname_lookup)?;
 
     let start_tag = ParameterizedValue::<String>::from_node(args.get_ptr(1).unwrap())
         .unwrap_or_else(|| ParameterizedValue::Static(DEFAULT_SNIPPET_PREFIX.to_string()));
@@ -691,11 +699,7 @@ pub unsafe fn extract_snippet_positions(
     let args = PgList::<pg_sys::Node>::from_pg((*func).args);
     assert!(args.len() == 3);
 
-    let field_arg = find_one_var(args.get_ptr(0).unwrap())?;
-    let attname = attname_lookup
-        .get(&(planning_rti as _, (*field_arg).varattno as _))
-        .cloned()
-        .expect("Var attname should be in lookup");
+    let attname = extract_snippet_field_attname(&args, planning_rti, attname_lookup)?;
 
     let limit = ParameterizedValue::<i32>::from_node(args.get_ptr(1).unwrap());
     let offset = ParameterizedValue::<i32>::from_node(args.get_ptr(2).unwrap());

@@ -46,6 +46,7 @@
 use std::any::Any;
 use std::collections::VecDeque;
 use std::fmt;
+use std::future::poll_fn;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
@@ -59,15 +60,37 @@ use datafusion::common::{DataFusionError, Result as DFResult};
 use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskContext};
 use datafusion::physical_expr::EquivalenceProperties;
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
 };
+use futures::Stream;
 
 #[cfg(not(test))]
 use crate::gucs::mpp_trace;
 use crate::postgres::customscan::mpp::transport::{
     DrainHandle, DrainItem, MppSender, SendBatchStats,
 };
+
+/// Yield to the executor for one tick. Used by `async_stream::stream!`
+/// bodies that drive cooperative work (drain pumping, outbound shipping)
+/// on the same task that consumes from a `DrainBuffer` — there is no
+/// other task to wake the buffer, so yielding gives the scheduler a
+/// chance to run sibling tasks (e.g. peer `ShuffleExec`s producing the
+/// data we're waiting for) before our next loop iteration.
+async fn yield_to_executor() {
+    let mut yielded = false;
+    poll_fn(move |cx| {
+        if yielded {
+            Poll::Ready(())
+        } else {
+            yielded = true;
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        }
+    })
+    .await;
+}
 
 /// GUC read wrapper that is inert under `cfg(test)`.
 ///
@@ -1007,197 +1030,175 @@ impl ExecutionPlan for DrainGatherExec {
             self.drain_handle.lock().unwrap().take().ok_or_else(|| {
                 DataFusionError::Internal("DrainGatherExec: already executed".into())
             })?;
-        let stream = DrainGatherStream {
-            handle: Some(handle),
-            done: false,
-            schema: self.schema.clone(),
-            tag: self.tag,
-            participant_index: self.participant_index,
-            rows_received: 0,
-            batches_received: 0,
-            logged_eof: false,
-            first_poll_at: None,
-            time_in_drain_pass: Duration::ZERO,
-            time_in_pop: Duration::ZERO,
-            pending_polls: 0,
-        };
-        Ok(Box::pin(stream))
+        let schema = self.schema.clone();
+        let stream =
+            build_drain_gather_stream(handle, schema.clone(), self.tag, self.participant_index);
+        Ok(Box::pin(RecordBatchStreamAdapter::new(schema, stream)))
     }
 }
 
-struct DrainGatherStream {
-    handle: Option<Arc<DrainHandle>>,
-    done: bool,
+/// Build the async stream that powers [`DrainGatherExec`]. Yields decoded
+/// peer batches in arrival order; cleanly returns once every inbound
+/// source has detached and the buffer is drained.
+///
+/// Cooperative drain: for pg-backed handles the drain work happens on
+/// the consumer's own task (not a background thread, which would panic
+/// on pgrx's `check_active_thread` the moment it touched any pg FFI via
+/// `shm_mq_receive`). Each loop iteration runs one drain pass and then
+/// `try_pop`s the buffer; on empty we yield to the executor so sibling
+/// tasks (peer `ShuffleExec`s shipping us rows) can make progress before
+/// the next pass.
+fn build_drain_gather_stream(
+    handle: Arc<DrainHandle>,
     schema: SchemaRef,
     tag: &'static str,
     participant_index: u32,
+) -> impl Stream<Item = DFResult<RecordBatch>> + Send {
+    async_stream::stream! {
+        let trace_on = mpp_trace_flag();
+        let first_poll_at = trace_on.then(Instant::now);
+        let mut time_in_drain_pass = Duration::ZERO;
+        let mut time_in_pop = Duration::ZERO;
+        let mut pending_polls: u64 = 0;
+        let mut rows_received: u64 = 0;
+        let mut batches_received: u64 = 0;
+
+        let coop = handle.is_cooperative();
+        let buffer = handle.buffer().clone();
+
+        // Outcome of the loop body. Both break paths run the same
+        // shutdown + log_eof tail below; using a local `Result` keeps the
+        // tail in one place rather than duplicating it at every exit.
+        let outcome: DFResult<()> = 'drain: loop {
+            if coop {
+                let t0 = trace_on.then(Instant::now);
+                let res = handle.poll_drain_pass();
+                if let Some(t0) = t0 {
+                    time_in_drain_pass += t0.elapsed();
+                }
+                if let Err(e) = res {
+                    break 'drain Err(e);
+                }
+            }
+
+            let t_pop = trace_on.then(Instant::now);
+            let item = if coop {
+                buffer.try_pop()
+            } else {
+                Some(buffer.recv().await)
+            };
+            if let Some(t0) = t_pop {
+                time_in_pop += t0.elapsed();
+            }
+
+            match item {
+                Some(DrainItem::Batch(b)) => {
+                    // Peer-shipped batches went through encode_batch /
+                    // decode_batch, so their schema comes from IPC metadata
+                    // rather than from what we expected locally. A peer
+                    // running a drifted schema would otherwise silently
+                    // feed garbage into the Union above us.
+                    if b.schema() != schema {
+                        break 'drain Err(DataFusionError::Internal(format!(
+                            "DrainGatherExec: peer batch schema {:?} disagrees with expected {:?}",
+                            b.schema(),
+                            schema
+                        )));
+                    }
+                    rows_received += b.num_rows() as u64;
+                    batches_received += 1;
+                    yield Ok(b);
+                }
+                Some(DrainItem::Eof) => break 'drain Ok(()),
+                None => {
+                    // Cooperative path only: buffer empty + sources still
+                    // alive. Yield so peer `ShuffleExec`s can produce, then
+                    // loop back into another drain pass.
+                    if trace_on {
+                        pending_polls += 1;
+                    }
+                    yield_to_executor().await;
+                }
+            }
+        };
+
+        // Single shutdown + log_eof tail. Joins the drain thread
+        // deterministically so plan teardown doesn't leave a zombie
+        // holding DSM pointers; logs trailing trace metrics.
+        let shutdown_err = handle.shutdown().err();
+        log_drain_gather_eof(
+            tag,
+            participant_index,
+            DrainGatherTrace {
+                rows_received,
+                batches_received,
+                first_poll_at,
+                time_in_drain_pass,
+                time_in_pop,
+                pending_polls,
+            },
+        );
+        if let Err(e) = outcome {
+            yield Err(e);
+        } else if let Some(e) = shutdown_err {
+            yield Err(e);
+        }
+    }
+}
+
+/// Trace metrics carried through [`build_drain_gather_stream`] and
+/// emitted at EOF by [`log_drain_gather_eof`].
+struct DrainGatherTrace {
     rows_received: u64,
     batches_received: u64,
-    logged_eof: bool,
-    /// First-poll instant (gated on `mpp_trace`). Total stream lifetime at EOF.
+    /// Only set when `mpp_trace_flag()` was on at first poll.
     first_poll_at: Option<Instant>,
-    /// Cumulative time in `poll_drain_pass` (shm_mq receive + IPC decode).
     time_in_drain_pass: Duration,
-    /// Cumulative time in `poll_pop_front` on the drain buffer.
     time_in_pop: Duration,
-    /// Count of times `poll_next` returned `Pending` (buffer empty). High
-    /// counts with small throughput means we're re-waking without producing.
+    /// `try_pop` returned `None`; subset of cooperative-only iterations.
     pending_polls: u64,
 }
 
-impl DrainGatherStream {
-    fn log_eof(&mut self) {
-        if self.logged_eof {
-            return;
-        }
-        self.logged_eof = true;
-        // See `ShuffleStream::log_eof` for the full reasoning: the body is
-        // gated out of `cargo test --lib` because `pgrx::{warning,debug1}!`
-        // pull PG FFI symbols that aren't linked into the unit-test binary,
-        // and `--instrument-coverage` defeats runtime DCE on
-        // `mpp_trace()`. The `DrainGatherStream::poll_next` EOF path itself
-        // *is* exercised by unit tests (e.g.,
-        // `drain_gather_exec_yields_all_buffered_batches`).
-        #[cfg(not(test))]
-        {
-            let wall_ms = self
-                .first_poll_at
-                .map(|t| t.elapsed().as_secs_f64() * 1000.0)
-                .unwrap_or(0.0);
-            let drain_ms = self.time_in_drain_pass.as_secs_f64() * 1000.0;
-            let pop_ms = self.time_in_pop.as_secs_f64() * 1000.0;
-            if mpp_trace() {
-                pgrx::warning!(
-                    "mpp: DrainGatherStream[{}] participant={} EOF rows_received={} batches_received={} wall_ms={:.1} drain_ms={:.1} pop_ms={:.1} pending_polls={}",
-                    self.tag,
-                    self.participant_index,
-                    self.rows_received,
-                    self.batches_received,
-                    wall_ms,
-                    drain_ms,
-                    pop_ms,
-                    self.pending_polls,
-                );
-            } else {
-                pgrx::debug1!(
-                    "mpp: DrainGatherStream[{}] participant={} EOF rows_received={} batches_received={}",
-                    self.tag,
-                    self.participant_index,
-                    self.rows_received,
-                    self.batches_received
-                );
-            }
+/// Trace-line emitter for [`build_drain_gather_stream`]'s EOF path. See
+/// the matching `log_shuffle_eof` for the full reasoning behind the
+/// `cfg(not(test))` gate (cargo test --lib is not a `pg_test` target,
+/// so it can't link the FFI symbols `pgrx::{warning,debug1}!` expand
+/// into; the EOF path itself *is* exercised by tests via e.g.
+/// `drain_gather_exec_yields_all_buffered_batches`).
+fn log_drain_gather_eof(tag: &'static str, participant_index: u32, t: DrainGatherTrace) {
+    #[cfg(not(test))]
+    {
+        let wall_ms = t
+            .first_poll_at
+            .map(|s| s.elapsed().as_secs_f64() * 1000.0)
+            .unwrap_or(0.0);
+        let drain_ms = t.time_in_drain_pass.as_secs_f64() * 1000.0;
+        let pop_ms = t.time_in_pop.as_secs_f64() * 1000.0;
+        if mpp_trace() {
+            pgrx::warning!(
+                "mpp: DrainGatherStream[{}] participant={} EOF rows_received={} batches_received={} wall_ms={:.1} drain_ms={:.1} pop_ms={:.1} pending_polls={}",
+                tag,
+                participant_index,
+                t.rows_received,
+                t.batches_received,
+                wall_ms,
+                drain_ms,
+                pop_ms,
+                t.pending_polls,
+            );
+        } else {
+            pgrx::debug1!(
+                "mpp: DrainGatherStream[{}] participant={} EOF rows_received={} batches_received={}",
+                tag,
+                participant_index,
+                t.rows_received,
+                t.batches_received
+            );
         }
     }
-}
-
-impl futures::Stream for DrainGatherStream {
-    type Item = DFResult<RecordBatch>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let trace_on = mpp_trace_flag();
-        if trace_on && self.first_poll_at.is_none() {
-            self.first_poll_at = Some(Instant::now());
-        }
-        if self.done {
-            return Poll::Ready(None);
-        }
-        let handle = self
-            .handle
-            .as_ref()
-            .expect("DrainGatherStream: handle missing before done");
-        let buffer = handle.buffer().clone();
-
-        // Cooperative drain: for pg-backed handles, the drain work happens
-        // here on the backend thread (not a background thread, which would
-        // panic on pgrx's `check_active_thread` the moment it touched pg
-        // FFI via `shm_mq_receive`). One pass per poll pulls at most one
-        // item from each live receiver into `buffer`; if nothing became
-        // available this pass, we re-wake ourselves below so the tokio
-        // runtime interleaves us with sibling tasks that might be producing
-        // (e.g., the peer `ShuffleExec`s shipping rows via `shm_mq_send`).
-        let coop = handle.is_cooperative();
-        if coop {
-            let t0 = trace_on.then(Instant::now);
-            let res = handle.poll_drain_pass();
-            if let Some(t0) = t0 {
-                self.time_in_drain_pass += t0.elapsed();
-            }
-            match res {
-                Ok(_) => {}
-                Err(e) => {
-                    self.done = true;
-                    if let Some(h) = self.handle.take() {
-                        let _ = h.shutdown();
-                    }
-                    return Poll::Ready(Some(Err(e)));
-                }
-            }
-        }
-
-        // Async-friendly pop: returns `None` and registers our waker if the
-        // buffer is empty. For cooperative handles we also self-wake so the
-        // next poll runs another drain pass — the buffer's waker only fires
-        // when *this* pass produced data, which doesn't happen when every
-        // receiver is still `Empty`.
-        let t_pop = trace_on.then(Instant::now);
-        let item_opt = buffer.poll_pop_front(cx.waker());
-        if let Some(t0) = t_pop {
-            self.time_in_pop += t0.elapsed();
-        }
-        let Some(item) = item_opt else {
-            if trace_on {
-                self.pending_polls += 1;
-            }
-            if coop {
-                cx.waker().wake_by_ref();
-            }
-            return Poll::Pending;
-        };
-
-        match item {
-            DrainItem::Batch(b) => {
-                // Validate schema: peer-shipped batches went through
-                // `encode_batch` → `decode_batch`, whose reconstructed
-                // schema comes from IPC metadata, not from what we expected
-                // locally. A peer running a drifted schema would otherwise
-                // silently feed garbage into the Union above us.
-                if b.schema() != self.schema {
-                    self.done = true;
-                    self.log_eof();
-                    if let Some(h) = self.handle.take() {
-                        let _ = h.shutdown();
-                    }
-                    return Poll::Ready(Some(Err(DataFusionError::Internal(format!(
-                        "DrainGatherExec: peer batch schema {:?} disagrees with expected {:?}",
-                        b.schema(),
-                        self.schema
-                    )))));
-                }
-                self.rows_received += b.num_rows() as u64;
-                self.batches_received += 1;
-                Poll::Ready(Some(Ok(b)))
-            }
-            DrainItem::Eof => {
-                self.done = true;
-                self.log_eof();
-                // Join the drain thread deterministically so the plan's
-                // teardown path never leaves a zombie thread holding DSM
-                // pointers.
-                if let Some(h) = self.handle.take() {
-                    if let Err(e) = h.shutdown() {
-                        return Poll::Ready(Some(Err(e)));
-                    }
-                }
-                Poll::Ready(None)
-            }
-        }
-    }
-}
-
-impl RecordBatchStream for DrainGatherStream {
-    fn schema(&self) -> SchemaRef {
-        self.schema.clone()
+    #[cfg(test)]
+    {
+        let _ = (tag, participant_index, t);
     }
 }
 

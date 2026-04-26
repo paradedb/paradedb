@@ -119,3 +119,22 @@ pub fn lookup_procoid(
         (procoid != pg_sys::InvalidOid).then_some(procoid)
     }
 }
+
+/// Returns `true` if `oid` is the OID of the `ltree` type.
+pub fn is_ltree_oid(oid: pg_sys::Oid) -> bool {
+    static LTREE_OID: OnceLock<pg_sys::Oid> = OnceLock::new();
+    let lid = *LTREE_OID
+        .get_or_init(|| lookup_typoid(c"public", c"ltree").unwrap_or(pg_sys::Oid::INVALID));
+    lid != pg_sys::Oid::INVALID && oid == lid
+}
+
+/// Converts a facet-encoded string (null-byte–separated path as stored by Tantivy's fast-field
+/// reader) back to a dot-separated ltree path string.
+/// Tantivy's stored-fields reader returns `OwnedValue::Facet`, but the fast-field (columnar)
+/// reader returns the raw internal representation as `OwnedValue::Str` with null-byte separators
+/// and a leading null byte (e.g. `\0Top\0Science\0Biology`).
+// This helper handles both cases by
+/// stripping the leading null and replacing interior null bytes with dots.
+pub fn facet_encoded_str_to_ltree_text(s: &str) -> String {
+    s.trim_start_matches('\0').replace('\0', ".")
+}

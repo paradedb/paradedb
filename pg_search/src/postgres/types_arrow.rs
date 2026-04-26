@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::catalog::is_citext_oid;
+use crate::postgres::catalog::{facet_encoded_str_to_ltree_text, is_citext_oid, is_ltree_oid};
 use crate::postgres::datetime::MICROSECONDS_IN_SECOND;
 
 use arrow_array::cast::AsArray;
@@ -80,6 +80,24 @@ pub fn arrow_array_to_datum(
                 PgOid::Custom(custom) => {
                     if is_citext_oid(*custom) {
                         s.into_datum()
+                    } else if is_ltree_oid(*custom) {
+                        // Facet fast fields store the value as a null-byte-separated string.
+                        // Convert back to dot-separated ltree path using the shared helper.
+                        let ltree_text = facet_encoded_str_to_ltree_text(s);
+                        unsafe {
+                            let mut typinput: pg_sys::Oid = pg_sys::InvalidOid;
+                            let mut typioparam: pg_sys::Oid = pg_sys::InvalidOid;
+                            pg_sys::getTypeInputInfo(*custom, &mut typinput, &mut typioparam);
+                            let cstring = std::ffi::CString::new(ltree_text)
+                                .map_err(|e| format!("Failed to create CString for ltree: {e}"))?;
+                            let datum = pg_sys::OidInputFunctionCall(
+                                typinput,
+                                cstring.as_ptr() as *mut std::ffi::c_char,
+                                typioparam,
+                                -1,
+                            );
+                            Some(datum)
+                        }
                     } else {
                         return Err(format!("Unsupported OID for Utf8 Arrow type: {oid:?}"));
                     }

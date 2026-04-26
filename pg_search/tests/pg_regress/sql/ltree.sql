@@ -1,0 +1,73 @@
+-- Test ltree type support in BM25 indexes
+-- ltree is a PostgreSQL extension type for hierarchical tree-like structures
+-- NOTE: @@@ on an ltree (Facet) field is PREFIX/HIERARCHICAL matching, not exact matching.
+-- Querying 'Top.Science.Biology' returns all rows whose path starts with that prefix,
+-- including children like 'Top.Science.Biology.Botany'. This differs from PostgreSQL's
+-- native `ltree = 'Top.Science.Biology'` operator, which performs exact matching only.
+
+CREATE EXTENSION IF NOT EXISTS ltree;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Basic ltree support test
+DROP TABLE IF EXISTS tbl_ltree;
+CREATE TABLE tbl_ltree (
+    id SERIAL,
+    category ltree
+);
+CREATE INDEX idx_ltree ON tbl_ltree USING bm25 (id, category) WITH (key_field = 'id');
+
+-- Insert test data with various ltree paths
+INSERT INTO tbl_ltree (category) VALUES 
+    ('Top.Science.Astronomy'),
+    ('Top.Science.Biology'),
+    ('Top.Science.Biology.Botany'),
+    ('Top.Collections.Pictures'),
+    ('Top.Collections.Pictures.Astronomy'),
+    ('Top.Hobbies.Photography'),
+    (NULL);
+
+-- Test equality query via BM25 index
+SELECT id, category FROM tbl_ltree WHERE category @@@ 'Top.Science.Astronomy' ORDER BY id;
+
+-- Test count aggregation with ltree filter
+-- ltree is indexed as a Tantivy Facet field, which stores ancestor terms at index time.
+SELECT count(*) FROM tbl_ltree WHERE category @@@ 'Top.Science.Biology';
+
+-- Explain to verify index usage
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT count(*) FROM tbl_ltree WHERE category @@@ 'Top.Science.Biology';
+
+-- Test sorting by ltree column (lexicographic order)
+SELECT id, category FROM tbl_ltree WHERE id @@@ pdb.all() ORDER BY category ASC NULLS LAST;
+
+-- Test ltree as key field
+DROP TABLE IF EXISTS tbl_ltree_key;
+CREATE TABLE tbl_ltree_key (
+    path ltree,
+    name TEXT
+);
+CREATE INDEX idx_ltree_key ON tbl_ltree_key USING bm25 (path, name) WITH (key_field = 'path');
+
+INSERT INTO tbl_ltree_key (path, name) VALUES 
+    ('Root.Branch1', 'First Branch'),
+    ('Root.Branch2', 'Second Branch');
+
+SELECT path, name FROM tbl_ltree_key WHERE name @@@ 'Branch' ORDER BY path;
+
+-- Test columnar exec path (exercises arrow_array_to_datum ltree conversion)
+SET paradedb.enable_columnar_exec = true;
+SELECT id, category FROM tbl_ltree WHERE category @@@ 'Top.Science.Astronomy' ORDER BY id;
+SELECT id, category FROM tbl_ltree WHERE id @@@ pdb.all() ORDER BY id;
+RESET paradedb.enable_columnar_exec;
+
+-- Test &&& operator with ltree (ltree is intentionally incompatible with &&&)
+SELECT id, category FROM tbl_ltree WHERE category &&& 'Top.Science.Biology' ORDER BY id;
+
+-- Test paradedb.term() query with ltree (exercises value_to_term facet branch)
+SELECT id, category FROM tbl_ltree
+WHERE tbl_ltree @@@ paradedb.term(field => 'category', value => 'Top.Hobbies.Photography')
+ORDER BY id;
+
+RESET paradedb.enable_aggregate_custom_scan;

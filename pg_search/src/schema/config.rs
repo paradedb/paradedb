@@ -20,8 +20,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fmt::{Display, Formatter};
 use tantivy::schema::{
-    BytesOptions, DateOptions, DateTimePrecision, IpAddrOptions, JsonObjectOptions, NumericOptions,
-    TextFieldIndexing, TextOptions,
+    BytesOptions, DateOptions, DateTimePrecision, FacetOptions, IpAddrOptions, JsonObjectOptions,
+    NumericOptions, TextFieldIndexing, TextOptions,
 };
 use tantivy::Bm25Params;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
@@ -109,6 +109,7 @@ pub enum SearchFieldConfig {
         #[serde(default = "default_as_true")]
         fast: bool,
     },
+    Facet,
 }
 
 impl SearchFieldConfig {
@@ -257,6 +258,10 @@ impl SearchFieldConfig {
             *fast = true;
         }
         config
+    }
+
+    pub fn default_ltree() -> Self {
+        SearchFieldConfig::Facet
     }
 
     pub fn default_inet() -> Self {
@@ -510,6 +515,17 @@ impl From<SearchFieldConfig> for BytesOptions {
             }
         }
         bytes_options
+    }
+}
+
+impl From<SearchFieldConfig> for FacetOptions {
+    fn from(config: SearchFieldConfig) -> Self {
+        match config {
+            SearchFieldConfig::Facet => FacetOptions::default(),
+            _ => {
+                panic!("attempted to convert non-facet search field config to tantivy facet config")
+            }
+        }
     }
 }
 

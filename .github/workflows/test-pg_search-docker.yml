@@ -27,8 +27,18 @@ concurrency:
 
 jobs:
   test-paradedb:
-    name: Test ParadeDB Docker Image
-    runs-on: ubicloud-standard-16-arm-ubuntu-2404
+    name: Test ParadeDB Docker Image (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubicloud-standard-16-ubuntu-2404
+            platform: linux/amd64
+          - arch: arm64
+            runner: ubicloud-standard-16-arm-ubuntu-2404
+            platform: linux/arm64
 
     steps:
       - name: Checkout Git Repository
@@ -75,15 +85,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      # Build the image natively for the runner's arch (linux/arm64) and load it into the local
-      # Docker daemon so the `docker run` smoke tests below can exercise it. We tag it `latest`
-      # to match the tag used by the smoke tests, and skip pushing since this is just a test build.
-      # Building directly (rather than via Depot) avoids requiring repo secrets, which would block
-      # community-contributor PRs from running this workflow.
+      # Each matrix entry builds its own arch natively (via a runner on that arch) so `--load`
+      # works and the `docker run` smoke tests below exercise the image natively — no emulation,
+      # no cross-arch shenanigans. We tag the image `latest` to match the tag used by the smoke
+      # tests, and skip pushing since this is just a test build. Building directly (rather than
+      # via Depot) avoids requiring repo secrets, which would block community-contributor PRs.
       - name: Build the ParadeDB Docker Image
         run: |
           docker buildx build \
-            --platform linux/arm64 \
+            --platform ${{ matrix.platform }} \
             --file docker/Dockerfile \
             --tag paradedb/paradedb:latest \
             --load \

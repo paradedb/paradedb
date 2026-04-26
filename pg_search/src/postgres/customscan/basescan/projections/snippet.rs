@@ -154,7 +154,7 @@ pub enum SnippetType {
 /// Parse a `sort_by` string into a `SnippetSortOrder`. NULL falls back to the
 /// default (`Score`); any other value reports a SQL error at execution time
 /// (parameterized values can't be validated at planning time).
-unsafe fn parse_sort_order(s: Option<&str>) -> SnippetSortOrder {
+fn parse_sort_order(s: Option<&str>) -> SnippetSortOrder {
     match s {
         None | Some("score") => SnippetSortOrder::Score,
         Some("position") => SnippetSortOrder::Position,
@@ -217,7 +217,7 @@ impl SnippetType {
                 generator.set_snippets_offset(positions_config.resolve_offset_or_default(estate));
                 generator.set_max_num_chars(config.resolve_max_num_chars(estate));
                 let resolved = sort_by.resolve(estate);
-                generator.set_sort_order(unsafe { parse_sort_order(resolved.as_deref()) });
+                generator.set_sort_order(parse_sort_order(resolved.as_deref()));
             }
             SnippetType::Positions(_, positions_config) => {
                 // Positions are expected to be fairly small, so we always render all of them by

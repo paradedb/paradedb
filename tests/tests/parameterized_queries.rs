@@ -699,7 +699,8 @@ fn pdb_agg_with_parameterized_json(mut conn: PgConnection) {
     // GENERIC plan with parameterized JSON. The bug was a Rust panic; the
     // fix returns Err so aggregate pushdown is skipped. PG then tries the
     // placeholder `pdb.agg` and surfaces a controlled SQL error (XX000)
-    // instead of crashing the backend.
+    // instead of crashing the backend. With force_generic_plan the GENERIC
+    // path is used immediately — no need to burn through CUSTOM executes.
     "SET plan_cache_mode = force_generic_plan".execute(&mut conn);
     "PREPARE agg_g(jsonb) AS
      SELECT pdb.agg($1)
@@ -707,12 +708,8 @@ fn pdb_agg_with_parameterized_json(mut conn: PgConnection) {
      WHERE content ||| 'document'"
         .execute(&mut conn);
 
-    // Repeat enough times to land on the GENERIC plan (>= 6th execute).
-    let mut last_result: Result<(), sqlx::Error> = Ok(());
-    for _ in 0..7 {
-        last_result = "EXECUTE agg_g('{\"terms\":{\"field\":\"category\"}}')"
-            .execute_result(&mut conn);
-    }
+    let last_result =
+        "EXECUTE agg_g('{\"terms\":{\"field\":\"category\"}}')".execute_result(&mut conn);
 
     // The connection must still be alive and the error (if any) must be a
     // normal SQL error, not a backend crash.

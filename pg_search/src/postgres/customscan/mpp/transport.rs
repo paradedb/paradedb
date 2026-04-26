@@ -233,6 +233,14 @@ impl DrainBuffer {
     /// bodies pull from the buffer with `buffer.recv().await` instead of
     /// hand-rolling a `Stream` impl with manual `Pin`/`Context`/`Poll`
     /// plumbing.
+    ///
+    /// Suitable for thread-backed handles where a separate producer
+    /// thread pushes via `push_batch`. For cooperative handles the
+    /// producer is the consumer's own task — use [`try_pop`] + an
+    /// executor yield instead, otherwise the await suspends with no
+    /// other task able to wake it.
+    ///
+    /// [`try_pop`]: Self::try_pop
     pub async fn recv(self: &Arc<Self>) -> DrainItem {
         let buf = Arc::clone(self);
         poll_fn(move |cx| match buf.poll_pop_front(cx.waker()) {
@@ -240,6 +248,22 @@ impl DrainBuffer {
             None => Poll::Pending,
         })
         .await
+    }
+
+    /// Non-blocking, non-waker variant of [`poll_pop_front`]. Returns the
+    /// front item or `DrainItem::Eof` if all sources have detached and
+    /// the queue is drained; returns `None` only when more data may yet
+    /// arrive. Cooperative consumers loop on `poll_drain_pass` + `try_pop`,
+    /// yielding to the executor between iterations.
+    pub fn try_pop(&self) -> Option<DrainItem> {
+        let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
+        if let Some(batch) = guard.queue.pop_front() {
+            return Some(DrainItem::Batch(batch));
+        }
+        if guard.cancelled || guard.sources_done >= guard.num_sources {
+            return Some(DrainItem::Eof);
+        }
+        None
     }
 }
 

@@ -2,6 +2,12 @@
 #
 # Test pg_search (Docker)
 # Test building and running the ParadeDB Docker Image.
+#
+# Note: unlike `publish-paradedb-docker.yml`, this workflow cannot use Depot to
+# accelerate the build. Depot requires the `DEPOT_PROJECT` / `DEPOT_TOKEN` repo
+# secrets, which GitHub does not expose to PRs from forks — so any Depot-based
+# step would fail on community-contributor PRs. We build directly with
+# `docker buildx build` instead, which works without secrets.
 
 name: Test pg_search (Docker)
 

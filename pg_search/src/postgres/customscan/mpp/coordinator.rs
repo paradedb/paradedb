@@ -174,7 +174,7 @@ pub unsafe fn attach_mpp_dsm_worker(
 
 /// Bundle returned to a worker after [`attach_mpp_dsm_worker`]. The caller
 /// constructs a session with `participant_config` and wires the returned
-/// meshes into `ShuffleExec` (one mesh per shuffle).
+/// meshes into `MppRepartitionExec` (one mesh per shuffle).
 pub struct WorkerMppContext {
     pub meshes: Vec<WorkerMesh>,
     pub participant_config: MppParticipantConfig,

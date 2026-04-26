@@ -24,7 +24,7 @@
 //! `task_count` is enough — we don't need URLs or a `WorkerResolver`.
 //!
 //! This module is a P1 seam: the trait is defined and implemented on
-//! `ShuffleExec` / `DrainGatherExec`, but nothing inside MPP calls it yet.
+//! `MppRepartitionExec` / `DrainGatherExec`, but nothing inside MPP calls it yet.
 //! P3's generic cut-rule walker (ported from `distribute_plan.rs`) will be the
 //! first consumer — at that point every boundary node gets a real
 //! [`MppStage`] stamped during the walk, replacing the `None` placeholder.
@@ -96,7 +96,7 @@ pub struct MppTaskKey {
 /// trait.
 ///
 /// P1 is intentionally permissive: `input_stage` returns `Option<&MppStage>`
-/// because existing call sites construct `ShuffleExec` / `DrainGatherExec`
+/// because existing call sites construct `MppRepartitionExec` / `DrainGatherExec`
 /// without a stage. P3's walker will stamp one via [`with_input_stage`] during
 /// the `transform_up` pass. Once every boundary is walker-produced we can
 /// tighten the signature to `&MppStage` and delete the `Option`.

@@ -6,8 +6,12 @@
 # Note: unlike `publish-paradedb-docker.yml`, this workflow cannot use Depot to
 # accelerate the build. Depot requires the `DEPOT_PROJECT` / `DEPOT_TOKEN` repo
 # secrets, which GitHub does not expose to PRs from forks — so any Depot-based
-# step would fail on community-contributor PRs. We build directly with
-# `docker buildx build` instead, which works without secrets.
+# step would fail on community-contributor PRs. That's fine here because, unlike
+# the publish workflow, we don't need to produce a single universal image — we
+# only need to smoke-test that the image builds and runs on each arch. So we
+# skip cross-compilation entirely: the matrix below builds amd64 and arm64 in
+# parallel, each natively on a runner of its own arch via `docker buildx build`,
+# which works without secrets.
 
 name: Test pg_search (Docker)
 

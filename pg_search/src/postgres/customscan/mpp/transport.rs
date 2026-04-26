@@ -32,7 +32,9 @@
 #![allow(dead_code)]
 
 use std::collections::VecDeque;
+use std::future::poll_fn;
 use std::sync::{Arc, Condvar, Mutex};
+use std::task::{Poll, Waker};
 use std::thread::JoinHandle;
 #[cfg(test)]
 use std::time::Duration;
@@ -103,7 +105,7 @@ struct DrainBufferInner {
     /// DataFusion `poll_next` returns `Poll::Pending` without blocking the
     /// executor thread. `Option` so we don't allocate one if the buffer is
     /// only consumed synchronously via `pop_front`.
-    waker: Option<std::task::Waker>,
+    waker: Option<Waker>,
 }
 
 /// Yielded by [`DrainBuffer::pop_front`].
@@ -208,15 +210,12 @@ impl DrainBuffer {
     /// under peer-to-peer backpressure, where a blocking wait could deadlock
     /// with this worker's own outbound pump.
     ///
-    /// Why hand-rolled instead of `tokio::sync::mpsc`: the producer side is
-    /// a real OS thread (the drain thread) that blocks inside the `shm_mq`
-    /// FFI; it cannot be a Tokio task because `shm_mq_receive` has no async
-    /// readiness signal. Swapping `DrainBuffer` for `mpsc::unbounded_channel`
-    /// and calling `rx.poll_recv(cx)` on the consumer is plausible, but the
-    /// producer stays an OS thread regardless, and the small
-    /// `Mutex<Option<Waker>>` is the entire delta — not load-bearing for
-    /// correctness. Tracked as a post-merge follow-up.
-    pub fn poll_pop_front(&self, waker: &std::task::Waker) -> Option<DrainItem> {
+    /// Producers cannot be async tasks: the drain thread is a real OS
+    /// thread that blocks inside the `shm_mq` FFI (no async readiness
+    /// signal), so it can't be replaced with a `tokio::sync::mpsc::Sender`
+    /// either. The `Mutex<Option<Waker>>` is the consumer-side bridge
+    /// between the OS-thread producer and the executor-task consumer.
+    pub fn poll_pop_front(&self, waker: &Waker) -> Option<DrainItem> {
         let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
         if let Some(batch) = guard.queue.pop_front() {
             return Some(DrainItem::Batch(batch));
@@ -224,9 +223,54 @@ impl DrainBuffer {
         if guard.cancelled || guard.sources_done >= guard.num_sources {
             return Some(DrainItem::Eof);
         }
-        // Register (or replace) the waker. Only one consumer at a time is
-        // expected — DrainGatherStream — so simple replacement is fine.
+        // One consumer at a time — DrainGatherStream is the only caller,
+        // and a future plan that wired two readers off the same handle
+        // would silently drop one waker on every register. The check is
+        // a debug_assert so it's free in release; if the invariant is
+        // ever lifted, switch to a `Vec<Waker>` and wake all.
+        debug_assert!(
+            guard.waker.is_none() || guard.waker.as_ref().unwrap().will_wake(waker),
+            "DrainBuffer::poll_pop_front: second consumer registered a different waker — \
+             only one consumer is supported per buffer"
+        );
         guard.waker = Some(waker.clone());
+        None
+    }
+
+    /// Await-able wrapper over [`poll_pop_front`]. Lets `async_stream::stream!`
+    /// bodies pull from the buffer with `buffer.recv().await` instead of
+    /// hand-rolling a `Stream` impl with manual `Pin`/`Context`/`Poll`
+    /// plumbing.
+    ///
+    /// Suitable for thread-backed handles where a separate producer
+    /// thread pushes via `push_batch`. For cooperative handles the
+    /// producer is the consumer's own task — use [`try_pop`] + an
+    /// executor yield instead, otherwise the await suspends with no
+    /// other task able to wake it.
+    ///
+    /// [`try_pop`]: Self::try_pop
+    pub async fn recv(self: &Arc<Self>) -> DrainItem {
+        let buf = Arc::clone(self);
+        poll_fn(move |cx| match buf.poll_pop_front(cx.waker()) {
+            Some(item) => Poll::Ready(item),
+            None => Poll::Pending,
+        })
+        .await
+    }
+
+    /// Non-blocking, non-waker variant of [`poll_pop_front`]. Returns the
+    /// front item or `DrainItem::Eof` if all sources have detached and
+    /// the queue is drained; returns `None` only when more data may yet
+    /// arrive. Cooperative consumers loop on `poll_drain_pass` + `try_pop`,
+    /// yielding to the executor between iterations.
+    pub fn try_pop(&self) -> Option<DrainItem> {
+        let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
+        if let Some(batch) = guard.queue.pop_front() {
+            return Some(DrainItem::Batch(batch));
+        }
+        if guard.cancelled || guard.sources_done >= guard.num_sources {
+            return Some(DrainItem::Eof);
+        }
         None
     }
 }

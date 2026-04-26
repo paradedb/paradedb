@@ -372,8 +372,8 @@ fn concat_batches(
 /// through the DataFusion `ExecutionPlan` so every worker aborts the whole
 /// query, not just this operator. A silent drop would make peers' downstream
 /// aggregate nodes happily finalize over incomplete input and return wrong
-/// answers. `ShuffleStream::poll_next` honors this by surfacing the error
-/// via its `Stream::Err` item.
+/// answers. `build_shuffle_stream` honors this by surfacing the error
+/// via the stream's `Err` item.
 ///
 /// ## Producer order
 ///
@@ -460,7 +460,7 @@ pub struct ShuffleWiring {
     pub outbound_senders: Vec<Option<MppSender>>,
     pub participant_index: u32,
     /// Our inbound-side drain handle for the same mesh. When set,
-    /// `ShuffleStream::poll_next` proactively calls
+    /// `build_shuffle_stream` proactively calls
     /// `DrainHandle::poll_drain_pass` every iteration so our inbound
     /// queues keep draining even when our outbound sends aren't
     /// blocking. Without this, a participant whose sends succeed fast
@@ -910,7 +910,8 @@ pub struct DrainGatherExec {
     /// Diagnostic label — same value the sibling `ShuffleExec` uses so a
     /// mesh's send-side and receive-side logs line up by tag.
     tag: &'static str,
-    /// Remembered so `DrainGatherStream` can log which participant received.
+    /// Remembered so `build_drain_gather_stream` can log which participant
+    /// received.
     participant_index: u32,
 }
 

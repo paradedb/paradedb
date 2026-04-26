@@ -46,12 +46,13 @@
 //! driven by the participants' scan completions, not by operator-level poll
 //! cadence. See `plan_build::wrap_with_mpp_shuffle` for the full reasoning.
 
-#![allow(dead_code)] // wired in via wrap_with_mpp_shuffle.
-
 use std::any::Any;
+use std::fmt;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
+use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
@@ -109,7 +110,7 @@ impl ChainExec {
 }
 
 impl DisplayAs for ChainExec {
-    fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt_as(&self, _t: DisplayFormatType, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "ChainExec")
     }
 }
@@ -176,12 +177,9 @@ struct ChainStream {
 }
 
 impl futures::Stream for ChainStream {
-    type Item = Result<datafusion::arrow::array::RecordBatch>;
+    type Item = Result<RecordBatch>;
 
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
             if let Some(s) = self.first.as_mut() {
                 match s.poll_next_unpin(cx) {
@@ -213,7 +211,7 @@ impl futures::Stream for ChainStream {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use datafusion::arrow::array::{Int32Array, RecordBatch};
+    use datafusion::arrow::array::{Int32Array, Int64Array, RecordBatch};
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::datasource::memory::MemorySourceConfig;
     use datafusion::physical_plan::ExecutionPlanProperties;
@@ -259,9 +257,7 @@ mod tests {
             MemorySourceConfig::try_new_from_batches(schema_a.clone(), vec![batch(&[1])]).unwrap();
         let second_b = RecordBatch::try_new(
             schema_b.clone(),
-            vec![Arc::new(datafusion::arrow::array::Int64Array::from(vec![
-                2i64,
-            ]))],
+            vec![Arc::new(Int64Array::from(vec![2i64]))],
         )
         .unwrap();
         let second = MemorySourceConfig::try_new_from_batches(schema_b, vec![second_b]).unwrap();

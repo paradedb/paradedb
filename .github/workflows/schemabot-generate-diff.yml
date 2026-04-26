@@ -12,11 +12,6 @@ on:
       - main
       - 0.*.x # Release branches
       - moe/** # Temporary: trigger CI on stacked PR chain
-    paths:
-      - ".github/workflows/schemabot-generate-diff.yml"
-      - ".github/scripts/check_migration_diff.py"
-      - "pg_search/**"
-      - "!pg_search/README.md"
   workflow_dispatch:
 
 concurrency:
@@ -24,9 +19,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # We use dorny/paths-filter instead of on.pull_request.paths because the
+  # built-in paths filter skips the entire workflow — including the required
+  # gate job — which causes branch protection to block merges indefinitely.
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ github.event_name != 'pull_request' || steps.filter.outputs.relevant == 'true' }}
+    steps:
+      - name: Detect File Changes
+        uses: dorny/paths-filter@v4
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            relevant:
+              - ".github/workflows/schemabot-generate-diff.yml"
+              - ".github/scripts/check_migration_diff.py"
+              - "pg_search/**"
+              - "!pg_search/README.md"
+
   schemabot-generate-diff:
     name: SchemaBot
     runs-on: ubicloud-standard-8-arm-ubuntu-2404
+    needs: detect-changes
+    if: needs.detect-changes.outputs.should_run == 'true'
     defaults:
       run:
         shell: bash -eo pipefail {0}
@@ -186,4 +204,21 @@ jobs:
           else
             echo "✅ No schema difference detected"
             echo "schema_diff_detected=false" >> $GITHUB_OUTPUT
+          fi
+
+  # Required for branch protection — GitHub lacks "required when present" for
+  # status checks so this gate always runs and reports pass/fail. Standard pattern:
+  # https://github.com/astral-sh/ruff/blob/main/.github/workflows/ci.yaml
+  # https://github.com/orgs/community/discussions/26251
+  report-results:
+    name: Report Results
+    if: always()
+    needs: [detect-changes, schemabot-generate-diff]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate CI Results
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "CI failed or was cancelled"
+            exit 1
           fi

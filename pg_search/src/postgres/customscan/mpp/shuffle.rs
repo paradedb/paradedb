@@ -601,6 +601,12 @@ impl ExecutionPlan for ShuffleExec {
 /// struct (rather than scattered locals) so [`process_batch`] can mutate
 /// row counters, push to the self-queue, and accumulate trace metrics
 /// in one place.
+///
+/// Trace fields are only consumed by [`log_shuffle_eof`], whose body
+/// is gated to `cfg(not(test))`. Under `cfg(test)` rustc sees no reader
+/// for the fields and trips `dead_code`; the `cfg_attr` silences that
+/// for the unit-test build only.
+#[cfg_attr(test, allow(dead_code))]
 struct ShuffleState {
     /// Set on entry; taken to `None` once the child is exhausted (or
     /// errors mid-stream) so peer senders detach and signal EOF.
@@ -816,6 +822,8 @@ fn build_shuffle_stream(
 
 /// Wall-clock timings carried alongside [`ShuffleState`] in
 /// [`build_shuffle_stream`]; emitted at EOF by [`log_shuffle_eof`].
+/// `cfg_attr` rationale: same as [`ShuffleState`].
+#[cfg_attr(test, allow(dead_code))]
 struct ShuffleTimings {
     /// Set only when `mpp_trace_flag()` was on at first poll.
     first_poll_at: Option<Instant>,
@@ -1124,6 +1132,8 @@ fn build_drain_gather_stream(
 
 /// Trace metrics carried through [`build_drain_gather_stream`] and
 /// emitted at EOF by [`log_drain_gather_eof`].
+/// `cfg_attr` rationale: same as [`ShuffleState`].
+#[cfg_attr(test, allow(dead_code))]
 struct DrainGatherTrace {
     rows_received: u64,
     batches_received: u64,

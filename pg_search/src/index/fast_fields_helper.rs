@@ -443,11 +443,8 @@ pub fn resolve_ctid(
         .expect("ctid should be present")
 }
 
-/// Groups packed doc addresses by segment ordinal, returning a `BTreeMap` that
-/// iterates in segment-sorted order.
-///
-/// `packed_iter` yields `(row_index, packed_doc_address)` pairs where each packed
-/// value encodes `(segment_ord, doc_id)` via [`crate::scan::deferred_encode::pack_doc_addresses`].
+/// Groups packed doc addresses by segment ordinal, returning a `BTreeMap` that iterates in segment-sorted order.
+/// The `packed_iter` argument yields `(row_index, packed_doc_address)`
 pub fn partition_by_segment(
     packed_iter: impl Iterator<Item = (usize, u64)>,
 ) -> BTreeMap<SegmentOrdinal, Vec<(usize, DocId)>> {
@@ -463,10 +460,9 @@ pub fn partition_by_segment(
 /// resolver for each segment's batch of doc IDs, and scatters the results back
 /// into original row order.
 ///
-/// `packed_iter` yields `(row_index, packed_doc_address)` pairs where each packed
-/// value encodes `(segment_ord, doc_id)` via [`crate::scan::deferred_encode::pack_doc_addresses`].
+/// The `packed_iter` argument yields `(row_index, packed_doc_address)`
 ///
-/// `resolve_segment` is called once per distinct segment with `(segment_ord, doc_ids)` and
+/// The `resolve_segment` argument is called once per distinct segment with `(segment_ord, doc_ids)` and
 /// must return a `Vec<Option<T>>` parallel to `doc_ids`.
 ///
 /// Returns a `Vec<Option<T>>` of length `num_rows` with each resolved value placed

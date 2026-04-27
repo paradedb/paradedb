@@ -108,6 +108,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
 
     postgres::options::init();
     gucs::init();
+    postgres::storage::custom_rmgr::register();
 
     #[cfg(not(any(feature = "pg17", feature = "pg18")))]
     postgres::fake_aminsertcleanup::register();

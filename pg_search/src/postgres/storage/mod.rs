@@ -94,12 +94,14 @@ mod avl;
 pub mod block;
 mod blocklist;
 pub mod buffer;
+pub mod custom_rmgr;
 pub mod fsm;
 pub mod linked_bytes;
 pub mod linked_items;
 pub mod merge;
 pub mod metadata;
 pub mod utils;
+mod xlog;
 
 pub use self::linked_bytes::{LinkedBytesList, LinkedBytesListWriter};
 pub use self::linked_items::LinkedItemList;

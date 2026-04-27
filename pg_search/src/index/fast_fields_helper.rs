@@ -443,22 +443,35 @@ pub fn resolve_ctid(
         .expect("ctid should be present")
 }
 
-/// Groups packed doc addresses by segment ordinal, returning a `BTreeMap` that iterates in segment-sorted order.
+/// Partitions packed doc addresses by segment ordinal and invokes `process`
+/// once per segment (in sorted segment order) with the segment ordinal and
+/// its `(row_index, doc_id)` pairs.
+///
 /// The `packed_iter` argument yields `(row_index, packed_doc_address)`
-pub fn partition_by_segment(
+pub fn for_each_segment<F>(
     packed_iter: impl Iterator<Item = (usize, u64)>,
-) -> BTreeMap<SegmentOrdinal, Vec<(usize, DocId)>> {
+    mut process: F,
+) -> Result<()>
+where
+    F: FnMut(SegmentOrdinal, Vec<(usize, DocId)>) -> Result<()>,
+{
     let mut by_seg: BTreeMap<SegmentOrdinal, Vec<(usize, DocId)>> = BTreeMap::new();
     for (row_idx, packed) in packed_iter {
         let (seg_ord, doc_id) = unpack_doc_address(packed);
         by_seg.entry(seg_ord).or_default().push((row_idx, doc_id));
     }
-    by_seg
+    for (seg_ord, rows) in by_seg {
+        process(seg_ord, rows)?;
+    }
+    Ok(())
 }
 
 /// Partitions packed doc addresses by segment ordinal, invokes a caller-supplied
 /// resolver for each segment's batch of doc IDs, and scatters the results back
 /// into original row order.
+///
+/// This is a convenience wrapper around [`for_each_segment`] for callers that
+/// need a flat `Vec<Option<T>>` output indexed by row position.
 ///
 /// The `packed_iter` argument yields `(row_index, packed_doc_address)`
 ///
@@ -475,18 +488,18 @@ pub fn resolve_by_segment<T, F>(
 where
     F: FnMut(SegmentOrdinal, &[DocId]) -> Result<Vec<Option<T>>>,
 {
-    let by_seg = partition_by_segment(packed_iter);
-
     let mut output: Vec<Option<T>> = Vec::with_capacity(num_rows);
     output.resize_with(num_rows, || None);
 
-    for (seg_ord, rows) in by_seg {
+    for_each_segment(packed_iter, |seg_ord, rows| {
         let doc_ids: Vec<DocId> = rows.iter().map(|(_, id)| *id).collect();
         let resolved = resolve_segment(seg_ord, &doc_ids)?;
         for ((row_idx, _), value) in rows.into_iter().zip(resolved) {
             output[row_idx] = value;
         }
-    }
+        Ok(())
+    })?;
+
     Ok(output)
 }
 

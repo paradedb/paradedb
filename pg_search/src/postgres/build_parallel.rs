@@ -588,7 +588,7 @@ pub(super) fn build_index(
     let nworkers = plan::create_index_nworkers(&heaprel, &indexrel);
     pgrx::debug1!("build_index: asked for {nworkers} workers");
 
-    if let Some(mut process) = launch_parallel_process!(
+    let total_tuples = if let Some(mut process) = launch_parallel_process!(
         ParallelBuild<BuildWorker>,
         process,
         WorkerStyle::Maintenance,
@@ -640,7 +640,7 @@ pub(super) fn build_index(
         }
 
         pgrx::debug1!("build_index: total_tuples: {total_tuples}, total_merges: {total_merges}");
-        Ok(total_tuples)
+        total_tuples
     } else {
         pgrx::debug1!("build_index: not doing a parallel build");
         // not doing a parallel build, so directly instantiate a BuildWorker and serially run the
@@ -667,8 +667,11 @@ pub(super) fn build_index(
 
         let (total_tuples, total_merges) = worker.do_build(1)?;
         pgrx::debug1!("build_index: total_tuples: {total_tuples}, total_merges: {total_merges}");
-        Ok(total_tuples)
-    }
+        total_tuples
+    };
+
+    unsafe { set_ps_display_remove_suffix() };
+    Ok(total_tuples)
 }
 
 mod plan {

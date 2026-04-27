@@ -184,6 +184,16 @@ pub const MPP_DSM_MAX_BYTES: usize = 16 * 1024 * 1024 * 1024;
 /// from `(mesh_offset, aligned_queue_bytes, total_participants)` without a
 /// sidecar offset table — see [`MppDsmHeader::mesh_base_offset`].
 ///
+/// One mesh is allocated per planner cut (probe-side, post-agg, …), so the
+/// total DSM cost is `num_meshes × N×(N-1) × aligned_queue_bytes`. With the
+/// default `paradedb.mpp_queue_size = 64 MiB`, that's ~768 MiB at N=2 with
+/// 3 meshes and ~2.3 GiB at N=4 with 3 meshes. An alternative explored in
+/// the prototype at <https://github.com/paradedb/paradedb/pull/4184>
+/// multiplexes all logical streams over a single per-pair mesh; that
+/// trades per-mesh isolation for a single header-version bump and a
+/// stream-tag in the wire frame, and would make this scale linearly in
+/// participants instead of in (participants × cuts).
+///
 /// Fails (instead of panicking or silently overflowing) on any arithmetic
 /// overflow and on regions exceeding [`MPP_DSM_MAX_BYTES`]. The caller is
 /// expected to `ereport(ERROR)` with the returned string.

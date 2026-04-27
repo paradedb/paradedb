@@ -60,7 +60,7 @@ pub const MPP_DSM_MAGIC: u32 = 0x4D50_5053; // "MPPS" in ASCII
 /// Current on-DSM header version. Bumped when the header layout or
 /// interpretation changes. Independent of `MPP_PLAN_BROADCAST_VERSION`, which
 /// versions the embedded plan bytes.
-pub const MPP_DSM_HEADER_VERSION: u32 = 2;
+pub const MPP_DSM_HEADER_VERSION: u32 = 1;
 
 /// C-repr header stamped at offset 0 of the MPP DSM region.
 ///

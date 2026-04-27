@@ -71,7 +71,7 @@ use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, Pla
 use datafusion::physical_planner::{ExtensionPlanner, PhysicalPlanner};
 use pgrx::pg_sys;
 
-use crate::index::fast_fields_helper::FFHelper;
+use crate::index::fast_fields_helper::{resolve_by_segment, FFHelper};
 use crate::postgres::customscan::joinscan::build::{JoinType, RelNode};
 use crate::postgres::customscan::joinscan::CtidColumn;
 use crate::postgres::heap::VisibilityChecker;
@@ -912,15 +912,11 @@ fn materialize_deferred_ctid(
         .filter(|&i| !doc_addr_array.is_null(i))
         .map(|i| (i, doc_addr_array.value(i)));
 
-    let resolved = crate::index::fast_fields_helper::resolve_by_segment(
-        packed_iter,
-        num_rows,
-        |seg_ord, doc_ids| {
-            let mut ctids = vec![None; doc_ids.len()];
-            ffhelper.ctid(seg_ord).as_u64s(doc_ids, &mut ctids);
-            Ok(ctids)
-        },
-    )?;
+    let resolved = resolve_by_segment(packed_iter, num_rows, |seg_ord, doc_ids| {
+        let mut ctids = vec![None; doc_ids.len()];
+        ffhelper.ctid(seg_ord).as_u64s(doc_ids, &mut ctids);
+        Ok(ctids)
+    })?;
 
     Ok(uint64_array_from_options(&resolved))
 }

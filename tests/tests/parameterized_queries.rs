@@ -637,8 +637,14 @@ fn snippet_with_parameterized_args(mut conn: PgConnection) {
     let generic = "EXECUTE snip_g('technology', '<b>', '</b>')".fetch::<(i32, String)>(&mut conn);
     "DEALLOCATE snip_g".execute(&mut conn);
 
-    assert_eq!(custom, baseline, "CUSTOM with param tags must match baseline");
-    assert_eq!(generic, baseline, "GENERIC with param tags must match baseline");
+    assert_eq!(
+        custom, baseline,
+        "CUSTOM with param tags must match baseline"
+    );
+    assert_eq!(
+        generic, baseline,
+        "GENERIC with param tags must match baseline"
+    );
 
     // Also test pdb.snippet_positions with parameterized limit/offset
     "SET plan_cache_mode = force_generic_plan".execute(&mut conn);

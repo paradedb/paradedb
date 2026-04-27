@@ -77,6 +77,18 @@ static KOR_TOKENIZER: Lazy<Arc<LinderaTokenizer>> = Lazy::new(|| {
     ))
 });
 
+/// Force all six Lindera tokenizers. Each language loads its dict twice
+/// (keep_whitespace variants don't share — `Data::Vec` is deep-copied on
+/// clone), pending an upstream lindera fix.
+pub fn prewarm() {
+    Lazy::force(&CMN_TOKENIZER);
+    Lazy::force(&CMN_TOKENIZER_KEEP_WHITESPACE);
+    Lazy::force(&JPN_TOKENIZER);
+    Lazy::force(&JPN_TOKENIZER_KEEP_WHITESPACE);
+    Lazy::force(&KOR_TOKENIZER);
+    Lazy::force(&KOR_TOKENIZER_KEEP_WHITESPACE);
+}
+
 #[derive(Clone, Default)]
 pub struct LinderaChineseTokenizer {
     keep_whitespace: bool,

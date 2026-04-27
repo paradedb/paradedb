@@ -336,18 +336,39 @@ impl MppSender {
         };
         let mut first_try = true;
         let t_wait_start = std::time::Instant::now();
-        // The send-spin is synchronous and runs on the same backend thread
-        // that DataFusion calls `poll_next` on. There is no Tokio runtime
-        // here: producing and consuming for this participant happen on this
-        // one thread, time-sliced. When `try_send_bytes` returns "would
-        // block", we don't sleep waiting for room — we synchronously pull
-        // the peer's already-arrived batches via `poll_drain_pass` so their
-        // writers can advance. Without that interleave, two participants
-        // each blocking on a full outbound and never reading the other side
-        // would deadlock. `std::thread::yield_now` here is just a
-        // scheduler hint between OS threads (e.g., another backend's worker
-        // thread on the box); it is *not* a Tokio yield, so there is no
-        // starved async task waiting in the wings.
+        // Mental model: a current-thread Tokio runtime lives on the
+        // backend thread (DataFusion needs one to drive `Stream`s). This
+        // spin runs *inside* one of those Tokio tasks — specifically the
+        // body of `ShuffleStream::poll_next`. While we spin we hold the
+        // runtime: any sibling Tokio task on the same runtime is paused
+        // until we return.
+        //
+        // What saves us today is plan shape, not Tokio plumbing. The MPP
+        // topology built by `walker.rs` is linear (`ChainExec` polls its
+        // input synchronously; no `RepartitionExec` / `CoalescePartitions`
+        // forks a parallel driver above us), so the runtime has only one
+        // "live" task per query, and starving siblings is moot — there
+        // are none. The deadlock that the cooperative drain prevents is a
+        // *cross-participant* hazard, not a same-runtime task hazard:
+        // two participants each blocking on a full outbound and never
+        // reading the other side. We break that by driving our own
+        // inbound synchronously: `poll_drain_pass` pulls peer batches
+        // that have already arrived, freeing their slots so peers'
+        // writers can advance, then we retry our send. `try_send_bytes`
+        // succeeding is the only exit. `std::thread::yield_now` is an OS
+        // scheduler hint; it is not a Tokio yield, so it does not
+        // surrender the runtime — that's deliberate, because if the
+        // current task gave up the runtime mid-spin and no other ready
+        // Tokio task happened to drive forward progress, the runtime
+        // would idle.
+        //
+        // If a future planner change introduces a parallel operator
+        // above the shuffle (so the Tokio runtime ends up multiplexing
+        // siblings), this loop becomes a real starvation source and
+        // wants to be rewritten as `async fn` with periodic
+        // `tokio::task::yield_now().await`. The cooperative drain
+        // primitive itself already lives off `Stream` infrastructure
+        // ready for that — the spin is the only synchronous holdout.
         loop {
             // `pgrx::check_for_interrupts!()` pulls in PG symbols
             // (`ProcessInterrupts`, `PG_exception_stack`, `CopyErrorData`, …)

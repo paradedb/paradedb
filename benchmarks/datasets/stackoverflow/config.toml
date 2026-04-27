@@ -16,3 +16,9 @@ name = "comments"
 parent = "stackoverflow_posts"
 parent_join_col = "id"
 join_col = "post_id"
+
+[[tables]]
+name = "users"
+parent = "stackoverflow_posts"
+parent_join_col = "owner_user_id"
+join_col = "id"

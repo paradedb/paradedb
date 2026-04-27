@@ -46,10 +46,11 @@ For access to ParadeDB Enterprise, please [contact sales](mailto:sales@paradedb.
 | Buffer cache integration<sup>2</sup> | ✅                 | ✅                  |
 | **Deployment** <sup>3</sup>          |                    |
 | Maximum cluster size <sup>4</sup>    | 1                  | Unlimited           |
-| Physical (i.e. WAL) Replication      | ❌                 | ✅                  |
-| Crash Recovery                       | ❌                 | ✅                  |
-| Point in Time Recovery               | ❌                 | ✅                  |
+| Crash Recovery                       | ✅                 | ✅                  |
+| Point in Time Recovery               | ✅                 | ✅                  |
 | Logical Replication                  | ✅                 | ✅                  |
+| High Availability Support            | ❌                 | ✅                  |
+| Read Replica Support                 | ❌                 | ✅                  |
 
 <Info>
 **Footnotes**
@@ -65,6 +66,6 @@ For access to ParadeDB Enterprise, please [contact sales](mailto:sales@paradedb.
   3. All listed deployment features and limitations are specific to the BM25 index. For instance,
   ParadeDB Community supports physical/logical replication, crash recovery, etc. for heap tables and other Postgres indexes like B-Tree.
   4. In a primary-replica topology, BM25 indexes in ParadeDB Community are only available on the primary, as
-  the Community edition does not support physical (WAL) replication.
+  the Community edition does not support physical replication.
 </p>
 </Info>

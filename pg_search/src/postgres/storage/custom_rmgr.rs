@@ -72,11 +72,13 @@ unsafe extern "C-unwind" fn rm_decode(
 }
 
 pub fn emit_init_record() {
-    let payload: u8 = 0;
+    // The data pointer signature differs by Postgres version (`*mut c_char` on pg15-17,
+    // `*const c_void` on pg18); `as _` lets each build infer the right type.
+    let mut payload: u8 = 0;
     unsafe {
         pg_sys::XLogBeginInsert();
         pg_sys::XLogRegisterData(
-            std::ptr::from_ref(&payload).cast::<core::ffi::c_void>(),
+            &mut payload as *mut u8 as _,
             std::mem::size_of::<u8>() as u32,
         );
         pg_sys::XLogInsert(RMGR_ID, XLOG_PG_SEARCH_INIT_INDEX);

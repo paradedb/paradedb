@@ -133,8 +133,8 @@ struct ExistingArgs {
     #[arg(long)]
     size: String,
 
-    /// Path to external CSV data source (S3 or local). Each table should be a subdirectory
-    /// containing CSV files. Overrides s3_base_path in config.toml.
+    /// Base path to external CSV data source (S3 or local). Overrides s3_base_path in
+    /// config.toml. CSVs are loaded from `{data_source}/sampled/{size}/csv/{table}/`.
     #[arg(long)]
     data_source: Option<String>,
 }
@@ -616,26 +616,24 @@ fn load_external_data(
 ) -> anyhow::Result<()> {
     // Read dataset config for table names and S3 path.
     let config_path = format!("datasets/{dataset}/config.toml");
-    let config = config::load_dataset_config(&config_path)
+    let (config, _) = config::load_dataset_config(&config_path)
         .with_context(|| format!("Failed to load config '{config_path}'"))?;
 
     // Determine CSV data source path.
-    let source_path = match data_source {
-        Some(path) => path.trim_end_matches('/').to_string(),
-        None => {
-            let s3_base = config.s3_base_path.as_deref().with_context(|| {
-                format!(
-                    "Dataset '{dataset}' has no S3 base path. Provide --data-source or set \
-                     s3_base_path in datasets/{dataset}/config.toml"
-                )
-            })?;
+    let base_path = match data_source {
+        Some(path) => path,
+        None => config.s3_base_path.as_deref().with_context(|| {
             format!(
-                "{}/sampled/{}/csv",
-                s3_base.trim_end_matches('/'),
-                size_label
+                "Dataset '{dataset}' has no S3 base path. Provide --data-source or set \
+                 s3_base_path in datasets/{dataset}/config.toml"
             )
-        }
+        })?,
     };
+    let source_path = format!(
+        "{}/sampled/{}/csv",
+        base_path.trim_end_matches('/'),
+        size_label
+    );
     println!("Data source: {source_path}");
 
     // Create tables via DDL.
@@ -667,8 +665,7 @@ fn load_external_data(
     let duckdb_conn =
         utils::open_duckdb_conn().with_context(|| "Failed to open DuckDB connection")?;
 
-    for table in &config.tables {
-        let table_name = &table.name;
+    for table_name in config.all_table_names() {
         let csv_source = format!("{source_path}/{table_name}");
         let table_temp_dir = format!("{temp_dir}/{table_name}");
         std::fs::create_dir_all(&table_temp_dir)

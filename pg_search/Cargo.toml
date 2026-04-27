@@ -7,7 +7,7 @@ license = { workspace = true }
 build = "build.rs"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib"]
 
 [features]
 default = ["pg18"]
@@ -93,7 +93,3 @@ vergen-git2 = "9.0"
 
 [package.metadata.cargo-machete]
 ignored = ["indexmap", "libc", "tantivy-common"]
-
-[[bin]]
-name = "pgrx_embed_pg_search"
-path = "./src/bin/pgrx_embed.rs"

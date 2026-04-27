@@ -95,6 +95,7 @@ WITH (key_field = 'id');
 ```python Django
 from django.db import connection
 from paradedb.indexes import BM25Index
+from paradedb.search import Tokenizer
 
 with connection.schema_editor() as schema_editor:
     schema_editor.add_index(
@@ -102,7 +103,7 @@ with connection.schema_editor() as schema_editor:
         BM25Index(
             fields={
                 "id": {},
-                "categories": {"tokenizer": "literal"},
+                "categories": {"tokenizer": Tokenizer.literal()},
             },
             key_field="id",
             name="search_idx",
@@ -112,15 +113,12 @@ with connection.schema_editor() as schema_editor:
 
 ```python SQLAlchemy
 from sqlalchemy import Index
-from paradedb.sqlalchemy import indexing
+from paradedb.sqlalchemy import indexing, tokenizer
 
 idx = Index(
     "search_idx",
     indexing.BM25Field(ArrayDemo.id),
-    indexing.BM25Field(
-        ArrayDemo.categories,
-        tokenizer=indexing.tokenize.literal(),
-    ),
+    indexing.BM25Field(ArrayDemo.categories, tokenizer=tokenizer.literal()),
     postgresql_using="bm25",
     postgresql_with={"key_field": "id"},
 )
@@ -134,7 +132,7 @@ ActiveRecord::Base.connection.add_bm25_index(
   :array_demo,
   fields: {
     id: {},
-    categories: { tokenizer: :literal }
+    categories: { tokenizer: Tokenizer.literal() }
   },
   key_field: :id,
   name: :search_idx

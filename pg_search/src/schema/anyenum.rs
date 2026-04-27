@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::pgrx_sql_entity_graph::metadata::{
-    ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
+    ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
 };
 use pgrx::*;
 use std::ffi::CStr;
@@ -42,13 +42,12 @@ impl FromDatum for AnyEnum {
 }
 
 unsafe impl SqlTranslatable for AnyEnum {
-    fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-        Ok(SqlMapping::As("anyenum".into()))
-    }
-
-    fn return_sql() -> Result<Returns, ReturnsError> {
-        Ok(Returns::One(SqlMapping::literal("anyenum")))
-    }
+    const TYPE_IDENT: &'static str = pgrx::pgrx_resolved_type!(AnyEnum);
+    const TYPE_ORIGIN: TypeOrigin = TypeOrigin::External;
+    const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
+        Ok(SqlMappingRef::literal("anyenum"));
+    const RETURN_SQL: Result<ReturnsRef, ReturnsError> =
+        Ok(ReturnsRef::One(SqlMappingRef::literal("anyenum")));
 }
 
 unsafe impl<'fcx> callconv::ArgAbi<'fcx> for AnyEnum

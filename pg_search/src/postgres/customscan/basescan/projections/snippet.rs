@@ -178,7 +178,7 @@ pub mod pdb {
     use pgrx::callconv::{BoxRet, FcInfo};
     use pgrx::datum::Datum;
     use pgrx::pgrx_sql_entity_graph::metadata::{
-        ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
+        ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
     };
     use pgrx::{default, pg_extern, pg_sys, AnyElement, IntoDatum};
 
@@ -244,13 +244,12 @@ pub mod pdb {
     }
 
     unsafe impl SqlTranslatable for IntArray2D {
-        fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-            Ok(SqlMapping::As(String::from("integer[]")))
-        }
-
-        fn return_sql() -> Result<Returns, ReturnsError> {
-            Ok(Returns::One(SqlMapping::As(String::from("integer[]"))))
-        }
+        const TYPE_IDENT: &'static str = pgrx::pgrx_resolved_type!(IntArray2D);
+        const TYPE_ORIGIN: TypeOrigin = TypeOrigin::External;
+        const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
+            Ok(SqlMappingRef::literal("integer[]"));
+        const RETURN_SQL: Result<ReturnsRef, ReturnsError> =
+            Ok(ReturnsRef::One(SqlMappingRef::literal("integer[]")));
     }
 
     unsafe impl BoxRet for IntArray2D {

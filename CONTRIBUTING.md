@@ -8,13 +8,13 @@ Before submitting a pull request, please review this document, which outlines wh
 
 ### Selecting GitHub Issues
 
-All external contributions should be associated with a GitHub issue. If there is no open issue for the bug or feature that you'd like to work on, please open one first. When selecting an issue to work on, we recommend focusing on issues labeled `good first issue`.
+All external contributions should be associated with a GitHub issue. If there is no open issue for the bug or feature that you'd like to work on, please open one first. When selecting an issue to work on, we recommend focusing on issues labelled `good first issue`.
 
-Ideal issues for external contributors include well-scoped, individual features (e.g. adding support for a new tokenizer) as those are less likely to conflict with our general development process. We welcome small documentation contributions that accompany a feature, correct wrong information or fix typos, but will not accept "general improvement" documentation PRs.
+Ideal issues for external contributors include well-scoped, individual features (e.g. adding support for a new tokenizer), as those are less likely to conflict with our general development process. We welcome small documentation contributions that accompany a feature, correct wrong information or fix typos, but will not accept "general improvement" documentation PRs.
 
 ### Claiming GitHub Issues
 
-This repository has a workflow to assign issues to new contributors automatically. This ensures that you don't need approval
+This repository has a workflow that automatically assigns issues to new contributors. This ensures that you don't need approval
 from a maintainer to pick an issue.
 
 1. Before claiming an issue, ensure that:
@@ -24,12 +24,11 @@ from a maintainer to pick an issue.
 
 2. To claim an unassigned issue, comment `/take` on the issue. This will automatically assign the issue to you.
 
-If you find yourself unable to make progress, don't hesitate to seek help in the issue comments or the [ParadeDB Community Slack](https://paradedb.com/slack). If you no longer wish to
-work on the issue(s) you self-assigned, please use the `unassign me` link at the top of the issue(s) page to release it.
+If you find yourself unable to make progress, don't hesitate to seek help in the issue comments or the [ParadeDB Community Slack](https://paradedb.com/slack). If you no longer wish to work on the issue(s) you self-assigned, please use the `unassign me` link at the top of the issue(s) page to release them.
 
 ### Development Workflow
 
-ParadeDB is a Postgres extension, `pg_search`, written in Rust and packaged either as a standalone binary or as a Docker image. The development of our Postgres extension is done via `pgrx`. Please review the Development section of the [pg_search README](/pg_search/README.md).
+ParadeDB is a Postgres extension, `pg_search`, written in Rust and packaged as either a standalone binary or a Docker image. The development of our Postgres extension is done via `pgrx`. For instructions on setting up your development environment, building, and running `pg_search` locally, see the [pg_search README](/pg_search/README.md).
 
 ### Pull Request Workflow
 
@@ -45,11 +44,11 @@ All changes to ParadeDB happen through GitHub Pull Requests. Here is the recomme
 
 ### Documentation
 
-ParadeDB's public-facing documentation is stored in the `docs` folder. If you are adding a new feature that requires new documentation, please add the documentation as part of your pull request. We will not merge a feature without appropriate documentation.
+ParadeDB's public-facing documentation is stored in the `docs` folder. If you are adding a new feature that requires new documentation, please include the documentation in your pull request. We will not merge a feature without appropriate documentation.
 
 ### Testing
 
-ParadeDB has four main categories of tests. For a full overview of how and when to use them, please see their respective documentation:
+ParadeDB has four main test categories. For a full overview of how and when to use them, please see their respective documentation:
 
 #### 1. pg regress tests
 
@@ -81,7 +80,7 @@ Located in the `pg_search/src` directory.
 
 Located in the `stressgres/` directory.
 
-- **Purpose:** Replicate representative customer workloads against ParadeDB (or vanilla Postgres) to surface concurrency, correctness, and performance regressions that don't show up in shorter-lived tests. Also the entry point for Antithesis deterministic simulation runs.
+- **Purpose:** Replicate representative customer workloads against ParadeDB (or vanilla Postgres) to surface concurrency, correctness, and performance regressions that don't show up in shorter-lived tests.
 - **Running:** Run a suite interactively with `cargo run -- ui suites/vanilla-postgres.toml`, or headlessly with `cargo run -- headless suites/vanilla-postgres.toml --runtime=300000`.
 - **Details:** See [`stressgres/README.md`](stressgres/README.md) for more details.
 

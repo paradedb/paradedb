@@ -204,7 +204,7 @@ struct BuiltJoinPath {
 ///
 /// `Quiet` is for the early "this isn't even a candidate join" gates;
 /// `Warn` is for validation failures past the "considered interesting"
-/// boundary, where we owe the planner a `NOTICE`.
+/// boundary, where we owe the planner a `WARNING`.
 enum JoinPathDecline {
     Quiet,
     Warn {
@@ -213,51 +213,32 @@ enum JoinPathDecline {
     },
 }
 
-/// Specific reason a `JoinPathDecline::Warn` was raised. Each variant maps
-/// 1:1 to a planner-warning message we used to emit inline.
-enum JoinDeclineReason {
-    NoEquiKeys,
-    UnsupportedJoinType(Vec<String>),
-    PrunedJoinKey,
-    ActivationFailed,
-    JoinLevelExtractionFailed,
-    OrderByUnavailable,
-    Other(String),
+/// Specific reason a `JoinPathDecline::Warn` was raised. Wraps a specific
+/// warning message and any optional details (e.g., unsupported join types)
+/// to be emitted as a planner warning.
+pub struct JoinDeclineReason {
+    message: String,
+    details: Option<Vec<String>>,
 }
 
 impl JoinDeclineReason {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            details: None,
+        }
+    }
+
+    pub fn with_details(mut self, details: Vec<String>) -> Self {
+        self.details = Some(details);
+        self
+    }
+
     fn emit(&self, aliases: &[String]) {
-        match self {
-            JoinDeclineReason::NoEquiKeys => JoinScan::add_planner_warning(
-                "JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required",
-                aliases,
-            ),
-            JoinDeclineReason::UnsupportedJoinType(types) => {
-                JoinScan::add_detailed_planner_warning(
-                    "JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported",
-                    aliases,
-                    types.clone(),
-                )
-            }
-            JoinDeclineReason::PrunedJoinKey => JoinScan::add_planner_warning(
-                "JoinScan not used: a semi/anti join prunes columns required by an outer join key and no equivalent output-visible column was found",
-                aliases,
-            ),
-            JoinDeclineReason::ActivationFailed => JoinScan::add_planner_warning(
-                "JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates)",
-                aliases,
-            ),
-            JoinDeclineReason::JoinLevelExtractionFailed => JoinScan::add_planner_warning(
-                "JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are fast fields)",
-                aliases,
-            ),
-            JoinDeclineReason::OrderByUnavailable => JoinScan::add_planner_warning(
-                "JoinScan not used: ORDER BY column is not available in the joined output schema",
-                aliases,
-            ),
-            JoinDeclineReason::Other(msg) => {
-                JoinScan::add_planner_warning(msg.clone(), ());
-            }
+        if let Some(details) = &self.details {
+            JoinScan::add_detailed_planner_warning(&self.message, aliases, details.clone());
+        } else {
+            JoinScan::add_planner_warning(&self.message, aliases);
         }
     }
 }
@@ -343,7 +324,7 @@ fn walk_relnode_for_subplan_ids(node: &RelNode, ids: &mut HashSet<i32>) {
 unsafe fn is_limit_pushdown_safe(
     root: *mut pg_sys::PlannerInfo,
     join_clause: &JoinCSClause,
-) -> bool {
+) -> Result<(), JoinDeclineReason> {
     let absorbed_rtis: Vec<pg_sys::Index> = join_clause
         .plan
         .sources()
@@ -362,7 +343,9 @@ unsafe fn is_limit_pushdown_safe(
         absorbed_bms = pg_sys::bms_add_member(absorbed_bms, *rti as i32);
     }
     if !pg_sys::bms_is_subset(all_rels, absorbed_bms) {
-        return false;
+        return Err(JoinDeclineReason::new(
+            "JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations",
+        ));
     }
 
     // 2. Every SubPlan in baserestrictinfo must have been absorbed.
@@ -370,7 +353,9 @@ unsafe fn is_limit_pushdown_safe(
     let absorbed_subplan_ids = collect_absorbed_subplan_ids(&join_clause.plan);
     for id in &all_subplan_ids {
         if !absorbed_subplan_ids.contains(id) {
-            return false;
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed SubPlans",
+            ));
         }
     }
 
@@ -381,14 +366,15 @@ unsafe fn is_limit_pushdown_safe(
         for ri in ri_list.iter_ptr() {
             let clause = (*ri).clause as *mut pg_sys::Node;
             if pg_sys::contain_volatile_functions(clause) {
-                return false;
+                return Err(JoinDeclineReason::new(
+                    "JoinScan not used: LIMIT pushdown is unsafe due to volatile functions",
+                ));
             }
         }
     }
 
-    true
+    Ok(())
 }
-
 /// Try to create JoinScan `CustomPath`s for a single base relation that contains
 /// SubPlan-based join opportunities (e.g. `col IN (SELECT ...) OR col IS NULL`).
 ///
@@ -459,9 +445,20 @@ pub unsafe fn try_create_subplan_join_paths(
     // Phase 1: validate + build JoinCSClause.
     let has_distinct = !(*(*root).parse).distinctClause.is_null();
     let (join_clause, limit_offset) =
-        match JoinScan::validate_and_build_clause(root, plan, &join_keys, has_distinct) {
-            Some(res) => res,
-            None => return Vec::new(),
+        match JoinScan::validate_and_build_clause(root, &plan, &join_keys, has_distinct) {
+            Ok(res) => res,
+            Err(reason) => {
+                let aliases: Vec<String> = plan
+                    .sources()
+                    .iter()
+                    .map(|s| {
+                        RelationAlias::new(s.scan_info.alias.as_deref())
+                            .warning_context(s.scan_info.heaprelid)
+                    })
+                    .collect();
+                reason.emit(&aliases);
+                return Vec::new();
+            }
         };
 
     // No join-level predicate extraction needed for SubPlan-based paths.
@@ -477,15 +474,15 @@ impl JoinScan {
     /// Phase 1: Validate a `RelNode` plan against JoinScan activation requirements
     /// and build a `JoinCSClause` with score bubbling and partitioning applied.
     ///
-    /// Returns `None` if any activation check fails. The caller can then optionally
-    /// perform join-level predicate extraction on the returned clause before
-    /// passing it to [`finalize_clause_into_path`].
+    /// Returns `Err` with a descriptive message if any activation check fails.
+    /// The caller can then optionally perform join-level predicate extraction on
+    /// the returned clause before passing it to [`finalize_clause_into_path`].
     unsafe fn validate_and_build_clause(
         root: *mut pg_sys::PlannerInfo,
-        plan: RelNode,
+        plan: &RelNode,
         join_keys: &[build::JoinKeyPair],
         has_distinct: bool,
-    ) -> Option<(JoinCSClause, LimitOffset)> {
+    ) -> Result<(JoinCSClause, LimitOffset), JoinDeclineReason> {
         let all_sources = plan.sources();
 
         // --- Activation checks ---
@@ -497,11 +494,15 @@ impl JoinScan {
             .iter()
             .any(|s| s.scan_info.indexrelid == pg_sys::InvalidOid)
         {
-            return None;
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: at least one relation lacks a BM25 index",
+            ));
         }
 
         if (*(*root).parse).hasAggs {
-            return None;
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: aggregates are not supported",
+            ));
         }
 
         // Require LIMIT for top-level queries (without it, JoinScan's TopK
@@ -510,7 +511,9 @@ impl JoinScan {
         let limit_offset = LimitOffset::from_root(root);
         let is_subquery = !(*root).parent_root.is_null();
         if limit_offset.limit.is_none() && !is_subquery {
-            return None;
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: LIMIT is required for top-level queries",
+            ));
         }
 
         // Empty join_keys are normally a rejection, but a disjunctive Semi/Anti
@@ -524,15 +527,21 @@ impl JoinScan {
             RelNode::Join(j) if matches!(j.join_type, build::JoinType::Semi | build::JoinType::Anti)
         );
         if join_keys.is_empty() && !root_is_semi_anti {
-            return None;
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required",
+            ));
         }
 
         if has_distinct && distinct_columns_are_fast_fields(root, &all_sources).is_none() {
-            return None;
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: DISTINCT columns must be fast fields",
+            ));
         }
 
         if !order_by_columns_are_fast_fields(root, &all_sources, has_distinct) {
-            return None;
+            return Err(JoinDeclineReason::new(
+                "JoinScan not used: ORDER BY columns must be fast fields",
+            ));
         }
 
         for jk in join_keys {
@@ -553,16 +562,22 @@ impl JoinScan {
                         )
                         .is_none()
                     {
-                        return None;
+                        return Err(JoinDeclineReason::new(
+                            "JoinScan not used: join keys must be fast fields",
+                        ));
                     }
                 }
-                _ => return None,
+                _ => {
+                    return Err(JoinDeclineReason::new(
+                        "JoinScan not used: failed to resolve join keys to base relations",
+                    ))
+                }
             }
         }
 
         // --- Build JoinCSClause ---
 
-        let mut join_clause = JoinCSClause::new(plan)
+        let mut join_clause = JoinCSClause::new(plan.clone())
             .with_limit(limit_offset.limit)
             .with_offset(limit_offset.offset)
             .with_distinct(has_distinct);
@@ -589,25 +604,11 @@ impl JoinScan {
 
         // Safety check: bail out if LIMIT pushdown is unsafe due to
         // un-absorbed relations, un-absorbed SubPlans, or volatile functions.
-        if join_clause.limit_offset.limit.is_some() && !is_limit_pushdown_safe(root, &join_clause) {
-            let aliases: Vec<String> = join_clause
-                .plan
-                .sources()
-                .iter()
-                .map(|s| {
-                    RelationAlias::new(s.scan_info.alias.as_deref())
-                        .warning_context(s.scan_info.heaprelid)
-                })
-                .collect();
-            JoinScan::add_planner_warning(
-                "JoinScan not used: LIMIT pushdown unsafe (un-absorbed \
-                 relations, SubPlans, or volatile functions)",
-                &aliases,
-            );
-            return None;
+        if join_clause.limit_offset.limit.is_some() {
+            is_limit_pushdown_safe(root, &join_clause)?;
         }
 
-        Some((join_clause, limit_offset))
+        Ok((join_clause, limit_offset))
     }
 
     /// Phase 2: Finalize a validated `JoinCSClause` into a `CustomPath` by
@@ -1740,26 +1741,35 @@ impl JoinScan {
             collect_join_sources(root, innerrel).ok_or(JoinPathDecline::Quiet)?;
         join_keys.extend(inner_keys);
 
-        let mut all_sources = outer_node.sources();
-        all_sources.extend(inner_node.sources());
+        let aliases: Vec<String> = {
+            let mut all_sources = outer_node.sources();
+            all_sources.extend(inner_node.sources());
+            all_sources
+                .iter()
+                .map(|s| {
+                    RelationAlias::new(s.scan_info.alias.as_deref())
+                        .warning_context(s.scan_info.heaprelid)
+                })
+                .collect()
+        };
 
-        let aliases: Vec<String> = all_sources
-            .iter()
-            .map(|s| {
-                RelationAlias::new(s.scan_info.alias.as_deref())
-                    .warning_context(s.scan_info.heaprelid)
-            })
-            .collect();
-
-        let join_conditions = extract_join_conditions(extra, &all_sources);
+        let join_conditions = {
+            let mut all_sources = outer_node.sources();
+            all_sources.extend(inner_node.sources());
+            extract_join_conditions(extra, &all_sources)
+        };
 
         // The minimum requirement for considering the join scan is that a
         // search predicate is used — either in a source or in a join-level
         // condition. Below this gate, every Err carries a planner warning.
-        if !all_sources.iter().any(|s| s.scan_info.has_search_predicate)
-            && !join_conditions.has_search_predicate
         {
-            return Err(JoinPathDecline::Quiet);
+            let mut all_sources = outer_node.sources();
+            all_sources.extend(inner_node.sources());
+            if !all_sources.iter().any(|s| s.scan_info.has_search_predicate)
+                && !join_conditions.has_search_predicate
+            {
+                return Err(JoinPathDecline::Quiet);
+            }
         }
 
         let warn = |reason| JoinPathDecline::Warn {
@@ -1777,13 +1787,15 @@ impl JoinScan {
         );
         let has_other_conditions = !join_conditions.other_conditions.is_empty();
         if join_conditions.equi_keys.is_empty() && !(is_semi_anti && has_other_conditions) {
-            return Err(warn(JoinDeclineReason::NoEquiKeys));
+            return Err(warn(JoinDeclineReason::new(
+                "JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required",
+            )));
         }
 
         join_keys.extend(join_conditions.equi_keys.clone());
 
         let parsed_jointype = build::JoinType::try_from(jointype)
-            .map_err(|e| warn(JoinDeclineReason::Other(e.to_string())))?;
+            .map_err(|e| warn(JoinDeclineReason::new(e.to_string())))?;
 
         // For Semi/Anti with additional conditions that cannot ride the
         // MultiTablePredicate pipeline (setrefs would fail to resolve inner-side
@@ -1853,7 +1865,9 @@ impl JoinScan {
         if try_absorb_disjunction
             && (initial_filter.is_none() || !remaining_other_conditions.is_empty())
         {
-            return Err(warn(JoinDeclineReason::NoEquiKeys));
+            return Err(warn(JoinDeclineReason::new(
+                "JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required",
+            )));
         }
 
         let mut plan = RelNode::Join(Box::new(build::JoinNode {
@@ -1867,24 +1881,30 @@ impl JoinScan {
 
         let unsupported = plan.unsupported_join_types();
         if !unsupported.is_empty() {
-            return Err(warn(JoinDeclineReason::UnsupportedJoinType(
-                unsupported
-                    .iter()
-                    .map(|t| t.to_string().to_uppercase())
-                    .collect(),
-            )));
+            return Err(warn(
+                JoinDeclineReason::new(
+                    "JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported",
+                )
+                .with_details(
+                    unsupported
+                        .iter()
+                        .map(|t| t.to_string().to_uppercase())
+                        .collect(),
+                ),
+            ));
         }
 
         if !plan.rewrite_pruned_join_keys(root) {
-            return Err(warn(JoinDeclineReason::PrunedJoinKey));
+            return Err(warn(JoinDeclineReason::new(
+                "JoinScan not used: a semi/anti join prunes columns required by an outer join key and no equivalent output-visible column was found",
+            )));
         }
 
         let has_distinct = !(*(*root).parse).distinctClause.is_null();
 
         // Phase 1: shared activation checks + JoinCSClause construction.
         let (mut join_clause, limit_offset) =
-            Self::validate_and_build_clause(root, plan, &join_keys, has_distinct)
-                .ok_or_else(|| warn(JoinDeclineReason::ActivationFailed))?;
+            Self::validate_and_build_clause(root, &plan, &join_keys, has_distinct).map_err(warn)?;
 
         // --- Join-level predicate extraction (join-hook specific) ---
         // This builds an expression tree that can reference:
@@ -1902,7 +1922,11 @@ impl JoinScan {
             &remaining_other_conditions,
             join_clause.clone(),
         )
-        .map_err(|_| warn(JoinDeclineReason::JoinLevelExtractionFailed))?;
+        .map_err(|_| {
+            warn(JoinDeclineReason::new(
+                "JoinScan not used: failed to extract join-level conditions (ensure all referenced columns are fast fields)",
+            ))
+        })?;
         join_clause = join_clause_updated;
 
         // Post-extraction check: need at least one side predicate OR join-level predicates.
@@ -1926,7 +1950,11 @@ impl JoinScan {
             &limit_offset,
             consider_parallel,
         )
-        .ok_or_else(|| warn(JoinDeclineReason::OrderByUnavailable))?;
+        .ok_or_else(|| {
+            warn(JoinDeclineReason::new(
+                "JoinScan not used: ORDER BY column is not available in the joined output schema",
+            ))
+        })?;
 
         Ok(BuiltJoinPath {
             path,

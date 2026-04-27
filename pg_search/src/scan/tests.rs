@@ -94,8 +94,15 @@ mod tests {
 
         let scanner = Scanner::new(search_results, None, fields.clone(), heap_oid.into());
 
+        let partition = crate::scan::execution_plan::ScanState {
+            recipe: crate::scan::execution_plan::ScanRecipe::Prefetched { scanner },
+            ffhelper: ffhelper.into(),
+            visibility: Box::new(visibility),
+            reader: reader.clone(),
+        };
+
         let plan = PgSearchScanPlan::new(
-            vec![(scanner, ffhelper.into(), Box::new(visibility))],
+            vec![partition],
             build_arrow_schema(&fields),
             SearchQueryInput::All,
             None,

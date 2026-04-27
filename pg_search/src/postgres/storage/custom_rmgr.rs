@@ -72,21 +72,21 @@ unsafe extern "C-unwind" fn rm_decode(
 }
 
 pub fn emit_init_record() {
-    // The data pointer signature differs by Postgres version (`*mut c_char` on pg15-17,
-    // `*const c_void` on pg18); `as _` lets each build infer the right type.
+    // XLogRegisterData's signature varies across Postgres versions
+    // (data is `*mut c_char` on pg15-17 vs `*const c_void` on pg18, and len is `c_int`
+    // on pg15 vs `uint32` later). `as _` lets each build infer the right types.
     let mut payload: u8 = 0;
     unsafe {
         pg_sys::XLogBeginInsert();
-        pg_sys::XLogRegisterData(
-            &mut payload as *mut u8 as _,
-            std::mem::size_of::<u8>() as u32,
-        );
+        pg_sys::XLogRegisterData(&mut payload as *mut u8 as _, std::mem::size_of::<u8>() as _);
         pg_sys::XLogInsert(RMGR_ID, XLOG_PG_SEARCH_INIT_INDEX);
     }
 }
 
 pub fn register() {
-    let rmgr = pg_sys::RmgrData {
+    // `mut` because RegisterCustomRmgr takes `*mut RmgrData` on pg15 (vs `*const` later).
+    // The function only reads the struct, but the C signature was tightened post-15.
+    let mut rmgr = pg_sys::RmgrData {
         rm_name: RMGR_NAME.as_ptr(),
         rm_redo: Some(rm_redo),
         rm_desc: Some(rm_desc),
@@ -98,6 +98,6 @@ pub fn register() {
     };
 
     unsafe {
-        pg_sys::RegisterCustomRmgr(RMGR_ID, &rmgr);
+        pg_sys::RegisterCustomRmgr(RMGR_ID, &mut rmgr as *mut _);
     }
 }

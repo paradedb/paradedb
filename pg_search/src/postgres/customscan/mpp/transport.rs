@@ -309,77 +309,97 @@ impl MppSender {
     }
 
     /// Test-only stats-less wrapper around [`Self::send_batch_traced`].
-    /// Production call sites (`ShuffleStream::process_batch`) always pass a
-    /// `SendBatchStats` so per-peer wall-time shows up in the EOF trace.
+    /// Production call sites (`ShuffleStream::process_batch`) always pass
+    /// a `SendBatchStats` so per-peer wall-time shows up in the EOF trace.
+    /// Wraps the async send in a tiny current-thread Tokio runtime so test
+    /// `#[test]` functions don't have to be `#[tokio::test]` and the
+    /// existing OS-thread-spawning test harnesses don't have to plumb an
+    /// async runtime themselves.
     #[cfg(test)]
     pub fn send_batch(&self, batch: &RecordBatch) -> Result<(), DataFusionError> {
         let mut stats = SendBatchStats::default();
-        self.send_batch_traced(batch, &mut stats)
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("test tokio runtime build");
+        rt.block_on(self.send_batch_traced(batch, &mut stats))
     }
 
-    /// `send_batch` variant that accumulates per-call timings and spin counts
-    /// into `stats`. Callers that report these at EOF (e.g., `ShuffleStream`)
-    /// use this to diagnose where time goes when the outbound queue is full.
-    pub fn send_batch_traced(
+    /// `send_batch` variant that accumulates per-call timings and spin
+    /// counts into `stats`. Callers that report these at EOF (e.g.,
+    /// `ShuffleStream`) use this to diagnose where time goes when the
+    /// outbound queue is full.
+    ///
+    /// Async because the cooperative-spin path needs to surrender the
+    /// Tokio runtime back periodically — see the body comment.
+    pub async fn send_batch_traced(
         &self,
         batch: &RecordBatch,
         stats: &mut SendBatchStats,
     ) -> Result<(), DataFusionError> {
-        let mut scratch = self.scratch.borrow_mut();
+        // Take the scratch buffer out of the `RefCell` rather than
+        // holding a `RefMut` across the spin below. The spin contains
+        // `pgrx::check_for_interrupts!()`, which can `longjmp` through
+        // Rust frames; a `longjmp` does not run `Drop`, so a `RefMut`
+        // held across it would leave the cell perpetually borrowed and
+        // panic the next caller. `replace` is atomic — the cell is
+        // never observed in a borrowed state — and we put the buffer
+        // back at the end so its heap allocation survives across calls.
+        // If the spin longjmps anyway, the cell holds the default empty
+        // `Vec` and the next call simply re-allocates.
+        let mut scratch = self.scratch.replace(Vec::new());
+        let result = self.send_with_scratch(batch, &mut scratch, stats).await;
+        self.scratch.replace(scratch);
+        result
+    }
+
+    async fn send_with_scratch(
+        &self,
+        batch: &RecordBatch,
+        scratch: &mut Vec<u8>,
+        stats: &mut SendBatchStats,
+    ) -> Result<(), DataFusionError> {
         let t_enc = std::time::Instant::now();
-        encode_batch_into(batch, &mut scratch)?;
+        encode_batch_into(batch, scratch)?;
         stats.encode += t_enc.elapsed();
         let Some(drain) = self.cooperative_drain.as_ref() else {
-            // No drain attached (unit tests, in-proc channels): fall back
-            // to the blocking send path.
-            return self.channel.send_bytes(&scratch);
+            // No drain attached (unit tests, in-proc channels): fall
+            // back to the blocking send path.
+            return self.channel.send_bytes(scratch);
         };
         let mut first_try = true;
         let t_wait_start = std::time::Instant::now();
         // Mental model: a current-thread Tokio runtime lives on the
-        // backend thread (DataFusion needs one to drive `Stream`s). This
-        // spin runs *inside* one of those Tokio tasks — specifically the
-        // body of `ShuffleStream::poll_next`. While we spin we hold the
-        // runtime: any sibling Tokio task on the same runtime is paused
-        // until we return.
+        // backend thread (DataFusion needs one to drive `Stream`s).
+        // This spin runs *inside* a Tokio task — specifically the body
+        // of `ShuffleStream::poll_next`. The deadlock the cooperative
+        // drain prevents is *cross-participant*, not same-runtime: two
+        // peers each blocking on a full outbound and never reading the
+        // other side. We break that by driving our own inbound on this
+        // same OS thread via `poll_drain_pass`, which pulls peer
+        // batches that have already arrived and frees their slots so
+        // peers' writers can advance.
         //
-        // What saves us today is plan shape, not Tokio plumbing. The MPP
-        // topology built by `walker.rs` is linear (`ChainExec` polls its
-        // input synchronously; no `RepartitionExec` / `CoalescePartitions`
-        // forks a parallel driver above us), so the runtime has only one
-        // "live" task per query, and starving siblings is moot — there
-        // are none. The deadlock that the cooperative drain prevents is a
-        // *cross-participant* hazard, not a same-runtime task hazard:
-        // two participants each blocking on a full outbound and never
-        // reading the other side. We break that by driving our own
-        // inbound synchronously: `poll_drain_pass` pulls peer batches
-        // that have already arrived, freeing their slots so peers'
-        // writers can advance, then we retry our send. `try_send_bytes`
-        // succeeding is the only exit. `std::thread::yield_now` is an OS
-        // scheduler hint; it is not a Tokio yield, so it does not
-        // surrender the runtime — that's deliberate, because if the
-        // current task gave up the runtime mid-spin and no other ready
-        // Tokio task happened to drive forward progress, the runtime
-        // would idle.
-        //
-        // If a future planner change introduces a parallel operator
-        // above the shuffle (so the Tokio runtime ends up multiplexing
-        // siblings), this loop becomes a real starvation source and
-        // wants to be rewritten as `async fn` with periodic
-        // `tokio::task::yield_now().await`. The cooperative drain
-        // primitive itself already lives off `Stream` infrastructure
-        // ready for that — the spin is the only synchronous holdout.
+        // The `tokio::task::yield_now().await` between iterations
+        // hands the runtime back to the executor each spin. Today's
+        // MPP topology is linear (`ChainExec` polls inline, no
+        // `RepartitionExec` / `CoalescePartitions` driver above the
+        // shuffle), so there are no sibling Tokio tasks ready to run
+        // and yielding is effectively a no-op cost. Once the planner
+        // grows a parallel operator above us, those siblings start
+        // making forward progress during this yield instead of
+        // starving.
         loop {
             // `pgrx::check_for_interrupts!()` pulls in PG symbols
-            // (`ProcessInterrupts`, `PG_exception_stack`, `CopyErrorData`, …)
-            // that aren't linked into the crate's `--tests` / llvm-cov build.
-            // This fn is reached from `#[cfg(test)]` code in this file and
-            // `shuffle.rs`, so gate the check out of test builds; `InProc`
-            // channels used in tests never block, so the send side of the
-            // loop returns on the first iteration anyway.
+            // (`ProcessInterrupts`, `PG_exception_stack`,
+            // `CopyErrorData`, …) that aren't linked into the crate's
+            // `--tests` / llvm-cov build. This fn is reached from
+            // `#[cfg(test)]` code in this file and `shuffle.rs`, so
+            // gate the check out of test builds; `InProc` channels
+            // used in tests never block, so the send side of the loop
+            // returns on the first iteration anyway.
             #[cfg(not(test))]
             pgrx::check_for_interrupts!();
-            if self.channel.try_send_bytes(&scratch)? {
+            if self.channel.try_send_bytes(scratch)? {
                 if !first_try {
                     stats.send_wait += t_wait_start.elapsed();
                 }
@@ -387,15 +407,16 @@ impl MppSender {
             }
             first_try = false;
             stats.spin_iters += 1;
-            // Would-block: pull from our own mesh's inbound so peers' sends
-            // to us unblock. Without this interleave two participants
-            // blocking on symmetric sends deadlock — neither gets to drain.
-            // Errors propagate so a peer detaching mid-spin doesn't leave the
-            // sender looping forever on a closed mesh.
+            // Would-block: pull from our own mesh's inbound so peers'
+            // sends to us unblock. Without this interleave two
+            // participants blocking on symmetric sends deadlock —
+            // neither gets to drain. Errors propagate so a peer
+            // detaching mid-spin doesn't leave the sender looping
+            // forever on a closed mesh.
             let t_drain = std::time::Instant::now();
             drain.poll_drain_pass()?;
             stats.coop_drain_in_spin += t_drain.elapsed();
-            std::thread::yield_now();
+            tokio::task::yield_now().await;
         }
     }
 }
@@ -409,9 +430,10 @@ pub struct SendBatchStats {
     /// Cumulative wall time in the send-retry spin after the first failed
     /// `try_send_bytes`. Zero if the first try succeeded.
     pub send_wait: std::time::Duration,
-    /// Cumulative time spent in `poll_drain_pass` while spinning on a full
-    /// outbound. A subset of `send_wait`; the remainder is `yield_now` +
-    /// the (small) cost of `try_send_bytes` itself.
+    /// Cumulative time spent in `poll_drain_pass` while spinning on a
+    /// full outbound. A subset of `send_wait`; the remainder is the
+    /// `tokio::task::yield_now()` await + the (small) cost of
+    /// `try_send_bytes` itself.
     pub coop_drain_in_spin: std::time::Duration,
     /// Count of `try_send_bytes` calls that returned `Ok(false)` (full).
     pub spin_iters: u64,

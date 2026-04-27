@@ -334,6 +334,19 @@ pub struct MppSender {
     scratch: std::cell::RefCell<Vec<u8>>,
 }
 
+// SAFETY: `MppSender` lives inside `ShuffleWiring`, which is owned by a
+// single `ShuffleExec` running on a single backend thread. The async
+// `send_batch_traced` future captures `&self` and contains a Tokio
+// `yield_now().await`; the compiler conservatively requires the future
+// to be `Send`, which forces `&MppSender: Send` and therefore
+// `MppSender: Sync`. At runtime the future is created and consumed on
+// the same thread (DataFusion's current-thread runtime on the backend),
+// so there is no actual cross-thread aliasing of the inner `RefCell` or
+// of the `Box<dyn BatchChannelSender>`. This mirrors the same
+// single-thread-by-construction contract that justifies
+// `unsafe impl Send for ShmMqSender` over in `mesh.rs`.
+unsafe impl Sync for MppSender {}
+
 impl MppSender {
     pub fn new(channel: Box<dyn BatchChannelSender>) -> Self {
         Self {

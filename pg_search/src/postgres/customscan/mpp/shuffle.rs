@@ -119,6 +119,14 @@ pub trait RowPartitioner: Send + Sync {
 /// routing); that is not a problem for our shuffle because only the routing
 /// hash needs agreement across workers, not the internal-table hash.
 ///
+/// NULL keys hash to a fixed sentinel inside `create_hashes`, so every row
+/// with a NULL in any key column routes to the same destination. That is
+/// correct for join/aggregate purposes — the receiving HashJoin/Aggregate
+/// also clusters NULL-key rows together and applies SQL NULL semantics
+/// from there — but it means a heavily-NULL key column produces skewed
+/// destination distribution. Diagnose with `mpp_trace`'s per-peer
+/// `rows_sent` counters if a hot peer shows up.
+///
 /// TODO: accept `Vec<Arc<dyn PhysicalExpr>>` instead of column indices so a
 /// planner that pushes `CAST(col)` or `col + 0` into the key list stays
 /// byte-compatible with DataFusion's own routing. Today we accept only
@@ -467,6 +475,17 @@ pub struct ShuffleWiring {
 /// first `execute()` call via a `Mutex<Option<_>>`. A second `execute()` call
 /// would require re-planning the query and re-attaching a fresh mesh — not
 /// supported today; the `Option` returns an error on re-execute.
+///
+/// The wiring is also one-shot with respect to `with_new_children`: an
+/// optimizer rule that calls `with_new_children` *moves* the wiring into
+/// the freshly-built `ShuffleExec`, leaving the original instance in a
+/// "wiring-consumed" state where any subsequent `execute()` returns an
+/// error. `MppSender` is not `Clone`, so duplicating the wiring is not an
+/// option. In practice DataFusion's optimizer rewrites the plan top-down
+/// and drops the old node before any caller could `execute` it; this
+/// note exists so a future planner change that retains references to the
+/// old plan fails loudly with the right error rather than reaching some
+/// later "already executed" branch.
 pub struct ShuffleExec {
     input: Arc<dyn ExecutionPlan>,
     wiring: Mutex<Option<ShuffleWiring>>,
@@ -654,7 +673,9 @@ impl ShuffleState {
 
     /// Process one input batch: partition rows, queue our self-share,
     /// ship peer-shares via `MppSender`. Mutates row/timing counters.
-    fn process_batch(&mut self, batch: RecordBatch, trace_on: bool) -> DFResult<()> {
+    /// `async` because `MppSender::send_batch_traced` yields to the Tokio
+    /// runtime in its cooperative-spin loop — see that fn's body comment.
+    async fn process_batch(&mut self, batch: RecordBatch, trace_on: bool) -> DFResult<()> {
         let rows = batch.num_rows() as u64;
         if rows == 0 {
             return Ok(());
@@ -698,7 +719,7 @@ impl ShuffleState {
                 ))
             })?;
             let sub_rows = sub.num_rows() as u64;
-            sender.send_batch_traced(&sub, &mut send_stats)?;
+            sender.send_batch_traced(&sub, &mut send_stats).await?;
             self.rows_sent[dest_idx] += sub_rows;
         }
         if trace_on {
@@ -777,7 +798,7 @@ fn build_shuffle_stream(
                     Some(Err(e)) => break 'pump Err(e),
                     Some(Ok(batch)) => {
                         let t_proc = trace_on.then(Instant::now);
-                        let result = state.process_batch(batch, trace_on);
+                        let result = state.process_batch(batch, trace_on).await;
                         if let Some(t0) = t_proc {
                             time_in_process += t0.elapsed();
                         }
@@ -1006,6 +1027,25 @@ impl ExecutionPlan for DrainGatherExec {
     }
 }
 
+/// RAII guard ensuring `handle.shutdown()` runs even when the consumer
+/// drops the stream before the natural EOF/Err tail (e.g., a parent
+/// `LIMIT` shortcut, query cancel during the loop, panic). Without this,
+/// peer `ShuffleExec`s holding `Arc<DrainHandle>` clones via their
+/// `MppSender::cooperative_drain` would keep calling `poll_drain_pass`,
+/// pushing peer batches into a buffer no one reads — an unbounded
+/// memory-growth path on cancel. Shutdown is idempotent (cancel is
+/// idempotent; receivers are taken via `Option::take`), so the natural
+/// tail can also call it without consequence.
+struct ShutdownOnDrop {
+    handle: Arc<DrainHandle>,
+}
+
+impl Drop for ShutdownOnDrop {
+    fn drop(&mut self) {
+        let _ = self.handle.shutdown();
+    }
+}
+
 /// Build the async stream that powers [`DrainGatherExec`]. Yields decoded
 /// peer batches in arrival order; cleanly returns once every inbound
 /// source has detached and the buffer is drained.
@@ -1024,6 +1064,12 @@ fn build_drain_gather_stream(
     participant_index: u32,
 ) -> impl Stream<Item = DFResult<RecordBatch>> + Send {
     async_stream::stream! {
+        // Held across the whole body so any early-drop of the stream
+        // (LIMIT shortcut, cancel, panic) still cancels the buffer and
+        // releases the receivers. Peer senders observe detach on their
+        // next outbound `try_send_bytes` instead of looping forever.
+        let _shutdown_guard = ShutdownOnDrop { handle: handle.clone() };
+
         let trace_on = mpp_trace_flag();
         let first_poll_at = trace_on.then(Instant::now);
         let mut time_in_drain_pass = Duration::ZERO;
@@ -1296,6 +1342,35 @@ mod tests {
         for d in &dests_a {
             assert!(*d < 4);
         }
+    }
+
+    #[test]
+    fn hash_partitioner_is_deterministic_with_multi_column_keys() {
+        // Production HashJoin keys are typically composite. Verify that
+        // multi-column routing is deterministic across repeated calls
+        // and that all destinations stay within `[0, total_participants)`.
+        // (DataFusion's `create_hashes` combines per-column hashes
+        // commutatively, so swapping `vec![0, 1]` for `vec![1, 0]` does
+        // not change the destination — that's not a property worth
+        // asserting here.)
+        let batch = sample_batch(64);
+        let p = HashPartitioner::new(vec![0, 1], 4);
+        let dests_a = p.partition_for_each_row(&batch).unwrap();
+        let dests_b = p.partition_for_each_row(&batch).unwrap();
+        assert_eq!(dests_a, dests_b);
+        assert_eq!(dests_a.len(), 64);
+        for d in &dests_a {
+            assert!(*d < 4);
+        }
+        // Distribution sanity: with 64 rows over 4 destinations, every
+        // bucket should have at least one row. A multi-column key that
+        // accidentally collapsed to a single hash would drop most of
+        // these to zero.
+        let mut hits = [false; 4];
+        for d in &dests_a {
+            hits[*d as usize] = true;
+        }
+        assert!(hits.iter().all(|h| *h));
     }
 
     #[test]

@@ -60,31 +60,12 @@ pub const MPP_DSM_MAGIC: u32 = 0x4D50_5053; // "MPPS" in ASCII
 /// Current on-DSM header version. Bumped when the header layout or
 /// interpretation changes. Independent of `MPP_PLAN_BROADCAST_VERSION`, which
 /// versions the embedded plan bytes.
-pub const MPP_DSM_HEADER_VERSION: u32 = 1;
-
-/// Compile-time build hash: a 64-bit FNV-1a over the crate version string. On
-/// a cluster where the leader and its workers all load the same pg_search .so,
-/// this is identical across participants by construction. Its purpose is to
-/// catch the exotic case of a newer leader somehow ending up paired with an
-/// older worker image (rolling reload, stale postmaster). Cheap to add now,
-/// annoying to retrofit after workers are attaching.
-pub const MPP_BUILD_HASH: u64 = fnv1a_64(env!("CARGO_PKG_VERSION").as_bytes());
-
-const fn fnv1a_64(bytes: &[u8]) -> u64 {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    let mut i = 0;
-    while i < bytes.len() {
-        hash ^= bytes[i] as u64;
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-        i += 1;
-    }
-    hash
-}
+pub const MPP_DSM_HEADER_VERSION: u32 = 2;
 
 /// C-repr header stamped at offset 0 of the MPP DSM region.
 ///
 /// Field ordering is fixed: four `u32`s (16 bytes, naturally aligned), then
-/// six `u64`s (48 bytes, naturally aligned). Total size = 64 bytes, **no
+/// five `u64`s (40 bytes, naturally aligned). Total size = 56 bytes, **no
 /// internal padding**, on every supported target (x86_64 / aarch64 / Linux /
 /// macOS / Windows). Workers read individual fields by name, not by offset,
 /// but the no-padding guarantee means the whole struct can be memcpy'd
@@ -108,10 +89,6 @@ pub struct MppDsmHeader {
     /// All meshes share the same `aligned_queue_bytes`, so per-mesh offsets
     /// are derivable without a separate offset table.
     pub num_meshes: u32,
-    /// Compile-time FNV-1a over `CARGO_PKG_VERSION`. Workers reject
-    /// mismatches to catch the rolling-reload / postmaster-restart edge
-    /// case where a newer leader ends up paired with a stale worker image.
-    pub build_hash: u64,
     /// Per-edge shm_mq slot size in bytes (MAXALIGN_DOWN of the user
     /// request). Shared by every mesh; a future extension for heterogeneous
     /// queue sizes would need a per-mesh sidecar and a header-version bump.
@@ -142,7 +119,6 @@ impl MppDsmHeader {
             header_version: MPP_DSM_HEADER_VERSION,
             total_participants: mesh.total_participants,
             num_meshes: dsm.num_meshes,
-            build_hash: MPP_BUILD_HASH,
             aligned_queue_bytes: mesh.aligned_queue_bytes() as u64,
             plan_offset: dsm.plan_offset as u64,
             plan_len: dsm.plan_len as u64,
@@ -162,17 +138,14 @@ impl MppDsmHeader {
     /// Validate a header read out of DSM. `region_total` is the size of the
     /// DSM region the caller just attached to; the header's own offsets are
     /// bounds-checked against it so a corrupt header that still happens to
-    /// match magic + version + build hash cannot redirect the worker to read
-    /// arbitrary DSM memory.
+    /// match magic + version cannot redirect the worker to read arbitrary
+    /// DSM memory.
     pub fn validate(&self, region_total: u64) -> Result<(), &'static str> {
         if self.magic != MPP_DSM_MAGIC {
             return Err("mpp: DSM header magic mismatch");
         }
         if self.header_version != MPP_DSM_HEADER_VERSION {
             return Err("mpp: DSM header version mismatch");
-        }
-        if self.build_hash != MPP_BUILD_HASH {
-            return Err("mpp: DSM build-hash mismatch (leader/worker binary skew?)");
         }
         if self.total_participants == 0 {
             return Err("mpp: total_participants must be > 0");
@@ -508,7 +481,6 @@ mod tests {
         let (_, dsm, h) = sample_header();
         h.validate(dsm.total as u64).unwrap();
         assert_eq!(h.total_participants, 4);
-        assert_eq!(h.build_hash, MPP_BUILD_HASH);
     }
 
     #[test]
@@ -523,14 +495,6 @@ mod tests {
         let (_, dsm, mut h) = sample_header();
         h.header_version = MPP_DSM_HEADER_VERSION.wrapping_add(1);
         assert!(h.validate(dsm.total as u64).is_err());
-    }
-
-    #[test]
-    fn header_validate_rejects_bad_build_hash() {
-        let (_, dsm, mut h) = sample_header();
-        h.build_hash = MPP_BUILD_HASH.wrapping_add(1);
-        let err = h.validate(dsm.total as u64).unwrap_err();
-        assert!(err.contains("build-hash"));
     }
 
     #[test]
@@ -661,7 +625,6 @@ mod tests {
         let read_back = unsafe { std::ptr::read_unaligned(buf.as_ptr() as *const MppDsmHeader) };
         read_back.validate(dsm.total as u64).unwrap();
         assert_eq!(read_back.magic, MPP_DSM_MAGIC);
-        assert_eq!(read_back.build_hash, MPP_BUILD_HASH);
         assert_eq!(read_back.total_participants, original.total_participants);
         assert_eq!(read_back.plan_offset, original.plan_offset);
         assert_eq!(read_back.plan_len, original.plan_len);
@@ -670,26 +633,11 @@ mod tests {
     }
 
     #[test]
-    fn fnv1a_matches_spec_basis() {
-        // FNV-1a-64 of the empty input must be the spec's offset basis
-        // (0xcbf2_9ce4_8422_2325). Pins the algorithm so a refactor
-        // swapping prime/basis silently can't land.
-        assert_eq!(fnv1a_64(b""), 0xcbf2_9ce4_8422_2325);
-    }
-
-    #[test]
-    fn fnv1a_is_deterministic_and_differentiating() {
-        assert_eq!(fnv1a_64(b"1.0.0"), fnv1a_64(b"1.0.0"));
-        assert_ne!(fnv1a_64(b"1.0.0"), fnv1a_64(b"1.0.1"));
-        assert_ne!(fnv1a_64(b""), fnv1a_64(b"x"));
-    }
-
-    #[test]
     fn header_size_has_no_padding() {
-        // Four u32 (16) + six u64 (48) = 64 bytes with no padding on any
+        // Four u32 (16) + five u64 (40) = 56 bytes with no padding on any
         // supported target. If this ever breaks, either fields were
         // reordered or a new mixed-width field was added —
         // bump MPP_DSM_HEADER_VERSION before landing.
-        assert_eq!(size_of::<MppDsmHeader>(), 64);
+        assert_eq!(size_of::<MppDsmHeader>(), 56);
     }
 }

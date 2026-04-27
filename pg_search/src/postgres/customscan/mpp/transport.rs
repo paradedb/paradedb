@@ -336,13 +336,18 @@ impl MppSender {
         };
         let mut first_try = true;
         let t_wait_start = std::time::Instant::now();
-        // This spin is synchronous and runs on the backend thread that
-        // DataFusion calls `poll_next` on; there is no Tokio runtime in the
-        // MPP transport path, so neither `yield_now` nor `poll_drain_pass`
-        // can starve an async executor. The cooperative `poll_drain_pass`
-        // call below pulls peer sends *on the same thread*, which is what
-        // breaks the symmetric N×N send/receive deadlock — an async-style
-        // `await` would not work here because we have no executor to wake.
+        // The send-spin is synchronous and runs on the same backend thread
+        // that DataFusion calls `poll_next` on. There is no Tokio runtime
+        // here: producing and consuming for this participant happen on this
+        // one thread, time-sliced. When `try_send_bytes` returns "would
+        // block", we don't sleep waiting for room — we synchronously pull
+        // the peer's already-arrived batches via `poll_drain_pass` so their
+        // writers can advance. Without that interleave, two participants
+        // each blocking on a full outbound and never reading the other side
+        // would deadlock. `std::thread::yield_now` here is just a
+        // scheduler hint between OS threads (e.g., another backend's worker
+        // thread on the box); it is *not* a Tokio yield, so there is no
+        // starved async task waiting in the wings.
         loop {
             // `pgrx::check_for_interrupts!()` pulls in PG symbols
             // (`ProcessInterrupts`, `PG_exception_stack`, `CopyErrorData`, …)

@@ -18,6 +18,7 @@
 use pgrx::{pg_guard, pg_sys};
 use std::ffi::CStr;
 
+// see https://wiki.postgresql.org/wiki/CustomWALResourceManagers
 pub const RMGR_ID: pg_sys::RmgrId = 137;
 const RMGR_NAME: &CStr = c"pg_search";
 

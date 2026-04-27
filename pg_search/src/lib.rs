@@ -108,7 +108,13 @@ pub unsafe extern "C-unwind" fn _PG_init() {
 
     postgres::options::init();
     gucs::init();
-    postgres::storage::custom_rmgr::register();
+
+    // RegisterCustomRmgr can only be called during shared_preload_libraries init. If pg_search
+    // was loaded via plain CREATE EXTENSION (no preload), skip — postgres will refuse to replay
+    // any rmgr 137 record with "unknown rmgr", which still halts standby recovery.
+    if pg_sys::process_shared_preload_libraries_in_progress {
+        postgres::storage::custom_rmgr::register();
+    }
 
     #[cfg(not(any(feature = "pg17", feature = "pg18")))]
     postgres::fake_aminsertcleanup::register();

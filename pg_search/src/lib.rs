@@ -110,8 +110,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     gucs::init();
 
     // RegisterCustomRmgr can only be called during shared_preload_libraries init. If pg_search
-    // was loaded via plain CREATE EXTENSION (no preload), skip — postgres will refuse to replay
-    // any rmgr 137 record with "unknown rmgr", which still halts standby recovery.
+    // was loaded via plain CREATE EXTENSION (no preload), skip
     if pg_sys::process_shared_preload_libraries_in_progress {
         postgres::storage::custom_rmgr::register();
     }

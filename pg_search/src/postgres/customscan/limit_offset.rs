@@ -46,7 +46,7 @@ impl LimitOffset {
         Some(Self { limit, offset })
     }
 
-    /// Extract LIMIT and OFFSET from the planner root, prefering PG's combined
+    /// Extract LIMIT and OFFSET from the planner root, preferring PG's combined
     /// `limit_tuples` when available (subtracting any static OFFSET to recover
     /// the original LIMIT) and otherwise falling back to the parse tree.
     ///
@@ -159,4 +159,3 @@ impl LimitOffset {
         limit + offset
     }
 }
-

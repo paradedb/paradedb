@@ -712,8 +712,7 @@ impl CustomScan for BaseScan {
             let raw_limit_offset = LimitOffset::from_root(builder.args().root);
             let limit_offset = raw_limit_offset.filter(|lo| {
                 let pg_says_pushable = (*builder.args().root).limit_tuples > -1.0;
-                let unnest_override =
-                    classify_target_list_srf(builder.args().root).is_safe();
+                let unnest_override = classify_target_list_srf(builder.args().root).is_safe();
 
                 (pg_says_pushable || lo.has_any_param() || unnest_override)
                     && is_limit_pushdown_safe(

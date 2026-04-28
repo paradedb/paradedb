@@ -84,8 +84,6 @@ pub const MPP_PLAN_BROADCAST_VERSION: u8 = 1;
 /// SAFETY: both FFI calls are valid on the backend thread, which is where
 /// the leader always runs during plan stash.
 pub fn derive_query_id() -> u64 {
-    // SAFETY: both FFI calls are legal on the backend thread, which is
-    // where the leader always lives during plan-stash (the only caller).
     unsafe {
         let pid = pg_sys::MyProcPid as u32 as u64;
         let ts = pg_sys::GetCurrentStatementStartTimestamp() as u64;

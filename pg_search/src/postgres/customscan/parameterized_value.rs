@@ -151,7 +151,7 @@ impl<T: Clone + Hash> Hash for ParameterizedValue<T> {
 /// Walk through commonly-inserted coercion wrappers to find an extern Param's
 /// `paramid`. Returns `None` if the node is not (or does not wrap) a Param of
 /// kind `PARAM_EXTERN`.
-pub unsafe fn unwrap_to_extern_param_id(node: *mut pg_sys::Node) -> Option<i32> {
+unsafe fn unwrap_to_extern_param_id(node: *mut pg_sys::Node) -> Option<i32> {
     if node.is_null() {
         return None;
     }

@@ -135,9 +135,6 @@ LABEL maintainer="ParadeDB - https://paradedb.com" \
 
 ARG PG_VERSION_MAJOR
 
-# Declare runtime environment variables
-ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR}
-
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # Copy third-party extensions from their builder stages
@@ -153,7 +150,7 @@ COPY --from=builder /tmp/pg_ivm/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/
 
 # Install Postgis and ca-certificates
 # ca-certificates required for PostGIS
-ENV POSTGIS_VERSION_MAJOR=3
+ARG POSTGIS_VERSION_MAJOR=3
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
     ca-certificates \

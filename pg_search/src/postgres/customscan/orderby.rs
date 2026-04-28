@@ -351,6 +351,23 @@ where
 
                 match sort_type {
                     SortExpressionType::Score => {
+                        // Warn if user is ordering by score ASC, which returns
+                        // the *least* relevant results first — almost certainly
+                        // not what they intended.
+                        #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
+                        let is_asc = (*pathkey).pk_strategy as u32
+                            == pg_sys::BTLessStrategyNumber;
+                        #[cfg(feature = "pg18")]
+                        let is_asc = (*pathkey).pk_cmptype
+                            == pg_sys::CompareType::COMPARE_LT;
+
+                        if is_asc {
+                            pgrx::warning!(
+                                "ORDER BY pdb.score(...) ASC returns the least relevant results first. \
+                                 Did you mean ORDER BY pdb.score(...) DESC?"
+                            );
+                        }
+
                         pathkey_styles.push(OrderByStyle::Score { pathkey, rti });
                         found_valid_member = true;
                         break;

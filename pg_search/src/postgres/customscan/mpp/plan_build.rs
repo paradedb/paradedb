@@ -219,7 +219,7 @@ pub fn wrap_with_mpp_shuffle(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::postgres::customscan::mpp::shuffle::ModuloPartitioner;
+    use crate::postgres::customscan::mpp::shuffle::tests::ModuloPartitioner;
     use crate::postgres::customscan::mpp::transport::{
         in_proc_channel, DrainBuffer, DrainConfig, DrainItem, MppReceiver, MppSender,
     };

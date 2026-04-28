@@ -37,11 +37,17 @@ concurrency:
 
 jobs:
   test-paradedb:
-    name: Test ParadeDB Docker Image (${{ matrix.arch }})
+    name: Test ParadeDB Docker Image (${{ matrix.dockerfile }}, ${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
+        dockerfile:
+          - Dockerfile
+          - Dockerfile.official
+        arch:
+          - amd64
+          - arm64
         include:
           - arch: amd64
             runner: ubicloud-standard-16-ubuntu-2404
@@ -104,7 +110,7 @@ jobs:
         run: |
           docker buildx build \
             --platform ${{ matrix.platform }} \
-            --file docker/Dockerfile \
+            --file docker/${{ matrix.dockerfile }} \
             --build-arg COMMIT_SHA=$(git rev-parse head) \
             --tag paradedb/paradedb:latest \
             --load \
@@ -164,6 +170,7 @@ jobs:
           docker exec paradedb psql -U myuser -d mydatabase -c "SELECT extname, extversion FROM pg_extension ORDER BY extname;"
 
       - name: Verify barman-cloud is functional
+        if: matrix.dockerfile == 'Dockerfile'
         run: docker exec paradedb barman-cloud-wal-archive --help
 
       # Useful for debugging discrepancies between local and remote ParadeDB Docker images
@@ -176,7 +183,7 @@ jobs:
           docker rm temp-inspect-paradedb
 
       - name: Compare the ParadeDB Docker Image to the ParadeDB Docker Image in Docker Hub via Docker Scout
-        if: steps.org-check.outputs.is_member == 'true' && steps.dockerfilter.outputs.docker == 'true'
+        if: steps.org-check.outputs.is_member == 'true' && steps.dockerfilter.outputs.docker == 'true' && matrix.dockerfile == 'Dockerfile'
         uses: docker/scout-action@v1
         with:
           command: compare

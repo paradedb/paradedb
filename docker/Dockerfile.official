@@ -29,8 +29,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-server-dev-${PG_VERSION_MAJOR} \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=rust:1.95.0-trixie /usr/local/cargo /usr/local/cargo
-COPY --from=rust:1.95.0-trixie /usr/local/rustup /usr/local/rustup
+COPY --from=rust:1.90.0-trixie /usr/local/cargo /usr/local/cargo
+COPY --from=rust:1.90.0-trixie /usr/local/rustup /usr/local/rustup
 
 ENV PATH="/usr/local/bin:/usr/local/cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}

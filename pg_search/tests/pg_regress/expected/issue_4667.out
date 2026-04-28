@@ -100,6 +100,7 @@ FROM people AS p
 WHERE p.id @@@ pdb.all()
 AND p.seniority_slug IN ('manager', 'director')
 AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c));
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: c, p)
                                                                                                                        QUERY PLAN                                                                                                                       
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Unique
@@ -127,6 +128,7 @@ FROM people AS p
 WHERE p.id @@@ pdb.all()
 AND p.seniority_slug IN ('manager', 'director')
 AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c));
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: c, p)
  id | nameIsNull 
 ----+------------
   1 | f

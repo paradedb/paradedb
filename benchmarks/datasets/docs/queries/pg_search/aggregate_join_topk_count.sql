@@ -11,7 +11,7 @@ SET paradedb.enable_aggregate_custom_scan TO off; SELECT
 FROM files f
 JOIN pages p ON f.id = p."fileId"
 WHERE
-    f.content @@@ 'Section'
+    f.content ||| 'Section'
 GROUP BY
     f.title
 ORDER BY
@@ -25,7 +25,7 @@ SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SELECT
 FROM files f
 JOIN pages p ON f.id = p."fileId"
 WHERE
-    f.content @@@ 'Section'
+    f.content ||| 'Section'
 GROUP BY
     f.title
 ORDER BY

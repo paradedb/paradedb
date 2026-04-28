@@ -46,7 +46,6 @@ jobs:
 
       # Do NOT add hashFiles('**/Cargo.lock') or arch to shared-key.
       # See test-pg_search.yml for rationale.
-      # Only save cache on non-PR events; PRs restore from the default branch.
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
@@ -54,7 +53,8 @@ jobs:
           shared-key: pg${{ matrix.pg_version }}
           cache-targets: true
           cache-all-crates: true
-          save-if: ${{ github.event_name != 'pull_request' }}
+          # We don't save the cache here to avoid thrashing. The cache is only saved on the nightly run of test-pg_search.yml
+          save-if: false
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |

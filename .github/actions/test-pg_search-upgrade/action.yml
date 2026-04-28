@@ -1,0 +1,137 @@
+name: Test pg_search Upgrade
+description: Test that the pg_search extension can upgrade via ALTER EXTENSION from a given prior version
+
+inputs:
+  prior_pg_search_version:
+    description: "The prior pg_search version (git tag) to upgrade from, e.g. v0.21.0"
+    required: true
+  prior_pgrx_version:
+    description: "The pgrx version compatible with the prior pg_search version, e.g. 0.16.1"
+    required: true
+  pg_version:
+    description: "The PostgreSQL major version to test against"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Extract pgrx Version
+      id: pgrx
+      shell: bash
+      run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
+
+    # This is the pgrx version compatible with ParadeDB ${{ inputs.prior_pg_search_version }}
+    - name: Install pgrx for ParadeDB ${{ inputs.prior_pg_search_version }}
+      shell: bash
+      run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ inputs.prior_pgrx_version }} --force --debug
+
+    - name: Initialize pgrx environment for ParadeDB ${{ inputs.prior_pg_search_version }}
+      shell: bash
+      run: cargo pgrx init "--pg${{ inputs.pg_version }}=/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"
+
+    - name: Checkout ParadeDB ${{ inputs.prior_pg_search_version }}
+      shell: bash
+      run: |
+        # cleanup any local modifications the above steps may have made
+        git checkout .
+
+        # checkout the prior version of ParadeDB
+        git checkout ${{ inputs.prior_pg_search_version }}
+
+    - name: Compile & install pg_search ${{ inputs.prior_pg_search_version }}
+      working-directory: pg_search/
+      shell: bash
+      run: cargo pgrx install --sudo --pg-config="/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"
+
+    - name: Start Postgres via pgrx
+      working-directory: pg_search/
+      shell: bash
+      run: |
+        RUST_BACKTRACE=1 cargo pgrx start pg${{ inputs.pg_version }}
+        # Necessary for the ephemeral Postgres test to have proper permissions
+        sudo chown -R $(whoami) /var/run/postgresql/
+
+    - name: Create pg_search Extension
+      working-directory: pg_search/
+      shell: bash
+      run: psql -h localhost -p 288${{ inputs.pg_version }} postgres -c 'CREATE EXTENSION pg_search;'
+
+    # We create and test the BM25 index before and after the upgrade to test for version compatibility
+    - name: Create and Test BM25 Index
+      working-directory: pg_search/
+      shell: bash
+      run: |
+        psql -h localhost -p 288${{ inputs.pg_version }} postgres -c "CALL paradedb.create_bm25_test_table(schema_name => 'public', table_name => 'mock_items');"
+        psql -h localhost -p 288${{ inputs.pg_version }} postgres -c "SELECT description, rating, category FROM mock_items LIMIT 3;"
+        psql -h localhost -p 288${{ inputs.pg_version }} postgres -c "CREATE INDEX search_idx ON mock_items USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range) WITH (key_field='id');"
+        psql -h localhost -p 288${{ inputs.pg_version }} postgres -c "SELECT description, rating, category FROM mock_items WHERE description @@@ 'shoes' OR category @@@ 'footwear' AND rating @@@ '>2' ORDER BY description LIMIT 5;"
+
+    - name: Stop Postgres via pgrx
+      working-directory: pg_search/
+      shell: bash
+      run: RUST_BACKTRACE=1 cargo pgrx stop pg${{ inputs.pg_version }}
+
+    - name: Install the pgrx version for ParadeDB
+      shell: bash
+      run: cargo install -j $(nproc) --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --force --debug
+
+    - name: Initialize pgrx environment for ParadeDB
+      shell: bash
+      run: cargo pgrx init "--pg${{ inputs.pg_version }}=/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"
+
+    - name: Fetch and Checkout PR Head (PR) or Pushed Commit (push)
+      shell: bash
+      run: |
+        set -euo pipefail
+        git checkout .
+
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          git fetch origin +refs/pull/${{ github.event.pull_request.number }}/head:${{ github.event.pull_request.head.ref }}
+          git checkout ${{ github.event.pull_request.head.ref }}
+        else
+          # For push (and other non-PR events), use the exact commit that triggered the workflow
+          git fetch origin ${{ github.sha }}:commit-${{ github.sha }}
+          git checkout commit-${{ github.sha }}
+        fi
+
+    - name: Compile & install pg_search
+      working-directory: pg_search/
+      shell: bash
+      run: cargo pgrx install --sudo --pg-config="/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"
+
+    - name: Start Postgres via pgrx
+      working-directory: pg_search/
+      shell: bash
+      run: |
+        RUST_BACKTRACE=1 cargo pgrx start pg${{ inputs.pg_version }}
+        # Necessary for the ephemeral Postgres test to have proper permissions
+        sudo chown -R $(whoami) /var/run/postgresql/
+
+    - name: Alter pg_search extension to the latest version
+      working-directory: pg_search/
+      shell: bash
+      run: |
+        VERSION=$(grep "^version" ../Cargo.toml | head -1 | awk -F '"' '{print $2}')
+        psql -h localhost -p 288${{ inputs.pg_version }} postgres -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
+
+    # We test the BM25 index before and after the upgrade to test for version compatibility
+    - name: Test BM25 Index
+      working-directory: pg_search/
+      shell: bash
+      run: |
+        psql -h localhost -p 288${{ inputs.pg_version }} postgres -c "CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool STABLE STRICT LANGUAGE plpgsql AS \$\$ BEGIN IF a <> b THEN RAISE EXCEPTION 'Assertion failed: % <> %', a, b; END IF; RETURN true; END; \$\$;"
+        psql -h localhost -p 288${{ inputs.pg_version }} postgres -c "SELECT assert(count(*), 0) FROM (SELECT * FROM pdb.verify_index('search_idx') WHERE NOT passed) failed;"
+
+    # We only run the integration tests since pgrx won't run the #[pg_test] unit tests in an existing database
+    - name: Run pg_search Integration Tests
+      working-directory: tests/
+      shell: bash
+      run: |
+        export DATABASE_URL=postgresql://localhost:288${{ inputs.pg_version }}/postgres
+        export PG_CONFIG=/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config
+        RUST_BACKTRACE=1 cargo test --jobs $(nproc)
+
+    - name: Print the Postgres Logs
+      if: always()
+      shell: bash
+      run: cat ~/.pgrx/${{ inputs.pg_version }}.log

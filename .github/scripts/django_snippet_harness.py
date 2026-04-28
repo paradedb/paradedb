@@ -9,7 +9,7 @@ import os
 
 import django
 from django.conf import settings
-from django.contrib.postgres.fields import IntegerRangeField
+from django.contrib.postgres.fields import ArrayField, IntegerRangeField
 from django.db import models
 
 from paradedb.queryset import ParadeDBManager
@@ -93,3 +93,17 @@ class Order(models.Model):
         app_label = "docs_snippets"
         managed = False
         db_table = "orders"
+
+
+class ArrayDemo(models.Model):
+    """Read-only model used by docs snippets that target `array_demo`."""
+
+    id = models.IntegerField(primary_key=True)
+    categories = ArrayField(models.TextField())
+
+    class Meta:
+        """Bind the model to the existing docs verification table."""
+
+        app_label = "docs_snippets"
+        managed = False
+        db_table = "array_demo"

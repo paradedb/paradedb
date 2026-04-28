@@ -15,16 +15,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::tokenizers::definitions::pdb::DatumWithType;
 use crate::postgres::catalog::{
     is_citext_oid, lookup_type_category, lookup_type_name, lookup_typoid,
 };
 use once_cell::sync::Lazy;
 use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
 use pgrx::pgrx_sql_entity_graph::metadata::{
-    ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
+    ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
 };
 use pgrx::{pg_sys, set_varsize_4b, FromDatum, IntoDatum};
-use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::ptr::addr_of_mut;
 use tokenizers::chinese_convert::ConvertMode;
@@ -37,8 +37,8 @@ mod typmod;
 use crate::schema::{IndexRecordOption, SearchFieldConfig};
 
 pub use crate::api::tokenizers::typmod::{
-    AliasTypmod, GenericTypmod, JiebaTypmod, LinderaTypmod, NgramTypmod, RegexTypmod, Typmod,
-    UncheckedTypmod, UnicodeWordsTypmod,
+    AliasTypmod, EdgeNgramTypmod, GenericTypmod, JiebaTypmod, LinderaTypmod, NgramTypmod,
+    RegexTypmod, Typmod, UncheckedTypmod, UnicodeWordsTypmod,
 };
 
 // if a ::pdb.<tokenizer> cast is used, ie ::pdb.simple, ::pdb.lindera, etc.
@@ -99,6 +99,12 @@ fn tokenizer_from_name(name: &str) -> Option<SearchTokenizer> {
             max_gram: 0,
             prefix_only: false,
             positions: false,
+            filters: SearchTokenizerFilters::default(),
+        },
+        "edge_ngram" => SearchTokenizer::EdgeNgram {
+            min_gram: 0,
+            max_gram: 0,
+            token_chars: vec![],
             filters: SearchTokenizerFilters::default(),
         },
         "whitespace" => SearchTokenizer::WhiteSpace(SearchTokenizerFilters::default()),
@@ -171,6 +177,23 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
             }
             if let Some(v) = parsed.get("positions").and_then(|p| p.as_bool()) {
                 *positions = v;
+            }
+            *filters = SearchTokenizerFilters::from(parsed);
+        }
+        SearchTokenizer::EdgeNgram {
+            min_gram,
+            max_gram,
+            token_chars,
+            filters,
+        } => {
+            if let Some(v) = parsed.try_get("min", 0).and_then(|p| p.as_usize()) {
+                *min_gram = v;
+            }
+            if let Some(v) = parsed.try_get("max", 1).and_then(|p| p.as_usize()) {
+                *max_gram = v;
+            }
+            if let Some(s) = parsed.get("token_chars").and_then(|p| p.as_str()) {
+                *token_chars = s.split(',').map(|c| c.trim().to_string()).collect();
             }
             *filters = SearchTokenizerFilters::from(parsed);
         }
@@ -309,6 +332,9 @@ pub fn search_field_config_from_type(
                 .unwrap_or_else(|| panic!("unknown search_tokenizer: {expr}"))
         });
 
+    let k1 = parsed_typmod.get("k1").and_then(|p| p.as_f32());
+    let b = parsed_typmod.get("b").and_then(|p| p.as_f32());
+
     if inner_typoid == pg_sys::JSONOID || inner_typoid == pg_sys::JSONBOID {
         Some(SearchFieldConfig::Json {
             indexed: true,
@@ -320,6 +346,8 @@ pub fn search_field_config_from_type(
             normalizer,
             column: None,
             expand_dots: true,
+            k1,
+            b,
         })
     } else {
         Some(SearchFieldConfig::Text {
@@ -331,6 +359,8 @@ pub fn search_field_config_from_type(
             record,
             normalizer,
             column: None,
+            k1,
+            b,
         })
     }
 }
@@ -352,6 +382,20 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             *prefix_only = ngram_typmod.prefix_only;
             *positions = ngram_typmod.positions;
             *filters = ngram_typmod.filters;
+        }
+        SearchTokenizer::EdgeNgram {
+            min_gram,
+            max_gram,
+            token_chars,
+            filters,
+        } => {
+            let edge_ngram_typmod = EdgeNgramTypmod::try_from(typmod).unwrap_or_else(|e| {
+                panic!("{}", e);
+            });
+            *min_gram = edge_ngram_typmod.min_gram;
+            *max_gram = edge_ngram_typmod.max_gram;
+            *token_chars = edge_ngram_typmod.token_chars;
+            *filters = edge_ngram_typmod.filters;
         }
         SearchTokenizer::RegexTokenizer { pattern, filters } => {
             let regex_typmod = RegexTypmod::try_from(typmod).unwrap_or_else(|e| {
@@ -456,10 +500,6 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
     }
 }
 
-pub trait CowString {
-    fn to_str(&self) -> Cow<'_, str>;
-}
-
 pub trait DatumWrapper {
     #[allow(dead_code)]
     fn from_datum(datum: pg_sys::Datum) -> Self;
@@ -506,24 +546,58 @@ pub trait DatumWrapper {
     }
 }
 
-impl<T: DatumWrapper> CowString for T {
-    fn to_str(&self) -> Cow<'_, str> {
-        unsafe {
-            let varlena = self.as_datum().cast_mut_ptr::<pg_sys::varlena>();
-            let detoasted = pg_sys::pg_detoast_datum(varlena);
+// SAFETY: to_tokenize must be raw text or a tokenizer type
+unsafe fn tokenize<T>(to_tokenize: T, tokenizer: SearchTokenizer) -> Vec<String>
+where
+    T: DatumWrapper,
+{
+    let mut analyzer = tokenizer
+        .to_tantivy_tokenizer()
+        .expect("failed to convert tokenizer to tantivy tokenizer");
 
-            let s = convert_varlena_to_str_memoized(detoasted);
-            if std::ptr::eq(detoasted, varlena) {
-                // wasn't toasted, can do zero-copy
-                Cow::Borrowed(s)
-            } else {
-                // was toasted, so copy to owned Rust string and free the detoasted memory
-                let s = s.to_string();
-                pg_sys::pfree(detoasted.cast());
-                Cow::Owned(s)
+    let wrapper_datum = to_tokenize.as_datum();
+    let mut tokens = Vec::new();
+    let mut tokenize = |s: &str| {
+        let mut stream = analyzer.token_stream(s);
+
+        while stream.advance() {
+            let token = stream.token();
+            tokens.push(token.text.to_string());
+        }
+    };
+
+    // Check if this is a wrapped DatumWithType using magic number verification
+    // For text literals, PostgreSQL might pass them directly without wrapping
+    // due to LIKE = text in the type definition
+    // TODO is the LIKE doing anything useful if conversion is effectively mandatory?
+    if !DatumWithType::is_wrapped(wrapper_datum) {
+        // Not wrapped, it's raw text (or null)
+        let varlena = wrapper_datum.cast_mut_ptr::<pg_sys::varlena>();
+        let detoasted = pg_sys::pg_detoast_datum(varlena);
+
+        let s = convert_varlena_to_str_memoized(detoasted);
+        tokenize(s);
+        return tokens;
+    }
+
+    let typoid = DatumWithType::extract_typoid(wrapper_datum);
+    let original_datum = DatumWithType::extract_datum(wrapper_datum);
+    match typoid {
+        pg_sys::TEXTARRAYOID | pg_sys::VARCHARARRAYOID => {
+            let strings = <Vec<String> as pgrx::FromDatum>::from_datum(original_datum, false)
+                .expect("must have data");
+            for s in strings {
+                tokenize(&s)
             }
         }
+
+        _ => pgrx::error!(
+            "cannot tokenize a {} inline",
+            lookup_type_name(typoid).unwrap_or_else(|| "<unknown>".to_string())
+        ),
     }
+
+    tokens
 }
 
 struct GenericTypeWrapper<Type: DatumWrapper, SqlName: SqlNameMarker> {
@@ -532,16 +606,21 @@ struct GenericTypeWrapper<Type: DatumWrapper, SqlName: SqlNameMarker> {
     __marker: PhantomData<(Type, SqlName)>,
 }
 
+// `SqlName::SQL_NAME` deliberately includes the `pdb.` prefix even though the
+// tokenizer types in `definitions.rs` drop it. The asymmetry is intentional:
+// `GenericTypeWrapper<T, S>` is a generic monomorphization that pgrx 0.18 cannot
+// resolve through its schema graph, so the literal is emitted verbatim with no
+// auto-prefix. The bare tokenizer types are graph-resolved, so pgrx prepends the
+// schema for them and we must not double it.
 unsafe impl<Type: DatumWrapper, SqlName: SqlNameMarker> SqlTranslatable
     for GenericTypeWrapper<Type, SqlName>
 {
-    fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-        Ok(SqlMapping::As(SqlName::SQL_NAME.into()))
-    }
-
-    fn return_sql() -> Result<Returns, ReturnsError> {
-        Ok(Returns::One(SqlMapping::As(SqlName::SQL_NAME.into())))
-    }
+    const TYPE_IDENT: &'static str = pgrx::pgrx_resolved_type!(GenericTypeWrapper<Type, SqlName>);
+    const TYPE_ORIGIN: TypeOrigin = TypeOrigin::External;
+    const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
+        Ok(SqlMappingRef::literal(SqlName::SQL_NAME));
+    const RETURN_SQL: Result<ReturnsRef, ReturnsError> =
+        Ok(ReturnsRef::One(SqlMappingRef::literal(SqlName::SQL_NAME)));
 }
 
 impl<Type: DatumWrapper, SqlName: SqlNameMarker> IntoDatum for GenericTypeWrapper<Type, SqlName> {
@@ -555,6 +634,8 @@ impl<Type: DatumWrapper, SqlName: SqlNameMarker> IntoDatum for GenericTypeWrappe
 }
 
 impl<Type: DatumWrapper, SqlName: SqlNameMarker> FromDatum for GenericTypeWrapper<Type, SqlName> {
+    const GET_TYPOID: bool = true;
+
     unsafe fn from_polymorphic_datum(
         datum: pg_sys::Datum,
         is_null: bool,

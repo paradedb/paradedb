@@ -21,7 +21,7 @@
 pub mod builder;
 pub mod mqueue;
 
-use crate::parallel_worker::mqueue::MessageQueueSender;
+use crate::parallel_worker::mqueue::{MessageQueueSendError, MessageQueueSender};
 use pgrx::pg_sys;
 use std::error::Error;
 use std::fmt::Display;
@@ -139,6 +139,47 @@ pub trait ParallelWorker {
         Self: Sized;
 
     fn run(self, mq_sender: &MessageQueueSender, worker_number: i32) -> anyhow::Result<()>;
+}
+
+/// Consumes a [`ParallelWorker::run`] result and decides how the worker exits.
+///
+/// `MessageQueueSendError::Detached` is treated as a benign teardown signal,
+/// not a failure: the leader has already dropped its end of the result queue
+/// and is no longer listening, so there is nothing useful the worker can do
+/// except exit cleanly. This matches upstream Postgres's handling of tuple
+/// queues in `tqueueReceiveSlot` (`src/backend/executor/tqueue.c`) and the
+/// proactive detach pattern in `ExecParallelFinish`
+/// (`src/backend/executor/execParallel.c`).
+///
+/// Any other error panics. The panic is caught by `#[pgrx::pg_guard]` at the
+/// macro-expanded entry point and surfaced through Postgres's normal parallel
+/// worker error reporting path in `WaitForParallelWorkersToFinish`
+/// (`src/backend/access/transam/parallel.c`).
+#[doc(hidden)]
+pub fn finish_parallel_worker(result: anyhow::Result<()>) {
+    match result {
+        Ok(()) => {}
+        Err(err) if is_detached_send_error(&err) => {
+            log_detached_send();
+        }
+        Err(err) => panic!("{err}"),
+    }
+}
+
+fn is_detached_send_error(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<MessageQueueSendError>(),
+            Some(MessageQueueSendError::Detached)
+        )
+    })
+}
+
+fn log_detached_send() {
+    pgrx::debug1!(
+        "parallel worker {}: leader detached before receive",
+        unsafe { pg_sys::ParallelWorkerNumber }
+    );
 }
 
 #[derive(Copy, Clone)]
@@ -389,9 +430,10 @@ macro_rules! launch_parallel_process {
                         $mq_size as usize,
                     );
 
-                <$parallel_worker_type>::new_parallel_worker(state_manager)
-                    .run(&mq_sender, unsafe { pgrx::pg_sys::ParallelWorkerNumber })
-                    .unwrap_or_else(|e| panic!("{e}"));
+                $crate::parallel_worker::finish_parallel_worker(
+                    <$parallel_worker_type>::new_parallel_worker(state_manager)
+                        .run(&mq_sender, unsafe { pgrx::pg_sys::ParallelWorkerNumber }),
+                );
             }
         }
 
@@ -480,12 +522,19 @@ const fn TYPEALIGN_DOWN(ALIGNVAL: usize, LEN: usize) -> usize {
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
-    use crate::parallel_worker::mqueue::MessageQueueSender;
+    use super::{finish_parallel_worker, is_detached_send_error};
+    use crate::parallel_worker::mqueue::{MessageQueueSendError, MessageQueueSender};
     use crate::parallel_worker::{
         ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType, ParallelWorker,
         WorkerStyle,
     };
+    use anyhow::Context;
     use pgrx::pg_test;
+
+    fn simulate_worker_send(err: MessageQueueSendError) -> anyhow::Result<()> {
+        let send_result: Result<(), MessageQueueSendError> = Err(err);
+        Ok(send_result?)
+    }
 
     #[pg_test]
     fn test_parallel_workers() {
@@ -558,6 +607,53 @@ mod tests {
                 "mix-matched reply from worker"
             )
         }
+    }
+
+    #[pg_test]
+    fn detached_send_error_is_detected() {
+        let err: anyhow::Error = MessageQueueSendError::Detached.into();
+        assert!(is_detached_send_error(&err));
+    }
+
+    #[pg_test]
+    fn wrapped_detached_send_error_is_detected() {
+        let err = Err::<(), MessageQueueSendError>(MessageQueueSendError::Detached)
+            .context("failed to send worker results")
+            .unwrap_err();
+        assert!(is_detached_send_error(&err));
+    }
+
+    #[pg_test]
+    fn detached_send_error_is_ignored() {
+        finish_parallel_worker(Err(MessageQueueSendError::Detached.into()));
+    }
+
+    #[pg_test]
+    fn wrapped_detached_send_error_is_ignored() {
+        let err = Err::<(), MessageQueueSendError>(MessageQueueSendError::Detached)
+            .context("failed to send worker results")
+            .unwrap_err();
+        finish_parallel_worker(Err(err));
+    }
+
+    #[pg_test]
+    fn detached_send_error_via_question_mark_is_ignored() {
+        finish_parallel_worker(simulate_worker_send(MessageQueueSendError::Detached));
+    }
+
+    #[pg_test]
+    #[should_panic(expected = "queue is full")]
+    fn non_detached_send_error_still_panics() {
+        finish_parallel_worker(Err(MessageQueueSendError::WouldBlock.into()));
+    }
+
+    #[pg_test]
+    #[should_panic(expected = "unknown error code: 42")]
+    fn unknown_send_error_still_panics() {
+        // Pins the contract: only `Detached` is ignored.
+        // Any other send error, including unknown future/Postgres-specific
+        // codes, must still panic.
+        finish_parallel_worker(Err(MessageQueueSendError::Unknown(42 as _).into()));
     }
 }
 

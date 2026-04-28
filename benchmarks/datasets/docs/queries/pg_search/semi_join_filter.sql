@@ -11,8 +11,8 @@ WHERE
     f."documentId" IN (
         SELECT id
         FROM documents
-        WHERE parents @@@ 'PROJECT_ALPHA'
-        AND title @@@ 'Document Title 1'
+        WHERE parents ||| 'PROJECT_ALPHA'
+        AND title ||| 'Document Title 1'
     )
 ORDER BY
     f.title ASC
@@ -28,8 +28,8 @@ WHERE
     f."documentId" IN (
         SELECT id
         FROM documents
-        WHERE parents @@@ 'PROJECT_ALPHA'
-        AND title @@@ 'Document Title 1'
+        WHERE parents ||| 'PROJECT_ALPHA'
+        AND title ||| 'Document Title 1'
     )
 ORDER BY
     f.title ASC
@@ -45,8 +45,8 @@ WHERE
     f."documentId" IN (
         SELECT id
         FROM documents
-        WHERE parents @@@ 'PROJECT_ALPHA'
-        AND title @@@ 'Document Title 1'
+        WHERE parents ||| 'PROJECT_ALPHA'
+        AND title ||| 'Document Title 1'
     )
 ORDER BY
     f.title ASC
@@ -60,7 +60,7 @@ SET paradedb.enable_columnar_sort TO off; SET paradedb.enable_join_custom_scan T
 FROM files f
 WHERE
     f."documentId" @@@ pdb.term_set((
-        SELECT array_agg(id) FROM documents WHERE parents @@@ 'PROJECT_ALPHA' AND title @@@ 'Document Title 1'
+        SELECT array_agg(id) FROM documents WHERE parents ||| 'PROJECT_ALPHA' AND title ||| 'Document Title 1'
     ))
 ORDER BY
     f.title ASC
@@ -76,8 +76,8 @@ WHERE
     f."documentId" IN (
         SELECT id
         FROM documents
-        WHERE parents @@@ 'PROJECT_ALPHA'
-        AND title @@@ 'Document Title 1'
+        WHERE parents ||| 'PROJECT_ALPHA'
+        AND title ||| 'Document Title 1'
     )
 ORDER BY
     f.title ASC

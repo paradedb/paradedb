@@ -125,5 +125,15 @@ pub fn format_join_level_expr(expr: &JoinLevelExpr, join_clause: &JoinCSClause) 
                 "(mark = true OR col IS NULL)".to_string()
             }
         }
+        JoinLevelExpr::PgExpression { pg_node_string, .. } => unsafe {
+            let Ok(c_str) = std::ffi::CString::new(pg_node_string.as_str()) else {
+                return pg_node_string.clone();
+            };
+            let node = pg_sys::stringToNode(c_str.as_ptr().cast_mut());
+            if node.is_null() {
+                return pg_node_string.clone();
+            }
+            format_expr_for_explain(node.cast())
+        },
     }
 }

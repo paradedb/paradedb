@@ -9,7 +9,7 @@ SET paradedb.enable_join_custom_scan TO off; SELECT
 FROM files f
 JOIN pages p ON f.id = p."fileId"
 WHERE
-    f.content @@@ 'Section'       -- Search Term
+    f.content ||| 'Section'       -- Search Term
 GROUP BY
     f.id, f.title
 ORDER BY
@@ -23,7 +23,7 @@ SET paradedb.enable_join_custom_scan TO on; SELECT
 FROM files f
 JOIN pages p ON f.id = p."fileId"
 WHERE
-    f.content @@@ 'Section'       -- Search Term
+    f.content ||| 'Section'       -- Search Term
 GROUP BY
     f.id, f.title
 ORDER BY

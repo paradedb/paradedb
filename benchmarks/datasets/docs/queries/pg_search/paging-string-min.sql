@@ -4,7 +4,7 @@ SELECT
 FROM
     pages
 WHERE
-    id @@@ paradedb.all()
+    id @@@ pdb.all()
     AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min')
 ORDER BY
     id

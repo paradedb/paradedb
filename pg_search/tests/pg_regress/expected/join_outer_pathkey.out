@@ -139,8 +139,7 @@ WHERE c.name @@@ 'Acme OR Globex'
 AND p.description @@@ 'widget OR gadget OR gizmo'
 ORDER BY cat.category_name, p.id
 LIMIT 5;
-WARNING:  JoinScan not used: LIMIT pushdown unsafe (un-absorbed relations, SubPlans, or volatile functions) (tables: c, p)
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: c, p)
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: c, p)
                                                                                                QUERY PLAN                                                                                               
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -176,8 +175,7 @@ WHERE c.name @@@ 'Acme OR Globex'
 AND p.description @@@ 'widget OR gadget OR gizmo'
 ORDER BY cat.category_name, p.id
 LIMIT 5;
-WARNING:  JoinScan not used: LIMIT pushdown unsafe (un-absorbed relations, SubPlans, or volatile functions) (tables: c, p)
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: c, p)
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: c, p)
  id  |  description  | category_name 
 -----+---------------+---------------
  100 | A fine widget | Electronics

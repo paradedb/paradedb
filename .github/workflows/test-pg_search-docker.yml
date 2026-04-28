@@ -105,6 +105,7 @@ jobs:
           docker buildx build \
             --platform ${{ matrix.platform }} \
             --file docker/Dockerfile \
+            --build-arg COMMIT_SHA=$(git rev-parse head) \
             --tag paradedb/paradedb:latest \
             --load \
             .

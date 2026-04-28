@@ -26,14 +26,27 @@
 //!   `DrainBuffer` (populated asynchronously by the drain thread).
 //!
 //! `UnionExec` exposes these as two partitions; downstream operators that
-//! only drive `execute(0)` would leave peer rows unread. `CoalescePartitionsExec`
-//! merges them into one partition but spawns a `tokio::spawn` task per input,
-//! which deadlocks when both tasks block in blocking `shm_mq_send` calls
-//! (not enough async yields to unblock).
+//! only drive `execute(0)` would leave peer rows unread.
+//! `CoalescePartitionsExec` merges them into one partition but spawns a
+//! `tokio::spawn` task per input. When the original transport used
+//! *blocking* `shm_mq_send`, both spawned tasks could block at once and
+//! the runtime would deadlock — that was the reason this operator was
+//! introduced.
 //!
-//! [`ChainExec`] avoids both problems by producing a single partition that
-//! polls the first child to exhaustion, then the second. Correctness relies
-//! on two structural guarantees:
+//! Since then `MppSender::send_batch_traced` (over in `transport.rs`) has
+//! become `async` with `try_send_bytes` + `poll_drain_pass` +
+//! `tokio::task::yield_now().await` between iterations, so the producer
+//! task gives up the runtime regularly and the `CoalescePartitionsExec`
+//! deadlock above is no longer a structural problem. Replacing
+//! [`ChainExec`] with `CoalescePartitionsExec(UnionExec(shuffle, drain))`
+//! is a viable follow-up — it would let the planner reason about a
+//! standard operator pair and skip a custom node — but it needs a
+//! benchmark pass against the 25 M GROUP BY shape to confirm no
+//! regression and isn't in this PR's scope.
+//!
+//! [`ChainExec`] produces a single partition that polls the first child
+//! to exhaustion, then the second. Correctness relies on two structural
+//! guarantees:
 //!
 //! 1. The drain thread reads peer shipments into `DrainBuffer` on its own
 //!    `std::thread`, independent of operator polling order. Peer rows pile

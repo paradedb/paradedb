@@ -178,11 +178,13 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_fields;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::parallel::compute_nworkers;
+use crate::postgres::customscan::parameterized_value::ParameterizedValue;
 use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
 use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
+use crate::DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE;
 use datafusion::physical_plan::displayable;
 use datafusion::physical_plan::metrics::MetricValue;
 use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
@@ -482,7 +484,7 @@ impl JoinScan {
         plan: &RelNode,
         join_keys: &[build::JoinKeyPair],
         has_distinct: bool,
-    ) -> Result<(JoinCSClause, LimitOffset), JoinDeclineReason> {
+    ) -> Result<(JoinCSClause, Option<LimitOffset>), JoinDeclineReason> {
         let all_sources = plan.sources();
 
         // --- Activation checks ---
@@ -507,10 +509,12 @@ impl JoinScan {
 
         // Require LIMIT for top-level queries (without it, JoinScan's TopK
         // optimization has no bound). Subqueries are exempt because the parent
-        // plan provides the cardinality constraint.
+        // plan provides the cardinality constraint. Either a static or
+        // parameterized LIMIT is sufficient — the latter is resolved at
+        // execution time from EState::es_param_list_info.
         let limit_offset = LimitOffset::from_root(root);
         let is_subquery = !(*root).parent_root.is_null();
-        if limit_offset.limit.is_none() && !is_subquery {
+        if limit_offset.is_none() && !is_subquery {
             return Err(JoinDeclineReason::new(
                 "JoinScan not used: LIMIT is required for top-level queries",
             ));
@@ -578,8 +582,7 @@ impl JoinScan {
         // --- Build JoinCSClause ---
 
         let mut join_clause = JoinCSClause::new(plan.clone())
-            .with_limit(limit_offset.limit)
-            .with_offset(limit_offset.offset)
+            .with_limit_offset(limit_offset.clone())
             .with_distinct(has_distinct);
 
         for source in join_clause.plan.sources_mut() {
@@ -604,7 +607,7 @@ impl JoinScan {
 
         // Safety check: bail out if LIMIT pushdown is unsafe due to
         // un-absorbed relations, un-absorbed SubPlans, or volatile functions.
-        if join_clause.limit_offset.limit.is_some() {
+        if join_clause.limit_offset.is_some() {
             is_limit_pushdown_safe(root, &join_clause)?;
         }
 
@@ -620,7 +623,7 @@ impl JoinScan {
         root: *mut pg_sys::PlannerInfo,
         rel: *mut pg_sys::RelOptInfo,
         mut join_clause: JoinCSClause,
-        limit_offset: &LimitOffset,
+        limit_offset: &Option<LimitOffset>,
         consider_parallel: bool,
     ) -> Option<pg_sys::CustomPath> {
         let output_rtis = join_clause.plan.output_rtis();
@@ -637,7 +640,10 @@ impl JoinScan {
 
         let startup_cost = crate::DEFAULT_STARTUP_COST;
         let total_cost = startup_cost + 1.0;
-        let mut result_rows = limit_offset.limit.map(|l| l as f64).unwrap_or(1000.0);
+        let mut result_rows = limit_offset
+            .as_ref()
+            .map(|lo| lo.planning_estimate())
+            .unwrap_or(DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE);
 
         let (segment_count, row_estimate) = {
             let src = join_clause.partitioning_source();
@@ -648,7 +654,7 @@ impl JoinScan {
             let declares_sorted_output = !join_clause.order_by.is_empty();
             compute_nworkers(
                 declares_sorted_output,
-                limit_offset.limit.map(|l| l as f64),
+                limit_offset.as_ref().map(|lo| lo.planning_estimate()),
                 row_estimate,
                 segment_count,
                 false,
@@ -1150,13 +1156,14 @@ impl CustomScan for JoinScan {
             explainer.add_text("Join Predicate", format_join_level_expr(expr, join_clause));
         }
 
-        if let Some(limit) = join_clause.limit_offset.limit {
-            explainer.add_text("Limit", limit.to_string());
-        }
-
-        if let Some(offset) = join_clause.limit_offset.offset {
-            if offset > 0 {
-                explainer.add_text("Offset", offset.to_string());
+        if let Some(lo) = &join_clause.limit_offset {
+            explainer.add_text("Limit", lo.limit.to_string());
+            if let Some(off) = &lo.offset {
+                // Suppress an explicit "0" OFFSET to match prior EXPLAIN output.
+                let suppress = matches!(off, ParameterizedValue::Static(0));
+                if !suppress {
+                    explainer.add_text("Offset", off.to_string());
+                }
             }
         }
 
@@ -1284,7 +1291,7 @@ impl CustomScan for JoinScan {
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .build()
                     .unwrap();
-                let join_clause = state.custom_state().join_clause.clone();
+                let mut join_clause = state.custom_state().join_clause.clone();
                 let snapshot = state.csstate.ss.ps.state.as_ref().unwrap().es_snapshot;
 
                 let plan_sources = join_clause.plan.sources();
@@ -1330,6 +1337,34 @@ impl CustomScan for JoinScan {
                     index_segment_ids,
                 )
                 .expect("Failed to deserialize logical plan");
+
+                // For parameterized LIMIT/OFFSET, the planning-time logical
+                // plan has no Limit node. Inject one now (before physical
+                // planning) so SegmentedTopKRule can detect SortExec(fetch=K)
+                // and apply its TopK optimization. Static cases were already
+                // pushed in `build_clause_df`.
+                let needs_runtime_limit = join_clause
+                    .limit_offset
+                    .as_ref()
+                    .map(|lo| lo.has_any_param())
+                    .unwrap_or(false);
+                let logical_plan = if needs_runtime_limit {
+                    use datafusion::logical_expr::LogicalPlanBuilder;
+                    let lo = join_clause.limit_offset.as_mut().unwrap();
+                    let estate = state.csstate.ss.ps.state;
+                    let fetch = lo
+                        .resolve_mut(estate)
+                        .expect("LIMIT must be resolvable from EState")
+                        .static_fetch()
+                        .expect("static_fetch must succeed after resolve_mut");
+                    LogicalPlanBuilder::from(logical_plan)
+                        .limit(0, Some(fetch))
+                        .expect("failed to add Limit to logical plan")
+                        .build()
+                        .expect("failed to build logical plan with Limit")
+                } else {
+                    logical_plan
+                };
 
                 // Convert logical plan to physical plan
                 let plan = runtime

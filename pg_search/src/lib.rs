@@ -60,6 +60,11 @@ const MORE_LIKE_THIS_SELECTIVITY: f64 = 0.01;
 /// meaningless but we should be honest that do _something_.
 const DEFAULT_STARTUP_COST: f64 = 10.0;
 
+/// Planning-time row estimate used when LIMIT is parameterized (resolved only at
+/// execution time). Substitutes for an unknown LIMIT in cost/cardinality math
+/// so downstream decisions like worker count don't collapse.
+const DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE: f64 = 1000.0;
+
 pgrx::pg_module_magic!();
 
 extension_sql!(

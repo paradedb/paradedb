@@ -18,16 +18,14 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
     build-essential \
-    gnupg \
+    ca-certificates \
+    clang \
     curl \
     git \
-    make \
-    gcc \
-    clang \
-    pkg-config \
+    gnupg \
     libopenblas-dev \
+    pkg-config \
     postgresql-server-dev-${PG_VERSION_MAJOR} \
     && rm -rf /var/lib/apt/lists/*
 
@@ -146,9 +144,9 @@ COPY --from=builder /tmp/pg_ivm/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/
 ENV POSTGIS_VERSION_MAJOR=3
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
+    ca-certificates \
     postgresql-$PG_VERSION_MAJOR-postgis-$POSTGIS_VERSION_MAJOR \
     postgresql-$PG_VERSION_MAJOR-postgis-$POSTGIS_VERSION_MAJOR-scripts \
-    ca-certificates \
     && rm -rf /var/lib/apt/lists/* && \
     update-ca-certificates
 

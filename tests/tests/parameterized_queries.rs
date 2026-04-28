@@ -455,12 +455,7 @@ fn generic_plan_parameterized_offset(
 /// JoinScan must survive parameterized LIMIT/OFFSET (previously disabled
 /// with NOTICE: "JoinScan not used: activation checks failed (LIMIT / ...)").
 #[rstest]
-#[case::param_limit_only(
-    "text, int",
-    "LIMIT $2",
-    "'electronics', 10",
-    10
-)]
+#[case::param_limit_only("text, int", "LIMIT $2", "'electronics', 10", 10)]
 #[case::param_limit_param_offset(
     "text, int, int",
     "LIMIT $2 OFFSET $3",

@@ -50,8 +50,10 @@ use crate::postgres::customscan::mpp::stage::MppTaskKey;
 ///
 /// The magic exists so test paths and production paths can share
 /// [`decode_batch`]: unit tests keep sending raw Arrow IPC (no header), the
-/// bridges in `exec_bridge.rs` opt in via [`MppSender::with_frame_id`], and
-/// the receiver auto-detects which flavor it has.
+/// walker stamps frame ids on every emitted shuffle (`walker::stamp_frame_ids`,
+/// called from `emit_shuffle_cut`), and the receiver auto-detects which
+/// flavor it has. Arrow IPC stream messages start with the continuation
+/// bytes `0xFFFFFFFF`, which can never collide with the `MPPF` magic.
 const FRAME_MAGIC: [u8; 4] = *b"MPPF";
 
 /// On-wire header that prefixes every framed batch. 24 bytes, little-endian.
@@ -507,13 +509,13 @@ impl MppSender {
     }
 
     /// Stamp every outgoing batch with `task_key` + `partition`. Called by
-    /// the bridges in `exec_bridge.rs` so the wire format carries enough
-    /// routing information to multiplex multiple logical streams across one
-    /// shm_mq (groundwork for P5b's N×(N−1) channel flattening). Today the
-    /// receiver accepts framed bytes, discards the header, and returns the
-    /// decoded batch; P5b will plug in a per-channel dispatcher that uses
-    /// `(stage_id, task_number, partition)` to route batches to the right
-    /// `DrainBuffer`.
+    /// `walker::stamp_frame_ids` (from `emit_shuffle_cut`) so the wire
+    /// format carries enough routing information to multiplex multiple
+    /// logical streams across one shm_mq (groundwork for P5b's N×(N−1)
+    /// channel flattening). Today the receiver accepts framed bytes,
+    /// discards the header, and returns the decoded batch; P5b will plug
+    /// in a per-channel dispatcher that uses `(stage_id, task_number,
+    /// partition)` to route batches to the right `DrainBuffer`.
     pub fn with_frame_id(mut self, task_key: MppTaskKey, partition: u32) -> Self {
         self.frame_id = Some(FrameId {
             task_key,

@@ -23,11 +23,13 @@
 //! In a PG parallel-worker world a "task" is a peer participant in the mesh, so
 //! `task_count` is enough — we don't need URLs or a `WorkerResolver`.
 //!
-//! This module is a P1 seam: the trait is defined and implemented on
-//! `MppRepartitionExec` / `DrainGatherExec`, but nothing inside MPP calls it yet.
-//! P3's generic cut-rule walker (ported from `distribute_plan.rs`) will be the
-//! first consumer — at that point every boundary node gets a real
-//! [`MppStage`] stamped during the walk, replacing the `None` placeholder.
+//! Live consumers: the walker (`walker::emit_shuffle_cut` ➜
+//! `plan_build::wrap_with_mpp_shuffle`) stamps an [`MppStage`] on every
+//! [`MppRepartitionExec`] / [`DrainGatherExec`] it emits via the
+//! [`MppNetworkBoundary::with_input_stage`] helper. The receiver-side
+//! validation that consumes the stamp lives in P5b — until then the
+//! frame-header bytes carry the `(query_id, stage_id, task_number,
+//! partition)` tuple and decoders discard it after a length check.
 
 use std::sync::Arc;
 
@@ -69,16 +71,13 @@ impl MppStage {
 /// Wire identifier for a single stream between two participants.
 ///
 /// Mirrors datafusion-distributed's `TaskKey` protobuf
-/// (`src/worker/worker.proto:51-59`). P2 will frame every batch with
-/// `{MppTaskKey, partition, arrow_ipc_bytes}` so one `shm_mq` between two
-/// participants can carry multiple multiplexed streams (one per (stage, task,
-/// partition) tuple), which is what lets the cut-rule walker insert an
-/// arbitrary number of boundaries without allocating an `N*(N-1)` mesh per
-/// boundary.
-///
-/// Unused in P1 — defined here so follow-up phases don't have to invent a
-/// separate descriptor. `#[allow(dead_code)]` is temporary.
-#[allow(dead_code)]
+/// (`src/worker/worker.proto:51-59`). Carried on every framed batch as
+/// part of `transport::FrameId` so one `shm_mq` between two participants
+/// can in principle carry multiple multiplexed streams (one per (stage,
+/// task, partition) tuple). Today's mesh allocates one shm_mq per
+/// `(stage, src, dst)` so the multiplex isn't strictly needed, but
+/// stamping the descriptor now lets P5b's channel-flatten dispatcher
+/// land without a wire-format break.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MppTaskKey {
     pub query_id: u64,
@@ -102,8 +101,12 @@ pub struct MppTaskKey {
 /// tighten the signature to `&MppStage` and delete the `Option`.
 pub trait MppNetworkBoundary: ExecutionPlan {
     /// Return the stage this boundary consumes from (i.e. the sub-plan
-    /// beneath the cut). Returns `None` when the node was constructed by the
-    /// legacy shape-specific bridges — the cut walker has not yet stamped it.
+    /// beneath the cut). Returns `None` only on test fixtures that
+    /// construct boundaries directly without going through the walker;
+    /// every walker-emitted boundary has a stamped stage. Read-side
+    /// consumer (P5b channel-flatten dispatcher) doesn't exist yet, so
+    /// the only live caller today is `#[cfg(test)]`.
+    #[cfg_attr(not(test), allow(dead_code))]
     fn input_stage(&self) -> Option<&MppStage>;
 
     /// Return a new instance with `input_stage` stamped to `stage`. The

@@ -867,10 +867,13 @@ fn distribute_plan_generic(
     let mut ctx = CutEmitCtx::from_state(mpp_state, shape, expected_cuts);
     let emitted = _distribute_plan(annotated, &mut ctx)?;
     // Postcondition: every mesh popped off `ctx.meshes` corresponds to a
-    // real cut emitted into the plan. If `ctx.meshes` still has entries
-    // here, the walker emitted fewer cuts than `cut_count_for_shape`
-    // promised — that's the cut-count drift case (silent today; this
-    // assertion turns it into a loud error).
+    // real cut emitted into the plan. The over-emit case (walker emits
+    // *more* cuts than allocated) is already caught inside
+    // `emit_shuffle_cut` when `pop_front` returns `None`. This catches
+    // the symmetric *under*-emit case where `insert_mpp_cuts`
+    // synthesized fewer cut markers than `cut_count_for_shape` promised
+    // — meshes left unconsumed here would otherwise be silently dropped
+    // along with `ctx`.
     if !ctx.meshes.is_empty() {
         return Err(DataFusionError::Plan(format!(
             "mpp: distribute_plan_generic: walker emitted {} cuts but \
@@ -1002,11 +1005,26 @@ fn finalize_join_only(
 }
 
 /// Find the first `HashJoinExec` in `plan`, rebuild it via
-/// `HashJoinExec::try_new` with `PartitionMode::Partitioned` (preserving
-/// every other field), and graft back into the tree via
-/// [`replace_first_hash_join`] so outer wrappers
+/// `HashJoinExec::try_new` with `PartitionMode::Partitioned`, and graft
+/// back into the tree via [`replace_first_hash_join`] so outer wrappers
 /// (`VisibilityFilterExec`, `SegmentedTopKExec`, `TantivyLookupExec`,
 /// ...) refresh their subtree identity.
+///
+/// Most fields are preserved (`on`, `filter`, `join_type`, `projection`,
+/// `null_equality`, `null_aware`). One field is **intentionally
+/// dropped**: `dynamic_filter`. `prepare_join_only` already stripped the
+/// probe-side dynamic filter via `strip_dynamic_filters_in_subtree`; we
+/// don't re-apply it here because under MPP the build side is split
+/// across participants and the local `Arc<DynamicFilterPhysicalExpr>`
+/// only knows this participant's keys — a probe-side filter against
+/// that partial key set would drop rows that other participants' builds
+/// would have matched. The aggregate paths take the same approach with
+/// a small twist (`build_partitioned_hj_with_probe_filter` re-applies
+/// the filter as a `FilterExec` *above* the post-shuffle output, where
+/// only the local partition flows through anyway). For JoinOnly, the
+/// per-participant `FilterExec` would still be safe but the optimizer
+/// rebuild for visibility-ctid resolution makes the savings small;
+/// dropping is the simpler choice and is correct.
 fn rebuild_hash_join_as_partitioned(
     plan: Arc<dyn ExecutionPlan>,
 ) -> DfResult<Arc<dyn ExecutionPlan>> {
@@ -1540,9 +1558,24 @@ fn stamp_frame_ids(
 // may have inserted.
 // ============================================================================
 
-/// Recursively walk the plan skipping `AggregateExec(Final)`,
-/// `CoalescePartitionsExec`, `CoalesceBatchesExec`, and other pass-through
-/// nodes to find an `AggregateExec` in `Partial` or `Single` mode.
+/// Walk the plan from the root, descending only through an explicit
+/// allow-list of pass-through wrappers, to find an `AggregateExec` in
+/// `Partial` or `Single` mode.
+///
+/// Allow-list:
+///   * `AggregateExec(Final | FinalPartitioned | SinglePartitioned)` —
+///     the outer aggregate stage emitted by DataFusion's planner.
+///   * `CoalescePartitionsExec` — multi→single partition merger.
+///   * `CoalesceBatchesExec` — batch-size normaliser.
+///
+/// Anything else (a `ProjectionExec`, `FilterExec`, etc. above the
+/// Partial) returns `None` so `prepare_agg_on_binary_join`'s caller
+/// errors out and the dispatcher falls back to the serial path. This
+/// is deliberately strict: the post-pass rebuilds the outer wrapper
+/// chain from scratch as `AggregateExec(FinalPartitioned, …)` and would
+/// silently discard any non-allow-listed node above the Partial,
+/// producing wrong-shape rows. A tight allow-list turns that silent
+/// drop into a clean fallback.
 ///
 /// DataFusion's planner picks `AggregateMode::Single` when the input
 /// produces exactly one partition (our usual serial build), and
@@ -1564,12 +1597,10 @@ fn find_partial_agg(plan: &dyn ExecutionPlan) -> Option<&AggregateExec> {
     if let Some(cb) = plan.as_any().downcast_ref::<CoalesceBatchesExec>() {
         return find_partial_agg(cb.input().as_ref());
     }
-    // Generic single-child pass-through fallback: only if the node has exactly
-    // one child, to avoid descending into a join or union.
-    let children = plan.children();
-    if children.len() == 1 {
-        return find_partial_agg(children[0].as_ref());
-    }
+    // Anything not in the allow-list above ends the walk. Returning
+    // `None` lets `prepare_agg_on_binary_join` produce a clean
+    // `DataFusionError::Plan` so the dispatcher falls back to serial,
+    // rather than silently discarding the unknown wrapper.
     None
 }
 

@@ -3,12 +3,12 @@
 -- Directly, without a CTE.
 SET paradedb.enable_join_custom_scan TO off; SELECT
   *,
-  pdb.score(users.id) + pdb.score(stackoverflow_posts.id) + pdb.score(comments.id) AS score
+  pdb.score(users.id) + pdb.score(stackoverflow_posts.id) + pdb.score(comments.id) AS pdb_score
 FROM
   users JOIN stackoverflow_posts ON users.id = stackoverflow_posts.owner_user_id JOIN comments ON comments.post_id = stackoverflow_posts.id
 WHERE
   users.about_me ||| 'java' AND stackoverflow_posts.title ||| 'error' AND comments.text ||| 'question'
-ORDER BY score DESC
+ORDER BY pdb_score DESC
 LIMIT 1000;
 
 -- CTE to execute a smaller join before Top K and then fetch the rest of the content after Top K.
@@ -17,7 +17,7 @@ WITH topk AS (
     users.id AS user_id,
     stackoverflow_posts.id AS post_id,
     comments.id AS comment_id,
-    pdb.score(users.id) + pdb.score(stackoverflow_posts.id) + pdb.score(comments.id) AS score
+    pdb.score(users.id) + pdb.score(stackoverflow_posts.id) + pdb.score(comments.id) AS pdb_score
   FROM
     users
     JOIN stackoverflow_posts ON users.id = stackoverflow_posts.owner_user_id
@@ -27,14 +27,14 @@ WITH topk AS (
     AND stackoverflow_posts.title ||| 'error'
     AND comments.text ||| 'question'
   ORDER BY
-    score DESC
+    pdb_score DESC
   LIMIT 1000
 )
 SELECT
   u.*,
   p.*,
   c.*,
-  topk.score
+  topk.pdb_score
 FROM
   topk
   JOIN users u ON topk.user_id = u.id
@@ -43,15 +43,15 @@ FROM
 WHERE
   topk.user_id = u.id AND topk.post_id = p.id AND topk.comment_id = c.id
 ORDER BY
-  topk.score DESC;
+  topk.pdb_score DESC;
 
 -- Directly, without a CTE.
 SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT
   *,
-  pdb.score(users.id) + pdb.score(stackoverflow_posts.id) + pdb.score(comments.id) AS score
+  pdb.score(users.id) + pdb.score(stackoverflow_posts.id) + pdb.score(comments.id) AS pdb_score
 FROM
   users JOIN stackoverflow_posts ON users.id = stackoverflow_posts.owner_user_id JOIN comments ON comments.post_id = stackoverflow_posts.id
 WHERE
   users.about_me ||| 'java' AND stackoverflow_posts.title ||| 'error' AND comments.text ||| 'question'
-ORDER BY score DESC
+ORDER BY pdb_score DESC
 LIMIT 1000;

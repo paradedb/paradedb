@@ -18,6 +18,7 @@
 use crate::api::tokenizers::type_is_tokenizer;
 use crate::nodecast;
 use crate::postgres::catalog::is_citext_oid;
+use crate::postgres::catalog::{facet_encoded_str_to_ltree_text, is_ltree_oid};
 use crate::postgres::datetime::{datetime_components_to_tantivy_date, MICROSECONDS_IN_SECOND};
 use crate::postgres::jsonb_support::jsonb_datum_to_serde_json_value;
 use crate::postgres::range::RangeToTantivyValue;
@@ -38,7 +39,7 @@ use std::hash::{Hash, Hasher};
 use std::net::{AddrParseError, IpAddr};
 use std::num::ParseFloatError;
 use std::str::FromStr;
-use tantivy::schema::{IntoIpv6Addr, OwnedValue};
+use tantivy::schema::{Facet, IntoIpv6Addr, OwnedValue};
 use thiserror::Error;
 
 /// A row-oriented wrapper around Tantivy's OwnedValue.
@@ -107,6 +108,32 @@ impl TantivyValue {
             PgOid::Custom(custom) => {
                 if is_citext_oid(*custom) {
                     return Ok(String::try_from(self)?.into_datum());
+                }
+                if is_ltree_oid(*custom) {
+                    // Convert Facet back to ltree dot-separated text, then use PG's input function.
+                    // Two read paths are possible:
+                    //   - Stored-fields path returns `OwnedValue::Facet` with the parsed structure.
+                    //   - Fast-field (columnar) path returns `OwnedValue::Str` with the raw
+                    //     null-byte-separated internal Tantivy representation (e.g. `\0Top\0Science`).
+                    // `facet_encoded_str_to_ltree_text` handles both cases uniformly.
+                    let ltree_text = match self.0 {
+                        OwnedValue::Facet(ref facet) => facet.to_path().join("."),
+                        OwnedValue::Str(ref s) => facet_encoded_str_to_ltree_text(s),
+                        _ => return Err(TantivyValueError::InvalidOid),
+                    };
+
+                    let mut typinput: pg_sys::Oid = pg_sys::InvalidOid;
+                    let mut typioparam: pg_sys::Oid = pg_sys::InvalidOid;
+                    pg_sys::getTypeInputInfo(*custom, &mut typinput, &mut typioparam);
+                    let cstring = std::ffi::CString::new(ltree_text)
+                        .map_err(|_| TantivyValueError::DatumDeref)?;
+                    let datum = pg_sys::OidInputFunctionCall(
+                        typinput,
+                        cstring.as_ptr() as *mut std::ffi::c_char,
+                        typioparam,
+                        -1,
+                    );
+                    return Ok(Some(datum));
                 }
                 Err(TantivyValueError::UnsupportedOid(oid.value()))
             }
@@ -330,6 +357,28 @@ impl TantivyValue {
                 String::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?,
             ),
 
+            PgOid::Custom(custom) if is_ltree_oid(*custom) => {
+                // ltree is an extension type - we need to use PostgreSQL's output function
+                // to convert it to its text representation, then store as a Tantivy Facet
+                let mut typoutput: pg_sys::Oid = pg_sys::InvalidOid;
+                let mut is_varlena: bool = false;
+                pg_sys::getTypeOutputInfo(*custom, &mut typoutput, &mut is_varlena);
+                let cstring_ptr = pg_sys::OidOutputFunctionCall(typoutput, datum);
+                let cstr = std::ffi::CStr::from_ptr(cstring_ptr);
+                // Copy the text before freeing the palloc'd CString to avoid a memory leak
+                // on bulk index builds iterating over many rows.
+                let text = cstr
+                    .to_str()
+                    .map_err(|_| TantivyValueError::DatumDeref)?
+                    .to_owned();
+                pg_sys::pfree(cstring_ptr.cast());
+                // Convert ltree dot-separated path to Tantivy Facet
+                // e.g. "Top.Science.Astronomy" -> Facet with path ["Top", "Science", "Astronomy"]
+                let path_components: Vec<&str> = text.split('.').collect();
+                let facet = Facet::from_path(path_components);
+                Ok(TantivyValue(OwnedValue::Facet(facet)))
+            }
+
             PgOid::Custom(custom) => {
                 if is_citext_oid(*custom) {
                     return TantivyValue::try_from(
@@ -369,6 +418,9 @@ impl fmt::Display for TantivyValue {
                 )
             }
             tantivy::schema::OwnedValue::IpAddr(addr) => write!(f, "{addr}"),
+            tantivy::schema::OwnedValue::Facet(facet) => {
+                write!(f, "{}", facet.to_path().join("."))
+            }
             tantivy::schema::OwnedValue::Object(_) => write!(f, "json object"),
             tantivy::schema::OwnedValue::Null => write!(f, "<null>"),
             _ => panic!("tantivy owned value not supported"),
@@ -386,6 +438,7 @@ impl Hash for TantivyValue {
             tantivy::schema::OwnedValue::Bool(bool) => bool.hash(state),
             tantivy::schema::OwnedValue::Date(datetime) => datetime.hash(state),
             tantivy::schema::OwnedValue::Bytes(bytes) => bytes.hash(state),
+            tantivy::schema::OwnedValue::Facet(facet) => facet.encoded_str().hash(state),
             tantivy::schema::OwnedValue::Null => 0_u8.hash(state),
             _ => panic!("tantivy owned value not supported"),
         }
@@ -438,6 +491,15 @@ impl PartialOrd for TantivyValue {
                     other.tantivy_schema_value()
                 {
                     datetime.partial_cmp(&other_datetime)
+                } else {
+                    None
+                }
+            }
+            tantivy::schema::OwnedValue::Facet(facet) => {
+                if let tantivy::schema::OwnedValue::Facet(other_facet) =
+                    other.tantivy_schema_value()
+                {
+                    facet.partial_cmp(&other_facet)
                 } else {
                     None
                 }

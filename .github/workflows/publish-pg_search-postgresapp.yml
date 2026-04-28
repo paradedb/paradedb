@@ -1,0 +1,422 @@
+# workflows/publish-pg_search-postgresapp.yml
+#
+# Publish pg_search (Postgres.app)
+# Build and publish the pg_search extension for Postgres.app as a .pkg installer to
+# GitHub Releases, then open a PR to PostgresApp/PostgresApp updating the download
+# link on https://postgresapp.com/extensions/. Triggered on creation of a GitHub
+# Tag, but beta releases get filtered out by the `if` condition of the job.
+#
+# The PR is raised by `paradedb-bot` from a fork. If a previous PR from the bot is
+# still open in PostgresApp/PostgresApp, it is closed in favour of the new one so
+# that only the latest release is ever pending review upstream.
+
+name: Publish pg_search (Postgres.app)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The version to set for the pg_search release (e.g. 0.22.0). This publishes the latest commit of the chosen branch and uploads it to the pre-existing GitHub Release of the provided version."
+        required: true
+        default: ""
+
+concurrency:
+  group: publish-pg_search-postgresapp-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+# Used by actions/attest-build-provenance to sign the builds
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  publish-pg_search:
+    name: Publish pg_search for Postgres.app PostgreSQL ${{ matrix.pg_version }} arm64
+    runs-on: macos-15
+    if: ${{ !contains(github.ref, '-rc.') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Postgres.app only supports loadable extensions installed in Application Support
+        # starting with PostgreSQL 18. Earlier versions require extensions to be bundled,
+        # which is out of scope for this workflow.
+        pg_version: [18]
+
+    steps:
+      # We force reinstall git to make sure it is in PATH
+      - name: Install Dependencies
+        run: brew reinstall git
+
+      - name: Checkout Git Repository
+        uses: actions/checkout@v6
+
+      # Used to query/update the GitHub Release and open the PostgresApp/PostgresApp PR.
+      - name: Install GitHub CLI
+        run: |
+          brew reinstall gh
+          gh --version
+
+      - name: Retrieve GitHub Tag Version
+        id: version
+        run: |
+          # If no workflow_dispatch version is provided, we use workflow tag trigger version
+          if [ -z "${{ github.event.inputs.version }}" ]; then
+            if [[ $GITHUB_REF == refs/tags/v* ]]; then
+              VERSION=${GITHUB_REF#refs/tags/v}
+            else
+              # If there is no tag and no provided version, it's a test run and we set a default version
+              VERSION="0.0.0"
+            fi
+          else
+            VERSION=${{ github.event.inputs.version }}
+          fi
+          echo "GitHub Tag Version: $VERSION"
+          echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
+          echo "commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      # Postgres.app ships its own PostgreSQL build. We install it into /Applications
+      # so that we can build pg_search against its pg_config and link against the
+      # exact libpq/server headers that ship with Postgres.app.
+      - name: Install Postgres.app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ASSET=$(gh release view --repo PostgresApp/PostgresApp --json assets \
+            --jq '.assets[] | select(.name | test("Postgres-.*-${{ matrix.pg_version }}\\.dmg$")) | .name' | head -1)
+          if [ -z "$ASSET" ]; then
+            echo "Could not find a Postgres.app DMG for PostgreSQL ${{ matrix.pg_version }}"
+            exit 1
+          fi
+          echo "Downloading $ASSET"
+          gh release download --repo PostgresApp/PostgresApp --pattern "$ASSET" --output postgres.dmg
+          MOUNT=$(hdiutil attach -nobrowse -noverify -noautoopen postgres.dmg | tail -1 | awk '{print $3}')
+          cp -R "$MOUNT/Postgres.app" /Applications/Postgres.app
+          hdiutil detach "$MOUNT"
+          PG_BIN=/Applications/Postgres.app/Contents/Versions/${{ matrix.pg_version }}/bin
+          echo "$PG_BIN" >> $GITHUB_PATH
+          "$PG_BIN/pg_config" --version
+
+      - name: Extract pgrx Version
+        id: pgrx
+        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
+
+      - name: Cache pgrx binary
+        id: cache-pgrx
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/cargo-pgrx
+          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-postgresapp-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install pgrx
+        if: steps.cache-pgrx.outputs.cache-hit != 'true'
+        run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+
+      - name: Initialize pgrx environment
+        working-directory: pg_search/
+        run: |
+          PG_CONFIG=/Applications/Postgres.app/Contents/Versions/${{ matrix.pg_version }}/bin/pg_config
+          cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG
+
+      - name: Package pg_search Extension with pgrx
+        working-directory: pg_search/
+        env:
+          COMMIT_SHA: ${{ steps.version.outputs.commit_sha }}
+          PARADEDB_VERSION: ${{ steps.version.outputs.tag_version }}
+        run: |
+          PG_CONFIG=/Applications/Postgres.app/Contents/Versions/${{ matrix.pg_version }}/bin/pg_config
+          # Workaround for inttypes.h not being found under the default sysroot
+          export BINDGEN_EXTRA_CLANG_ARGS="$(xcrun --show-sdk-path | xargs -I{} echo -isysroot {})"
+          cargo pgrx package --pg-config $PG_CONFIG
+
+      # Build a Postgres.app installer pkg. This mirrors the layout used by
+      # PostgresApp/Extensions (see https://github.com/PostgresApp/Extensions/blob/main/pg_search/build.zsh)
+      # so that the pkg installs into ~/Library/Application Support/Postgres/Extensions/<pg>/pg_search,
+      # which is the search path Postgres.app configures automatically for PostgreSQL 18+.
+      - name: Build Postgres.app Installer Package
+        id: pkg
+        run: |
+          set -euo pipefail
+          EXTENSION_NAME=pg_search
+          EXTENSION_VERSION=${{ steps.version.outputs.tag_version }}
+          PG_MAJOR_VERSION=${{ matrix.pg_version }}
+          PREFIX=/Applications/Postgres.app/Contents/Versions/$PG_MAJOR_VERSION
+          INSTALL_ROOT="target/release/${EXTENSION_NAME}-pg${PG_MAJOR_VERSION}${PREFIX}"
+
+          if [ ! -d "$INSTALL_ROOT/lib/postgresql" ] || [ ! -d "$INSTALL_ROOT/share/postgresql/extension" ]; then
+            echo "Expected pgrx package layout not found under $INSTALL_ROOT"
+            ls -R target/release || true
+            exit 1
+          fi
+
+          # Stage installer resources. We inline these here (rather than checking them
+          # into the repo) since they're small, templated, and only used by this workflow.
+          mkdir -p Build/Resources Build/Scripts
+
+          cat > Build/Resources/welcome.html <<'HTML'
+          <!DOCTYPE html>
+          <html>
+          <head><meta charset="utf-8"><title>Welcome</title>
+          <style>body{font-family:-apple-system;font-size:13px;margin:20px;line-height:1.5}h1{font-size:18px;font-weight:600;margin-top:0}p{margin-bottom:1em}</style>
+          </head>
+          <body>
+            <h1>pg_search __EXTENSION_VERSION__ for PostgreSQL __PG_MAJOR_VERSION__</h1>
+            <p>You are about to install the pg_search extension from <a href="https://paradedb.com">ParadeDB</a>.</p>
+            <p>This installer package is compatible with <strong>Postgres.app 2.8.3 or later</strong>.</p>
+            <p>After completing the installation, please stop and restart the PostgreSQL server to use the extension.</p>
+          </body>
+          </html>
+          HTML
+
+          cat > Build/Resources/conclusion.html <<'HTML'
+          <!DOCTYPE html>
+          <html>
+          <head><meta charset="utf-8"><title>Installation Complete</title>
+          <style>body{font-family:-apple-system;font-size:13px;margin:20px;line-height:1.5}h1{font-size:18px;font-weight:600;margin-top:0}p{margin-bottom:1em}tt{font-family:Menlo,monospace}</style>
+          </head>
+          <body>
+            <h1>Please restart the PostgreSQL server!</h1>
+            <p>pg_search __EXTENSION_VERSION__ for PostgreSQL __PG_MAJOR_VERSION__ has been installed successfully.</p>
+            <p>If this is a new install, please stop and restart your PostgreSQL server before using the extension. After restarting the server, you can enable the extension in a database by running the SQL command <tt>CREATE EXTENSION pg_search;</tt></p>
+            <p>If you are upgrading from a previous version of the extension, you do not need to restart the server. Please execute the command <tt>ALTER EXTENSION pg_search UPDATE;</tt> on every database that uses the extension.</p>
+          </body>
+          </html>
+          HTML
+
+          cat > Build/distribution.xml <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <installer-gui-script minSpecVersion="1">
+            <title>pg_search for Postgres.app</title>
+            <welcome file="welcome.html"/>
+            <license file="license.txt"/>
+            <conclusion file="conclusion.html"/>
+            <pkg-ref id="com.paradedb.postgresapp.__PG_MAJOR_VERSION__.pg_search"/>
+            <options customize="never" require-scripts="false" hostArchitectures="arm64"/>
+            <domains enable_currentUserHome="true"/>
+            <choices-outline>
+              <line choice="default"><line choice="com.paradedb.postgresapp.__PG_MAJOR_VERSION__.pg_search"/></line>
+            </choices-outline>
+            <choice id="default"/>
+            <choice id="com.paradedb.postgresapp.__PG_MAJOR_VERSION__.pg_search" visible="false">
+              <pkg-ref id="com.paradedb.postgresapp.__PG_MAJOR_VERSION__.pg_search"/>
+            </choice>
+            <pkg-ref id="com.paradedb.postgresapp.__PG_MAJOR_VERSION__.pg_search" version="0" onConclusion="none">pg_search-__PG_MAJOR_VERSION__.pkg</pkg-ref>
+          </installer-gui-script>
+          XML
+
+          # Preinstall script removes any previous install of the extension at the
+          # destination so that upgrades don't leave stale files behind.
+          cat > Build/Scripts/preinstall <<'SH'
+          #!/bin/zsh
+          INSTALL_PATH="$2"
+          if [[ "$INSTALL_PATH" == *"Application Support"/Postgres/Extensions/*/* ]]; then
+            if [[ -d "$INSTALL_PATH" ]]; then
+              echo "Deleting directory: $INSTALL_PATH"
+              rm -rf -- "$INSTALL_PATH"
+            fi
+          else
+            echo "Error: Install path does not match expected pattern. Aborting." >&2
+            exit 1
+          fi
+          SH
+          chmod +x Build/Scripts/preinstall
+
+          # Substitute templated values
+          for f in Build/Resources/welcome.html Build/Resources/conclusion.html Build/distribution.xml; do
+            sed -i '' \
+              -e "s|__EXTENSION_VERSION__|${EXTENSION_VERSION}|g" \
+              -e "s|__PG_MAJOR_VERSION__|${PG_MAJOR_VERSION}|g" \
+              "$f"
+          done
+
+          cp LICENSE Build/Resources/license.txt
+
+          COMPONENT_PKG="pg_search-${PG_MAJOR_VERSION}.pkg"
+          FINAL_PKG="pg_search-pg${PG_MAJOR_VERSION}-${EXTENSION_VERSION}.postgresapp.pkg"
+
+          pkgbuild \
+            --root "$INSTALL_ROOT" \
+            --install-location "/Library/Application Support/Postgres/Extensions/${PG_MAJOR_VERSION}/pg_search" \
+            --identifier "com.paradedb.postgresapp.${PG_MAJOR_VERSION}.pg_search" \
+            --version "${EXTENSION_VERSION}" \
+            --scripts Build/Scripts \
+            "${COMPONENT_PKG}"
+
+          productbuild \
+            --distribution Build/distribution.xml \
+            --resources Build/Resources \
+            --package-path . \
+            "${FINAL_PKG}"
+
+          rm -f "${COMPONENT_PKG}"
+          ls -lh "${FINAL_PKG}"
+          echo "pkg_path=${FINAL_PKG}" >> $GITHUB_OUTPUT
+          echo "pkg_name=${FINAL_PKG}" >> $GITHUB_OUTPUT
+
+      - name: Sign and Attest Build Provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: ./${{ steps.pkg.outputs.pkg_path }}
+
+      - name: Retrieve GitHub Release Upload URL
+        id: upload_url
+        env:
+          GH_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+        run: |
+          RESPONSE=$(gh api \
+            -H "Authorization: token $GH_TOKEN" \
+            /repos/paradedb/paradedb/releases/tags/v${{ steps.version.outputs.tag_version }})
+          UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')
+          echo "GitHub Release Upload URL is: $UPLOAD_URL"
+          echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
+
+      - name: Upload pg_search .pkg to GitHub Release
+        uses: shogo82148/actions-upload-release-asset@v1
+        with:
+          github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          upload_url: ${{ steps.upload_url.outputs.upload_url }}
+          asset_path: ./${{ steps.pkg.outputs.pkg_path }}
+          asset_name: ${{ steps.pkg.outputs.pkg_name }}
+          overwrite: true
+
+      # Open a PR to PostgresApp/PostgresApp updating the pg_search download URL on
+      # https://postgresapp.com/extensions/. The PR is raised from paradedb-bot's
+      # fork; any previous open PR from the bot is closed first so that only one
+      # update is ever pending review upstream.
+      - name: Open PR to PostgresApp/PostgresApp
+        env:
+          GH_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          TAG_VERSION: ${{ steps.version.outputs.tag_version }}
+          PG_MAJOR_VERSION: ${{ matrix.pg_version }}
+          PKG_NAME: ${{ steps.pkg.outputs.pkg_name }}
+        run: |
+          set -euo pipefail
+
+          UPSTREAM=PostgresApp/PostgresApp
+          BOT_LOGIN=$(gh api user --jq .login)
+          BOT_FORK="${BOT_LOGIN}/PostgresApp"
+          BRANCH="update-pg_search-${TAG_VERSION}-pg${PG_MAJOR_VERSION}"
+          DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v${TAG_VERSION}/${PKG_NAME}"
+
+          # Close any existing open PRs from the bot so the new one supersedes them.
+          EXISTING_PRS=$(gh pr list --repo "$UPSTREAM" --author "$BOT_LOGIN" --state open --json number --jq '.[].number' || true)
+          for pr in $EXISTING_PRS; do
+            echo "Closing superseded PR #$pr in $UPSTREAM"
+            gh pr close "$pr" --repo "$UPSTREAM" \
+              --comment "Superseded by the pg_search v${TAG_VERSION} release. Closing in favour of the new PR." \
+              --delete-branch=false
+          done
+
+          # Ensure the bot has a fork of PostgresApp/PostgresApp; this is a no-op if it already exists.
+          gh repo fork "$UPSTREAM" --clone=false --remote=false || true
+          # The fork can take a moment to become available after the first call.
+          for i in $(seq 1 30); do
+            if gh api "repos/${BOT_FORK}" >/dev/null 2>&1; then break; fi
+            echo "Waiting for fork ${BOT_FORK} to be available..."
+            sleep 2
+          done
+
+          UPSTREAM_DEFAULT_BRANCH=$(gh api "repos/${UPSTREAM}" --jq .default_branch)
+
+          git config --global user.name "paradedb[bot]"
+          git config --global user.email "developers@paradedb.com"
+
+          WORK=$(mktemp -d)
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${BOT_FORK}.git" "$WORK"
+          cd "$WORK"
+          git remote add upstream "https://github.com/${UPSTREAM}.git"
+          git fetch upstream "$UPSTREAM_DEFAULT_BRANCH"
+          # Make sure the bot's fork default branch is in sync before branching.
+          git checkout "$UPSTREAM_DEFAULT_BRANCH"
+          git reset --hard "upstream/${UPSTREAM_DEFAULT_BRANCH}"
+          git push origin "$UPSTREAM_DEFAULT_BRANCH" --force-with-lease
+          git checkout -B "$BRANCH"
+
+          # Update the pg_search version line and the download URL inside the
+          # `<h1>pg_search (ParadeDB)</h1>` block of docs/extensions/index.md. We
+          # restrict the substitutions to that block so other extensions are not
+          # touched.
+          python3 - <<'PY'
+          import os, pathlib, re
+
+          version = os.environ["TAG_VERSION"]
+          pg_major = os.environ["PG_MAJOR_VERSION"]
+          url = (
+              f"https://github.com/paradedb/paradedb/releases/download/"
+              f"v{version}/{os.environ['PKG_NAME']}"
+          )
+
+          path = pathlib.Path("docs/extensions/index.md")
+          text = path.read_text()
+
+          # Anchor on the pg_search (ParadeDB) heading and the unique closing anchor of
+          # the download link so we capture the entire outer <div class="extension"> block,
+          # not the inner extension-description <div>.
+          block_re = re.compile(
+              r'<div class="extension">\s*<h1>pg_search \(ParadeDB\)</h1>'
+              r'.*?Download for Postgres\.app</a>\s*</div>',
+              re.DOTALL,
+          )
+          match = block_re.search(text)
+          if not match:
+              raise SystemExit("Could not locate the pg_search (ParadeDB) extension block in docs/extensions/index.md")
+
+          block = match.group(0)
+          updated = re.sub(
+              r"pg_search \d+\.\d+\.\d+(?:-[A-Za-z0-9.\-]+)?",
+              f"pg_search {version}",
+              block,
+          )
+          updated = re.sub(
+              r"built for PostgreSQL \d+",
+              f"built for PostgreSQL {pg_major}",
+              updated,
+          )
+          updated = re.sub(
+              r'href="https://[^"]*pg_search[^"]*\.pkg"',
+              f'href="{url}"',
+              updated,
+          )
+
+          if updated == block:
+              raise SystemExit("pg_search block matched but no fields were updated; refusing to open an empty PR")
+
+          path.write_text(text[: match.start()] + updated + text[match.end():])
+          PY
+
+          if git diff --quiet; then
+            echo "No changes to docs/extensions/index.md; nothing to PR."
+            exit 0
+          fi
+
+          git add docs/extensions/index.md
+          git commit -m "Update pg_search to v${TAG_VERSION} for PostgreSQL ${PG_MAJOR_VERSION}"
+          git push origin "$BRANCH" --force-with-lease
+
+          BODY=$(cat <<EOF
+          This PR updates the [pg_search](https://github.com/paradedb/paradedb) download link on https://postgresapp.com/extensions/ to point at the v${TAG_VERSION} release.
+
+          - **Version**: ${TAG_VERSION}
+          - **PostgreSQL**: ${PG_MAJOR_VERSION}
+          - **Installer**: <${DOWNLOAD_URL}>
+
+          Opened automatically by \`paradedb-bot\` from the [publish-pg_search-postgresapp](https://github.com/paradedb/paradedb/blob/main/.github/workflows/publish-pg_search-postgresapp.yml) workflow. See [PostgresApp/PostgresApp#799](https://github.com/PostgresApp/PostgresApp/issues/799) for context.
+          EOF
+          )
+
+          gh pr create \
+            --repo "$UPSTREAM" \
+            --base "$UPSTREAM_DEFAULT_BRANCH" \
+            --head "${BOT_LOGIN}:${BRANCH}" \
+            --title "Update pg_search to ${TAG_VERSION} for PostgreSQL ${PG_MAJOR_VERSION}" \
+            --body "$BODY"
+
+      - name: Notify Slack on Failure
+        if: failure()
+        run: |
+          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          MESSAGE="<!here> \`publish-pg_search-postgresapp\` workflow failed in \`${{ github.repository }}\` on branch \`${{ github.ref_name }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
+          curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}

@@ -127,7 +127,9 @@ EXECUTE issue_4665_generic_plim('technology', 10);
 DEALLOCATE issue_4665_generic_plim;
 
 -- ============================================================================
--- Parameterized OFFSET: LIMIT 5 OFFSET $2 in both modes (must match)
+-- Parameterized OFFSET: LIMIT 3 OFFSET $2 in both modes (must match).
+-- OFFSET 7 > LIMIT 3 so the pre-fix TopK-undercount bug returns 0 rows
+-- unambiguously.
 -- ============================================================================
 SET plan_cache_mode = force_custom_plan;
 
@@ -135,9 +137,9 @@ PREPARE issue_4665_off_custom(text, int) AS
 SELECT id FROM issue_4665_test
 WHERE content ||| $1
 ORDER BY pdb.score(id) DESC
-LIMIT 5 OFFSET $2;
+LIMIT 3 OFFSET $2;
 
-EXECUTE issue_4665_off_custom('technology', 5);
+EXECUTE issue_4665_off_custom('technology', 7);
 
 DEALLOCATE issue_4665_off_custom;
 
@@ -147,9 +149,9 @@ PREPARE issue_4665_off_generic(text, int) AS
 SELECT id FROM issue_4665_test
 WHERE content ||| $1
 ORDER BY pdb.score(id) DESC
-LIMIT 5 OFFSET $2;
+LIMIT 3 OFFSET $2;
 
-EXECUTE issue_4665_off_generic('technology', 5);
+EXECUTE issue_4665_off_generic('technology', 7);
 
 DEALLOCATE issue_4665_off_generic;
 
@@ -164,7 +166,7 @@ WHERE content ||| $1
 ORDER BY pdb.score(id) DESC
 LIMIT $2 OFFSET $3;
 
-EXECUTE issue_4665_both_custom('technology', 5, 5);
+EXECUTE issue_4665_both_custom('technology', 3, 7);
 
 DEALLOCATE issue_4665_both_custom;
 
@@ -176,14 +178,14 @@ WHERE content ||| $1
 ORDER BY pdb.score(id) DESC
 LIMIT $2 OFFSET $3;
 
-EXECUTE issue_4665_both_generic('technology', 5, 5);
+EXECUTE issue_4665_both_generic('technology', 3, 7);
 
 DEALLOCATE issue_4665_both_generic;
 
 -- ============================================================================
--- Parameterized LIMIT + Const OFFSET: LIMIT $2 OFFSET 5
+-- Parameterized LIMIT + Const OFFSET: LIMIT $2 OFFSET 7
 -- The pre-fix bug: GENERIC mode returned 0 rows because TopK fetched only
--- LIMIT rows and then PG's outer Limit OFFSET 5 skipped all of them.
+-- LIMIT (=3) rows and then PG's outer Limit OFFSET 7 skipped all of them.
 -- ============================================================================
 SET plan_cache_mode = force_custom_plan;
 
@@ -191,9 +193,9 @@ PREPARE issue_4665_plimcoff_custom(text, int) AS
 SELECT id FROM issue_4665_test
 WHERE content ||| $1
 ORDER BY pdb.score(id) DESC
-LIMIT $2 OFFSET 5;
+LIMIT $2 OFFSET 7;
 
-EXECUTE issue_4665_plimcoff_custom('technology', 5);
+EXECUTE issue_4665_plimcoff_custom('technology', 3);
 
 DEALLOCATE issue_4665_plimcoff_custom;
 
@@ -203,9 +205,9 @@ PREPARE issue_4665_plimcoff_generic(text, int) AS
 SELECT id FROM issue_4665_test
 WHERE content ||| $1
 ORDER BY pdb.score(id) DESC
-LIMIT $2 OFFSET 5;
+LIMIT $2 OFFSET 7;
 
-EXECUTE issue_4665_plimcoff_generic('technology', 5);
+EXECUTE issue_4665_plimcoff_generic('technology', 3);
 
 DEALLOCATE issue_4665_plimcoff_generic;
 

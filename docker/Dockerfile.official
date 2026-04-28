@@ -59,11 +59,9 @@ RUN PGRX_VERSION=$(grep 'pgrx =' Cargo.toml | head -n 1 | cut -d '"' -f 2 | tr -
 FROM builder AS builder-pg_search
 
 ARG COMMIT_SHA
-ARG PARADEDB_VERSION
 
 # Declare compile-time environment variables
-ENV COMMIT_SHA=${COMMIT_SHA} \
-    PARADEDB_VERSION=${PARADEDB_VERSION}
+ENV COMMIT_SHA=${COMMIT_SHA}
 
 # Copy the full project. This layer will invalidate if any project file changes.
 COPY . /tmp/

@@ -90,7 +90,7 @@ pub struct AggregateOrderBy {
 pub struct AggregateCSClause {
     targetlist: TargetList,
     orderby: OrderByClause,
-    limit_offset: LimitOffset,
+    limit_offset: Option<LimitOffset>,
     quals: SearchQueryClause,
     indexrelid: pg_sys::Oid,
     is_execution_time: bool,
@@ -409,7 +409,7 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         };
 
         let topk_output: Vec<(String, String)> = if let (true, Some(ref agg_order)) =
-            (self.limit_offset.limit().is_some(), &self.aggregate_orderby)
+            (self.limit_offset.is_some(), &self.aggregate_orderby)
         {
             let dir = match agg_order.direction {
                 SortDirection::DescNullsFirst | SortDirection::DescNullsLast => "DESC",
@@ -450,7 +450,7 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
                 }
             }
         };
-        // LimitOffset is optional
+        // LimitOffset is optional - returns None when there is no LIMIT clause.
         let limit_offset = unsafe { LimitOffset::from_parse(args.root().parse) };
         let quals = SearchQueryClause::from_pg(args, heap_rti, index)?;
 
@@ -614,19 +614,18 @@ impl CollectNested<GroupedKey> for AggregateCSClause {
         // The only optimization is `size = K` limiting the merged output.
         // Postgres still adds Sort + Limit above us for final ordering.
         let size = {
-            let limit = self.limit_offset.limit();
-            let offset = self.limit_offset.offset();
-
             // We can use LIMIT-based size optimization when:
             // 1. There's exactly one grouping column (multiple columns need all combinations)
             // 2. Either no ORDER BY, or ORDER BY targets COUNT (the only safe aggregate
             //    for TopK — see detect_aggregate_orderby for why non-COUNT is excluded)
+            // 3. The LIMIT is statically known — parameterized LIMIT can't be
+            //    folded into bucket size at planning time.
             let can_limit_buckets = grouping_columns.len() == 1
                 && (!self.orderby.has_orderby() || self.aggregate_orderby.is_some());
 
             if can_limit_buckets {
-                if let Some(limit) = limit {
-                    (limit + offset.unwrap_or(0)).min(max_buckets)
+                if let Some(fetch) = self.limit_offset.as_ref().and_then(|lo| lo.static_fetch()) {
+                    (fetch as u32).min(max_buckets)
                 } else {
                     max_buckets
                 }

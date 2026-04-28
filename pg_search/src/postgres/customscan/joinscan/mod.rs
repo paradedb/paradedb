@@ -1291,7 +1291,7 @@ impl CustomScan for JoinScan {
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .build()
                     .unwrap();
-                let join_clause = state.custom_state().join_clause.clone();
+                let mut join_clause = state.custom_state().join_clause.clone();
                 let snapshot = state.csstate.ss.ps.state.as_ref().unwrap().es_snapshot;
 
                 let plan_sources = join_clause.plan.sources();
@@ -1346,15 +1346,17 @@ impl CustomScan for JoinScan {
                 let needs_runtime_limit = join_clause
                     .limit_offset
                     .as_ref()
-                    .map(|lo| !lo.has_static_limit())
+                    .map(|lo| lo.has_any_param())
                     .unwrap_or(false);
                 let logical_plan = if needs_runtime_limit {
                     use datafusion::logical_expr::LogicalPlanBuilder;
-                    let lo = join_clause.limit_offset.as_ref().unwrap();
+                    let lo = join_clause.limit_offset.as_mut().unwrap();
                     let estate = state.csstate.ss.ps.state;
                     let fetch = lo
-                        .fetch(estate)
-                        .expect("LIMIT must be resolvable from EState");
+                        .resolve_mut(estate)
+                        .expect("LIMIT must be resolvable from EState")
+                        .static_fetch()
+                        .expect("static_fetch must succeed after resolve_mut");
                     LogicalPlanBuilder::from(logical_plan)
                         .limit(0, Some(fetch))
                         .expect("failed to add Limit to logical plan")

@@ -59,12 +59,10 @@ impl CustomScanClause<AggregateScan> for Option<LimitOffset> {
         // planning time; the bucket cap is enforced lazily by Tantivy at
         // execution time.
         if let Some(fetch) = limit_offset.as_ref().and_then(|lo| lo.static_fetch()) {
-                unsafe {
-                    if !(*parse).groupClause.is_null()
-                        && fetch > gucs::max_term_agg_buckets() as usize
-                    {
-                        return Err("limit + offset exceeds max_term_agg_buckets".into());
-                    }
+            unsafe {
+                if !(*parse).groupClause.is_null() && fetch > gucs::max_term_agg_buckets() as usize
+                {
+                    return Err("limit + offset exceeds max_term_agg_buckets".into());
                 }
             }
         }

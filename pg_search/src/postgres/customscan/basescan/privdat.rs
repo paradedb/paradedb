@@ -264,7 +264,8 @@ impl PrivateData {
     pub fn static_limit(&self) -> Option<usize> {
         self.limit_offset
             .as_ref()
-            .and_then(|lo| lo.static_limit().map(|v| v.max(0) as usize))
+            .and_then(|lo| lo.limit.static_value())
+            .map(|v| (*v).max(0) as usize)
     }
 
     pub fn maybe_orderby_info(&self) -> &Option<Vec<OrderByInfo>> {

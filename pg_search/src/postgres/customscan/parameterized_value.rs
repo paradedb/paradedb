@@ -15,12 +15,45 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! A value that is either known at planning time (a SQL `Const`) or deferred to
-//! execution time (a SQL `Param` extracted from `EState::es_param_list_info`).
+//! A value that is either known at planning time (a SQL `Const`) or deferred
+//! to execution time (a SQL `Param` from `EState::es_param_list_info`).
 //!
-//! Used for LIMIT and OFFSET so that GENERIC prepared plans (where Params survive
-//! into the planner) and CUSTOM prepared plans (where Params are folded to Consts
-//! before planning) produce equivalent results.
+//! # When to use which method
+//!
+//! | Situation | Method | Why |
+//! |-----------|--------|-----|
+//! | You own the value (`&mut self`) and will read it again later | `resolve_mut` | Converts Param → Static in place. All subsequent reads are zero-cost borrows. |
+//! | You don't own the value (HashMap key, shared reference) | `resolve` | Returns an owned clone. Costs a heap alloc for String/complex types per call. |
+//! | Planning time only, need the value if it's known | `static_value` | No EState needed. Returns `None` for Params — use `planning_estimate()` on `LimitOffset` for cost math. |
+//!
+//! # Rules of thumb
+//!
+//! 1. **Prefer `resolve_mut` in exec method `init()`.** TopK, Columnar,
+//!    and JoinScan all have `&mut` access to their `LimitOffset`. Call
+//!    `resolve_mut` once during init — every later access (EXPLAIN,
+//!    iteration, batch sizing) gets the cached Static value for free.
+//!
+//! 2. **Use `resolve` only when `&mut` is unavailable.** The main case
+//!    is `SnippetType` used as a HashMap key — you can't mutate a key.
+//!    For everything else, prefer `resolve_mut`.
+//!
+//! 3. **Never call `resolve` in a per-tuple loop if you can help it.**
+//!    For types like `String`, each call clones. If you're in a loop,
+//!    either resolve once before the loop, or restructure so `resolve_mut`
+//!    is viable.
+//!
+//! 4. **At planning time, don't try to resolve Params.** There's no
+//!    EState yet. Use `static_value()` / `static_fetch()` and handle
+//!    the `None` case (parameterized) with a fallback like
+//!    `planning_estimate()`.
+//!
+//! 5. **Watch out for `nodecast!(Const, T_Const, ...)` in new code.**
+//!    If you're extracting a value from a PG expression node at planning
+//!    time, ask: "will this work in GENERIC mode?" If the node could be a
+//!    `Param`, use `ParameterizedValue::from_node` instead of `nodecast!`.
+//!    If you genuinely need a compile-time constant (like
+//!    `is_minmax_implicit_limit` checking for PG's `LIMIT 1` rewrite),
+//!    `nodecast!` is correct — document why.
 
 use crate::nodecast;
 use pgrx::{pg_sys, FromDatum, PgList};
@@ -112,6 +145,22 @@ where
     /// Returns true if this value is a `Param` (deferred to execution time).
     pub fn is_param(&self) -> bool {
         matches!(self, ParameterizedValue::Param { .. })
+    }
+
+    /// Resolve and convert `Param` → `Static` in place. Returns `&T`.
+    ///
+    /// On first call for a `Param`, resolves from `EState` and replaces
+    /// `self` with `Static(value)`. Subsequent calls hit the static path
+    /// at zero cost. Use this when `&mut self` is available (TopK,
+    /// Columnar, JoinScan). Snippet configs use `resolve()` instead
+    /// because `SnippetType` is a `HashMap` key and only `&self` is
+    /// available there.
+    pub unsafe fn resolve_mut(&mut self, estate: *mut pg_sys::EState) -> Option<&T> {
+        if self.is_param() {
+            let value = self.resolve(estate)?;
+            *self = ParameterizedValue::Static(value);
+        }
+        self.static_value()
     }
 }
 

@@ -31,7 +31,6 @@ use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::parallel::checkout_segment;
-use crate::postgres::customscan::parameterized_value::ParameterizedValue;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
@@ -57,13 +56,10 @@ struct PreparedAggregations {
 
 pub struct TopKScanExecState {
     /// Resolved value of `LIMIT + OFFSET` (the K our scan must produce so PG's
-    /// outer Limit node can apply OFFSET and return LIMIT). Populated either
-    /// at construction time (when both LIMIT and OFFSET are static) or in
-    /// `init` (when either is parameterized).
+    /// outer Limit node can apply OFFSET and return LIMIT). `Some` when both
+    /// sides are static at construction; otherwise resolved in `init` from
+    /// the `LimitOffset` carried on `ExecMethodType::TopK`.
     limit: Option<usize>,
-    /// Source description of the LIMIT/OFFSET. Held until execution time so we
-    /// can resolve parameterized values from `EState::es_param_list_info`.
-    limit_offset_source: LimitOffset,
     orderby_info: Option<Vec<OrderByInfo>>,
 
     // set during init
@@ -90,7 +86,7 @@ pub struct TopKScanExecState {
 impl TopKScanExecState {
     pub fn new(
         heaprelid: pg_sys::Oid,
-        limit_offset: LimitOffset,
+        limit_offset: &LimitOffset,
         orderby_info: Option<Vec<OrderByInfo>>,
     ) -> Self {
         if matches!(&orderby_info, Some(orderby_info) if orderby_info.len() > MAX_TOPK_FEATURES) {
@@ -116,13 +112,11 @@ impl TopKScanExecState {
             1.0 + ((1.0 + n_dead as f64) / (1.0 + n_live as f64))
         } * crate::gucs::limit_fetch_multiplier();
 
-        // If both LIMIT and OFFSET are static, we can resolve K (= limit + offset)
-        // at construction time. Otherwise leave it as None and resolve in `init`.
-        let limit = limit_offset.static_fetch();
-
+        // Resolve K eagerly when both sides are static; otherwise leave it as
+        // None and resolve in `init` from the LimitOffset carried on
+        // ExecMethodType::TopK.
         Self {
-            limit,
-            limit_offset_source: limit_offset,
+            limit: limit_offset.static_fetch(),
             orderby_info,
             search_query_input: None,
             search_reader: None,
@@ -283,27 +277,22 @@ impl TopKScanExecState {
 impl ExecMethod for TopKScanExecState {
     /// Initialize the exec method with data from the scan state
     fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
-        // Resolve parameterized LIMIT/OFFSET from executor params. K = LIMIT + OFFSET
-        // because PG's outer Limit node will skip OFFSET rows from our output.
+        // Resolve K = LIMIT + OFFSET from EState when not already known.
+        // `fetch_mut` converts each `Param` → `Static` in place on the
+        // `LimitOffset` carried by `ExecMethodType::TopK`, so EXPLAIN ANALYZE
+        // sees resolved values without us holding a separate copy.
         if self.limit.is_none() {
             unsafe {
                 let estate = (*cstate).ss.ps.state;
-                let resolved = self
-                    .limit_offset_source
-                    .fetch(estate)
-                    .expect("LIMIT must be resolvable from EState (param missing or NULL)");
-                self.limit = Some(resolved);
-
-                // Mirror the resolved value back into the planning-time
-                // ExecMethodType so anything that introspects later (EXPLAIN
-                // ANALYZE, validation) sees a Static value.
                 if let ExecMethodType::TopK {
                     ref mut limit_offset,
                     ..
                 } = state.exec_method_type
                 {
-                    limit_offset.limit = ParameterizedValue::Static(resolved as i64);
-                    limit_offset.offset = None;
+                    self.limit = limit_offset
+                        .resolve_mut(estate)
+                        .expect("LIMIT must be resolvable from EState (param missing or NULL)")
+                        .static_fetch();
                 }
             }
         }

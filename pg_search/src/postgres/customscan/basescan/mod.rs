@@ -1900,13 +1900,13 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
             orderby_info,
             window_aggregates: _,
         } => builder.custom_state().assign_exec_method(
-            exec_methods::top_k::TopKScanExecState::new(heaprelid, limit_offset, orderby_info),
+            exec_methods::top_k::TopKScanExecState::new(heaprelid, &limit_offset, orderby_info),
             None,
         ),
 
         ExecMethodType::Columnar {
             which_fast_fields,
-            limit_offset,
+            limit_offset: _,
             sort_order,
         } => {
             // Compute effective sort_order at execution time from PrivateData's use_sorted_path().
@@ -1963,7 +1963,6 @@ fn assign_exec_method(builder: &mut CustomScanStateBuilder<BaseScan, PrivateData
                     exec_methods::fast_fields::columnar::ColumnarExecState::new(
                         which_fast_fields,
                         extra_fast_fields,
-                        limit_offset,
                         effective_sort_order,
                     ),
                     None,

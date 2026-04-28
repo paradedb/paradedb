@@ -24,8 +24,18 @@ use serde::{Deserialize, Serialize};
 /// `Const` (resolved at planning time) or extern `Param` (resolved at
 /// execution time from `EState::es_param_list_info`).
 ///
-/// The struct only exists when a LIMIT clause is present. Callers that need to
-/// represent "no LIMIT" hold an `Option<LimitOffset>` instead.
+/// The struct only exists when a LIMIT clause is present — callers hold
+/// `Option<LimitOffset>` to represent "no LIMIT".
+///
+/// # Resolution patterns
+///
+/// - **Exec method init (TopK, Columnar, JoinScan):** call `resolve_mut(estate)`
+///   once, then use `static_fetch()` / `limit.static_value()` freely.
+/// - **Planning time cost math:** call `planning_estimate()` — returns a
+///   real value for Static, a default (1000.0) for Param.
+/// - **Planning time guards:** call `has_any_param()` and `static_fetch()`.
+/// - **Immutable context (snippets):** call `resolve(estate)` — clones on
+///   each call, acceptable when dominated by heavier per-row work.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LimitOffset {
     pub limit: ParameterizedValue<i64>,
@@ -84,78 +94,63 @@ impl LimitOffset {
         Self::from_parse(parse)
     }
 
-    /// Returns the static LIMIT value if known at planning time; `None` if
-    /// the LIMIT is parameterized.
-    pub fn static_limit(&self) -> Option<i64> {
-        self.limit.static_value().copied()
-    }
-
-    /// Returns the static OFFSET value if known at planning time; `None` if
-    /// there is no OFFSET or it is parameterized.
-    pub fn static_offset(&self) -> Option<i64> {
-        self.offset.as_ref().and_then(|o| o.static_value()).copied()
-    }
-
-    /// Returns true if both LIMIT and OFFSET (or just LIMIT, if no OFFSET) are
-    /// known at planning time.
-    pub fn has_static_limit(&self) -> bool {
-        self.static_limit().is_some()
-    }
-
     /// Returns true if either LIMIT or OFFSET is a Param (i.e., this came from
     /// a GENERIC prepared plan where PG couldn't fold the value to a Const).
     pub fn has_any_param(&self) -> bool {
         self.limit.is_param() || self.offset.as_ref().is_some_and(|o| o.is_param())
     }
 
-    /// Resolves the LIMIT at execution time. Returns `None` if the value
-    /// cannot be resolved (null param, missing param list).
-    pub unsafe fn resolve_limit(&self, estate: *mut pg_sys::EState) -> Option<usize> {
-        self.limit.resolve(estate).map(|v| v.max(0) as usize)
-    }
-
-    /// Resolves the OFFSET at execution time. Returns 0 when there is no
-    /// OFFSET clause or the resolved value is null.
-    pub unsafe fn resolve_offset(&self, estate: *mut pg_sys::EState) -> usize {
-        self.offset
-            .as_ref()
-            .and_then(|o| o.resolve(estate))
-            .map(|v| v.max(0) as usize)
-            .unwrap_or(0)
-    }
-
-    /// Returns `LIMIT + OFFSET` resolved at execution time. This is the number
-    /// of rows our scan must produce so PostgreSQL's outer Limit node has
-    /// enough rows to apply OFFSET and return LIMIT.
-    pub unsafe fn fetch(&self, estate: *mut pg_sys::EState) -> Option<usize> {
-        self.resolve_limit(estate)
-            .map(|l| l + self.resolve_offset(estate))
-    }
-
     /// Returns `LIMIT + OFFSET` only when both are statically known. Used at
-    /// planning time by callers that need a value usable in serializable
-    /// guards (e.g., aggregate bucket-limit checks). Returns `None` when
-    /// either side is parameterized — those values must be resolved at
-    /// execution time via `fetch(estate)`.
+    /// planning time and as the chained call after `resolve_mut` to read the
+    /// now-static sum.
     pub fn static_fetch(&self) -> Option<usize> {
-        let limit = self.static_limit()?;
-        // If an OFFSET clause exists, it MUST be statically known too;
-        // otherwise we cannot compute the fetch count without an EState.
+        let limit = *self.limit.static_value()? as usize;
         let offset = match &self.offset {
             None => 0,
-            Some(_) => self.static_offset()?,
+            Some(o) => *o.static_value()? as usize,
         };
-        Some((limit + offset).max(0) as usize)
+        Some(limit.saturating_add(offset))
     }
 
     /// Planning-time row estimate. Uses static values when available, falls
     /// back to `DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE` for parameterized values.
     pub fn planning_estimate(&self) -> f64 {
         let limit = self
-            .static_limit()
-            .map(|v| v as f64)
+            .limit
+            .static_value()
+            .map(|v| *v as f64)
             .unwrap_or(DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE);
-        let offset = self.static_offset().map(|v| v as f64).unwrap_or(0.0);
+        let offset = self
+            .offset
+            .as_ref()
+            .and_then(|o| o.static_value())
+            .map(|v| *v as f64)
+            .unwrap_or(0.0);
         limit + offset
+    }
+
+    /// Returns `LIMIT + OFFSET` resolved at execution time. This is the number
+    /// of rows our scan must produce so PostgreSQL's outer Limit node has
+    /// enough rows to apply OFFSET and return LIMIT.
+    pub unsafe fn resolve(&self, estate: *mut pg_sys::EState) -> Option<usize> {
+        let limit = self.limit.resolve(estate)?.max(0) as usize;
+        let offset = self
+            .offset
+            .as_ref()
+            .and_then(|o| o.resolve(estate))
+            .map(|v| v.max(0) as usize)
+            .unwrap_or(0);
+        Some(limit + offset)
+    }
+
+    /// Resolve both LIMIT and OFFSET `Param`s to `Static` in place. Returns
+    /// `&mut Self` on success so callers can chain `.static_fetch()` to read
+    /// the now-static sum.
+    pub unsafe fn resolve_mut(&mut self, estate: *mut pg_sys::EState) -> Option<&mut Self> {
+        self.limit.resolve_mut(estate)?;
+        if let Some(ref mut o) = self.offset {
+            o.resolve_mut(estate);
+        }
+        Some(self)
     }
 }

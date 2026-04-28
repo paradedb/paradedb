@@ -73,13 +73,7 @@ impl From<SessionContextProfile> for MppSessionProfile {
 /// added or reordered so an old worker reading a new leader's bytes aborts
 /// cleanly instead of silently decoding shifted fields. bincode 2 does not
 /// tag fields, so we do our own versioning.
-///
-/// - v1 → v2: added `query_id: u64` so workers key their `MppStage` /
-///   `MppTaskKey` against the same value the leader stamped on boundary
-///   nodes. Old worker reading v2 bytes (or vice versa) now rejects cleanly
-///   with a "version mismatch" error instead of silently decoding shifted
-///   fields.
-pub const MPP_PLAN_BROADCAST_VERSION: u8 = 2;
+pub const MPP_PLAN_BROADCAST_VERSION: u8 = 1;
 
 /// Cheap per-query identifier for `MppStage.query_id`, derived on the leader
 /// from `MyProcPid` (top 32 bits, XOR'd with timestamp bits) and

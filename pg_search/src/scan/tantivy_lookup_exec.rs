@@ -494,6 +494,8 @@ fn materialize_deferred_column(
     is_bytes: bool,
     num_rows: usize,
 ) -> Result<ArrayRef> {
+    // Dense union: each child is compact (contains only its type's rows).
+    // Partition original row indices by type, then iterate compact children.
     let type_ids = union_array.type_ids();
     let offsets = union_array.offsets().ok_or_else(|| {
         DataFusionError::Execution("expected dense union with offsets in deferred column".into())

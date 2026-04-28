@@ -100,7 +100,7 @@ impl Inner {
             );
             // Initialize the fast field helper wrapped in Arc for sharing
             self.ffhelper = Some(Arc::new(FFHelper::with_fields(
-                state.search_reader.as_ref().unwrap(),
+                state.search_reader.as_ref().unwrap().segment_readers(),
                 &self.which_fast_fields,
             )));
         }

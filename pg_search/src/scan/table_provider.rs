@@ -781,7 +781,7 @@ impl TableProvider for PgSearchTableProvider {
         )
         .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;
 
-        let ffhelper = FFHelper::with_fields(&reader, &projected_fields);
+        let ffhelper = FFHelper::with_fields(reader.segment_readers(), &projected_fields);
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
         let sort_order = self.scan_info.sort_order.as_ref();

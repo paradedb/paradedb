@@ -1,20 +1,16 @@
 ARG PG_VERSION_MAJOR=18
-ARG RUST_VERSION=1.90.0
 
 ###############################################
 # First Stage: Builder
 ###############################################
 
 # Note: Debian Trixie = Debian 13
-FROM rust:${RUST_VERSION}-trixie AS rust
 FROM postgres:${PG_VERSION_MAJOR}-trixie AS builder
 
 ARG PG_VERSION_MAJOR
-ARG RUST_VERSION
 
 # Declare buildtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
-    RUST_VERSION=${RUST_VERSION} \
     RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo
 
@@ -35,8 +31,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-server-dev-${PG_VERSION_MAJOR} \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=rust /usr/local/cargo /usr/local/cargo
-COPY --from=rust /usr/local/rustup /usr/local/rustup
+COPY --from=rust:1.90.0-trixie /usr/local/cargo /usr/local/cargo
+COPY --from=rust:1.90.0-trixie /usr/local/rustup /usr/local/rustup
 
 ENV PATH="/usr/local/bin:/usr/local/cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
@@ -56,13 +52,6 @@ RUN PGRX_VERSION=$(grep 'pgrx =' Cargo.toml | head -n 1 | cut -d '"' -f 2 | tr -
 # pg_search
 ######################
 
-FROM builder AS builder-pg_search
-
-ARG COMMIT_SHA
-
-# Declare compile-time environment variables
-ENV COMMIT_SHA=${COMMIT_SHA}
-
 # Copy the full project. This layer will invalidate if any project file changes.
 COPY . /tmp/
 
@@ -80,9 +69,6 @@ RUN LIB_PATH="/tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr
 # pgvector v0.8.1
 ######################
 
-FROM builder AS builder-pgvector
-
-ARG PG_VERSION_MAJOR
 ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
 # Build the extension
@@ -101,11 +87,6 @@ RUN export PG_CFLAGS="-Wall -Wextra -Wno-unused-parameter -Wno-sign-compare" && 
 # pg_cron v1.6.7
 ######################
 
-FROM builder AS builder-pg_cron
-
-ARG PG_VERSION_MAJOR
-ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
-
 # Build the extension
 WORKDIR /tmp
 RUN curl -fsSL -o pg_cron.tar.gz "https://codeload.github.com/citusdata/pg_cron/tar.gz/465b38c737f584d520229f5a1d69d1d44649e4e5" && \
@@ -120,11 +101,6 @@ RUN make clean -j && \
 ######################
 # pg_ivm v1.13
 ######################
-
-FROM builder AS builder-pg_ivm
-
-ARG PG_VERSION_MAJOR
-ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
 # Build the extension
 WORKDIR /tmp
@@ -155,15 +131,15 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR}
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # Copy third-party extensions from their builder stages
-COPY --from=builder-pgvector /tmp/pgvector/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-COPY --from=builder-pgvector /tmp/pgvector/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_cron /tmp/pg_cron/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-COPY --from=builder-pg_cron /tmp/pg_cron/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_cron /tmp/pg_cron/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_ivm /tmp/pg_ivm/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-COPY --from=builder-pg_ivm /tmp/pg_ivm/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_ivm /tmp/pg_ivm/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder /tmp/pgvector/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder /tmp/pgvector/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder /tmp/pgvector/sql/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder /tmp/pg_cron/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder /tmp/pg_cron/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder /tmp/pg_cron/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder /tmp/pg_ivm/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder /tmp/pg_ivm/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder /tmp/pg_ivm/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 
 # Install Postgis and ca-certificates
 # ca-certificates required for PostGIS
@@ -189,8 +165,8 @@ RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_sea
     echo "pg_stat_statements.track = 'top'" >> /usr/share/postgresql/postgresql.conf.sample
 
 # Copy the ParadeDB extension from its builder stage
-COPY --from=builder-pg_search /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-COPY --from=builder-pg_search /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 
 # Reset the working directory to the root directory
 WORKDIR /

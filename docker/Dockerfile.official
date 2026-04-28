@@ -159,8 +159,7 @@ RUN apt-get update \
     ca-certificates \
     postgresql-$PG_VERSION_MAJOR-postgis-$POSTGIS_VERSION_MAJOR \
     postgresql-$PG_VERSION_MAJOR-postgis-$POSTGIS_VERSION_MAJOR-scripts \
-    && rm -rf /var/lib/apt/lists/* && \
-    update-ca-certificates
+    && rm -rf /var/lib/apt/lists/*
 
 # The postgresql.conf.sample file is used as a template for the postgresql.conf file, which
 # does not exist until the first time the container is started. By adding our settings to the

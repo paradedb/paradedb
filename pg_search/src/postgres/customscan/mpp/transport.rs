@@ -1082,6 +1082,27 @@ mod tests {
     }
 
     #[test]
+    fn frame_header_len_matches_actual_encoded_bytes() {
+        // Lock `FRAME_HEADER_LEN` to the byte count `MppFrameHeader::write_to`
+        // actually emits. A refactor that adds a field without updating the
+        // const would silently shift the IPC stream offset and corrupt every
+        // future framed batch.
+        let orig = sample_batch(1);
+        let frame = FrameId {
+            task_key: MppTaskKey {
+                query_id: 1,
+                stage_id: 2,
+                task_number: 3,
+            },
+            partition: 4,
+        };
+        let mut framed = Vec::new();
+        encode_batch_into(&orig, &mut framed, Some(frame)).unwrap();
+        let unframed = encode_batch(&orig).unwrap();
+        assert_eq!(framed.len() - unframed.len(), FRAME_HEADER_LEN);
+    }
+
+    #[test]
     fn unframed_bytes_still_decode() {
         // Regression-proof: raw Arrow IPC (no header) decodes via the same
         // public entry point. Every existing #[cfg(test)] caller relies on

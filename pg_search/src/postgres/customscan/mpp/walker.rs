@@ -269,17 +269,12 @@ fn validate_shape_matches(classified: MppPlanShape, derived: MppPlanShape) -> Df
 //     task-estimator I/O; ParadeDB's are sync because there's nothing to
 //     await.
 //
-// Step 2d is live for `JoinOnly` — the dispatcher above routes that shape
-// through `distribute_plan_generic` (`prepare_for_mpp` → `insert_mpp_cuts` →
-// `annotate_plan` → `_distribute_plan` → `finalize_for_mpp`). The two
-// aggregate shapes still route through their legacy topology assemblers.
-// Follow-up work:
-//
-//   * 2d — port prepare/finalize passes for `ScalarAggOnBinaryJoin` and
-//     `GroupByAggOnBinaryJoin` and flip their dispatcher arms.
-//   * 2e — delete `build_scalar_agg_topology`, `build_groupby_agg_topology`,
-//     `build_join_only_topology`, and shared helpers that have
-//     equivalents inside `emit_shuffle_cut`.
+// All three live shapes (`JoinOnly`, `ScalarAggOnBinaryJoin`,
+// `GroupByAggOnBinaryJoin`) flow through `distribute_plan_generic`
+// (`prepare_for_mpp` → `insert_mpp_cuts` → `annotate_plan` →
+// `_distribute_plan` → `finalize_for_mpp`). The legacy topology assemblers
+// are gone; this generic pipeline is the only path.
+// `Ineligible` and `GroupByAggSingleTable` error out at the dispatcher.
 // ============================================================================
 
 /// Annotation attached to a single [`ExecutionPlan`] that determines the kind
@@ -454,10 +449,6 @@ fn _annotate_plan(
 /// The rewrite walks bottom-up so rewrites of descendants compose cleanly
 /// with rewrites of ancestors (e.g. the scalar-agg Partial wrap must see
 /// the already-shuffled join as its grandchild).
-///
-/// Live since Step 2d for `JoinOnly`; the two aggregate shapes still
-/// route through the legacy topology assemblers, and will join this
-/// pipeline once their pre/post passes land.
 pub(super) fn insert_mpp_cuts(
     plan: Arc<dyn ExecutionPlan>,
     shape: MppPlanShape,
@@ -875,15 +866,31 @@ fn distribute_plan_generic(
     let annotated = annotate_plan(with_cuts)?;
     let mut ctx = CutEmitCtx::from_state(mpp_state, shape, expected_cuts);
     let emitted = _distribute_plan(annotated, &mut ctx)?;
+    // Postcondition: every mesh popped off `ctx.meshes` corresponds to a
+    // real cut emitted into the plan. If `ctx.meshes` still has entries
+    // here, the walker emitted fewer cuts than `cut_count_for_shape`
+    // promised — that's the cut-count drift case (silent today; this
+    // assertion turns it into a loud error).
+    if !ctx.meshes.is_empty() {
+        return Err(DataFusionError::Plan(format!(
+            "mpp: distribute_plan_generic: walker emitted {} cuts but \
+             shape {:?} pre-allocated {} meshes; {} meshes left unconsumed",
+            ctx.cut_index,
+            shape,
+            expected_cuts,
+            ctx.meshes.len()
+        )));
+    }
     finalize_for_mpp(shape, emitted, mpp_state)
 }
 
 /// Shape-specific pre-pass. Runs before [`insert_mpp_cuts`] synthesizes
 /// the `RepartitionExec(Hash)` / `CoalescePartitionsExec` cut markers.
 ///
-/// Currently only `JoinOnly` is wired; other shapes pass through
-/// unchanged because the dispatcher routes them to the legacy topology
-/// assemblers.
+/// All three live shapes are wired through their own pre-pass arm:
+/// [`prepare_join_only`] for `JoinOnly`, and
+/// [`prepare_agg_on_binary_join`] for both aggregate shapes (toggling
+/// `expect_group_by` on the GROUP BY case).
 fn prepare_for_mpp(
     shape: MppPlanShape,
     plan: Arc<dyn ExecutionPlan>,
@@ -954,9 +961,9 @@ fn prepare_join_only(plan: Arc<dyn ExecutionPlan>) -> DfResult<Arc<dyn Execution
 /// Shape-specific post-pass. Runs after [`_distribute_plan`] emits the
 /// `MppRepartitionExec` / `DrainGatherExec` pairs.
 ///
-/// Currently only `JoinOnly` is wired; other shapes pass through
-/// unchanged because the dispatcher routes them to the legacy topology
-/// assemblers.
+/// All three live shapes are wired: [`finalize_join_only`],
+/// [`finalize_scalar_agg`], and [`finalize_groupby_agg`] each handle
+/// the shape-specific grafting + `FinalPartitioned` wrap.
 fn finalize_for_mpp(
     shape: MppPlanShape,
     plan: Arc<dyn ExecutionPlan>,
@@ -1207,12 +1214,22 @@ fn build_partitioned_hj_with_probe_filter(hj: &HashJoinExec) -> DfResult<Arc<dyn
 /// produced a tree shaped like
 ///
 /// ```text
-/// ChainExec[scalar_final(FixedTargetPartitioner(0))]
-///   AggregateExec(Partial, empty group)
-///     HashJoinExec(original mode, dynamic_filter intact)
-///       ChainExec[scalar_left(HashPartitioner(left_keys))]
-///       ChainExec[scalar_right(HashPartitioner(right_keys))]
+/// CoalescePartitionsExec                             // preserved from
+///                                                    // insert_mpp_cuts
+///   ChainExec[scalar_final(FixedTargetPartitioner(0))]
+///     ShuffleExec
+///       AggregateExec(Partial, empty group)
+///         HashJoinExec(original mode, dynamic_filter intact)
+///           ChainExec[scalar_left(HashPartitioner(left_keys))]
+///           ChainExec[scalar_right(HashPartitioner(right_keys))]
+///     DrainGatherExec
 /// ```
+///
+/// The outer `CoalescePartitionsExec` is preserved because [`annotate_plan`]
+/// turned it into a `Plan` annotation while wrapping its child Partial in
+/// the `Coalesce` boundary that [`emit_shuffle_cut`] then rewrites — so
+/// the walker's `with_new_children` call on the CP node hands back the
+/// rebuilt CP-over-Chain tree above.
 ///
 /// This pass:
 ///  1. Emits the byte-exact `mpp: assembling ScalarAggOnBinaryJoin plan
@@ -1438,9 +1455,15 @@ fn take_meshes(state: &mut MppExecutionState, expected: usize) -> Vec<MeshHalves
         MppExecutionState::Leader(ctx) => {
             let taken = mem::take(&mut ctx.meshes);
             if taken.len() != expected {
+                let actual = taken.len();
+                // Drop `taken` before the `pgrx::error!` longjmp so the held
+                // shm_mq attachments run their `Drop` impls. Otherwise the
+                // longjmp through Rust frames would skip them and leak the
+                // attachments until backend exit.
+                drop(taken);
                 pgrx::error!(
                     "mpp: leader meshes.len()={} but shape expected {}",
-                    taken.len(),
+                    actual,
                     expected
                 );
             }
@@ -1449,9 +1472,11 @@ fn take_meshes(state: &mut MppExecutionState, expected: usize) -> Vec<MeshHalves
         MppExecutionState::Worker(ctx) => {
             let taken = mem::take(&mut ctx.meshes);
             if taken.len() != expected {
+                let actual = taken.len();
+                drop(taken);
                 pgrx::error!(
                     "mpp: worker meshes.len()={} but shape expected {}",
-                    taken.len(),
+                    actual,
                     expected
                 );
             }

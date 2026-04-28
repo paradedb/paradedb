@@ -75,37 +75,14 @@ impl From<SessionContextProfile> for MppSessionProfile {
 /// tag fields, so we do our own versioning.
 pub const MPP_PLAN_BROADCAST_VERSION: u8 = 1;
 
-/// Cheap per-query identifier for `MppStage.query_id`, derived on the leader
-/// from `MyProcPid` (top 32 bits, XOR'd with timestamp bits) and
-/// `GetCurrentStatementStartTimestamp` (bottom 32 bits). Both come from PG
-/// state the leader owns at planning time.
+/// Per-query identifier for `MppStage.query_id`, derived on the leader from
+/// `MyProcPid` and `GetCurrentStatementStartTimestamp`. `u64` is enough:
+/// the bottom 32 bits (timestamp µs, wraps every ~71 min) distinguish
+/// sequential queries in one backend; `pid ^ (ts >> 32)` in the top 32
+/// bits separates simultaneous queries across backends.
 ///
-/// # Uniqueness
-///
-/// `u64` is wide enough that collisions across coexisting queries are
-/// negligible in practice: two different backends would need the same PID
-/// and the same statement-start microsecond. Inside a single backend, the
-/// bottom 32 bits (timestamp modulo ~71 minutes) distinguishes sequential
-/// queries; the top 32 bits carry `pid ^ (ts >> 32)` so two simultaneous
-/// backends disagree even when they happen to start inside the same
-/// microsecond.
-///
-/// # Why not a UUID
-///
-/// DF-D uses a `uuid::Uuid` to stay unique across services. Our query never
-/// crosses processes beyond the parallel workers spawned by the same backend,
-/// which inherit the leader's broadcast — so u64 is sufficient and avoids a
-/// new crate dependency. Chosen per review comment: "cheapest choice that
-/// also helps with debugging". Printing the value in logs makes it easy to
-/// correlate mesh traffic to a specific query.
-///
-/// # Safety
-///
-/// Both `pg_sys::MyProcPid` and `GetCurrentStatementStartTimestamp` are
-/// always valid to read from the backend thread (the caller holds a
-/// `pg_sys::PlannedStmt` lifetime, so PG is mid-query). Calling from a
-/// non-backend thread would trip pgrx's `check_active_thread` guard; we
-/// document that here so the FFI boundary is explicit.
+/// SAFETY: both FFI calls are valid on the backend thread, which is where
+/// the leader always runs during plan stash.
 pub fn derive_query_id() -> u64 {
     // SAFETY: both FFI calls are legal on the backend thread, which is
     // where the leader always lives during plan-stash (the only caller).

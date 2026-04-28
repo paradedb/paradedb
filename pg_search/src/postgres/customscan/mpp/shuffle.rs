@@ -37,9 +37,11 @@
 //!   their `HASH_JOIN_SEED` / `AGGREGATION_HASH_SEED` constants) — that
 //!   keeps routing distribution and internal hash-table distribution
 //!   decoupled, and has no bearing on our shuffle correctness.
-//! - [`ModuloPartitioner`] is the test-only variant that routes row `i` to
-//!   destination `i % N`, so tests can verify routing without committing to
-//!   a specific hash output.
+//! - `tests::ModuloPartitioner` is the test-only variant that routes row
+//!   `i` to destination `i % N`, so tests can verify routing without
+//!   committing to a specific hash output. Lives in this file's `tests`
+//!   submodule and is reused by `plan_build.rs`'s tests via the same
+//!   path.
 //! - [`split_batch_by_partition`] is the row-scatter step: given a batch and
 //!   its per-row destination vector, return one sub-batch per destination,
 //!   preserving row order within each destination. `ShuffleExec`'s producer
@@ -217,37 +219,6 @@ impl RowPartitioner for FixedTargetPartitioner {
     }
 }
 
-/// Test-only partitioner: row `i` -> destination `i % total_participants`.
-///
-/// Not suitable for production because adjacent rows land on different participants
-/// regardless of their join key, which would break HashJoin/Aggregate
-/// correctness. Useful in unit tests because the routing is trivially
-/// predictable without committing to a specific hash output.
-#[cfg(test)]
-pub struct ModuloPartitioner {
-    total_participants: u32,
-}
-
-#[cfg(test)]
-impl ModuloPartitioner {
-    pub fn new(total_participants: u32) -> Self {
-        assert!(total_participants > 0);
-        Self { total_participants }
-    }
-}
-
-#[cfg(test)]
-impl RowPartitioner for ModuloPartitioner {
-    fn partition_for_each_row(&self, batch: &RecordBatch) -> Result<Vec<u32>, DataFusionError> {
-        let n = self.total_participants;
-        Ok((0..batch.num_rows() as u32).map(|i| i % n).collect())
-    }
-
-    fn total_participants(&self) -> u32 {
-        self.total_participants
-    }
-}
-
 /// Scatter a `RecordBatch` into one sub-batch per destination participant.
 ///
 /// Returns a `Vec` of length `total_participants`. Each entry is either:
@@ -317,128 +288,6 @@ pub fn split_batch_by_partition(
 
 /// Concatenate destination sub-batches back into one RecordBatch.
 ///
-/// Used by tests to verify round-trip: `split_batch_by_partition` followed by
-/// `concat_batches` (over the same ordering) produces a permutation of the
-/// original batch rows grouped by destination. In production, the consumer
-/// side doesn't need this — the DrainBuffer just yields sub-batches directly.
-#[cfg(test)]
-fn concat_batches(
-    schema: &SchemaRef,
-    batches: impl IntoIterator<Item = RecordBatch>,
-) -> Result<RecordBatch, DataFusionError> {
-    let collected: Vec<RecordBatch> = batches.into_iter().collect();
-    if collected.is_empty() {
-        return RecordBatch::try_new(schema.clone(), vec![])
-            .map_err(|e| DataFusionError::ArrowError(Box::new(e), None));
-    }
-    let refs: Vec<&RecordBatch> = collected.iter().collect();
-    datafusion::arrow::compute::concat_batches(schema, refs)
-        .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
-}
-
-/// Synchronous producer-side shuffle pump.
-///
-/// Consumes an iterator of input batches, partitions each batch by the
-/// supplied [`RowPartitioner`], ships the non-self sub-batches through
-/// `outbound_senders[j]` (for `j != participant_index`), and delivers the
-/// self-partition sub-batch via `push_self`.
-///
-/// ## Ownership contract
-///
-/// `outbound_senders` is passed **by value** and dropped when the pump
-/// returns (Ok or Err). Dropping the senders is what signals clean EOF to
-/// peer `MppReceiver`s on the other end of the channel — the peer's drain
-/// thread observes `Detached` and marks its corresponding source done.
-/// Taking this by `&mut` would leave senders alive in the caller's scope
-/// and let peers block forever; moving ownership into this function makes
-/// the end-of-stream signal automatic.
-///
-/// ## Error semantics
-///
-/// On any error (partition compute, scatter, `push_self`, or `send`) the
-/// pump returns `Err(DataFusionError)` immediately, dropping all remaining
-/// senders. Peers cannot distinguish a truncated shuffle from a clean EOF
-/// — the shm_mq / channel protocol doesn't carry an explicit "abort" tag.
-/// It is therefore the caller's responsibility to propagate the error up
-/// through the DataFusion `ExecutionPlan` so every worker aborts the whole
-/// query, not just this operator. A silent drop would make peers' downstream
-/// aggregate nodes happily finalize over incomplete input and return wrong
-/// answers. `build_shuffle_stream` honors this by surfacing the error
-/// via the stream's `Err` item.
-///
-/// ## Producer order
-///
-/// Inside each input batch we push the self-partition to `push_self` *first*,
-/// then the peer sub-batches. That means a local downstream operator
-/// (e.g., FinalAgg on our participant) can start consuming the self-partition even
-/// while some peer sender is blocked on back-pressure. If we pushed peers
-/// first, a full-sender stall on participant 0 would indirectly stall our own
-/// consumer because it never sees any self rows until the stall unblocks.
-///
-/// This is the non-streaming core of `ShuffleExec`: the DataFusion operator
-/// composes this same logic inside a `Stream::poll_next`, but the synchronous
-/// form is unit-testable without setting up a DataFusion runtime.
-#[cfg(test)]
-fn run_shuffle_pump<I>(
-    input: I,
-    partitioner: &dyn RowPartitioner,
-    outbound_senders: Vec<Option<MppSender>>,
-    participant_index: u32,
-    mut push_self: impl FnMut(RecordBatch) -> Result<(), DataFusionError>,
-) -> Result<(), DataFusionError>
-where
-    I: IntoIterator<Item = Result<RecordBatch, DataFusionError>>,
-{
-    let n = partitioner.total_participants();
-    if outbound_senders.len() != n as usize {
-        return Err(DataFusionError::Internal(format!(
-            "run_shuffle_pump: outbound_senders.len()={} != total_participants={}",
-            outbound_senders.len(),
-            n
-        )));
-    }
-    if participant_index >= n {
-        return Err(DataFusionError::Internal(format!(
-            "run_shuffle_pump: participant_index {participant_index} >= total_participants {n}"
-        )));
-    }
-
-    for batch_result in input {
-        let batch = batch_result?;
-        if batch.num_rows() == 0 {
-            continue;
-        }
-        let dests = partitioner.partition_for_each_row(&batch)?;
-        let mut subs = split_batch_by_partition(&batch, &dests, n)?;
-
-        // Push self first so a blocked peer send doesn't starve the local
-        // downstream consumer — see module docstring.
-        if let Some(self_sub) = subs[participant_index as usize].take() {
-            push_self(self_sub)?;
-        }
-
-        for (dest_idx, sub) in subs.into_iter().enumerate() {
-            if dest_idx as u32 == participant_index {
-                // Already handled above (taken() cleared the slot).
-                debug_assert!(sub.is_none());
-                continue;
-            }
-            let Some(sub) = sub else { continue };
-            let sender = outbound_senders[dest_idx].as_ref().ok_or_else(|| {
-                DataFusionError::Internal(format!(
-                    "run_shuffle_pump: no outbound sender for participant {dest_idx}"
-                ))
-            })?;
-            sender.send_batch(&sub)?;
-        }
-    }
-
-    // `outbound_senders` drops here: peer MppReceivers observe `Detached`
-    // and mark their source done, producing clean EOF on the remote drain.
-    drop(outbound_senders);
-    Ok(())
-}
-
 /// Wiring passed to `ShuffleExec::new` that describes how this participant
 /// connects to the mesh. Moved into the operator at construction time; the
 /// operator owns the senders for the query's lifetime and drops them at
@@ -1234,8 +1083,12 @@ fn log_drain_gather_eof(tag: &'static str, participant_index: u32, t: DrainGathe
     }
 }
 
+// `pub` (in test builds only, since the whole module is gated `#[cfg(test)]`)
+// so `plan_build.rs::tests` can reuse `ModuloPartitioner`. Keeping the
+// shared test helpers here rather than in a separate `test_helpers` module
+// avoids introducing a second test-utility surface for one type.
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use crate::postgres::customscan::mpp::transport::{
         in_proc_channel, DrainBuffer, DrainConfig, DrainItem, MppReceiver, MppSender,
@@ -1251,6 +1104,164 @@ mod tests {
     use datafusion::prelude::SessionContext;
     use futures::StreamExt;
     use std::thread;
+
+    // ---- shared test helpers ----
+
+    /// Test-only partitioner: row `i` -> destination `i % total_participants`.
+    ///
+    /// Not suitable for production because adjacent rows land on different
+    /// participants regardless of their join key, which would break
+    /// HashJoin/Aggregate correctness. Useful in unit tests because the
+    /// routing is trivially predictable without committing to a specific
+    /// hash output.
+    pub struct ModuloPartitioner {
+        total_participants: u32,
+    }
+
+    impl ModuloPartitioner {
+        pub fn new(total_participants: u32) -> Self {
+            assert!(total_participants > 0);
+            Self { total_participants }
+        }
+    }
+
+    impl RowPartitioner for ModuloPartitioner {
+        fn partition_for_each_row(&self, batch: &RecordBatch) -> Result<Vec<u32>, DataFusionError> {
+            let n = self.total_participants;
+            Ok((0..batch.num_rows() as u32).map(|i| i % n).collect())
+        }
+
+        fn total_participants(&self) -> u32 {
+            self.total_participants
+        }
+    }
+
+    /// Used by tests to verify round-trip: `split_batch_by_partition` followed
+    /// by `concat_batches` (over the same ordering) produces a permutation of
+    /// the original batch rows grouped by destination. In production, the
+    /// consumer side doesn't need this — the DrainBuffer just yields
+    /// sub-batches directly.
+    fn concat_batches(
+        schema: &SchemaRef,
+        batches: impl IntoIterator<Item = RecordBatch>,
+    ) -> Result<RecordBatch, DataFusionError> {
+        let collected: Vec<RecordBatch> = batches.into_iter().collect();
+        if collected.is_empty() {
+            return RecordBatch::try_new(schema.clone(), vec![])
+                .map_err(|e| DataFusionError::ArrowError(Box::new(e), None));
+        }
+        let refs: Vec<&RecordBatch> = collected.iter().collect();
+        datafusion::arrow::compute::concat_batches(schema, refs)
+            .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
+    }
+
+    /// Synchronous producer-side shuffle pump.
+    ///
+    /// Consumes an iterator of input batches, partitions each batch by the
+    /// supplied [`RowPartitioner`], ships the non-self sub-batches through
+    /// `outbound_senders[j]` (for `j != participant_index`), and delivers
+    /// the self-partition sub-batch via `push_self`.
+    ///
+    /// ## Ownership contract
+    ///
+    /// `outbound_senders` is passed **by value** and dropped when the pump
+    /// returns (Ok or Err). Dropping the senders is what signals clean EOF
+    /// to peer `MppReceiver`s on the other end of the channel — the peer's
+    /// drain thread observes `Detached` and marks its corresponding source
+    /// done. Taking this by `&mut` would leave senders alive in the
+    /// caller's scope and let peers block forever; moving ownership into
+    /// this function makes the end-of-stream signal automatic.
+    ///
+    /// ## Error semantics
+    ///
+    /// On any error (partition compute, scatter, `push_self`, or `send`)
+    /// the pump returns `Err(DataFusionError)` immediately, dropping all
+    /// remaining senders. Peers cannot distinguish a truncated shuffle
+    /// from a clean EOF — the shm_mq / channel protocol doesn't carry an
+    /// explicit "abort" tag. It is therefore the caller's responsibility
+    /// to propagate the error up through the DataFusion `ExecutionPlan`
+    /// so every worker aborts the whole query, not just this operator. A
+    /// silent drop would make peers' downstream aggregate nodes happily
+    /// finalize over incomplete input and return wrong answers.
+    /// `build_shuffle_stream` honors this by surfacing the error via the
+    /// stream's `Err` item.
+    ///
+    /// ## Producer order
+    ///
+    /// Inside each input batch we push the self-partition to `push_self`
+    /// *first*, then the peer sub-batches. That means a local downstream
+    /// operator (e.g., FinalAgg on our participant) can start consuming
+    /// the self-partition even while some peer sender is blocked on
+    /// back-pressure. If we pushed peers first, a full-sender stall on
+    /// participant 0 would indirectly stall our own consumer because it
+    /// never sees any self rows until the stall unblocks.
+    ///
+    /// This is the non-streaming core of `ShuffleExec`: the DataFusion
+    /// operator composes this same logic inside a `Stream::poll_next`,
+    /// but the synchronous form is unit-testable without setting up a
+    /// DataFusion runtime.
+    fn run_shuffle_pump<I>(
+        input: I,
+        partitioner: &dyn RowPartitioner,
+        outbound_senders: Vec<Option<MppSender>>,
+        participant_index: u32,
+        mut push_self: impl FnMut(RecordBatch) -> Result<(), DataFusionError>,
+    ) -> Result<(), DataFusionError>
+    where
+        I: IntoIterator<Item = Result<RecordBatch, DataFusionError>>,
+    {
+        let n = partitioner.total_participants();
+        if outbound_senders.len() != n as usize {
+            return Err(DataFusionError::Internal(format!(
+                "run_shuffle_pump: outbound_senders.len()={} != total_participants={}",
+                outbound_senders.len(),
+                n
+            )));
+        }
+        if participant_index >= n {
+            return Err(DataFusionError::Internal(format!(
+                "run_shuffle_pump: participant_index {participant_index} >= total_participants {n}"
+            )));
+        }
+
+        for batch_result in input {
+            let batch = batch_result?;
+            if batch.num_rows() == 0 {
+                continue;
+            }
+            let dests = partitioner.partition_for_each_row(&batch)?;
+            let mut subs = split_batch_by_partition(&batch, &dests, n)?;
+
+            // Push self first so a blocked peer send doesn't starve the
+            // local downstream consumer — see module docstring.
+            if let Some(self_sub) = subs[participant_index as usize].take() {
+                push_self(self_sub)?;
+            }
+
+            for (dest_idx, sub) in subs.into_iter().enumerate() {
+                if dest_idx as u32 == participant_index {
+                    // Already handled above (taken() cleared the slot).
+                    debug_assert!(sub.is_none());
+                    continue;
+                }
+                let Some(sub) = sub else { continue };
+                let sender = outbound_senders[dest_idx].as_ref().ok_or_else(|| {
+                    DataFusionError::Internal(format!(
+                        "run_shuffle_pump: no outbound sender for participant {dest_idx}"
+                    ))
+                })?;
+                sender.send_batch(&sub)?;
+            }
+        }
+
+        // `outbound_senders` drops here: peer MppReceivers observe
+        // `Detached` and mark their source done, producing clean EOF on
+        // the remote drain.
+        drop(outbound_senders);
+        Ok(())
+    }
+
+    // ---- tests ----
 
     fn sample_batch(rows: i32) -> RecordBatch {
         let schema = Arc::new(Schema::new(vec![

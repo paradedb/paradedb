@@ -9,6 +9,12 @@
 -- =====================================================================
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
+-- `CREATE EXTENSION` runs the SQL script but doesn't always trigger the
+-- `.so` dlopen + `_PG_init` (which registers our GUCs) before the next
+-- statement. Other regress tests don't notice because their setup runs
+-- a `SET paradedb.<guc>` that forces the load; this test goes straight
+-- to `SHOW` and would race. `LOAD` is the canonical force-load.
+LOAD 'pg_search';
 
 -- GUCs must be visible after the extension loads.
 SHOW paradedb.enable_mpp;

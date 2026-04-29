@@ -50,7 +50,7 @@ jobs:
 
   test-pg_search:
     name: Test pg_search on PostgreSQL ${{ matrix.pg_version }} (${{ matrix.pg_impl }} - ${{ matrix.arch }})
-    # Compute-optimized c-family for system Postgres jobs; pgrx variant uses m-family because it compiles Postgres from source.
+    # Compute-optimized c-family — Rust + Postgres tests are CPU-bound.
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -65,9 +65,6 @@ jobs:
       fail-fast: false
       matrix:
         # Base: system Postgres on ARM Ubuntu 24.04 for all versions.
-        # Compute-optimized c-family (cpu:ram = 1:2) for cargo build/test, which is
-        # CPU-bound. The pgrx variant below stays on m-family (1:4) because it
-        # compiles Postgres from source and needs more headroom.
         pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
         pg_impl: [system]
         cpu: [8]
@@ -85,8 +82,8 @@ jobs:
           - pg_version: 18
             pg_impl: pgrx
             cpu: 8
-            ram: 32
-            runner_family: m7g+m8g
+            ram: 16
+            runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
             arch: arm64
           # Add AMD run for PG 18 (system Postgres)

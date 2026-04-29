@@ -32,8 +32,7 @@
 use crate::postgres::catalog::lookup_opfamily_name;
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
-use tantivy::schema::VectorMetric as TantivyMetric;
-use tantivy::vector::Metric as RuntimeMetric;
+use tantivy::vector::Metric as TantivyMetric;
 
 #[derive(Debug, Copy, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum VectorMetric {
@@ -44,25 +43,18 @@ pub enum VectorMetric {
 }
 
 impl VectorMetric {
-    /// Whether the underlying TurboQuant codec (InnerProduct on the unit
-    /// sphere) requires query/insert vectors to be L2-normalized first.
-    /// L2 and Cosine both reduce to unit-sphere IP; InnerProduct keeps
-    /// magnitude — caller asked for magnitude-aware IP.
+    /// Whether query/insert vectors should be L2-normalized at the
+    /// Postgres boundary.
     pub fn requires_unit_norm(&self) -> bool {
         matches!(self, VectorMetric::L2 | VectorMetric::Cosine)
     }
 
-    /// Map the schema-level metric to the runtime metric the TurboQuant
-    /// codec computes against. L2 and Cosine both collapse to
-    /// `Metric::L2` because the codec is unit-sphere only and we
-    /// pre-normalize at the boundary on the insert + query paths
-    /// (see `postgres::utils::row_to_search_document` and
-    /// `extract_vector_distance`). `InnerProduct` is preserved for
-    /// callers who want magnitude-aware IP.
-    pub fn runtime_metric(self) -> RuntimeMetric {
+    /// Map the pgvector-facing metric to Tantivy's vector metric.
+    pub fn runtime_metric(self) -> TantivyMetric {
         match self {
-            VectorMetric::L2 | VectorMetric::Cosine => RuntimeMetric::L2,
-            VectorMetric::InnerProduct => RuntimeMetric::InnerProduct,
+            VectorMetric::L2 => TantivyMetric::L2,
+            VectorMetric::Cosine => TantivyMetric::Cosine,
+            VectorMetric::InnerProduct => TantivyMetric::Dot,
         }
     }
 
@@ -136,7 +128,7 @@ impl From<TantivyMetric> for VectorMetric {
         match m {
             TantivyMetric::L2 => Self::L2,
             TantivyMetric::Cosine => Self::Cosine,
-            TantivyMetric::InnerProduct => Self::InnerProduct,
+            TantivyMetric::Dot => Self::InnerProduct,
         }
     }
 }
@@ -146,16 +138,13 @@ impl From<VectorMetric> for TantivyMetric {
         match m {
             VectorMetric::L2 => TantivyMetric::L2,
             VectorMetric::Cosine => TantivyMetric::Cosine,
-            VectorMetric::InnerProduct => TantivyMetric::InnerProduct,
+            VectorMetric::InnerProduct => TantivyMetric::Dot,
         }
     }
 }
 
 /// L2-normalize a vector in-place (divide by its L2 norm). For zero
-/// vectors the input is left unchanged. Callers use this to pre-normalize
-/// inputs to a cosine-metric vector field so the underlying TurboQuant
-/// index (which ranks by InnerProduct on the unit sphere) produces
-/// cosine-equivalent ordering.
+/// vectors the input is left unchanged.
 pub fn l2_normalize_in_place(v: &mut [f32]) {
     let mut norm_sq = 0.0f32;
     for &x in v.iter() {

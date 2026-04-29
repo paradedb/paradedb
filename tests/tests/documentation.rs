@@ -2005,7 +2005,7 @@ fn hybrid_search(mut conn: PgConnection) {
     .fetch(&mut conn);
 
     // Expected results
-    let expected = vec![
+    let expected = [
         (
             1,
             BigDecimal::from_str("0.03062178588125292193").unwrap(),

@@ -1,8 +1,8 @@
 CREATE INDEX stackoverflow_posts_idx ON stackoverflow_posts 
 USING bm25 (
     id,
-    title,
-    body,
+    (title::pdb.unicode_words('columnar=true')),
+    (body::pdb.unicode_words('columnar=true')),
     (tags::pdb.literal_normalized),
     post_type_id,
     score,

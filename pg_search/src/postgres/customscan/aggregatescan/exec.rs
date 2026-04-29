@@ -448,7 +448,7 @@ impl AggregationResults {
 
         if let Some(row) = rows.into_iter().next() {
             for (agg_idx, (agg_type, agg_result)) in
-                agg_types.iter().zip(row.aggregates.into_iter()).enumerate()
+                agg_types.iter().zip(row.aggregates).enumerate()
             {
                 let expected_typoid = agg_type.result_type_oid();
                 results[agg_idx] = aggregate_result_to_datum(agg_result, agg_type, expected_typoid);

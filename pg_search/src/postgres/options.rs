@@ -645,7 +645,7 @@ impl BM25IndexOptions {
         for (aliased_field_name, config) in self
             .aliased_text_configs()
             .into_iter()
-            .chain(self.aliased_json_configs().into_iter())
+            .chain(self.aliased_json_configs())
         {
             if &aliased_field_name == field_name {
                 if let Some(alias) = config.alias() {

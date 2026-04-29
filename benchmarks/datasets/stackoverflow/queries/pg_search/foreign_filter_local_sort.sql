@@ -15,7 +15,8 @@ SET paradedb.enable_join_custom_scan TO off; SELECT
 FROM stackoverflow_posts p
 JOIN users u ON p.owner_user_id = u.id
 WHERE
-    u.reputation > 100
+    u.id @@@ pdb.all()
+    AND u.reputation > 100
     AND p.title ||| 'error'
 ORDER BY
     p.creation_date DESC              -- Single Feature Sort (Local Fast Field)
@@ -30,7 +31,8 @@ SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT
 FROM stackoverflow_posts p
 JOIN users u ON p.owner_user_id = u.id
 WHERE
-    u.reputation > 100
+    u.id @@@ pdb.all()
+    AND u.reputation > 100
     AND p.title ||| 'error'
 ORDER BY
     p.creation_date DESC              -- Single Feature Sort (Local Fast Field)

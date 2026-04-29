@@ -13,7 +13,7 @@ SET paradedb.enable_join_custom_scan TO off; SELECT
 FROM
   users JOIN stackoverflow_posts ON users.id = stackoverflow_posts.owner_user_id JOIN comments ON comments.post_id = stackoverflow_posts.id
 WHERE
-  users.reputation > 100 AND stackoverflow_posts.title ||| 'error' AND comments.text ||| 'question'
+  users.id @@@ pdb.all() AND users.reputation > 100 AND stackoverflow_posts.title ||| 'error' AND comments.text ||| 'question'
 ORDER BY pdb_score DESC
 LIMIT 1000;
 
@@ -25,6 +25,6 @@ SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT
 FROM
   users JOIN stackoverflow_posts ON users.id = stackoverflow_posts.owner_user_id JOIN comments ON comments.post_id = stackoverflow_posts.id
 WHERE
-  users.reputation > 100 AND stackoverflow_posts.title ||| 'error' AND comments.text ||| 'question'
+  users.id @@@ pdb.all() AND users.reputation > 100 AND stackoverflow_posts.title ||| 'error' AND comments.text ||| 'question'
 ORDER BY pdb_score DESC
 LIMIT 1000;

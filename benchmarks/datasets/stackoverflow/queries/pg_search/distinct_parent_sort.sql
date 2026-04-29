@@ -2,6 +2,10 @@
 -- Join: Single Feature (Local Field with Deduplication)
 -- Description: The user wants to find users that match criteria in the comments table (a "Many" side join), ordered by a field on the users table. Because joining to comments explodes the row count (1 User -> N Comments), the query requires DISTINCT. This tests the engine's ability to maintain the sort order while deduplicating the join results.
 
+-- Query Info (statistics from 100k dataset; larger datasets may have different values):
+-- - 'and' selectivity on users.about_me: ~20%
+-- - score > 0 selectivity on comments.score: ~17%
+
 SET paradedb.enable_join_custom_scan TO off; SELECT DISTINCT
     u.id,
     u.display_name,

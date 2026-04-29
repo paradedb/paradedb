@@ -2,6 +2,10 @@
 -- Join: Single Feature (Fast Field)
 -- Description: A standard join where the user filters by a property of the parent table (users), but sorts by a deterministic "fast field" on the child table (stackoverflow_posts). The challenge is balancing the selectivity of the foreign filter against the sort order of the local table.
 
+-- Query Info (statistics from 100k dataset; larger datasets may have different values):
+-- - 'and' selectivity on users.about_me: ~20%
+-- - 'error' selectivity on stackoverflow_posts.title: ~1%
+
 SET paradedb.enable_join_custom_scan TO off; SELECT
     p.id,
     p.title,

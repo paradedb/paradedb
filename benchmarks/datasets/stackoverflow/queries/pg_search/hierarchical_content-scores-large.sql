@@ -1,5 +1,10 @@
 -- Join with scores/order-by/limit, large target list.
 
+-- Query Info (statistics from 100k dataset; larger datasets may have different values):
+-- - 'java' selectivity on users.about_me: ~5%
+-- - 'error' selectivity on stackoverflow_posts.title: ~1%
+-- - 'question' selectivity on comments.text: ~7%
+
 -- Directly, without a CTE.
 SET paradedb.enable_join_custom_scan TO off; SELECT
   *,

@@ -25,9 +25,35 @@ use pgrx::pg_sys::{uint64, QueryDesc, ScanDirection};
 use pgrx::{pg_guard, pg_sys};
 use std::collections::hash_map::Entry;
 
+/// # Stack Nesting Invariant (Issue #4843)
+///
+/// `EXECUTOR_RUN_STACK` must never have `None` on top of `Some(...)`.
+/// When a nested `ExecutorRun` occurs (e.g., from `bingo.cansmiles` via
+/// internal C++ SPI calls during expression evaluation), the depth counter
+/// is incremented instead of pushing a new slot.
+///
+/// ```ignore
+/// // Before fix (buggy):
+/// // outer ExecutorRun  → push(None)              → [None]
+/// //   aminsert         → push_insert_state       → [Some({oid→state})]
+/// //   nested ExecutorRun → push(None)              → [Some({oid→state}), None]
+/// //   get_insert_state → .last_mut() sees None   → unreachable! PANIC
+///
+/// // After fix:
+/// // outer ExecutorRun  → push(None)              → [None]
+/// //   aminsert         → push_insert_state       → [Some({oid→state, depth:0})]
+/// //   nested ExecutorRun → depth += 1             → [Some({oid→state, depth:1})]
+/// //   get_insert_state → .last_mut() sees Some  → OK
+/// //   nested Finish    → depth -= 1             → [Some({oid→state, depth:0})]
+/// // outer Finish       → depth==0, pop & cleanup → []
+/// ```
+///
+/// This invariant is enforced by the depth counter in `ExecutorRunEntry`
+/// and the early-return logic in `executor_run_hook` / `executor_finish_hook`.
 #[derive(Default)]
 struct ExecutorRunEntry {
     active: HashMap<pg_sys::Oid, InsertState>,
+    depth: u32,
 }
 
 static mut EXECUTOR_RUN_STACK: Vec<Option<ExecutorRunEntry>> = Vec::new();
@@ -120,6 +146,16 @@ pub unsafe fn register() {
         count: uint64,
         execute_once: bool,
     ) {
+        if let Some(Some(entry)) = EXECUTOR_RUN_STACK.last_mut() {
+            entry.depth += 1;
+            if let Some(prev_hook) = PREV_EXECUTOR_RUN_HOOK {
+                prev_hook(query_desc, direction, count, execute_once);
+            } else {
+                pg_sys::standard_ExecutorRun(query_desc, direction, count, execute_once);
+            }
+            return;
+        }
+
         EXECUTOR_RUN_STACK.push(None);
         if let Some(prev_hook) = PREV_EXECUTOR_RUN_HOOK {
             prev_hook(query_desc, direction, count, execute_once);
@@ -135,6 +171,16 @@ pub unsafe fn register() {
         direction: ScanDirection::Type,
         count: uint64,
     ) {
+        if let Some(Some(entry)) = EXECUTOR_RUN_STACK.last_mut() {
+            entry.depth += 1;
+            if let Some(prev_hook) = PREV_EXECUTOR_RUN_HOOK {
+                prev_hook(query_desc, direction, count);
+            } else {
+                pg_sys::standard_ExecutorRun(query_desc, direction, count);
+            }
+            return;
+        }
+
         EXECUTOR_RUN_STACK.push(None);
         if let Some(prev_hook) = PREV_EXECUTOR_RUN_HOOK {
             prev_hook(query_desc, direction, count);
@@ -145,6 +191,18 @@ pub unsafe fn register() {
 
     #[pg_guard]
     unsafe extern "C-unwind" fn executor_finish_hook(query_desc: *mut pg_sys::QueryDesc) {
+        if let Some(Some(entry)) = EXECUTOR_RUN_STACK.last_mut() {
+            if entry.depth > 0 {
+                entry.depth -= 1;
+                if let Some(prev_hook) = PREV_EXECUTOR_FINISH_HOOK {
+                    prev_hook(query_desc);
+                } else {
+                    pg_sys::standard_ExecutorFinish(query_desc);
+                }
+                return;
+            }
+        }
+
         aminsertcleanup_stack();
         if let Some(prev_hook) = PREV_EXECUTOR_FINISH_HOOK {
             prev_hook(query_desc);
@@ -154,9 +212,7 @@ pub unsafe fn register() {
     }
 
     unsafe fn aminsertcleanup_stack() -> Option<()> {
-        let entry = EXECUTOR_RUN_STACK
-            .pop()
-            .expect("should have an ExecutorRuntimeState entry")?;
+        let entry = EXECUTOR_RUN_STACK.pop()??;
         for (_, mut insert_state) in entry.active {
             let mode = std::mem::replace(&mut insert_state.mode, InsertMode::Completed);
             insertcleanup(&insert_state, mode);

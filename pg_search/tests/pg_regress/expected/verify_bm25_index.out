@@ -789,3 +789,46 @@ ORDER BY check_name;
 (6 rows)
 
 DROP TABLE details_test CASCADE;
+-- =============================================================================
+-- Regression guard for Issue #4843
+-- =============================================================================
+--
+-- Problem: Multi-row INSERT/UPDATE with a BM25 expression index could panic
+-- with "get_insert_state: tried to get the InsertState for relation ... but
+-- it was never pushed" when the expression function triggers a nested
+-- ExecutorRun (e.g., bingo.cansmiles via internal C++ SPI).
+--
+-- This test exercises the multi-row + expression-index path. It does NOT
+-- trigger the nested-executor bug (that requires the external bingo extension),
+-- but it guards against regressions in the normal fake-aminsertcleanup flow.
+-- -----------------------------------------------------------------------------
+CREATE TABLE test_multirow_expr_guard (
+    id SERIAL PRIMARY KEY,
+    content TEXT
+);
+CREATE INDEX idx_multirow_expr_guard ON test_multirow_expr_guard USING bm25 (
+    id,
+    (content::pdb.simple)
+) WITH (key_field='id');
+-- Multi-row insert
+INSERT INTO test_multirow_expr_guard (content)
+SELECT 'item ' || g FROM generate_series(1, 10) g;
+-- Verify all rows are indexed and searchable
+SELECT COUNT(*) FROM test_multirow_expr_guard WHERE content @@@ 'item';
+ count 
+-------
+    10
+(1 row)
+
+-- Multi-row update
+UPDATE test_multirow_expr_guard
+SET content = 'updated ' || id
+WHERE id IN (1, 2, 3, 4, 5);
+-- Verify updated rows
+SELECT COUNT(*) FROM test_multirow_expr_guard WHERE content @@@ 'updated';
+ count 
+-------
+     5
+(1 row)
+
+DROP TABLE test_multirow_expr_guard;

@@ -20,6 +20,13 @@ runs:
       shell: bash
       run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
 
+    - name: Preserve SQL Files
+      shell: bash
+      run: |
+        SQL_DIR="$(mktemp -d)"
+        cp "${{ github.action_path }}"/*.sql "$SQL_DIR/"
+        echo "UPGRADE_SQL_DIR=$SQL_DIR" >> "$GITHUB_ENV"
+
     # This is the pgrx version compatible with ParadeDB ${{ inputs.prior_pg_search_version }}
     - name: Install pgrx for ParadeDB ${{ inputs.prior_pg_search_version }}
       shell: bash
@@ -61,62 +68,11 @@ runs:
       shell: bash
       run: psql -h localhost -p 288${{ inputs.pg_version }} postgres -c 'CREATE EXTENSION pg_search;'
 
-    # We create and test the BM25 index before and after the upgrade to test for version compatibility
-    - name: Create and Test BM25 Index
+    - name: Create BM25 Index
       working-directory: pg_search/
       shell: bash
       run: |
-        psql -h localhost -p 288${{ inputs.pg_version }} postgres <<'SQL'
-        \set ON_ERROR_STOP on
-
-        CALL paradedb.create_bm25_test_table(schema_name => 'public', table_name => 'mock_items');
-
-        ALTER TABLE mock_items
-        ADD COLUMN price NUMERIC(10, 2),
-        ADD COLUMN precise_price NUMERIC,
-        ADD COLUMN score DOUBLE PRECISION,
-        ADD COLUMN external_id UUID,
-        ADD COLUMN ip INET,
-        ADD COLUMN tags TEXT[],
-        ADD COLUMN active_period DATERANGE;
-
-        UPDATE mock_items
-        SET
-            price = rating * 19.99,
-            precise_price = 0.9554861284073128,
-            score = rating::DOUBLE PRECISION / 3,
-            external_id = ('00000000-0000-0000-0000-' || lpad(id::TEXT, 12, '0'))::UUID,
-            ip = ('10.0.0.' || ((id % 250) + 1))::INET,
-            tags = ARRAY[lower(category), split_part(lower(description), ' ', 1)],
-            active_period = daterange(last_updated_date, last_updated_date + rating, '[]');
-
-        CREATE INDEX search_idx ON mock_items
-        USING bm25 (
-            id,
-            description,
-            (category::pdb.literal),
-            rating,
-            in_stock,
-            created_at,
-            last_updated_date,
-            latest_available_time,
-            metadata,
-            weight_range,
-            price,
-            precise_price,
-            score,
-            external_id,
-            ip,
-            tags,
-            active_period,
-            ((description || ' ' || category)::pdb.simple('alias=description_category')),
-            (description::pdb.whitespace('alias=description_whitespace')),
-            (description::pdb.source_code('alias=description_source_code')),
-            (description::pdb.literal_normalized('alias=description_literal_normalized')),
-            ((metadata->>'color')::pdb.ngram(2,3))
-        )
-        WITH (key_field='id');
-        SQL
+        psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} postgres -f "$UPGRADE_SQL_DIR/setup.sql"
 
     - name: Stop Postgres via pgrx
       working-directory: pg_search/
@@ -171,155 +127,15 @@ runs:
         VERSION=$(grep "^version" ../Cargo.toml | head -1 | awk -F '"' '{print $2}')
         psql -h localhost -p 288${{ inputs.pg_version }} postgres -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
 
-    # We test the BM25 index before and after the upgrade to test for version compatibility
+    # We test the BM25 index before and after the upgrade to test for version compatibility.
+    # We run the queries before and after inserting some rows in case inserting changes anything internally
     - name: Test BM25 Index
       working-directory: pg_search/
       shell: bash
       run: |
-        QUERIES=$(cat <<'SQL'
-        DO $$
-        BEGIN
-            IF EXISTS (SELECT 1 FROM pdb.verify_index('search_idx') WHERE NOT passed) THEN
-                RAISE EXCEPTION 'search_idx failed verification';
-            END IF;
-        END;
-        $$;
-
-        SELECT id, description, pdb.score(id), pdb.snippet(description)
-        FROM mock_items
-        WHERE description ||| 'running shoes'
-        ORDER BY pdb.score(id) DESC
-        LIMIT 5;
-
-        SELECT id, description
-        FROM mock_items
-        WHERE description::pdb.alias('description_whitespace') ||| 'running shoes'
-        ORDER BY id;
-
-        SELECT id, description
-        FROM mock_items
-        WHERE description::pdb.alias('description_source_code') ||| 'HTTPRequest source_code'
-        ORDER BY id
-        LIMIT 5;
-
-        SELECT id, description
-        FROM mock_items
-        WHERE description::pdb.alias('description_literal_normalized') === 'generic shoes'
-        ORDER BY id;
-
-        SELECT id, description, category
-        FROM mock_items
-        WHERE (description || ' ' || category) &&& 'running footwear'
-        ORDER BY id;
-
-        SELECT id, metadata->>'color'
-        FROM mock_items
-        WHERE metadata->>'color' @@@ 'whi'
-        ORDER BY id
-        LIMIT 5;
-
-        SELECT id, category
-        FROM mock_items
-        WHERE category === 'Footwear'
-        ORDER BY id;
-
-        SELECT id, weight_range
-        FROM mock_items
-        WHERE weight_range @@@ pdb.range_term('(2, 11]'::int4range, 'Intersects')
-        ORDER BY id
-        LIMIT 5;
-
-        SELECT id, active_period
-        FROM mock_items
-        WHERE active_period @@@ pdb.range_term('[2023-05-01,2023-05-15]'::daterange, 'Intersects')
-        ORDER BY id;
-
-        SELECT id, price, precise_price, score
-        FROM mock_items
-        WHERE id @@@ pdb.all() AND price > 50 AND precise_price > 100000000 AND score > 1
-        ORDER BY price
-        LIMIT 5;
-
-        SELECT id, external_id, ip
-        FROM mock_items
-        WHERE id @@@ pdb.all()
-        AND external_id IN ('00000000-0000-0000-0000-000000000003'::uuid, '00000000-0000-0000-0000-000000100001'::uuid)
-        ORDER BY id
-        LIMIT 5;
-
-        SELECT id, tags
-        FROM mock_items
-        WHERE tags === 'footwear'
-        ORDER BY id
-        LIMIT 5;
-
-        SELECT pdb.agg('{"value_count": {"field": "id"}}')
-        FROM mock_items
-        WHERE id @@@ pdb.all();
-        SQL
-        )
-
-        psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} postgres -c "$QUERIES"
-
-        psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} postgres <<'SQL'
-        INSERT INTO mock_items (
-            description,
-            rating,
-            category,
-            in_stock,
-            metadata,
-            created_at,
-            last_updated_date,
-            latest_available_time,
-            weight_range,
-            price,
-            precise_price,
-            score,
-            external_id,
-            ip,
-            tags,
-            active_period
-        )
-        VALUES
-            (
-                'Waterproof running shoes',
-                5,
-                'Footwear',
-                true,
-                '{"color": "White", "location": "United States"}'::jsonb,
-                '2023-05-10 10:00:00'::timestamp,
-                '2023-05-10'::date,
-                '10:00:00'::time,
-                '[4,12]'::int4range,
-                129.99,
-                12345678901234567890.12345,
-                9.5,
-                '00000000-0000-0000-0000-000000100001'::uuid,
-                '10.1.0.1'::inet,
-                ARRAY['footwear', 'waterproof', 'running'],
-                '[2023-05-10,2023-06-01]'::daterange
-            ),
-            (
-                '',
-                NULL,
-                '',
-                NULL,
-                '{}'::jsonb,
-                NULL,
-                NULL,
-                NULL,
-                'empty'::int4range,
-                NULL,
-                NULL,
-                NULL,
-                NULL,
-                NULL,
-                ARRAY[]::TEXT[],
-                'empty'::daterange
-            );
-        SQL
-
-        psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} postgres -c "$QUERIES"
+        psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} postgres -f "$UPGRADE_SQL_DIR/queries.sql"
+        psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} postgres -f "$UPGRADE_SQL_DIR/insert.sql"
+        psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} postgres -f "$UPGRADE_SQL_DIR/queries.sql"
 
     # We only run the integration tests since pgrx won't run the #[pg_test] unit tests in an existing database
     - name: Run pg_search Integration Tests

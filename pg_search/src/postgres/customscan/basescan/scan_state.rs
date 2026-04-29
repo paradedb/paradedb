@@ -256,12 +256,18 @@ impl BaseScanState {
         self.visibility_checker.as_mut().unwrap()
     }
 
-    pub fn make_snippet(&self, ctid: u64, snippet_type: &SnippetType) -> Option<String> {
+    pub fn make_snippet(
+        &self,
+        ctid: u64,
+        snippet_type: &SnippetType,
+        resolved_start_tag: &str,
+        resolved_end_tag: &str,
+    ) -> Option<String> {
         let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
         let generator = self.snippet_generators.get(snippet_type)?.as_ref()?;
         let mut snippet = generator.snippet(&text);
-        if let SnippetType::SingleText(_, config, _) = snippet_type {
-            snippet.set_snippet_prefix_postfix(&config.start_tag, &config.end_tag);
+        if matches!(snippet_type, SnippetType::SingleText(_, _, _)) {
+            snippet.set_snippet_prefix_postfix(resolved_start_tag, resolved_end_tag);
         }
 
         let html = snippet.to_html();
@@ -272,15 +278,22 @@ impl BaseScanState {
         }
     }
 
-    pub fn make_snippets(&self, ctid: u64, snippet_type: &SnippetType) -> Option<Vec<String>> {
+    pub fn make_snippets(
+        &self,
+        ctid: u64,
+        snippet_type: &SnippetType,
+        resolved_start_tag: &str,
+        resolved_end_tag: &str,
+    ) -> Option<Vec<String>> {
         let text = unsafe { self.doc_from_heap(ctid, snippet_type.field())? };
         let generator = self.snippet_generators.get(snippet_type)?.as_ref()?;
+        let apply_tags = matches!(snippet_type, SnippetType::MultipleText(_, _, _, _));
         let snippets: Vec<_> = generator
             .snippets(&text)
             .into_iter()
             .flat_map(|mut snippet| {
-                if let SnippetType::MultipleText(_, config, _, _) = snippet_type {
-                    snippet.set_snippet_prefix_postfix(&config.start_tag, &config.end_tag);
+                if apply_tags {
+                    snippet.set_snippet_prefix_postfix(resolved_start_tag, resolved_end_tag);
                 }
 
                 let html = snippet.to_html();
@@ -318,7 +331,7 @@ impl BaseScanState {
 
     pub fn limit(&self) -> Option<usize> {
         match &self.exec_method_type {
-            ExecMethodType::TopK { limit, .. } => limit.static_value(),
+            ExecMethodType::TopK { limit_offset, .. } => limit_offset.static_fetch(),
             _ => None,
         }
     }

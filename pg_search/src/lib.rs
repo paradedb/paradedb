@@ -60,6 +60,11 @@ const MORE_LIKE_THIS_SELECTIVITY: f64 = 0.01;
 /// meaningless but we should be honest that do _something_.
 const DEFAULT_STARTUP_COST: f64 = 10.0;
 
+/// Planning-time row estimate used when LIMIT is parameterized (resolved only at
+/// execution time). Substitutes for an unknown LIMIT in cost/cardinality math
+/// so downstream decisions like worker count don't collapse.
+const DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE: f64 = 1000.0;
+
 pgrx::pg_module_magic!();
 
 extension_sql!(
@@ -100,9 +105,7 @@ pub unsafe extern "C-unwind" fn _PG_init() {
         let _ = env_logger::try_init();
     }
 
-    if cfg!(not(any(feature = "pg17", feature = "pg18")))
-        && !pg_sys::process_shared_preload_libraries_in_progress
-    {
+    if !pg_sys::process_shared_preload_libraries_in_progress {
         error!("pg_search must be loaded via shared_preload_libraries. Add 'pg_search' to shared_preload_libraries in postgresql.conf and restart Postgres.");
     }
 
@@ -165,13 +168,6 @@ pub mod pg_test {
 
     pub fn postgresql_conf_options() -> Vec<&'static str> {
         // return any postgresql.conf settings that are required for your tests
-
-        let mut options: Vec<&'static str> = Vec::new();
-
-        if cfg!(not(any(feature = "pg17", feature = "pg18"))) {
-            options.push("shared_preload_libraries='pg_search'");
-        }
-
-        options
+        vec!["shared_preload_libraries='pg_search'"]
     }
 }

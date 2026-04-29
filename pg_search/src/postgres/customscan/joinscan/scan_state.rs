@@ -639,9 +639,15 @@ fn build_clause_df<'a>(
         // 5. Apply Sort
         let df = apply_sort(df, join_clause, &distinct_col_map)?;
 
-        // 6. Apply Limit
-        let df = if let Some(fetch) = join_clause.limit_offset.fetch() {
-            df.limit(0, Some(fetch))?
+        // 6. Apply Limit (only when the value is statically known at planning
+        // time). Parameterized LIMIT/OFFSET are injected at execution time in
+        // `JoinScan::exec_custom_scan` after `EState` becomes available.
+        let df = if let Some(lo) = &join_clause.limit_offset {
+            if let Some(fetch) = lo.static_fetch() {
+                df.limit(0, Some(fetch))?
+            } else {
+                df
+            }
         } else {
             df
         };
@@ -1052,20 +1058,16 @@ fn build_source_df<'a>(
                     }
                     OrderByFeature::Score { .. } => {}
                     OrderByFeature::NullTest { inner, .. } => match inner.as_ref() {
-                        OrderByFeature::Field { name, rti } => {
-                            if source.contains_rti(*rti) {
-                                insert_field_name_required_early(
-                                    source,
-                                    name.as_ref(),
-                                    &mut required_early,
-                                );
-                            }
+                        OrderByFeature::Field { name, rti } if source.contains_rti(*rti) => {
+                            insert_field_name_required_early(
+                                source,
+                                name.as_ref(),
+                                &mut required_early,
+                            );
                         }
-                        OrderByFeature::Var { rti, attno, .. } => {
-                            if source.contains_rti(*rti) {
-                                if let Some(col_name) = source.column_name(*attno) {
-                                    required_early.insert(col_name);
-                                }
+                        OrderByFeature::Var { rti, attno, .. } if source.contains_rti(*rti) => {
+                            if let Some(col_name) = source.column_name(*attno) {
+                                required_early.insert(col_name);
                             }
                         }
                         _ => {}

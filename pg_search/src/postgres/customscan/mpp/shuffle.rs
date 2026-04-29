@@ -47,6 +47,21 @@
 //!   preserving row order within each destination. `ShuffleExec`'s producer
 //!   loop calls this once per input batch, then feeds each sub-batch to its
 //!   corresponding `MppSender` (peers) or local channel (self).
+//!
+//! TODO(arch): the "destination participant" routing here is parallel to,
+//! but distinct from, DataFusion's own `partition` concept.
+//! `datafusion-distributed` takes a different approach: it lets each
+//! `ShuffleExec` expose N output partitions (one per participant) and
+//! uses `PartitionIsolatorExec` to select which partition a worker reads.
+//! That alignment with native DF partitions has real upside (every DF
+//! optimizer rule that reasons about partitioning would Just Work). The
+//! current code prefers the row-routing model because it keeps
+//! `ShuffleExec` shaped like a single-output operator (matches
+//! ParadeDB's pre-existing custom-scan single-partition assumption) and
+//! avoids needing a `PartitionIsolatorExec` analogue everywhere we
+//! reference a participant index. Re-evaluating once the rest of the
+//! MPP stack settles is on the table; tracked separately so a future
+//! reviewer can pick it up without re-deriving the trade-off.
 
 #![allow(dead_code)]
 

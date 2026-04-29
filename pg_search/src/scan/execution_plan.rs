@@ -213,6 +213,20 @@ impl PgSearchScanPlan {
     /// Transfers scan state out of the original plan — the original becomes
     /// a dead stub whose `execute` returns empty streams. Returns the plan
     /// unchanged when there are no dynamic filters to strip.
+    ///
+    /// # Caller contract
+    ///
+    /// This is a primitive: it strips unconditionally and does not validate
+    /// that re-attaching the filter elsewhere is safe. It is correct only
+    /// when the caller is rebuilding the plan such that the stripped
+    /// filter will be reapplied above a `ShuffleExec` that crosses
+    /// participant boundaries.
+    ///
+    /// In particular, do *not* call this on a scan whose enclosing
+    /// `HashJoinExec` lives entirely on one participant (e.g., a join that
+    /// is itself below a shuffle): the dynamic filter is fully populated
+    /// locally there and dropping it loses a valuable optimization with no
+    /// correctness benefit.
     #[allow(dead_code)] // caller lands in MPP exec-bridge PR
     pub fn strip_dynamic_filters_from_dyn(
         dyn_plan: Arc<dyn ExecutionPlan>,

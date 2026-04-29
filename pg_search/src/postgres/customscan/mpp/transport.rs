@@ -33,7 +33,7 @@
 
 use std::collections::VecDeque;
 use std::future::poll_fn;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::task::{Poll, Waker};
 use std::thread::JoinHandle;
 #[cfg(test)]
@@ -217,11 +217,8 @@ impl DrainBuffer {
     /// between the OS-thread producer and the executor-task consumer.
     pub fn poll_pop_front(&self, waker: &Waker) -> Option<DrainItem> {
         let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
-        if let Some(batch) = guard.queue.pop_front() {
-            return Some(DrainItem::Batch(batch));
-        }
-        if guard.cancelled || guard.sources_done >= guard.num_sources {
-            return Some(DrainItem::Eof);
+        if let Some(item) = Self::try_pop_locked(&mut guard) {
+            return Some(item);
         }
         // One consumer at a time — DrainGatherStream is the only caller,
         // and a future plan that wired two readers off the same handle
@@ -265,6 +262,16 @@ impl DrainBuffer {
     /// yielding to the executor between iterations.
     pub fn try_pop(&self) -> Option<DrainItem> {
         let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
+        Self::try_pop_locked(&mut guard)
+    }
+
+    /// Shared body of [`try_pop`] and [`poll_pop_front`]. Returns
+    /// `Some(Batch)` if the queue has data, `Some(Eof)` if all sources
+    /// have detached or the buffer is cancelled, and `None` otherwise.
+    /// Lets the two public entry points stay in lockstep on the
+    /// "buffered data wins over cancellation/EOF" invariant locked in
+    /// by `drain_buffer_drains_buffered_before_eof`.
+    fn try_pop_locked(guard: &mut MutexGuard<'_, DrainBufferInner>) -> Option<DrainItem> {
         if let Some(batch) = guard.queue.pop_front() {
             return Some(DrainItem::Batch(batch));
         }

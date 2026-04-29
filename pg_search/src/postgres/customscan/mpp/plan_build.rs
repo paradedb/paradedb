@@ -77,9 +77,8 @@ use std::sync::Arc;
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
+use datafusion::physical_plan::union::UnionExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
-
-use crate::postgres::customscan::mpp::chain::ChainExec;
 
 use crate::postgres::customscan::mpp::shuffle::{DrainGatherExec, MppRepartitionExec, ShuffleWiring};
 use crate::postgres::customscan::mpp::stage::{MppNetworkBoundary, MppStage};
@@ -190,30 +189,30 @@ pub fn wrap_with_mpp_shuffle(
         None => Arc::new(gather_node),
     };
 
-    // Splice both streams, then coalesce into a single output partition so
-    // downstream operators driven via `execute(0)` pull from both self AND
-    // peer branches. Without the coalesce, the Union's partition 1 (the
-    // gather side) is orphaned and peer rows are never read.
-    // ChainExec emits a single output partition by polling `shuffle` to
-    // exhaustion first, then `gather`. Two observations make this safe:
+    // Splice both streams under a `UnionExec` and let
+    // `CoalescePartitionsExec` race their tokio tasks down to a single
+    // output partition. The "two tokio tasks both blocking in
+    // `shm_mq_send`" deadlock that originally pushed an earlier
+    // iteration toward a custom `ChainExec` operator is no longer
+    // structural: PR #4827 made `MppSender::send_batch_traced` async
+    // with `try_send_bytes` + `tokio::task::yield_now().await` between
+    // iterations, so the producer task gives up the runtime regularly
+    // and the `CoalescePartitionsExec` race resolves cleanly. Using
+    // standard DF operators here lets the planner reason about a known
+    // operator pair rather than a custom node.
     //
-    //  1. `MppRepartitionExec` is a leaf-driver: polling it pumps rows through the
-    //     scan → split → ship-to-peers pipeline regardless of whether our
-    //     gather side is also being polled. The drain thread (plain
-    //     `std::thread`, not a tokio task) reads peer-shipped rows into
-    //     `DrainBuffer` *concurrently* with the shuffle's poll, independent
-    //     of the operator's own polling cadence.
-    //  2. `DrainGatherExec` only blocks until its sources mark EOF. Peers'
-    //     senders drop when their own `MppRepartitionExec` children exhaust — which
-    //     happens as soon as they finish their scan, regardless of whether
-    //     we're currently reading their shipments.
+    // Correctness still relies on two structural guarantees:
     //
-    // Together: the self→peer and peer→self flows run concurrently via the
-    // drain threads; the operator's single-threaded poll order is just a
-    // consumption order and cannot cause a cycle. This avoids the
-    // `CoalescePartitionsExec` concurrent-poll deadlock we hit when both
-    // branches spawned tokio tasks that blocked in `shm_mq_send`.
-    ChainExec::try_new(shuffle, gather, wrapped_schema)
+    //  1. `MppRepartitionExec` is a leaf-driver: polling it pumps rows through
+    //     the scan → split → ship-to-peers pipeline regardless of which
+    //     branch the runtime polled first. The drain thread populates
+    //     `DrainBuffer` independently of operator polling cadence.
+    //  2. `DrainGatherExec` only blocks until its sources mark EOF.
+    //     Peers' senders drop when their own `MppRepartitionExec` children
+    //     exhaust — independent of whether we're currently reading.
+    let _ = wrapped_schema; // Schema is inferred from `shuffle` via UnionExec.
+    let union = UnionExec::try_new(vec![shuffle, gather])?;
+    Ok(Arc::new(CoalescePartitionsExec::new(union)))
 }
 
 #[cfg(test)]

@@ -1390,31 +1390,13 @@ fn finalize_groupby_agg(
     })?;
 
     // Phase 2: insert `CoalesceBatchesExec(65_536)` between the Partial
-    // aggregate and the `gb_postagg` MppRepartitionExec. The grafted tree's
-    // root is the `gb_postagg` ChainExec whose first child is the
-    // MppRepartitionExec; the MppRepartitionExec's single child is the Partial
-    // aggregate we want to wrap.
-    let chain_children = grafted.children();
-    if chain_children.len() != 2 {
-        return Err(DataFusionError::Internal(format!(
-            "mpp: finalize_groupby_agg: expected ChainExec root with 2 children, got {}",
-            chain_children.len()
-        )));
-    }
-    let shuffle = Arc::clone(chain_children[0]);
-    let drain_gather = Arc::clone(chain_children[1]);
-    let shuffle_children = shuffle.children();
-    if shuffle_children.len() != 1 {
-        return Err(DataFusionError::Internal(format!(
-            "mpp: finalize_groupby_agg: expected MppRepartitionExec with 1 child, got {}",
-            shuffle_children.len()
-        )));
-    }
-    let shuffle_child = Arc::clone(shuffle_children[0]);
-    let coalesced: Arc<dyn ExecutionPlan> =
-        Arc::new(CoalesceBatchesExec::new(shuffle_child, 65_536));
-    let new_shuffle = shuffle.with_new_children(vec![coalesced])?;
-    let new_chain = grafted.with_new_children(vec![new_shuffle, drain_gather])?;
+    // aggregate and the `gb_postagg` MppRepartitionExec. Walks down to the
+    // first MppRepartitionExec, wraps its single child in CoalesceBatches, and
+    // rebuilds the ancestor chain via `with_new_children`. Shape-
+    // agnostic with respect to the wrapper above MppRepartitionExec
+    // (`wrap_with_mpp_shuffle` produces
+    // `CoalescePartitionsExec(UnionExec(repartition, drain))`).
+    let new_chain = wrap_first_shuffle_child_in_coalesce_batches(grafted)?;
 
     // Phase 3: wrap with `FinalPartitioned` on every participant.
     let final_agg = AggregateExec::try_new(
@@ -1426,6 +1408,53 @@ fn finalize_groupby_agg(
         partial_schema,
     )?;
     Ok(Arc::new(final_agg))
+}
+
+/// Walk down `plan`, find the first `ShuffleExec`, and wrap its single
+/// child in `CoalesceBatchesExec(65_536)`. Used by
+/// [`finalize_groupby_agg`]'s Phase 2 to coalesce the post-Partial
+/// payload before the post-agg shuffle.
+///
+/// Shape-agnostic: works regardless of the operator that
+/// [`wrap_with_mpp_shuffle`] put above `ShuffleExec` (today
+/// `CoalescePartitionsExec(UnionExec(shuffle, drain))`). The
+/// `with_new_children` chain rebuilds the ancestor nodes; siblings of
+/// the ShuffleExec are preserved by-reference.
+fn wrap_first_shuffle_child_in_coalesce_batches(
+    plan: Arc<dyn ExecutionPlan>,
+) -> DfResult<Arc<dyn ExecutionPlan>> {
+    if plan.as_any().is::<ShuffleExec>() {
+        let children = plan.children();
+        if children.len() != 1 {
+            return Err(DataFusionError::Internal(format!(
+                "mpp: finalize_groupby_agg: expected ShuffleExec with 1 child, got {}",
+                children.len()
+            )));
+        }
+        let shuffle_child = Arc::clone(children[0]);
+        let coalesced: Arc<dyn ExecutionPlan> =
+            Arc::new(CoalesceBatchesExec::new(shuffle_child, 65_536));
+        return plan.with_new_children(vec![coalesced]);
+    }
+    let mut new_children = Vec::with_capacity(plan.children().len());
+    let mut found = false;
+    for child in plan.children() {
+        if !found {
+            let rebuilt = wrap_first_shuffle_child_in_coalesce_batches(Arc::clone(child))?;
+            if !Arc::ptr_eq(&rebuilt, child) {
+                found = true;
+            }
+            new_children.push(rebuilt);
+        } else {
+            new_children.push(Arc::clone(child));
+        }
+    }
+    if !found {
+        return Err(DataFusionError::Internal(
+            "mpp: finalize_groupby_agg: no ShuffleExec found in plan".into(),
+        ));
+    }
+    plan.with_new_children(new_children)
 }
 
 // ============================================================================

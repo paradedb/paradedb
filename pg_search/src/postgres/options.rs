@@ -976,9 +976,9 @@ pub unsafe fn init() {
         RELOPT_KIND_PDB,
         "vector_bit_width".as_pg_cstr(),
         "TurboQuant total bits/coord for vector fields. Allowed: 4 (3-bit codebook + 1-bit \
-         sign, default) or 5 (4-bit codebook + 1-bit sign, ~doubled stage-1 codebook size, \
-         same SIMD kernel cost). Higher widths reduce stage-1 quantization mis-ranking on \
-         high-dim normalized embeddings."
+         sign) or 5 (4-bit codebook + 1-bit sign, default — same SIMD kernel cost as b4 but \
+         doubles the stage-1 codebook, ~+8.5 pp recall on Cohere/COSINE 768d). Drop to 4 \
+         only when bit-perfect compatibility with the older format is required."
             .as_pg_cstr(),
         DEFAULT_VECTOR_BIT_WIDTH,
         4,
@@ -987,9 +987,12 @@ pub unsafe fn init() {
     );
 }
 
-/// Default TurboQuant bit width for vector fields. Matches historical
-/// behavior. Bumpable per index via the `vector_bit_width` reloption.
-pub const DEFAULT_VECTOR_BIT_WIDTH: i32 = 4;
+/// Default TurboQuant bit width for vector fields. b5 measured ~+8.5
+/// pp recall over b4 on Cohere/COSINE 768d at probes=150 rerank=1
+/// with no perf delta (same SIMD kernel, same record bytes, same
+/// scan path). Bumpable per index via the `vector_bit_width`
+/// reloption; b4 is the only other supported value.
+pub const DEFAULT_VECTOR_BIT_WIDTH: i32 = 5;
 
 /// As a SearchFieldConfig is an enum, for it to be correctly serialized the variant needs
 /// to be present on the json object. This helper method will "wrap" the json object in

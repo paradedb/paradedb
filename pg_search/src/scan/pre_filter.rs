@@ -745,8 +745,8 @@ fn try_convert_in_list_to_query(
     }
 
     // Build a strategy config from the paradedb.term_set_* GUCs so the
-    // dispatch thresholds (kill switch, gallop density gate, the two
-    // first-column bitset density gates) can be tuned in production
+    // dispatch thresholds (kill switch, gallop density gate, and the
+    // first-column bitset density gate) can be tuned in production
     // without a recompile. Defaults mirror `TermSetStrategyConfig::default()`
     // in tantivy. `subsequent_bitset_max_density` is not exposed because
     // it gates a branch tantivy doesn't reach in production today;
@@ -755,8 +755,8 @@ fn try_convert_in_list_to_query(
     // its decision into so EXPLAIN ANALYZE can report which strategy fired.
     let cfg = TermSetStrategyConfig {
         gallop_enabled: crate::gucs::term_set_gallop_enabled(),
-        bitset_max_density_unique: crate::gucs::term_set_bitset_max_density_unique(),
-        bitset_max_density_multi: crate::gucs::term_set_bitset_max_density_multi(),
+        bitset_max_density: crate::gucs::term_set_bitset_max_density_unique()
+            .min(crate::gucs::term_set_bitset_max_density_multi()),
         strategy_sink,
         ..TermSetStrategyConfig::default()
     };

@@ -47,7 +47,8 @@ CREATE INDEX users_idx ON users
 USING bm25 (
     id,
     (about_me::pdb.unicode_words('columnar=true')),
-    (display_name::pdb.unicode_words('columnar=true'))
+    (display_name::pdb.unicode_words('columnar=true')),
+    reputation
 ) WITH (
     key_field = 'id',
     sort_by = 'id ASC NULLS FIRST'

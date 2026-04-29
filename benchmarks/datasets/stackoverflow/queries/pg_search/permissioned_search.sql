@@ -4,7 +4,7 @@
 
 -- Query Info (statistics from 100k dataset; larger datasets may have different values):
 -- - 'to' selectivity on stackoverflow_posts.title: ~11%
--- - 'and' selectivity on users.about_me: ~20%
+-- - reputation > 100 selectivity on users.reputation: ~82% (active users are overrepresented at smaller sizes; likely lower for larger datasets)
 
 SET paradedb.enable_join_custom_scan TO off; SELECT
     p.id,
@@ -14,7 +14,7 @@ FROM stackoverflow_posts p
 JOIN users u ON p.owner_user_id = u.id
 WHERE
     p.title ||| 'to'                -- Driving the Sort (Single Feature)
-    AND u.about_me ||| 'and'
+    AND u.reputation > 100
 ORDER BY
     relevance DESC
 LIMIT 10;
@@ -27,7 +27,7 @@ FROM stackoverflow_posts p
 JOIN users u ON p.owner_user_id = u.id
 WHERE
     p.title ||| 'to'                -- Driving the Sort (Single Feature)
-    AND u.about_me ||| 'and'
+    AND u.reputation > 100
 ORDER BY
     relevance DESC
 LIMIT 10;

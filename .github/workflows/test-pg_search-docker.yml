@@ -59,7 +59,7 @@ jobs:
             platform: linux/amd64
           - arch: arm64
             cpu: 16
-            ram: 32
+            ram: 64
             runner_family: m7g+m8g
             runner_image: ubuntu24-full-arm64
             platform: linux/arm64

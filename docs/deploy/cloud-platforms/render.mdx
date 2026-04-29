@@ -12,20 +12,17 @@ canonical: https://docs.paradedb.com/deploy/cloud-platforms/render
   [Kubernetes](/deploy/self-hosted/kubernetes) or [BYOC](/deploy/byoc).
 </Note>
 
-[Render](https://render.com) is a cloud platform that makes it easy to deploy and manage applications. Render
-provides [official documentation for deploying ParadeDB](https://render.com/docs/deploy-paradedb) using a
-[Render Blueprint](https://render.com/docs/blueprint-spec) that runs ParadeDB Community as a private service
-with persistent SSD storage.
+[Render](https://render.com) is a cloud platform that makes it easy to deploy and manage applications. The
+[ParadeDB Render Blueprint](https://github.com/paradedb/render-blueprint) provides a one-click deployment
+that runs ParadeDB Community as a [private service](https://render.com/docs/private-services) with persistent
+SSD storage.
 
-There are two blueprints available:
-
-- The [official blueprint](https://github.com/render-examples/paradedb) maintained by Render
-- The [ParadeDB-maintained blueprint](https://github.com/paradedb/render-blueprint)
+You can either follow [Render's official ParadeDB deployment guide](https://render.com/docs/deploy-paradedb)
+or use the steps below.
 
 ## One-Click Deploy
 
-The fastest way to get started is to click the button below, which uses the ParadeDB-maintained blueprint to
-deploy ParadeDB to your Render account.
+The fastest way to get started is to click the button below, which deploys ParadeDB to your Render account.
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/paradedb/render-blueprint)
 

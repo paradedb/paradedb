@@ -212,7 +212,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
         .to_string()
 }
 
-const NUM_REL_OPTS: usize = 14;
+const NUM_REL_OPTS: usize = 15;
 #[pg_guard]
 pub unsafe extern "C-unwind" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -317,6 +317,13 @@ pub unsafe extern "C-unwind" fn amoptions(
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
+        pg_sys::relopt_parse_elt {
+            optname: "vector_bit_width".as_pg_cstr(),
+            opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
+            offset: offset_of!(BM25IndexOptionsData, vector_bit_width) as i32,
+            #[cfg(feature = "pg18")]
+            isset_offset: 0,
+        },
     ];
     build_relopts(reloptions, validate, options)
 }
@@ -406,6 +413,11 @@ impl BM25IndexOptions {
         self.options_data()
             .key_field_name()
             .expect(Self::MISSING_KEY_FIELD_CONFIG)
+    }
+
+    /// TurboQuant bit width for vector fields. One of `{4, 5}`.
+    pub fn vector_bit_width(&self) -> u8 {
+        self.options_data().vector_bit_width()
     }
 
     /// Returns the sort_by configuration.
@@ -693,6 +705,11 @@ struct BM25IndexOptionsData {
     mutable_segment_rows: i32,
     sort_by_offset: i32,
     search_tokenizer_offset: i32,
+    /// TurboQuant total bits per coordinate for vector fields. Tantivy
+    /// supports {4, 5} on the IVF/cluster path (same SIMD kernel,
+    /// 4-bit codebook at b5 vs 3-bit codebook at b4 = 8). Default 4
+    /// matches historical behavior.
+    vector_bit_width: i32,
 }
 
 impl BM25IndexOptionsData {
@@ -721,6 +738,15 @@ impl BM25IndexOptionsData {
             None
         } else {
             Some(self.target_segment_count)
+        }
+    }
+
+    pub fn vector_bit_width(&self) -> u8 {
+        let v = self.vector_bit_width;
+        if (4..=5).contains(&v) {
+            v as u8
+        } else {
+            DEFAULT_VECTOR_BIT_WIDTH as u8
         }
     }
 
@@ -946,7 +972,24 @@ pub unsafe fn init() {
         Some(validate_search_tokenizer),
         pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
     );
+    pg_sys::add_int_reloption(
+        RELOPT_KIND_PDB,
+        "vector_bit_width".as_pg_cstr(),
+        "TurboQuant total bits/coord for vector fields. Allowed: 4 (3-bit codebook + 1-bit \
+         sign, default) or 5 (4-bit codebook + 1-bit sign, ~doubled stage-1 codebook size, \
+         same SIMD kernel cost). Higher widths reduce stage-1 quantization mis-ranking on \
+         high-dim normalized embeddings."
+            .as_pg_cstr(),
+        DEFAULT_VECTOR_BIT_WIDTH,
+        4,
+        5,
+        pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE,
+    );
 }
+
+/// Default TurboQuant bit width for vector fields. Matches historical
+/// behavior. Bumpable per index via the `vector_bit_width` reloption.
+pub const DEFAULT_VECTOR_BIT_WIDTH: i32 = 4;
 
 /// As a SearchFieldConfig is an enum, for it to be correctly serialized the variant needs
 /// to be present on the json object. This helper method will "wrap" the json object in

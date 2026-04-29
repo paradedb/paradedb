@@ -29,8 +29,8 @@ use crate::api::operator::anyelement_query_input_opoid;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::joinscan::build::{
-    lookup_base_rel_info, try_extract_equi_key, FilterNode, JoinKeyPair, JoinLevelExpr,
-    JoinLevelSearchPredicate, JoinNode, JoinSource, JoinSourceCandidate, JoinType,
+    decode_jointype, lookup_base_rel_info, try_extract_equi_key, FilterNode, JoinKeyPair,
+    JoinLevelExpr, JoinLevelSearchPredicate, JoinNode, JoinSource, JoinSourceCandidate, JoinType,
     MultiTablePredicateInfo, PlannerRootId, RelNode,
 };
 use crate::postgres::customscan::pullup::{
@@ -428,7 +428,7 @@ unsafe fn build_join_node(
 ) -> Result<RelNode, String> {
     let join = &*join_expr;
 
-    let join_type = JoinType::try_from(join.jointype).map_err(|e| e.to_string())?;
+    let (join_type, _) = decode_jointype(join.jointype).map_err(|e| e.to_string())?;
 
     // Support INNER, LEFT/RIGHT, and FULL OUTER JOINs
     match join_type {

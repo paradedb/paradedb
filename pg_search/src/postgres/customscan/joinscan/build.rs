@@ -181,25 +181,48 @@ impl fmt::Display for JoinType {
     }
 }
 
-impl TryFrom<pg_sys::JoinType::Type> for JoinType {
-    type Error = anyhow::Error;
+/// Whether [`decode_jointype`] requires the caller to swap outer/inner before
+/// constructing a [`JoinNode`].
+///
+/// Swapping is required for `JOIN_RIGHT_ANTI` / `JOIN_RIGHT_SEMI`: PG labels
+/// the *result* side as `inner`, but our canonical [`JoinType::Anti`] /
+/// [`JoinType::Semi`] expect the result side on `left`. `JoinKeyPair::resolve_against`
+/// is order-agnostic, so equi_keys do not need to be flipped after swap.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SwapSides {
+    NoSwap,
+    #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+    Swap,
+}
 
-    fn try_from(jt: pg_sys::JoinType::Type) -> Result<Self, Self::Error> {
-        match jt {
-            pg_sys::JoinType::JOIN_INNER => Ok(JoinType::Inner),
-            pg_sys::JoinType::JOIN_LEFT => Ok(JoinType::Left),
-            pg_sys::JoinType::JOIN_FULL => Ok(JoinType::Full),
-            pg_sys::JoinType::JOIN_RIGHT => Ok(JoinType::Right),
-            pg_sys::JoinType::JOIN_SEMI => Ok(JoinType::Semi),
-            pg_sys::JoinType::JOIN_ANTI => Ok(JoinType::Anti),
-            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
-            pg_sys::JoinType::JOIN_RIGHT_ANTI => Ok(JoinType::RightAnti),
-            #[cfg(feature = "pg18")]
-            pg_sys::JoinType::JOIN_RIGHT_SEMI => Ok(JoinType::RightSemi),
-            pg_sys::JoinType::JOIN_UNIQUE_OUTER => Ok(JoinType::UniqueOuter),
-            pg_sys::JoinType::JOIN_UNIQUE_INNER => Ok(JoinType::UniqueInner),
-            other => Err(anyhow::anyhow!("JoinScan: unknown join type {}", other)),
-        }
+/// Decode a PostgreSQL `JoinType` into a `(JoinType, SwapSides)` pair.
+///
+/// All canonical PG jointypes map to their `JoinType` counterpart with
+/// `SwapSides::NoSwap`. The parallel-aware mirrors `JOIN_RIGHT_ANTI` /
+/// `JOIN_RIGHT_SEMI` are canonicalised to `Anti` / `Semi` plus
+/// `SwapSides::Swap`; callers exchange `outer`/`inner` before constructing
+/// the `JoinNode` so the resulting tree never carries a `RightAnti` /
+/// `RightSemi` jointype, even though those enum variants still exist for
+/// pass-through paths. This is the canonicalisation introduced by issue
+/// #4910 to avoid divergent partitioning logic for the right-side mirrors.
+/// `JOIN_UNIQUE_*` map to their respective `JoinType` variants and are
+/// rejected at the `unsupported_join_types` gate just like other
+/// unsupported types.
+pub fn decode_jointype(jt: pg_sys::JoinType::Type) -> Result<(JoinType, SwapSides), anyhow::Error> {
+    match jt {
+        pg_sys::JoinType::JOIN_INNER => Ok((JoinType::Inner, SwapSides::NoSwap)),
+        pg_sys::JoinType::JOIN_LEFT => Ok((JoinType::Left, SwapSides::NoSwap)),
+        pg_sys::JoinType::JOIN_FULL => Ok((JoinType::Full, SwapSides::NoSwap)),
+        pg_sys::JoinType::JOIN_RIGHT => Ok((JoinType::Right, SwapSides::NoSwap)),
+        pg_sys::JoinType::JOIN_SEMI => Ok((JoinType::Semi, SwapSides::NoSwap)),
+        pg_sys::JoinType::JOIN_ANTI => Ok((JoinType::Anti, SwapSides::NoSwap)),
+        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+        pg_sys::JoinType::JOIN_RIGHT_ANTI => Ok((JoinType::Anti, SwapSides::Swap)),
+        #[cfg(feature = "pg18")]
+        pg_sys::JoinType::JOIN_RIGHT_SEMI => Ok((JoinType::Semi, SwapSides::Swap)),
+        pg_sys::JoinType::JOIN_UNIQUE_OUTER => Ok((JoinType::UniqueOuter, SwapSides::NoSwap)),
+        pg_sys::JoinType::JOIN_UNIQUE_INNER => Ok((JoinType::UniqueInner, SwapSides::NoSwap)),
+        other => Err(anyhow::anyhow!("JoinScan: unknown join type {}", other)),
     }
 }
 

@@ -1829,7 +1829,7 @@ impl JoinScan {
 
         join_keys.extend(join_conditions.equi_keys.clone());
 
-        let parsed_jointype = build::JoinType::try_from(jointype)
+        let (parsed_jointype, swap_sides) = build::decode_jointype(jointype)
             .map_err(|e| warn(JoinDeclineReason::new(e.to_string())))?;
 
         // For Semi/Anti with additional conditions that cannot ride the
@@ -1905,10 +1905,20 @@ impl JoinScan {
             )));
         }
 
+        // For JOIN_RIGHT_ANTI / JOIN_RIGHT_SEMI, PG labels the *result* side
+        // as `inner`. Our canonical Anti/Semi JoinNode keeps the result side
+        // on `left`, so swap the children when the decode flagged it.
+        // `JoinKeyPair::resolve_against` is order-agnostic, so equi_keys do
+        // not need to be flipped.
+        let (join_left, join_right) = match swap_sides {
+            build::SwapSides::NoSwap => (outer_node, inner_node),
+            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
+            build::SwapSides::Swap => (inner_node, outer_node),
+        };
         let mut plan = RelNode::Join(Box::new(build::JoinNode {
             join_type: parsed_jointype,
-            left: outer_node,
-            right: inner_node,
+            left: join_left,
+            right: join_right,
             equi_keys: join_conditions.equi_keys,
             filter: initial_filter,
             subplan_id: None,

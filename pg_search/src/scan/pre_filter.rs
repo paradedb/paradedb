@@ -122,7 +122,9 @@ use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
 use crate::query::value_to_term;
 use crate::scan::filter_pushdown::scalar_to_owned_value;
 use crate::schema::SearchFieldType;
-use tantivy::query::{BooleanQuery, ConstScoreQuery, Occur, Query, TermSetQuery};
+use tantivy::query::{
+    BooleanQuery, ConstScoreQuery, Occur, Query, TermSetQuery, TermSetStrategyConfig,
+};
 use tantivy::Term;
 
 /// A pre-materialization filter applied inside `Scanner::next()`.
@@ -727,7 +729,21 @@ fn try_convert_in_list_to_query(
         return None;
     }
 
-    let term_set_query = TermSetQuery::new(terms);
+    // Build a strategy config from the paradedb.term_set_*_ratio GUCs so the
+    // sorted-segment gallop fast path (issue #4895) is enabled by default but
+    // operators can override the ratios or kill the optimization without a
+    // recompile. The default values mirror TermSetStrategyConfig::default()
+    // in tantivy.
+    let cfg = TermSetStrategyConfig {
+        gallop_enabled: crate::gucs::term_set_gallop_enabled(),
+        gallop_ratio: crate::gucs::term_set_gallop_ratio() as u32,
+        posting_ratio: crate::gucs::term_set_posting_ratio() as u32,
+        bitset_ratio: crate::gucs::term_set_bitset_ratio() as u32,
+        hash_probe_ratio: crate::gucs::term_set_hash_probe_ratio() as u32,
+        subsequent_bitset_ratio: crate::gucs::term_set_subsequent_bitset_ratio() as u32,
+    };
+
+    let term_set_query = TermSetQuery::new(terms).with_strategy_config(cfg);
     let const_score_query = ConstScoreQuery::new(Box::new(term_set_query), 0.0);
     Some(Box::new(const_score_query) as Box<dyn Query>)
 }

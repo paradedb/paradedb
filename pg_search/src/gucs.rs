@@ -178,6 +178,18 @@ static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: GucSetting<i32> =
     GucSetting::<i32>::new(16_000);
 
+// TermSet strategy thresholds (paradedb/paradedb#4895). These tune the planner
+// in tantivy::query::TermSetStrategyConfig — see design.md §4 for the meaning
+// of each ratio. Defaults mirror TermSetStrategyConfig::default() in tantivy
+// so a paradedb installation that doesn't touch them gets the same behavior
+// as a bare tantivy caller.
+static TERM_SET_GALLOP_ENABLED: GucSetting<bool> = GucSetting::<bool>::new(true);
+static TERM_SET_GALLOP_RATIO: GucSetting<i32> = GucSetting::<i32>::new(64);
+static TERM_SET_POSTING_RATIO: GucSetting<i32> = GucSetting::<i32>::new(256);
+static TERM_SET_BITSET_RATIO: GucSetting<i32> = GucSetting::<i32>::new(4);
+static TERM_SET_HASH_PROBE_RATIO: GucSetting<i32> = GucSetting::<i32>::new(16);
+static TERM_SET_SUBSEQUENT_BITSET_RATIO: GucSetting<i32> = GucSetting::<i32>::new(4);
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -461,6 +473,69 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    // TermSet strategy thresholds (issue #4895). The kill-switch
+    // (paradedb.term_set_gallop_enabled) is the safety override if the
+    // gallop optimization regresses unexpectedly; the four ratios tune the
+    // planner without recompiling.
+    GucRegistry::define_bool_guc(
+        c"paradedb.term_set_gallop_enabled",
+        c"Enable galloping execution of FastFieldTermSetQuery on sorted segments.",
+        c"When false, FastFieldTermSetQuery falls back to the legacy linear scan even on sorted segments. Acts as a kill-switch for the issue #4895 optimization.",
+        &TERM_SET_GALLOP_ENABLED,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_int_guc(
+        c"paradedb.term_set_gallop_ratio",
+        c"Gallop is selected when K' < N / this ratio on a sorted segment.",
+        c"Larger values bias toward gallop. K' is the number of distinct terms surviving min/max pruning; N is the segment size. Default 64.",
+        &TERM_SET_GALLOP_RATIO,
+        1,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_int_guc(
+        c"paradedb.term_set_posting_ratio",
+        c"Reserved (follow-up A): posting-list direct strategy threshold for first-column FastFieldTermSetQuery.",
+        c"K' * D < N / this ratio selects PostingListDirect. Currently routes to LinearScan; the ratio is recorded so when follow-up A lands, no SQL change is needed. Default 256.",
+        &TERM_SET_POSTING_RATIO,
+        1,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_int_guc(
+        c"paradedb.term_set_bitset_ratio",
+        c"Reserved (follow-up B): bitset-from-postings strategy threshold for first-column FastFieldTermSetQuery.",
+        c"K' * D < N / this ratio selects BitsetFromPostings. Currently routes to LinearScan. Default 4.",
+        &TERM_SET_BITSET_RATIO,
+        1,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_int_guc(
+        c"paradedb.term_set_hash_probe_ratio",
+        c"Reserved (subsequent-column work): hash-probe threshold for FastFieldTermSetQuery on a candidate set narrower than the segment.",
+        c"C < N / this ratio selects HashProbe. Currently routes to LinearScan. Default 16.",
+        &TERM_SET_HASH_PROBE_RATIO,
+        1,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_int_guc(
+        c"paradedb.term_set_subsequent_bitset_ratio",
+        c"Reserved (subsequent-column work): bitset-from-postings threshold for FastFieldTermSetQuery on a candidate set narrower than the segment.",
+        c"K' * D < C / this ratio selects BitsetFromPostings on the subsequent-column branch. Currently routes to LinearScan. Default 4.",
+        &TERM_SET_SUBSEQUENT_BITSET_RATIO,
+        1,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_int_guc(
         c"paradedb.dynamic_filter_batch_size",
         c"Scanner batch size override for dynamic filter pushdown",
@@ -735,6 +810,30 @@ pub fn hash_join_inlist_pushdown_max_size() -> i32 {
 
 pub fn hash_join_inlist_pushdown_max_distinct_values() -> i32 {
     HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES.get()
+}
+
+pub fn term_set_gallop_enabled() -> bool {
+    TERM_SET_GALLOP_ENABLED.get()
+}
+
+pub fn term_set_gallop_ratio() -> i32 {
+    TERM_SET_GALLOP_RATIO.get()
+}
+
+pub fn term_set_posting_ratio() -> i32 {
+    TERM_SET_POSTING_RATIO.get()
+}
+
+pub fn term_set_bitset_ratio() -> i32 {
+    TERM_SET_BITSET_RATIO.get()
+}
+
+pub fn term_set_hash_probe_ratio() -> i32 {
+    TERM_SET_HASH_PROBE_RATIO.get()
+}
+
+pub fn term_set_subsequent_bitset_ratio() -> i32 {
+    TERM_SET_SUBSEQUENT_BITSET_RATIO.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

@@ -17,11 +17,18 @@
 
 //! Shuffle operator primitives for MPP.
 //!
-//! Carries both the pure-function primitives and the DataFusion operators
-//! that compose them. The operators ([`MppRepartitionExec`] for the producer side,
-//! [`DrainGatherExec`] for the consumer side) live in this file alongside
-//! the primitives so a reader can step from "row → destination" through
-//! "Stream poll body" without crossing files.
+//! Carries both the pure-function primitives and the DataFusion operator
+//! that composes them. [`MppRepartitionExec`] is the analogue of DF's
+//! `RepartitionExec` for cross-participant shuffles: per execute() it
+//! reads the local child, hash-routes rows across the mesh via
+//! `MppSender`s, and yields the local participant's slice — including
+//! rows shipped to us by peers via the inbound `DrainHandle`. Earlier
+//! drafts split this into `MppRepartitionExec` (self-route) +
+//! `DrainGatherExec` (peer drain) joined under
+//! `CoalescePartitionsExec(UnionExec(...))`; PR #4828's DF-partition
+//! alignment folded both halves into a single operator so the output
+//! is a single stream that already contains both, matching DF's
+//! `RepartitionExec` shape.
 //!
 //! Primitives:
 //!
@@ -325,15 +332,21 @@ pub struct ShuffleWiring {
     pub cooperative_drain: Option<Arc<DrainHandle>>,
 }
 
-/// DataFusion `ExecutionPlan` that hashes every input row and ships non-self
-/// rows to peer participants via `MppSender`s, emitting only the
-/// self-partition rows as its output stream.
+/// DataFusion `ExecutionPlan` that hash-routes every input row across an
+/// MPP mesh and yields the local participant's slice. Output is the
+/// union of:
 ///
-/// Peer-received rows are NOT merged in here — the plan builder layers a
-/// gather-style operator above `MppRepartitionExec` that unions the self-partition
-/// output with a `DrainBuffer` populated by the drain thread reading inbound
-/// receivers. Keeping the two sides separate at this layer makes the operator
-/// composable and individually testable.
+///  * rows of `child` whose hash lands on this participant
+///    (self-routed via `wiring.partitioner`), and
+///  * rows shipped to us by peers, decoded by the drain thread into the
+///    `DrainBuffer` referenced by `wiring.cooperative_drain`.
+///
+/// Both streams are merged inside the operator's `execute()` body — the
+/// caller sees a single `SendableRecordBatchStream`. This is the
+/// MPP-side analogue of DF's `RepartitionExec`: same N-way routing
+/// semantics, same single-stream output, with the cross-process
+/// transport handled by the `MppSender` / `DrainHandle` pair attached
+/// via [`ShuffleWiring`].
 ///
 /// The wiring (partitioner + senders) is taken on `new` and handed to the
 /// first `execute()` call via a `Mutex<Option<_>>`. A second `execute()` call
@@ -472,7 +485,7 @@ impl ExecutionPlan for MppRepartitionExec {
         })?;
         let child_stream = self.input.execute(0, context)?;
         let schema = self.input.schema();
-        let stream = build_mpp_repartition_stream(child_stream, wiring, self.tag);
+        let stream = build_mpp_repartition_stream(child_stream, wiring, self.tag, schema.clone());
         Ok(Box::pin(RecordBatchStreamAdapter::new(schema, stream)))
     }
 }
@@ -597,106 +610,210 @@ impl ShuffleState {
 /// `child`, partitions each by row, ships peer-shares via the `MppSender`s
 /// in `wiring`, and yields the local participant's share back up the plan.
 ///
-/// The body interleaves three concerns on a single task: pulling from
-/// `child`, shipping outbound via `shm_mq_send`, and pumping the
-/// cooperative inbound drain so peer `MppSender`s can keep flushing into
-/// us. The drain is synchronous because `shm_mq` has no async readiness
-/// signal; an `async-stream` body shaped around it (rather than a
-/// `select!` over async sources) keeps the cooperative step explicit.
+/// The body interleaves four concerns on a single task: pulling from
+/// `child`, shipping outbound via `shm_mq_send`, pumping the cooperative
+/// inbound drain so peer `MppSender`s keep flushing into our `DrainBuffer`,
+/// and yielding peer-shipped batches that the drain has already
+/// delivered. The drain is synchronous because `shm_mq` has no async
+/// readiness signal; an `async-stream` body shaped around it (rather
+/// than a `select!` over async sources) keeps the cooperative step
+/// explicit.
+///
+/// Output is the union of:
+///
+///   * rows of `child` whose hash lands on this participant
+///     (self-routed via `partitioner.partition_for_each_row`), and
+///   * rows shipped to us by peers, decoded by the drain thread into
+///     `DrainBuffer` and pulled out here in arrival order.
+///
+/// The two streams used to live in separate operators
+/// (`MppRepartitionExec` + `DrainGatherExec`) joined by
+/// `CoalescePartitionsExec(UnionExec(...))`. They were folded into one
+/// body so the operator declares a single stream that already contains
+/// both halves — the natural shape for a DataFusion `RepartitionExec`
+/// analogue.
 fn build_mpp_repartition_stream(
     mut child: SendableRecordBatchStream,
     wiring: ShuffleWiring,
     tag: &'static str,
+    schema: SchemaRef,
 ) -> impl Stream<Item = DFResult<RecordBatch>> + Send {
     use futures::StreamExt;
 
+    let drain_handle = wiring.cooperative_drain.clone();
+    let participant_index = wiring.participant_index;
+
     async_stream::stream! {
+        // RAII guard: shutdown the drain handle if the consumer drops the
+        // stream early (LIMIT shortcut, parent cancel, panic). Without
+        // this, peer `MppRepartitionExec`s holding `Arc<DrainHandle>` clones
+        // via their `MppSender::cooperative_drain` would keep calling
+        // `poll_drain_pass`, pushing peer batches into a buffer no one
+        // reads — an unbounded memory-growth path on cancel.
+        let _shutdown_guard = drain_handle.as_ref().map(|h| ShutdownOnDrop { handle: h.clone() });
+
         let trace_on = mpp_trace_flag();
         let first_poll_at = trace_on.then(Instant::now);
         let mut time_in_child = Duration::ZERO;
         let mut time_in_process = Duration::ZERO;
         let mut time_in_coop_drain = Duration::ZERO;
+        let mut time_in_drain_pop = Duration::ZERO;
+        let mut rows_received_from_peers: u64 = 0;
+        let mut batches_received_from_peers: u64 = 0;
         let mut state = ShuffleState::new(wiring);
+        let mut child_done = false;
+        // No drain handle ⇒ no peers to receive from (single-participant
+        // case, or tests that skipped the inbound side).
+        let mut drain_eof = drain_handle.is_none();
 
         let outcome: DFResult<()> = 'pump: loop {
-            // 1. Drain any queued self-partition batches first; each
-            //    yield re-enters the loop and re-runs the inbound drain
-            //    below before pulling another child batch.
+            // 1. Yield any queued self-partition batch from a previous
+            //    `process_batch`. Each yield re-enters the loop, so the
+            //    drain pop + drain pass below run again before we pull
+            //    another child batch.
             if let Some(b) = state.self_queue.take() {
                 yield Ok(b);
                 continue 'pump;
             }
 
-            // 2. Proactive inbound drain: while we're producing + shipping,
-            //    keep consuming peer-shipped batches into our DrainBuffer.
-            //    Without this, a participant whose outbound sends succeed
-            //    fast never drains its inbound, peers' sends to us can't
-            //    un-stall, and the mesh deadlocks on asymmetric pressure
-            //    (observed as a 120s statement timeout on
-            //    `aggregate_join_groupby - alternative 2` at 25M rows).
-            //    The DrainBuffer is consumed later by `DrainGatherStream`
-            //    — this just keeps the pipe moving in the meantime.
-            if let Some(w) = state.wiring.as_ref() {
-                if let Some(drain) = w.cooperative_drain.as_ref() {
+            // 2. Yield a peer-shipped batch if the drain has one queued.
+            //    Schema-check it: a peer running with a drifted schema
+            //    would otherwise silently feed garbage to the operator
+            //    above us.
+            if let Some(handle) = drain_handle.as_ref() {
+                if !drain_eof {
                     let t0 = trace_on.then(Instant::now);
-                    let _ = drain.poll_drain_pass();
+                    let item = handle.buffer().try_pop();
                     if let Some(t0) = t0 {
-                        time_in_coop_drain += t0.elapsed();
+                        time_in_drain_pop += t0.elapsed();
+                    }
+                    match item {
+                        Some(DrainItem::Batch(b)) => {
+                            if b.schema() != schema {
+                                break 'pump Err(DataFusionError::Internal(format!(
+                                    "MppRepartitionExec[{tag}]: peer batch schema {:?} disagrees with expected {:?}",
+                                    b.schema(),
+                                    schema
+                                )));
+                            }
+                            rows_received_from_peers += b.num_rows() as u64;
+                            batches_received_from_peers += 1;
+                            yield Ok(b);
+                            continue 'pump;
+                        }
+                        Some(DrainItem::Eof) => {
+                            drain_eof = true;
+                        }
+                        None => {
+                            // Buffer empty but sources still alive — fall
+                            // through to drain-pass + child-pull below.
+                        }
                     }
                 }
             }
 
-            // 3. Pull child batches until one produces a self-row (handled
-            //    on the next outer iteration) or the child exhausts.
-            'pull: loop {
-                let t_child = trace_on.then(Instant::now);
-                let next = child.next().await;
-                if let Some(t0) = t_child {
-                    time_in_child += t0.elapsed();
-                }
-                match next {
-                    None => break 'pump Ok(()),
-                    Some(Err(e)) => break 'pump Err(e),
-                    Some(Ok(batch)) => {
-                        let t_proc = trace_on.then(Instant::now);
-                        let result = state.process_batch(batch, trace_on).await;
-                        if let Some(t0) = t_proc {
-                            time_in_process += t0.elapsed();
+            // 3. Cooperative drain pass: synchronously read whatever
+            //    peer-shipped bytes are currently sitting in `shm_mq` and
+            //    push them into our `DrainBuffer`. Without this, a
+            //    participant whose outbound sends succeed fast never
+            //    drains its inbound, peers' sends to us can't un-stall,
+            //    and the mesh deadlocks on asymmetric pressure (observed
+            //    as a 120s statement timeout on
+            //    `aggregate_join_groupby - alternative 2` at 25M rows).
+            //    Pumping here also feeds step 2 on the next iteration.
+            if !drain_eof {
+                if let Some(w) = state.wiring.as_ref() {
+                    if let Some(drain) = w.cooperative_drain.as_ref() {
+                        let t0 = trace_on.then(Instant::now);
+                        let _ = drain.poll_drain_pass();
+                        if let Some(t0) = t0 {
+                            time_in_coop_drain += t0.elapsed();
                         }
-                        if let Err(e) = result {
-                            break 'pump Err(e);
-                        }
-                        if state.self_queue.is_some() {
-                            // Hand off to the outer loop so the queued
-                            // self-batch yields and the inbound drain
-                            // re-runs before we pull again.
-                            continue 'pump;
-                        }
-                        // No self-partition in this batch — keep pulling.
-                        continue 'pull;
                     }
                 }
+            }
+
+            // 4. Pull a child batch (if not exhausted) and route. The
+            //    inner pull loop runs until either the child surfaces a
+            //    self-share (handed off to the outer loop) or the child
+            //    exhausts.
+            if !child_done {
+                'pull: loop {
+                    let t_child = trace_on.then(Instant::now);
+                    let next = child.next().await;
+                    if let Some(t0) = t_child {
+                        time_in_child += t0.elapsed();
+                    }
+                    match next {
+                        None => {
+                            child_done = true;
+                            // Drop wiring so peer senders detach and our
+                            // peers see EOF on their inbound. We may still
+                            // be reading peer-shipped rows in subsequent
+                            // iterations.
+                            state.wiring.take();
+                            break 'pull;
+                        }
+                        Some(Err(e)) => break 'pump Err(e),
+                        Some(Ok(batch)) => {
+                            let t_proc = trace_on.then(Instant::now);
+                            let result = state.process_batch(batch, trace_on).await;
+                            if let Some(t0) = t_proc {
+                                time_in_process += t0.elapsed();
+                            }
+                            if let Err(e) = result {
+                                break 'pump Err(e);
+                            }
+                            if state.self_queue.is_some() {
+                                continue 'pump;
+                            }
+                            // No self-partition in this batch — keep pulling.
+                            continue 'pull;
+                        }
+                    }
+                }
+            }
+
+            // 5. Exit when both producer sides are done.
+            if child_done && drain_eof {
+                break 'pump Ok(());
+            }
+
+            // 6. Child is exhausted but the drain still has live sources;
+            //    yield to the executor so peer `MppRepartitionExec`s can
+            //    make progress on their outbound shipping before our next
+            //    drain pass.
+            if child_done && !drain_eof {
+                yield_now().await;
             }
         };
 
-        // EOF / error tail: drop wiring so peer senders detach and signal
-        // EOF downstream, then emit the trace line. A self-share that
-        // happened to land in the queue right before an error is
-        // intentionally discarded — DataFusion's contract for a yielded
-        // `Err` is that no subsequent items follow, so emitting the
-        // queued batch first would mislead aggregators above us.
+        // Tail: deterministic drain shutdown (joins the drain thread so
+        // plan teardown doesn't leave a zombie holding DSM pointers) plus
+        // the trace line. A self-share that landed in the queue right
+        // before an error is intentionally discarded — DataFusion's
+        // contract for a yielded `Err` is that no subsequent items
+        // follow, so emitting the queued batch first would mislead
+        // aggregators above us.
         state.wiring.take();
+        let shutdown_err = drain_handle.as_ref().and_then(|h| h.shutdown().err());
         log_shuffle_eof(
             tag,
+            participant_index,
             &state,
             ShuffleTimings {
                 first_poll_at,
                 time_in_child,
                 time_in_process,
                 time_in_coop_drain,
+                time_in_drain_pop,
+                rows_received_from_peers,
+                batches_received_from_peers,
             },
         );
         if let Err(e) = outcome {
+            yield Err(e);
+        } else if let Some(e) = shutdown_err {
             yield Err(e);
         }
     }
@@ -714,15 +831,28 @@ struct ShuffleTimings {
     /// Cooperative inbound-drain time at the top of each loop iteration
     /// (excludes the in-spin drain accounted for inside `send_batch_traced`).
     time_in_coop_drain: Duration,
+    /// Time spent in `DrainBuffer::try_pop` at the top of each loop
+    /// iteration. Subset of the cooperative drain accounting that used
+    /// to live in `DrainGatherStream` before the fold.
+    time_in_drain_pop: Duration,
+    /// Rows received from peers (the half of the output that used to come
+    /// out of `DrainGatherExec`).
+    rows_received_from_peers: u64,
+    /// Batches received from peers (the half of the output that used to
+    /// come out of `DrainGatherExec`).
+    batches_received_from_peers: u64,
 }
 
 /// Trace-line emitter for [`build_mpp_repartition_stream`]'s EOF path. Gated out
-/// of `cargo test --lib` for the same reason as
-/// [`log_drain_gather_eof`]: the unit-test target is not a `pg_test`
-/// target and can't link the FFI symbols `pgrx::{warning,debug1}!`
-/// expand into via `ereport`. The runtime EOF path itself *is* exercised
-/// by tests.
-fn log_shuffle_eof(tag: &'static str, state: &ShuffleState, t: ShuffleTimings) {
+/// of `cargo test --lib` because the unit-test target is not a `pg_test`
+/// target and can't link the FFI symbols `pgrx::{warning,debug1}!` expand
+/// into via `ereport`. The runtime EOF path itself *is* exercised by tests.
+fn log_shuffle_eof(
+    tag: &'static str,
+    participant_index: u32,
+    state: &ShuffleState,
+    t: ShuffleTimings,
+) {
     #[cfg(not(test))]
     {
         let sent_summary = state
@@ -739,6 +869,7 @@ fn log_shuffle_eof(tag: &'static str, state: &ShuffleState, t: ShuffleTimings) {
         let child_ms = t.time_in_child.as_secs_f64() * 1000.0;
         let process_ms = t.time_in_process.as_secs_f64() * 1000.0;
         let coop_ms = t.time_in_coop_drain.as_secs_f64() * 1000.0;
+        let drain_pop_ms = t.time_in_drain_pop.as_secs_f64() * 1000.0;
         let part_ms = state.time_in_partition.as_secs_f64() * 1000.0;
         let split_ms = state.time_in_split.as_secs_f64() * 1000.0;
         let encode_ms = state.time_in_encode.as_secs_f64() * 1000.0;
@@ -746,17 +877,20 @@ fn log_shuffle_eof(tag: &'static str, state: &ShuffleState, t: ShuffleTimings) {
         let drain_in_spin_ms = state.time_in_coop_drain_in_spin.as_secs_f64() * 1000.0;
         if mpp_trace() {
             pgrx::warning!(
-                "mpp: ShuffleStream[{}] participant={} EOF rows_in={} batches_in={} self={} sent=[{}] wall_ms={:.1} child_ms={:.1} process_ms={:.1} coop_drain_ms={:.1} part_ms={:.1} split_ms={:.1} encode_ms={:.1} send_wait_ms={:.1} drain_in_spin_ms={:.1} spin_iters={}",
+                "mpp: MppRepartitionStream[{}] participant={} EOF rows_in={} batches_in={} self={} sent=[{}] rx_rows={} rx_batches={} wall_ms={:.1} child_ms={:.1} process_ms={:.1} coop_drain_ms={:.1} drain_pop_ms={:.1} part_ms={:.1} split_ms={:.1} encode_ms={:.1} send_wait_ms={:.1} drain_in_spin_ms={:.1} spin_iters={}",
                 tag,
-                state.participant_index,
+                participant_index,
                 state.rows_in,
                 state.batches_in,
                 state.rows_self,
                 sent_summary,
+                t.rows_received_from_peers,
+                t.batches_received_from_peers,
                 wall_ms,
                 child_ms,
                 process_ms,
                 coop_ms,
+                drain_pop_ms,
                 part_ms,
                 split_ms,
                 encode_ms,
@@ -766,125 +900,19 @@ fn log_shuffle_eof(tag: &'static str, state: &ShuffleState, t: ShuffleTimings) {
             );
         } else {
             pgrx::debug1!(
-                "mpp: ShuffleStream[{}] participant={} EOF rows_in={} self={} sent=[{}]",
+                "mpp: MppRepartitionStream[{}] participant={} EOF rows_in={} self={} sent=[{}] rx_rows={}",
                 tag,
-                state.participant_index,
+                participant_index,
                 state.rows_in,
                 state.rows_self,
-                sent_summary
+                sent_summary,
+                t.rows_received_from_peers,
             );
         }
     }
     #[cfg(test)]
     {
-        let _ = (tag, state, t);
-    }
-}
-
-/// DataFusion `ExecutionPlan` that drains a
-/// [`DrainBuffer`](crate::postgres::customscan::mpp::transport::DrainBuffer)
-/// as a `SendableRecordBatchStream`. In the MPP topology, the drain buffer is
-/// populated by the worker's drain thread reading peer-sent rows from inbound
-/// `shm_mq` queues; `DrainGatherExec` hands those rows to a `UnionExec` above
-/// it so they can merge with the local `MppRepartitionExec`'s self-partition output.
-///
-/// No child. Keeps the [`DrainHandle`] alive inside the operator so the
-/// drain thread is cancelled + joined on plan tear-down (whether clean or
-/// panic), closing the zombie-thread class of bugs the first review round
-/// flagged.
-pub struct DrainGatherExec {
-    drain_handle: Mutex<Option<Arc<DrainHandle>>>,
-    schema: SchemaRef,
-    plan_properties: Arc<PlanProperties>,
-    /// Diagnostic label — same value the sibling `MppRepartitionExec` uses so a
-    /// mesh's send-side and receive-side logs line up by tag.
-    tag: &'static str,
-    /// Remembered so `build_drain_gather_stream` can log which participant
-    /// received.
-    participant_index: u32,
-}
-
-impl fmt::Debug for DrainGatherExec {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("DrainGatherExec")
-            .field("tag", &self.tag)
-            .finish_non_exhaustive()
-    }
-}
-
-impl DrainGatherExec {
-    pub fn new(
-        drain_handle: Arc<DrainHandle>,
-        schema: SchemaRef,
-        tag: &'static str,
-        participant_index: u32,
-    ) -> Self {
-        let eq = EquivalenceProperties::new(schema.clone());
-        let plan_properties = Arc::new(PlanProperties::new(
-            eq,
-            Partitioning::UnknownPartitioning(1),
-            EmissionType::Incremental,
-            Boundedness::Bounded,
-        ));
-        Self {
-            drain_handle: Mutex::new(Some(drain_handle)),
-            schema,
-            plan_properties,
-            tag,
-            participant_index,
-        }
-    }
-}
-
-impl DisplayAs for DrainGatherExec {
-    fn fmt_as(&self, _t: DisplayFormatType, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "DrainGatherExec")
-    }
-}
-
-impl ExecutionPlan for DrainGatherExec {
-    fn name(&self) -> &str {
-        "DrainGatherExec"
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn properties(&self) -> &Arc<PlanProperties> {
-        &self.plan_properties
-    }
-
-    fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {
-        vec![]
-    }
-
-    fn with_new_children(
-        self: Arc<Self>,
-        children: Vec<Arc<dyn ExecutionPlan>>,
-    ) -> DFResult<Arc<dyn ExecutionPlan>> {
-        if !children.is_empty() {
-            return Err(DataFusionError::Internal(format!(
-                "DrainGatherExec expects zero children, got {}",
-                children.len()
-            )));
-        }
-        Ok(self)
-    }
-
-    fn execute(
-        &self,
-        _partition: usize,
-        _context: Arc<TaskContext>,
-    ) -> DFResult<SendableRecordBatchStream> {
-        let handle =
-            self.drain_handle.lock().unwrap().take().ok_or_else(|| {
-                DataFusionError::Internal("DrainGatherExec: already executed".into())
-            })?;
-        let schema = self.schema.clone();
-        let stream =
-            build_drain_gather_stream(handle, schema.clone(), self.tag, self.participant_index);
-        Ok(Box::pin(RecordBatchStreamAdapter::new(schema, stream)))
+        let _ = (tag, participant_index, state, t);
     }
 }
 
@@ -907,194 +935,6 @@ impl Drop for ShutdownOnDrop {
     }
 }
 
-/// Build the async stream that powers [`DrainGatherExec`]. Yields decoded
-/// peer batches in arrival order; cleanly returns once every inbound
-/// source has detached and the buffer is drained.
-///
-/// Cooperative drain: for pg-backed handles the drain work happens on
-/// the consumer's own task (not a background thread, which would panic
-/// on pgrx's `check_active_thread` the moment it touched any pg FFI via
-/// `shm_mq_receive`). Each loop iteration runs one drain pass and then
-/// `try_pop`s the buffer; on empty we yield to the executor so sibling
-/// tasks (peer `MppRepartitionExec`s shipping us rows) can make progress before
-/// the next pass.
-fn build_drain_gather_stream(
-    handle: Arc<DrainHandle>,
-    schema: SchemaRef,
-    tag: &'static str,
-    participant_index: u32,
-) -> impl Stream<Item = DFResult<RecordBatch>> + Send {
-    async_stream::stream! {
-        // Held across the whole body so any early-drop of the stream
-        // (LIMIT shortcut, cancel, panic) still cancels the buffer and
-        // releases the receivers. Peer senders observe detach on their
-        // next outbound `try_send_bytes` instead of looping forever.
-        let _shutdown_guard = ShutdownOnDrop { handle: handle.clone() };
-
-        let trace_on = mpp_trace_flag();
-        let first_poll_at = trace_on.then(Instant::now);
-        let mut time_in_drain_pass = Duration::ZERO;
-        let mut time_in_pop = Duration::ZERO;
-        let mut pending_polls: u64 = 0;
-        let mut rows_received: u64 = 0;
-        let mut batches_received: u64 = 0;
-
-        let coop = handle.is_cooperative();
-        let buffer = handle.buffer().clone();
-
-        // Outcome of the loop body. Both break paths run the same
-        // shutdown + log_eof tail below; using a local `Result` keeps the
-        // tail in one place rather than duplicating it at every exit.
-        let outcome: DFResult<()> = 'drain: loop {
-            // A peer that crashes before sending its detach leaves us
-            // pinned in the cooperative loop until statement_timeout;
-            // honor query cancel so the consumer can exit promptly.
-            // Gated out of `cargo test --lib` for the same reason as
-            // the `MppSender::send_batch_traced` spin: the macro pulls
-            // `ProcessInterrupts` / `PG_exception_stack` / `CopyErrorData`
-            // FFI symbols that aren't linked into the unit-test binary.
-            #[cfg(not(test))]
-            pgrx::check_for_interrupts!();
-
-            if coop {
-                let t0 = trace_on.then(Instant::now);
-                let res = handle.poll_drain_pass();
-                if let Some(t0) = t0 {
-                    time_in_drain_pass += t0.elapsed();
-                }
-                if let Err(e) = res {
-                    // Any batches already pushed into the buffer by an
-                    // earlier successful pass are intentionally discarded:
-                    // DataFusion's contract for a yielded `Err` is that no
-                    // subsequent items follow, so partial results would
-                    // mislead aggregators above us.
-                    break 'drain Err(e);
-                }
-            }
-
-            let t_pop = trace_on.then(Instant::now);
-            let item = if coop {
-                buffer.try_pop()
-            } else {
-                Some(buffer.recv().await)
-            };
-            if let Some(t0) = t_pop {
-                time_in_pop += t0.elapsed();
-            }
-
-            match item {
-                Some(DrainItem::Batch(b)) => {
-                    // Peer-shipped batches went through encode_batch /
-                    // decode_batch, so their schema comes from IPC metadata
-                    // rather than from what we expected locally. A peer
-                    // running a drifted schema would otherwise silently
-                    // feed garbage into the Union above us.
-                    if b.schema() != schema {
-                        break 'drain Err(DataFusionError::Internal(format!(
-                            "DrainGatherExec: peer batch schema {:?} disagrees with expected {:?}",
-                            b.schema(),
-                            schema
-                        )));
-                    }
-                    rows_received += b.num_rows() as u64;
-                    batches_received += 1;
-                    yield Ok(b);
-                }
-                Some(DrainItem::Eof) => break 'drain Ok(()),
-                None => {
-                    // Cooperative path only: buffer empty + sources still
-                    // alive. Yield so peer `MppRepartitionExec`s can produce, then
-                    // loop back into another drain pass.
-                    if trace_on {
-                        pending_polls += 1;
-                    }
-                    yield_now().await;
-                }
-            }
-        };
-
-        // Single shutdown + log_eof tail. Joins the drain thread
-        // deterministically so plan teardown doesn't leave a zombie
-        // holding DSM pointers; logs trailing trace metrics.
-        let shutdown_err = handle.shutdown().err();
-        log_drain_gather_eof(
-            tag,
-            participant_index,
-            DrainGatherTrace {
-                rows_received,
-                batches_received,
-                first_poll_at,
-                time_in_drain_pass,
-                time_in_pop,
-                pending_polls,
-            },
-        );
-        if let Err(e) = outcome {
-            yield Err(e);
-        } else if let Some(e) = shutdown_err {
-            yield Err(e);
-        }
-    }
-}
-
-/// Trace metrics carried through [`build_drain_gather_stream`] and
-/// emitted at EOF by [`log_drain_gather_eof`].
-/// `cfg_attr` rationale: same as [`ShuffleState`].
-#[cfg_attr(test, allow(dead_code))]
-struct DrainGatherTrace {
-    rows_received: u64,
-    batches_received: u64,
-    /// Only set when `mpp_trace_flag()` was on at first poll.
-    first_poll_at: Option<Instant>,
-    time_in_drain_pass: Duration,
-    time_in_pop: Duration,
-    /// `try_pop` returned `None`; subset of cooperative-only iterations.
-    pending_polls: u64,
-}
-
-/// Trace-line emitter for [`build_drain_gather_stream`]'s EOF path. See
-/// the matching `log_shuffle_eof` for the full reasoning behind the
-/// `cfg(not(test))` gate (cargo test --lib is not a `pg_test` target,
-/// so it can't link the FFI symbols `pgrx::{warning,debug1}!` expand
-/// into; the EOF path itself *is* exercised by tests via e.g.
-/// `drain_gather_exec_yields_all_buffered_batches`).
-fn log_drain_gather_eof(tag: &'static str, participant_index: u32, t: DrainGatherTrace) {
-    #[cfg(not(test))]
-    {
-        let wall_ms = t
-            .first_poll_at
-            .map(|s| s.elapsed().as_secs_f64() * 1000.0)
-            .unwrap_or(0.0);
-        let drain_ms = t.time_in_drain_pass.as_secs_f64() * 1000.0;
-        let pop_ms = t.time_in_pop.as_secs_f64() * 1000.0;
-        if mpp_trace() {
-            pgrx::warning!(
-                "mpp: DrainGatherStream[{}] participant={} EOF rows_received={} batches_received={} wall_ms={:.1} drain_ms={:.1} pop_ms={:.1} pending_polls={}",
-                tag,
-                participant_index,
-                t.rows_received,
-                t.batches_received,
-                wall_ms,
-                drain_ms,
-                pop_ms,
-                t.pending_polls,
-            );
-        } else {
-            pgrx::debug1!(
-                "mpp: DrainGatherStream[{}] participant={} EOF rows_received={} batches_received={}",
-                tag,
-                participant_index,
-                t.rows_received,
-                t.batches_received
-            );
-        }
-    }
-    #[cfg(test)]
-    {
-        let _ = (tag, participant_index, t);
-    }
-}
-
 // `pub` (in test builds only, since the whole module is gated `#[cfg(test)]`)
 // so `plan_build.rs::tests` can reuse `ModuloPartitioner`. Keeping the
 // shared test helpers here rather than in a separate `test_helpers` module
@@ -1105,14 +945,10 @@ pub mod tests {
     use crate::postgres::customscan::mpp::transport::{
         in_proc_channel, DrainBuffer, DrainConfig, DrainItem, MppReceiver, MppSender,
     };
-    use datafusion::arrow::array::{
-        Int32Array, Int64Array, RecordBatch as ArrowBatch, StringArray,
-    };
+    use datafusion::arrow::array::{Int32Array, RecordBatch as ArrowBatch, StringArray};
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::datasource::memory::MemorySourceConfig;
     use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
-    use datafusion::physical_plan::union::UnionExec;
-    use datafusion::physical_plan::ExecutionPlanProperties;
     use datafusion::prelude::SessionContext;
     use futures::StreamExt;
     use std::thread;
@@ -1624,22 +1460,24 @@ pub mod tests {
     }
 
     #[test]
-    fn mpp_data_path_end_to_end_via_union() {
+    fn mpp_repartition_yields_self_and_peer_in_one_stream() {
         // Full milestone-1 MPP data path in one process, no PG:
         //
         //   MemorySourceConfig (10 rows)
-        //     -> MppRepartitionExec (self-partition output)
-        //                                   \
-        //   simulated-peer-sender           UnionExec -> collected output
-        //     -> DrainHandle                /
-        //     -> DrainGatherExec (peer-partition output)
+        //     ─→ MppRepartitionExec (folds self-routing + peer drain
+        //                            into one stream)
+        //   simulated-peer-sender ─→ DrainHandle (cooperative)
         //
-        // At participant 0 with ModuloPartitioner(N=2), MppRepartitionExec yields
-        // IDs {0,2,4,6,8}. A simulated peer pushes synthetic batches into
-        // the inbound drain (IDs 100, 200) before dropping the sender.
-        // UnionExec emits 5 + 2 = 7 rows. We assert on the exact ID
-        // multiset, with the peer side explicitly arriving *after* self
-        // because Union preserves child order.
+        // At participant 0 with ModuloPartitioner(N=2), MppRepartitionExec
+        // yields self-routed IDs {0,2,4,6,8} and peer-shipped IDs
+        // {100, 200} in one stream. A simulated peer pushes the two
+        // synthetic batches into the inbound drain after a small delay so
+        // the buffer is empty on first poll — exercising the
+        // wait-then-pop interleaving inside the fold.
+        //
+        // Replaced the earlier `UnionExec(MppRepartitionExec,
+        // DrainGatherExec)` topology after PR #4828 folded the drain
+        // logic into `MppRepartitionExec.execute()`.
 
         let batch = sample_batch(10);
         let schema = batch.schema();
@@ -1648,22 +1486,32 @@ pub mod tests {
         let (out_tx, out_rx) = in_proc_channel(16); // outbound to peer
         let (in_tx, in_rx) = in_proc_channel(16); // inbound from peer
 
-        // Our MppRepartitionExec at participant 0 in an N=2 mesh. Peer = participant 1.
+        // DrainHandle reads peer-shipped batches from `in_rx` into
+        // `drain_buffer`. Wired into MppRepartitionExec via
+        // `cooperative_drain` so the fold loop picks them up alongside
+        // self-routed batches.
+        let receiver = MppReceiver::new(Box::new(in_rx));
+        let drain_buffer = DrainBuffer::new(1);
+        let drain_handle = Arc::new(DrainHandle::spawn(DrainConfig::new(
+            vec![receiver],
+            Arc::clone(&drain_buffer),
+        )));
+
         let wiring = ShuffleWiring {
             partitioner: Arc::new(ModuloPartitioner::new(2)),
             outbound_senders: vec![None, Some(MppSender::new(Box::new(out_tx)))],
             participant_index: 0,
-            cooperative_drain: None,
+            cooperative_drain: Some(Arc::clone(&drain_handle)),
         };
-        let shuffle: Arc<dyn ExecutionPlan> =
+        let repartition: Arc<dyn ExecutionPlan> =
             Arc::new(MppRepartitionExec::new(input, wiring, "test"));
 
         // Simulated peer: spawn a thread that pushes two synthetic batches
         // into `in_tx` with a small delay between them so the buffer is
         // *empty* when the main thread first polls — exercising the
-        // waker-based `Poll::Pending` path. If we pre-joined this thread
-        // (as an earlier version did), batches would all be buffered
-        // before the stream ran and the async contract would be untested.
+        // wait-then-pop path inside the fold loop. If we pre-joined this
+        // thread, batches would all be buffered before the stream ran
+        // and the cooperative interleaving would be untested.
         let peer_schema = schema.clone();
         let peer_thread = thread::spawn(move || {
             let sender = MppSender::new(Box::new(in_tx));
@@ -1682,22 +1530,6 @@ pub mod tests {
             // `sender` drops here → peer receiver observes detach → EOF.
         });
 
-        // DrainHandle draining the inbound channel into a DrainBuffer.
-        let receiver = MppReceiver::new(Box::new(in_rx));
-        let drain_buffer = DrainBuffer::new(1);
-        let drain_handle =
-            DrainHandle::spawn(DrainConfig::new(vec![receiver], Arc::clone(&drain_buffer)));
-        let gather: Arc<dyn ExecutionPlan> = Arc::new(DrainGatherExec::new(
-            Arc::new(drain_handle),
-            schema,
-            "test",
-            0,
-        ));
-
-        // Union: MppRepartitionExec emits first, then DrainGatherExec (Union
-        // preserves child order).
-        let union: Arc<dyn ExecutionPlan> = UnionExec::try_new(vec![shuffle, gather]).unwrap();
-
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -1706,21 +1538,16 @@ pub mod tests {
 
         let mut all_ids = Vec::new();
         rt.block_on(async {
-            // UnionExec reports output partitioning = N children; iterate
-            // each partition's stream in order.
-            let n_partitions = union.output_partitioning().partition_count();
-            for p in 0..n_partitions {
-                let mut s = union.execute(p, ctx.task_ctx()).unwrap();
-                while let Some(b) = s.next().await {
-                    let b = b.unwrap();
-                    let ids = b.column(0).as_any().downcast_ref::<Int32Array>().unwrap();
-                    all_ids.extend(ids.values().iter().copied());
-                }
+            let mut s = repartition.execute(0, ctx.task_ctx()).unwrap();
+            while let Some(b) = s.next().await {
+                let b = b.unwrap();
+                let ids = b.column(0).as_any().downcast_ref::<Int32Array>().unwrap();
+                all_ids.extend(ids.values().iter().copied());
             }
         });
 
         // Collect the outbound side into a second DrainBuffer just so we
-        // verify the MppRepartitionExec did, in fact, ship its peer rows.
+        // verify MppRepartitionExec did, in fact, ship its peer rows.
         let receiver = MppReceiver::new(Box::new(out_rx));
         let out_buffer = DrainBuffer::new(1);
         let out_handle =
@@ -1742,125 +1569,15 @@ pub mod tests {
         peer_thread.join().unwrap();
 
         // Assertions:
-        // 1. Union yielded self-partition (0,2,4,6,8) + peer-simulated (100, 200)
+        // 1. The single stream yielded self-partition (0,2,4,6,8) plus
+        //    peer-simulated (100, 200) interleaved as one sequence. Sort
+        //    to make the multiset deterministic.
         all_ids.sort();
         assert_eq!(all_ids, vec![0, 2, 4, 6, 8, 100, 200]);
-        // 2. MppRepartitionExec correctly shipped odd IDs to peer
+        // 2. MppRepartitionExec correctly shipped odd IDs to peer.
         outbound_ids.sort();
         assert_eq!(outbound_ids, vec![1, 3, 5, 7, 9]);
-    }
-
-    #[test]
-    fn drain_gather_exec_yields_eof_on_empty_peer() {
-        // Peer immediately drops the sender without shipping anything.
-        // DrainGatherExec must yield `None` cleanly via the waker path.
-
-        let (tx, rx) = in_proc_channel(4);
-        drop(MppSender::new(Box::new(tx))); // immediate EOF
-
-        let receiver = MppReceiver::new(Box::new(rx));
-        let buffer = DrainBuffer::new(1);
-        let handle = DrainHandle::spawn(DrainConfig::new(vec![receiver], Arc::clone(&buffer)));
-
-        let schema = sample_batch(1).schema();
-        let gather: Arc<dyn ExecutionPlan> =
-            Arc::new(DrainGatherExec::new(Arc::new(handle), schema, "test", 0));
-
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        let ctx = SessionContext::new();
-        let count: usize = rt.block_on(async {
-            let mut stream = gather.execute(0, ctx.task_ctx()).unwrap();
-            let mut c = 0;
-            while let Some(_b) = stream.next().await {
-                c += 1;
-            }
-            c
-        });
-        assert_eq!(count, 0, "empty peer should yield zero batches");
-    }
-
-    #[test]
-    fn drain_gather_exec_rejects_schema_mismatch() {
-        // Peer ships a batch with an Int64 id column; the DrainGatherExec
-        // was told the schema has Int32. The stream must surface an error
-        // rather than silently emit the mismatched batch.
-        let peer_schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
-        let (tx, rx) = in_proc_channel(4);
-        let sender = MppSender::new(Box::new(tx));
-        let batch = RecordBatch::try_new(
-            peer_schema,
-            vec![Arc::new(Int64Array::from_iter_values([42i64]))],
-        )
-        .unwrap();
-        sender.send_batch(&batch).unwrap();
-        drop(sender);
-
-        let receiver = MppReceiver::new(Box::new(rx));
-        let buffer = DrainBuffer::new(1);
-        let handle = DrainHandle::spawn(DrainConfig::new(vec![receiver], Arc::clone(&buffer)));
-
-        let expected_schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
-        let gather: Arc<dyn ExecutionPlan> = Arc::new(DrainGatherExec::new(
-            Arc::new(handle),
-            expected_schema,
-            "test",
-            0,
-        ));
-
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        let ctx = SessionContext::new();
-        let got_error = rt.block_on(async {
-            let mut stream = gather.execute(0, ctx.task_ctx()).unwrap();
-            matches!(stream.next().await, Some(Err(_)))
-        });
-        assert!(
-            got_error,
-            "DrainGatherExec must reject schema-mismatched batches"
-        );
-    }
-
-    #[test]
-    fn drain_gather_exec_yields_all_buffered_batches() {
-        // Set up a drain handle whose drain thread reads from an in-proc
-        // channel. Push 3 batches through the channel, then drop the sender
-        // to signal EOF. DrainGatherExec should yield exactly those 3
-        // batches.
-        let (tx, rx) = in_proc_channel(8);
-        let receiver = MppReceiver::new(Box::new(rx));
-        let buffer = DrainBuffer::new(1);
-        let handle = DrainHandle::spawn(DrainConfig::new(vec![receiver], Arc::clone(&buffer)));
-
-        // Sender feeds 3 sample batches then drops (→ EOF).
-        let sender = MppSender::new(Box::new(tx));
-        for rows in [2, 3, 5] {
-            sender.send_batch(&sample_batch(rows)).unwrap();
-        }
-        drop(sender);
-
-        let schema = sample_batch(1).schema();
-        let gather: Arc<dyn ExecutionPlan> =
-            Arc::new(DrainGatherExec::new(Arc::new(handle), schema, "test", 0));
-
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        let ctx = SessionContext::new();
-        let totals: Vec<usize> = rt.block_on(async {
-            let mut stream = gather.execute(0, ctx.task_ctx()).unwrap();
-            let mut v = Vec::new();
-            while let Some(b) = stream.next().await {
-                v.push(b.unwrap().num_rows());
-            }
-            v
-        });
-        assert_eq!(totals, vec![2, 3, 5]);
+        let _ = schema;
     }
 
     #[test]

@@ -219,7 +219,7 @@ impl PgSearchScanPlan {
     /// This is a primitive: it strips unconditionally and does not validate
     /// that re-attaching the filter elsewhere is safe. It is correct only
     /// when the caller is rebuilding the plan such that the stripped
-    /// filter will be reapplied above a `ShuffleExec` that crosses
+    /// filter will be reapplied above a `MppRepartitionExec` that crosses
     /// participant boundaries.
     ///
     /// In particular, do *not* call this on a scan whose enclosing

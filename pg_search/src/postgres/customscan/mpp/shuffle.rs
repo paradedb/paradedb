@@ -18,14 +18,14 @@
 //! Shuffle operator primitives for MPP.
 //!
 //! Carries both the pure-function primitives and the DataFusion operators
-//! that compose them. The operators ([`ShuffleExec`] for the producer side,
+//! that compose them. The operators ([`MppRepartitionExec`] for the producer side,
 //! [`DrainGatherExec`] for the consumer side) live in this file alongside
 //! the primitives so a reader can step from "row → destination" through
 //! "Stream poll body" without crossing files.
 //!
 //! Primitives:
 //!
-//! - [`RowPartitioner`] is the trait `ShuffleExec` calls per batch to decide
+//! - [`RowPartitioner`] is the trait `MppRepartitionExec` calls per batch to decide
 //!   which destination participant each row belongs to.
 //! - [`HashPartitioner`] is the production impl — a hash over join key columns
 //!   modulo N participants. Uses DataFusion's `create_hashes` helper with a
@@ -44,19 +44,19 @@
 //!   path.
 //! - [`split_batch_by_partition`] is the row-scatter step: given a batch and
 //!   its per-row destination vector, return one sub-batch per destination,
-//!   preserving row order within each destination. `ShuffleExec`'s producer
+//!   preserving row order within each destination. `MppRepartitionExec`'s producer
 //!   loop calls this once per input batch, then feeds each sub-batch to its
 //!   corresponding `MppSender` (peers) or local channel (self).
 //!
 //! TODO(arch): the "destination participant" routing here is parallel to,
 //! but distinct from, DataFusion's own `partition` concept.
 //! `datafusion-distributed` takes a different approach: it lets each
-//! `ShuffleExec` expose N output partitions (one per participant) and
+//! `MppRepartitionExec` expose N output partitions (one per participant) and
 //! uses `PartitionIsolatorExec` to select which partition a worker reads.
 //! That alignment with native DF partitions has real upside (every DF
 //! optimizer rule that reasons about partitioning would Just Work). The
 //! current code prefers the row-routing model because it keeps
-//! `ShuffleExec` shaped like a single-output operator (matches
+//! `MppRepartitionExec` shaped like a single-output operator (matches
 //! ParadeDB's pre-existing custom-scan single-partition assumption) and
 //! avoids needing a `PartitionIsolatorExec` analogue everywhere we
 //! reference a participant index. Re-evaluating once the rest of the
@@ -114,14 +114,14 @@ fn mpp_trace_flag() -> bool {
 /// Assigns each row of a `RecordBatch` to one of N destination participants.
 ///
 /// Implementations must return exactly `batch.num_rows()` values, each in
-/// `0..total_participants`. `ShuffleExec` uses this at the top of its
+/// `0..total_participants`. `MppRepartitionExec` uses this at the top of its
 /// producer loop to fan rows out across the mesh.
 pub trait RowPartitioner: Send + Sync {
     /// Return a destination index in `0..total_participants` for every row.
     fn partition_for_each_row(&self, batch: &RecordBatch) -> Result<Vec<u32>, DataFusionError>;
 
     /// Total destinations this partitioner will target. Used by
-    /// `ShuffleExec` to size per-destination scratch arrays.
+    /// `MppRepartitionExec` to size per-destination scratch arrays.
     fn total_participants(&self) -> u32;
 }
 
@@ -303,7 +303,7 @@ pub fn split_batch_by_partition(
 
 /// Concatenate destination sub-batches back into one RecordBatch.
 ///
-/// Wiring passed to `ShuffleExec::new` that describes how this participant
+/// Wiring passed to `MppRepartitionExec::new` that describes how this participant
 /// connects to the mesh. Moved into the operator at construction time; the
 /// operator owns the senders for the query's lifetime and drops them at
 /// stream EOF / abort so peer receivers cleanly observe detach.
@@ -311,11 +311,11 @@ pub struct ShuffleWiring {
     pub partitioner: Arc<dyn RowPartitioner>,
     /// One slot per participant, length = `partitioner.total_participants()`.
     /// Participant `participant_index` must be `None`; all other participants must be
-    /// `Some(MppSender)`. `ShuffleExec::new` asserts this invariant.
+    /// `Some(MppSender)`. `MppRepartitionExec::new` asserts this invariant.
     pub outbound_senders: Vec<Option<MppSender>>,
     pub participant_index: u32,
     /// Our inbound-side drain handle for the same mesh. When set,
-    /// `build_shuffle_stream` proactively calls
+    /// `build_mpp_repartition_stream` proactively calls
     /// `DrainHandle::poll_drain_pass` every iteration so our inbound
     /// queues keep draining even when our outbound sends aren't
     /// blocking. Without this, a participant whose sends succeed fast
@@ -330,7 +330,7 @@ pub struct ShuffleWiring {
 /// self-partition rows as its output stream.
 ///
 /// Peer-received rows are NOT merged in here — the plan builder layers a
-/// gather-style operator above `ShuffleExec` that unions the self-partition
+/// gather-style operator above `MppRepartitionExec` that unions the self-partition
 /// output with a `DrainBuffer` populated by the drain thread reading inbound
 /// receivers. Keeping the two sides separate at this layer makes the operator
 /// composable and individually testable.
@@ -342,7 +342,7 @@ pub struct ShuffleWiring {
 ///
 /// The wiring is also one-shot with respect to `with_new_children`: an
 /// optimizer rule that calls `with_new_children` *moves* the wiring into
-/// the freshly-built `ShuffleExec`, leaving the original instance in a
+/// the freshly-built `MppRepartitionExec`, leaving the original instance in a
 /// "wiring-consumed" state where any subsequent `execute()` returns an
 /// error. `MppSender` is not `Clone`, so duplicating the wiring is not an
 /// option. In practice DataFusion's optimizer rewrites the plan top-down
@@ -350,7 +350,7 @@ pub struct ShuffleWiring {
 /// note exists so a future planner change that retains references to the
 /// old plan fails loudly with the right error rather than reaching some
 /// later "already executed" branch.
-pub struct ShuffleExec {
+pub struct MppRepartitionExec {
     input: Arc<dyn ExecutionPlan>,
     wiring: Mutex<Option<ShuffleWiring>>,
     plan_properties: Arc<PlanProperties>,
@@ -360,30 +360,30 @@ pub struct ShuffleExec {
     tag: &'static str,
 }
 
-impl fmt::Debug for ShuffleExec {
+impl fmt::Debug for MppRepartitionExec {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ShuffleExec")
+        f.debug_struct("MppRepartitionExec")
             .field("input", &self.input)
             .field("tag", &self.tag)
             .finish_non_exhaustive()
     }
 }
 
-impl ShuffleExec {
+impl MppRepartitionExec {
     pub fn new(input: Arc<dyn ExecutionPlan>, wiring: ShuffleWiring, tag: &'static str) -> Self {
         let n = wiring.partitioner.total_participants();
         assert_eq!(
             wiring.outbound_senders.len(),
             n as usize,
-            "ShuffleExec: outbound_senders.len() != total_participants"
+            "MppRepartitionExec: outbound_senders.len() != total_participants"
         );
         assert!(
             wiring.participant_index < n,
-            "ShuffleExec: participant_index >= total_participants"
+            "MppRepartitionExec: participant_index >= total_participants"
         );
         assert!(
             wiring.outbound_senders[wiring.participant_index as usize].is_none(),
-            "ShuffleExec: self participant sender slot must be None"
+            "MppRepartitionExec: self participant sender slot must be None"
         );
 
         let eq_properties = EquivalenceProperties::new(input.schema());
@@ -413,15 +413,15 @@ impl ShuffleExec {
     }
 }
 
-impl DisplayAs for ShuffleExec {
+impl DisplayAs for MppRepartitionExec {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "ShuffleExec")
+        write!(f, "MppRepartitionExec")
     }
 }
 
-impl ExecutionPlan for ShuffleExec {
+impl ExecutionPlan for MppRepartitionExec {
     fn name(&self) -> &str {
-        "ShuffleExec"
+        "MppRepartitionExec"
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -442,7 +442,7 @@ impl ExecutionPlan for ShuffleExec {
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
         if children.len() != 1 {
             return Err(DataFusionError::Internal(format!(
-                "ShuffleExec expects exactly one child, got {}",
+                "MppRepartitionExec expects exactly one child, got {}",
                 children.len()
             )));
         }
@@ -452,10 +452,10 @@ impl ExecutionPlan for ShuffleExec {
         let wiring = self.wiring.lock().unwrap().take();
         let Some(wiring) = wiring else {
             return Err(DataFusionError::Internal(
-                "ShuffleExec: with_new_children called after wiring was consumed".into(),
+                "MppRepartitionExec: with_new_children called after wiring was consumed".into(),
             ));
         };
-        Ok(Arc::new(ShuffleExec::new(
+        Ok(Arc::new(MppRepartitionExec::new(
             children.into_iter().next().unwrap(),
             wiring,
             self.tag,
@@ -467,20 +467,17 @@ impl ExecutionPlan for ShuffleExec {
         _partition: usize,
         context: Arc<TaskContext>,
     ) -> DFResult<SendableRecordBatchStream> {
-        let wiring = self
-            .wiring
-            .lock()
-            .unwrap()
-            .take()
-            .ok_or_else(|| DataFusionError::Internal("ShuffleExec: already executed".into()))?;
+        let wiring = self.wiring.lock().unwrap().take().ok_or_else(|| {
+            DataFusionError::Internal("MppRepartitionExec: already executed".into())
+        })?;
         let child_stream = self.input.execute(0, context)?;
         let schema = self.input.schema();
-        let stream = build_shuffle_stream(child_stream, wiring, self.tag);
+        let stream = build_mpp_repartition_stream(child_stream, wiring, self.tag);
         Ok(Box::pin(RecordBatchStreamAdapter::new(schema, stream)))
     }
 }
 
-/// Mutable per-stream state for [`build_shuffle_stream`]. Kept as a
+/// Mutable per-stream state for [`build_mpp_repartition_stream`]. Kept as a
 /// struct (rather than scattered locals) so [`process_batch`] can mutate
 /// row counters, push to the self-queue, and accumulate trace metrics
 /// in one place.
@@ -596,7 +593,7 @@ impl ShuffleState {
     }
 }
 
-/// Build the async stream that powers [`ShuffleExec`]. Pulls batches from
+/// Build the async stream that powers [`MppRepartitionExec`]. Pulls batches from
 /// `child`, partitions each by row, ships peer-shares via the `MppSender`s
 /// in `wiring`, and yields the local participant's share back up the plan.
 ///
@@ -606,7 +603,7 @@ impl ShuffleState {
 /// us. The drain is synchronous because `shm_mq` has no async readiness
 /// signal; an `async-stream` body shaped around it (rather than a
 /// `select!` over async sources) keeps the cooperative step explicit.
-fn build_shuffle_stream(
+fn build_mpp_repartition_stream(
     mut child: SendableRecordBatchStream,
     wiring: ShuffleWiring,
     tag: &'static str,
@@ -706,7 +703,7 @@ fn build_shuffle_stream(
 }
 
 /// Wall-clock timings carried alongside [`ShuffleState`] in
-/// [`build_shuffle_stream`]; emitted at EOF by [`log_shuffle_eof`].
+/// [`build_mpp_repartition_stream`]; emitted at EOF by [`log_shuffle_eof`].
 /// `cfg_attr` rationale: same as [`ShuffleState`].
 #[cfg_attr(test, allow(dead_code))]
 struct ShuffleTimings {
@@ -719,7 +716,7 @@ struct ShuffleTimings {
     time_in_coop_drain: Duration,
 }
 
-/// Trace-line emitter for [`build_shuffle_stream`]'s EOF path. Gated out
+/// Trace-line emitter for [`build_mpp_repartition_stream`]'s EOF path. Gated out
 /// of `cargo test --lib` for the same reason as
 /// [`log_drain_gather_eof`]: the unit-test target is not a `pg_test`
 /// target and can't link the FFI symbols `pgrx::{warning,debug1}!`
@@ -789,7 +786,7 @@ fn log_shuffle_eof(tag: &'static str, state: &ShuffleState, t: ShuffleTimings) {
 /// as a `SendableRecordBatchStream`. In the MPP topology, the drain buffer is
 /// populated by the worker's drain thread reading peer-sent rows from inbound
 /// `shm_mq` queues; `DrainGatherExec` hands those rows to a `UnionExec` above
-/// it so they can merge with the local `ShuffleExec`'s self-partition output.
+/// it so they can merge with the local `MppRepartitionExec`'s self-partition output.
 ///
 /// No child. Keeps the [`DrainHandle`] alive inside the operator so the
 /// drain thread is cancelled + joined on plan tear-down (whether clean or
@@ -799,7 +796,7 @@ pub struct DrainGatherExec {
     drain_handle: Mutex<Option<Arc<DrainHandle>>>,
     schema: SchemaRef,
     plan_properties: Arc<PlanProperties>,
-    /// Diagnostic label — same value the sibling `ShuffleExec` uses so a
+    /// Diagnostic label — same value the sibling `MppRepartitionExec` uses so a
     /// mesh's send-side and receive-side logs line up by tag.
     tag: &'static str,
     /// Remembered so `build_drain_gather_stream` can log which participant
@@ -894,7 +891,7 @@ impl ExecutionPlan for DrainGatherExec {
 /// RAII guard ensuring `handle.shutdown()` runs even when the consumer
 /// drops the stream before the natural EOF/Err tail (e.g., a parent
 /// `LIMIT` shortcut, query cancel during the loop, panic). Without this,
-/// peer `ShuffleExec`s holding `Arc<DrainHandle>` clones via their
+/// peer `MppRepartitionExec`s holding `Arc<DrainHandle>` clones via their
 /// `MppSender::cooperative_drain` would keep calling `poll_drain_pass`,
 /// pushing peer batches into a buffer no one reads — an unbounded
 /// memory-growth path on cancel. Shutdown is idempotent (cancel is
@@ -919,7 +916,7 @@ impl Drop for ShutdownOnDrop {
 /// on pgrx's `check_active_thread` the moment it touched any pg FFI via
 /// `shm_mq_receive`). Each loop iteration runs one drain pass and then
 /// `try_pop`s the buffer; on empty we yield to the executor so sibling
-/// tasks (peer `ShuffleExec`s shipping us rows) can make progress before
+/// tasks (peer `MppRepartitionExec`s shipping us rows) can make progress before
 /// the next pass.
 fn build_drain_gather_stream(
     handle: Arc<DrainHandle>,
@@ -1006,7 +1003,7 @@ fn build_drain_gather_stream(
                 Some(DrainItem::Eof) => break 'drain Ok(()),
                 None => {
                     // Cooperative path only: buffer empty + sources still
-                    // alive. Yield so peer `ShuffleExec`s can produce, then
+                    // alive. Yield so peer `MppRepartitionExec`s can produce, then
                     // loop back into another drain pass.
                     if trace_on {
                         pending_polls += 1;
@@ -1198,7 +1195,7 @@ pub mod tests {
     /// so every worker aborts the whole query, not just this operator. A
     /// silent drop would make peers' downstream aggregate nodes happily
     /// finalize over incomplete input and return wrong answers.
-    /// `build_shuffle_stream` honors this by surfacing the error via the
+    /// `build_mpp_repartition_stream` honors this by surfacing the error via the
     /// stream's `Err` item.
     ///
     /// ## Producer order
@@ -1211,7 +1208,7 @@ pub mod tests {
     /// participant 0 would indirectly stall our own consumer because it
     /// never sees any self rows until the stall unblocks.
     ///
-    /// This is the non-streaming core of `ShuffleExec`: the DataFusion
+    /// This is the non-streaming core of `MppRepartitionExec`: the DataFusion
     /// operator composes this same logic inside a `Stream::poll_next`,
     /// but the synchronous form is unit-testable without setting up a
     /// DataFusion runtime.
@@ -1574,7 +1571,8 @@ pub mod tests {
             participant_index: 0,
             cooperative_drain: None,
         };
-        let shuffle: Arc<dyn ExecutionPlan> = Arc::new(ShuffleExec::new(input, wiring, "test"));
+        let shuffle: Arc<dyn ExecutionPlan> =
+            Arc::new(MppRepartitionExec::new(input, wiring, "test"));
 
         // Run the output stream to completion.
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -1630,13 +1628,13 @@ pub mod tests {
         // Full milestone-1 MPP data path in one process, no PG:
         //
         //   MemorySourceConfig (10 rows)
-        //     -> ShuffleExec (self-partition output)
+        //     -> MppRepartitionExec (self-partition output)
         //                                   \
         //   simulated-peer-sender           UnionExec -> collected output
         //     -> DrainHandle                /
         //     -> DrainGatherExec (peer-partition output)
         //
-        // At participant 0 with ModuloPartitioner(N=2), ShuffleExec yields
+        // At participant 0 with ModuloPartitioner(N=2), MppRepartitionExec yields
         // IDs {0,2,4,6,8}. A simulated peer pushes synthetic batches into
         // the inbound drain (IDs 100, 200) before dropping the sender.
         // UnionExec emits 5 + 2 = 7 rows. We assert on the exact ID
@@ -1650,14 +1648,15 @@ pub mod tests {
         let (out_tx, out_rx) = in_proc_channel(16); // outbound to peer
         let (in_tx, in_rx) = in_proc_channel(16); // inbound from peer
 
-        // Our ShuffleExec at participant 0 in an N=2 mesh. Peer = participant 1.
+        // Our MppRepartitionExec at participant 0 in an N=2 mesh. Peer = participant 1.
         let wiring = ShuffleWiring {
             partitioner: Arc::new(ModuloPartitioner::new(2)),
             outbound_senders: vec![None, Some(MppSender::new(Box::new(out_tx)))],
             participant_index: 0,
             cooperative_drain: None,
         };
-        let shuffle: Arc<dyn ExecutionPlan> = Arc::new(ShuffleExec::new(input, wiring, "test"));
+        let shuffle: Arc<dyn ExecutionPlan> =
+            Arc::new(MppRepartitionExec::new(input, wiring, "test"));
 
         // Simulated peer: spawn a thread that pushes two synthetic batches
         // into `in_tx` with a small delay between them so the buffer is
@@ -1695,7 +1694,7 @@ pub mod tests {
             0,
         ));
 
-        // Union: ShuffleExec emits first, then DrainGatherExec (Union
+        // Union: MppRepartitionExec emits first, then DrainGatherExec (Union
         // preserves child order).
         let union: Arc<dyn ExecutionPlan> = UnionExec::try_new(vec![shuffle, gather]).unwrap();
 
@@ -1721,7 +1720,7 @@ pub mod tests {
         });
 
         // Collect the outbound side into a second DrainBuffer just so we
-        // verify the ShuffleExec did, in fact, ship its peer rows.
+        // verify the MppRepartitionExec did, in fact, ship its peer rows.
         let receiver = MppReceiver::new(Box::new(out_rx));
         let out_buffer = DrainBuffer::new(1);
         let out_handle =
@@ -1746,7 +1745,7 @@ pub mod tests {
         // 1. Union yielded self-partition (0,2,4,6,8) + peer-simulated (100, 200)
         all_ids.sort();
         assert_eq!(all_ids, vec![0, 2, 4, 6, 8, 100, 200]);
-        // 2. ShuffleExec correctly shipped odd IDs to peer
+        // 2. MppRepartitionExec correctly shipped odd IDs to peer
         outbound_ids.sort();
         assert_eq!(outbound_ids, vec![1, 3, 5, 7, 9]);
     }
@@ -1933,7 +1932,7 @@ pub mod tests {
             cooperative_drain: None,
         };
         let shuffle: Arc<dyn ExecutionPlan> =
-            Arc::new(ShuffleExec::new(input_exec, wiring, "test"));
+            Arc::new(MppRepartitionExec::new(input_exec, wiring, "test"));
 
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -1944,7 +1943,7 @@ pub mod tests {
             let mut stream = shuffle.execute(0, ctx.task_ctx()).unwrap();
             matches!(stream.next().await, Some(Err(_)))
         });
-        assert!(got_error, "ShuffleExec must propagate child errors");
+        assert!(got_error, "MppRepartitionExec must propagate child errors");
     }
 
     #[test]

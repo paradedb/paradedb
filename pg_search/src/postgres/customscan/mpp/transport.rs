@@ -342,7 +342,7 @@ pub struct MppSender {
 }
 
 // SAFETY: `MppSender` lives inside `ShuffleWiring`, which is owned by a
-// single `ShuffleExec` running on a single backend thread. The async
+// single `MppRepartitionExec` running on a single backend thread. The async
 // `send_batch_traced` future captures `&self` and contains a Tokio
 // `yield_now().await`; the compiler conservatively requires the future
 // to be `Send`, which forces `&MppSender: Send` and therefore

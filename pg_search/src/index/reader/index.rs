@@ -42,14 +42,13 @@ use tantivy::aggregation::intermediate_agg_result::IntermediateAggregationResult
 use tantivy::aggregation::DistributedAggregationCollector;
 use tantivy::collector::sort_key::{
     ComparatorEnum, SortByBytes, SortByErasedType, SortBySimilarityScore, SortByStaticFastValue,
-    SortByString, SortByTurboQuantDistance,
+    SortByString,
 };
 use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
-use tantivy::vector::cluster::plugin::{ClusterPlugin, ProbeConfig};
-use tantivy::vector::turboquant::TurboQuantizer;
+use tantivy::vector::ivf::AdaptiveProbeParams;
 use tantivy::{
     query::Query, schema::OwnedValue, DateTime, DocAddress, DocId, DocSet, Executor, IndexReader,
     ReloadPolicy, Score, Searcher, SegmentOrdinal, SegmentReader, TantivyDocument,
@@ -356,9 +355,6 @@ impl SearchIndexReader {
 
         let directory = mvcc_style.directory(index_relation);
         let mut index = Index::open(directory.clone())?;
-        if let Some(cfg) = index_relation.cluster_config(false) {
-            index.register_plugin(Arc::new(ClusterPlugin::new(cfg)));
-        }
         let total_segment_count = directory
             .total_segment_count()
             .load(std::sync::atomic::Ordering::Relaxed);
@@ -932,35 +928,26 @@ impl SearchIndexReader {
                     },
                 ..
             } => {
+                let only_score_feature =
+                    erased_features.len() == 1 && erased_features.score_index() == Some(0);
+                if !(erased_features.is_empty() || only_score_feature) {
+                    panic!("secondary ORDER BY fields are not supported for vector distance");
+                }
                 let field = self
                     .schema
                     .search_field(name)
                     .expect("vector field should exist in index schema");
                 let tantivy_field = field.field();
-
-                let dims = query_vector.len();
-                // Bit width MUST match what the docs were encoded with —
-                // the LUT shape (codebook entries per coord) is set from
-                // here and a mismatch silently produces wrong scores.
-                // The reloption is the source of truth at build time and
-                // can't be changed without rebuilding the index.
-                let bit_width = self.index_rel.options().vector_bit_width();
-                let quantizer = TurboQuantizer::new(dims, Some(bit_width), None);
-                let mut sort_computer =
-                    SortByTurboQuantDistance::new(query_vector.clone(), tantivy_field, quantizer);
-                let probe = ProbeConfig {
-                    max_probe: crate::gucs::vector_cluster_probes(),
-                    ..Default::default()
-                };
-                sort_computer = sort_computer.with_probe(probe);
-                TopKSearchResults::new_for_discarded_field(self.top_in_segments(
-                    segment_ids,
-                    sort_computer,
-                    erased_features,
-                    n,
-                    offset,
-                    aux_collector,
-                ))
+                let collector = TopDocs::with_limit(n)
+                    .and_offset(offset)
+                    .order_by_similarity(tantivy_field, query_vector.clone())
+                    .with_adaptive_params(AdaptiveProbeParams {
+                        max_nprobe: crate::gucs::vector_cluster_probes(),
+                        ..Default::default()
+                    });
+                let (top_docs, aggregation_results) =
+                    self.collect_maybe_auxiliary(segment_ids, collector, aux_collector);
+                TopKSearchResults::new_for_score(top_docs, aggregation_results)
             }
         }
     }

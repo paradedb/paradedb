@@ -546,9 +546,6 @@ fn build_equivalence_properties(
 
 /// Translate a `tantivy::query::StrategyTag` back into the human-readable
 /// strategy name surfaced in `EXPLAIN ANALYZE` output. The match is
-/// exhaustive on the enum so follow-ups A and B (filling in the
-/// posting-direct and bitset-from-postings dispatch arms) don't need to
-/// revisit this site — the compiler will flag any new variant.
 fn strategy_name(strategy: tantivy::query::StrategyTag) -> &'static str {
     use tantivy::query::StrategyTag;
     match strategy {
@@ -556,8 +553,8 @@ fn strategy_name(strategy: tantivy::query::StrategyTag) -> &'static str {
         StrategyTag::Gallop => "gallop",
         StrategyTag::Linear => "linear",
         StrategyTag::Bitset => "bitset_from_postings",
-        StrategyTag::Automaton => "automaton",
-        StrategyTag::Empty => "empty",
+        StrategyTag::Posting => "posting",
+        StrategyTag::Hash => "hash",
     }
 }
 
@@ -575,7 +572,7 @@ impl DisplayAs for PgSearchScanPlan {
             // Render a single token. `TermSetWeight` writes the chosen
             // `StrategyTag` to the sink on every dispatch, so the value
             // is the strategy name (`gallop` / `linear` /
-            // `bitset_from_postings` / `automaton` / `empty`). Falls
+            // `bitset_from_postings` / `posting` / `hash`). Falls
             // back to `true` only when pushdown was indicated but no
             // `TermSetWeight` ran to record a tag — e.g., the dynamic
             // filter handled a non-TermSet shape, or the scan

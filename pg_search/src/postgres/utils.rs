@@ -833,22 +833,13 @@ pub unsafe fn row_to_search_document<'a>(
                     .expect("vector field datum should not be NULL")
                     .0
             };
-            // The TurboQuant codec is unit-sphere only — its Stage 1
-            // Lloyd-Max codebook is trained against the Beta marginal
-            // of unit-norm coordinates. Pre-normalize at the index
-            // boundary for both L2 and Cosine metrics so encoding
-            // doesn't saturate. (L2 on unit vectors ranks identically
-            // to cosine — see runtime_metric() — which is also what
-            // FAISS / ScaNN / pgvector's HNSW do internally.)
-            // InnerProduct is left un-normalized: the caller asked
-            // for magnitude-aware IP and the codec handles it.
+            // Keep cosine/L2 vectors on the unit sphere at the boundary.
+            // InnerProduct is left un-normalized because the caller asked
+            // for magnitude-aware IP.
             if matches!(metric, VectorMetric::L2 | VectorMetric::Cosine) {
                 l2_normalize_in_place(&mut vec);
             }
-            document.add_leaf_field_value(
-                search_field.field(),
-                tantivy::schema::document::ReferenceValueLeaf::Vector(&vec),
-            );
+            document.add_vector(search_field.field(), &vec);
         } else {
             let tv = match search_field.field_type() {
                 SearchFieldType::Numeric64(_, scale) => {

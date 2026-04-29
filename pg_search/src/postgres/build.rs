@@ -454,4 +454,56 @@ mod tests {
         assert_eq!(sort_field.field, "score");
         assert_eq!(sort_field.order, Order::Desc);
     }
+
+    #[pg_test]
+    fn test_new_index_uses_blockwise_linear_v2_codecs() {
+        use tantivy::columnar::CodecType;
+        use tantivy::directory::RamDirectory;
+
+        let mut builder = Schema::builder();
+        builder.add_u64_field("val", FAST);
+        let schema = builder.build();
+
+        let settings = IndexSettings {
+            codec_types: vec![CodecType::Bitpacked, CodecType::BlockwiseLinearV2],
+            ..IndexSettings::default()
+        };
+
+        let directory = RamDirectory::create();
+        let index = Index::create(directory, schema, settings).unwrap();
+
+        // Verify codec_types persisted and round-tripped
+        let stored = index.settings();
+        assert_eq!(
+            stored.codec_types,
+            vec![CodecType::Bitpacked, CodecType::BlockwiseLinearV2]
+        );
+        assert_eq!(
+            stored.columnar_codec_types(),
+            &[CodecType::Bitpacked, CodecType::BlockwiseLinearV2]
+        );
+    }
+
+    #[pg_test]
+    fn test_old_index_defaults_to_v1_codecs() {
+        use tantivy::columnar::CodecType;
+        use tantivy::directory::RamDirectory;
+
+        let mut builder = Schema::builder();
+        builder.add_u64_field("val", FAST);
+        let schema = builder.build();
+
+        // No codec_types set — simulates an existing index
+        let settings = IndexSettings::default();
+
+        let directory = RamDirectory::create();
+        let index = Index::create(directory, schema, settings).unwrap();
+
+        let stored = index.settings();
+        assert!(stored.codec_types.is_empty());
+        assert_eq!(
+            stored.columnar_codec_types(),
+            &[CodecType::Bitpacked, CodecType::BlockwiseLinear]
+        );
+    }
 }

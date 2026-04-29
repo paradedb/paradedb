@@ -3,7 +3,7 @@
 -- Description: The feature driving the ORDER BY does not exist until the join is performed. The user is sorting posts by an aggregate of their related comments (e.g., "Most recently active" or "Most interactions"). This requires computing the aggregate (via GROUP BY or LATERAL) before the Top K can be resolved.
 
 -- Query Info (statistics from 100k dataset; larger datasets may have different values):
--- - 'the' selectivity on stackoverflow_posts.body: ~82%
+-- - 'code' selectivity on stackoverflow_posts.body: ~75%
 
 SET paradedb.enable_join_custom_scan TO off; SELECT
     p.id,
@@ -12,7 +12,7 @@ SET paradedb.enable_join_custom_scan TO off; SELECT
 FROM stackoverflow_posts p
 JOIN comments c ON p.id = c.post_id
 WHERE
-    p.body ||| 'the'              -- Search Term
+    p.body ||| 'code'             -- Search Term
 GROUP BY
     p.id, p.title
 ORDER BY
@@ -26,7 +26,7 @@ SET paradedb.enable_join_custom_scan TO on; SELECT
 FROM stackoverflow_posts p
 JOIN comments c ON p.id = c.post_id
 WHERE
-    p.body ||| 'the'              -- Search Term
+    p.body ||| 'code'             -- Search Term
 GROUP BY
     p.id, p.title
 ORDER BY

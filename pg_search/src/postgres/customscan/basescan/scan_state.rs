@@ -19,6 +19,7 @@ use std::cell::UnsafeCell;
 
 use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
 use crate::customscan::CustomScanState;
+use crate::index::fast_fields_helper::FFHelper;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::basescan::exec_methods::ExecMethod;
 use crate::postgres::customscan::basescan::projections::snippet::pdb::IntArray2D;
@@ -53,6 +54,7 @@ pub struct BaseScanState {
     base_search_query_input: SearchQueryInput,
     search_query_input: SearchQueryInput,
     pub search_reader: Option<SearchIndexReader>,
+    pub ctid_cache: FFHelper,
 
     pub targetlist_len: usize,
 

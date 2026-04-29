@@ -30,7 +30,7 @@ use crate::api::operator::estimate_selectivity;
 use crate::api::window_aggregate::window_agg_oid;
 use crate::api::{HashMap, HashSet, Varno};
 use crate::gucs;
-use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::fast_fields_helper::{FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::{SearchIndexReader, MAX_TOPK_FEATURES};
 use crate::postgres::customscan::basescan::exec_methods::{
@@ -154,6 +154,8 @@ impl BaseScan {
             needs_tokenizer_manager,
         )
         .expect("should be able to open the search index reader");
+        state.custom_state_mut().ctid_cache =
+            FFHelper::with_fields(&search_reader, &[]);
         state.custom_state_mut().search_reader = Some(search_reader);
 
         let csstate = addr_of_mut!(state.csstate);

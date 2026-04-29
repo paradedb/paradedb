@@ -473,7 +473,7 @@ impl ExecMethod for TopKScanExecState {
                 }
                 Some((scored, doc_address)) => {
                     self.nresults += 1;
-                    let ctid = self.search_reader.as_ref().unwrap().resolve_ctid(doc_address);
+                    let ctid = state.ctid_cache.ctid(doc_address.segment_ord).as_u64(doc_address.doc_id).expect("ctid should be present");
                     return ExecState::FromHeap {
                         ctid,
                         score: scored.bm25,

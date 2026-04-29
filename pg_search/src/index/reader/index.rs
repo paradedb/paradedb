@@ -941,7 +941,13 @@ impl SearchIndexReader {
                 let tantivy_field = field.field();
 
                 let dims = query_vector.len();
-                let quantizer = TurboQuantizer::new(dims, None, None);
+                // Bit width MUST match what the docs were encoded with —
+                // the LUT shape (codebook entries per coord) is set from
+                // here and a mismatch silently produces wrong scores.
+                // The reloption is the source of truth at build time and
+                // can't be changed without rebuilding the index.
+                let bit_width = self.index_rel.options().vector_bit_width();
+                let quantizer = TurboQuantizer::new(dims, Some(bit_width), None);
                 let mut sort_computer =
                     SortByTurboQuantDistance::new(query_vector.clone(), tantivy_field, quantizer);
                 let probe = ProbeConfig {

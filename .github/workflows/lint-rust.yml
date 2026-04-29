@@ -23,7 +23,6 @@ jobs:
     name: Lint Rust Files
     runs-on:
       # 4 vCPU / 8 GB ARM, compute-optimized — clippy/fmt is CPU-bound, RAM-light.
-      # Originally ran on ubicloud-standard-4-arm (4 vCPU, 16 GB).
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
       - family=c7g+c8g

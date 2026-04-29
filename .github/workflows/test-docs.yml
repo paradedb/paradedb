@@ -28,7 +28,6 @@ jobs:
     runs-on:
       # 8 vCPU / 16 GB ARM, compute-optimized — Mintlify is JS, RAM-light. Image
       # stays on -full- because Mintlify CLI is installed via npm (Node preinstalled).
-      # Originally ran on ubicloud-standard-8-arm-ubuntu-2404 (8 vCPU, 32 GB).
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
       - family=c7g+c8g

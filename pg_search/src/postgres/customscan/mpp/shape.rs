@@ -55,10 +55,28 @@
 #![allow(dead_code)]
 
 /// Classify a query so the dispatcher picks the right topology.
+///
+/// `TopKGroupByAggOnBinaryJoin` is *not* produced by [`classify`] in this
+/// file. The classifier sees only the logical plan, which doesn't tell
+/// it whether DataFusion's physical planner will fuse a `Sort[fetch=k]`
+/// over the aggregate. The walker's dispatcher upgrades a
+/// classifier-said-`GroupByAggOnBinaryJoin` query to this variant when
+/// the standard physical plan exposes that fusion. The variant lives
+/// here so `tag_for_cut` / `cut_count_for_shape` / etc. can match on
+/// it as a single enum.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum MppPlanShape {
     ScalarAggOnBinaryJoin,
     GroupByAggOnBinaryJoin,
+    /// Same shape as `GroupByAggOnBinaryJoin` plus an outer
+    /// `ORDER BY <agg-expr> LIMIT k` (DataFusion plans this as
+    /// `SortExec[fetch=k]` over `AggregateExec(Final)`). Topology is
+    /// scalar-style: the post-Partial cut routes every participant's
+    /// output to participant 0 via `FixedTargetPartitioner(0)`, and the
+    /// leader's finalize wraps with `FinalPartitioned + SortExec[fetch=k]`
+    /// so the global Top-K resolves on the leader. Workers emit zero
+    /// rows.
+    TopKGroupByAggOnBinaryJoin,
     GroupByAggSingleTable,
     JoinOnly,
     Ineligible,

@@ -24,7 +24,7 @@ jobs:
       - family=m7a+m7i
       - cpu=8
       - ram=32
-      - image=ubuntu22-base-x64
+      - image=ubuntu24-full-x64
 
     steps:
       - name: Checkout Git Repository

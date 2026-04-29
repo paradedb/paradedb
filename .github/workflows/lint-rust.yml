@@ -29,7 +29,7 @@ jobs:
       - family=c7g+c8g
       - cpu=4
       - ram=8
-      - image=ubuntu22-base-arm64
+      - image=ubuntu24-full-arm64
       - extras=s3-cache
     strategy:
       matrix:

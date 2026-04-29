@@ -52,7 +52,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
-            runner_image: ubuntu22-base-x64
+            runner_image: ubuntu24-full-x64
             image: debian:12-slim
             pg_version: 15
             arch: amd64
@@ -60,7 +60,7 @@ jobs:
             cpu: 4
             ram: 8
             runner_family: c7g+c8g
-            runner_image: ubuntu22-base-arm64
+            runner_image: ubuntu24-full-arm64
             image: debian:12-slim
             pg_version: 15
             arch: arm64
@@ -68,7 +68,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
-            runner_image: ubuntu22-base-x64
+            runner_image: ubuntu24-full-x64
             image: debian:12-slim
             pg_version: 16
             arch: amd64
@@ -76,7 +76,7 @@ jobs:
             cpu: 4
             ram: 8
             runner_family: c7g+c8g
-            runner_image: ubuntu22-base-arm64
+            runner_image: ubuntu24-full-arm64
             image: debian:12-slim
             pg_version: 16
             arch: arm64
@@ -84,7 +84,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
-            runner_image: ubuntu22-base-x64
+            runner_image: ubuntu24-full-x64
             image: debian:12-slim
             pg_version: 17
             arch: amd64
@@ -92,7 +92,7 @@ jobs:
             cpu: 4
             ram: 8
             runner_family: c7g+c8g
-            runner_image: ubuntu22-base-arm64
+            runner_image: ubuntu24-full-arm64
             image: debian:12-slim
             pg_version: 17
             arch: arm64
@@ -100,7 +100,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
-            runner_image: ubuntu22-base-x64
+            runner_image: ubuntu24-full-x64
             image: debian:12-slim
             pg_version: 18
             arch: amd64
@@ -108,7 +108,7 @@ jobs:
             cpu: 4
             ram: 8
             runner_family: c7g+c8g
-            runner_image: ubuntu22-base-arm64
+            runner_image: ubuntu24-full-arm64
             image: debian:12-slim
             pg_version: 18
             arch: arm64
@@ -117,7 +117,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
-            runner_image: ubuntu22-base-x64
+            runner_image: ubuntu24-full-x64
             image: debian:13-slim
             pg_version: 15
             arch: amd64
@@ -125,7 +125,7 @@ jobs:
             cpu: 4
             ram: 8
             runner_family: c7g+c8g
-            runner_image: ubuntu22-base-arm64
+            runner_image: ubuntu24-full-arm64
             image: debian:13-slim
             pg_version: 15
             arch: arm64
@@ -133,7 +133,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
-            runner_image: ubuntu22-base-x64
+            runner_image: ubuntu24-full-x64
             image: debian:13-slim
             pg_version: 16
             arch: amd64
@@ -141,7 +141,7 @@ jobs:
             cpu: 4
             ram: 8
             runner_family: c7g+c8g
-            runner_image: ubuntu22-base-arm64
+            runner_image: ubuntu24-full-arm64
             image: debian:13-slim
             pg_version: 16
             arch: arm64
@@ -149,7 +149,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
-            runner_image: ubuntu22-base-x64
+            runner_image: ubuntu24-full-x64
             image: debian:13-slim
             pg_version: 17
             arch: amd64
@@ -157,7 +157,7 @@ jobs:
             cpu: 4
             ram: 8
             runner_family: c7g+c8g
-            runner_image: ubuntu22-base-arm64
+            runner_image: ubuntu24-full-arm64
             image: debian:13-slim
             pg_version: 17
             arch: arm64
@@ -165,7 +165,7 @@ jobs:
             cpu: 8
             ram: 16
             runner_family: c7a+c7i
-            runner_image: ubuntu22-base-x64
+            runner_image: ubuntu24-full-x64
             image: debian:13-slim
             pg_version: 18
             arch: amd64
@@ -173,7 +173,7 @@ jobs:
             cpu: 4
             ram: 8
             runner_family: c7g+c8g
-            runner_image: ubuntu22-base-arm64
+            runner_image: ubuntu24-full-arm64
             image: debian:13-slim
             pg_version: 18
             arch: arm64

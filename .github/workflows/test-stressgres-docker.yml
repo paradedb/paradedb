@@ -30,7 +30,7 @@ jobs:
       - family=m7g+m8g
       - cpu=8
       - ram=32
-      - image=ubuntu22-full-arm64
+      - image=ubuntu24-full-arm64
       - extras=s3-cache
 
     steps:

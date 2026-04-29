@@ -31,9 +31,9 @@ permissions:
 jobs:
   publish-pg_search:
     name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} ${{ matrix.arch }}
-    # Sized to match ubicloud-standard-8 (8 vCPU, 32 GB, x64) and
-    # ubicloud-standard-4-arm (4 vCPU, 16 GB, ARM). matrix.image is the build
-    # container; matrix.runner_image is the runs-on host AMI.
+    # 8 vCPU / 16 GB x64 + 4 vCPU / 8 GB ARM, compute-optimized (Rust release
+    # build is CPU-bound). matrix.image is the build container; matrix.runner_image
+    # is the runs-on host AMI. Originally ran on ubicloud-standard-8 / -4-arm.
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -41,7 +41,6 @@ jobs:
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
       - image=${{ matrix.runner_image }}
-      - extras=s3-cache
     container:
       image: ${{ matrix.image }}
     if: ${{ !contains(github.ref, '-rc.') }}
@@ -51,130 +50,130 @@ jobs:
           # Red Hat Enterprise Linux 9
           - name: Red Hat Enterprise Linux 9
             cpu: 8
-            ram: 32
-            runner_family: m7a+m7i
-            runner_image: ubuntu22-full-x64
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu22-base-x64
             image: redhat/ubi9:latest
             pg_version: 15
             arch: x86_64
           - name: Red Hat Enterprise Linux 9
             cpu: 4
-            ram: 16
-            runner_family: m7g+m8g
-            runner_image: ubuntu22-full-arm64
+            ram: 8
+            runner_family: c7g+c8g
+            runner_image: ubuntu22-base-arm64
             image: redhat/ubi9:latest
             pg_version: 15
             arch: aarch64
           - name: Red Hat Enterprise Linux 9
             cpu: 8
-            ram: 32
-            runner_family: m7a+m7i
-            runner_image: ubuntu22-full-x64
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu22-base-x64
             image: redhat/ubi9:latest
             pg_version: 16
             arch: x86_64
           - name: Red Hat Enterprise Linux 9
             cpu: 4
-            ram: 16
-            runner_family: m7g+m8g
-            runner_image: ubuntu22-full-arm64
+            ram: 8
+            runner_family: c7g+c8g
+            runner_image: ubuntu22-base-arm64
             image: redhat/ubi9:latest
             pg_version: 16
             arch: aarch64
           - name: Red Hat Enterprise Linux 9
             cpu: 8
-            ram: 32
-            runner_family: m7a+m7i
-            runner_image: ubuntu22-full-x64
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu22-base-x64
             image: redhat/ubi9:latest
             pg_version: 17
             arch: x86_64
           - name: Red Hat Enterprise Linux 9
             cpu: 4
-            ram: 16
-            runner_family: m7g+m8g
-            runner_image: ubuntu22-full-arm64
+            ram: 8
+            runner_family: c7g+c8g
+            runner_image: ubuntu22-base-arm64
             image: redhat/ubi9:latest
             pg_version: 17
             arch: aarch64
           - name: Red Hat Enterprise Linux 9
             cpu: 8
-            ram: 32
-            runner_family: m7a+m7i
-            runner_image: ubuntu22-full-x64
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu22-base-x64
             image: redhat/ubi9:latest
             pg_version: 18
             arch: x86_64
           - name: Red Hat Enterprise Linux 9
             cpu: 4
-            ram: 16
-            runner_family: m7g+m8g
-            runner_image: ubuntu22-full-arm64
+            ram: 8
+            runner_family: c7g+c8g
+            runner_image: ubuntu22-base-arm64
             image: redhat/ubi9:latest
             pg_version: 18
             arch: aarch64
           # Red Hat Enterprise Linux 10
           - name: Red Hat Enterprise Linux 10
             cpu: 8
-            ram: 32
-            runner_family: m7a+m7i
-            runner_image: ubuntu22-full-x64
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu22-base-x64
             image: redhat/ubi10:latest
             pg_version: 15
             arch: x86_64
           - name: Red Hat Enterprise Linux 10
             cpu: 4
-            ram: 16
-            runner_family: m7g+m8g
-            runner_image: ubuntu22-full-arm64
+            ram: 8
+            runner_family: c7g+c8g
+            runner_image: ubuntu22-base-arm64
             image: redhat/ubi10:latest
             pg_version: 15
             arch: aarch64
           - name: Red Hat Enterprise Linux 10
             cpu: 8
-            ram: 32
-            runner_family: m7a+m7i
-            runner_image: ubuntu22-full-x64
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu22-base-x64
             image: redhat/ubi10:latest
             pg_version: 16
             arch: x86_64
           - name: Red Hat Enterprise Linux 10
             cpu: 4
-            ram: 16
-            runner_family: m7g+m8g
-            runner_image: ubuntu22-full-arm64
+            ram: 8
+            runner_family: c7g+c8g
+            runner_image: ubuntu22-base-arm64
             image: redhat/ubi10:latest
             pg_version: 16
             arch: aarch64
           - name: Red Hat Enterprise Linux 10
             cpu: 8
-            ram: 32
-            runner_family: m7a+m7i
-            runner_image: ubuntu22-full-x64
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu22-base-x64
             image: redhat/ubi10:latest
             pg_version: 17
             arch: x86_64
           - name: Red Hat Enterprise Linux 10
             cpu: 4
-            ram: 16
-            runner_family: m7g+m8g
-            runner_image: ubuntu22-full-arm64
+            ram: 8
+            runner_family: c7g+c8g
+            runner_image: ubuntu22-base-arm64
             image: redhat/ubi10:latest
             pg_version: 17
             arch: aarch64
           - name: Red Hat Enterprise Linux 10
             cpu: 8
-            ram: 32
-            runner_family: m7a+m7i
-            runner_image: ubuntu22-full-x64
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu22-base-x64
             image: redhat/ubi10:latest
             pg_version: 18
             arch: x86_64
           - name: Red Hat Enterprise Linux 10
             cpu: 4
-            ram: 16
-            runner_family: m7g+m8g
-            runner_image: ubuntu22-full-arm64
+            ram: 8
+            runner_family: c7g+c8g
+            runner_image: ubuntu22-base-arm64
             image: redhat/ubi10:latest
             pg_version: 18
             arch: aarch64

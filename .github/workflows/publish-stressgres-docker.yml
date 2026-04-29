@@ -17,14 +17,14 @@ jobs:
   publish-stressgres-docker:
     name: Publish Stressgres Docker Image to Docker Hub
     runs-on:
-      # Sized to match ubicloud-standard-8 (8 vCPU, 32 GB RAM, x64, Ubuntu 22.04 default).
+      # 8 vCPU / 32 GB x64 — Docker buildx via Depot, m-family for buildx headroom.
+      # Originally ran on ubicloud-standard-8 (8 vCPU, 32 GB).
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
       - family=m7a+m7i
       - cpu=8
       - ram=32
-      - image=ubuntu22-full-x64
-      - extras=s3-cache
+      - image=ubuntu22-base-x64
 
     steps:
       - name: Checkout Git Repository

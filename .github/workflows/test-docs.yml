@@ -26,12 +26,14 @@ jobs:
   test-docs:
     name: Test Docs for Broken Links, SEO Issues, and Code Snippets
     runs-on:
-      # Sized to match ubicloud-standard-8-arm-ubuntu-2404 (8 vCPU, 32 GB RAM, ARM, Ubuntu 24.04).
+      # 8 vCPU / 16 GB ARM, compute-optimized — Mintlify is JS, RAM-light. Image
+      # stays on -full- because Mintlify CLI is installed via npm (Node preinstalled).
+      # Originally ran on ubicloud-standard-8-arm-ubuntu-2404 (8 vCPU, 32 GB).
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
-      - family=m7g+m8g
+      - family=c7g+c8g
       - cpu=8
-      - ram=32
+      - ram=16
       - image=ubuntu24-full-arm64
       - extras=s3-cache
     strategy:

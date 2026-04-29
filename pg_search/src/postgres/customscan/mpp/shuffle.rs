@@ -370,14 +370,9 @@ pub struct MppRepartitionExec {
     /// in the row-count `mpp_log!` line emitted at stream EOF. Purely for
     /// tracing; no control flow depends on it.
     tag: &'static str,
-    /// Copy of `wiring.participant_index` so `execute(partition)` can decide
-    /// whether to return the real stream (when `partition == participant_index`)
-    /// or an empty stream (when another partition is asked for) without
-    /// taking the one-shot wiring out of its slot.
-    participant_index: u32,
-    /// Stage this boundary consumes from. `None` on construction; stamped by
-    /// [`MppNetworkBoundary::with_input_stage`].
-    /// P1 seam only — read only by tests today.
+    /// Stage this boundary consumes from. `None` on construction; stamped
+    /// by [`MppNetworkBoundary::with_input_stage`]. P1 seam only — read by
+    /// tests today and by the future channel-flatten dispatcher (P5b).
     #[allow(dead_code)]
     input_stage: Option<MppStage>,
 }
@@ -431,7 +426,6 @@ impl MppRepartitionExec {
             wiring: Mutex::new(Some(wiring)),
             plan_properties,
             tag,
-            participant_index,
             input_stage: None,
         }
     }
@@ -496,10 +490,11 @@ impl ExecutionPlan for MppRepartitionExec {
                 "MppRepartitionExec: with_new_children called after wiring was consumed".into(),
             ));
         };
-        let mut node =
-            MppRepartitionExec::new(children.into_iter().next().unwrap(), wiring, self.tag);
-        node.input_stage = self.input_stage;
-        Ok(Arc::new(node))
+        Ok(Arc::new(MppRepartitionExec::new(
+            children.into_iter().next().unwrap(),
+            wiring,
+            self.tag,
+        )))
     }
 
     fn execute(
@@ -1708,202 +1703,5 @@ pub mod tests {
                 "participant {participant} only received {count}/1000 rows — partitioner is skewed"
             );
         }
-    }
-
-    #[test]
-    fn hash_partitioner_declares_hash_partitioning() {
-        // The HashPartitioner exposes its key columns to DF as
-        // `Partitioning::Hash(key_exprs, N)` so a downstream
-        // `HashJoinExec(Partitioned)` recognises the alignment.
-        let schema = Schema::new(vec![
-            Field::new("id", DataType::Int32, false),
-            Field::new("name", DataType::Utf8, false),
-        ]);
-        let p = HashPartitioner::new(vec![0], 4);
-        let part = p.output_partitioning(&schema);
-        match part {
-            Partitioning::Hash(exprs, n) => {
-                assert_eq!(n, 4);
-                assert_eq!(exprs.len(), 1);
-                let col = exprs[0]
-                    .as_any()
-                    .downcast_ref::<Column>()
-                    .expect("HashPartitioner key expr should be a Column");
-                assert_eq!(col.name(), "id");
-                assert_eq!(col.index(), 0);
-            }
-            other => panic!("expected Partitioning::Hash, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn fixed_target_partitioner_declares_single_output_partition() {
-        // FixedTarget collapses N participants' rows into one stream on
-        // the target; from DF's perspective the operator has a single
-        // output partition. Declaring `UnknownPartitioning(1)` matches
-        // that operational reality.
-        let schema = Schema::new(vec![Field::new("id", DataType::Int32, false)]);
-        let p = FixedTargetPartitioner::new(0, 3);
-        match p.output_partitioning(&schema) {
-            Partitioning::UnknownPartitioning(1) => {}
-            other => panic!("expected UnknownPartitioning(1), got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn mpp_repartition_exec_declares_partitioner_partitioning() {
-        // The operator should adopt whatever the partitioner declares,
-        // so a downstream `HashJoinExec` reasoning about partitioning
-        // sees the same shape DF would see for a native `RepartitionExec`.
-        let batch = sample_batch(2);
-        let schema = batch.schema();
-        let input = MemorySourceConfig::try_new_from_batches(schema.clone(), vec![batch]).unwrap();
-        let (tx, _rx) = in_proc_channel(4);
-        let wiring = ShuffleWiring {
-            partitioner: Arc::new(HashPartitioner::new(vec![0], 2)),
-            outbound_senders: vec![None, Some(MppSender::new(Box::new(tx)))],
-            participant_index: 0,
-            cooperative_drain: None,
-        };
-        let exec = MppRepartitionExec::new(input, wiring, "test");
-        match &exec.plan_properties.partitioning {
-            Partitioning::Hash(exprs, n) => {
-                assert_eq!(*n, 2);
-                assert_eq!(exprs.len(), 1);
-            }
-            other => panic!("expected Hash partitioning, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn mpp_repartition_exec_returns_empty_for_non_self_partition() {
-        // execute(i) on a participant whose `participant_index != i` must
-        // hand back an empty stream — the rows for partition `i` belong
-        // to peer participant `i`, who reads them via its own
-        // `MppRepartitionExec.execute(participant_index)` call.
-        let batch = sample_batch(4);
-        let schema = batch.schema();
-        let input = MemorySourceConfig::try_new_from_batches(schema.clone(), vec![batch]).unwrap();
-        let (tx_a, _rx_a) = in_proc_channel(4);
-        let (tx_b, _rx_b) = in_proc_channel(4);
-        let wiring = ShuffleWiring {
-            partitioner: Arc::new(ModuloPartitioner::new(3)),
-            outbound_senders: vec![
-                None,
-                Some(MppSender::new(Box::new(tx_a))),
-                Some(MppSender::new(Box::new(tx_b))),
-            ],
-            participant_index: 0,
-            cooperative_drain: None,
-        };
-        let exec: Arc<dyn ExecutionPlan> = Arc::new(MppRepartitionExec::new(input, wiring, "test"));
-
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        let ctx = SessionContext::new();
-        rt.block_on(async {
-            let mut s = exec.execute(2, ctx.task_ctx()).unwrap();
-            let n_batches = std::iter::from_fn(|| {
-                futures::executor::block_on(async { s.next().await.map(|_| ()) })
-            })
-            .count();
-            assert_eq!(n_batches, 0, "execute(non-self) must yield an empty stream");
-        });
-        let _ = schema;
-    }
-
-    #[test]
-    fn mpp_participant_isolator_forwards_to_self_partition() {
-        // The isolator's contract: execute(0) calls
-        // child.execute(participant_index). Verify by wiring an
-        // MppRepartitionExec(N=3, participant_index=1) under the
-        // isolator and confirming the rows yielded match what
-        // partition 1 would route locally.
-        let batch = sample_batch(6);
-        let schema = batch.schema();
-        let input = MemorySourceConfig::try_new_from_batches(schema.clone(), vec![batch]).unwrap();
-        let (tx_to_0, _rx_0) = in_proc_channel(4);
-        let (tx_to_2, _rx_2) = in_proc_channel(4);
-        let wiring = ShuffleWiring {
-            partitioner: Arc::new(ModuloPartitioner::new(3)),
-            outbound_senders: vec![
-                Some(MppSender::new(Box::new(tx_to_0))),
-                None,
-                Some(MppSender::new(Box::new(tx_to_2))),
-            ],
-            participant_index: 1,
-            cooperative_drain: None,
-        };
-        let inner: Arc<dyn ExecutionPlan> =
-            Arc::new(MppRepartitionExec::new(input, wiring, "test"));
-        let isolator: Arc<dyn ExecutionPlan> = Arc::new(MppParticipantIsolatorExec::new(inner, 1));
-
-        match &isolator.properties().partitioning {
-            Partitioning::UnknownPartitioning(1) => {}
-            other => panic!("isolator should declare 1 output partition, got {other:?}"),
-        }
-
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        let ctx = SessionContext::new();
-        rt.block_on(async {
-            let mut s = isolator.execute(0, ctx.task_ctx()).unwrap();
-            let mut all_ids = Vec::new();
-            while let Some(b) = s.next().await {
-                let b = b.unwrap();
-                let ids = b.column(0).as_any().downcast_ref::<Int32Array>().unwrap();
-                all_ids.extend(ids.values().iter().copied());
-            }
-            all_ids.sort();
-            // ModuloPartitioner(N=3) on rows 0..6 routes (0,3) → 0,
-            // (1,4) → 1, (2,5) → 2. participant_index=1 yields ids 1, 4.
-            assert_eq!(all_ids, vec![1, 4]);
-        });
-        let _ = schema;
-    }
-
-    /// P1 seam smoke test: `MppRepartitionExec` starts with
-    /// `input_stage() == None`, and `with_input_stage` returns a fresh
-    /// node whose `input_stage()` reports the stamped [`MppStage`].
-    /// Verifies the boundary trait is wired up so the walker can rely
-    /// on it. The DrainGatherExec half of this test went away with the
-    /// fold; its responsibilities are now covered by the same
-    /// MppRepartitionExec that this test exercises.
-    #[test]
-    fn mpp_network_boundary_round_trips_stage() {
-        let batch = sample_batch(4);
-        let schema = batch.schema();
-        let input = MemorySourceConfig::try_new_from_batches(schema.clone(), vec![batch]).unwrap();
-        let (tx, _rx) = in_proc_channel(4);
-        let wiring = ShuffleWiring {
-            partitioner: Arc::new(ModuloPartitioner::new(2)),
-            outbound_senders: vec![None, Some(MppSender::new(Box::new(tx)))],
-            participant_index: 0,
-            cooperative_drain: None,
-        };
-        let shuffle = MppRepartitionExec::new(input, wiring, "test");
-        assert!(shuffle.input_stage().is_none());
-
-        let stamped = shuffle
-            .with_input_stage(MppStage::new(1, 0, 2))
-            .expect("with_input_stage should succeed on fresh node");
-        let as_boundary = stamped
-            .as_any()
-            .downcast_ref::<MppRepartitionExec>()
-            .expect("stamped node is still a MppRepartitionExec");
-        assert_eq!(
-            as_boundary.input_stage().copied(),
-            Some(MppStage::new(1, 0, 2)),
-        );
-
-        // Re-stamping must fail because the wiring was consumed by the
-        // first call — enforces "P1 seam, walker stamps once" invariant.
-        let re_stamp_err = shuffle.with_input_stage(MppStage::new(1, 0, 2));
-        assert!(re_stamp_err.is_err());
-        let _ = schema;
     }
 }

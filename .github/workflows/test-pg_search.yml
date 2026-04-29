@@ -52,10 +52,6 @@ jobs:
     name: Test pg_search on PostgreSQL ${{ matrix.pg_version }} (${{ matrix.pg_impl }} - ${{ matrix.arch }})
     # Sized to match ubicloud-standard-8-arm-ubuntu-2404 / ubicloud-standard-8-ubuntu-2404
     # (8 vCPU, 32 GB, Ubuntu 24.04). matrix.runner_image picks the matching arch AMI.
-    # extras=s3-cache is intentionally omitted: runs-on's magic cache sets
-    # ACTIONS_CACHE_SERVICE_V2 + proxies ACTIONS_RESULTS_URL, which breaks
-    # actions/upload-artifact@v7 (the artifact action shares that URL and ends up
-    # POSTing to the cache proxy, getting non-JSON back).
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -63,6 +59,7 @@ jobs:
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
       - image=${{ matrix.runner_image }}
+      - extras=s3-cache
     if: ${{ !cancelled() }}
     needs: set-matrix
     strategy:
@@ -314,8 +311,16 @@ jobs:
         if: matrix.pg_impl == 'pgrx' && always()
         run: cargo llvm-cov report --lcov --output-path coverage-combined-pgrx-${{ matrix.pg_version }}.lcov
 
+      # runs-on's extras=s3-cache proxies ACTIONS_RESULTS_URL to its local cache
+      # server (for s3-backed actions/cache), but actions/upload-artifact@v4+ uses
+      # the same env var and ends up POSTing artifacts to the cache proxy. Pin the
+      # env vars back to GitHub's canonical artifact endpoint just for this step
+      # so the upload bypasses the proxy.
       - name: Upload Coverage Artifact
         if: always()
+        env:
+          ACTIONS_RESULTS_URL: https://results-receiver.actions.githubusercontent.com/
+          ACTIONS_CACHE_SERVICE_V2: ""
         uses: actions/upload-artifact@v7
         with:
           name: coverage-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}

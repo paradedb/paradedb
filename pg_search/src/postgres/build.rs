@@ -307,6 +307,10 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
     let settings = IndexSettings {
         sort_by_field,
         docstore_compress_dedicated_thread: false,
+        codec_types: vec![
+            tantivy::columnar::CodecType::Bitpacked,
+            tantivy::columnar::CodecType::BlockwiseLinearV2,
+        ],
         ..IndexSettings::default()
     };
     let _ = Index::create(directory, schema, settings)?;

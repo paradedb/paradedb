@@ -1390,7 +1390,7 @@ mod tests {
     }
 
     #[pg_test]
-    fn left_join_injects_per_side_visibility() -> Result<()> {
+    fn left_join_injects_right_side_visibility_only_at_join() -> Result<()> {
         let config = OptimizerContext::new();
 
         const POS_A: usize = 0;
@@ -1403,7 +1403,9 @@ mod tests {
         let left = make_ctid_plan(POS_A, oid_a, Some("a"))?;
         let right = make_ctid_plan(POS_B, oid_b, Some("b"))?;
 
-        // LEFT join is a barrier — visibility must be injected per-side.
+        // LEFT join is a partial barrier — only the right (null-supplying) side
+        // is forced at the join. The left (preserved) side stays deferred and
+        // gets resolved at the root.
         let plan = LogicalPlanBuilder::from(left)
             .join_on(
                 right,
@@ -1415,9 +1417,43 @@ mod tests {
 
         let first = rule.rewrite(plan, &config)?;
         assert!(first.transformed);
-        // LEFT join is a barrier, so visibility filters are injected into
-        // each child that has unverified plan_positions — 2 total.
+        // 1 visibility node under the right child of the join (POS_B),
+        // 1 visibility node at the root for the deferred left side (POS_A).
         assert_eq!(count_visibility_nodes(&first.data), 2);
+
+        // Root should be a VisibilityFilterNode covering POS_A.
+        let LogicalPlan::Extension(root_ext) = &first.data else {
+            panic!("expected root to be VisibilityFilterNode");
+        };
+        let root_vf = root_ext
+            .node
+            .as_any()
+            .downcast_ref::<VisibilityFilterNode>()
+            .expect("root should be VisibilityFilterNode");
+        assert_eq!(root_vf.plan_pos_oids, vec![(POS_A, oid_a)]);
+
+        // Under the root visibility node should be the join.
+        let LogicalPlan::Join(join) = &root_vf.input else {
+            panic!("expected child of root visibility to be Join");
+        };
+
+        // Left child of the join should be the raw scan (no visibility wrapper).
+        assert!(
+            !matches!(join.left.as_ref(), LogicalPlan::Extension(ext)
+                if ext.node.as_any().downcast_ref::<VisibilityFilterNode>().is_some()),
+            "left child should NOT be wrapped with VisibilityFilterNode"
+        );
+
+        // Right child of the join should be wrapped with VisibilityFilterNode.
+        let LogicalPlan::Extension(right_ext) = join.right.as_ref() else {
+            panic!("expected right child to be wrapped with VisibilityFilterNode");
+        };
+        let right_vf = right_ext
+            .node
+            .as_any()
+            .downcast_ref::<VisibilityFilterNode>()
+            .expect("right child should be VisibilityFilterNode");
+        assert_eq!(right_vf.plan_pos_oids, vec![(POS_B, oid_b)]);
 
         let second = rule.rewrite(first.data.clone(), &config)?;
         assert!(!second.transformed);
@@ -1481,6 +1517,78 @@ mod tests {
             .downcast_ref::<VisibilityFilterNode>()
             .expect("right child should be VisibilityFilterNode");
         assert_eq!(right_vf.plan_pos_oids, vec![(POS_B, oid_b)]);
+
+        let second = rule.rewrite(first.data.clone(), &config)?;
+        assert!(!second.transformed);
+        assert_eq!(count_visibility_nodes(&second.data), 2);
+        Ok(())
+    }
+
+    #[pg_test]
+    fn right_join_injects_left_side_visibility_only_at_join() -> Result<()> {
+        let config = OptimizerContext::new();
+
+        const POS_A: usize = 0;
+        const POS_B: usize = 1;
+        let oid_a = pg_sys::Oid::from(42);
+        let oid_b = pg_sys::Oid::from(43);
+
+        let rule = VisibilityFilterOptimizerRule::new();
+
+        let left = make_ctid_plan(POS_A, oid_a, Some("a"))?;
+        let right = make_ctid_plan(POS_B, oid_b, Some("b"))?;
+
+        // RIGHT join is a partial barrier — only the left (null-supplying) side
+        // is forced at the join. The right (preserved) side stays deferred and
+        // gets resolved at the root.
+        let plan = LogicalPlanBuilder::from(left)
+            .join_on(
+                right,
+                datafusion::common::JoinType::Right,
+                vec![col(CtidColumn::new(POS_A).to_string())
+                    .eq(col(CtidColumn::new(POS_B).to_string()))],
+            )?
+            .build()?;
+
+        let first = rule.rewrite(plan, &config)?;
+        assert!(first.transformed);
+        // 1 visibility node under the left child of the join (POS_A),
+        // 1 visibility node at the root for the deferred right side (POS_B).
+        assert_eq!(count_visibility_nodes(&first.data), 2);
+
+        // Root should be a VisibilityFilterNode covering POS_B.
+        let LogicalPlan::Extension(root_ext) = &first.data else {
+            panic!("expected root to be VisibilityFilterNode");
+        };
+        let root_vf = root_ext
+            .node
+            .as_any()
+            .downcast_ref::<VisibilityFilterNode>()
+            .expect("root should be VisibilityFilterNode");
+        assert_eq!(root_vf.plan_pos_oids, vec![(POS_B, oid_b)]);
+
+        // Under the root visibility node should be the join.
+        let LogicalPlan::Join(join) = &root_vf.input else {
+            panic!("expected child of root visibility to be Join");
+        };
+
+        // Left child of the join should be wrapped with VisibilityFilterNode.
+        let LogicalPlan::Extension(left_ext) = join.left.as_ref() else {
+            panic!("expected left child to be wrapped with VisibilityFilterNode");
+        };
+        let left_vf = left_ext
+            .node
+            .as_any()
+            .downcast_ref::<VisibilityFilterNode>()
+            .expect("left child should be VisibilityFilterNode");
+        assert_eq!(left_vf.plan_pos_oids, vec![(POS_A, oid_a)]);
+
+        // Right child of the join should be the raw scan (no visibility wrapper).
+        assert!(
+            !matches!(join.right.as_ref(), LogicalPlan::Extension(ext)
+                if ext.node.as_any().downcast_ref::<VisibilityFilterNode>().is_some()),
+            "right child should NOT be wrapped with VisibilityFilterNode"
+        );
 
         let second = rule.rewrite(first.data.clone(), &config)?;
         assert!(!second.transformed);

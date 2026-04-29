@@ -4,7 +4,7 @@ version = { workspace = true }
 edition = { workspace = true }
 
 [dependencies]
-clap = { version = "4.5.53", features = ["derive", "env"] }
+clap = { version = "4.6.1", features = ["derive", "env"] }
 anyhow = "1.0"
 serde_json = "1.0"
 sqlx = { version = "0.8.6", features = [
@@ -16,11 +16,11 @@ sqlx = { version = "0.8.6", features = [
   "chrono",
 ] }
 pretty_assertions = "1.4.1"
-tokio = { version = "1.48", features = ["full"] }
+tokio = { version = "1.52", features = ["full"] }
 serde = { version = "1.0.228", features = ["derive"] }
 toml = "0.8"
-futures = "0.3.31"
-duckdb = { version = "1.10501.0", features = ["bundled"] }
+futures = "0.3.32"
+duckdb = { version = "1.10502.0", features = ["bundled"] }
 
 [lib]
 name = "paradedb"

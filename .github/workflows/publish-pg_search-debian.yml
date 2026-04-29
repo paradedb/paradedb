@@ -31,7 +31,14 @@ permissions:
 jobs:
   publish-pg_search:
     name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} ${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
+    # Compute-optimized c-family — Rust release build inside matrix.image container is CPU-bound.
+    # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=${{ matrix.runner_family }}
+      - cpu=${{ matrix.cpu }}
+      - ram=${{ matrix.ram }}
+      - image=${{ matrix.runner_image }}
     container:
       image: ${{ matrix.image }}
     if: ${{ !contains(github.ref, '-rc.') }}
@@ -40,83 +47,131 @@ jobs:
         include:
           # Debian 12 (Bookworm)
           - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-8
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             image: debian:12-slim
             pg_version: 15
             arch: amd64
           - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-4-arm
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             image: debian:12-slim
             pg_version: 15
             arch: arm64
           - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-8
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             image: debian:12-slim
             pg_version: 16
             arch: amd64
           - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-4-arm
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             image: debian:12-slim
             pg_version: 16
             arch: arm64
           - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-8
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             image: debian:12-slim
             pg_version: 17
             arch: amd64
           - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-4-arm
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             image: debian:12-slim
             pg_version: 17
             arch: arm64
           - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-8
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             image: debian:12-slim
             pg_version: 18
             arch: amd64
           - name: Debian 12 (Bookworm)
-            runner: ubicloud-standard-4-arm
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             image: debian:12-slim
             pg_version: 18
             arch: arm64
           # Debian 13 (Trixie)
           - name: Debian 13 (Trixie)
-            runner: ubicloud-standard-8
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             image: debian:13-slim
             pg_version: 15
             arch: amd64
           - name: Debian 13 (Trixie)
-            runner: ubicloud-standard-4-arm
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             image: debian:13-slim
             pg_version: 15
             arch: arm64
           - name: Debian 13 (Trixie)
-            runner: ubicloud-standard-8
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             image: debian:13-slim
             pg_version: 16
             arch: amd64
           - name: Debian 13 (Trixie)
-            runner: ubicloud-standard-4-arm
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             image: debian:13-slim
             pg_version: 16
             arch: arm64
           - name: Debian 13 (Trixie)
-            runner: ubicloud-standard-8
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             image: debian:13-slim
             pg_version: 17
             arch: amd64
           - name: Debian 13 (Trixie)
-            runner: ubicloud-standard-4-arm
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             image: debian:13-slim
             pg_version: 17
             arch: arm64
           - name: Debian 13 (Trixie)
-            runner: ubicloud-standard-8
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             image: debian:13-slim
             pg_version: 18
             arch: amd64
           - name: Debian 13 (Trixie)
-            runner: ubicloud-standard-4-arm
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             image: debian:13-slim
             pg_version: 18
             arch: arm64

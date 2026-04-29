@@ -670,9 +670,8 @@ impl ExecMethod for ColumnarExecState {
         loop {
             // Try to get next batch from existing stream
             // Scope the runtime borrow to avoid conflicts with mutable borrows below
-            if self.stream.is_some() {
+            if let Some(stream) = &mut self.stream {
                 let runtime = self.runtime.as_ref().unwrap();
-                let stream = self.stream.as_mut().unwrap();
                 match poll_next_sync(runtime, stream) {
                     Some(Ok(batch)) => {
                         self.current_record_batch = Some(batch);

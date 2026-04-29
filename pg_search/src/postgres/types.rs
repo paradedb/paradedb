@@ -907,6 +907,37 @@ impl TantivyValue {
             })
             .collect()
     }
+
+    /// Convert a PostgreSQL NUMERIC datum to a TantivyValue with F64 storage.
+    /// Used only for legacy indexes (pre-v0.22.0) whose tantivy schema stored
+    /// NUMERIC fields as F64. Subject to f64 precision loss for values that
+    /// don't round-trip through a double.
+    pub unsafe fn try_from_numeric_f64(datum: Datum) -> Result<Self, TantivyValueError> {
+        let numeric =
+            pgrx::AnyNumeric::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;
+        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(
+            numeric.try_into()?,
+        )))
+    }
+
+    /// Convert a PostgreSQL NUMERIC[] array to TantivyValues with F64 storage.
+    /// Legacy-only counterpart to `try_from_numeric_f64`.
+    pub unsafe fn try_from_numeric_array_f64(datum: Datum) -> Result<Vec<Self>, TantivyValueError> {
+        let array: pgrx::Array<Datum> =
+            pgrx::Array::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;
+
+        array
+            .iter()
+            .flatten()
+            .map(|element_datum| {
+                let numeric = pgrx::AnyNumeric::from_datum(element_datum, false)
+                    .ok_or(TantivyValueError::DatumDeref)?;
+                Ok(TantivyValue(tantivy::schema::OwnedValue::F64(
+                    numeric.try_into()?,
+                )))
+            })
+            .collect()
+    }
 }
 
 impl TryFrom<TantivyValue> for pgrx::AnyNumeric {

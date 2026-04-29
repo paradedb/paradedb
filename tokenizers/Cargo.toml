@@ -5,25 +5,25 @@ edition = { workspace = true }
 
 
 [dependencies]
-anyhow = "1.0.100"
-lindera = { version = "1.4.1", features = [
+anyhow = "1.0.102"
+lindera = { version = "1.5.1", features = [
   "embedded-cc-cedict",
   "embedded-ipadic",
   "embedded-ko-dic",
   "compress",
 ] }
-once_cell = "1.21.3"
+once_cell = "1.21.4"
 serde = "1.0.228"
-serde_json = "1.0.145"
+serde_json = "1.0.149"
 tantivy.workspace = true
-tracing = "0.1.43"
+tracing = "0.1.44"
 strum_macros = "0.27.2"
 strum = { version = "0.27.2", features = ["derive"] }
 tantivy-jieba = { workspace = true }
 emoji = "0.2.1"
-icu_properties = "2.1.2"
-unicode-segmentation = "1.12.0"
-icu_segmenter = "2.1.1"
+icu_properties = "2.2.0"
+unicode-segmentation = "1.13.2"
+icu_segmenter = "2.2.0"
 opencc-jieba-rs = "0.7.2"
 
 [dev-dependencies]

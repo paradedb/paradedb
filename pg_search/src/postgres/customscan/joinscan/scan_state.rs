@@ -1058,20 +1058,16 @@ fn build_source_df<'a>(
                     }
                     OrderByFeature::Score { .. } => {}
                     OrderByFeature::NullTest { inner, .. } => match inner.as_ref() {
-                        OrderByFeature::Field { name, rti } => {
-                            if source.contains_rti(*rti) {
-                                insert_field_name_required_early(
-                                    source,
-                                    name.as_ref(),
-                                    &mut required_early,
-                                );
-                            }
+                        OrderByFeature::Field { name, rti } if source.contains_rti(*rti) => {
+                            insert_field_name_required_early(
+                                source,
+                                name.as_ref(),
+                                &mut required_early,
+                            );
                         }
-                        OrderByFeature::Var { rti, attno, .. } => {
-                            if source.contains_rti(*rti) {
-                                if let Some(col_name) = source.column_name(*attno) {
-                                    required_early.insert(col_name);
-                                }
+                        OrderByFeature::Var { rti, attno, .. } if source.contains_rti(*rti) => {
+                            if let Some(col_name) = source.column_name(*attno) {
+                                required_early.insert(col_name);
                             }
                         }
                         _ => {}

@@ -105,7 +105,9 @@ use datafusion::physical_plan::coalesce_batches::CoalesceBatchesExec;
 use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::filter::FilterExec;
 use datafusion::physical_plan::joins::{HashJoinExec, PartitionMode};
+use datafusion::physical_plan::limit::GlobalLimitExec;
 use datafusion::physical_plan::repartition::RepartitionExec;
+use datafusion::physical_plan::sorts::sort::SortExec;
 use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
 use datafusion::physical_plan::ExecutionPlan;
 
@@ -131,6 +133,10 @@ pub fn cut_count_for_shape(shape: MppPlanShape) -> u32 {
     match shape {
         MppPlanShape::ScalarAggOnBinaryJoin => 3,
         MppPlanShape::GroupByAggOnBinaryJoin => 3,
+        // TopK groupby reuses scalar-style routing (FixedTargetPartitioner
+        // postagg → leader gathers all groups), so 3 cuts: left, right,
+        // postagg-to-leader.
+        MppPlanShape::TopKGroupByAggOnBinaryJoin => 3,
         MppPlanShape::JoinOnly => 2,
         MppPlanShape::GroupByAggSingleTable => 1,
         MppPlanShape::Ineligible => 0,
@@ -190,16 +196,47 @@ pub fn distribute_plan(
     let partial_agg_opt = find_partial_agg(standard.as_ref());
     let hash_join_opt = find_hash_join(standard.as_ref());
 
+    // Detect TopK structure before dispatch. Cheap walk; only relevant
+    // when there's a Partial+HashJoin pair below an outer Sort/Limit.
+    let topk_spec = if partial_agg_opt.is_some() && hash_join_opt.is_some() {
+        extract_topk_spec(standard.as_ref())
+    } else {
+        None
+    };
+
     let built = match (partial_agg_opt, hash_join_opt) {
         // Partial agg with empty group keys on top of a HashJoin — scalar agg.
         (Some(agg), Some(_)) if agg.group_expr().expr().is_empty() => {
             validate_shape_matches(shape, MppPlanShape::ScalarAggOnBinaryJoin)?;
-            distribute_plan_generic(MppPlanShape::ScalarAggOnBinaryJoin, standard, mpp_state)?
+            distribute_plan_generic(
+                MppPlanShape::ScalarAggOnBinaryJoin,
+                standard,
+                mpp_state,
+                None,
+            )?
+        }
+        // Partial agg with group-by keys on top of a HashJoin AND an
+        // outer SortExec[fetch=k] — TopK group-by agg. The classifier
+        // (which only saw the logical plan) called this
+        // GroupByAggOnBinaryJoin; the structural derivation upgrades.
+        (Some(_), Some(_)) if topk_spec.is_some() => {
+            validate_shape_matches_topk_upgrade(shape)?;
+            distribute_plan_generic(
+                MppPlanShape::TopKGroupByAggOnBinaryJoin,
+                standard,
+                mpp_state,
+                topk_spec,
+            )?
         }
         // Partial agg with group-by keys on top of a HashJoin — group-by agg.
         (Some(_), Some(_)) => {
             validate_shape_matches(shape, MppPlanShape::GroupByAggOnBinaryJoin)?;
-            distribute_plan_generic(MppPlanShape::GroupByAggOnBinaryJoin, standard, mpp_state)?
+            distribute_plan_generic(
+                MppPlanShape::GroupByAggOnBinaryJoin,
+                standard,
+                mpp_state,
+                None,
+            )?
         }
         // HashJoin without a Partial agg above — bare join.
         //
@@ -210,7 +247,7 @@ pub fn distribute_plan(
         // until Step 2e deletes them.
         (None, Some(_)) => {
             validate_shape_matches(shape, MppPlanShape::JoinOnly)?;
-            distribute_plan_generic(MppPlanShape::JoinOnly, standard, mpp_state)?
+            distribute_plan_generic(MppPlanShape::JoinOnly, standard, mpp_state, None)?
         }
         // Partial agg without HashJoin — e.g. GroupByAggSingleTable, not yet
         // wired through the assembler code.
@@ -247,6 +284,24 @@ fn validate_shape_matches(classified: MppPlanShape, derived: MppPlanShape) -> Df
         Err(DataFusionError::Plan(format!(
             "mpp: walker shape derivation mismatch — classifier said {classified:?} \
              but plan structure implies {derived:?}"
+        )))
+    }
+}
+
+/// Accept the classifier's `GroupByAggOnBinaryJoin` as a valid match
+/// when the structural derivation upgrades to
+/// `TopKGroupByAggOnBinaryJoin`. The classifier only sees the logical
+/// plan and can't predict whether DataFusion's physical planner will
+/// fuse `Sort[fetch=k]` over the agg; the dispatcher refines based on
+/// the physical plan it actually got.
+fn validate_shape_matches_topk_upgrade(classified: MppPlanShape) -> DfResult<()> {
+    if matches!(classified, MppPlanShape::GroupByAggOnBinaryJoin) {
+        Ok(())
+    } else {
+        Err(DataFusionError::Plan(format!(
+            "mpp: walker shape derivation mismatch — classifier said {classified:?} \
+             but plan structure implies TopKGroupByAggOnBinaryJoin (only \
+             GroupByAggOnBinaryJoin upgrades to TopK)"
         )))
     }
 }
@@ -457,6 +512,12 @@ pub(super) fn insert_mpp_cuts(
     let kind = match shape {
         MppPlanShape::ScalarAggOnBinaryJoin => CutKind::ScalarAgg,
         MppPlanShape::GroupByAggOnBinaryJoin => CutKind::GroupByAgg,
+        // TopK uses scalar-style postagg cut: wrap Partial in
+        // `CoalescePartitionsExec` so the walker emits a
+        // `FixedTargetPartitioner(0)` shuffle that ships every
+        // participant's groups to the leader. The leader's finalize
+        // wraps with `FinalPartitioned + SortExec[fetch=k]`.
+        MppPlanShape::TopKGroupByAggOnBinaryJoin => CutKind::TopKGroupByAgg,
         MppPlanShape::JoinOnly => CutKind::JoinOnly,
         MppPlanShape::GroupByAggSingleTable => {
             return Err(DataFusionError::Plan(
@@ -478,6 +539,10 @@ pub(super) fn insert_mpp_cuts(
 enum CutKind {
     ScalarAgg,
     GroupByAgg,
+    /// Like `ScalarAgg` topology-wise (CoalescePartitionsExec wrapping
+    /// → `FixedTargetPartitioner(0)` postagg), but the Partial may have
+    /// group keys; the leader resolves the global Top-K after gathering.
+    TopKGroupByAgg,
     JoinOnly,
 }
 
@@ -545,6 +610,13 @@ fn rewrite_with_cuts(
                         plan,
                         Partitioning::Hash(group_keys, n as usize),
                     )?));
+                }
+                // TopK group-by agg: same Coalesce trigger as ScalarAgg
+                // regardless of whether the Partial carries group keys.
+                // The leader will gather every participant's groups and
+                // run the global FinalPartitioned + SortExec[fetch=k].
+                (CutKind::TopKGroupByAgg, _) => {
+                    return Ok(Arc::new(CoalescePartitionsExec::new(plan)));
                 }
                 _ => {}
             }
@@ -829,6 +901,9 @@ fn tag_for_cut(shape: MppPlanShape, cut_index: u32) -> &'static str {
         (MppPlanShape::GroupByAggOnBinaryJoin, 0) => "gb_left",
         (MppPlanShape::GroupByAggOnBinaryJoin, 1) => "gb_right",
         (MppPlanShape::GroupByAggOnBinaryJoin, 2) => "gb_postagg",
+        (MppPlanShape::TopKGroupByAggOnBinaryJoin, 0) => "tk_left",
+        (MppPlanShape::TopKGroupByAggOnBinaryJoin, 1) => "tk_right",
+        (MppPlanShape::TopKGroupByAggOnBinaryJoin, 2) => "tk_final",
         _ => "mpp_unknown_cut",
     }
 }
@@ -850,6 +925,53 @@ fn tag_for_cut(shape: MppPlanShape, cut_index: u32) -> &'static str {
 // (still on the critical path for Step 2d follow-up).
 // ============================================================================
 
+/// Sort + Limit info captured from the standard plan when the dispatcher
+/// upgrades a `GroupByAggOnBinaryJoin` query to
+/// `TopKGroupByAggOnBinaryJoin`. Re-applied on the leader by
+/// [`finalize_topk_groupby_agg`] after the post-agg gather.
+#[derive(Clone)]
+struct TopKSpec {
+    sort_expr: datafusion::physical_expr::LexOrdering,
+    fetch: usize,
+}
+
+/// Look at the standard plan for an outer `SortExec[fetch=k]` (DataFusion's
+/// fused TopK) or `GlobalLimitExec(SortExec)` above the
+/// `AggregateExec(Final|FinalPartitioned|SinglePartitioned)`. Returns
+/// `Some(TopKSpec)` so the dispatcher can route to the TopK shape.
+///
+/// Walks a small allow-list (`SortExec`, `GlobalLimitExec`,
+/// `LocalLimitExec`); anything else stops the walk and returns `None`,
+/// preserving the existing GroupByAgg dispatch for plans we don't
+/// recognise as TopK.
+fn extract_topk_spec(plan: &dyn ExecutionPlan) -> Option<TopKSpec> {
+    use datafusion::physical_plan::limit::LocalLimitExec;
+    let mut node = plan;
+    let mut limit: Option<usize> = None;
+    loop {
+        if let Some(sort) = node.as_any().downcast_ref::<SortExec>() {
+            // Prefer the SortExec's own fetch; fall back to a wrapping
+            // limit if SortExec didn't fuse the limit.
+            let fetch = sort.fetch().or(limit)?;
+            return Some(TopKSpec {
+                sort_expr: sort.expr().clone(),
+                fetch,
+            });
+        }
+        if let Some(g) = node.as_any().downcast_ref::<GlobalLimitExec>() {
+            limit = limit.or_else(|| g.fetch().map(|f| f + g.skip()));
+            node = g.input().as_ref();
+            continue;
+        }
+        if let Some(l) = node.as_any().downcast_ref::<LocalLimitExec>() {
+            limit = limit.or(Some(l.fetch()));
+            node = l.input().as_ref();
+            continue;
+        }
+        return None;
+    }
+}
+
 /// Glue together the generic walker (`insert_mpp_cuts` → `annotate_plan` →
 /// `_distribute_plan`) with the shape-specific pre/post passes. Called by
 /// [`distribute_plan`] for shapes whose post-passes have been ported.
@@ -857,7 +979,12 @@ fn distribute_plan_generic(
     shape: MppPlanShape,
     standard: Arc<dyn ExecutionPlan>,
     mpp_state: &mut MppExecutionState,
+    topk: Option<TopKSpec>,
 ) -> DfResult<Arc<dyn ExecutionPlan>> {
+    debug_assert!(
+        topk.is_some() == matches!(shape, MppPlanShape::TopKGroupByAggOnBinaryJoin),
+        "topk spec must be Some iff shape is TopKGroupByAggOnBinaryJoin"
+    );
     let n = mpp_state.participant_config().total_participants;
     let expected_cuts = cut_count_for_shape(shape) as usize;
 
@@ -884,7 +1011,7 @@ fn distribute_plan_generic(
             ctx.meshes.len()
         )));
     }
-    finalize_for_mpp(shape, emitted, mpp_state)
+    finalize_for_mpp(shape, emitted, mpp_state, topk)
 }
 
 /// Shape-specific pre-pass. Runs before [`insert_mpp_cuts`] synthesizes
@@ -902,6 +1029,11 @@ fn prepare_for_mpp(
         MppPlanShape::JoinOnly => prepare_join_only(plan),
         MppPlanShape::ScalarAggOnBinaryJoin => prepare_agg_on_binary_join(plan, false),
         MppPlanShape::GroupByAggOnBinaryJoin => prepare_agg_on_binary_join(plan, true),
+        // TopK uses the same pre-pass as GroupByAgg: returns the
+        // Partial-rooted subtree. The outer SortExec[fetch=k] wrapper
+        // is dropped here and re-applied by `finalize_topk_groupby_agg`
+        // on the leader after the post-agg gather.
+        MppPlanShape::TopKGroupByAggOnBinaryJoin => prepare_agg_on_binary_join(plan, true),
         MppPlanShape::GroupByAggSingleTable | MppPlanShape::Ineligible => Ok(plan),
     }
 }
@@ -964,18 +1096,24 @@ fn prepare_join_only(plan: Arc<dyn ExecutionPlan>) -> DfResult<Arc<dyn Execution
 /// Shape-specific post-pass. Runs after [`_distribute_plan`] emits the
 /// `MppRepartitionExec` / `DrainGatherExec` pairs.
 ///
-/// All three live shapes are wired: [`finalize_join_only`],
-/// [`finalize_scalar_agg`], and [`finalize_groupby_agg`] each handle
-/// the shape-specific grafting + `FinalPartitioned` wrap.
+/// All four live shapes are wired: [`finalize_join_only`],
+/// [`finalize_scalar_agg`], [`finalize_groupby_agg`], and
+/// [`finalize_topk_groupby_agg`]. `topk` is `Some` only for the TopK
+/// shape (asserted in the caller).
 fn finalize_for_mpp(
     shape: MppPlanShape,
     plan: Arc<dyn ExecutionPlan>,
     mpp_state: &MppExecutionState,
+    topk: Option<TopKSpec>,
 ) -> DfResult<Arc<dyn ExecutionPlan>> {
     match shape {
         MppPlanShape::JoinOnly => finalize_join_only(plan, mpp_state),
         MppPlanShape::ScalarAggOnBinaryJoin => finalize_scalar_agg(plan, mpp_state),
         MppPlanShape::GroupByAggOnBinaryJoin => finalize_groupby_agg(plan, mpp_state),
+        MppPlanShape::TopKGroupByAggOnBinaryJoin => {
+            let spec = topk.expect("TopKGroupByAgg shape ⇒ TopKSpec must be Some");
+            finalize_topk_groupby_agg(plan, mpp_state, spec)
+        }
         MppPlanShape::GroupByAggSingleTable | MppPlanShape::Ineligible => Ok(plan),
     }
 }
@@ -1455,6 +1593,86 @@ fn wrap_first_shuffle_child_in_coalesce_batches(
         ));
     }
     plan.with_new_children(new_children)
+}
+
+/// Post-pass for [`MppPlanShape::TopKGroupByAggOnBinaryJoin`]. Topology
+/// is scalar-style: every participant ships its `Partial(group_by)`
+/// output to participant 0 via `FixedTargetPartitioner(0)`; the leader
+/// gathers, runs `AggregateExec(FinalPartitioned, group_by)` over the
+/// merged groups, then applies `SortExec[fetch=k]` to resolve the
+/// global Top-K. Workers return the grafted plan as-is (their `Shuffle`
+/// pumps groups to leader, their `DrainGather` receives nothing because
+/// no peer ships *to* them).
+///
+/// The `TopKSpec` carries the original `Sort` expressions and `fetch`
+/// extracted from the standard plan by `extract_topk_spec`.
+fn finalize_topk_groupby_agg(
+    plan: Arc<dyn ExecutionPlan>,
+    mpp_state: &MppExecutionState,
+    topk: TopKSpec,
+) -> DfResult<Arc<dyn ExecutionPlan>> {
+    let hj = find_hash_join_any(plan.as_ref()).ok_or_else(|| {
+        DataFusionError::Internal(
+            "mpp: finalize_topk_groupby_agg: HashJoinExec missing after _distribute_plan".into(),
+        )
+    })?;
+    let partial = find_partial_agg_any(plan.as_ref()).ok_or_else(|| {
+        DataFusionError::Internal(
+            "mpp: finalize_topk_groupby_agg: AggregateExec(Partial) missing after \
+             _distribute_plan"
+                .into(),
+        )
+    })?;
+
+    let participant_index = mpp_state.participant_config().participant_index;
+    let total_participants = mpp_state.participant_config().total_participants;
+    let group_by = partial.group_expr().clone();
+    let num_group_keys = group_by.expr().len();
+    let aggr_expr = partial.aggr_expr().to_vec();
+    let filter_expr = partial.filter_expr().to_vec();
+    let partial_schema = partial.schema();
+    let join_on_len = hj.on().len();
+
+    crate::mpp_log!(
+        "mpp: assembling TopKGroupByAggOnBinaryJoin plan (participant={}, total={}, \
+         aggr_count={}, group_keys={}, join_keys={}, fetch={})",
+        participant_index,
+        total_participants,
+        aggr_expr.len(),
+        num_group_keys,
+        join_on_len,
+        topk.fetch
+    );
+
+    // Phase 1: rebuild HJ with FilterExec on right probe, graft back.
+    // Same as the other agg shapes — the post-shuffle right probe needs
+    // its dynamic filter re-applied above the shuffle.
+    let replacement_hj = build_partitioned_hj_with_probe_filter(hj)?;
+    let grafted = replace_first_hash_join(plan, replacement_hj)?.ok_or_else(|| {
+        DataFusionError::Internal(
+            "mpp: finalize_topk_groupby_agg: replace_first_hash_join could not find target".into(),
+        )
+    })?;
+
+    // Workers ship their Partial groups to leader; they emit no rows
+    // upward. Returning the grafted tree as-is matches scalar_agg's
+    // worker path.
+    if !mpp_state.is_leader() {
+        return Ok(grafted);
+    }
+
+    // Leader: run FinalPartitioned over the gathered groups, then
+    // SortExec[fetch=k] to pick the global Top-K.
+    let final_agg: Arc<dyn ExecutionPlan> = Arc::new(AggregateExec::try_new(
+        AggregateMode::FinalPartitioned,
+        group_by,
+        aggr_expr,
+        filter_expr,
+        grafted,
+        partial_schema,
+    )?);
+    let topk_sort = SortExec::new(topk.sort_expr, final_agg).with_fetch(Some(topk.fetch));
+    Ok(Arc::new(topk_sort))
 }
 
 // ============================================================================
@@ -2354,6 +2572,18 @@ mod tests {
         assert_eq!(
             tag_for_cut(MppPlanShape::GroupByAggOnBinaryJoin, 2),
             "gb_postagg"
+        );
+        assert_eq!(
+            tag_for_cut(MppPlanShape::TopKGroupByAggOnBinaryJoin, 0),
+            "tk_left"
+        );
+        assert_eq!(
+            tag_for_cut(MppPlanShape::TopKGroupByAggOnBinaryJoin, 1),
+            "tk_right"
+        );
+        assert_eq!(
+            tag_for_cut(MppPlanShape::TopKGroupByAggOnBinaryJoin, 2),
+            "tk_final"
         );
     }
 

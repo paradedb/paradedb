@@ -79,7 +79,7 @@ jobs:
       - family=c7g+c8g
       - cpu=8
       - ram=16
-      - image=ubuntu24-base-arm64
+      - image=ubuntu24-full-arm64
       - extras=s3-cache
     strategy:
       fail-fast: false

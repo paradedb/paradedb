@@ -4,7 +4,7 @@
 -- table's title column. Exercises the DataFusion backend's grouped
 -- aggregate pipeline including custom_scan_tlist for scanrelid=0.
 
--- Query Info:
+-- Query Info (statistics from 100k dataset; larger datasets may have different values):
 -- - 'the' selectivity on stackoverflow_posts.body: ~80%
 
 -- Postgres default plan (custom scan off)

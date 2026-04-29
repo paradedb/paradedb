@@ -4,7 +4,7 @@
 -- Exercises the DataFusion backend's ability to compute multiple aggregates
 -- in a single pass over the joined data.
 
--- Query Info:
+-- Query Info (statistics from 100k dataset; larger datasets may have different values):
 -- - 'the' selectivity on stackoverflow_posts.body: ~80%
 
 -- Postgres default plan (custom scan off)

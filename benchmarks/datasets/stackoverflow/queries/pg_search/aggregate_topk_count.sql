@@ -4,7 +4,7 @@
 -- and LIMIT 10. Tests the Tantivy TopK optimization (TermsAggregation.size=K)
 -- versus full aggregation + post-hoc sort.
 
--- Query Info:
+-- Query Info (statistics from 100k dataset; larger datasets may have different values):
 -- - 'the' selectivity on stackoverflow_posts.body: ~80%
 
 -- Postgres default plan (aggregate custom scan off)

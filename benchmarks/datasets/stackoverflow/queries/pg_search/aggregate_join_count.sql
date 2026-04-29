@@ -4,7 +4,7 @@
 -- This is the simplest aggregate-on-join shape and exercises the
 -- DataFusion backend's basic scan → join → aggregate pipeline.
 
--- Query Info:
+-- Query Info (statistics from 100k dataset; larger datasets may have different values):
 -- - 'the' selectivity on stackoverflow_posts.body: ~80%
 
 -- Postgres default plan (custom scan off)

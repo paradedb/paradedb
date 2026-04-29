@@ -465,13 +465,6 @@ fn analyze_and_inject(
 
     // Barrier nodes and lineage drops both force visibility injection here.
     let needs_barrier = is_barrier(&plan);
-    let lineage_dropped: BTreeSet<usize> = merged
-        .iter()
-        .filter(|(plan_pos, status)| {
-            **status == VisibilityStatus::Unverified && !parent_lineage.contains(plan_pos)
-        })
-        .map(|(plan_pos, _)| *plan_pos)
-        .collect();
     let force_positions: BTreeSet<usize> = if needs_barrier {
         merged
             .iter()
@@ -479,7 +472,13 @@ fn analyze_and_inject(
             .map(|(plan_pos, _)| *plan_pos)
             .collect()
     } else {
-        lineage_dropped
+        merged
+            .iter()
+            .filter(|(plan_pos, status)| {
+                **status == VisibilityStatus::Unverified && !parent_lineage.contains(plan_pos)
+            })
+            .map(|(plan_pos, _)| *plan_pos)
+            .collect()
     };
 
     if !force_positions.is_empty() {
@@ -529,6 +528,11 @@ fn analyze_and_inject(
     }
 }
 
+enum BarrierStatus {
+    NoBarrier,
+    PartialBarrier,
+    FullBarrier,
+}
 /// Returns true if the given plan node is a "barrier" — a point where visibility
 /// must be checked before proceeding. Barriers include non-inner joins (semi, outer),
 /// aggregates, distinct, window functions, and sort-with-limit.
@@ -536,21 +540,23 @@ fn analyze_and_inject(
 /// A plain `Sort` is not a barrier because it only reorders rows; deferred ctids can
 /// safely flow through it unchanged. `Sort` with `fetch` is a barrier because Top-N
 /// semantics can discard rows permanently, so visibility must be resolved first.
-fn is_barrier(plan: &LogicalPlan) -> bool {
-    use datafusion::logical_expr::logical_plan::*;
-    matches!(
-        plan,
-        LogicalPlan::Limit(_)
-            | LogicalPlan::Aggregate(_)
-            | LogicalPlan::Distinct(_)
-            | LogicalPlan::Window(_)
-    ) || match plan {
-        LogicalPlan::Sort(sort) => sort.fetch.is_some(),
-        // TODO: For Left/Right/Full joins, the preserved side(s) could remain
-        // deferred past the barrier. Currently all non-inner joins are treated
-        // as full barriers forcing both sides to be resolved.
-        LogicalPlan::Join(join) => !matches!(join.join_type, datafusion::common::JoinType::Inner),
-        _ => false,
+fn is_barrier(plan: &LogicalPlan) -> BarrierStatus {
+    match plan {
+        LogicalPlan::Sort(sort) => match sort.fetch.is_some() {
+            true => BarrierStatus::NoBarrier,
+            false => BarrierStatus::FullBarrier,
+        },
+        LogicalPlan::Join(join) => match join.join_type {
+            datafusion::common::JoinType::Inner => BarrierStatus::NoBarrier,
+            datafusion::common::JoinType::Left => BarrierStatus::PartialBarrier,
+            datafusion::common::JoinType::Right => BarrierStatus::PartialBarrier,
+            _ => BarrierStatus::FullBarrier,
+        },
+        LogicalPlan::Limit(_) => BarrierStatus::FullBarrier,
+        LogicalPlan::Aggregate(_) => BarrierStatus::FullBarrier,
+        LogicalPlan::Distinct(_) => BarrierStatus::FullBarrier,
+        LogicalPlan::Window(_) => BarrierStatus::FullBarrier,
+        _ => BarrierStatus::NoBarrier,
     }
 }
 

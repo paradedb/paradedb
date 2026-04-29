@@ -120,8 +120,19 @@ pub unsafe extern "C-unwind" fn _PG_init() {
     // means every parallel worker inherits them through copy-on-write
     // `fork()` and skips the 50-160 ms per-query dictionary cold-start.
     // The dict pages are immutable after load, so they stay physically
-    // shared across all workers.
-    tokenizers::prewarm_dictionary_tokenizers();
+    // shared across all workers. A panic in any one family is caught and
+    // logged as a WARNING rather than aborting the postmaster — the same
+    // failure will resurface on first per-query use of that family, so
+    // visibility is preserved.
+    for failure in tokenizers::prewarm_dictionary_tokenizers() {
+        pgrx::warning!(
+            "pg_search: dictionary tokenizer prewarm failed for `{}`; queries \
+             using this family will pay per-query dictionary cold-start and \
+             will hit the same failure on first use. Cause: {}",
+            failure.family,
+            failure.cause
+        );
+    }
 
     #[cfg(not(any(feature = "pg17", feature = "pg18")))]
     postgres::fake_aminsertcleanup::register();

@@ -302,12 +302,15 @@ pub fn deferred_plan_positions(node: &RelNode) -> crate::api::HashSet<usize> {
             RelNode::Scan(source) => {
                 acc.insert(source.plan_position);
             }
-            RelNode::Join(join) => {
-                if matches!(join.join_type, JoinType::Inner) {
+            RelNode::Join(join) => match join.join_type {
+                JoinType::Inner => {
                     collect(&join.left, acc);
                     collect(&join.right, acc);
                 }
-            }
+                JoinType::Left => collect(&join.left, acc),
+                JoinType::Right => collect(&join.right, acc),
+                _ => (),
+            },
             RelNode::Filter(filter) => collect(&filter.input, acc),
         }
     }
@@ -463,23 +466,10 @@ fn analyze_and_inject(
             .or_insert(VisibilityStatus::Unverified);
     }
 
-    // Barrier nodes and lineage drops both force visibility injection here.
-    let needs_barrier = is_barrier(&plan);
-    let force_positions: BTreeSet<usize> = if needs_barrier {
-        merged
-            .iter()
-            .filter(|(_, status)| **status == VisibilityStatus::Unverified)
-            .map(|(plan_pos, _)| *plan_pos)
-            .collect()
-    } else {
-        merged
-            .iter()
-            .filter(|(plan_pos, status)| {
-                **status == VisibilityStatus::Unverified && !parent_lineage.contains(plan_pos)
-            })
-            .map(|(plan_pos, _)| *plan_pos)
-            .collect()
-    };
+    // Fetching the barrier status for this plan & the plan positions to force visibility checks for based on barrier status
+    let barrier_status = barrier_status(&plan);
+    let force_positions =
+        get_force_positions(barrier_status, &merged, &child_states, &parent_lineage);
 
     if !force_positions.is_empty() {
         // Only wrap children that still carry one of the forced plan positions.
@@ -528,35 +518,83 @@ fn analyze_and_inject(
     }
 }
 
-enum BarrierStatus {
-    NoBarrier,
-    PartialBarrier,
-    FullBarrier,
+// Returning a BTreeSet of plan positions that need to visibility checks
+// Barrier nodes and lineage drops both force visibility injection here.
+fn get_force_positions(
+    barrier_status: BarrierStatus,
+    merged: &BTreeMap<usize, VisibilityStatus>,
+    child_states: &[BTreeMap<usize, VisibilityStatus>],
+    parent_lineage: &BTreeSet<usize>,
+) -> BTreeSet<usize> {
+    match barrier_status {
+        // For a Full barrier, any plan with an unverified status needs to be visibility checked
+        BarrierStatus::Full => merged
+            .iter()
+            .filter(|(_, status)| **status == VisibilityStatus::Unverified)
+            .map(|(plan_pos, _)| *plan_pos)
+            .collect(),
+        BarrierStatus::Partial(barrier_child) => {
+            // For a Partial barrier, only the plan positions in the child specified need to be visibility checked
+            merged
+                .iter()
+                .filter(|(_, status)| **status == VisibilityStatus::Unverified)
+                .map(|(plan_pos, _)| *plan_pos)
+                .filter(|plan_pos| {
+                    child_states
+                        .get(barrier_child)
+                        .is_some_and(|cs| cs.contains_key(plan_pos))
+                })
+                .collect()
+        }
+        BarrierStatus::None => {
+            // For no barrier, any plan with an unverified status that's not in any node above needs to be checked
+            merged
+                .iter()
+                .filter(|(plan_pos, status)| {
+                    **status == VisibilityStatus::Unverified && !parent_lineage.contains(plan_pos)
+                })
+                .map(|(plan_pos, _)| *plan_pos)
+                .collect()
+        }
+    }
 }
-/// Returns true if the given plan node is a "barrier" — a point where visibility
-/// must be checked before proceeding. Barriers include non-inner joins (semi, outer),
+
+enum BarrierStatus {
+    None,
+    Partial(usize), // a barrier only on plan positions for the child specified
+    Full,
+}
+/// Returns the "barrier status" of the given plan node (either full, partial, or no barrier) — a point where visibility
+/// must be checked before proceeding.
+///
+/// Partial Barriers include left and right joins - the null-supplying child must have visibility checked, while
+/// the preserved side should remain deferred
+///
+/// Full Barriers include all other non-inner joins (semi, outer),
 /// aggregates, distinct, window functions, and sort-with-limit.
 ///
 /// A plain `Sort` is not a barrier because it only reorders rows; deferred ctids can
-/// safely flow through it unchanged. `Sort` with `fetch` is a barrier because Top-N
+/// safely flow through it unchanged. `Sort` with `fetch` is a full barrier because Top-N
 /// semantics can discard rows permanently, so visibility must be resolved first.
-fn is_barrier(plan: &LogicalPlan) -> BarrierStatus {
+fn barrier_status(plan: &LogicalPlan) -> BarrierStatus {
     match plan {
         LogicalPlan::Sort(sort) => match sort.fetch.is_some() {
-            true => BarrierStatus::NoBarrier,
-            false => BarrierStatus::FullBarrier,
+            true => BarrierStatus::Full,
+            false => BarrierStatus::None,
         },
         LogicalPlan::Join(join) => match join.join_type {
-            datafusion::common::JoinType::Inner => BarrierStatus::NoBarrier,
-            datafusion::common::JoinType::Left => BarrierStatus::PartialBarrier,
-            datafusion::common::JoinType::Right => BarrierStatus::PartialBarrier,
-            _ => BarrierStatus::FullBarrier,
+            datafusion::common::JoinType::Inner => BarrierStatus::None,
+            // specifying that for a left join, we want to visiblity-check the right side only and vice-versa
+            // note that the ordering here comes from DataFusion's `inputs` method, which returns left then right children
+            datafusion::common::JoinType::Left => BarrierStatus::Partial(1),
+            datafusion::common::JoinType::Right => BarrierStatus::Partial(0),
+            _ => BarrierStatus::Full,
         },
-        LogicalPlan::Limit(_) => BarrierStatus::FullBarrier,
-        LogicalPlan::Aggregate(_) => BarrierStatus::FullBarrier,
-        LogicalPlan::Distinct(_) => BarrierStatus::FullBarrier,
-        LogicalPlan::Window(_) => BarrierStatus::FullBarrier,
-        _ => BarrierStatus::NoBarrier,
+        LogicalPlan::Limit(_) => BarrierStatus::Full,
+        LogicalPlan::Aggregate(_) => BarrierStatus::Full,
+        LogicalPlan::Distinct(_) => BarrierStatus::Full,
+        LogicalPlan::Window(_) => BarrierStatus::Full,
+        _ => BarrierStatus::None,
     }
 }
 

@@ -50,6 +50,7 @@ jobs:
 
   test-pg_search:
     name: Test pg_search on PostgreSQL ${{ matrix.pg_version }} (${{ matrix.pg_impl }} - ${{ matrix.arch }})
+    # Compute-optimized c-family for system Postgres jobs; pgrx variant uses m-family because it compiles Postgres from source.
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}

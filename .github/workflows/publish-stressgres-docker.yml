@@ -17,6 +17,7 @@ jobs:
   publish-stressgres-docker:
     name: Publish Stressgres Docker Image to Docker Hub
     runs-on:
+      # General-purpose m-family for Docker buildx layer headroom.
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
       - family=m7a+m7i

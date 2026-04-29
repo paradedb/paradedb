@@ -35,6 +35,7 @@ jobs:
   antithesis-trigger-test-run:
     name: Test pg_search via Antithesis
     runs-on:
+      # General-purpose m-family — orchestrates remote test infra, not CPU-bound.
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
       - family=m7a+m7i

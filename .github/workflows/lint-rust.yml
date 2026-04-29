@@ -22,6 +22,7 @@ jobs:
   lint-rust:
     name: Lint Rust Files
     runs-on:
+      # Compute-optimized c-family — clippy/fmt is CPU-bound, RAM-light.
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
       - family=c7g+c8g

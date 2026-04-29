@@ -38,6 +38,7 @@ concurrency:
 jobs:
   test-paradedb:
     name: Test ParadeDB Docker Image (${{ matrix.arch }})
+    # General-purpose m-family for Docker buildx layer headroom.
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}

@@ -25,6 +25,7 @@ jobs:
   publish-pg_search-schema:
     name: Publish pg_search Schema
     runs-on:
+      # Compute-optimized c-family — Rust schema generation is CPU-bound.
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
       - family=c7a+c7i

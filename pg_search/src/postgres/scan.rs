@@ -242,7 +242,7 @@ pub extern "C-unwind" fn amrescan(
             }
         } else {
             Bm25ScanState {
-                fast_fields: FFHelper::empty(),
+                fast_fields: FFHelper::with_fields(&search_reader, &[]),
                 reader: search_reader,
                 results,
                 itup: (vec![], vec![]),

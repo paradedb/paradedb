@@ -37,6 +37,7 @@ jobs:
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
+      - family=${{ matrix.runner_family }}
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
       - image=${{ matrix.runner_image }}
@@ -49,48 +50,56 @@ jobs:
           - name: Ubuntu 22.04 (Jammy)
             cpu: 8
             ram: 32
+            runner_family: m7a+m7i
             runner_image: ubuntu22-full-x64
             pg_version: 15
             arch: amd64
           - name: Ubuntu 22.04 (Jammy)
             cpu: 4
             ram: 16
+            runner_family: m7g+m8g
             runner_image: ubuntu22-full-arm64
             pg_version: 15
             arch: arm64
           - name: Ubuntu 22.04 (Jammy)
             cpu: 8
             ram: 32
+            runner_family: m7a+m7i
             runner_image: ubuntu22-full-x64
             pg_version: 16
             arch: amd64
           - name: Ubuntu 22.04 (Jammy)
             cpu: 4
             ram: 16
+            runner_family: m7g+m8g
             runner_image: ubuntu22-full-arm64
             pg_version: 16
             arch: arm64
           - name: Ubuntu 22.04 (Jammy)
             cpu: 8
             ram: 32
+            runner_family: m7a+m7i
             runner_image: ubuntu22-full-x64
             pg_version: 17
             arch: amd64
           - name: Ubuntu 22.04 (Jammy)
             cpu: 4
             ram: 16
+            runner_family: m7g+m8g
             runner_image: ubuntu22-full-arm64
             pg_version: 17
             arch: arm64
           - name: Ubuntu 22.04 (Jammy)
             cpu: 8
             ram: 32
+            runner_family: m7a+m7i
             runner_image: ubuntu22-full-x64
             pg_version: 18
             arch: amd64
           - name: Ubuntu 22.04 (Jammy)
             cpu: 4
             ram: 16
+            runner_family: m7g+m8g
             runner_image: ubuntu22-full-arm64
             pg_version: 18
             arch: arm64
@@ -98,48 +107,56 @@ jobs:
           - name: Ubuntu 24.04 (Noble)
             cpu: 8
             ram: 32
+            runner_family: m7a+m7i
             runner_image: ubuntu24-full-x64
             pg_version: 15
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
             cpu: 4
             ram: 16
+            runner_family: m7g+m8g
             runner_image: ubuntu24-full-arm64
             pg_version: 15
             arch: arm64
           - name: Ubuntu 24.04 (Noble)
             cpu: 8
             ram: 32
+            runner_family: m7a+m7i
             runner_image: ubuntu24-full-x64
             pg_version: 16
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
             cpu: 4
             ram: 16
+            runner_family: m7g+m8g
             runner_image: ubuntu24-full-arm64
             pg_version: 16
             arch: arm64
           - name: Ubuntu 24.04 (Noble)
             cpu: 8
             ram: 32
+            runner_family: m7a+m7i
             runner_image: ubuntu24-full-x64
             pg_version: 17
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
             cpu: 4
             ram: 16
+            runner_family: m7g+m8g
             runner_image: ubuntu24-full-arm64
             pg_version: 17
             arch: arm64
           - name: Ubuntu 24.04 (Noble)
             cpu: 8
             ram: 32
+            runner_family: m7a+m7i
             runner_image: ubuntu24-full-x64
             pg_version: 18
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
             cpu: 4
             ram: 16
+            runner_family: m7g+m8g
             runner_image: ubuntu24-full-arm64
             pg_version: 18
             arch: arm64

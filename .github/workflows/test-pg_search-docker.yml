@@ -43,6 +43,7 @@ jobs:
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
+      - family=${{ matrix.runner_family }}
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
       - image=${{ matrix.runner_image }}
@@ -54,11 +55,13 @@ jobs:
           - arch: amd64
             cpu: 16
             ram: 64
+            runner_family: m7a+m7i
             runner_image: ubuntu24-full-x64
             platform: linux/amd64
           - arch: arm64
             cpu: 16
             ram: 64
+            runner_family: m7g+m8g
             runner_image: ubuntu24-full-arm64
             platform: linux/arm64
 

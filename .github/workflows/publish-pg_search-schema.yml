@@ -28,6 +28,7 @@ jobs:
       # Sized to match ubicloud-standard-8-ubuntu-2404 (8 vCPU, 32 GB RAM, x64, Ubuntu 24.04).
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
+      - family=m7a+m7i
       - cpu=8
       - ram=32
       - image=ubuntu24-full-x64

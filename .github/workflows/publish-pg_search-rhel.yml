@@ -37,6 +37,7 @@ jobs:
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
+      - family=${{ matrix.runner_family }}
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
       - image=${{ matrix.runner_image }}
@@ -51,6 +52,7 @@ jobs:
           - name: Red Hat Enterprise Linux 9
             cpu: 8
             ram: 32
+            runner_family: m7a+m7i
             runner_image: ubuntu22-full-x64
             image: redhat/ubi9:latest
             pg_version: 15
@@ -58,6 +60,7 @@ jobs:
           - name: Red Hat Enterprise Linux 9
             cpu: 4
             ram: 16
+            runner_family: m7g+m8g
             runner_image: ubuntu22-full-arm64
             image: redhat/ubi9:latest
             pg_version: 15
@@ -65,6 +68,7 @@ jobs:
           - name: Red Hat Enterprise Linux 9
             cpu: 8
             ram: 32
+            runner_family: m7a+m7i
             runner_image: ubuntu22-full-x64
             image: redhat/ubi9:latest
             pg_version: 16
@@ -72,6 +76,7 @@ jobs:
           - name: Red Hat Enterprise Linux 9
             cpu: 4
             ram: 16
+            runner_family: m7g+m8g
             runner_image: ubuntu22-full-arm64
             image: redhat/ubi9:latest
             pg_version: 16
@@ -79,6 +84,7 @@ jobs:
           - name: Red Hat Enterprise Linux 9
             cpu: 8
             ram: 32
+            runner_family: m7a+m7i
             runner_image: ubuntu22-full-x64
             image: redhat/ubi9:latest
             pg_version: 17
@@ -86,6 +92,7 @@ jobs:
           - name: Red Hat Enterprise Linux 9
             cpu: 4
             ram: 16
+            runner_family: m7g+m8g
             runner_image: ubuntu22-full-arm64
             image: redhat/ubi9:latest
             pg_version: 17
@@ -93,6 +100,7 @@ jobs:
           - name: Red Hat Enterprise Linux 9
             cpu: 8
             ram: 32
+            runner_family: m7a+m7i
             runner_image: ubuntu22-full-x64
             image: redhat/ubi9:latest
             pg_version: 18
@@ -100,6 +108,7 @@ jobs:
           - name: Red Hat Enterprise Linux 9
             cpu: 4
             ram: 16
+            runner_family: m7g+m8g
             runner_image: ubuntu22-full-arm64
             image: redhat/ubi9:latest
             pg_version: 18
@@ -108,6 +117,7 @@ jobs:
           - name: Red Hat Enterprise Linux 10
             cpu: 8
             ram: 32
+            runner_family: m7a+m7i
             runner_image: ubuntu22-full-x64
             image: redhat/ubi10:latest
             pg_version: 15
@@ -115,6 +125,7 @@ jobs:
           - name: Red Hat Enterprise Linux 10
             cpu: 4
             ram: 16
+            runner_family: m7g+m8g
             runner_image: ubuntu22-full-arm64
             image: redhat/ubi10:latest
             pg_version: 15
@@ -122,6 +133,7 @@ jobs:
           - name: Red Hat Enterprise Linux 10
             cpu: 8
             ram: 32
+            runner_family: m7a+m7i
             runner_image: ubuntu22-full-x64
             image: redhat/ubi10:latest
             pg_version: 16
@@ -129,6 +141,7 @@ jobs:
           - name: Red Hat Enterprise Linux 10
             cpu: 4
             ram: 16
+            runner_family: m7g+m8g
             runner_image: ubuntu22-full-arm64
             image: redhat/ubi10:latest
             pg_version: 16
@@ -136,6 +149,7 @@ jobs:
           - name: Red Hat Enterprise Linux 10
             cpu: 8
             ram: 32
+            runner_family: m7a+m7i
             runner_image: ubuntu22-full-x64
             image: redhat/ubi10:latest
             pg_version: 17
@@ -143,6 +157,7 @@ jobs:
           - name: Red Hat Enterprise Linux 10
             cpu: 4
             ram: 16
+            runner_family: m7g+m8g
             runner_image: ubuntu22-full-arm64
             image: redhat/ubi10:latest
             pg_version: 17
@@ -150,6 +165,7 @@ jobs:
           - name: Red Hat Enterprise Linux 10
             cpu: 8
             ram: 32
+            runner_family: m7a+m7i
             runner_image: ubuntu22-full-x64
             image: redhat/ubi10:latest
             pg_version: 18
@@ -157,6 +173,7 @@ jobs:
           - name: Red Hat Enterprise Linux 10
             cpu: 4
             ram: 16
+            runner_family: m7g+m8g
             runner_image: ubuntu22-full-arm64
             image: redhat/ubi10:latest
             pg_version: 18

@@ -55,6 +55,7 @@ jobs:
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
+      - family=${{ matrix.runner_family }}
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
       - image=${{ matrix.runner_image }}
@@ -69,6 +70,7 @@ jobs:
         pg_impl: [system]
         cpu: [8]
         ram: [32]
+        runner_family: [m7g+m8g]
         runner_image: [ubuntu24-full-arm64]
         arch: [arm64]
         include:
@@ -82,6 +84,7 @@ jobs:
             pg_impl: pgrx
             cpu: 8
             ram: 32
+            runner_family: m7g+m8g
             runner_image: ubuntu24-full-arm64
             arch: arm64
           # Add AMD run for PG 18 (system Postgres)
@@ -89,6 +92,7 @@ jobs:
             pg_impl: system
             cpu: 8
             ram: 32
+            runner_family: m7a+m7i
             runner_image: ubuntu24-full-x64
             arch: amd64
 

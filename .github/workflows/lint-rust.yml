@@ -25,6 +25,7 @@ jobs:
       # Sized to match ubicloud-standard-4-arm (4 vCPU, 16 GB RAM, ARM).
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
+      - family=m7g+m8g
       - cpu=4
       - ram=16
       - image=ubuntu22-full-arm64

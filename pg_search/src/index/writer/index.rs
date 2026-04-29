@@ -191,8 +191,7 @@ impl SerialIndexWriter {
             max_docs_per_segment: None,
         };
 
-        let pending_segment =
-            Some(PendingSegment::with_id(&index, memory_budget, segment_id)?);
+        let pending_segment = Some(PendingSegment::with_id(&index, memory_budget, segment_id)?);
 
         Ok(Self {
             id: worker_number,

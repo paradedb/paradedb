@@ -23,7 +23,14 @@ concurrency:
 jobs:
   test-stressgres-docker:
     name: Test Stressgres Docker Image
-    runs-on: ubicloud-standard-8-arm
+    runs-on:
+      # Sized to match ubicloud-standard-8-arm (8 vCPU, 32 GB RAM, ARM, Ubuntu 22.04 default).
+      # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
+      - runs-on=${{ github.run_id }}
+      - cpu=8
+      - ram=32
+      - image=ubuntu22-full-arm64
+      - extras=s3-cache
 
     steps:
       - name: Checkout Git Repository

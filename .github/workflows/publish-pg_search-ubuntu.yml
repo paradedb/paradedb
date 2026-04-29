@@ -31,75 +31,116 @@ permissions:
 jobs:
   publish-pg_search:
     name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} ${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
+    # Sized to match ubicloud-standard-8 (8 vCPU, 32 GB, x64) and
+    # ubicloud-standard-4-arm (4 vCPU, 16 GB, ARM); matrix.runner_image picks
+    # the matching Ubuntu release.
+    # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - cpu=${{ matrix.cpu }}
+      - ram=${{ matrix.ram }}
+      - image=${{ matrix.runner_image }}
+      - extras=s3-cache
     if: ${{ !contains(github.ref, '-rc.') }}
     strategy:
       matrix:
         include:
           # Ubuntu 22.04
           - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-8-ubuntu-2204
+            cpu: 8
+            ram: 32
+            runner_image: ubuntu22-full-x64
             pg_version: 15
             arch: amd64
           - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-4-arm-ubuntu-2204
+            cpu: 4
+            ram: 16
+            runner_image: ubuntu22-full-arm64
             pg_version: 15
             arch: arm64
           - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-8-ubuntu-2204
+            cpu: 8
+            ram: 32
+            runner_image: ubuntu22-full-x64
             pg_version: 16
             arch: amd64
           - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-4-arm-ubuntu-2204
+            cpu: 4
+            ram: 16
+            runner_image: ubuntu22-full-arm64
             pg_version: 16
             arch: arm64
           - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-8-ubuntu-2204
+            cpu: 8
+            ram: 32
+            runner_image: ubuntu22-full-x64
             pg_version: 17
             arch: amd64
           - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-4-arm-ubuntu-2204
+            cpu: 4
+            ram: 16
+            runner_image: ubuntu22-full-arm64
             pg_version: 17
             arch: arm64
           - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-8-ubuntu-2204
+            cpu: 8
+            ram: 32
+            runner_image: ubuntu22-full-x64
             pg_version: 18
             arch: amd64
           - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-4-arm-ubuntu-2204
+            cpu: 4
+            ram: 16
+            runner_image: ubuntu22-full-arm64
             pg_version: 18
             arch: arm64
           # Ubuntu 24.04
           - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-8-ubuntu-2404
+            cpu: 8
+            ram: 32
+            runner_image: ubuntu24-full-x64
             pg_version: 15
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-4-arm-ubuntu-2404
+            cpu: 4
+            ram: 16
+            runner_image: ubuntu24-full-arm64
             pg_version: 15
             arch: arm64
           - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-8-ubuntu-2404
+            cpu: 8
+            ram: 32
+            runner_image: ubuntu24-full-x64
             pg_version: 16
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-4-arm-ubuntu-2404
+            cpu: 4
+            ram: 16
+            runner_image: ubuntu24-full-arm64
             pg_version: 16
             arch: arm64
           - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-8-ubuntu-2404
+            cpu: 8
+            ram: 32
+            runner_image: ubuntu24-full-x64
             pg_version: 17
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-4-arm-ubuntu-2404
+            cpu: 4
+            ram: 16
+            runner_image: ubuntu24-full-arm64
             pg_version: 17
             arch: arm64
           - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-8-ubuntu-2404
+            cpu: 8
+            ram: 32
+            runner_image: ubuntu24-full-x64
             pg_version: 18
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-4-arm-ubuntu-2404
+            cpu: 4
+            ram: 16
+            runner_image: ubuntu24-full-arm64
             pg_version: 18
             arch: arm64
 

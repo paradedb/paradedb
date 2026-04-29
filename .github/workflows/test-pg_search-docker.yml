@@ -38,16 +38,28 @@ concurrency:
 jobs:
   test-paradedb:
     name: Test ParadeDB Docker Image (${{ matrix.arch }})
-    runs-on: ${{ matrix.runner }}
+    # Sized to match ubicloud-standard-16-ubuntu-2404 / ubicloud-standard-16-arm-ubuntu-2404
+    # (16 vCPU, 64 GB, Ubuntu 24.04). matrix.runner_image picks the matching arch AMI.
+    # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - cpu=${{ matrix.cpu }}
+      - ram=${{ matrix.ram }}
+      - image=${{ matrix.runner_image }}
+      - extras=s3-cache
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: amd64
-            runner: ubicloud-standard-16-ubuntu-2404
+            cpu: 16
+            ram: 64
+            runner_image: ubuntu24-full-x64
             platform: linux/amd64
           - arch: arm64
-            runner: ubicloud-standard-16-arm-ubuntu-2404
+            cpu: 16
+            ram: 64
+            runner_image: ubuntu24-full-arm64
             platform: linux/arm64
 
     steps:

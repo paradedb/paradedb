@@ -50,16 +50,26 @@ jobs:
 
   test-pg_search:
     name: Test pg_search on PostgreSQL ${{ matrix.pg_version }} (${{ matrix.pg_impl }} - ${{ matrix.arch }})
-    runs-on: ${{ matrix.runner }}
+    # Sized to match ubicloud-standard-8-arm-ubuntu-2404 / ubicloud-standard-8-ubuntu-2404
+    # (8 vCPU, 32 GB, Ubuntu 24.04). matrix.runner_image picks the matching arch AMI.
+    # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - cpu=${{ matrix.cpu }}
+      - ram=${{ matrix.ram }}
+      - image=${{ matrix.runner_image }}
+      - extras=s3-cache
     if: ${{ !cancelled() }}
     needs: set-matrix
     strategy:
       fail-fast: false
       matrix:
-        # Base: system Postgres on regular runner for all versions
+        # Base: system Postgres on ARM Ubuntu 24.04 for all versions
         pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
         pg_impl: [system]
-        runner: [ubicloud-standard-8-arm-ubuntu-2404]
+        cpu: [8]
+        ram: [32]
+        runner_image: [ubuntu24-full-arm64]
         arch: [arm64]
         include:
           # pgrx compiles Postgres from source with --enable-cassert and --enable-debug,
@@ -70,12 +80,16 @@ jobs:
           # only. This run is the only way we get Postgres assertion coverage in CI.
           - pg_version: 18
             pg_impl: pgrx
-            runner: ubicloud-standard-8-arm-ubuntu-2404
+            cpu: 8
+            ram: 32
+            runner_image: ubuntu24-full-arm64
             arch: arm64
           # Add AMD run for PG 18 (system Postgres)
           - pg_version: 18
             pg_impl: system
-            runner: ubicloud-standard-8-ubuntu-2404
+            cpu: 8
+            ram: 32
+            runner_image: ubuntu24-full-x64
             arch: amd64
 
     steps:

@@ -21,7 +21,14 @@ concurrency:
 jobs:
   lint-rust:
     name: Lint Rust Files
-    runs-on: ubicloud-standard-4-arm
+    runs-on:
+      # Sized to match ubicloud-standard-4-arm (4 vCPU, 16 GB RAM, ARM).
+      # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
+      - runs-on=${{ github.run_id }}
+      - cpu=4
+      - ram=16
+      - image=ubuntu22-full-arm64
+      - extras=s3-cache
     strategy:
       matrix:
         pg_version: [18]

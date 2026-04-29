@@ -124,6 +124,7 @@ jobs:
             --platform ${{ matrix.platform }} \
             --file docker/Dockerfile \
             --tag paradedb/paradedb:latest \
+            --build-arg COMMIT_SHA=${{ github.sha }} \
             --cache-from type=gha,scope=paradedb-docker-${{ matrix.arch }} \
             --cache-to type=gha,mode=max,scope=paradedb-docker-${{ matrix.arch }} \
             --load \

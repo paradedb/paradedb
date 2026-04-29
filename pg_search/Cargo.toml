@@ -4,7 +4,6 @@ description = "Full text search for PostgreSQL using BM25"
 version = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }
-build = "build.rs"
 
 [lib]
 crate-type = ["cdylib"]
@@ -86,10 +85,6 @@ prost = "0.14.3"
 pgrx-tests.workspace = true
 rstest = "0.25.0"
 proptest = "1.11.0"
-
-[build-dependencies]
-vergen = { version = "9.1.0", features = ["build", "cargo", "rustc", "si"] }
-vergen-git2 = "9.1"
 
 [package.metadata.cargo-machete]
 ignored = ["indexmap", "libc", "tantivy-common"]

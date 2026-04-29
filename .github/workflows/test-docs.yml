@@ -26,8 +26,6 @@ jobs:
   test-docs:
     name: Test Docs for Broken Links, SEO Issues, and Code Snippets
     runs-on:
-      # 8 vCPU / 16 GB ARM, compute-optimized — Mintlify is JS, RAM-light. Image
-      # stays on -full- because Mintlify CLI is installed via npm (Node preinstalled).
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
       - family=c7g+c8g

@@ -38,7 +38,6 @@ concurrency:
 jobs:
   test-paradedb:
     name: Test ParadeDB Docker Image (${{ matrix.arch }})
-    # 16 vCPU / 64 GB Ubuntu 24.04. matrix.runner_image picks the matching arch AMI.
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}

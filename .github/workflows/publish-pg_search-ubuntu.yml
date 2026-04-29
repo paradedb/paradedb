@@ -31,8 +31,6 @@ permissions:
 jobs:
   publish-pg_search:
     name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} ${{ matrix.arch }}
-    # 8 vCPU / 16 GB x64 + 4 vCPU / 8 GB ARM, compute-optimized (Rust release
-    # build is CPU-bound); matrix.runner_image picks the matching Ubuntu release.
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}

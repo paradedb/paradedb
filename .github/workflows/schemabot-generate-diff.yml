@@ -27,7 +27,6 @@ jobs:
   schemabot-generate-diff:
     name: SchemaBot
     runs-on:
-      # 8 vCPU / 16 GB ARM, compute-optimized — Rust schema generation is CPU-bound.
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
       - family=c7g+c8g

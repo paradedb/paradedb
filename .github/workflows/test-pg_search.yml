@@ -242,10 +242,11 @@ jobs:
         working-directory: pg_search/
         run: cargo pgrx install --sudo --features block_tracker --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
-      # Coverage instrumentation only runs on schedule + push-to-main; PRs run
-      # plain cargo test for ~30-40% wall-clock reduction.
+      # Coverage instrumentation runs on schedule + push-to-main, plus PG 18
+      # entries on PRs (so Codecov has fresh data per PR). Older-version PR
+      # entries run plain cargo test for ~30-40% wall-clock reduction.
       - name: Source LLVM coverage environment (pgrx)
-        if: matrix.pg_impl == 'pgrx' && github.event_name != 'pull_request'
+        if: matrix.pg_impl == 'pgrx' && (github.event_name != 'pull_request' || matrix.pg_version == 18)
         run: |
           source <(cargo llvm-cov show-env --export-prefix)
           cargo llvm-cov clean --workspace
@@ -280,7 +281,7 @@ jobs:
         run: |
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          if [[ "${{ github.event_name }}" == "pull_request" && "${{ matrix.pg_version }}" != "18" ]]; then
             RUST_BACKTRACE=1 cargo test --jobs $(nproc) --package tests --package tokenizers
           else
             RUST_BACKTRACE=1 cargo llvm-cov --jobs $(nproc) --package tests --package tokenizers --lcov --output-path coverage-integration-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}.lcov
@@ -292,7 +293,7 @@ jobs:
         run: |
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          if [[ "${{ github.event_name }}" == "pull_request" && "${{ matrix.pg_version }}" != "18" ]]; then
             RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features pg${{ matrix.pg_version }} --no-default-features
           else
             RUST_BACKTRACE=1 cargo llvm-cov --jobs $(nproc) --features pg${{ matrix.pg_version }} --no-default-features --lcov --output-path ../coverage-unit-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}.lcov
@@ -317,7 +318,7 @@ jobs:
         run: cargo pgrx stop pg${{ matrix.pg_version }}
 
       - name: Generate combined LCOV report (pgrx)
-        if: matrix.pg_impl == 'pgrx' && github.event_name != 'pull_request' && always()
+        if: matrix.pg_impl == 'pgrx' && (github.event_name != 'pull_request' || matrix.pg_version == 18) && always()
         run: cargo llvm-cov report --lcov --output-path coverage-combined-pgrx-${{ matrix.pg_version }}.lcov
 
       # runs-on's extras=s3-cache proxies ACTIONS_RESULTS_URL to its local cache
@@ -326,7 +327,7 @@ jobs:
       # env vars back to GitHub's canonical artifact endpoint just for this step
       # so the upload bypasses the proxy.
       - name: Upload Coverage Artifact
-        if: github.event_name != 'pull_request' && always()
+        if: (github.event_name != 'pull_request' || matrix.pg_version == 18) && always()
         env:
           ACTIONS_RESULTS_URL: https://results-receiver.actions.githubusercontent.com/
           ACTIONS_CACHE_SERVICE_V2: ""
@@ -344,7 +345,7 @@ jobs:
     name: Upload Combined Coverage to Codecov
     runs-on: ubuntu-latest
     needs: test-pg_search
-    if: success() && github.event_name != 'pull_request'
+    if: success()
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v6

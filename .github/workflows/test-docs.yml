@@ -26,7 +26,7 @@ jobs:
   test-docs:
     name: Test Docs for Broken Links, SEO Issues, and Code Snippets
     runs-on:
-      # Compute-optimized c-family — Mintlify is JS, RAM-light.
+      # Compute-optimized c-family — Rust + Postgres tests are CPU-bound.
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
       - family=c7g+c8g

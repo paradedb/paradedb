@@ -18,6 +18,7 @@
 use std::convert::identity;
 use std::sync::{Arc, OnceLock};
 
+use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::types_arrow::date_time_to_ts_nanos;
 use crate::schema::SearchFieldType;
@@ -35,7 +36,8 @@ use tantivy::columnar::{BytesColumn, StrColumn};
 use tantivy::fastfield::{Column, FastFieldReaders};
 use tantivy::schema::OwnedValue;
 use tantivy::termdict::TermOrdinal;
-use tantivy::{DocAddress, DocId, SegmentOrdinal, SegmentReader};
+use tantivy::SegmentOrdinal;
+use tantivy::{DocAddress, DocId};
 
 /// A fast-field index position value.
 pub type FFIndex = usize;
@@ -68,8 +70,9 @@ impl FFHelper {
         Self::default()
     }
 
-    pub fn with_fields(segment_readers: &[SegmentReader], fields: &[WhichFastField]) -> Self {
-        let segment_caches = segment_readers
+    pub fn with_fields(reader: &SearchIndexReader, fields: &[WhichFastField]) -> Self {
+        let segment_caches = reader
+            .segment_readers()
             .iter()
             .map(|reader| {
                 let fast_fields_reader = reader.fast_fields().clone();

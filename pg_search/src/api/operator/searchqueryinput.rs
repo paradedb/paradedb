@@ -190,7 +190,7 @@ pub fn search_with_query_input(
         let key_field_name = schema.key_field_name();
         let key_field_type = schema.key_field_type();
         let ff_helper =
-            FFHelper::with_fields(search_reader.segment_readers(), &[(key_field_name, key_field_type).into()]);
+            FFHelper::with_fields(&search_reader, &[(key_field_name, key_field_type).into()]);
 
         // now, query the SearchReader and collect up the docs that match our query.
         // the matches are cached so that the same input query will return the same results

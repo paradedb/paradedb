@@ -19,11 +19,11 @@ use std::cmp::Ordering;
 use std::fmt::{Debug, Display};
 use std::path::PathBuf;
 use std::ptr::NonNull;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, SortDirection};
-use crate::index::fast_fields_helper::FFHelper;
+use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::scorer::{DeferredScorer, ScorerIter};
 use crate::index::setup_tokenizers;
@@ -284,9 +284,10 @@ pub struct SearchIndexReader {
     total_docs: u64,
     segment_ordinal_by_id: HashMap<SegmentId, SegmentOrdinal>,
 
-    /// Per-segment ctid fast-field cache, shared across clones so the ctid column
-    /// is opened at most once per segment for the lifetime of the reader.
-    ctid_cache: Arc<FFHelper>,
+    /// Per-segment ctid fast-field readers, lazily initialized via [`OnceLock`].
+    /// Shared across clones so the column is opened at most once per segment for
+    /// the lifetime of the reader.
+    ctid_readers: Arc<Vec<OnceLock<FFType>>>,
 
     // [`PinnedBuffer`] has a Drop impl, so we hold onto it but don't otherwise use it
     //
@@ -315,7 +316,7 @@ impl Clone for SearchIndexReader {
             total_segment_count: self.total_segment_count,
             total_docs: self.total_docs,
             segment_ordinal_by_id: self.segment_ordinal_by_id.clone(),
-            ctid_cache: self.ctid_cache.clone(),
+            ctid_readers: self.ctid_readers.clone(),
             _cleanup_lock: self._cleanup_lock.clone(),
         }
     }
@@ -442,7 +443,11 @@ impl SearchIndexReader {
             .map(|(ord, reader)| (reader.segment_id(), ord as SegmentOrdinal))
             .collect();
 
-        let ctid_cache = Arc::new(FFHelper::with_fields(searcher.segment_readers(), &[]));
+        let ctid_readers = Arc::new(
+            (0..searcher.segment_readers().len())
+                .map(|_| OnceLock::new())
+                .collect(),
+        );
 
         Ok(Self {
             index_rel: index_relation.clone(),
@@ -455,7 +460,7 @@ impl SearchIndexReader {
             total_segment_count,
             total_docs,
             segment_ordinal_by_id: segment_ord_by_id,
-            ctid_cache,
+            ctid_readers,
             _cleanup_lock: cleanup_lock,
         })
     }
@@ -549,15 +554,17 @@ impl SearchIndexReader {
         &self.schema
     }
 
-    /// Resolve the `ctid` for a [`DocAddress`] using the shared [`FFHelper`] cache.
+    /// Resolve the `ctid` for a [`DocAddress`] using a per-segment cache of fast-field readers.
     ///
     /// Each segment's ctid column is opened at most once (via [`OnceLock`]) and the cache is
     /// shared across all clones of this reader.
     #[inline]
     pub fn resolve_ctid(&self, doc_address: DocAddress) -> u64 {
-        self.ctid_cache
-            .ctid(doc_address.segment_ord)
-            .as_u64(doc_address.doc_id)
+        let seg_ord = doc_address.segment_ord;
+        let ff = self.ctid_readers[seg_ord as usize].get_or_init(|| {
+            FFType::new_ctid(self.searcher.segment_reader(seg_ord).fast_fields())
+        });
+        ff.as_u64(doc_address.doc_id)
             .expect("ctid should be present")
     }
 

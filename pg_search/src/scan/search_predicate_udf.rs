@@ -342,7 +342,7 @@ impl SearchPredicateUDF {
             vec![WhichFastField::Ctid]
         };
 
-        let ffhelper = FFHelper::with_fields(reader.segment_readers(), &fields);
+        let ffhelper = FFHelper::with_fields(&reader, &fields);
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let mut visibility = HeapVisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
         let mut scanner = Scanner::new(search_results, None, fields, self.heap_oid.into());

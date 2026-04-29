@@ -1365,7 +1365,7 @@ mod tests {
             ),
         ];
         let ffhelper = Arc::new(crate::index::fast_fields_helper::FFHelper::with_fields(
-            reader.segment_readers(), &fields,
+            &reader, &fields,
         ));
 
         let schema = Arc::new(Schema::new(vec![

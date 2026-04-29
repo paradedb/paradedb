@@ -81,7 +81,7 @@ mod tests {
             WhichFastField::Named("id".to_string(), SearchFieldType::I64(pg_sys::INT4OID)),
         ];
 
-        let ffhelper = FFHelper::with_fields(reader.segment_readers(), &fields);
+        let ffhelper = FFHelper::with_fields(&reader, &fields);
 
         // Ensure current transaction changes are visible
         unsafe {

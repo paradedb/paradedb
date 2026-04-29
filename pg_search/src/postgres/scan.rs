@@ -222,7 +222,7 @@ pub extern "C-unwind" fn amrescan(
             let schema = indexrel.schema().expect("indexrel should have a schema");
             Bm25ScanState {
                 fast_fields: FFHelper::with_fields(
-                    search_reader.segment_readers(),
+                    &search_reader,
                     &[(schema.key_field_name(), schema.key_field_type()).into()],
                 ),
                 reader: search_reader,

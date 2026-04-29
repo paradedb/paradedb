@@ -38,7 +38,7 @@ concurrency:
 jobs:
   test-paradedb:
     name: Test ParadeDB Docker Image (${{ matrix.arch }})
-    # General-purpose m-family for Docker buildx layer headroom.
+    # General-purpose m-family — Docker buildx is RAM-heavy.
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
@@ -52,14 +52,14 @@ jobs:
       matrix:
         include:
           - arch: amd64
-            cpu: 16
-            ram: 64
+            cpu: 8
+            ram: 32
             runner_family: m7a+m7i
             runner_image: ubuntu24-full-x64
             platform: linux/amd64
           - arch: arm64
-            cpu: 16
-            ram: 64
+            cpu: 8
+            ram: 32
             runner_family: m7g+m8g
             runner_image: ubuntu24-full-arm64
             platform: linux/arm64

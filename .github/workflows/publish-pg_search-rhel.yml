@@ -54,8 +54,8 @@ jobs:
             pg_version: 15
             arch: x86_64
           - name: Red Hat Enterprise Linux 9
-            cpu: 4
-            ram: 8
+            cpu: 8
+            ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
             image: redhat/ubi9:latest
@@ -70,8 +70,8 @@ jobs:
             pg_version: 16
             arch: x86_64
           - name: Red Hat Enterprise Linux 9
-            cpu: 4
-            ram: 8
+            cpu: 8
+            ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
             image: redhat/ubi9:latest
@@ -86,8 +86,8 @@ jobs:
             pg_version: 17
             arch: x86_64
           - name: Red Hat Enterprise Linux 9
-            cpu: 4
-            ram: 8
+            cpu: 8
+            ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
             image: redhat/ubi9:latest
@@ -102,8 +102,8 @@ jobs:
             pg_version: 18
             arch: x86_64
           - name: Red Hat Enterprise Linux 9
-            cpu: 4
-            ram: 8
+            cpu: 8
+            ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
             image: redhat/ubi9:latest
@@ -119,8 +119,8 @@ jobs:
             pg_version: 15
             arch: x86_64
           - name: Red Hat Enterprise Linux 10
-            cpu: 4
-            ram: 8
+            cpu: 8
+            ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
             image: redhat/ubi10:latest
@@ -135,8 +135,8 @@ jobs:
             pg_version: 16
             arch: x86_64
           - name: Red Hat Enterprise Linux 10
-            cpu: 4
-            ram: 8
+            cpu: 8
+            ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
             image: redhat/ubi10:latest
@@ -151,8 +151,8 @@ jobs:
             pg_version: 17
             arch: x86_64
           - name: Red Hat Enterprise Linux 10
-            cpu: 4
-            ram: 8
+            cpu: 8
+            ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
             image: redhat/ubi10:latest
@@ -167,8 +167,8 @@ jobs:
             pg_version: 18
             arch: x86_64
           - name: Red Hat Enterprise Linux 10
-            cpu: 4
-            ram: 8
+            cpu: 8
+            ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
             image: redhat/ubi10:latest

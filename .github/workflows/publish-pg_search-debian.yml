@@ -54,8 +54,8 @@ jobs:
             pg_version: 15
             arch: amd64
           - name: Debian 12 (Bookworm)
-            cpu: 4
-            ram: 8
+            cpu: 8
+            ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
             image: debian:12-slim
@@ -70,8 +70,8 @@ jobs:
             pg_version: 16
             arch: amd64
           - name: Debian 12 (Bookworm)
-            cpu: 4
-            ram: 8
+            cpu: 8
+            ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
             image: debian:12-slim
@@ -86,8 +86,8 @@ jobs:
             pg_version: 17
             arch: amd64
           - name: Debian 12 (Bookworm)
-            cpu: 4
-            ram: 8
+            cpu: 8
+            ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
             image: debian:12-slim
@@ -102,8 +102,8 @@ jobs:
             pg_version: 18
             arch: amd64
           - name: Debian 12 (Bookworm)
-            cpu: 4
-            ram: 8
+            cpu: 8
+            ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
             image: debian:12-slim
@@ -119,8 +119,8 @@ jobs:
             pg_version: 15
             arch: amd64
           - name: Debian 13 (Trixie)
-            cpu: 4
-            ram: 8
+            cpu: 8
+            ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
             image: debian:13-slim
@@ -135,8 +135,8 @@ jobs:
             pg_version: 16
             arch: amd64
           - name: Debian 13 (Trixie)
-            cpu: 4
-            ram: 8
+            cpu: 8
+            ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
             image: debian:13-slim
@@ -151,8 +151,8 @@ jobs:
             pg_version: 17
             arch: amd64
           - name: Debian 13 (Trixie)
-            cpu: 4
-            ram: 8
+            cpu: 8
+            ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
             image: debian:13-slim
@@ -167,8 +167,8 @@ jobs:
             pg_version: 18
             arch: amd64
           - name: Debian 13 (Trixie)
-            cpu: 4
-            ram: 8
+            cpu: 8
+            ram: 16
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
             image: debian:13-slim

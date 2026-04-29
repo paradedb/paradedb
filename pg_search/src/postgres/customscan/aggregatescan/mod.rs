@@ -1288,11 +1288,12 @@ unsafe fn detect_join_aggregate_topk(
         return None;
     }
 
-    // Must have a LIMIT for TopK to matter
-    let limit_offset = LimitOffset::from_parse(parse);
-    let limit = limit_offset.limit()? as usize;
-    let offset = limit_offset.offset().unwrap_or(0) as usize;
-    let k = limit + offset;
+    // Must have a LIMIT for TopK to matter. We require a STATIC value here
+    // because DataFusion's TopK rule needs a concrete K at planning time.
+    // Parameterized LIMIT is left as a regular sort+limit pipeline.
+    let limit_offset = LimitOffset::from_parse(parse)?;
+    let static_fetch = limit_offset.static_fetch()?;
+    let k = static_fetch;
 
     // Only single sort clause for TopK
     let sort_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).sortClause);

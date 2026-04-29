@@ -178,17 +178,19 @@ static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: GucSetting<i32> =
     GucSetting::<i32>::new(16_000);
 
-// TermSet strategy thresholds (paradedb/paradedb#4895). These tune the planner
-// in tantivy::query::TermSetStrategyConfig — see design.md §4 for the meaning
-// of each ratio. Defaults mirror TermSetStrategyConfig::default() in tantivy
-// so a paradedb installation that doesn't touch them gets the same behavior
-// as a bare tantivy caller.
+// TermSet strategy density thresholds (paradedb/paradedb#4895). These tune
+// the planner in tantivy::query::TermSetStrategyConfig — see design.md §4
+// for the meaning of each density. Defaults are 1/64, 1/256, 1/4, 1/16, 1/4
+// to mirror TermSetStrategyConfig::default() in tantivy; a paradedb
+// installation that doesn't touch them gets the same behavior as a bare
+// tantivy caller.
 static TERM_SET_GALLOP_ENABLED: GucSetting<bool> = GucSetting::<bool>::new(true);
-static TERM_SET_GALLOP_RATIO: GucSetting<i32> = GucSetting::<i32>::new(64);
-static TERM_SET_POSTING_RATIO: GucSetting<i32> = GucSetting::<i32>::new(256);
-static TERM_SET_BITSET_RATIO: GucSetting<i32> = GucSetting::<i32>::new(4);
-static TERM_SET_HASH_PROBE_RATIO: GucSetting<i32> = GucSetting::<i32>::new(16);
-static TERM_SET_SUBSEQUENT_BITSET_RATIO: GucSetting<i32> = GucSetting::<i32>::new(4);
+static TERM_SET_GALLOP_MAX_DENSITY: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 64.0);
+static TERM_SET_POSTING_MAX_DENSITY: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 256.0);
+static TERM_SET_BITSET_MAX_DENSITY: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 4.0);
+static TERM_SET_HASH_PROBE_MAX_DENSITY: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 16.0);
+static TERM_SET_SUBSEQUENT_BITSET_MAX_DENSITY: GucSetting<f64> =
+    GucSetting::<f64>::new(1.0 / 4.0);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
@@ -473,10 +475,12 @@ pub fn init() {
         GucFlags::default(),
     );
 
-    // TermSet strategy thresholds (issue #4895). The kill-switch
+    // TermSet strategy density thresholds (issue #4895). The kill-switch
     // (paradedb.term_set_gallop_enabled) is the safety override if the
-    // gallop optimization regresses unexpectedly; the four ratios tune the
-    // planner without recompiling.
+    // gallop optimization regresses unexpectedly; the five density values
+    // tune the planner without recompiling. Each density is unitless and
+    // bounded to [0.0, 1.0] (a density above 1.0 would mean more matches
+    // than corpus rows, which is impossible).
     GucRegistry::define_bool_guc(
         c"paradedb.term_set_gallop_enabled",
         c"Enable galloping execution of FastFieldTermSetQuery on sorted segments.",
@@ -485,53 +489,53 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::default(),
     );
-    GucRegistry::define_int_guc(
-        c"paradedb.term_set_gallop_ratio",
-        c"Gallop is selected when K' < N / this ratio on a sorted segment.",
-        c"Larger values bias toward gallop. K' is the number of distinct terms surviving min/max pruning; N is the segment size. Default 64.",
-        &TERM_SET_GALLOP_RATIO,
-        1,
-        i32::MAX,
+    GucRegistry::define_float_guc(
+        c"paradedb.term_set_gallop_max_density",
+        c"Gallop is selected when K' / N is below this density on a sorted segment.",
+        c"K' is the number of distinct terms surviving min/max pruning; N is the segment size. Smaller values bias toward gallop. Default 1/64 = 0.015625.",
+        &TERM_SET_GALLOP_MAX_DENSITY,
+        0.0,
+        1.0,
         GucContext::Userset,
         GucFlags::default(),
     );
-    GucRegistry::define_int_guc(
-        c"paradedb.term_set_posting_ratio",
-        c"Reserved (follow-up A): posting-list direct strategy threshold for first-column FastFieldTermSetQuery.",
-        c"K' * D < N / this ratio selects PostingListDirect. Currently routes to LinearScan; the ratio is recorded so when follow-up A lands, no SQL change is needed. Default 256.",
-        &TERM_SET_POSTING_RATIO,
-        1,
-        i32::MAX,
+    GucRegistry::define_float_guc(
+        c"paradedb.term_set_posting_max_density",
+        c"Reserved (follow-up A): posting-list direct strategy density threshold for first-column FastFieldTermSetQuery.",
+        c"K' * D / N below this density selects PostingListDirect. Currently routes to LinearScan; the density is recorded so when follow-up A lands, no SQL change is needed. Default 1/256 = 0.00390625.",
+        &TERM_SET_POSTING_MAX_DENSITY,
+        0.0,
+        1.0,
         GucContext::Userset,
         GucFlags::default(),
     );
-    GucRegistry::define_int_guc(
-        c"paradedb.term_set_bitset_ratio",
-        c"Reserved (follow-up B): bitset-from-postings strategy threshold for first-column FastFieldTermSetQuery.",
-        c"K' * D < N / this ratio selects BitsetFromPostings. Currently routes to LinearScan. Default 4.",
-        &TERM_SET_BITSET_RATIO,
-        1,
-        i32::MAX,
+    GucRegistry::define_float_guc(
+        c"paradedb.term_set_bitset_max_density",
+        c"Reserved (follow-up B): bitset-from-postings strategy density threshold for first-column FastFieldTermSetQuery.",
+        c"K' * D / N below this density selects BitsetFromPostings. Currently routes to LinearScan. Default 1/4 = 0.25.",
+        &TERM_SET_BITSET_MAX_DENSITY,
+        0.0,
+        1.0,
         GucContext::Userset,
         GucFlags::default(),
     );
-    GucRegistry::define_int_guc(
-        c"paradedb.term_set_hash_probe_ratio",
-        c"Reserved (subsequent-column work): hash-probe threshold for FastFieldTermSetQuery on a candidate set narrower than the segment.",
-        c"C < N / this ratio selects HashProbe. Currently routes to LinearScan. Default 16.",
-        &TERM_SET_HASH_PROBE_RATIO,
-        1,
-        i32::MAX,
+    GucRegistry::define_float_guc(
+        c"paradedb.term_set_hash_probe_max_density",
+        c"Reserved (subsequent-column work): hash-probe density threshold for FastFieldTermSetQuery on a candidate set narrower than the segment.",
+        c"C / N below this density selects HashProbe. Currently routes to LinearScan. Default 1/16 = 0.0625.",
+        &TERM_SET_HASH_PROBE_MAX_DENSITY,
+        0.0,
+        1.0,
         GucContext::Userset,
         GucFlags::default(),
     );
-    GucRegistry::define_int_guc(
-        c"paradedb.term_set_subsequent_bitset_ratio",
-        c"Reserved (subsequent-column work): bitset-from-postings threshold for FastFieldTermSetQuery on a candidate set narrower than the segment.",
-        c"K' * D < C / this ratio selects BitsetFromPostings on the subsequent-column branch. Currently routes to LinearScan. Default 4.",
-        &TERM_SET_SUBSEQUENT_BITSET_RATIO,
-        1,
-        i32::MAX,
+    GucRegistry::define_float_guc(
+        c"paradedb.term_set_subsequent_bitset_max_density",
+        c"Reserved (subsequent-column work): bitset-from-postings density threshold for FastFieldTermSetQuery on a candidate set narrower than the segment.",
+        c"K' * D / C below this density selects BitsetFromPostings on the subsequent-column branch. Currently routes to LinearScan. Default 1/4 = 0.25.",
+        &TERM_SET_SUBSEQUENT_BITSET_MAX_DENSITY,
+        0.0,
+        1.0,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -816,24 +820,24 @@ pub fn term_set_gallop_enabled() -> bool {
     TERM_SET_GALLOP_ENABLED.get()
 }
 
-pub fn term_set_gallop_ratio() -> i32 {
-    TERM_SET_GALLOP_RATIO.get()
+pub fn term_set_gallop_max_density() -> f64 {
+    TERM_SET_GALLOP_MAX_DENSITY.get()
 }
 
-pub fn term_set_posting_ratio() -> i32 {
-    TERM_SET_POSTING_RATIO.get()
+pub fn term_set_posting_max_density() -> f64 {
+    TERM_SET_POSTING_MAX_DENSITY.get()
 }
 
-pub fn term_set_bitset_ratio() -> i32 {
-    TERM_SET_BITSET_RATIO.get()
+pub fn term_set_bitset_max_density() -> f64 {
+    TERM_SET_BITSET_MAX_DENSITY.get()
 }
 
-pub fn term_set_hash_probe_ratio() -> i32 {
-    TERM_SET_HASH_PROBE_RATIO.get()
+pub fn term_set_hash_probe_max_density() -> f64 {
+    TERM_SET_HASH_PROBE_MAX_DENSITY.get()
 }
 
-pub fn term_set_subsequent_bitset_ratio() -> i32 {
-    TERM_SET_SUBSEQUENT_BITSET_RATIO.get()
+pub fn term_set_subsequent_bitset_max_density() -> f64 {
+    TERM_SET_SUBSEQUENT_BITSET_MAX_DENSITY.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

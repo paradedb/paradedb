@@ -729,18 +729,18 @@ fn try_convert_in_list_to_query(
         return None;
     }
 
-    // Build a strategy config from the paradedb.term_set_*_ratio GUCs so the
-    // sorted-segment gallop fast path (issue #4895) is enabled by default but
-    // operators can override the ratios or kill the optimization without a
-    // recompile. The default values mirror TermSetStrategyConfig::default()
-    // in tantivy.
+    // Build a strategy config from the paradedb.term_set_*_max_density GUCs
+    // so the sorted-segment gallop fast path (issue #4895) is enabled by
+    // default but operators can override the densities or kill the
+    // optimization without a recompile. Defaults mirror
+    // TermSetStrategyConfig::default() in tantivy.
     let cfg = TermSetStrategyConfig {
         gallop_enabled: crate::gucs::term_set_gallop_enabled(),
-        gallop_ratio: crate::gucs::term_set_gallop_ratio() as u32,
-        posting_ratio: crate::gucs::term_set_posting_ratio() as u32,
-        bitset_ratio: crate::gucs::term_set_bitset_ratio() as u32,
-        hash_probe_ratio: crate::gucs::term_set_hash_probe_ratio() as u32,
-        subsequent_bitset_ratio: crate::gucs::term_set_subsequent_bitset_ratio() as u32,
+        gallop_max_density: crate::gucs::term_set_gallop_max_density(),
+        posting_max_density: crate::gucs::term_set_posting_max_density(),
+        bitset_max_density: crate::gucs::term_set_bitset_max_density(),
+        hash_probe_max_density: crate::gucs::term_set_hash_probe_max_density(),
+        subsequent_bitset_max_density: crate::gucs::term_set_subsequent_bitset_max_density(),
     };
 
     let term_set_query = TermSetQuery::new(terms).with_strategy_config(cfg);

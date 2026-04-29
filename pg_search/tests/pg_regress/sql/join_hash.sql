@@ -52,14 +52,19 @@ ORDER BY t1.id ASC
 LIMIT 10;
 
 -- =============================================================================
--- TEST 2: Hash Join with sorted segment on the FK column (issue #4895 baseline)
+-- TEST 2: Hash Join with sorted segment on the FK column (issue #4895)
 -- =============================================================================
 -- Purpose: capture an EXPLAIN ANALYZE of a hash-join probe where the inner
--- index is sorted ASC by the foreign-key column. After the gallop optimization
--- ships (Step 3), the same query will additionally surface
--- `dynamic_filter_pushdown_strategy=gallop` (Step 5). For Step 0 we only assert
--- the pre-existing `dynamic_filter_pushdown=true` token — establishing that
--- the pipeline still works end-to-end with sort_by applied.
+-- index is sorted ASC by the foreign-key column, demonstrating the new
+-- dynamic_filter_pushdown_strategy=... EXPLAIN token.
+--
+-- The test asserts BOTH dispatch outcomes:
+--   2a. With default gallop_max_density (1/64), K/N is too dense for gallop
+--       on this small corpus → linear strategy, EXPLAIN says
+--       dynamic_filter_pushdown_strategy=linear.
+--   2b. With paradedb.term_set_gallop_max_density set high enough to admit
+--       this corpus, gallop fires → EXPLAIN says
+--       dynamic_filter_pushdown_strategy=gallop.
 
 DROP TABLE IF EXISTS hash_sorted_t1 CASCADE;
 DROP TABLE IF EXISTS hash_sorted_t2 CASCADE;
@@ -67,12 +72,13 @@ DROP TABLE IF EXISTS hash_sorted_t2 CASCADE;
 CREATE TABLE hash_sorted_t1 (id INTEGER PRIMARY KEY, val TEXT);
 CREATE TABLE hash_sorted_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
 
--- 1500 rows on both sides: enough to clear the FastField cardinality threshold
--- (1024) inside TermSetQuery so the FastField path is exercised. Rows on t2
--- are inserted in t1_id order so the resulting bm25 segment, built with
--- sort_by='t1_id ASC', is naturally contiguous.
+-- t1: 1500 rows (clears the TermSetQuery FastField cardinality threshold of
+-- 1024 so the FastField dispatch path is reached).
+-- t2: 2000 rows with t1_id repeating across 1..1500 — K/N = 1500/2000 = 0.75,
+-- which is too dense for the default gallop threshold (1/64 ≈ 0.0156) but
+-- below the override used in TEST 2b (1.0).
 INSERT INTO hash_sorted_t1 SELECT i, 'val ' || i FROM generate_series(1, 1500) i;
-INSERT INTO hash_sorted_t2 SELECT i, ((i - 1) % 1500) + 1, 'val ' || i FROM generate_series(1, 1500) i;
+INSERT INTO hash_sorted_t2 SELECT i, ((i - 1) % 1500) + 1, 'val ' || i FROM generate_series(1, 2000) i;
 
 CREATE INDEX hash_sorted_t1_idx ON hash_sorted_t1 USING bm25 (id, val)
 WITH (key_field = 'id', text_fields = '{"val": {"fast": true}}');
@@ -86,6 +92,28 @@ WITH (
 
 ANALYZE hash_sorted_t1;
 ANALYZE hash_sorted_t2;
+
+-- TEST 2a: default density. K/N = 0.75 ≥ 1/64, so gallop is rejected and
+-- the planner lands on the LinearScan terminal.
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT t1.val, t2.val
+FROM hash_sorted_t1 t1
+JOIN hash_sorted_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ 'val'
+ORDER BY t1.id ASC
+LIMIT 10;
+
+SELECT t1.val, t2.val
+FROM hash_sorted_t1 t1
+JOIN hash_sorted_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ 'val'
+ORDER BY t1.id ASC
+LIMIT 10;
+
+-- TEST 2b: density = 1.0 (admit any K < N). Same data, same query — gallop
+-- now fires because K/N = 0.75 < 1.0. This is the path the DemandScience
+-- workload would take in production once corpus size makes K/N << 1/64.
+SET paradedb.term_set_gallop_max_density = 1.0;
 
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT t1.val, t2.val
@@ -101,6 +129,8 @@ JOIN hash_sorted_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val @@@ 'val'
 ORDER BY t1.id ASC
 LIMIT 10;
+
+RESET paradedb.term_set_gallop_max_density;
 
 -- =============================================================================
 -- CLEANUP

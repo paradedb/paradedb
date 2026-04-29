@@ -30,7 +30,7 @@
 
 use std::any::Any;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
@@ -166,6 +166,12 @@ pub struct PgSearchScanPlan {
     /// Sort order preserved across `with_filter_pushdown` rebuilds so the
     /// rebuilt plan keeps its equivalence properties.
     sort_order: Option<SortByField>,
+    /// Captures the per-segment `TermSetStrategy` chosen by the tantivy planner
+    /// for the pushed-down dynamic filter (issue #4895). Last-segment-wins is
+    /// fine because `EXPLAIN ANALYZE` only asks "did any segment use it?". A
+    /// value of `0` (`tantivy::query::strategy_tag::NONE`) means no dispatch
+    /// happened, e.g. the InList didn't reach the FastField path.
+    dynamic_filter_strategy: Arc<AtomicU8>,
 }
 
 impl std::fmt::Debug for PgSearchScanPlan {
@@ -249,6 +255,7 @@ impl PgSearchScanPlan {
             deferred_ctid_plan_position,
             dynamic_filter_pushdown: Arc::new(AtomicBool::new(false)),
             sort_order: sort_order.cloned(),
+            dynamic_filter_strategy: Arc::new(AtomicU8::new(0)),
         }
     }
 
@@ -366,6 +373,23 @@ fn build_equivalence_properties(
     eq_properties
 }
 
+/// Translate a `tantivy::query::strategy_tag` numeric tag back into the
+/// human-readable strategy name surfaced in `EXPLAIN ANALYZE` output.
+/// Exhaustive on the tag set so follow-ups A and B (filling in the
+/// posting-direct and bitset-from-postings dispatch arms) don't need to
+/// revisit this site.
+fn strategy_tag_name(tag: u8) -> &'static str {
+    use tantivy::query::strategy_tag;
+    match tag {
+        strategy_tag::GALLOP => "gallop",
+        strategy_tag::LINEAR => "linear",
+        strategy_tag::BITSET => "bitset_from_postings",
+        strategy_tag::POSTING => "posting_direct",
+        strategy_tag::HASH => "hash_probe",
+        _ => "unknown",
+    }
+}
+
 impl DisplayAs for PgSearchScanPlan {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
@@ -378,6 +402,14 @@ impl DisplayAs for PgSearchScanPlan {
         }
         if self.dynamic_filter_pushdown.load(Ordering::Relaxed) {
             write!(f, ", dynamic_filter_pushdown=true")?;
+        }
+        let tag = self.dynamic_filter_strategy.load(Ordering::Relaxed);
+        if tag != tantivy::query::strategy_tag::NONE {
+            write!(
+                f,
+                ", dynamic_filter_pushdown_strategy={}",
+                strategy_tag_name(tag),
+            )?;
         }
         write!(f, ", query={}", self.query_for_display.explain_format())
     }
@@ -484,6 +516,7 @@ impl ExecutionPlan for PgSearchScanPlan {
 
         // Capture self-references for the async block
         let dynamic_filter_pushdown = self.dynamic_filter_pushdown.clone();
+        let dynamic_filter_strategy = self.dynamic_filter_strategy.clone();
 
         let stream_gen = async_stream::try_stream! {
             // Optimized Search Integration:
@@ -492,7 +525,11 @@ impl ExecutionPlan for PgSearchScanPlan {
             // AFTER the build side has completed and dynamic filters are published.
             let mut dynamic_filters = dynamic_filters.clone();
             if !dynamic_filters.is_empty()
-                && try_dynamic_filter_pushdown(&mut reader, &mut dynamic_filters)
+                && try_dynamic_filter_pushdown(
+                    &mut reader,
+                    &mut dynamic_filters,
+                    Some(dynamic_filter_strategy.clone()),
+                )
             {
                 dynamic_filter_pushdown.store(true, Ordering::Relaxed);
             }
@@ -643,6 +680,9 @@ impl ExecutionPlan for PgSearchScanPlan {
                     self.dynamic_filter_pushdown.load(Ordering::Relaxed),
                 )),
                 sort_order: self.sort_order.clone(),
+                dynamic_filter_strategy: Arc::new(AtomicU8::new(
+                    self.dynamic_filter_strategy.load(Ordering::Relaxed),
+                )),
             });
             Ok(
                 FilterPushdownPropagation::with_parent_pushdown_result(filters)

@@ -673,6 +673,7 @@ fn extract_in_list_exprs<'a>(
 fn try_convert_in_list_to_query(
     in_list: &InListExpr,
     schema: &crate::schema::SearchIndexSchema,
+    strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
 ) -> Option<Box<dyn Query>> {
     if in_list.negated() {
         return None;
@@ -733,7 +734,9 @@ fn try_convert_in_list_to_query(
     // so the sorted-segment gallop fast path (issue #4895) is enabled by
     // default but operators can override the densities or kill the
     // optimization without a recompile. Defaults mirror
-    // TermSetStrategyConfig::default() in tantivy.
+    // TermSetStrategyConfig::default() in tantivy. The optional `strategy_sink`
+    // is a per-scan AtomicU8 that the planner stores its decision into so
+    // EXPLAIN ANALYZE can report which strategy fired (Step 5).
     let cfg = TermSetStrategyConfig {
         gallop_enabled: crate::gucs::term_set_gallop_enabled(),
         gallop_max_density: crate::gucs::term_set_gallop_max_density(),
@@ -741,6 +744,7 @@ fn try_convert_in_list_to_query(
         bitset_max_density: crate::gucs::term_set_bitset_max_density(),
         hash_probe_max_density: crate::gucs::term_set_hash_probe_max_density(),
         subsequent_bitset_max_density: crate::gucs::term_set_subsequent_bitset_max_density(),
+        strategy_sink,
     };
 
     let term_set_query = TermSetQuery::new(terms).with_strategy_config(cfg);
@@ -765,6 +769,7 @@ fn try_convert_in_list_to_query(
 pub fn try_dynamic_filter_pushdown(
     reader: &mut crate::index::reader::index::SearchIndexReader,
     dynamic_filters: &mut [Arc<dyn PhysicalExpr>],
+    strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
 ) -> bool {
     let mut pushed_down_queries: Vec<Box<dyn Query>> = Vec::new();
     let mut pushed_down_pointers = HashSet::default();
@@ -784,7 +789,9 @@ pub fn try_dynamic_filter_pushdown(
         for in_list_arc in extracted_in_lists {
             let in_list = in_list_arc.as_any().downcast_ref::<InListExpr>().unwrap();
 
-            if let Some(query) = try_convert_in_list_to_query(in_list, schema) {
+            if let Some(query) =
+                try_convert_in_list_to_query(in_list, schema, strategy_sink.clone())
+            {
                 pushed_down_queries.push(query);
                 pushed_down_pointers.insert(Arc::as_ptr(in_list_arc) as *const () as usize);
             }

@@ -43,6 +43,11 @@ runs:
       shell: bash
       run: cargo pgrx install --sudo --pg-config="/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"
 
+    - name: Add pg_search to shared_preload_libraries
+      working-directory: /home/runner/.pgrx/data-${{ inputs.pg_version }}/
+      shell: bash
+      run: echo "shared_preload_libraries = 'pg_search'" >> postgresql.conf
+
     - name: Start Postgres via pgrx
       working-directory: pg_search/
       shell: bash
@@ -98,6 +103,11 @@ runs:
       working-directory: pg_search/
       shell: bash
       run: cargo pgrx install --sudo --pg-config="/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"
+
+    - name: Add pg_search to shared_preload_libraries
+      working-directory: /home/runner/.pgrx/data-${{ inputs.pg_version }}/
+      shell: bash
+      run: echo "shared_preload_libraries = 'pg_search'" >> postgresql.conf
 
     - name: Start Postgres via pgrx
       working-directory: pg_search/

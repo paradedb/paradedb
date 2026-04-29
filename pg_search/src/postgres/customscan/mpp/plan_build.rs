@@ -80,7 +80,9 @@ use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::union::UnionExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 
-use crate::postgres::customscan::mpp::shuffle::{DrainGatherExec, MppRepartitionExec, ShuffleWiring};
+use crate::postgres::customscan::mpp::shuffle::{
+    DrainGatherExec, MppRepartitionExec, ShuffleWiring,
+};
 use crate::postgres::customscan::mpp::stage::{MppNetworkBoundary, MppStage};
 use crate::postgres::customscan::mpp::transport::DrainHandle;
 

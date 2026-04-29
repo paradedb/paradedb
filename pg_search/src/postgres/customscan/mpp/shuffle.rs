@@ -496,7 +496,8 @@ impl ExecutionPlan for MppRepartitionExec {
                 "MppRepartitionExec: with_new_children called after wiring was consumed".into(),
             ));
         };
-        let mut node = MppRepartitionExec::new(children.into_iter().next().unwrap(), wiring, self.tag);
+        let mut node =
+            MppRepartitionExec::new(children.into_iter().next().unwrap(), wiring, self.tag);
         node.input_stage = self.input_stage;
         Ok(Arc::new(node))
     }

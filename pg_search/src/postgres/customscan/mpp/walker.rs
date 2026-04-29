@@ -118,7 +118,7 @@ use super::customscan_glue::MppExecutionState;
 use super::plan_build::{wrap_with_mpp_shuffle, MppShuffleInputs};
 use super::shape::MppPlanShape;
 use super::shuffle::{
-    FixedTargetPartitioner, HashPartitioner, RowPartitioner, MppRepartitionExec, ShuffleWiring,
+    FixedTargetPartitioner, HashPartitioner, MppRepartitionExec, RowPartitioner, ShuffleWiring,
 };
 use super::stage::{MppStage, MppTaskKey};
 use super::transport::{DrainBuffer, DrainHandle, MppReceiver, MppSender};
@@ -1373,7 +1373,7 @@ fn build_partitioned_hj_with_probe_filter(hj: &HashJoinExec) -> DfResult<Arc<dyn
 /// CoalescePartitionsExec                             // preserved from
 ///                                                    // insert_mpp_cuts
 ///   ChainExec[scalar_final(FixedTargetPartitioner(0))]
-///     ShuffleExec
+///     MppRepartitionExec
 ///       AggregateExec(Partial, empty group)
 ///         HashJoinExec(original mode, dynamic_filter intact)
 ///           ChainExec[scalar_left(HashPartitioner(left_keys))]
@@ -1548,24 +1548,24 @@ fn finalize_groupby_agg(
     Ok(Arc::new(final_agg))
 }
 
-/// Walk down `plan`, find the first `ShuffleExec`, and wrap its single
+/// Walk down `plan`, find the first `MppRepartitionExec`, and wrap its single
 /// child in `CoalesceBatchesExec(65_536)`. Used by
 /// [`finalize_groupby_agg`]'s Phase 2 to coalesce the post-Partial
 /// payload before the post-agg shuffle.
 ///
 /// Shape-agnostic: works regardless of the operator that
-/// [`wrap_with_mpp_shuffle`] put above `ShuffleExec` (today
+/// [`wrap_with_mpp_shuffle`] put above `MppRepartitionExec` (today
 /// `CoalescePartitionsExec(UnionExec(shuffle, drain))`). The
 /// `with_new_children` chain rebuilds the ancestor nodes; siblings of
-/// the ShuffleExec are preserved by-reference.
+/// the MppRepartitionExec are preserved by-reference.
 fn wrap_first_shuffle_child_in_coalesce_batches(
     plan: Arc<dyn ExecutionPlan>,
 ) -> DfResult<Arc<dyn ExecutionPlan>> {
-    if plan.as_any().is::<ShuffleExec>() {
+    if plan.as_any().is::<MppRepartitionExec>() {
         let children = plan.children();
         if children.len() != 1 {
             return Err(DataFusionError::Internal(format!(
-                "mpp: finalize_groupby_agg: expected ShuffleExec with 1 child, got {}",
+                "mpp: finalize_groupby_agg: expected MppRepartitionExec with 1 child, got {}",
                 children.len()
             )));
         }
@@ -1589,7 +1589,7 @@ fn wrap_first_shuffle_child_in_coalesce_batches(
     }
     if !found {
         return Err(DataFusionError::Internal(
-            "mpp: finalize_groupby_agg: no ShuffleExec found in plan".into(),
+            "mpp: finalize_groupby_agg: no MppRepartitionExec found in plan".into(),
         ));
     }
     plan.with_new_children(new_children)
@@ -2697,12 +2697,15 @@ mod tests {
         assert_eq!(stage.query_id, 0xdeadbeef);
         assert_eq!(stage.stage_id, 0);
         assert_eq!(stage.task_count, 2);
-        // Sanity: the RepartitionExec marker doesn't survive — only
-        // scan-level children should remain below the shuffle.
+        // Sanity: the DataFusion `RepartitionExec` marker doesn't survive
+        // — only scan-level children should remain below the shuffle.
+        // Match on a leading-space boundary so the substring doesn't trip
+        // on the renamed `MppRepartitionExec` (which embeds the same
+        // `RepartitionExec` token).
         let debug = format!("{rebuilt:?}");
         assert!(
-            !debug.contains("RepartitionExec"),
-            "RepartitionExec marker should be dropped: {debug}"
+            !debug.contains(" RepartitionExec ") && !debug.contains(" RepartitionExec {"),
+            "DataFusion RepartitionExec marker should be dropped: {debug}"
         );
     }
 

@@ -4,6 +4,9 @@
 -- ordered DESC and LIMIT 10 on a join query. Tests the DataFusion
 -- TopKAggregateExec optimization versus full aggregation + post-hoc sort.
 
+-- Query Info:
+-- - 'the' selectivity on stackoverflow_posts.body: ~80%
+
 -- Postgres default plan (aggregate custom scan off)
 SET paradedb.enable_aggregate_custom_scan TO off; SELECT
     p.title,

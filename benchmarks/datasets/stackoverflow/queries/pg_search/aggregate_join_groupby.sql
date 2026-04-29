@@ -4,6 +4,9 @@
 -- table's title column. Exercises the DataFusion backend's grouped
 -- aggregate pipeline including custom_scan_tlist for scanrelid=0.
 
+-- Query Info:
+-- - 'the' selectivity on stackoverflow_posts.body: ~80%
+
 -- Postgres default plan (custom scan off)
 SET paradedb.enable_aggregate_custom_scan TO off; SELECT p.title, COUNT(*), SUM(c.score)
 FROM stackoverflow_posts p

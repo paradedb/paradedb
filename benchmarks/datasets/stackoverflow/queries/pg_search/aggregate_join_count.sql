@@ -4,6 +4,9 @@
 -- This is the simplest aggregate-on-join shape and exercises the
 -- DataFusion backend's basic scan → join → aggregate pipeline.
 
+-- Query Info:
+-- - 'the' selectivity on stackoverflow_posts.body: ~80%
+
 -- Postgres default plan (custom scan off)
 SET paradedb.enable_aggregate_custom_scan TO off; SELECT COUNT(*)
 FROM stackoverflow_posts p

@@ -4,6 +4,9 @@
 -- and LIMIT 10. Tests the Tantivy TopK optimization (TermsAggregation.size=K)
 -- versus full aggregation + post-hoc sort.
 
+-- Query Info:
+-- - 'the' selectivity on stackoverflow_posts.body: ~80%
+
 -- Postgres default plan (aggregate custom scan off)
 SET paradedb.enable_aggregate_custom_scan TO off; SELECT
     p.title,

@@ -4,6 +4,9 @@
 -- Exercises the DataFusion backend's ability to compute multiple aggregates
 -- in a single pass over the joined data.
 
+-- Query Info:
+-- - 'the' selectivity on stackoverflow_posts.body: ~80%
+
 -- Postgres default plan (custom scan off)
 SET paradedb.enable_aggregate_custom_scan TO off; SELECT COUNT(*), MIN(c.score), MAX(c.score)
 FROM stackoverflow_posts p

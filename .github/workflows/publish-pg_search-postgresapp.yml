@@ -153,12 +153,12 @@ jobs:
           EXTENSION_VERSION=${{ steps.version.outputs.tag_version }}
           PG_MAJOR_VERSION=${{ matrix.pg_version }}
           PREFIX=/Applications/Postgres.app/Contents/Versions/$PG_MAJOR_VERSION
-          INSTALL_ROOT="${GITHUB_WORKSPACE}/pg_search/target/release/${EXTENSION_NAME}-pg${PG_MAJOR_VERSION}${PREFIX}"
+          INSTALL_ROOT="${GITHUB_WORKSPACE}/target/release/${EXTENSION_NAME}-pg${PG_MAJOR_VERSION}${PREFIX}"
           UPSTREAM=/tmp/postgresapp-extensions/pg_search
 
           if [ ! -d "$INSTALL_ROOT/lib/postgresql" ] || [ ! -d "$INSTALL_ROOT/share/postgresql/extension" ]; then
             echo "Expected pgrx package layout not found under $INSTALL_ROOT"
-            ls -R "${GITHUB_WORKSPACE}/pg_search/target/release" || true
+            ls -R "${GITHUB_WORKSPACE}/target/release" || true
             exit 1
           fi
 

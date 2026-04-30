@@ -13,11 +13,11 @@ ARG ENABLE_ANTITHESIS_INSTRUMENTATION=false
 FROM postgres:${PG_VERSION_MAJOR}-trixie AS builder
 
 ARG PG_VERSION_MAJOR
-ARG RUST_VERSION=stable
 
 # Declare buildtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
-    RUST_VERSION=${RUST_VERSION}
+    RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
@@ -36,10 +36,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-server-dev-all \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Rust
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain "${RUST_VERSION}" -y
+COPY --from=rust:1.95.0-trixie /usr/local/cargo /usr/local/cargo
+COPY --from=rust:1.95.0-trixie /usr/local/rustup /usr/local/rustup
 
-ENV PATH="/usr/local/bin:/root/.cargo/bin:$PATH" \
+ENV PATH="/usr/local/bin:/usr/local/cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
 # Copy only Cargo.toml to extract pgrx version without invalidating cache on source changes

@@ -88,6 +88,7 @@ pub fn compute_nworkers(
             // choosing Parallel Hash Join, leading to inefficient serial plans.
             if !is_join_context {
                 let min_rows_per_worker = crate::gucs::min_rows_per_worker() as u64;
+                #[allow(clippy::manual_checked_ops)]
                 if min_rows_per_worker > 0 {
                     let max_workers_for_rows = (total_rows / min_rows_per_worker) as usize;
                     nworkers = nworkers.min(max_workers_for_rows);

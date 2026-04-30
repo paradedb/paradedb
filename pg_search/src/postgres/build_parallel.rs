@@ -397,7 +397,7 @@ impl WorkerBuildState {
                     self.estimated_nsegments(self.unmerged_metas[0].max_doc()),
                     self.worker_segment_target,
                     // this achieves the effect of reversing the chunks
-                    (self.worker_segment_target - self.nmerges).max(0),
+                    self.worker_segment_target.saturating_sub(self.nmerges),
                 );
 
                 if chunk_size <= 1 || self.unmerged_metas.len() < chunk_size {

@@ -15,77 +15,142 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::nodecast;
-use pgrx::{pg_sys, FromDatum};
+use crate::postgres::customscan::parameterized_value::ParameterizedValue;
+use crate::DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE;
+use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 
-/// Parsed LIMIT and OFFSET from a query's parse tree.
+/// LIMIT and OFFSET extracted from a query, with values that may be either
+/// `Const` (resolved at planning time) or extern `Param` (resolved at
+/// execution time from `EState::es_param_list_info`).
 ///
-/// Both fields are `Option<u32>` mirroring PostgreSQL's native representation.
-/// Callers decide how to handle absence — JoinScan bails out when `limit`
-/// is `None`, while AggregateScan proceeds normally.
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+/// The struct only exists when a LIMIT clause is present — callers hold
+/// `Option<LimitOffset>` to represent "no LIMIT".
+///
+/// # Resolution patterns
+///
+/// - **Exec method init (TopK, Columnar, JoinScan):** call `resolve_mut(estate)`
+///   once, then use `static_fetch()` / `limit.static_value()` freely.
+/// - **Planning time cost math:** call `planning_estimate()` — returns a
+///   real value for Static, a default (1000.0) for Param.
+/// - **Planning time guards:** call `has_any_param()` and `static_fetch()`.
+/// - **Immutable context (snippets):** call `resolve(estate)` — clones on
+///   each call, acceptable when dominated by heavier per-row work.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LimitOffset {
-    pub limit: Option<u32>,
-    pub offset: Option<u32>,
+    pub limit: ParameterizedValue<i64>,
+    pub offset: Option<ParameterizedValue<i64>>,
 }
 
 impl LimitOffset {
     /// Extract LIMIT and OFFSET from the parse tree.
     ///
-    /// Reads `limitCount` and `limitOffset` directly from `parse` as Const nodes.
-    /// Use this for AggregateScan and other callers that don't need `limit_tuples`.
-    pub unsafe fn from_parse(parse: *mut pg_sys::Query) -> Self {
-        Self {
-            limit: extract_const_u32((*parse).limitCount),
-            offset: extract_const_u32((*parse).limitOffset),
+    /// Returns `None` if there is no LIMIT clause. Handles both `Const` and
+    /// extern `Param` nodes (the latter for GENERIC prepared plans).
+    pub unsafe fn from_parse(parse: *mut pg_sys::Query) -> Option<Self> {
+        if parse.is_null() {
+            return None;
         }
+        let limit = ParameterizedValue::<i64>::from_node((*parse).limitCount)?;
+        let offset = ParameterizedValue::<i64>::from_node((*parse).limitOffset);
+        Some(Self { limit, offset })
     }
 
-    /// Extract LIMIT and OFFSET from the planner root.
+    /// Extract LIMIT and OFFSET from the planner root, preferring PG's combined
+    /// `limit_tuples` when available (subtracting any static OFFSET to recover
+    /// the original LIMIT) and otherwise falling back to the parse tree.
     ///
-    /// When `limit_tuples > -1.0`, PostgreSQL has already baked `limit + offset`
-    /// into it. We subtract the offset to recover the true limit value.
-    /// Use this for JoinScan where `limit_tuples` may be set by the planner.
-    pub unsafe fn from_root(root: *mut pg_sys::PlannerInfo) -> Self {
+    /// This mirrors PG's planner intent loosely; callers that need to respect
+    /// `limit_tuples == -1` as a "do not push" signal (e.g., BaseScan beneath
+    /// a GROUP BY) should consult `(*root).limit_tuples` themselves and gate
+    /// usage of the returned `LimitOffset` accordingly.
+    pub unsafe fn from_root(root: *mut pg_sys::PlannerInfo) -> Option<Self> {
+        if root.is_null() {
+            return None;
+        }
         let parse = (*root).parse;
-        let offset = extract_const_u32((*parse).limitOffset);
+        if parse.is_null() {
+            return None;
+        }
 
-        let limit = if (*root).limit_tuples > -1.0 {
-            let combined = (*root).limit_tuples as u32;
-            Some(combined - offset.unwrap_or(0))
-        } else {
-            extract_const_u32((*parse).limitCount)
+        if (*root).limit_tuples > -1.0 {
+            let limit_pv = ParameterizedValue::<i64>::from_node((*parse).limitCount);
+            let offset_pv = ParameterizedValue::<i64>::from_node((*parse).limitOffset);
+
+            if let (Some(ParameterizedValue::Static(_)), maybe_offset) = (&limit_pv, &offset_pv) {
+                let combined = (*root).limit_tuples as i64;
+                let offset_val = match offset_pv {
+                    Some(ParameterizedValue::Static(o)) => o,
+                    _ => 0,
+                };
+                let limit_val = (combined - offset_val).max(0);
+                return Some(Self {
+                    limit: ParameterizedValue::Static(limit_val),
+                    offset: maybe_offset.clone(),
+                });
+            }
+        }
+
+        Self::from_parse(parse)
+    }
+
+    /// Returns true if either LIMIT or OFFSET is a Param (i.e., this came from
+    /// a GENERIC prepared plan where PG couldn't fold the value to a Const).
+    pub fn has_any_param(&self) -> bool {
+        self.limit.is_param() || self.offset.as_ref().is_some_and(|o| o.is_param())
+    }
+
+    /// Returns `LIMIT + OFFSET` only when both are statically known. Used at
+    /// planning time and as the chained call after `resolve_mut` to read the
+    /// now-static sum.
+    pub fn static_fetch(&self) -> Option<usize> {
+        let limit = *self.limit.static_value()? as usize;
+        let offset = match &self.offset {
+            None => 0,
+            Some(o) => *o.static_value()? as usize,
         };
-
-        Self { limit, offset }
+        Some(limit.saturating_add(offset))
     }
 
-    pub fn limit(&self) -> Option<u32> {
-        self.limit
+    /// Planning-time row estimate. Uses static values when available, falls
+    /// back to `DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE` for parameterized values.
+    pub fn planning_estimate(&self) -> f64 {
+        let limit = self
+            .limit
+            .static_value()
+            .map(|v| *v as f64)
+            .unwrap_or(DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE);
+        let offset = self
+            .offset
+            .as_ref()
+            .and_then(|o| o.static_value())
+            .map(|v| *v as f64)
+            .unwrap_or(0.0);
+        limit + offset
     }
 
-    pub fn offset(&self) -> Option<u32> {
-        self.offset
+    /// Returns `LIMIT + OFFSET` resolved at execution time. This is the number
+    /// of rows our scan must produce so PostgreSQL's outer Limit node has
+    /// enough rows to apply OFFSET and return LIMIT.
+    pub unsafe fn resolve(&self, estate: *mut pg_sys::EState) -> Option<usize> {
+        let limit = self.limit.resolve(estate)?.max(0) as usize;
+        let offset = self
+            .offset
+            .as_ref()
+            .and_then(|o| o.resolve(estate))
+            .map(|v| v.max(0) as usize)
+            .unwrap_or(0);
+        Some(limit + offset)
     }
 
-    /// Returns limit + offset as usize, which is the total number of rows DataFusion
-    /// must produce before PostgreSQL's outer Limit node applies the skip.
-    pub fn fetch(&self) -> Option<usize> {
-        self.limit.map(|l| (l + self.offset.unwrap_or(0)) as usize)
+    /// Resolve both LIMIT and OFFSET `Param`s to `Static` in place. Returns
+    /// `&mut Self` on success so callers can chain `.static_fetch()` to read
+    /// the now-static sum.
+    pub unsafe fn resolve_mut(&mut self, estate: *mut pg_sys::EState) -> Option<&mut Self> {
+        self.limit.resolve_mut(estate)?;
+        if let Some(ref mut o) = self.offset {
+            o.resolve_mut(estate);
+        }
+        Some(self)
     }
-}
-
-/// Extract a `Const` node's value as `u32`.
-/// Returns `None` if the node is null, not a Const, or the datum is null.
-pub unsafe fn extract_const_u32(node: *mut pg_sys::Node) -> Option<u32> {
-    let const_node = nodecast!(Const, T_Const, node)?;
-    u32::from_datum((*const_node).constvalue, (*const_node).constisnull)
-}
-
-/// Extract a `Const` node's value as `i64`.
-/// Returns `None` if the node is null, not a Const, or the datum is null.
-pub unsafe fn extract_const_i64(node: *mut pg_sys::Node) -> Option<i64> {
-    let const_node = nodecast!(Const, T_Const, node)?;
-    i64::from_datum((*const_node).constvalue, (*const_node).constisnull)
 }

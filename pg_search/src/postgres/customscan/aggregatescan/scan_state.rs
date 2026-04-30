@@ -22,9 +22,13 @@ use crate::postgres::customscan::aggregatescan::privdat::{DataFusionTopK, Filter
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, MultiTablePredicateInfo, RelNode,
 };
+use crate::postgres::customscan::mpp::customscan_glue::MppExecutionState;
+use crate::postgres::customscan::mpp::shape::MppPlanShape;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::PgSearchRelation;
+
+use std::vec::IntoIter;
 
 use arrow_array::RecordBatch;
 use datafusion::physical_plan::SendableRecordBatchStream;
@@ -34,7 +38,7 @@ use pgrx::pg_sys;
 pub enum ExecutionState {
     #[default]
     NotStarted,
-    Emitting(std::vec::IntoIter<AggregationResultsRow>),
+    Emitting(IntoIter<AggregationResultsRow>),
     Completed,
 }
 
@@ -111,6 +115,23 @@ pub struct AggregateScanState {
     /// Created once during begin_custom_scan and cleared/reused for each row
     /// to avoid per-row memory allocation and leaks
     pub scan_slot: Option<*mut pg_sys::TupleTableSlot>,
+
+    /// Pre-serialized `MppPlanBroadcast` bytes — same bytes copied into
+    /// DSM (length must match `estimate_dsm_custom_scan`'s `.len()` to
+    /// avoid overrunning the `shm_toc` region). Populated on the leader
+    /// in `begin_custom_scan` when `mpp_is_active()`. `None` for non-MPP,
+    /// non-DataFusion, or serialization-failure paths.
+    pub logical_plan_bytes: Option<bytes::Bytes>,
+
+    /// Classified MPP shape; drives DSM mesh count and per-shape plan
+    /// building. Populated alongside `logical_plan_bytes`.
+    pub mpp_shape: Option<MppPlanShape>,
+
+    /// MPP lifecycle state populated by `initialize_dsm_custom_scan` /
+    /// `initialize_worker_custom_scan`. Declared LAST so it drops after
+    /// `datafusion_state`: it owns shm_mq handles into DSM and the
+    /// leader's `DrainHandle` must `join()` before DSM detach.
+    pub mpp_state: Option<MppExecutionState>,
 }
 
 impl AggregateScanState {

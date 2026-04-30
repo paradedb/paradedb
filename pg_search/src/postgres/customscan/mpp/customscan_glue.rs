@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(dead_code)]
 //! Typed customscan-DSM-hook helpers. Each `ParallelQueryCapable` impl
 //! delegates to one of [`leader_estimate_dsm`] / [`leader_init_dsm`] /
 //! [`worker_init_dsm`] and stashes the returned [`MppExecutionState`] —

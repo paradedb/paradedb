@@ -1,0 +1,249 @@
+-- =====================================================================
+-- MPP correctness: with `paradedb.enable_mpp=on`, scalar COUNT(*) on a
+-- binary join must return the same result as with MPP off.
+--
+-- This test exercises the full shape classification + plan-stash +
+-- parallel-flag flip pipeline on a medium-sized dataset (40x200 rows).
+-- PG's planner decides whether to launch actual parallel workers based
+-- on cost; at this size it typically doesn't, so the MPP *exec* path
+-- isn't exercised here — for that you need `debug_parallel_query=on`
+-- at a larger scale, which is out of scope for pg_regress (no parallel
+-- workers launched == no DSM coordination == no cross-worker shuffle).
+--
+-- What this DOES verify:
+--   * MPP-on doesn't break the serial code path
+--   * Shape classifier agrees between path-time and plan-stash-time
+--   * `maybe_stash_mpp_plan_bytes` completes without error
+--   * The plan survives logical-plan → bytes round-trip
+--
+-- A note on EXPLAIN scope: the EXPLAINs below show the PG-level plan
+-- (the Custom Scan node is opaque from the planner's perspective). The
+-- DataFusion physical plan that the walker actually rewrites and emits
+-- is not visible here. To inspect that, set `paradedb.mpp_debug = on`
+-- and run the query at a scale that triggers parallel workers; the
+-- walker's `mpp_log!` calls render the rewritten plan to stderr. For
+-- pure plan-structure assertions there are also unit tests under
+-- `pg_search/src/postgres/customscan/mpp/walker.rs::tests::*` that
+-- build synthetic plans and assert the cut tags
+-- (`scalar_*`, `gb_*`, `tk_*`, `join_*`).
+-- =====================================================================
+
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+CREATE TABLE mpp_exec_products (
+    id SERIAL PRIMARY KEY,
+    description TEXT,
+    category TEXT
+);
+
+CREATE TABLE mpp_exec_reviews (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER,
+    rating INTEGER
+);
+
+INSERT INTO mpp_exec_products (description, category)
+SELECT
+    CASE (i % 4)
+        WHEN 0 THEN 'Laptop computer fast'
+        WHEN 1 THEN 'Running shoes light'
+        WHEN 2 THEN 'Winter jacket warm'
+        ELSE 'Office chair ergonomic'
+    END,
+    CASE (i % 4)
+        WHEN 0 THEN 'Electronics'
+        WHEN 1 THEN 'Sports'
+        WHEN 2 THEN 'Clothing'
+        ELSE 'Furniture'
+    END
+FROM generate_series(1, 40) AS i;
+
+INSERT INTO mpp_exec_reviews (product_id, rating)
+SELECT (i % 40) + 1, (i % 5) + 1 FROM generate_series(1, 200) AS i;
+
+CREATE INDEX mpp_exec_products_idx ON mpp_exec_products
+USING bm25 (id, description, category)
+WITH (
+    key_field='id',
+    text_fields='{"description": {}, "category": {"fast": true}}'
+);
+
+CREATE INDEX mpp_exec_reviews_idx ON mpp_exec_reviews
+USING bm25 (id, product_id, rating)
+WITH (
+    key_field='id',
+    numeric_fields='{"product_id": {"fast": true}, "rating": {"fast": true}}'
+);
+
+
+-- =====================================================================
+-- Serial baseline
+-- =====================================================================
+SET paradedb.enable_mpp TO off;
+
+SELECT COUNT(*) AS baseline_count
+FROM mpp_exec_products p
+JOIN mpp_exec_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR chair';
+
+-- =====================================================================
+-- MPP enabled: must return the same count.
+-- =====================================================================
+SET paradedb.enable_mpp TO on;
+SET paradedb.mpp_worker_count TO 3;
+-- Disable the broadcast-side cost gate: these tables are intentionally
+-- tiny (40x200 rows) to exercise the MPP pipeline. In production the
+-- `mpp_min_join_rows` default (10_000) would opt out of MPP for this
+-- size; here we force MPP on so the pipeline gets tested.
+SET paradedb.mpp_min_join_rows TO 0;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT COUNT(*)
+FROM mpp_exec_products p
+JOIN mpp_exec_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR chair';
+
+SELECT COUNT(*) AS mpp_count
+FROM mpp_exec_products p
+JOIN mpp_exec_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR chair';
+
+-- With mpp_debug, the plan should log the shape dispatch + parallel
+-- flip + the "routing exec_datafusion_aggregate through shape" line
+-- that proves the MPP exec bridge actually ran (not just the serial
+-- fallback). The answer must still match the baseline.
+SET paradedb.mpp_debug TO on;
+
+SELECT COUNT(*) AS mpp_count_with_debug
+FROM mpp_exec_products p
+JOIN mpp_exec_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR chair';
+
+SET paradedb.mpp_debug TO off;
+
+-- =====================================================================
+-- GROUP BY aggregate on join, with ORDER BY on the group-by column. Both
+-- the GROUP BY and the ORDER BY are driven by the same column, so PG
+-- wraps the Gather-above-CustomScan MPP path in a Sort above the Gather.
+-- The MPP path keeps Aggrefs intact in every tlist so `fix_upper_expr`
+-- matches structurally at setrefs time (if we'd replaced them with
+-- `pdb.agg_fn(...)` placeholders only on the Gather side, setrefs would
+-- trip "Aggref found in non-Agg plan node" on the Result projection PG
+-- adds above the Sort).
+-- =====================================================================
+SET paradedb.enable_mpp TO off;
+SELECT p.category, COUNT(*) AS cnt, MAX(r.rating) AS max_rating
+FROM mpp_exec_products p
+JOIN mpp_exec_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR chair'
+GROUP BY p.category
+ORDER BY p.category;
+
+SET paradedb.enable_mpp TO on;
+SET paradedb.mpp_debug TO on;
+-- Force PG to pick the Gather-wrapped MPP path for GROUP BY on this
+-- small fixture: without these knobs the planner's cost model rejects
+-- Gather for aggregates at this row count and we'd fall back to the
+-- serial Custom Scan (which still produces correct output via the
+-- non-MPP code path).
+SET min_parallel_table_scan_size TO 0;
+SET parallel_setup_cost TO 0;
+SET parallel_tuple_cost TO 0;
+SET max_parallel_workers_per_gather TO 2;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.category, COUNT(*) AS cnt, MAX(r.rating) AS max_rating
+FROM mpp_exec_products p
+JOIN mpp_exec_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR chair'
+GROUP BY p.category
+ORDER BY p.category;
+
+SELECT p.category, COUNT(*) AS cnt, MAX(r.rating) AS max_rating
+FROM mpp_exec_products p
+JOIN mpp_exec_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR chair'
+GROUP BY p.category
+ORDER BY p.category;
+
+RESET min_parallel_table_scan_size;
+RESET parallel_setup_cost;
+RESET parallel_tuple_cost;
+RESET max_parallel_workers_per_gather;
+
+SET paradedb.mpp_debug TO off;
+
+-- =====================================================================
+-- GROUP BY + ORDER BY <agg-expr> + LIMIT — the SQL pattern that the
+-- walker upgrades to the `TopKGroupByAggOnBinaryJoin` shape *when*
+-- DataFusion's physical planner fuses `Sort[fetch=k]` over the
+-- aggregate. Whether that fusion happens depends on PG's planner
+-- decisions:
+--   * On bench-scale data (e.g. `aggregate_join_topk_count - alt 2`)
+--     the Sort+Limit collapses into the AggregateScan's pushed-down
+--     plan, the walker's `extract_topk_spec` matches, and the dispatch
+--     becomes `TopKGroupByAggOnBinaryJoin` (scalar-style routing:
+--     every participant ships its Partial groups to participant 0 via
+--     `FixedTargetPartitioner(0)`, leader runs `FinalPartitioned +
+--     Sort[fetch=k]`).
+--   * In this regress fixture, PG keeps `Sort` and `Limit` above the
+--     Gather, the AggregateScan only pushes the aggregate into
+--     DataFusion, and the walker dispatches as plain
+--     `GroupByAggOnBinaryJoin`. Result is still correct because the
+--     SortExec/LimitExec live above the Gather and execute serially
+--     after MPP gathers the per-participant aggregate output.
+-- The query stays as a regression-pin for the SQL pattern (correctness
+-- under either shape); for plan-shape coverage of the TopK upgrade
+-- itself, see the synthetic-plan unit tests in
+-- `pg_search/src/postgres/customscan/mpp/walker.rs::tests::*`.
+-- =====================================================================
+SET paradedb.enable_mpp TO off;
+SELECT p.category, COUNT(*) AS cnt
+FROM mpp_exec_products p
+JOIN mpp_exec_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR chair'
+GROUP BY p.category
+ORDER BY cnt DESC, p.category
+LIMIT 2;
+
+SET paradedb.enable_mpp TO on;
+SET min_parallel_table_scan_size TO 0;
+SET parallel_setup_cost TO 0;
+SET parallel_tuple_cost TO 0;
+SET max_parallel_workers_per_gather TO 2;
+
+-- Keep mpp_debug off here so the per-worker WARNING ordering doesn't
+-- interleave non-deterministically with the EXPLAIN / SELECT output
+-- (the existing scalar + groupby blocks above already cover the
+-- mpp_debug-on case).
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT p.category, COUNT(*) AS cnt
+FROM mpp_exec_products p
+JOIN mpp_exec_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR chair'
+GROUP BY p.category
+ORDER BY cnt DESC, p.category
+LIMIT 2;
+
+SELECT p.category, COUNT(*) AS cnt
+FROM mpp_exec_products p
+JOIN mpp_exec_reviews r ON p.id = r.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR chair'
+GROUP BY p.category
+ORDER BY cnt DESC, p.category
+LIMIT 2;
+
+RESET min_parallel_table_scan_size;
+RESET parallel_setup_cost;
+RESET parallel_tuple_cost;
+RESET max_parallel_workers_per_gather;
+
+-- Restore defaults + clean up.
+RESET paradedb.enable_mpp;
+RESET paradedb.mpp_worker_count;
+RESET paradedb.mpp_min_join_rows;
+RESET paradedb.enable_aggregate_custom_scan;
+
+DROP TABLE mpp_exec_reviews;
+DROP TABLE mpp_exec_products;

@@ -178,6 +178,12 @@ static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: GucSetting<i32> =
     GucSetting::<i32>::new(16_000);
 
+/// Cost gate for binary-join MPP shapes (JoinOnly, ScalarAggOnBinaryJoin,
+/// GroupByAggOnBinaryJoin). If the smaller side's row estimate is below this
+/// threshold, skip MPP — the non-MPP broadcast-join path is cheaper when the
+/// small side fits in memory. Single-table shapes are unaffected.
+static MPP_MIN_JOIN_ROWS: GucSetting<i32> = GucSetting::<i32>::new(10_000);
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -535,6 +541,22 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::UNIT_BYTE,
     );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.mpp_min_join_rows",
+        c"Minimum smaller-side rows before binary-join MPP shapes kick in",
+        c"Cost gate for binary-join MPP shapes: JoinOnly and aggregate-on- \
+          binary-join (both scalar and group-by). If the smaller side's \
+          planner row estimate is below this threshold, skip MPP — the \
+          non-MPP broadcast-join path is cheaper when the small side fits \
+          in memory. Single-table aggregate shapes have no broadcast \
+          candidate and are not gated. Set to 0 to disable the gate.",
+        &MPP_MIN_JOIN_ROWS,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -735,6 +757,10 @@ pub fn hash_join_inlist_pushdown_max_size() -> i32 {
 
 pub fn hash_join_inlist_pushdown_max_distinct_values() -> i32 {
     HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES.get()
+}
+
+pub fn mpp_min_join_rows() -> i32 {
+    MPP_MIN_JOIN_ROWS.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

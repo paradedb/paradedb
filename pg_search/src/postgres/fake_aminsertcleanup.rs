@@ -220,3 +220,89 @@ pub unsafe fn register() {
         None
     }
 }
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use pgrx::prelude::*;
+
+    /// A dummy pg_extern that executes an SPI query internally.
+    ///
+    /// When this function is used as a BM25 index expression, Postgres evaluates
+    /// it during aminsert. The internal Spi::run call fires its own ExecutorRun,
+    /// which — before the depth-counter fix — would push a new None onto
+    /// EXECUTOR_RUN_STACK and cause get_insert_state to hit unreachable!.
+    ///
+    /// This function must be #[pg_extern] (not just a Rust fn) so that the pgrx
+    /// schema generator emits its SQL and Postgres can reference it by name in
+    /// the index expression.
+    #[pg_extern(immutable, strict)]
+    fn spi_identity(input: &str) -> String {
+        // This Spi::run internally calls SPI_execute, which triggers
+        // ExecutorRun_hook — exactly the nesting that caused #4843.
+        Spi::run("SELECT 1").expect("spi_identity: inner SPI query failed");
+        input.to_string()
+    }
+
+    /// Regression test for issue #4843.
+    ///
+    /// Verifies that inserting multiple rows into a table whose BM25 index
+    /// contains an expression that triggers a nested ExecutorRun (via SPI)
+    /// does not panic with "entered unreachable code: get_insert_state".
+    ///
+    /// # How the nesting is triggered
+    ///
+    /// 1. Outer INSERT → ExecutorRun_hook fires → push(None) onto stack.
+    /// 2. aminsert evaluates the index expression `spi_identity(val)`.
+    /// 3. Inside spi_identity, Spi::run("SELECT 1") fires another
+    ///    ExecutorRun_hook (the nested one).
+    /// 4. The depth counter in ExecutorRunEntry absorbs the nested call
+    ///    instead of pushing a new None that would shadow the outer Some.
+    /// 5. The nested ExecutorFinish decrements depth and returns early.
+    /// 6. The outer ExecutorFinish sees depth == 0 and calls aminsertcleanup.
+    ///
+    /// Without the fix, step 4 would push None and step 4's get_insert_state
+    /// would hit unreachable!, crashing the backend.
+    #[pg_test]
+    fn test_nested_executor_run_does_not_panic() {
+        // Setup
+        Spi::run(
+            "CREATE TABLE nested_exec_test (
+            id  SERIAL PRIMARY KEY,
+            val TEXT NOT NULL
+        );",
+        )
+        .expect("failed to create test table");
+
+        // The expression index calls spi_identity(), which internally runs
+        // an SPI query, reproducing the bingo.cansmiles nesting pattern.
+        Spi::run(
+            "CREATE INDEX nested_exec_test_bm25_idx
+           ON nested_exec_test
+           USING bm25 (id, (tests.spi_identity(val)::pdb.simple))
+           WITH (key_field = 'id');",
+        )
+        .expect("failed to create BM25 expression index");
+
+        // This is the actual regression guard for #4843.
+        // Before the depth-counter fix, this panicked with:
+        //   "entered unreachable code: get_insert_state: tried to get the
+        //    InsertState for relation <oid> but it was never pushed"
+        //
+        // The multi-row INSERT evaluates spi_identity() per row, each
+        // evaluation fires Spi::run() internally, which triggers a nested
+        // ExecutorRun_hook while the outer stack slot is still live.
+        Spi::run(
+            "INSERT INTO nested_exec_test (val)
+         SELECT 'row_' || g
+         FROM generate_series(1, 5) AS g;",
+        )
+        .expect("multi-row insert panicked — nested ExecutorRun bug (#4843) has regressed");
+
+        // Sanity-check: rows actually landed in the table.
+        let count = Spi::get_one::<i64>("SELECT COUNT(*) FROM nested_exec_test;")
+            .expect("COUNT query failed")
+            .expect("COUNT returned NULL");
+
+        assert_eq!(count, 5, "expected 5 rows, got {count}");
+    }
+}

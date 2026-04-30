@@ -130,6 +130,9 @@ jobs:
             --load \
             .
 
+      - name: Verify PGDG apt packages are available
+        run: docker run --rm paradedb/paradedb:latest bash -c 'apt-get update && apt-get install -y --no-install-recommends postgresql-${PG_VERSION_MAJOR}-partman'
+
       # Start the ParadeDB Docker image using `docker run` to test the standalone Docker image.
       # We add a --tmpfs mount as a test of compatibility with the upstream `postgres` image.
       # The `docker run` command uses the local ParadeDB image that we just built and loaded

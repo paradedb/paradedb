@@ -33,7 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     clang \
     pkg-config \
     libopenblas-dev \
-    postgresql-server-dev-all \
+    postgresql-server-dev-${PG_VERSION_MAJOR} \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=rust:1.95.0-trixie /usr/local/cargo /usr/local/cargo

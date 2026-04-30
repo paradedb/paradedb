@@ -169,14 +169,21 @@ static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(64 * 1024 * 1024
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
     GucSetting::<i32>::new(16 * 1024 * 1024);
 
-/// The maximum number of distinct values in an InList that can be pushed down to a TermSet Query.
+/// The maximum number of distinct values in an InList that can be pushed down
+/// to a TermSetQuery. Above this K, the predicate stays in PostgreSQL /
+/// DataFusion (HashExpr at the join, or PreFilter when the join feeds a
+/// dynamic filter).
 ///
-/// TODO: Adjust this as https://github.com/paradedb/paradedb/issues/4895 and followups land: if
-/// the TermSet scans the entire fast field column (without taking advantage of its shape to skip
-/// data), then creating a Query can be a pessimization, because the HashExpr that DataFusion uses
-/// is ~directly calculated from the pre-hashed values in the HashJoin's hash table.
+/// Bench-tuned: on a sorted-segment index, pushdown wins through K=14K
+/// (1.08×–9.27× over PreFilter at N=1M) and loses at K=20K (0.90×). 20,000
+/// is the upper edge of the crossover band — admits K=15K–19K (interpolated
+/// wins) at the cost of one boundary cell (K=20,000 exact: 11% slowdown).
+///
+/// The byte cap `hash_join_inlist_pushdown_max_size` provides the memory
+/// belt (~524K elements at 32 bytes/term); this cap is the perf-tuned upper
+/// bound. Set to 0 to disable pushdown entirely.
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: GucSetting<i32> =
-    GucSetting::<i32>::new(16_000);
+    GucSetting::<i32>::new(20_000);
 
 // TermSet strategy density thresholds (paradedb/paradedb#4895). These tune
 // the planner in tantivy::query::TermSetStrategyConfig — see design.md §4
@@ -465,8 +472,8 @@ pub fn init() {
 
     GucRegistry::define_int_guc(
         c"paradedb.hash_join_inlist_pushdown_max_distinct_values",
-        c"The maximum number of distinct values in an InList that can be pushed down to a TermSet Query.",
-        c"The maximum number of distinct values in an InList that can be pushed down to a TermSet Query.",
+        c"Maximum number of distinct values in an InList that can be pushed down to a TermSetQuery. Set to 0 to disable pushdown.",
+        c"Maximum number of distinct values in an InList that can be pushed down to a TermSetQuery; above this K the predicate stays in PostgreSQL. Set to 0 to disable pushdown entirely.",
         &HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES,
         0,
         i32::MAX,

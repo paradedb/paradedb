@@ -692,6 +692,10 @@ fn try_convert_in_list_to_query(
     let max_size = crate::gucs::hash_join_inlist_pushdown_max_size() as usize;
     let max_distinct = crate::gucs::hash_join_inlist_pushdown_max_distinct_values() as usize;
 
+    // K cap. Default 20,000 is bench-tuned to the win/lose crossover for
+    // pushdown vs PreFilter at N=1M sorted. See
+    // gucs::HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES doc for the
+    // reasoning and trade-off. Set to 0 to disable pushdown.
     if in_list.list().len() > max_distinct {
         return None;
     }

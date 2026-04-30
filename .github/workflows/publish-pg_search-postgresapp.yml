@@ -286,16 +286,11 @@ jobs:
           cd "$WORK"
           git remote add upstream "https://github.com/${UPSTREAM}.git"
           git fetch upstream "$UPSTREAM_DEFAULT_BRANCH"
-          # Treat the bot's fork as throwaway state: hard-reset its default branch to
-          # upstream and force-push, so we never get tripped up by stale commits left
-          # behind on the fork. Any local changes are intentionally overridden.
-          git checkout "$UPSTREAM_DEFAULT_BRANCH"
-          git reset --hard "upstream/${UPSTREAM_DEFAULT_BRANCH}"
-          git push origin "$UPSTREAM_DEFAULT_BRANCH" --force
-          # Delete any pre-existing PR branch on the fork so the new branch creation
-          # always starts from a clean slate.
+          # Branch directly off upstream's tip — we don't need the fork's default
+          # branch to mirror upstream for a PR to work. This also avoids ambiguity
+          # when origin and upstream both have the same branch name.
           git push origin --delete "$BRANCH" 2>/dev/null || true
-          git checkout -B "$BRANCH"
+          git checkout -B "$BRANCH" "upstream/${UPSTREAM_DEFAULT_BRANCH}"
 
           # Update only `version` and `download_url` in the per-PG-version JSON,
           # preserving the rest of the file (title, description, info_url) and the

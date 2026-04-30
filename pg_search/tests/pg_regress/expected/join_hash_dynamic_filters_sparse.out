@@ -13,7 +13,7 @@
 --   neither gallop nor smart-seek is exercised).
 --   K/N for each pushed-down InList = 1100/30000 ≈ 0.0367. With
 --   paradedb.term_set_gallop_max_density forced to 0.05 (vs the default
---   1/64 ≈ 0.0156), gallop is admitted on the sorted fk_a column.
+--   1/100 = 0.01), gallop is admitted on the sorted fk_a column.
 --   LIMIT 10 on each query is required for the ParadeDB Join Scan custom
 --   scan's cost model to pick it over a vanilla Hash Join (this also
 --   matches the shape of the existing TEST 1/2 fixtures in join_hash.sql).
@@ -41,7 +41,7 @@ SET enable_nestloop = OFF;
 SET enable_mergejoin = OFF;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_join_custom_scan = ON;
--- Admit gallop on K/N ≈ 0.0367. The default 1/64 ≈ 0.0156 would reject
+-- Admit gallop on K/N ≈ 0.0367. The default 1/100 = 0.01 would reject
 -- this corpus; the override mirrors TEST 2b in join_hash.sql.
 SET paradedb.term_set_gallop_max_density = 0.05;
 -- ===========================================================================
@@ -101,8 +101,8 @@ FROM generate_series(800, 1899) AS i;
 -- BM25 index on t1: id is the integer key, body is the text-searched
 -- column, fk_a/fk_b/fk_c are fast numeric fields, segment is sorted ASC
 -- by fk_a. Only fk_a is gallop-eligible; fk_b and fk_c land on the
--- linear-scan TermSetDocSet path (now with the smart-seek override from
--- the previous tantivy commit).
+-- linear-scan TermSetDocSet path (with smart-seek for forward-cursor
+-- advancement).
 CREATE INDEX t1_idx ON t1
 USING bm25 (id, body, fk_a, fk_b, fk_c)
 WITH (

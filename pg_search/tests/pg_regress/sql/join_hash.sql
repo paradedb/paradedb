@@ -59,7 +59,7 @@ LIMIT 10;
 -- dynamic_filter_pushdown_strategy=... EXPLAIN token.
 --
 -- The test asserts BOTH dispatch outcomes:
---   2a. With default gallop_max_density (1/64), K/N is too dense for gallop
+--   2a. With default gallop_max_density (1/100), K/N is too dense for gallop
 --       on this small corpus → linear strategy, EXPLAIN says
 --       dynamic_filter_pushdown_strategy=linear.
 --   2b. With paradedb.term_set_gallop_max_density set high enough to admit
@@ -75,7 +75,7 @@ CREATE TABLE hash_sorted_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
 -- t1: 1500 rows (clears the TermSetQuery FastField cardinality threshold of
 -- 1024 so the FastField dispatch path is reached).
 -- t2: 2000 rows with t1_id repeating across 1..1500 — K/N = 1500/2000 = 0.75,
--- which is too dense for the default gallop threshold (1/64 ≈ 0.0156) but
+-- which is too dense for the default gallop threshold (1/100 = 0.01) but
 -- below the override used in TEST 2b (1.0).
 INSERT INTO hash_sorted_t1 SELECT i, 'val ' || i FROM generate_series(1, 1500) i;
 INSERT INTO hash_sorted_t2 SELECT i, ((i - 1) % 1500) + 1, 'val ' || i FROM generate_series(1, 2000) i;
@@ -93,7 +93,7 @@ WITH (
 ANALYZE hash_sorted_t1;
 ANALYZE hash_sorted_t2;
 
--- TEST 2a: default density. K/N = 0.75 ≥ 1/64, so gallop is rejected and
+-- TEST 2a: default density. K/N = 0.75 ≥ 1/100, so gallop is rejected and
 -- the planner lands on the LinearScan terminal.
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT t1.val, t2.val
@@ -112,7 +112,7 @@ LIMIT 10;
 
 -- TEST 2b: density = 1.0 (admit any K < N). Same data, same query — gallop
 -- now fires because K/N = 0.75 < 1.0. This is the path the DemandScience
--- workload would take in production once corpus size makes K/N << 1/64.
+-- workload would take in production once corpus size makes K/N << 1/100.
 SET paradedb.term_set_gallop_max_density = 1.0;
 
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)

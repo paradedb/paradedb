@@ -731,12 +731,12 @@ fn try_convert_in_list_to_query(
     }
 
     // Build a strategy config from the paradedb.term_set_*_max_density GUCs
-    // so the sorted-segment gallop fast path (issue #4895) is enabled by
-    // default but operators can override the densities or kill the
-    // optimization without a recompile. Defaults mirror
-    // TermSetStrategyConfig::default() in tantivy. The optional `strategy_sink`
-    // is a per-scan AtomicU8 that the planner stores its decision into so
-    // EXPLAIN ANALYZE can report which strategy fired (Step 5).
+    // so the sorted-segment gallop fast path is enabled by default but
+    // operators can override the densities or kill the optimization without
+    // a recompile. Defaults mirror TermSetStrategyConfig::default() in
+    // tantivy. The optional `strategy_sink` is a per-scan AtomicU8 that the
+    // planner stores its decision into so EXPLAIN ANALYZE can report which
+    // strategy fired.
     let cfg = TermSetStrategyConfig {
         gallop_enabled: crate::gucs::term_set_gallop_enabled(),
         gallop_max_density: crate::gucs::term_set_gallop_max_density(),

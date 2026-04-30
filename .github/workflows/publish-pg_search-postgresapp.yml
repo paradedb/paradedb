@@ -22,12 +22,15 @@ on:
   push:
     tags:
       - "v*"
+    # TEMPORARY: enable branch push trigger to test this workflow on the PR. Revert before merge.
+    branches:
+      - add-publish-pg_search-postgresapp-workflow
   workflow_dispatch:
     inputs:
       version:
         description: "The version to set for the pg_search release (e.g. 0.22.0). This publishes the latest commit of the chosen branch and uploads it to the pre-existing GitHub Release of the provided version."
         required: true
-        default: ""
+        default: "0.0.0"
 
 concurrency:
   group: publish-pg_search-postgresapp-${{ github.head_ref || github.ref }}

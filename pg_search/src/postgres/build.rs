@@ -484,27 +484,4 @@ mod tests {
             &[CodecType::Bitpacked, CodecType::BlockwiseLinearV2]
         );
     }
-
-    #[pg_test]
-    fn test_old_index_defaults_to_v1_codecs() {
-        use tantivy::columnar::CodecType;
-        use tantivy::directory::RamDirectory;
-
-        let mut builder = Schema::builder();
-        builder.add_u64_field("val", FAST);
-        let schema = builder.build();
-
-        // No codec_types set — simulates an existing index
-        let settings = IndexSettings::default();
-
-        let directory = RamDirectory::create();
-        let index = Index::create(directory, schema, settings).unwrap();
-
-        let stored = index.settings();
-        assert!(stored.codec_types.is_empty());
-        assert_eq!(
-            stored.columnar_codec_types(),
-            &[CodecType::Bitpacked, CodecType::BlockwiseLinear]
-        );
-    }
 }

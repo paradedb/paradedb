@@ -645,7 +645,7 @@ impl BM25IndexOptions {
         for (aliased_field_name, config) in self
             .aliased_text_configs()
             .into_iter()
-            .chain(self.aliased_json_configs().into_iter())
+            .chain(self.aliased_json_configs())
         {
             if &aliased_field_name == field_name {
                 if let Some(alias) = config.alias() {
@@ -1131,23 +1131,26 @@ fn key_field_config(field_type: SearchFieldType) -> SearchFieldConfig {
             fast: true,
             scale,
         },
-        SearchFieldType::Text(_) | SearchFieldType::Uuid(_) => SearchFieldConfig::Text {
-            indexed: true,
-            fast: true,
-            fieldnorms: false,
+        SearchFieldType::Text(_) | SearchFieldType::Uuid(_) => {
+            SearchFieldConfig::Text {
+                indexed: true,
+                fast: true,
+                fieldnorms: false,
 
-            // NB:  This should use the `SearchTokenizer::Keyword` tokenizer but for historical
-            // reasons it uses the `SearchTokenizer::Raw` tokenizer but with the same filters
-            // configuration as the `SearchTokenizer::Keyword` tokenizer.
-            #[allow(deprecated)]
-            tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::keyword().clone()),
-            search_tokenizer: None,
-            record: IndexRecordOption::Basic,
-            normalizer: SearchNormalizer::Raw,
-            column: None,
-            k1: None,
-            b: None,
-        },
+                // NB:  This should use the `SearchTokenizer::Keyword` tokenizer but for historical
+                // reasons it uses the `SearchTokenizer::Raw` tokenizer but with the same filters
+                // configuration as the `SearchTokenizer::Keyword` tokenizer.
+                #[allow(deprecated)]
+                tokenizer: SearchTokenizer::Raw(SearchTokenizerFilters::keyword().clone()),
+                search_tokenizer: None,
+                record: IndexRecordOption::Basic,
+                normalizer: SearchNormalizer::Raw,
+                column: None,
+                k1: None,
+                b: None,
+            }
+        }
+        SearchFieldType::Ltree(_) => SearchFieldConfig::Facet,
         SearchFieldType::Tokenized(..) => {
             panic!("the key_field cannot use a custom tokenizer configuration")
         }

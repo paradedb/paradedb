@@ -15,116 +15,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::fmt;
-
 use crate::api::{AsCStr, FieldName, HashMap, HashSet, OrderByInfo, Varno};
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::basescan::ExecMethodType;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
+use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::query::SearchQueryInput;
 
 use pgrx::pg_sys::AsPgCStr;
-use pgrx::{pg_sys, FromDatum, PgList};
+use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Limit {
-    Static(usize),
-    Parameterized { limit_param_id: i32 },
-}
-
-impl fmt::Display for Limit {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Limit::Static(n) => write!(f, "{n}"),
-            Limit::Parameterized { .. } => write!(f, "<parameterized>"),
-        }
-    }
-}
-
-impl Limit {
-    pub unsafe fn from_param(node: *mut pg_sys::Node) -> Option<Self> {
-        use crate::nodecast;
-
-        if node.is_null() {
-            return None;
-        }
-
-        if let Some(param) = nodecast!(Param, T_Param, node) {
-            if (*param).paramkind == pg_sys::ParamKind::PARAM_EXTERN {
-                return Some(Limit::Parameterized {
-                    limit_param_id: (*param).paramid,
-                });
-            }
-            return None;
-        }
-
-        if let Some(func_expr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-            let args = PgList::<pg_sys::Node>::from_pg((*func_expr).args);
-            if args.len() == 1 {
-                return Limit::from_param(args.get_ptr(0).unwrap());
-            }
-        }
-
-        if let Some(relabel) = nodecast!(RelabelType, T_RelabelType, node) {
-            return Limit::from_param((*relabel).arg.cast());
-        }
-
-        if let Some(coerce) = nodecast!(CoerceViaIO, T_CoerceViaIO, node) {
-            return Limit::from_param((*coerce).arg.cast());
-        }
-
-        None
-    }
-
-    pub fn param_id(&self) -> Option<i32> {
-        match self {
-            Limit::Parameterized { limit_param_id } => Some(*limit_param_id),
-            Limit::Static(_) => None,
-        }
-    }
-
-    pub fn static_value(&self) -> Option<usize> {
-        match self {
-            Limit::Static(n) => Some(*n),
-            Limit::Parameterized { .. } => None,
-        }
-    }
-
-    pub unsafe fn resolve(&self, estate: *mut pg_sys::EState) -> usize {
-        match self {
-            Limit::Static(n) => *n,
-            Limit::Parameterized { limit_param_id } => {
-                let param_list = (*estate).es_param_list_info;
-                assert!(
-                    !param_list.is_null(),
-                    "es_param_list_info is NULL but we have a parameterized LIMIT"
-                );
-
-                let idx = (*limit_param_id - 1) as usize;
-                assert!(
-                    idx < (*param_list).numParams as usize,
-                    "LIMIT param_id {} out of range (numParams={})",
-                    limit_param_id,
-                    (*param_list).numParams
-                );
-
-                let param_data = &(*param_list)
-                    .params
-                    .as_slice((*param_list).numParams as usize)[idx];
-                assert!(
-                    !param_data.isnull,
-                    "LIMIT parameter ${} is NULL",
-                    limit_param_id
-                );
-
-                i64::from_datum(param_data.value, param_data.isnull)
-                    .expect("LIMIT parameter should be convertible to i64") as usize
-            }
-        }
-    }
-}
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct PrivateData {
@@ -132,7 +33,7 @@ pub struct PrivateData {
     indexrelid: Option<pg_sys::Oid>,
     range_table_index: Option<pg_sys::Index>,
     query: Option<SearchQueryInput>,
-    limit: Option<Limit>,
+    limit_offset: Option<LimitOffset>,
     // ORDER-BY info that will be used iff the appropriate ExecMethodType is chosen.
     maybe_orderby_info: Option<Vec<OrderByInfo>>,
     #[serde(with = "var_attname_lookup_serializer")]
@@ -276,8 +177,8 @@ impl PrivateData {
         self.query = Some(query);
     }
 
-    pub fn set_limit(&mut self, limit: Option<Limit>) {
-        self.limit = limit;
+    pub fn set_limit_offset(&mut self, limit_offset: Option<LimitOffset>) {
+        self.limit_offset = limit_offset;
     }
 
     pub fn set_maybe_orderby_info(&mut self, style: Option<&Vec<OrderByStyle>>) {
@@ -356,12 +257,15 @@ impl PrivateData {
         &self.query
     }
 
-    pub fn limit(&self) -> &Option<Limit> {
-        &self.limit
+    pub fn limit_offset(&self) -> &Option<LimitOffset> {
+        &self.limit_offset
     }
 
     pub fn static_limit(&self) -> Option<usize> {
-        self.limit.as_ref().and_then(Limit::static_value)
+        self.limit_offset
+            .as_ref()
+            .and_then(|lo| lo.limit.static_value())
+            .map(|v| (*v).max(0) as usize)
     }
 
     pub fn maybe_orderby_info(&self) -> &Option<Vec<OrderByInfo>> {

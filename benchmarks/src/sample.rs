@@ -20,8 +20,8 @@ use clap::Parser;
 use duckdb::Connection;
 use std::time::Instant;
 
-use crate::config::{load_dataset_config, topological_order};
-use crate::utils::{open_duckdb_conn, validate_input_output};
+use crate::config::load_dataset_config;
+use crate::utils::{open_duckdb_conn, validate_input, validate_output};
 
 #[derive(Parser)]
 pub struct SampleArgs {
@@ -61,21 +61,22 @@ fn count_rows(conn: &Connection, glob: &str) -> Result<u64> {
 }
 
 pub fn run_sample(args: SampleArgs) -> Result<()> {
-    let config = load_dataset_config(&args.config)?;
+    let (config, order) = load_dataset_config(&args.config)?;
 
     let conn = open_duckdb_conn()?;
 
     let input = args.input.trim_end_matches('/');
     let output = args.output.trim_end_matches('/');
 
-    let table_names: Vec<String> = config.tables.iter().map(|t| t.name.clone()).collect();
-    validate_input_output(&table_names, &conn, input, output)?;
+    validate_input(config.all_table_names(), &conn, input)?;
+    if !args.dry_run {
+        validate_output(config.all_table_names(), &conn, output)?;
+    }
 
     // Determine processing order.
-    let order = topological_order(&config)?;
 
     // Sample the root table.
-    let root = &config.tables[order[0]];
+    let root = &config.root_table;
     let root_glob = parquet_glob_pattern(input, &root.name);
     let total_rows = count_rows(&conn, &root_glob)?;
 
@@ -123,10 +124,11 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     };
     let sql = format!(
         "CREATE TABLE sampled_{name} AS \
-         SELECT * FROM  read_parquet('{local_path}') \
-         USING SAMPLE {sample_arg} REPEATABLE({seed})",
+        WITH ordered AS (SELECT * FROM  read_parquet('{local_path}') ORDER BY \"{pk}\") \
+        SELECT * FROM ordered USING SAMPLE {sample_arg} REPEATABLE({seed})",
         name = root.name,
         local_path = local_glob,
+        pk = root.primary_key,
         sample_arg = sample_arg,
         seed = config.sampling_seed,
     );
@@ -158,28 +160,25 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
     println!("  {} sampled: {sampled_root_count} rows", root.name);
 
     // Sample child tables by joining against their sampled parent.
-    for &idx in &order[1..] {
+    for &idx in &order {
         let table = &config.tables[idx];
-        let parent = table.parent.as_ref().unwrap();
-        let parent_join_key = table.parent_join_col.as_ref().unwrap();
-        let join_key = table.join_col.as_ref().unwrap();
         let glob = parquet_glob_pattern(input, &table.name);
 
         println!(
-            "Sampling child table '{}' (parent: '{parent}')...",
-            table.name
+            "Sampling child table '{}' (parent: '{}')...",
+            table.name, table.parent,
         );
 
         let sql = format!(
             "CREATE TABLE sampled_{name} AS \
              SELECT DISTINCT c.* \
              FROM read_parquet('{glob}') c \
-             WHERE c.\"{jk}\" IN 
-                (SELECT {pk} from sampled_{parent})",
+             WHERE c.\"{child_col}\" IN 
+                (SELECT {parent_col} from sampled_{parent})",
             name = table.name,
-            parent = parent,
-            jk = join_key,
-            pk = parent_join_key,
+            parent = table.parent,
+            child_col = table.join_col,
+            parent_col = table.parent_join_col,
         );
         conn.execute_batch(&sql)
             .with_context(|| format!("Failed to sample child table '{}'", table.name))?;
@@ -201,19 +200,22 @@ pub fn run_sample(args: SampleArgs) -> Result<()> {
 
     // Write output.
     println!("\nWriting sampled parquet files...");
-    for &idx in &order {
-        let table = &config.tables[idx];
-        println!("  Writing '{}'...", table.name);
-        let sql = format!(
-            "COPY sampled_{name} TO '{output}/{name}' (FORMAT PARQUET, PER_THREAD_OUTPUT true)",
-            name = table.name,
-            output = output,
-        );
-        conn.execute_batch(&sql)
-            .with_context(|| format!("Failed to write sampled table '{}'", table.name))?;
-        println!("  {}: done", table.name);
+    for table_name in config.all_table_names() {
+        write_sample_table(&conn, table_name, output)?;
     }
-
     println!("\nSampling complete.");
+    Ok(())
+}
+
+fn write_sample_table(conn: &duckdb::Connection, table_name: &str, output: &str) -> Result<()> {
+    println!("  Writing '{}'...", table_name);
+    let sql = format!(
+        "COPY sampled_{name} TO '{output}/{name}' (FORMAT PARQUET, PER_THREAD_OUTPUT true)",
+        name = table_name,
+        output = output,
+    );
+    conn.execute_batch(&sql)
+        .with_context(|| format!("Failed to write sampled table '{}'", table_name))?;
+    println!("  {}: done", table_name);
     Ok(())
 }

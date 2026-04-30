@@ -884,7 +884,7 @@ impl JobRunner {
             .read()
             .clone()
             .into_iter()
-            .chain(self.runtime_stats.read().iter().filter_map(|(_, stats)| {
+            .chain(self.runtime_stats.read().values().filter_map(|stats| {
                 if stats.assert_error.is_some() {
                     Some(Arc::new(anyhow!(stats.assert_error.clone().unwrap())))
                 } else if stats.results.is_err() {

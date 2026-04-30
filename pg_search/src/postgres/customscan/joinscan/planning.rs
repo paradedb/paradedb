@@ -1051,7 +1051,27 @@ pub(super) unsafe fn collect_required_fields(
                             // expression (e.g. upper(name)), in which case
                             // ensure_field (via resolve_fast_field) won't find it.
                             let added = get_source_attno_by_name(source, name)
-                                .and_then(|attno| try_ensure_field(source, attno))
+                                .and_then(|attno| {
+                                    try_ensure_field(source, attno)?;
+                                    // try_ensure_field only checks that SOME field
+                                    // claims the attno; it doesn't check the field's
+                                    // name. When a column is indexed twice — once
+                                    // aliased (e.g. "company_name_words") and once
+                                    // as an expression (e.g. "company_name" via a
+                                    // typmod cast) — the aliased entry can claim the
+                                    // attno first under a different name. Only treat
+                                    // the field as "added" if the registered name
+                                    // matches what the ORDER BY asked for; otherwise
+                                    // fall through to ensure_expression_field which
+                                    // registers the field under a synthetic attno
+                                    // with the correct name (#4850).
+                                    source
+                                        .scan_info
+                                        .fields
+                                        .iter()
+                                        .any(|f| f.attno == attno && f.field.name() == name)
+                                        .then_some(())
+                                })
                                 .is_some();
                             if !added {
                                 if let Err(e) = ensure_expression_field(source, name) {
@@ -1173,7 +1193,10 @@ unsafe fn ensure_expression_field(source: &mut JoinSource, field_name: &str) -> 
 }
 
 /// Retrieve an attribute number by column name from a `JoinSource`'s heap relation.
-unsafe fn get_source_attno_by_name(side: &JoinSource, name: &str) -> Option<pg_sys::AttrNumber> {
+pub(super) unsafe fn get_source_attno_by_name(
+    side: &JoinSource,
+    name: &str,
+) -> Option<pg_sys::AttrNumber> {
     let rel = PgSearchRelation::open(side.scan_info.heaprelid);
     let tupdesc = rel.tuple_desc();
     get_attno_by_name(name, &tupdesc)

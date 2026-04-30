@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::row_expr_from_indexed_expr;
-use crate::api::tokenizers::definitions::pdb::AliasDatumWithType;
+use crate::api::tokenizers::definitions::pdb::DatumWithType;
 use crate::api::tokenizers::{
     type_can_be_tokenized, type_is_alias, type_is_tokenizer, AliasTypmod, UncheckedTypmod,
 };
@@ -785,10 +785,12 @@ pub unsafe fn row_to_search_document<'a>(
             continue;
         }
 
-        // For pdb.alias types, unwrap the datum first before any processing
-        // The AliasDatumWithType structure wraps the actual datum for all alias types
-        let actual_datum = if type_is_alias(pg_type.value()) {
-            unsafe { AliasDatumWithType::extract_datum(datum) }
+        // For pdb.alias/tokenizer types, unwrap the datum first before any processing
+        // The DatumWithType structure wraps the actual datum for all alias types
+        let actual_datum = if type_is_alias(pg_type.value())
+            || (type_is_tokenizer(pg_type.value()) && DatumWithType::is_wrapped(datum))
+        {
+            unsafe { DatumWithType::extract_datum(datum) }
         } else {
             datum
         };
@@ -807,6 +809,16 @@ pub unsafe fn row_to_search_document<'a>(
                 }
                 SearchFieldType::NumericBytes(..) => {
                     for value in TantivyValue::try_from_numeric_array_bytes(actual_datum)
+                        .unwrap_or_else(|e| {
+                            panic!("could not parse field `{}`: {e}", search_field.field_name())
+                        })
+                    {
+                        document.add_field_value(search_field.field(), &OwnedValue::from(value));
+                    }
+                }
+                // Legacy pre-v0.22.0 indexes stored NUMERIC arrays as F64 in the tantivy schema.
+                SearchFieldType::F64(oid) if oid == pg_sys::NUMERICOID => {
+                    for value in TantivyValue::try_from_numeric_array_f64(actual_datum)
                         .unwrap_or_else(|e| {
                             panic!("could not parse field `{}`: {e}", search_field.field_name())
                         })
@@ -840,6 +852,10 @@ pub unsafe fn row_to_search_document<'a>(
                 }
                 SearchFieldType::NumericBytes(..) => {
                     TantivyValue::try_from_numeric_bytes(actual_datum)
+                }
+                // Legacy pre-v0.22.0 indexes stored NUMERIC as F64 in the tantivy schema.
+                SearchFieldType::F64(oid) if oid == pg_sys::NUMERICOID => {
+                    TantivyValue::try_from_numeric_f64(actual_datum)
                 }
                 _ => TantivyValue::try_from_datum(actual_datum, *base_oid),
             }

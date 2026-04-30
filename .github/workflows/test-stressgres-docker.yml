@@ -23,7 +23,15 @@ concurrency:
 jobs:
   test-stressgres-docker:
     name: Test Stressgres Docker Image
-    runs-on: ubicloud-standard-8-arm
+    runs-on:
+      # General-purpose m-family — Docker buildx is RAM-heavy.
+      # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
+      - runs-on=${{ github.run_id }}
+      - family=m7g+m8g
+      - cpu=8
+      - ram=32
+      - image=ubuntu24-full-arm64
+      - extras=s3-cache
 
     steps:
       - name: Checkout Git Repository

@@ -149,8 +149,7 @@ SELECT count(*) FROM (
     ORDER BY c.id ASC
     LIMIT 26
 ) sub;
-WARNING:  JoinScan not used: LIMIT pushdown unsafe (un-absorbed relations, SubPlans, or volatile functions) (tables: c, p)
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: c, p)
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: c, p)
  count 
 -------
     26
@@ -171,8 +170,7 @@ SELECT count(*) FROM (
     ORDER BY c.id ASC
     LIMIT 26
 ) sub;
-WARNING:  JoinScan not used: LIMIT pushdown unsafe (un-absorbed relations, SubPlans, or volatile functions) (tables: c, p)
-WARNING:  JoinScan not used: activation checks failed (LIMIT / BM25 index / fast fields / aggregates) (tables: c, p)
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed SubPlans (tables: c, p)
  count 
 -------
     26
@@ -253,7 +251,7 @@ SELECT count(*) FROM (
     ORDER BY p.id DESC
     LIMIT 26
 ) sub;
-WARNING:  JoinScan not used: LIMIT pushdown unsafe (un-absorbed relations, SubPlans, or volatile functions) (tables: c, p)
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: c, p)
  count 
 -------
     26
@@ -275,7 +273,7 @@ WHERE p.id @@@ paradedb.all()
        ))
 ORDER BY p.id DESC
 LIMIT 26;
-WARNING:  JoinScan not used: LIMIT pushdown unsafe (un-absorbed relations, SubPlans, or volatile functions) (tables: c, p)
+WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: c, p)
                                                                                                                     QUERY PLAN                                                                                                                     
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit

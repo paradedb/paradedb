@@ -23,7 +23,6 @@ use std::sync::Arc;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, SortDirection};
-use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::scorer::{DeferredScorer, ScorerIter};
 use crate::index::setup_tokenizers;
@@ -61,25 +60,21 @@ pub const MAX_TOPK_FEATURES: usize = 5;
 /// Item alongside the originating tantivy [`DocAddress`]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SearchIndexScore {
-    pub ctid: u64,
     pub bm25: f32,
 }
 
 impl SearchIndexScore {
     #[inline]
-    pub fn new(ctid: u64, score: Score) -> Self {
-        Self { ctid, bm25: score }
+    pub fn new(score: Score) -> Self {
+        Self { bm25: score }
     }
 }
 
 impl PartialOrd for SearchIndexScore {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        // TODO: Should also compare the ctid for stability.
         self.bm25.partial_cmp(&other.bm25)
     }
 }
-
-pub type FastFieldCache = HashMap<SegmentOrdinal, FFType>;
 
 /// See `SearchIndexReader::top_in_segments`.
 type TopKWithAggregate<T> = (
@@ -111,29 +106,14 @@ impl TopKSearchResults {
     }
 
     fn new_for_score(
-        searcher: &Searcher,
         results: impl IntoIterator<Item = (Score, DocAddress)>,
         aggregation_results: Option<IntermediateAggregationResults>,
     ) -> Self {
-        // TODO: Execute batch lookups for ctids?
-        let mut ff_lookup = FastFieldCache::default();
         Self::new(
             results
                 .into_iter()
                 .map(|(score, doc_address)| {
-                    let ctid = ff_lookup
-                        .entry(doc_address.segment_ord)
-                        .or_insert_with(|| {
-                            FFType::new_ctid(
-                                searcher
-                                    .segment_reader(doc_address.segment_ord)
-                                    .fast_fields(),
-                            )
-                        })
-                        .as_u64(doc_address.doc_id)
-                        .expect("ctid should be present");
-
-                    let scored = SearchIndexScore { ctid, bm25: score };
+                    let scored = SearchIndexScore { bm25: score };
                     (scored, doc_address)
                 })
                 .collect(),
@@ -146,10 +126,9 @@ impl TopKSearchResults {
     ///
     /// TODO: We could in theory actually render that field using a virtual tuple (for the right
     /// query), similar to what we do in fast-fields execution.
-    fn new_for_discarded_field<T>(searcher: &Searcher, results: TopKWithAggregate<T>) -> Self {
+    fn new_for_discarded_field<T>(results: TopKWithAggregate<T>) -> Self {
         let (results, aggregation_results) = results;
         Self::new_for_score(
-            searcher,
             results
                 .into_iter()
                 .map(|((_, score), doc)| (score.unwrap_or(1.0), doc)),
@@ -171,7 +150,6 @@ impl TopKSearchResults {
 /// May be consumed via `Iterator`, or directly via its methods in a segment-aware fashion.
 pub struct MultiSegmentSearchResults {
     searcher: Searcher,
-    ctid_column: Option<FFType>,
     iterators: Vec<ScorerIter>,
     lazy_iterators: Option<Box<dyn Iterator<Item = ScorerIter> + Send>>,
     lazy_estimated_rows: Option<u64>,
@@ -244,7 +222,6 @@ impl MultiSegmentSearchResults {
     pub fn from_single_segment(searcher: Searcher, scorer_iter: ScorerIter) -> Self {
         Self {
             searcher,
-            ctid_column: None,
             iterators: vec![scorer_iter],
             lazy_iterators: None,
             lazy_estimated_rows: None,
@@ -261,27 +238,11 @@ impl Iterator for MultiSegmentSearchResults {
             let last = self.current_segment()?;
             match last.next() {
                 Some((score, doc_address)) => {
-                    let ctid_ff = self.ctid_column.get_or_insert_with(|| {
-                        FFType::new_ctid(
-                            self.searcher
-                                .segment_reader(doc_address.segment_ord)
-                                .fast_fields(),
-                        )
-                    });
-                    let scored = SearchIndexScore {
-                        ctid: ctid_ff
-                            .as_u64(doc_address.doc_id)
-                            .expect("ctid should be present"),
-                        bm25: score,
-                    };
-
-                    return Some((scored, doc_address));
+                    return Some((SearchIndexScore { bm25: score }, doc_address));
                 }
                 None => {
-                    // last iterator is empty, so pop it off, clear the fast field type cache,
-                    // and loop back around to get the next one
+                    // last iterator is empty, pop it and loop around to the next one
                     self.current_segment_pop();
-                    self.ctid_column = None;
                     continue;
                 }
             }
@@ -668,7 +629,6 @@ impl SearchIndexReader {
 
         MultiSegmentSearchResults {
             searcher: self.searcher.clone(),
-            ctid_column: Default::default(),
             iterators,
             lazy_iterators: None,
             lazy_estimated_rows: None,
@@ -731,7 +691,6 @@ impl SearchIndexReader {
 
         MultiSegmentSearchResults {
             searcher: self.searcher.clone(),
-            ctid_column: Default::default(),
             iterators: vec![],
             lazy_iterators: Some(Box::new(lazy_iterators)),
             lazy_estimated_rows: Some(estimated_rows),
@@ -789,64 +748,58 @@ impl SearchIndexReader {
                     .expect("sort field should exist in index schema");
                 let order: ComparatorEnum = (*direction).into();
                 match field.field_entry().field_type().value_type() {
-                    tantivy::schema::Type::Str => TopKSearchResults::new_for_discarded_field(
-                        &self.searcher,
-                        self.top_in_segments(
+                    tantivy::schema::Type::Str => {
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByString::for_field(sort_field), order),
                             erased_features,
                             n,
                             offset,
                             aux_collector,
-                        ),
-                    ),
-                    tantivy::schema::Type::U64 => TopKSearchResults::new_for_discarded_field(
-                        &self.searcher,
-                        self.top_in_segments(
+                        ))
+                    }
+                    tantivy::schema::Type::U64 => {
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByStaticFastValue::<u64>::for_field(sort_field), order),
                             erased_features,
                             n,
                             offset,
                             aux_collector,
-                        ),
-                    ),
-                    tantivy::schema::Type::I64 => TopKSearchResults::new_for_discarded_field(
-                        &self.searcher,
-                        self.top_in_segments(
+                        ))
+                    }
+                    tantivy::schema::Type::I64 => {
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByStaticFastValue::<i64>::for_field(sort_field), order),
                             erased_features,
                             n,
                             offset,
                             aux_collector,
-                        ),
-                    ),
-                    tantivy::schema::Type::F64 => TopKSearchResults::new_for_discarded_field(
-                        &self.searcher,
-                        self.top_in_segments(
+                        ))
+                    }
+                    tantivy::schema::Type::F64 => {
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByStaticFastValue::<f64>::for_field(sort_field), order),
                             erased_features,
                             n,
                             offset,
                             aux_collector,
-                        ),
-                    ),
-                    tantivy::schema::Type::Bool => TopKSearchResults::new_for_discarded_field(
-                        &self.searcher,
-                        self.top_in_segments(
+                        ))
+                    }
+                    tantivy::schema::Type::Bool => {
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByStaticFastValue::<bool>::for_field(sort_field), order),
                             erased_features,
                             n,
                             offset,
                             aux_collector,
-                        ),
-                    ),
-                    tantivy::schema::Type::Date => TopKSearchResults::new_for_discarded_field(
-                        &self.searcher,
-                        self.top_in_segments(
+                        ))
+                    }
+                    tantivy::schema::Type::Date => {
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (
                                 SortByStaticFastValue::<DateTime>::for_field(sort_field),
@@ -856,19 +809,18 @@ impl SearchIndexReader {
                             n,
                             offset,
                             aux_collector,
-                        ),
-                    ),
-                    tantivy::schema::Type::Bytes => TopKSearchResults::new_for_discarded_field(
-                        &self.searcher,
-                        self.top_in_segments(
+                        ))
+                    }
+                    tantivy::schema::Type::Bytes => {
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByBytes::for_field(sort_field), order),
                             erased_features,
                             n,
                             offset,
                             aux_collector,
-                        ),
-                    ),
+                        ))
+                    }
                     tantivy::schema::Type::Facet => {
                         unimplemented!("Cannot sort by facet field")
                     }
@@ -898,7 +850,6 @@ impl SearchIndexReader {
                     aux_collector,
                 );
                 TopKSearchResults::new_for_score(
-                    &self.searcher,
                     top_docs.into_iter().map(|((f, _), doc)| (f, doc)),
                     aggregation_results,
                 )
@@ -1107,7 +1058,6 @@ impl SearchIndexReader {
                     self.collect_maybe_auxiliary(segment_ids, top_docs_collector, aux_collector);
 
                 TopKSearchResults::new_for_score(
-                    &self.searcher,
                     top_docs
                         .into_iter()
                         .map(|(score, doc_address)| (score.score, doc_address)),
@@ -1122,7 +1072,7 @@ impl SearchIndexReader {
                 let (top_docs, aggregation_results) =
                     self.collect_maybe_auxiliary(segment_ids, top_docs_collector, aux_collector);
 
-                TopKSearchResults::new_for_score(&self.searcher, top_docs, aggregation_results)
+                TopKSearchResults::new_for_score(top_docs, aggregation_results)
             }
         }
     }

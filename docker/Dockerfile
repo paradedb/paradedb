@@ -104,7 +104,6 @@ RUN curl -fsSL -o pgvector.tar.gz "https://codeload.github.com/pgvector/pgvector
     rm pgvector.tar.gz
 WORKDIR /tmp/pgvector
 RUN export PG_CFLAGS="-Wall -Wextra -Wno-unused-parameter -Wno-sign-compare" && \
-    echo "trusted = true" >> vector.control && \
     make clean -j && \
     make USE_PGXS=1 OPTFLAGS="" -j
 
@@ -125,8 +124,7 @@ RUN curl -fsSL -o pg_cron.tar.gz "https://codeload.github.com/citusdata/pg_cron/
     tar -xzf pg_cron.tar.gz -C pg_cron --strip-components=1 && \
     rm pg_cron.tar.gz
 WORKDIR /tmp/pg_cron
-RUN echo "trusted = true" >> pg_cron.control && \
-    make clean -j && \
+RUN make clean -j && \
     make USE_PGXS=1 -j
 
 ######################
@@ -146,8 +144,7 @@ RUN curl -fsSL -o pg_ivm.tar.gz "https://codeload.github.com/sraoss/pg_ivm/tar.g
     tar -xzf pg_ivm.tar.gz -C pg_ivm --strip-components=1 && \
     rm pg_ivm.tar.gz
 WORKDIR /tmp/pg_ivm
-RUN echo "trusted = true" >> pg_ivm.control && \
-    make clean -j && \
+RUN make clean -j && \
     make USE_PGXS=1 -j
 
 ###############################################

@@ -35,7 +35,6 @@ jobs:
     runs-on: macos-15
     if: ${{ !contains(github.ref, '-rc.') }}
     strategy:
-      fail-fast: false
       matrix:
         # Postgres.app only supports loadable extensions installed in Application Support
         # starting with PostgreSQL 18. Earlier versions require extensions to be bundled,

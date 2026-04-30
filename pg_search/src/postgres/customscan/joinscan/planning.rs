@@ -1815,12 +1815,6 @@ impl JoinSortExprKind {
                 if !output_rtis.contains(&source.scan_info.heap_rti) {
                     continue;
                 }
-                if direction.is_asc() {
-                    pgrx::warning!(
-                        "ORDER BY pdb.score(...) ASC returns the least relevant results first. \
-                         Did you mean ORDER BY pdb.score(...) DESC?"
-                    );
-                }
                 return Self::Resolved(OrderByInfo {
                     feature: OrderByFeature::Score {
                         rti: source.scan_info.heap_rti,

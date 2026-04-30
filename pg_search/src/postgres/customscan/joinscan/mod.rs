@@ -601,9 +601,12 @@ impl JoinScan {
         }
 
         if join_clause.plan.has_semi_or_anti() {
-            // Skip on the swap variant: PG calls this hook for both the
-            // canonical (NoSwap) and the parallel-aware mirror (Swap), and
-            // the canonical invocation already fired the warning.
+            // PG calls this hook twice for SEMI/ANTI: once canonical and
+            // once with sides swapped (joinrels.c:983-988, 1027-1032).
+            // Both register paths into the same joinrel pathlist. Fire
+            // the partitioning warning only on the canonical pass so the
+            // user sees it once per logical join, not once per hook
+            // invocation.
             if join_clause.partitioning_source_index() != 0
                 && matches!(swap_sides, build::SwapSides::NoSwap)
             {

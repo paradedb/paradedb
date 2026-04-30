@@ -35,7 +35,7 @@ permissions:
 
 jobs:
   publish-pg_search:
-    name: Publish pg_search for Postgres.app PostgreSQL ${{ matrix.pg_version }} arm64
+    name: Publish pg_search for Postgres.app (PostgreSQL ${{ matrix.pg_version }}, arm64)
     runs-on: macos-15
     if: ${{ !contains(github.ref, '-rc.') }}
     strategy:
@@ -236,8 +236,8 @@ jobs:
       # Open a PR to PostgresApp/PostgresApp updating the pg_search download URL on
       # https://postgresapp.com/extensions/. The page is generated from per-version
       # JSON files at docs/_data/extensions/<pg>/pg_search.json. The PR is raised
-      # from paradedb-bot's fork; any previous open PR from the bot is closed first
-      # so that only one update is ever pending review upstream.
+      # from the paradedb/PostgresApp fork; any previous open PR from the bot is
+      # closed first so that only one update is ever pending review upstream.
       - name: Open PR to PostgresApp/PostgresApp
         env:
           # Classic PAT with `repo` scope — required because fine-grained PATs cannot
@@ -252,9 +252,6 @@ jobs:
           set -euo pipefail
 
           UPSTREAM=PostgresApp/PostgresApp
-          # The fork lives under the paradedb org (so the existing PARADEDB_BOT_GITHUB_TOKEN,
-          # whose resource owner is the paradedb org, can push to it). PR authorship still
-          # comes from paradedb-bot since that's the user the token belongs to.
           FORK_OWNER=paradedb
           FORK="${FORK_OWNER}/PostgresApp"
           BOT_LOGIN=$(gh api user --jq .login)

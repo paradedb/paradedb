@@ -62,8 +62,20 @@ ARG ENABLE_ANTITHESIS_INSTRUMENTATION
 ENV COMMIT_SHA=${COMMIT_SHA} \
     ENABLE_ANTITHESIS_INSTRUMENTATION=${ENABLE_ANTITHESIS_INSTRUMENTATION}
 
-# Copy the full project. This layer will invalidate if any project file changes.
-COPY . /tmp/
+COPY Cargo.toml Cargo.lock rust-toolchain.toml /tmp/
+COPY .cargo/ /tmp/.cargo/
+COPY pg_search/ /tmp/pg_search/
+COPY tokenizers/ /tmp/tokenizers/
+COPY macros/ /tmp/macros/
+
+# tests, benchmarks, and stressgres are only required because they are included as workspace members
+# in the main Cargo.toml
+COPY tests/Cargo.toml /tmp/tests/
+COPY tests/src/lib.rs /tmp/tests/src/
+COPY benchmarks/Cargo.toml /tmp/benchmarks/
+COPY benchmarks/src/lib.rs /tmp/benchmarks/src/
+COPY stressgres/Cargo.toml /tmp/stressgres/
+COPY stressgres/src/main.rs /tmp/stressgres/src/
 
 # Build the extension in release mode, but with debug symbols (which will be split out later)
 # Optionally install the Antithesis instrumentation library if this Docker build is intended for use with Antithesis

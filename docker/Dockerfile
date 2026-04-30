@@ -23,16 +23,14 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
     build-essential \
-    gnupg \
+    ca-certificates \
+    clang \
     curl \
     git \
-    make \
-    gcc \
-    clang \
-    pkg-config \
+    gnupg \
     libopenblas-dev \
+    pkg-config \
     postgresql-server-dev-${PG_VERSION_MAJOR} \
     && rm -rf /var/lib/apt/lists/*
 

@@ -263,7 +263,8 @@ jobs:
           done
 
           # Ensure the bot has a fork of PostgresApp/PostgresApp; this is a no-op if it already exists.
-          gh repo fork "$UPSTREAM" --clone=false --remote=false || true
+          # Note: `--remote` is only valid for the current-repo form; it's rejected when a repo argument is passed.
+          gh repo fork "$UPSTREAM" --clone=false || true
           # The fork can take a moment to become available after the first call.
           for i in $(seq 1 30); do
             if gh api "repos/${BOT_FORK}" >/dev/null 2>&1; then break; fi

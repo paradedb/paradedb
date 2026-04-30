@@ -57,8 +57,6 @@ RUN PGRX_VERSION=$(grep 'pgrx =' Cargo.toml | head -n 1 | cut -d '"' -f 2 | tr -
 # pg_search
 ######################
 
-FROM builder AS builder-pg_search
-
 ARG COMMIT_SHA
 ARG ENABLE_ANTITHESIS_INSTRUMENTATION
 
@@ -88,9 +86,6 @@ RUN LIB_PATH="/tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr
 # pgvector v0.8.1
 ######################
 
-FROM builder AS builder-pgvector
-
-ARG PG_VERSION_MAJOR
 ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
 # Build the extension
@@ -109,11 +104,6 @@ RUN export PG_CFLAGS="-Wall -Wextra -Wno-unused-parameter -Wno-sign-compare" && 
 # pg_cron v1.6.7
 ######################
 
-FROM builder AS builder-pg_cron
-
-ARG PG_VERSION_MAJOR
-ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
-
 # Build the extension
 WORKDIR /tmp
 RUN curl -fsSL -o pg_cron.tar.gz "https://codeload.github.com/citusdata/pg_cron/tar.gz/465b38c737f584d520229f5a1d69d1d44649e4e5" && \
@@ -128,11 +118,6 @@ RUN make clean -j && \
 ######################
 # pg_ivm v1.13
 ######################
-
-FROM builder AS builder-pg_ivm
-
-ARG PG_VERSION_MAJOR
-ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
 # Build the extension
 WORKDIR /tmp
@@ -165,15 +150,15 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # Copy third-party extensions from their builder stages
-COPY --from=builder-pgvector /tmp/pgvector/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-COPY --from=builder-pgvector /tmp/pgvector/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_cron /tmp/pg_cron/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-COPY --from=builder-pg_cron /tmp/pg_cron/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_cron /tmp/pg_cron/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_ivm /tmp/pg_ivm/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-COPY --from=builder-pg_ivm /tmp/pg_ivm/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_ivm /tmp/pg_ivm/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder /tmp/pgvector/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder /tmp/pgvector/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder /tmp/pgvector/sql/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder /tmp/pg_cron/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder /tmp/pg_cron/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder /tmp/pg_cron/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder /tmp/pg_ivm/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder /tmp/pg_ivm/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder /tmp/pg_ivm/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 
 # Install Barman Cloud and its dependencies for Azure, Google, and AWS via `pip`, and clean up after the installation to
 # minimize the size of the image. These are required for enabling Postgres backups in our CloudNativePG deployments.
@@ -213,8 +198,8 @@ RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_sea
     echo "pg_stat_statements.track = 'top'" >> /usr/share/postgresql/postgresql.conf.sample
 
 # Copy the ParadeDB extension from its builder stage
-COPY --from=builder-pg_search /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-COPY --from=builder-pg_search /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 
 # Optionally install the Antithesis instrumentation library if this Docker build is intended for use with Antithesis
 RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \

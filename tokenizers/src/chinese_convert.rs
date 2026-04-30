@@ -42,11 +42,6 @@ pub enum ConvertMode {
 /// Global OpenCC converter instance (lazy-loaded)
 static OPENCC: Lazy<Mutex<OpenCC>> = Lazy::new(|| Mutex::new(OpenCC::new()));
 
-/// Force the OpenCC converter for `jieba + chinese_convert`.
-pub fn prewarm() {
-    Lazy::force(&OPENCC);
-}
-
 /// Get the conversion mode string for the specified mode
 fn get_mode_str(mode: ConvertMode) -> &'static str {
     match mode {

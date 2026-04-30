@@ -140,7 +140,6 @@ jobs:
           cargo pgrx package --pg-config $PG_CONFIG_PATH
         env:
           COMMIT_SHA: ${{ steps.version.outputs.commit_sha }}
-          PARADEDB_VERSION: ${{ steps.version.outputs.tag_version }}
 
       - name: Create .pkg Package
         run: |

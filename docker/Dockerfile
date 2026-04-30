@@ -60,12 +60,10 @@ RUN PGRX_VERSION=$(grep 'pgrx =' Cargo.toml | head -n 1 | cut -d '"' -f 2 | tr -
 FROM builder AS builder-pg_search
 
 ARG COMMIT_SHA
-ARG PARADEDB_VERSION
 ARG ENABLE_ANTITHESIS_INSTRUMENTATION
 
 # Declare compile-time environment variables
 ENV COMMIT_SHA=${COMMIT_SHA} \
-    PARADEDB_VERSION=${PARADEDB_VERSION} \
     ENABLE_ANTITHESIS_INSTRUMENTATION=${ENABLE_ANTITHESIS_INSTRUMENTATION}
 
 # Copy the full project. This layer will invalidate if any project file changes.

@@ -240,7 +240,11 @@ jobs:
       # so that only one update is ever pending review upstream.
       - name: Open PR to PostgresApp/PostgresApp
         env:
-          GH_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          # Classic PAT with `repo` scope — required because fine-grained PATs cannot
+          # invoke createPullRequest (or pr list/close) against repos outside their
+          # resource owner, and PostgresApp/PostgresApp lives outside the paradedb org.
+          # Reuses the existing enterprise-sync token, which already has `repo` scope.
+          GH_TOKEN: ${{ secrets.PARADEDB_BOT_ENTERPRISE_SYNC_GITHUB_TOKEN }}
           TAG_VERSION: ${{ steps.version.outputs.tag_version }}
           PG_MAJOR_VERSION: ${{ matrix.pg_version }}
           PKG_NAME: ${{ steps.pkg.outputs.pkg_name }}

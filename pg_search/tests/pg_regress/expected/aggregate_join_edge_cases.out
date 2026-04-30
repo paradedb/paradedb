@@ -389,7 +389,15 @@ JOIN ec_reviews r ON p.category = r.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
 GROUP BY 1
 ORDER BY 1;
-ERROR:  Failed to build DataFusion aggregate plan: Schema error: No field named p_0."metadata.brand". Valid fields are p_0.id, p_0.category, p_0.price, p_0.metadata, p_0.ctid, r_1.id, r_1.category, r_1.rating, r_1.reviewer, r_1.ctid.
+  ?column?   
+-------------
+ "Smash"
+ "Speedy"
+ "TechCorp"
+ "ViewSonic"
+ "Warmth"
+(5 rows)
+
 -- Parity
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.metadata -> 'brand'

@@ -169,9 +169,48 @@ fn arrow_value_to_datum(
         }
         DataType::Float64 => float64_to_datum(downcast_value!(Float64Array), typoid),
         DataType::Float32 => float64_to_datum(downcast_value!(Float32Array) as f64, typoid),
-        DataType::Utf8 => downcast_value!(StringArray).to_string().into_datum(),
-        DataType::Utf8View => downcast_value!(StringViewArray).to_string().into_datum(),
-        DataType::LargeUtf8 => downcast_value!(LargeStringArray).to_string().into_datum(),
+        DataType::Utf8 => {
+            let s = downcast_value!(StringArray);
+            if typoid == pg_sys::JSONOID || typoid == pg_sys::JSONBOID {
+                let json = serde_json::from_str(s)
+                    .unwrap_or_else(|_| serde_json::Value::String(s.to_string()));
+                if typoid == pg_sys::JSONOID {
+                    pgrx::Json(json).into_datum()
+                } else {
+                    pgrx::datum::JsonB(json).into_datum()
+                }
+            } else {
+                s.to_string().into_datum()
+            }
+        }
+        DataType::Utf8View => {
+            let s = downcast_value!(StringViewArray);
+            if typoid == pg_sys::JSONOID || typoid == pg_sys::JSONBOID {
+                let json = serde_json::from_str(s)
+                    .unwrap_or_else(|_| serde_json::Value::String(s.to_string()));
+                if typoid == pg_sys::JSONOID {
+                    pgrx::Json(json).into_datum()
+                } else {
+                    pgrx::datum::JsonB(json).into_datum()
+                }
+            } else {
+                s.to_string().into_datum()
+            }
+        }
+        DataType::LargeUtf8 => {
+            let s = downcast_value!(LargeStringArray);
+            if typoid == pg_sys::JSONOID || typoid == pg_sys::JSONBOID {
+                let json = serde_json::from_str(s)
+                    .unwrap_or_else(|_| serde_json::Value::String(s.to_string()));
+                if typoid == pg_sys::JSONOID {
+                    pgrx::Json(json).into_datum()
+                } else {
+                    pgrx::datum::JsonB(json).into_datum()
+                }
+            } else {
+                s.to_string().into_datum()
+            }
+        }
         DataType::Boolean => downcast_value!(BooleanArray).into_datum(),
         DataType::Timestamp(unit, _tz_opt) => {
             let nanos = match unit {

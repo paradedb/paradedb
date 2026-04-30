@@ -475,10 +475,10 @@ unsafe fn collect_join_sources_join_rel(
     }
     // Peel parallel/projection wrappers (Gather, GatherMerge, Material,
     // Projection) so we can recognize a JoinPath that PG wrapped for
-    // parallel-mode bridging. This is the fix for the parallel-mode arm of
-    // issue #4910 -- without peeling, the recursive 3-way reconstruction bails
-    // and the top-level JoinScan registration fails `is_limit_pushdown_safe`
-    // because relations behind the wrapper never enter the absorbed set.
+    // parallel-mode bridging. This is the fix for issue #4910 -- without
+    // peeling, the recursive 3-way reconstruction bails and the top-level
+    // JoinScan registration fails `is_limit_pushdown_safe` because relations
+    // behind the wrapper never enter the absorbed set.
     let path = unwrap_path_wrappers(raw_path);
 
     if (*path).type_ == pg_sys::NodeTag::T_CustomPath {
@@ -607,10 +607,12 @@ unsafe fn is_join_path(path: *mut pg_sys::Path) -> bool {
 /// our JoinScan custom path, or something we don't recognize.
 ///
 /// Parallel-mode `cheapest_total_path` for an intermediate join rel is often
-/// wrapped in a `GatherPath` / `GatherMergePath` (parallel-to-serial bridging)
-/// or a `MaterialPath` (cached for inner-side replay). The actual `JoinPath`
-/// lives one level deeper. Without peeling, [`is_join_path`] returns false on
-/// the wrapper and 3-way absorption fails -- issue #4910.
+/// wrapped in a `GatherPath` / `GatherMergePath` (parallel-to-serial bridging),
+/// a `MaterialPath` (cached for inner-side replay), or a `ProjectionPath`
+/// (target-list adjustment). The actual `JoinPath` lives below; the loop peels
+/// each wrapper in turn so chains like `GatherPath -> MaterialPath -> JoinPath`
+/// are also handled. Without peeling, [`is_join_path`] returns false on the
+/// wrapper and 3-way absorption fails -- issue #4910.
 ///
 /// # Adding a new wrapper
 ///

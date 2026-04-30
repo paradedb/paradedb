@@ -2,21 +2,20 @@
 -- "Joins: JoinScan declines in parallel mode for 3-way EXISTS + NOT EXISTS".
 --
 -- The original failing query joins a primary BM25-indexed table with two
--- related tables via EXISTS and NOT EXISTS. In parallel mode, the planner
--- previously rejected the JoinScan candidate at two gates:
---   1. RIGHT_ANTI / RIGHT_SEMI / UNIQUE_* jointypes from the parallel-aware
---      side-swap variants were rejected as "unsupported".
---   2. The 3-way absorption walker bailed when cheapest_total_path was
---      wrapped in GatherPath / GatherMergePath / MaterialPath, so the third
---      relation stayed un-absorbed and is_limit_pushdown_safe failed.
+-- related tables via EXISTS and NOT EXISTS. In parallel mode, the 3-way
+-- absorption walker bailed when cheapest_total_path was wrapped in
+-- GatherPath / GatherMergePath / MaterialPath / ProjectionPath, so the
+-- third relation stayed un-absorbed and is_limit_pushdown_safe rejected
+-- the JoinScan candidate.
 --
 -- This test uses `debug_parallel_query = on` to force the planner to pick
 -- parallel paths regardless of data size. Without the GUC, the natural cost
--- model picks serial paths at small scale and the failing code paths
--- (RIGHT_ANTI decode, GatherPath wrapper peeling) are not exercised. With
--- the GUC, the same `Gather Merge -> Parallel Custom Scan (ParadeDB Join
--- Scan)` shape that the original 1M-row repro produced is reproduced at 1K
--- rows. Do NOT remove `debug_parallel_query` without scaling row counts up.
+-- model picks serial paths at small scale and the failing code path
+-- (GatherPath wrapper peeling in the absorption walker) is not exercised.
+-- With the GUC, the same `Gather Merge -> Parallel Custom Scan (ParadeDB
+-- Join Scan)` shape that the original 1M-row repro produced is reproduced
+-- at 1K rows. Do NOT remove `debug_parallel_query` without scaling row
+-- counts up.
 SET client_min_messages TO WARNING;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 DROP TABLE IF EXISTS cccf, csa_exists, csa_not_exists CASCADE;
@@ -64,7 +63,8 @@ SET debug_parallel_query = on;
 -- Parallel mode: the originally failing case. After the fix, JoinScan
 -- absorbs all three relations and is wrapped in `Gather Merge` for parallel
 -- execution. Pre-fix this fell back to native `Parallel Hash Right Anti
--- Join` over `Parallel Hash Semi Join` and emitted three planner warnings.
+-- Join` over `Parallel Hash Semi Join` and emitted a planner warning that
+-- LIMIT pushdown was unsafe due to un-absorbed relations.
 SET max_parallel_workers_per_gather = 8;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT contact_id, company_id, revenue_rank

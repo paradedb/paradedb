@@ -189,8 +189,7 @@ static TERM_SET_GALLOP_MAX_DENSITY: GucSetting<f64> = GucSetting::<f64>::new(1.0
 static TERM_SET_POSTING_MAX_DENSITY: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 256.0);
 static TERM_SET_BITSET_MAX_DENSITY: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 4.0);
 static TERM_SET_HASH_PROBE_MAX_DENSITY: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 16.0);
-static TERM_SET_SUBSEQUENT_BITSET_MAX_DENSITY: GucSetting<f64> =
-    GucSetting::<f64>::new(1.0 / 4.0);
+static TERM_SET_SUBSEQUENT_BITSET_MAX_DENSITY: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 4.0);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.

@@ -25,11 +25,15 @@
 //! that reads all inbound queues into a spillable local buffer — this decouples
 //! consumer-side backpressure from producer-side backpressure.
 
+pub mod coordinator;
+pub mod customscan_glue;
 pub mod mesh;
+pub mod plan_build;
 pub mod session;
 pub mod shape;
 pub mod shuffle;
 pub mod transport;
+pub mod walker;
 pub mod worker;
 
 use serde::{Deserialize, Serialize};
@@ -39,7 +43,6 @@ use serde::{Deserialize, Serialize};
 /// Injected into the DataFusion `SessionConfig` via `config_options` so downstream
 /// operators (optimizer rules, hash partitioners) can discover it without an
 /// out-of-band side channel.
-#[allow(dead_code)]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MppParticipantConfig {
     /// 0-based index of this participant. The leader is always index 0.
@@ -60,7 +63,7 @@ pub struct MppParticipantConfig {
 /// set, the provider calls `reader.search_segments(sharded_ids)` and each
 /// participant reads only its share of segments.
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
+#[allow(dead_code)] // consumed by aggregatescan/joinscan in #4932/#4872
 pub struct MppShardConfig {
     pub participant_index: u32,
     pub total_participants: u32,

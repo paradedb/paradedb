@@ -635,9 +635,14 @@ unsafe fn unwrap_path_wrappers(mut path: *mut pg_sys::Path) -> *mut pg_sys::Path
             return path;
         }
         let next = match (*path).type_ {
+            // Parallel-to-serial bridge: same row set, same schema.
             pg_sys::NodeTag::T_GatherPath => (*(path as *mut pg_sys::GatherPath)).subpath,
+            // Sorted parallel-to-serial bridge: same rows, preserves order.
             pg_sys::NodeTag::T_GatherMergePath => (*(path as *mut pg_sys::GatherMergePath)).subpath,
+            // Cached materialisation for inner-side replay: same rows, same schema.
             pg_sys::NodeTag::T_MaterialPath => (*(path as *mut pg_sys::MaterialPath)).subpath,
+            // Adjusts the target list above the underlying path; the join
+            // structure (RTIs, equi-keys, jointype) we read below is unchanged.
             pg_sys::NodeTag::T_ProjectionPath => (*(path as *mut pg_sys::ProjectionPath)).subpath,
             _ => return path,
         };

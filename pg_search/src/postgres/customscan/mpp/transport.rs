@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+#![allow(dead_code)]
 //! Transport layer for MPP shuffle.
 //!
 //! Layout:
@@ -29,10 +30,10 @@
 //! The shm_mq-backed sender/receiver and drain thread spawn logic build on
 //! top of these primitives.
 
-#![allow(dead_code)]
-
 use std::collections::VecDeque;
-use std::sync::{Arc, Condvar, Mutex};
+use std::future::poll_fn;
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::task::{Poll, Waker};
 use std::thread::JoinHandle;
 #[cfg(test)]
 use std::time::Duration;
@@ -42,6 +43,103 @@ use datafusion::arrow::ipc::reader::StreamReader;
 use datafusion::arrow::ipc::writer::StreamWriter;
 use datafusion::common::DataFusionError;
 
+use crate::postgres::customscan::mpp::stage::MppTaskKey;
+
+/// Four-byte magic prefix that marks an MPP-framed message. Receivers that
+/// find this at the start of an incoming byte buffer strip the fixed-size
+/// [`MppFrameHeader`] before handing the remainder to the Arrow IPC reader.
+///
+/// The magic exists so test paths and production paths can share
+/// [`decode_batch`]: unit tests keep sending raw Arrow IPC (no header), the
+/// walker stamps frame ids on every emitted shuffle (`walker::stamp_frame_ids`,
+/// called from `emit_shuffle_cut`), and the receiver auto-detects which
+/// flavor it has. Arrow IPC stream messages start with the continuation
+/// bytes `0xFFFFFFFF`, which can never collide with the `MPPF` magic.
+const FRAME_MAGIC: [u8; 4] = *b"MPPF";
+
+/// On-wire header that prefixes every framed batch. 24 bytes, little-endian.
+/// Mirrors the routing tuple that datafusion-distributed's `FlightAppMetadata`
+/// protobuf carries, minus the transport-specific fields (URL / worker addr)
+/// we don't need when every participant lives in the same DSM segment.
+///
+/// Fields:
+/// - `query_id` (8 B) — `MppExecutionState::query_id()` at plan time.
+/// - `stage_id` (4 B) — boundary's [`MppStage::stage_id`]; disambiguates
+///   multiple cuts in the same plan.
+/// - `task_number` (4 B) — the *sender's* participant index; tells the
+///   receiver which peer produced this batch.
+/// - `partition` (4 B) — the destination partition inside the stage's task.
+///   Today `partition == dest_participant_index` 1:1, but that decoupling is what
+///   P5b (channel flattening) needs to multiplex multiple logical streams
+///   across one shm_mq per peer.
+///
+/// Not `#[repr(C)]`: we hand-encode little-endian via `to_le_bytes` to avoid
+/// unaligned reads on architectures where `u64` needs 8-byte alignment — the
+/// header may start at any offset within the shm_mq payload buffer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MppFrameHeader {
+    pub query_id: u64,
+    pub stage_id: u32,
+    pub task_number: u32,
+    pub partition: u32,
+}
+
+/// Size in bytes of [`MppFrameHeader`] on the wire, magic included.
+pub const FRAME_HEADER_LEN: usize = 4 /* magic */ + 8 + 4 + 4 + 4;
+
+impl MppFrameHeader {
+    /// Append the framed header (magic + fields) to `buf`. Caller is expected
+    /// to follow this with the Arrow IPC-encoded payload bytes.
+    fn write_to(&self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&FRAME_MAGIC);
+        buf.extend_from_slice(&self.query_id.to_le_bytes());
+        buf.extend_from_slice(&self.stage_id.to_le_bytes());
+        buf.extend_from_slice(&self.task_number.to_le_bytes());
+        buf.extend_from_slice(&self.partition.to_le_bytes());
+    }
+
+    /// Parse a framed header from the start of `bytes`. Returns `Some(hdr)`
+    /// on a valid magic match, `None` if the buffer is too short or the
+    /// magic is missing (unframed legacy payload — pass through to Arrow IPC
+    /// as-is).
+    fn read_from(bytes: &[u8]) -> Option<Self> {
+        if bytes.len() < FRAME_HEADER_LEN || bytes[..4] != FRAME_MAGIC {
+            return None;
+        }
+        let query_id = u64::from_le_bytes(bytes[4..12].try_into().ok()?);
+        let stage_id = u32::from_le_bytes(bytes[12..16].try_into().ok()?);
+        let task_number = u32::from_le_bytes(bytes[16..20].try_into().ok()?);
+        let partition = u32::from_le_bytes(bytes[20..24].try_into().ok()?);
+        Some(Self {
+            query_id,
+            stage_id,
+            task_number,
+            partition,
+        })
+    }
+}
+
+/// Routing tag stamped on every outgoing batch when a sender has opted in via
+/// [`MppSender::with_frame_id`]. `task_key` locates the logical stream
+/// `(query, stage, producing-task)`; `partition` addresses a lane within
+/// that stream.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FrameId {
+    pub task_key: MppTaskKey,
+    pub partition: u32,
+}
+
+impl FrameId {
+    fn to_header(self) -> MppFrameHeader {
+        MppFrameHeader {
+            query_id: self.task_key.query_id,
+            stage_id: self.task_key.stage_id,
+            task_number: self.task_key.task_number,
+            partition: self.partition,
+        }
+    }
+}
+
 /// Serialize one `RecordBatch` as a self-contained Arrow IPC Stream message.
 ///
 /// Test-only allocating wrapper for [`encode_batch_into`]; production hot paths
@@ -50,7 +148,7 @@ use datafusion::common::DataFusionError;
 #[cfg(test)]
 pub fn encode_batch(batch: &RecordBatch) -> Result<Vec<u8>, DataFusionError> {
     let mut buf = Vec::with_capacity(1024);
-    encode_batch_into(batch, &mut buf)?;
+    encode_batch_into(batch, &mut buf, None)?;
     Ok(buf)
 }
 
@@ -58,8 +156,21 @@ pub fn encode_batch(batch: &RecordBatch) -> Result<Vec<u8>, DataFusionError> {
 /// already-allocated capacity is reused. Caller is expected to hold `buf`
 /// alive across many encode calls (one per sender) so the peak-sized
 /// allocation amortizes.
-pub fn encode_batch_into(batch: &RecordBatch, buf: &mut Vec<u8>) -> Result<(), DataFusionError> {
+///
+/// When `frame` is `Some`, the 24-byte [`MppFrameHeader`] is prepended before
+/// the Arrow IPC bytes so the receiver can route without inspecting the
+/// Arrow schema. Senders that haven't been stamped with a `FrameId` (tests,
+/// in-proc smoke harnesses) pass `None` and write unframed Arrow IPC — the
+/// receiver's `decode_batch` auto-detects either flavor.
+pub fn encode_batch_into(
+    batch: &RecordBatch,
+    buf: &mut Vec<u8>,
+    frame: Option<FrameId>,
+) -> Result<(), DataFusionError> {
     buf.clear();
+    if let Some(frame) = frame {
+        frame.to_header().write_to(buf);
+    }
     let mut writer = StreamWriter::try_new(&mut *buf, batch.schema_ref())?;
     writer.write(batch)?;
     writer.finish()?;
@@ -67,12 +178,32 @@ pub fn encode_batch_into(batch: &RecordBatch, buf: &mut Vec<u8>) -> Result<(), D
 }
 
 /// Inverse of [`encode_batch`]. Expects exactly one batch per message.
+///
+/// Auto-detects the framed wire format: a leading `FRAME_MAGIC` triggers a
+/// 24-byte strip before Arrow IPC decode. Unframed legacy payloads (the
+/// in-proc test path) pass straight through. The parsed [`MppFrameHeader`]
+/// is discarded today — P5b's channel multiplexer will extend this function
+/// (or pair it with `decode_batch_with_frame`) to surface the header to the
+/// receiver-side multiplexer.
 pub fn decode_batch(bytes: &[u8]) -> Result<RecordBatch, DataFusionError> {
-    let mut reader = StreamReader::try_new(bytes, None)?;
+    let (_frame, payload) = peek_frame(bytes);
+    let mut reader = StreamReader::try_new(payload, None)?;
     let batch = reader.next().ok_or_else(|| {
         DataFusionError::Execution("mpp: empty arrow-ipc stream in decode_batch".into())
     })??;
     Ok(batch)
+}
+
+/// Split an incoming byte buffer into `(frame_header, arrow_ipc_payload)`.
+/// `None` header means the buffer is unframed legacy bytes; `payload` is then
+/// the entire input. Used internally by [`decode_batch`] and available for
+/// future per-channel multiplexers that need the routing tag.
+fn peek_frame(bytes: &[u8]) -> (Option<MppFrameHeader>, &[u8]) {
+    if let Some(hdr) = MppFrameHeader::read_from(bytes) {
+        (Some(hdr), &bytes[FRAME_HEADER_LEN..])
+    } else {
+        (None, bytes)
+    }
 }
 
 /// Local queue that sits between the drain thread and the DataFusion consumer.
@@ -103,7 +234,7 @@ struct DrainBufferInner {
     /// DataFusion `poll_next` returns `Poll::Pending` without blocking the
     /// executor thread. `Option` so we don't allocate one if the buffer is
     /// only consumed synchronously via `pop_front`.
-    waker: Option<std::task::Waker>,
+    waker: Option<Waker>,
 }
 
 /// Yielded by [`DrainBuffer::pop_front`].
@@ -208,25 +339,74 @@ impl DrainBuffer {
     /// under peer-to-peer backpressure, where a blocking wait could deadlock
     /// with this worker's own outbound pump.
     ///
-    /// Why hand-rolled instead of `tokio::sync::mpsc`: the producer side is
-    /// a real OS thread (the drain thread) that blocks inside the `shm_mq`
-    /// FFI; it cannot be a Tokio task because `shm_mq_receive` has no async
-    /// readiness signal. Swapping `DrainBuffer` for `mpsc::unbounded_channel`
-    /// and calling `rx.poll_recv(cx)` on the consumer is plausible, but the
-    /// producer stays an OS thread regardless, and the small
-    /// `Mutex<Option<Waker>>` is the entire delta — not load-bearing for
-    /// correctness. Tracked as a post-merge follow-up.
-    pub fn poll_pop_front(&self, waker: &std::task::Waker) -> Option<DrainItem> {
+    /// Producers cannot be async tasks: the drain thread is a real OS
+    /// thread that blocks inside the `shm_mq` FFI (no async readiness
+    /// signal), so it can't be replaced with a `tokio::sync::mpsc::Sender`
+    /// either. The `Mutex<Option<Waker>>` is the consumer-side bridge
+    /// between the OS-thread producer and the executor-task consumer.
+    pub fn poll_pop_front(&self, waker: &Waker) -> Option<DrainItem> {
         let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
+        if let Some(item) = Self::try_pop_locked(&mut guard) {
+            return Some(item);
+        }
+        // One consumer at a time — DrainGatherStream is the only caller,
+        // and a future plan that wired two readers off the same handle
+        // would silently drop one waker on every register. The check is
+        // a debug_assert so it's free in release; if the invariant is
+        // ever lifted, switch to a `Vec<Waker>` and wake all.
+        debug_assert!(
+            guard.waker.is_none() || guard.waker.as_ref().unwrap().will_wake(waker),
+            "DrainBuffer::poll_pop_front: second consumer registered a different waker — \
+             only one consumer is supported per buffer"
+        );
+        guard.waker = Some(waker.clone());
+        None
+    }
+
+    /// Await-able wrapper over [`poll_pop_front`]. Lets `async_stream::stream!`
+    /// bodies pull from the buffer with `buffer.recv().await` instead of
+    /// hand-rolling a `Stream` impl with manual `Pin`/`Context`/`Poll`
+    /// plumbing.
+    ///
+    /// Suitable for thread-backed handles where a separate producer
+    /// thread pushes via `push_batch`. For cooperative handles the
+    /// producer is the consumer's own task — use [`try_pop`] + an
+    /// executor yield instead, otherwise the await suspends with no
+    /// other task able to wake it.
+    ///
+    /// [`try_pop`]: Self::try_pop
+    pub async fn recv(self: &Arc<Self>) -> DrainItem {
+        let buf = Arc::clone(self);
+        poll_fn(move |cx| match buf.poll_pop_front(cx.waker()) {
+            Some(item) => Poll::Ready(item),
+            None => Poll::Pending,
+        })
+        .await
+    }
+
+    /// Non-blocking, non-waker variant of [`poll_pop_front`]. Returns the
+    /// front item or `DrainItem::Eof` if all sources have detached and
+    /// the queue is drained; returns `None` only when more data may yet
+    /// arrive. Cooperative consumers loop on `poll_drain_pass` + `try_pop`,
+    /// yielding to the executor between iterations.
+    pub fn try_pop(&self) -> Option<DrainItem> {
+        let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
+        Self::try_pop_locked(&mut guard)
+    }
+
+    /// Shared body of [`try_pop`] and [`poll_pop_front`]. Returns
+    /// `Some(Batch)` if the queue has data, `Some(Eof)` if all sources
+    /// have detached or the buffer is cancelled, and `None` otherwise.
+    /// Lets the two public entry points stay in lockstep on the
+    /// "buffered data wins over cancellation/EOF" invariant locked in
+    /// by `drain_buffer_drains_buffered_before_eof`.
+    fn try_pop_locked(guard: &mut MutexGuard<'_, DrainBufferInner>) -> Option<DrainItem> {
         if let Some(batch) = guard.queue.pop_front() {
             return Some(DrainItem::Batch(batch));
         }
         if guard.cancelled || guard.sources_done >= guard.num_sources {
             return Some(DrainItem::Eof);
         }
-        // Register (or replace) the waker. Only one consumer at a time is
-        // expected — DrainGatherStream — so simple replacement is fine.
-        guard.waker = Some(waker.clone());
         None
     }
 }
@@ -282,6 +462,13 @@ pub trait BatchChannelSender: Send {
 pub struct MppSender {
     channel: Box<dyn BatchChannelSender>,
     cooperative_drain: Option<Arc<DrainHandle>>,
+    /// Routing header stamped on every outgoing batch. Set via
+    /// [`Self::with_frame_id`] at bridge-construction time so peers know
+    /// which `(query, stage, task, partition)` each batch belongs to once
+    /// P5b multiplexes multiple logical streams over one shm_mq. `None`
+    /// for test paths and pre-P5 callers: [`decode_batch`] auto-handles
+    /// both flavors by sniffing the magic prefix.
+    frame_id: Option<FrameId>,
     /// Scratch buffer reused across every `encode_batch_into` on this
     /// sender. Sized by the first batch; subsequent batches clear and
     /// re-fill without reallocating. Interior mutability lets the caller
@@ -290,11 +477,25 @@ pub struct MppSender {
     scratch: std::cell::RefCell<Vec<u8>>,
 }
 
+// SAFETY: `MppSender` lives inside `ShuffleWiring`, which is owned by a
+// single `ShuffleExec` running on a single backend thread. The async
+// `send_batch_traced` future captures `&self` and contains a Tokio
+// `yield_now().await`; the compiler conservatively requires the future
+// to be `Send`, which forces `&MppSender: Send` and therefore
+// `MppSender: Sync`. At runtime the future is created and consumed on
+// the same thread (DataFusion's current-thread runtime on the backend),
+// so there is no actual cross-thread aliasing of the inner `RefCell` or
+// of the `Box<dyn BatchChannelSender>`. This mirrors the same
+// single-thread-by-construction contract that justifies
+// `unsafe impl Send for ShmMqSender` over in `mesh.rs`.
+unsafe impl Sync for MppSender {}
+
 impl MppSender {
     pub fn new(channel: Box<dyn BatchChannelSender>) -> Self {
         Self {
             channel,
             cooperative_drain: None,
+            frame_id: None,
             scratch: std::cell::RefCell::new(Vec::new()),
         }
     }
@@ -306,6 +507,31 @@ impl MppSender {
     pub fn with_cooperative_drain(mut self, drain: Arc<DrainHandle>) -> Self {
         self.cooperative_drain = Some(drain);
         self
+    }
+
+    /// Stamp every outgoing batch with `task_key` + `partition`. Called by
+    /// `walker::stamp_frame_ids` (from `emit_shuffle_cut`) so the wire
+    /// format carries enough routing information to multiplex multiple
+    /// logical streams across one shm_mq (groundwork for P5b's N×(N−1)
+    /// channel flattening). Today the receiver accepts framed bytes,
+    /// discards the header, and returns the decoded batch; P5b will plug
+    /// in a per-channel dispatcher that uses `(stage_id, task_number,
+    /// partition)` to route batches to the right `DrainBuffer`.
+    pub fn with_frame_id(mut self, task_key: MppTaskKey, partition: u32) -> Self {
+        self.frame_id = Some(FrameId {
+            task_key,
+            partition,
+        });
+        self
+    }
+
+    /// Inspect the stamped routing tag. `None` until `with_frame_id` is
+    /// called; the bridges always stamp in production. Test-only in the
+    /// current tree — exposed so unit tests can assert the bridge plumbing
+    /// wired the right tag to the right sender.
+    #[cfg(test)]
+    pub fn frame_id(&self) -> Option<FrameId> {
+        self.frame_id
     }
 
     /// Test-only stats-less wrapper around [`Self::send_batch_traced`].
@@ -359,7 +585,7 @@ impl MppSender {
         stats: &mut SendBatchStats,
     ) -> Result<(), DataFusionError> {
         let t_enc = std::time::Instant::now();
-        encode_batch_into(batch, scratch)?;
+        encode_batch_into(batch, scratch, self.frame_id)?;
         stats.encode += t_enc.elapsed();
         let Some(drain) = self.cooperative_drain.as_ref() else {
             // No drain attached (unit tests, in-proc channels): fall
@@ -822,6 +1048,73 @@ mod tests {
             let decoded = decode_batch(&bytes).expect("decode");
             assert_eq!(orig.num_rows(), decoded.num_rows());
         }
+    }
+
+    #[test]
+    fn framed_round_trip_preserves_payload_and_strips_header() {
+        // Explicit frame round-trip: encode with a stamped header, then decode
+        // through the auto-detecting `decode_batch`. The magic prefix must
+        // be recognized and stripped before the Arrow IPC reader sees the
+        // bytes — otherwise StreamReader would either error or misread
+        // whatever happened to follow the magic.
+        let orig = sample_batch(17);
+        let frame = FrameId {
+            task_key: MppTaskKey {
+                query_id: 0xdead_beef_cafe_babe,
+                stage_id: 2,
+                task_number: 1,
+            },
+            partition: 3,
+        };
+        let mut buf = Vec::new();
+        encode_batch_into(&orig, &mut buf, Some(frame)).expect("encode framed");
+
+        // Wire invariant: magic at offset 0, then 20 bytes of fields, then
+        // the arrow stream begins. If any of these break, the field layout
+        // must be bumped and peers must agree on the new shape.
+        assert_eq!(&buf[..4], b"MPPF");
+        let hdr = MppFrameHeader::read_from(&buf).expect("header readable");
+        assert_eq!(hdr.query_id, 0xdead_beef_cafe_babe);
+        assert_eq!(hdr.stage_id, 2);
+        assert_eq!(hdr.task_number, 1);
+        assert_eq!(hdr.partition, 3);
+
+        let decoded = decode_batch(&buf).expect("decode");
+        assert_eq!(orig.num_rows(), decoded.num_rows());
+        assert_eq!(orig.schema(), decoded.schema());
+    }
+
+    #[test]
+    fn frame_header_len_matches_actual_encoded_bytes() {
+        // Lock `FRAME_HEADER_LEN` to the byte count `MppFrameHeader::write_to`
+        // actually emits. A refactor that adds a field without updating the
+        // const would silently shift the IPC stream offset and corrupt every
+        // future framed batch.
+        let orig = sample_batch(1);
+        let frame = FrameId {
+            task_key: MppTaskKey {
+                query_id: 1,
+                stage_id: 2,
+                task_number: 3,
+            },
+            partition: 4,
+        };
+        let mut framed = Vec::new();
+        encode_batch_into(&orig, &mut framed, Some(frame)).unwrap();
+        let unframed = encode_batch(&orig).unwrap();
+        assert_eq!(framed.len() - unframed.len(), FRAME_HEADER_LEN);
+    }
+
+    #[test]
+    fn unframed_bytes_still_decode() {
+        // Regression-proof: raw Arrow IPC (no header) decodes via the same
+        // public entry point. Every existing #[cfg(test)] caller relies on
+        // this — they never opt into `with_frame_id`.
+        let orig = sample_batch(5);
+        let bytes = encode_batch(&orig).expect("encode unframed");
+        assert_ne!(&bytes[..4], b"MPPF");
+        let decoded = decode_batch(&bytes).expect("decode");
+        assert_eq!(orig.num_rows(), decoded.num_rows());
     }
 
     #[test]

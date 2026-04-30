@@ -248,8 +248,12 @@ jobs:
           set -euo pipefail
 
           UPSTREAM=PostgresApp/PostgresApp
+          # The fork lives under the paradedb org (so the existing PARADEDB_BOT_GITHUB_TOKEN,
+          # whose resource owner is the paradedb org, can push to it). PR authorship still
+          # comes from paradedb-bot since that's the user the token belongs to.
+          FORK_OWNER=paradedb
+          FORK="${FORK_OWNER}/PostgresApp"
           BOT_LOGIN=$(gh api user --jq .login)
-          BOT_FORK="${BOT_LOGIN}/PostgresApp"
           BRANCH="update-pg_search-${TAG_VERSION}-pg${PG_MAJOR_VERSION}"
           DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v${TAG_VERSION}/${PKG_NAME}"
 
@@ -262,26 +266,13 @@ jobs:
               --delete-branch=false
           done
 
-          # Ensure the bot has a fork of PostgresApp/PostgresApp. If the fork already
-          # exists, skip creation — fine-grained PATs cannot fork external repos, so
-          # the fork must be pre-created manually as a one-time step (log in as the
-          # bot and fork the repo via the GitHub UI).
-          if gh api "repos/${BOT_FORK}" >/dev/null 2>&1; then
-            echo "Fork ${BOT_FORK} already exists; skipping creation."
-          else
-            echo "Fork ${BOT_FORK} not found; attempting to create it..."
-            if ! gh repo fork "$UPSTREAM" --clone=false; then
-              echo "ERROR: Failed to fork ${UPSTREAM}. The bot's PAT likely lacks fork permissions"
-              echo "       (common with fine-grained PATs). Pre-create the fork manually by"
-              echo "       logging in as ${BOT_LOGIN} and forking ${UPSTREAM} via the GitHub UI."
-              exit 1
-            fi
-            # The fork can take a moment to become available after creation.
-            for i in $(seq 1 30); do
-              if gh api "repos/${BOT_FORK}" >/dev/null 2>&1; then break; fi
-              echo "Waiting for fork ${BOT_FORK} to be available..."
-              sleep 2
-            done
+          # The fork at ${FORK} is pre-created and maintained as a one-time setup —
+          # fine-grained PATs cannot fork external repos into an org, so we don't try
+          # to create it from the workflow. Just verify it exists with a clear error.
+          if ! gh api "repos/${FORK}" >/dev/null 2>&1; then
+            echo "ERROR: Fork ${FORK} not found. Create it once via the GitHub UI by forking" >&2
+            echo "       ${UPSTREAM} into the ${FORK_OWNER} org." >&2
+            exit 1
           fi
 
           UPSTREAM_DEFAULT_BRANCH=$(gh api "repos/${UPSTREAM}" --jq .default_branch)
@@ -290,7 +281,7 @@ jobs:
           git config --global user.email "developers@paradedb.com"
 
           WORK=$(mktemp -d)
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/${BOT_FORK}.git" "$WORK"
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${FORK}.git" "$WORK"
           cd "$WORK"
           git remote add upstream "https://github.com/${UPSTREAM}.git"
           git fetch upstream "$UPSTREAM_DEFAULT_BRANCH"
@@ -351,7 +342,7 @@ jobs:
           gh pr create \
             --repo "$UPSTREAM" \
             --base "$UPSTREAM_DEFAULT_BRANCH" \
-            --head "${BOT_LOGIN}:${BRANCH}" \
+            --head "${FORK_OWNER}:${BRANCH}" \
             --title "Update pg_search to ${TAG_VERSION} for PostgreSQL ${PG_MAJOR_VERSION}" \
             --body "$BODY"
 

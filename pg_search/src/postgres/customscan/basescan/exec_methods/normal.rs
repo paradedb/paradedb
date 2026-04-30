@@ -94,7 +94,11 @@ impl ExecMethod for NormalScanExecState {
 
             // we have a row, and we're set up such that we can check it with the visibility map
             Some((scored, doc_address)) if self.can_use_visibility_map => unsafe {
-                let ctid = state.ctid_cache.ctid(doc_address.segment_ord).as_u64(doc_address.doc_id).expect("ctid should be present");
+                let ctid = state
+                    .ctid_cache
+                    .ctid(doc_address.segment_ord)
+                    .as_u64(doc_address.doc_id)
+                    .expect("ctid should be present");
 
                 let mut tid = pg_sys::ItemPointerData::default();
                 u64_to_item_pointer(ctid, &mut tid);
@@ -128,7 +132,11 @@ impl ExecMethod for NormalScanExecState {
 
             // otherwise we'll always fetch from the heap
             Some((scored, doc_address)) => {
-                let ctid = state.ctid_cache.ctid(doc_address.segment_ord).as_u64(doc_address.doc_id).expect("ctid should be present");
+                let ctid = state
+                    .ctid_cache
+                    .ctid(doc_address.segment_ord)
+                    .as_u64(doc_address.doc_id)
+                    .expect("ctid should be present");
                 ExecState::FromHeap {
                     ctid,
                     score: scored.bm25,

@@ -298,7 +298,11 @@ pub unsafe extern "C-unwind" fn amgettuple(
                 return false;
             }
             Some((_scored, doc_address)) => {
-                let ctid = state.fast_fields.ctid(doc_address.segment_ord).as_u64(doc_address.doc_id).expect("ctid should be present");
+                let ctid = state
+                    .fast_fields
+                    .ctid(doc_address.segment_ord)
+                    .as_u64(doc_address.doc_id)
+                    .expect("ctid should be present");
 
                 let ipd = &mut (*scan).xs_heaptid;
                 crate::postgres::utils::u64_to_item_pointer(ctid, ipd);
@@ -393,7 +397,11 @@ pub unsafe extern "C-unwind" fn amgetbitmap(
     loop {
         if let Some(search_results) = state.results.as_mut() {
             for (_scored, doc_address) in search_results {
-                let ctid = state.fast_fields.ctid(doc_address.segment_ord).as_u64(doc_address.doc_id).expect("ctid should be present");
+                let ctid = state
+                    .fast_fields
+                    .ctid(doc_address.segment_ord)
+                    .as_u64(doc_address.doc_id)
+                    .expect("ctid should be present");
 
                 let mut ipd = pg_sys::ItemPointerData::default();
                 crate::postgres::utils::u64_to_item_pointer(ctid, &mut ipd);

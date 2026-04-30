@@ -154,8 +154,7 @@ impl BaseScan {
             needs_tokenizer_manager,
         )
         .expect("should be able to open the search index reader");
-        state.custom_state_mut().ctid_cache =
-            FFHelper::with_fields(&search_reader, &[]);
+        state.custom_state_mut().ctid_cache = FFHelper::with_fields(&search_reader, &[]);
         state.custom_state_mut().search_reader = Some(search_reader);
 
         let csstate = addr_of_mut!(state.csstate);

@@ -18,7 +18,6 @@ on:
       version:
         description: "The version to set for the pg_search release (e.g. 0.22.0). This publishes the latest commit of the chosen branch and uploads it to the pre-existing GitHub Release of the provided version."
         required: true
-        default: "0.0.0"
 
 concurrency:
   group: publish-pg_search-postgresapp-${{ github.head_ref || github.ref }}
@@ -261,7 +260,7 @@ jobs:
             echo "Closing superseded PR #$pr in $UPSTREAM"
             gh pr close "$pr" --repo "$UPSTREAM" \
               --comment "Superseded by the pg_search v${TAG_VERSION} release. Closing in favour of the new PR." \
-              --delete-branch=false
+              --delete-branch=true
           done
 
           # The fork at ${FORK} is pre-created and maintained as a one-time setup —

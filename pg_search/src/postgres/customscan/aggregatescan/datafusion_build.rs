@@ -29,9 +29,9 @@ use crate::api::operator::anyelement_query_input_opoid;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::joinscan::build::{
-    decode_jointype, lookup_base_rel_info, try_extract_equi_key, FilterNode, JoinKeyPair,
-    JoinLevelExpr, JoinLevelSearchPredicate, JoinNode, JoinSource, JoinSourceCandidate, JoinType,
-    MultiTablePredicateInfo, PlannerRootId, RelNode,
+    decode_jointype, lookup_base_rel_info, try_extract_equi_key, DecodedJoin, FilterNode,
+    JoinKeyPair, JoinLevelExpr, JoinLevelSearchPredicate, JoinNode, JoinSource,
+    JoinSourceCandidate, JoinType, MultiTablePredicateInfo, PlannerRootId, RelNode,
 };
 use crate::postgres::customscan::pullup::{
     get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name,
@@ -428,7 +428,18 @@ unsafe fn build_join_node(
 ) -> Result<RelNode, String> {
     let join = &*join_expr;
 
-    let (join_type, _) = decode_jointype(join.jointype).map_err(|e| e.to_string())?;
+    let outer = build_relnode_from_node(root, join.larg, sources)?;
+    let inner = build_relnode_from_node(root, join.rarg, sources)?;
+
+    // `decode_jointype` rearranges sides so callers cannot accidentally drop
+    // the swap directive; aggregate-on-join only accepts INNER/LEFT/RIGHT/FULL
+    // (none of which produce a swap), but we still go through the safe API.
+    let DecodedJoin {
+        jointype: join_type,
+        left,
+        right,
+        ..
+    } = decode_jointype(join.jointype, outer, inner).map_err(|e| e.to_string())?;
 
     // Support INNER, LEFT/RIGHT, and FULL OUTER JOINs
     match join_type {
@@ -440,9 +451,6 @@ unsafe fn build_join_node(
             ));
         }
     }
-
-    let left = build_relnode_from_node(root, join.larg, sources)?;
-    let right = build_relnode_from_node(root, join.rarg, sources)?;
 
     // Extract equi-join keys from ON clause (join.quals)
     let equi_keys = if !join.quals.is_null() {

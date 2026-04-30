@@ -1840,9 +1840,6 @@ impl JoinScan {
 
         join_keys.extend(join_conditions.equi_keys.clone());
 
-        let (parsed_jointype, swap_sides) = build::decode_jointype(jointype)
-            .map_err(|e| warn(JoinDeclineReason::new(e.to_string())))?;
-
         // For Semi/Anti with additional conditions that cannot ride the
         // MultiTablePredicate pipeline (setrefs would fail to resolve inner-side
         // Vars once the inner relation is pruned), try to absorb each condition
@@ -1916,16 +1913,15 @@ impl JoinScan {
             )));
         }
 
-        // For JOIN_RIGHT_ANTI / JOIN_RIGHT_SEMI, PG labels the *result* side
-        // as `inner`. Our canonical Anti/Semi JoinNode keeps the result side
-        // on `left`, so swap the children when the decode flagged it.
-        // `JoinKeyPair::resolve_against` is order-agnostic, so equi_keys do
-        // not need to be flipped.
-        let (join_left, join_right) = match swap_sides {
-            build::SwapSides::NoSwap => (outer_node, inner_node),
-            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
-            build::SwapSides::Swap => (inner_node, outer_node),
-        };
+        // Decode jointype + arrange sides. Done after the disjunctive-filter
+        // block above which still needs `outer_node` / `inner_node`.
+        let build::DecodedJoin {
+            jointype: parsed_jointype,
+            left: join_left,
+            right: join_right,
+            swap: swap_sides,
+        } = build::decode_jointype(jointype, outer_node, inner_node)
+            .map_err(|e| warn(JoinDeclineReason::new(e.to_string())))?;
         let mut plan = RelNode::Join(Box::new(build::JoinNode {
             join_type: parsed_jointype,
             left: join_left,

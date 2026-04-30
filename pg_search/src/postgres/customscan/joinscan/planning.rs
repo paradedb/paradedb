@@ -524,17 +524,6 @@ unsafe fn collect_join_sources_join_rel(
         let join_conditions = extract_join_conditions_from_list(join_restrict_info, &all_sources);
 
         let jointype = (*join_path).jointype;
-        let (parsed_jointype, swap_sides) =
-            match crate::postgres::customscan::joinscan::build::decode_jointype(jointype) {
-                Ok(v) => v,
-                Err(e) => {
-                    crate::postgres::customscan::joinscan::JoinScan::add_planner_warning(
-                        e.to_string(),
-                        (),
-                    );
-                    return None;
-                }
-            };
 
         if join_conditions.equi_keys.is_empty() {
             return None;
@@ -578,12 +567,24 @@ unsafe fn collect_join_sources_join_rel(
             }
         }
 
-        // RIGHT_ANTI / RIGHT_SEMI mirrors put the result side on `inner`; our
-        // canonical Anti/Semi keep it on `left`. Swap children when flagged.
-        let (join_left, join_right) = match swap_sides {
-            build::SwapSides::NoSwap => (outer_node, inner_node),
-            #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
-            build::SwapSides::Swap => (inner_node, outer_node),
+        // Decode jointype + arrange sides. Done after `all_sources` is no
+        // longer borrowed (it references into `outer_node`/`inner_node`,
+        // which are moved into `decode_jointype`).
+        drop(all_sources);
+        let build::DecodedJoin {
+            jointype: parsed_jointype,
+            left: join_left,
+            right: join_right,
+            ..
+        } = match build::decode_jointype(jointype, outer_node, inner_node) {
+            Ok(v) => v,
+            Err(e) => {
+                crate::postgres::customscan::joinscan::JoinScan::add_planner_warning(
+                    e.to_string(),
+                    (),
+                );
+                return None;
+            }
         };
         let join_node = crate::postgres::customscan::joinscan::build::JoinNode {
             join_type: parsed_jointype,

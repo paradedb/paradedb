@@ -13,9 +13,6 @@ on:
   push:
     tags:
       - "v*"
-    # TEMPORARY: enable branch push trigger to test this workflow on the PR. Revert before merge.
-    branches:
-      - add-publish-pg_search-postgresapp-workflow
   workflow_dispatch:
     inputs:
       version:
@@ -328,8 +325,6 @@ jobs:
           - **Version**: ${TAG_VERSION}
           - **PostgreSQL**: ${PG_MAJOR_VERSION}
           - **Installer**: <${DOWNLOAD_URL}>
-
-          The pkg is built from the upstream [PostgresApp/Extensions/pg_search](https://github.com/PostgresApp/Extensions/tree/main/pg_search) build assets (Resources, Scripts, distribution.xml) so layout and install behavior match other Postgres.app extensions.
 
           Opened automatically by \`paradedb-bot\` from the [publish-pg_search-postgresapp](https://github.com/paradedb/paradedb/blob/main/.github/workflows/publish-pg_search-postgresapp.yml) workflow. See [PostgresApp/PostgresApp#799](https://github.com/PostgresApp/PostgresApp/issues/799) for context.
           EOF

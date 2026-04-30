@@ -217,11 +217,6 @@ RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_sea
     echo "cron.database_name = 'postgres'" >> /usr/share/postgresql/postgresql.conf.sample && \
     echo "pg_stat_statements.track = 'top'" >> /usr/share/postgresql/postgresql.conf.sample
 
-
-WORKDIR /tmp
-RUN apt-get update && apt-get install -y --no-install-recommends wget && \
-    rm -rf /var/lib/apt/lists/*
-
 # Copy the ParadeDB extension from its builder stage
 COPY --from=builder-pg_search /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pg_search /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
@@ -232,23 +227,6 @@ RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
    mkdir /symbols && \
    ln -s /usr/lib/postgresql/18/lib/pg_search.so /symbols/pg_search.so ; \
  fi
-
-# In order for users to manually install additional PostgreSQL extensions
-# (e.g. PostGIS, pg_partman, etc.) that ParadeDB does not ship with by default,
-# we ensure the PostgreSQL APT (PGDG) repository is present in the image.
-#
-# The upstream `postgres` image already installs the PGDG signing key into
-# /usr/local/share/keyrings/postgres.gpg.asc. We reference that key explicitly
-# via `signed-by` so the repository can be verified correctly.
-#
-# We intentionally do NOT run `apt-get update` here to avoid downloading
-# package indexes during image build. Users can run `apt-get update`
-# themselves before installing additional packages.
-RUN echo "deb [signed-by=/usr/local/share/keyrings/postgres.gpg.asc] https://apt.postgresql.org/pub/repos/apt trixie-pgdg main" \
-    > /etc/apt/sources.list.d/pgdg.list && \
-    apt-get purge -y wget && \
-    apt-get autoremove -y && \
-    rm -rf /var/lib/apt/lists/*
 
 # Reset the working directory to the root directory
 WORKDIR /

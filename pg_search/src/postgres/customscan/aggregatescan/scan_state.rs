@@ -22,9 +22,13 @@ use crate::postgres::customscan::aggregatescan::privdat::{DataFusionTopK, Filter
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, MultiTablePredicateInfo, RelNode,
 };
+use crate::postgres::customscan::mpp::customscan_glue::MppExecutionState;
+use crate::postgres::customscan::mpp::shape::MppPlanShape;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::CustomScanState;
 use crate::postgres::PgSearchRelation;
+
+use std::vec::IntoIter;
 
 use arrow_array::RecordBatch;
 use datafusion::physical_plan::SendableRecordBatchStream;
@@ -34,7 +38,7 @@ use pgrx::pg_sys;
 pub enum ExecutionState {
     #[default]
     NotStarted,
-    Emitting(std::vec::IntoIter<AggregationResultsRow>),
+    Emitting(IntoIter<AggregationResultsRow>),
     Completed,
 }
 
@@ -111,6 +115,51 @@ pub struct AggregateScanState {
     /// Created once during begin_custom_scan and cleared/reused for each row
     /// to avoid per-row memory allocation and leaks
     pub scan_slot: Option<*mut pg_sys::TupleTableSlot>,
+
+    /// Serialized `MppPlanBroadcast` bytes (version byte + serialized
+    /// DataFusion logical plan + total_participants + session_profile,
+    /// bincode-encoded). Populated on the leader in `begin_custom_scan`
+    /// when `mpp_is_active()` and the DataFusion backend is active. The
+    /// bytes are consumed by `estimate_dsm_custom_scan` (just `.len()`)
+    /// and `initialize_dsm_custom_scan` (copied verbatim into DSM for
+    /// workers). These are the exact bytes that land in DSM — the
+    /// broadcast wrapping is done here, not at DSM-init time, so that
+    /// `.len()` at estimate time matches the bytes actually written at
+    /// init time (otherwise the DSM write overruns PG's `shm_toc`
+    /// allocation and corrupts adjacent DSA control regions).
+    ///
+    /// `None` means either:
+    ///   - MPP is off (the common case),
+    ///   - OR the Tantivy backend is active (non-DataFusion path), OR
+    ///   - plan serialization failed (logged via `mpp_log!`; MPP will
+    ///     silently fall back to the non-MPP path).
+    pub logical_plan_bytes: Option<bytes::Bytes>,
+
+    /// Classified MPP shape for this query, populated alongside
+    /// `logical_plan_bytes`. Drives the number of shuffle meshes the
+    /// coordinator allocates in DSM and the per-shape plan builder used
+    /// at exec time. `None` whenever `logical_plan_bytes` is `None`.
+    pub mpp_shape: Option<MppPlanShape>,
+
+    /// MPP lifecycle state. Populated by `initialize_dsm_custom_scan`
+    /// (leader) or `initialize_worker_custom_scan` (worker) when
+    /// `mpp_is_active()` AND the path was flagged parallel-safe. Left
+    /// `None` for the serial (non-MPP) code path. When `Some`,
+    /// `exec_datafusion_aggregate` routes through
+    /// `mpp::plan_build::build_mpp_aggregate_plan`.
+    ///
+    /// ## Drop ordering
+    ///
+    /// Declared LAST in the struct so it's the last field dropped. This
+    /// matters because `MppExecutionState` owns shm_mq handles pointing
+    /// into PG's DSM segment. PG's `ExecEndCustomScan` tears down our
+    /// state *before* `ExecParallelCleanup` detaches the DSM segment, so
+    /// dropping `mpp_state` while DSM is still mapped is safe.
+    /// `MppExecutionState::Leader` also holds a `DrainHandle`; that
+    /// handle must `join()` its drain thread before the DSM detaches,
+    /// so don't move `mpp_state` earlier in this struct without revisiting
+    /// the Drop chain.
+    pub mpp_state: Option<MppExecutionState>,
 }
 
 impl AggregateScanState {

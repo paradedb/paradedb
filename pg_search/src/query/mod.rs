@@ -1407,6 +1407,11 @@ fn value_to_json_term(
     Ok(term)
 }
 
+/// Converts a dot-separated path string (e.g. `"Top.Science.Biology"`) to a Tantivy [`Facet`].
+pub(super) fn dot_path_to_facet(text: &str) -> tantivy::schema::Facet {
+    tantivy::schema::Facet::from_path(text.split('.'))
+}
+
 pub fn value_to_term(
     field: Field,
     value: &OwnedValue,
@@ -1438,6 +1443,13 @@ pub fn value_to_term(
                 field,
                 date.truncate(DATE_TIME_PRECISION_INDEXED),
             ));
+        }
+    }
+
+    // For facet fields, convert string values to facet terms
+    if matches!(field_type, FieldType::Facet(_)) {
+        if let OwnedValue::Str(text) = value {
+            return Ok(Term::from_facet(field, &dot_path_to_facet(text)));
         }
     }
 

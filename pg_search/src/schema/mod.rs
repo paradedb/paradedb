@@ -35,6 +35,7 @@ use tantivy::index::{IndexSortByField, Order};
 
 use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, Typmod};
 use crate::index::utils::load_index_schema;
+use crate::postgres::catalog::is_ltree_oid;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::extract_numeric_precision_scale;
 use crate::query::QueryError;
@@ -57,6 +58,7 @@ pub enum SearchFieldType {
     Tokenized(pg_sys::Oid, Typmod, pg_sys::Oid),
     Uuid(pg_sys::Oid),
     Inet(pg_sys::Oid),
+    Ltree(pg_sys::Oid),
     I64(pg_sys::Oid),
     F64(pg_sys::Oid),
     U64(pg_sys::Oid),
@@ -90,6 +92,7 @@ impl SearchFieldType {
             }
             SearchFieldType::Uuid(_) => SearchFieldConfig::default_uuid(),
             SearchFieldType::Inet(_) => SearchFieldConfig::default_inet(),
+            SearchFieldType::Ltree(_) => SearchFieldConfig::default_ltree(),
             SearchFieldType::I64(_) => SearchFieldConfig::default_numeric(),
             SearchFieldType::F64(_) => SearchFieldConfig::default_numeric(),
             SearchFieldType::U64(_) => SearchFieldConfig::default_numeric(),
@@ -110,6 +113,7 @@ impl SearchFieldType {
             SearchFieldType::Tokenized(oid, ..) => *oid,
             SearchFieldType::Uuid(oid) => *oid,
             SearchFieldType::Inet(oid) => *oid,
+            SearchFieldType::Ltree(oid) => *oid,
             SearchFieldType::I64(oid) => *oid,
             SearchFieldType::F64(oid) => *oid,
             SearchFieldType::U64(oid) => *oid,
@@ -158,6 +162,7 @@ impl SearchFieldType {
             | SearchFieldType::Tokenized(..)
             | SearchFieldType::Uuid(_)
             | SearchFieldType::Inet(_)
+            | SearchFieldType::Ltree(_)
             | SearchFieldType::Json(_)
             | SearchFieldType::Range(_) => arrow_schema::DataType::Utf8View,
 
@@ -320,6 +325,8 @@ impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
             PgOid::Custom(custom) => {
                 if is_citext_oid(*custom) {
                     Ok(SearchFieldType::Text(*custom))
+                } else if is_ltree_oid(*custom) {
+                    Ok(SearchFieldType::Ltree(*custom))
                 } else {
                     Err(SearchIndexSchemaError::InvalidPgOid(pg_oid))
                 }
@@ -768,6 +775,7 @@ impl SearchField {
             | (FieldType::F64(_), OwnedValue::F64(_))
             | (FieldType::Bool(_), OwnedValue::Bool(_))
             | (FieldType::Date(_), OwnedValue::Date(_))
+            | (FieldType::Facet(_), OwnedValue::Facet(_))
             | (FieldType::JsonObject(_), OwnedValue::Object(_)) => Ok(()),
             (FieldType::Date(_), OwnedValue::Str(s)) => {
                 let typeoid = match self.field_type {
@@ -809,10 +817,11 @@ pub enum SearchIndexSchemaError {
 
 #[cfg(test)]
 mod tests {
+    use pgrx::{pg_sys, PgOid};
     use rstest::rstest;
     use tantivy::schema::{IpAddrOptions, JsonObjectOptions, NumericOptions, TextOptions};
 
-    use crate::schema::SearchFieldConfig;
+    use crate::schema::{SearchFieldConfig, SearchFieldType};
 
     #[rstest]
     fn test_search_text_options() {
@@ -906,5 +915,19 @@ mod tests {
 
         let text_options = json_object_options.set_fast(Some("index"));
         assert_ne!(expected.is_fast(), text_options.is_fast());
+    }
+
+    #[rstest]
+    fn test_ltree_typeoid() {
+        // Ltree uses a custom OID; verify typeoid() extracts it correctly
+        let oid: pg_sys::Oid = 99999.into();
+        let ft = SearchFieldType::Ltree(oid);
+        assert_eq!(ft.typeoid(), PgOid::from(oid));
+    }
+
+    #[rstest]
+    fn test_default_config_ltree() {
+        let config = SearchFieldConfig::default_ltree();
+        assert!(matches!(config, SearchFieldConfig::Facet));
     }
 }

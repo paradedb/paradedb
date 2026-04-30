@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(dead_code)]
 //! One-call façade that AggregateScan / JoinScan customscan hooks call into
 //! for MPP DSM setup.
 //!

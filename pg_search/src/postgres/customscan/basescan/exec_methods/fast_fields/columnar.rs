@@ -28,7 +28,6 @@ use crate::api::HashMap;
 use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, WhichFastField};
 use crate::nodecast;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
-use crate::postgres::customscan::basescan::privdat::Limit;
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::parallel::checkout_segment;
@@ -321,7 +320,6 @@ impl ColumnarExecState {
     pub fn new(
         which_fast_fields: Vec<WhichFastField>,
         extra_fast_fields: Vec<WhichFastField>,
-        limit: Option<usize>,
         sort_order: Option<SortByField>,
     ) -> Self {
         // Build scanner fields: projected + extra + [Ctid]
@@ -356,13 +354,12 @@ impl ColumnarExecState {
             None => ColumnarExecStrategy::Unsorted,
         };
 
-        // If there is a limit, then we use a batch size hint which is a small multiple of the
-        // limit, in case of dead tuples.
-        let batch_size_hint = limit.map(|limit| limit * 2);
+        // batch_size_hint is computed in `init` from the resolved LIMIT/OFFSET,
+        // when EState is available.
         Self {
             inner: Inner::new(which_fast_fields),
             scanner_fast_fields,
-            batch_size_hint,
+            batch_size_hint: None,
             strategy,
             runtime: None,
             stream: None,
@@ -597,16 +594,18 @@ impl ExecMethod for ColumnarExecState {
     /// * `state` - The current scan state containing query information
     /// * `cstate` - PostgreSQL's custom scan state pointer
     fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
-        // Resolve parameterized limit for batch size hint
-        if self.batch_size_hint.is_none() {
-            if let ExecMethodType::Columnar { ref mut limit, .. } = state.exec_method_type {
-                if let Some(param_limit) = limit.as_ref().filter(|l| l.static_value().is_none()) {
-                    unsafe {
-                        let estate = (*cstate).ss.ps.state;
-                        let resolved = param_limit.resolve(estate);
-                        self.batch_size_hint = Some(resolved * 2);
-                        *limit = Some(Limit::Static(resolved));
-                    }
+        // Resolve LIMIT/OFFSET for the batch size hint. `resolve_mut`
+        // converts each Param → Static in place, so the LimitOffset stored
+        // on ExecMethodType ends up holding resolved values for EXPLAIN.
+        if let ExecMethodType::Columnar {
+            limit_offset: Some(ref mut lo),
+            ..
+        } = state.exec_method_type
+        {
+            unsafe {
+                let estate = (*cstate).ss.ps.state;
+                if let Some(fetch) = lo.resolve_mut(estate).and_then(|lo| lo.static_fetch()) {
+                    self.batch_size_hint = Some(fetch * 2);
                 }
             }
         }

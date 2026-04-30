@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(dead_code)]
 //! MPP plan-shape classifier.
 //!
 //! Classifies a query (at planning time) into one of a handful of MPP

@@ -42,6 +42,7 @@ pub mod mpp;
 pub mod opexpr;
 pub mod orderby;
 pub mod parallel;
+pub mod parameterized_value;
 mod path;
 pub(crate) mod pg_expr_udf;
 pub mod projections;

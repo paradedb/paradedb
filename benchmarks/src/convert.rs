@@ -18,7 +18,7 @@
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 
-use crate::utils::{open_duckdb_conn, validate_input_output};
+use crate::utils::{open_duckdb_conn, validate_input, validate_output};
 
 #[derive(Parser)]
 pub struct ConvertArgs {
@@ -48,7 +48,8 @@ pub fn run_convert(args: ConvertArgs) -> Result<()> {
     let input = args.input.trim_end_matches('/');
     let output = args.output.trim_end_matches('/');
 
-    validate_input_output(&args.tables, &conn, input, output)?;
+    let tables_iter = args.tables.iter().map(|t| t.as_ref());
+    validate_input(tables_iter.clone(), &conn, input)?;
 
     if args.dry_run {
         println!("\nDry run: counting planned conversions...");
@@ -68,6 +69,8 @@ pub fn run_convert(args: ConvertArgs) -> Result<()> {
         println!("\nDry run complete. No files were converted.");
         return Ok(());
     }
+
+    validate_output(tables_iter, &conn, output)?;
 
     // Conversion phase: one COPY per table, DuckDB handles parallelism internally.
     println!("\nConverting parquet to CSV...");

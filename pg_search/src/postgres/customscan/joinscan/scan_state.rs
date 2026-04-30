@@ -333,6 +333,19 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
 ///   post-pass; SegmentedTopK does not apply to aggregate-on-join queries.
 pub fn create_datafusion_session_context(profile: SessionContextProfile) -> SessionContext {
     let mut config = SessionConfig::new().with_target_partitions(1);
+
+    // Configure dynamic filter pushdown thresholds from our GUCs
+    config
+        .options_mut()
+        .optimizer
+        .hash_join_inlist_pushdown_max_size =
+        crate::gucs::hash_join_inlist_pushdown_max_size() as usize;
+    config
+        .options_mut()
+        .optimizer
+        .hash_join_inlist_pushdown_max_distinct_values =
+        crate::gucs::hash_join_inlist_pushdown_max_distinct_values() as usize;
+
     if matches!(profile, SessionContextProfile::Join) {
         config
             .options_mut()

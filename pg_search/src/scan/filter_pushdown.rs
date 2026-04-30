@@ -311,14 +311,17 @@ fn extract_column_name(expr: &Expr) -> Option<String> {
     }
 }
 
-fn extract_scalar_value(expr: &Expr) -> Option<ScalarValue> {
+pub fn extract_scalar_value(expr: &Expr) -> Option<ScalarValue> {
     match expr {
         Expr::Literal(scalar, _) => Some(scalar.clone()),
         _ => None,
     }
 }
 
-fn scalar_to_owned_value(scalar: &ScalarValue, field_type: &SearchFieldType) -> Option<OwnedValue> {
+pub fn scalar_to_owned_value(
+    scalar: &ScalarValue,
+    field_type: &SearchFieldType,
+) -> Option<OwnedValue> {
     match (scalar, field_type) {
         // Integer types (I64)
         (ScalarValue::Int8(Some(v)), SearchFieldType::I64(_)) => Some(OwnedValue::I64(*v as i64)),

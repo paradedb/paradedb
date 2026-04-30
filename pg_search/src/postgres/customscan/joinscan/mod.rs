@@ -446,27 +446,22 @@ pub unsafe fn try_create_subplan_join_paths(
 
     // Phase 1: validate + build JoinCSClause.
     let has_distinct = !(*(*root).parse).distinctClause.is_null();
-    let (join_clause, limit_offset) = match JoinScan::validate_and_build_clause(
-        root,
-        &plan,
-        &join_keys,
-        has_distinct,
-        build::SwapSides::NoSwap,
-    ) {
-        Ok(res) => res,
-        Err(reason) => {
-            let aliases: Vec<String> = plan
-                .sources()
-                .iter()
-                .map(|s| {
-                    RelationAlias::new(s.scan_info.alias.as_deref())
-                        .warning_context(s.scan_info.heaprelid)
-                })
-                .collect();
-            reason.emit(&aliases);
-            return Vec::new();
-        }
-    };
+    let (join_clause, limit_offset) =
+        match JoinScan::validate_and_build_clause(root, &plan, &join_keys, has_distinct) {
+            Ok(res) => res,
+            Err(reason) => {
+                let aliases: Vec<String> = plan
+                    .sources()
+                    .iter()
+                    .map(|s| {
+                        RelationAlias::new(s.scan_info.alias.as_deref())
+                            .warning_context(s.scan_info.heaprelid)
+                    })
+                    .collect();
+                reason.emit(&aliases);
+                return Vec::new();
+            }
+        };
 
     // No join-level predicate extraction needed for SubPlan-based paths.
 
@@ -489,7 +484,6 @@ impl JoinScan {
         plan: &RelNode,
         join_keys: &[build::JoinKeyPair],
         has_distinct: bool,
-        swap_sides: build::SwapSides,
     ) -> Result<(JoinCSClause, Option<LimitOffset>), JoinDeclineReason> {
         let all_sources = plan.sources();
 
@@ -601,15 +595,7 @@ impl JoinScan {
         }
 
         if join_clause.plan.has_semi_or_anti() {
-            // PG calls this hook twice for SEMI/ANTI: once canonical and
-            // once with sides swapped (joinrels.c:983-988, 1027-1032).
-            // Both register paths into the same joinrel pathlist. Fire
-            // the partitioning warning only on the canonical pass so the
-            // user sees it once per logical join, not once per hook
-            // invocation.
-            if join_clause.partitioning_source_index() != 0
-                && matches!(swap_sides, build::SwapSides::NoSwap)
-            {
+            if join_clause.partitioning_source_index() != 0 {
                 pgrx::warning!(
                     "For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal \
                      parallel partitioning strategy for this query. See \
@@ -1916,19 +1902,12 @@ impl JoinScan {
             )));
         }
 
-        // Decode jointype + arrange sides. Done after the disjunctive-filter
-        // block above which still needs `outer_node` / `inner_node`.
-        let build::DecodedJoin {
-            jointype: parsed_jointype,
-            left: join_left,
-            right: join_right,
-            swap: swap_sides,
-        } = build::decode_jointype(jointype, outer_node, inner_node)
+        let parsed_jointype = build::JoinType::try_from(jointype)
             .map_err(|e| warn(JoinDeclineReason::new(e.to_string())))?;
         let mut plan = RelNode::Join(Box::new(build::JoinNode {
             join_type: parsed_jointype,
-            left: join_left,
-            right: join_right,
+            left: outer_node,
+            right: inner_node,
             equi_keys: join_conditions.equi_keys,
             filter: initial_filter,
             subplan_id: None,
@@ -1959,8 +1938,7 @@ impl JoinScan {
 
         // Phase 1: shared activation checks + JoinCSClause construction.
         let (mut join_clause, limit_offset) =
-            Self::validate_and_build_clause(root, &plan, &join_keys, has_distinct, swap_sides)
-                .map_err(warn)?;
+            Self::validate_and_build_clause(root, &plan, &join_keys, has_distinct).map_err(warn)?;
 
         // --- Join-level predicate extraction (join-hook specific) ---
         // This builds an expression tree that can reference:

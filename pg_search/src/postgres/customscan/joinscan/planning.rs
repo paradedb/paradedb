@@ -567,16 +567,7 @@ unsafe fn collect_join_sources_join_rel(
             }
         }
 
-        // Decode jointype + arrange sides. Done after `all_sources` is no
-        // longer borrowed (it references into `outer_node`/`inner_node`,
-        // which are moved into `decode_jointype`).
-        drop(all_sources);
-        let build::DecodedJoin {
-            jointype: parsed_jointype,
-            left: join_left,
-            right: join_right,
-            ..
-        } = match build::decode_jointype(jointype, outer_node, inner_node) {
+        let parsed_jointype = match build::JoinType::try_from(jointype) {
             Ok(v) => v,
             Err(e) => {
                 crate::postgres::customscan::joinscan::JoinScan::add_planner_warning(
@@ -588,8 +579,8 @@ unsafe fn collect_join_sources_join_rel(
         };
         let join_node = crate::postgres::customscan::joinscan::build::JoinNode {
             join_type: parsed_jointype,
-            left: join_left,
-            right: join_right,
+            left: outer_node,
+            right: inner_node,
             equi_keys: join_conditions.equi_keys.clone(),
             filter: None,
             subplan_id: None,

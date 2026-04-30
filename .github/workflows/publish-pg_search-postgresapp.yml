@@ -6,15 +6,6 @@
 # and download URL recorded in docs/_data/extensions/<pg>/pg_search.json (the source
 # for https://postgresapp.com/extensions/). Triggered on creation of a GitHub Tag,
 # but beta releases get filtered out by the `if` condition of the job.
-#
-# The pkg is built using the upstream build assets from PostgresApp/Extensions
-# (https://github.com/PostgresApp/Extensions/tree/main/pg_search) — Resources/,
-# Scripts/, and distribution.xml — so that pkg layout, identifiers, and behavior
-# match what Postgres.app maintainers ship for other extensions.
-#
-# The PR is raised by `paradedb-bot` from a fork. If a previous PR from the bot is
-# still open in PostgresApp/PostgresApp, it is closed in favour of the new one so
-# that only the latest release is ever pending review upstream.
 
 name: Publish pg_search (Postgres.app)
 
@@ -149,11 +140,11 @@ jobs:
           export BINDGEN_EXTRA_CLANG_ARGS="$(xcrun --show-sdk-path | xargs -I{} echo -isysroot {})"
           cargo pgrx package --pg-config $PG_CONFIG
 
-      # Build a Postgres.app installer pkg using the upstream build assets so layout,
-      # identifiers, install location, and pre/post-install behavior match what
-      # PostgresApp/Extensions ships. We skip the codesign/notarize steps from
-      # upstream's build.zsh because we don't have an Apple Developer cert wired up
-      # in CI yet — installers will trigger a Gatekeeper warning on first install.
+      # TODO: wire up Apple Developer codesigning + notarytool before merging this
+      # PR. Upstream's build.zsh runs `codesign --sign "Developer ID Application"`
+      # on the dylibs and signs the pkg with `Developer ID Installer`, then submits
+      # to `xcrun notarytool` using a `postgresapp` keychain profile. Without those,
+      # the produced pkg trips Gatekeeper on first install.
       - name: Build Postgres.app Installer Package
         id: pkg
         run: |

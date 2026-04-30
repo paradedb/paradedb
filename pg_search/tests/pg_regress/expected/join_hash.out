@@ -1,0 +1,82 @@
+-- Test for the JoinScan Custom Scan planning
+-- HashJoin mechanics and metrics via EXPLAIN ANALYZE
+-- Disable parallel workers to avoid differences in plans
+SET max_parallel_workers_per_gather = 0;
+SET enable_indexscan to OFF;
+-- Load the pg_search extension
+CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Make sure the GUC is enabled
+SET paradedb.enable_join_custom_scan = on;
+-- =============================================================================
+-- TEST 1: Hash Join
+-- =============================================================================
+DROP TABLE IF EXISTS hash_t1 CASCADE;
+DROP TABLE IF EXISTS hash_t2 CASCADE;
+CREATE TABLE hash_t1 (id INTEGER PRIMARY KEY, val TEXT);
+CREATE TABLE hash_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
+INSERT INTO hash_t1 SELECT i, 'val ' || i FROM generate_series(1, 1000) i;
+INSERT INTO hash_t2 SELECT i, (i % 1000) + 1, 'val ' || i FROM generate_series(1, 1000) i;
+CREATE INDEX hash_t1_idx ON hash_t1 USING bm25 (id, val)
+WITH (key_field = 'id', text_fields = '{"val": {"fast": true}}');
+CREATE INDEX hash_t2_idx ON hash_t2 USING bm25 (id, t1_id, val)
+WITH (key_field = 'id', numeric_fields = '{"t1_id": {"fast": true}}');
+ANALYZE hash_t1;
+ANALYZE hash_t2;
+-- EXPLAIN ANALYZE to show HashJoin metrics.
+-- Check in particular for dynamic_filter_pushdown=true, to indicate that dynamic filters
+-- were pushed down into the Tantivy Query.
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT t1.val, t2.val
+FROM hash_t1 t1
+JOIN hash_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ 'val'
+ORDER BY t1.id ASC
+LIMIT 10;
+                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit (actual rows=10.00 loops=1)
+   ->  Result (actual rows=10.00 loops=1)
+         ->  Custom Scan (ParadeDB Join Scan) (actual rows=10.00 loops=1)
+               Relation Tree: t2 INNER t1
+               Join Cond: t1.id = t2.t1_id
+               Limit: 10
+               Order By: t1.id asc
+               DataFusion Physical Plan: 
+                 : ProjectionExec: expr=[NULL as col_1, id@2 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1]
+                 :   SortExec: TopK(fetch=10), expr=[id@2 ASC NULLS LAST], preserve_partitioning=[false], filter=[id@2 < 10], metrics=[output_rows=10, output_bytes=240.0 B, output_batches=1, row_replacements=10]
+                 :     VisibilityFilterExec: tables=[t2, t1], metrics=[output_rows=1.00 K, output_bytes=79.6 KB, output_batches=1]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(t1_id@1, id@1)], projection=[ctid_0@0, ctid_1@2, id@3], metrics=[output_rows=1.00 K, output_bytes=192.0 KB, output_batches=1, array_map_created_count=1, build_input_batches=1, build_input_rows=1.00 K, input_batches=1, input_rows=1.00 K, build_mem_used=20.00 K, avg_fanout=100% (1.00 K/1.00 K), probe_hit_rate=100% (1.00 K/1.00 K)]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, query="all", metrics=[output_rows=1.00 K, output_bytes=15.6 KB, output_batches=1]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=true, query={"with_index":{"query":{"parse_with_field":{"field":"val","query_string":"val","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=1.00 K, output_bytes=15.6 KB, output_batches=1, rows_pruned=0, rows_scanned=1.00 K]
+(16 rows)
+
+SELECT t1.val, t2.val
+FROM hash_t1 t1
+JOIN hash_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ 'val'
+ORDER BY t1.id ASC
+LIMIT 10;
+  val   |   val    
+--------+----------
+ val 1  | val 1000
+ val 2  | val 1
+ val 3  | val 2
+ val 4  | val 3
+ val 5  | val 4
+ val 6  | val 5
+ val 7  | val 6
+ val 8  | val 7
+ val 9  | val 8
+ val 10 | val 9
+(10 rows)
+
+-- =============================================================================
+-- CLEANUP
+-- =============================================================================
+DROP TABLE IF EXISTS hash_t1 CASCADE;
+DROP TABLE IF EXISTS hash_t2 CASCADE;
+RESET max_parallel_workers_per_gather;
+RESET enable_indexscan;
+RESET paradedb.enable_join_custom_scan;

@@ -65,7 +65,6 @@ pub struct MppParticipantConfig {
 /// set, the provider calls `reader.search_segments(sharded_ids)` and each
 /// participant reads only its share of segments.
 #[derive(Clone, Debug)]
-#[allow(dead_code)] // consumed by aggregatescan/joinscan in #4932/#4872
 pub struct MppShardConfig {
     pub participant_index: u32,
     pub total_participants: u32,

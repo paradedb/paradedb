@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(dead_code)]
 //! MPP worker lifecycle and DSM coordination.
 //!
 //! The DSM region laid out by the leader during `initialize_dsm_custom_scan`

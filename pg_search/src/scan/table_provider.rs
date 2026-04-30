@@ -32,6 +32,7 @@ use tantivy::index::SegmentId;
 use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::customscan::mpp::MppShardConfig;
 use crate::postgres::customscan::parallel::{checkout_segment, list_segment_ids};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
@@ -565,6 +566,7 @@ impl PgSearchTableProvider {
         schema: SchemaRef,
         query_for_display: SearchQueryInput,
         sort_order: Option<&crate::postgres::options::SortByField>,
+        mpp_shard: Option<(u32, u32)>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let ffhelper = Arc::new(ffhelper);
         let scanner_config = crate::scan::execution_plan::ScannerConfig {
@@ -575,7 +577,16 @@ impl PgSearchTableProvider {
         let segments: Vec<ScanState> = reader
             .segment_readers()
             .iter()
-            .map(|r| {
+            .enumerate()
+            // MPP sharded eager-scan: each participant opens only its own
+            // subset. Filter applies identically across all participants
+            // because `segment_readers()` has deterministic order, so
+            // every segment ends up on exactly one participant.
+            .filter(|(i, _)| match mpp_shard {
+                Some((pi, total)) => (*i as u32) % total == pi,
+                None => true,
+            })
+            .map(|(_, r)| {
                 self.create_scan_partition(
                     reader,
                     r.segment_id(),
@@ -616,6 +627,7 @@ impl PgSearchTableProvider {
         schema: SchemaRef,
         query_for_display: SearchQueryInput,
         planner_estimated_rows: u64,
+        mpp_shard: Option<(u32, u32)>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let ffhelper = Arc::new(ffhelper);
         let scanner_config = crate::scan::execution_plan::ScannerConfig {
@@ -623,12 +635,39 @@ impl PgSearchTableProvider {
             heap_relid: heap_relid.into(),
             batch_size_hint: None,
         };
-        let state = ScanState {
-            recipe: crate::scan::execution_plan::ScanRecipe::Lazy {
+        let recipe = if parallel_state.is_some() {
+            crate::scan::execution_plan::ScanRecipe::Lazy {
                 parallel_state,
                 planner_estimated_rows,
                 scanner_config,
-            },
+            }
+        } else if let Some((participant_index, total_participants)) = mpp_shard {
+            // MPP sharded lazy scan: each participant reads only its share
+            // of segments (`segment_idx % total == participant_index`), so
+            // the scan work is split N ways across participants. The
+            // hash-shuffle above then redistributes rows by join key —
+            // because each input row is scanned by exactly one participant,
+            // the shuffle output matches the serial scan.
+            let sharded_ids: Vec<SegmentId> = reader
+                .segment_readers()
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| (*i as u32) % total_participants == participant_index)
+                .map(|(_, r)| r.segment_id())
+                .collect();
+            crate::scan::execution_plan::ScanRecipe::Eager {
+                segment_ids: sharded_ids,
+                scanner_config,
+            }
+        } else {
+            crate::scan::execution_plan::ScanRecipe::Lazy {
+                parallel_state,
+                planner_estimated_rows,
+                scanner_config,
+            }
+        };
+        let state = ScanState {
+            recipe,
             ffhelper: ffhelper.clone(),
             visibility: Box::new(visibility) as Box<VisibilityChecker>,
             reader: reader.clone(),
@@ -700,11 +739,22 @@ impl TableProvider for PgSearchTableProvider {
 
     async fn scan(
         &self,
-        _state: &dyn Session,
+        state: &dyn Session,
         projection: Option<&Vec<usize>>,
         filters: &[Expr],
         _limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
+        // MPP sharding: the exec bridge stashes a `MppShardConfig` as a
+        // session config extension before `build_join_aggregate_plan`
+        // builds the logical plan. When present AND we take the lazy
+        // (un-parallel) scan path, each participant reads only its share
+        // of segments — see `create_lazy_scan`. Absent for non-MPP
+        // queries and for the sorted/eager paths that have their own
+        // parallelization story.
+        let mpp_shard = state
+            .config()
+            .get_extension::<MppShardConfig>()
+            .map(|cfg| (cfg.participant_index, cfg.total_participants));
         // TODO: We should support limit pushdown here to allow providing a batch size hint
         // to the Scanner.
 
@@ -812,6 +862,7 @@ impl TableProvider for PgSearchTableProvider {
                     projected_schema,
                     query,
                     Some(sort_order),
+                    mpp_shard,
                 )
             }
         } else {
@@ -831,6 +882,7 @@ impl TableProvider for PgSearchTableProvider {
                 projected_schema,
                 query,
                 total_estimated_rows,
+                mpp_shard,
             )
         }
     }

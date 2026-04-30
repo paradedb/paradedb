@@ -130,6 +130,14 @@ pub unsafe extern "C-unwind" fn _PG_init() {
 
     // Initialize the filter query builder
     customscan::aggregatescan::filterquery::init_filter_query_builder();
+
+    // Install MPP walker's runtime indirection for `PgSearchScanPlan::strip_dynamic_filters_from_dyn`.
+    // See `mpp::walker::STRIP_DYNAMIC_FILTERS_FN` for why this cannot be called statically.
+    customscan::mpp::walker::init_mpp_strip_dynamic_filters();
+
+    // Register an extractor with the datafusion-distributed fork so its
+    // NetworkBoundaryExt::as_network_boundary recognizes MppShuffleExec.
+    customscan::mpp::walker::init_mpp_network_boundary_extractor();
 }
 
 #[pg_extern]

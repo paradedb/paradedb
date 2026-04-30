@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(dead_code)]
 //! MPP queue mesh: DSM layout for the directed N×(N-1) shm_mq mesh.
 //!
 //! Every participant has `N-1` inbound and `N-1` outbound queues — one per

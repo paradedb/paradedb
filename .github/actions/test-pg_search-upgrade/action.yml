@@ -24,7 +24,9 @@ runs:
       shell: bash
       run: |
         SQL_DIR="$(mktemp -d)"
-        cp "${{ github.action_path }}"/*.sql "$SQL_DIR/"
+        for case_dir in "${{ github.action_path }}"/*; do
+          [ -d "$case_dir" ] && cp -R "$case_dir" "$SQL_DIR/"
+        done
         echo "UPGRADE_SQL_DIR=$SQL_DIR" >> "$GITHUB_ENV"
 
     # This is the pgrx version compatible with ParadeDB ${{ inputs.prior_pg_search_version }}
@@ -68,11 +70,16 @@ runs:
       shell: bash
       run: psql -h localhost -p 288${{ inputs.pg_version }} postgres -c 'CREATE EXTENSION pg_search;'
 
-    - name: Create BM25 Index
+    - name: Create Upgrade Test Databases
       working-directory: pg_search/
       shell: bash
       run: |
-        psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} postgres -f "$UPGRADE_SQL_DIR/setup.sql"
+        for case_dir in "$UPGRADE_SQL_DIR"/*; do
+          db="$(basename "$case_dir")"
+          createdb -h localhost -p 288${{ inputs.pg_version }} "$db"
+          psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} "$db" -c 'CREATE EXTENSION pg_search;'
+          psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} "$db" -f "$case_dir/setup.sql"
+        done
 
     - name: Stop Postgres via pgrx
       working-directory: pg_search/
@@ -126,16 +133,20 @@ runs:
       run: |
         VERSION=$(grep "^version" ../Cargo.toml | head -1 | awk -F '"' '{print $2}')
         psql -h localhost -p 288${{ inputs.pg_version }} postgres -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
+        for case_dir in "$UPGRADE_SQL_DIR"/*; do
+          db="$(basename "$case_dir")"
+          psql -h localhost -p 288${{ inputs.pg_version }} "$db" -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
+        done
 
-    # We test the BM25 index before and after the upgrade to test for version compatibility.
-    # We run the queries before and after inserting some rows in case inserting changes anything internally
+    # We test each BM25 index after the upgrade to test for version compatibility.
     - name: Test BM25 Index
       working-directory: pg_search/
       shell: bash
       run: |
-        psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} postgres -f "$UPGRADE_SQL_DIR/queries.sql"
-        psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} postgres -f "$UPGRADE_SQL_DIR/insert.sql"
-        psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} postgres -f "$UPGRADE_SQL_DIR/queries.sql"
+        for case_dir in "$UPGRADE_SQL_DIR"/*; do
+          db="$(basename "$case_dir")"
+          psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} "$db" -f "$case_dir/queries.sql"
+        done
 
     # We only run the integration tests since pgrx won't run the #[pg_test] unit tests in an existing database
     - name: Run pg_search Integration Tests

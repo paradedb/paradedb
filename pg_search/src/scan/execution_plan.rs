@@ -277,7 +277,6 @@ impl PgSearchScanPlan {
     /// is itself below a shuffle): the dynamic filter is fully populated
     /// locally there and dropping it loses a valuable optimization with no
     /// correctness benefit.
-    #[allow(dead_code)] // walker (PR #4870) is the live caller
     pub fn strip_dynamic_filters_from_dyn(
         dyn_plan: Arc<dyn ExecutionPlan>,
     ) -> Result<Arc<dyn ExecutionPlan>> {

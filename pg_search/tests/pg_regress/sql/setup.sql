@@ -1,5 +1,6 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
+DROP TABLE IF EXISTS mock_items_issue_2528;
 CALL paradedb.create_bm25_test_table(
   schema_name => 'public',
   table_name => 'mock_items_issue_2528'

@@ -36,16 +36,10 @@ use tantivy::directory::OwnedBytes;
 
 const BLOCK_CACHE_SIZE: usize = 16;
 
-use crate::postgres::storage::buffer::ImmutablePage;
-
-/// Cache entry for get_byte: ImmutablePage (no Arc).
-struct ByteCacheEntry {
-    block_ord: usize,
-    page: ImmutablePage,
-}
-
-/// Cache entry for get_bytes_range_block: OwnedBytes (Arc clone on hit).
-struct RangeCacheEntry {
+/// Unified cache entry: stores OwnedBytes which wraps an Arc'd ImmutablePage.
+/// get_byte indexes directly into the pre-resolved &[u8] slice (no vtable dispatch).
+/// get_bytes_range_block clones the Arc on cache hit.
+struct CacheEntry {
     block_ord: usize,
     block_bytes: OwnedBytes,
 }
@@ -113,8 +107,7 @@ pub struct LinkedBytesList {
     bman: BufferManager,
     pub header_blockno: pg_sys::BlockNumber,
     blocklist_reader: OnceLock<blocklist::reader::BlockList>,
-    byte_cache: UnsafeCache<ByteCacheEntry>,
-    range_cache: UnsafeCache<RangeCacheEntry>,
+    cache: UnsafeCache<CacheEntry>,
 }
 
 pub struct LinkedBytesListWriter {
@@ -246,8 +239,7 @@ impl LinkedBytesList {
             bman: BufferManager::new(rel),
             header_blockno,
             blocklist_reader: Default::default(),
-            byte_cache: UnsafeCache::new(),
-            range_cache: UnsafeCache::new(),
+            cache: UnsafeCache::new(),
         }
     }
 
@@ -294,8 +286,7 @@ impl LinkedBytesList {
             bman,
             header_blockno,
             blocklist_reader: Default::default(),
-            byte_cache: UnsafeCache::new(),
-            range_cache: UnsafeCache::new(),
+            cache: UnsafeCache::new(),
         }
     }
 
@@ -378,35 +369,38 @@ impl LinkedBytesList {
         self.bman.page_is_empty(self.get_start_blockno().0)
     }
 
-    /// Reads a single byte from the block list without allocating OwnedBytes.
-    /// Uses the block cache for zero-alloc access on cache hits.
+    /// Reads a single byte from the block list.
+    /// Uses the unified block cache — indexes directly into OwnedBytes' pre-resolved slice.
     pub unsafe fn get_byte(&self, offset: usize) -> u8 {
         const ITEM_SIZE: usize = bm25_max_free_space();
         let block_ord = offset / ITEM_SIZE;
         let local_offset = offset % ITEM_SIZE;
 
         // SAFETY: Postgres backends are single-threaded.
-        let cache = self.byte_cache.get();
+        let cache = self.cache.get();
         // Fast path: check most recent entry first (ascending access pattern).
         if let Some(last) = cache.back() {
             if last.block_ord == block_ord {
-                return last.page[local_offset];
+                return last.block_bytes[local_offset];
             }
         }
         if let Some(pos) = cache.iter().rposition(|e| e.block_ord == block_ord) {
-            return cache[pos].page[local_offset];
+            return cache[pos].block_bytes[local_offset];
         }
 
         // Cache miss: read the block, cache it, return the byte.
         let blockno = self.block_for_ord(block_ord).expect("block not found");
         let buffer = self.bman.get_buffer(blockno);
-        let page = buffer.into_immutable_page();
-        let byte = page[local_offset];
+        let block_bytes = OwnedBytes::new(buffer.into_immutable_page());
+        let byte = block_bytes[local_offset];
 
         if cache.len() >= BLOCK_CACHE_SIZE {
             cache.pop_front();
         }
-        cache.push_back(ByteCacheEntry { block_ord, page });
+        cache.push_back(CacheEntry {
+            block_ord,
+            block_bytes,
+        });
 
         byte
     }
@@ -460,7 +454,7 @@ impl LinkedBytesList {
 
     unsafe fn get_bytes_range_block(&self, start_block_ord: usize) -> OwnedBytes {
         // SAFETY: Postgres backends are single-threaded.
-        let cache = self.range_cache.get();
+        let cache = self.cache.get();
         if let Some(pos) = cache.iter().rposition(|e| e.block_ord == start_block_ord) {
             // Cache hit: move to back, Arc clone.
             let entry = cache.remove(pos).unwrap();
@@ -479,7 +473,7 @@ impl LinkedBytesList {
         if cache.len() >= BLOCK_CACHE_SIZE {
             cache.pop_front();
         }
-        cache.push_back(RangeCacheEntry {
+        cache.push_back(CacheEntry {
             block_ord: start_block_ord,
             block_bytes: block_bytes.clone(),
         });

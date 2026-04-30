@@ -1318,8 +1318,8 @@ LIMIT 5;
                                                                                                                                 QUERY PLAN                                                                                                                                 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-    ->  Custom Scan (ParadeDB Join Scan)
-          Relation Tree: i ANTI e
+   ->  Custom Scan (ParadeDB Join Scan)
+         Relation Tree: i ANTI e
          Limit: 5
          Order By: i.id desc
          DataFusion Physical Plan: 

@@ -185,7 +185,7 @@ static HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: GucSetting<i32> =
 // installation that doesn't touch them gets the same behavior as a bare
 // tantivy caller.
 static TERM_SET_GALLOP_ENABLED: GucSetting<bool> = GucSetting::<bool>::new(true);
-static TERM_SET_GALLOP_MAX_DENSITY: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 64.0);
+static TERM_SET_GALLOP_MAX_DENSITY: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 100.0);
 static TERM_SET_POSTING_MAX_DENSITY: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 256.0);
 static TERM_SET_BITSET_MAX_DENSITY: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 4.0);
 static TERM_SET_HASH_PROBE_MAX_DENSITY: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 16.0);
@@ -492,7 +492,7 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.term_set_gallop_max_density",
         c"Gallop is selected when K' / N is below this density on a sorted segment.",
-        c"K' is the number of distinct terms surviving min/max pruning; N is the segment size. Smaller values bias toward gallop. Default 1/64 = 0.015625.",
+        c"K' is the number of distinct terms surviving min/max pruning; N is the segment size. Larger values admit gallop more aggressively; smaller values are more conservative. Default 1/100 = 0.01 (matches tantivy::query::TermSetStrategyConfig::default()).",
         &TERM_SET_GALLOP_MAX_DENSITY,
         0.0,
         1.0,

@@ -14,24 +14,32 @@ canonical: https://docs.paradedb.com/deploy/cloud-platforms/render
 
 [Render](https://render.com) is a cloud platform that makes it easy to deploy and manage applications. The
 [ParadeDB Render Blueprint](https://github.com/paradedb/render-blueprint) provides a one-click deployment
-that runs ParadeDB Community as a private service with persistent SSD storage.
+that runs ParadeDB Community as a [private service](https://render.com/docs/private-services) with persistent
+SSD storage.
+
+You can either follow [Render's official ParadeDB deployment guide](https://render.com/docs/deploy-paradedb)
+or use the steps below.
 
 ## One-Click Deploy
 
-The fastest way to get started is to click the button below, which will fork the template repository and deploy
-ParadeDB to your Render account.
+The fastest way to get started is to click the button below, which deploys ParadeDB to your Render account.
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/paradedb/render-blueprint)
+
+This will:
+
+1. Create a private service named `paradedb` running the [official ParadeDB Docker image](https://hub.docker.com/r/paradedb/paradedb).
+2. Attach a 10 GB persistent disk for your database data, mounted at `/var/lib/postgresql`.
+3. Set up `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB` environment variables automatically.
 
 ## Manual Setup
 
 If you prefer to configure the deployment yourself:
 
-1. Fork the [deployment-render](https://github.com/paradedb/render-blueprint) repository
-2. In the Render dashboard, create a new **Private Service** and connect your forked repository
-3. Select **Docker** as the runtime
-4. Attach a **Disk** of at least 10 GB mounted at `/var/lib/postgresql`
-5. Set the following environment variables:
+1. Click **Use this template** at the top of the [render-blueprint](https://github.com/paradedb/render-blueprint) repository to create your own copy (or fork it).
+2. In the Render dashboard, create a new **Private Service** using the **Existing Image** runtime, pointing at `docker.io/paradedb/paradedb:latest` (or your preferred [tag](https://hub.docker.com/r/paradedb/paradedb/tags)).
+3. Attach a **Disk** of at least 10 GB mounted at `/var/lib/postgresql`.
+4. Set the following environment variables:
 
 | Variable            | Description       | Default        |
 | ------------------- | ----------------- | -------------- |
@@ -41,15 +49,23 @@ If you prefer to configure the deployment yourself:
 
 ## Connecting to ParadeDB
 
-ParadeDB runs as a **private service** on Render, which means it is not exposed to the public internet. You can
-connect from other services on your Render account via the internal network:
+ParadeDB runs as a **private service** on Render, which means it is not exposed to the public internet.
+
+### From another Render service
+
+Connect from any other service in your Render private network using the service name as the host:
 
 ```bash
 psql -h paradedb -U postgres -d paradedb
 ```
 
-To connect from your local machine, set up [Render SSH](https://docs.render.com/ssh) and then run:
+### From your local machine
+
+Since the service isn't exposed publicly, [SSH into the service](https://render.com/docs/ssh) and run `psql` from inside the container:
 
 ```bash
-psql -U postgres paradedb
+ssh srv-XXXXXXXXXXXXX@ssh.<region>.render.com
+psql -U postgres -d paradedb
 ```
+
+Replace `srv-XXXXXXXXXXXXX` with your service ID from the Render dashboard, and make sure you've added an SSH key to your Render account first.

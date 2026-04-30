@@ -126,6 +126,16 @@ jobs:
         if: steps.cache-pgrx.outputs.cache-hit != 'true'
         run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
+      # Cache cargo registry, git deps, and target/ across runs. Cuts the cold
+      # `cargo pgrx package` step (~30 min on PG 18 / Rust 1.95) down to a fraction
+      # on cache hits. Key includes pg_version because pgrx-pg-sys regenerates
+      # bindings against PostgreSQL headers, which change per major version.
+      - name: Cache Cargo target directory
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: pg_search-macos-pg${{ matrix.pg_version }}
+          cache-on-failure: true
+
       - name: Initialize pgrx environment
         working-directory: pg_search/
         run: |

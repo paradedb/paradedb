@@ -469,10 +469,17 @@ unsafe fn collect_join_sources_join_rel(
     rel: *mut pg_sys::RelOptInfo,
 ) -> Option<(RelNode, Vec<JoinKeyPair>)> {
     // We only inspect the cheapest path chosen by PostgreSQL.
-    let path = (*rel).cheapest_total_path;
-    if path.is_null() {
+    let raw_path = (*rel).cheapest_total_path;
+    if raw_path.is_null() {
         return None;
     }
+    // Peel parallel/projection wrappers (Gather, GatherMerge, Material,
+    // Projection) so we can recognize a JoinPath that PG wrapped for
+    // parallel-mode bridging. This is the fix for issue #4910 -- without
+    // peeling, the recursive 3-way reconstruction bails and the top-level
+    // JoinScan registration fails `is_limit_pushdown_safe` because relations
+    // behind the wrapper never enter the absorbed set.
+    let path = unwrap_path_wrappers(raw_path);
 
     if (*path).type_ == pg_sys::NodeTag::T_CustomPath {
         let custom_path = path as *mut pg_sys::CustomPath;
@@ -517,17 +524,6 @@ unsafe fn collect_join_sources_join_rel(
         let join_conditions = extract_join_conditions_from_list(join_restrict_info, &all_sources);
 
         let jointype = (*join_path).jointype;
-        let parsed_jointype =
-            match crate::postgres::customscan::joinscan::build::JoinType::try_from(jointype) {
-                Ok(jt) => jt,
-                Err(e) => {
-                    crate::postgres::customscan::joinscan::JoinScan::add_planner_warning(
-                        e.to_string(),
-                        (),
-                    );
-                    return None;
-                }
-            };
 
         if join_conditions.equi_keys.is_empty() {
             return None;
@@ -571,6 +567,16 @@ unsafe fn collect_join_sources_join_rel(
             }
         }
 
+        let parsed_jointype = match build::JoinType::try_from(jointype) {
+            Ok(v) => v,
+            Err(e) => {
+                crate::postgres::customscan::joinscan::JoinScan::add_planner_warning(
+                    e.to_string(),
+                    (),
+                );
+                return None;
+            }
+        };
         let join_node = crate::postgres::customscan::joinscan::build::JoinNode {
             join_type: parsed_jointype,
             left: outer_node,
@@ -595,6 +601,49 @@ unsafe fn is_join_path(path: *mut pg_sys::Path) -> bool {
         (*path).type_,
         pg_sys::NodeTag::T_NestPath | pg_sys::NodeTag::T_MergePath | pg_sys::NodeTag::T_HashPath
     )
+}
+
+/// Peel parallel/projection wrappers off a path until we hit a join path,
+/// our JoinScan custom path, or something we don't recognize.
+///
+/// Parallel-mode `cheapest_total_path` for an intermediate join rel is often
+/// wrapped in a `GatherPath` / `GatherMergePath` (parallel-to-serial bridging),
+/// a `MaterialPath` (cached for inner-side replay), or a `ProjectionPath`
+/// (target-list adjustment). The actual `JoinPath` lives below; the loop peels
+/// each wrapper in turn so chains like `GatherPath -> MaterialPath -> JoinPath`
+/// are also handled. Without peeling, [`is_join_path`] returns false on the
+/// wrapper and 3-way absorption fails -- issue #4910.
+///
+/// # Adding a new wrapper
+///
+/// Only add path types that exist for execution mechanics (parallelism,
+/// caching, column projection) and wrap a `subpath` representing the same
+/// join. Whether the resulting plan is actually safe to push into JoinScan
+/// is decided downstream (`is_limit_pushdown_safe`, activation checks,
+/// fast-field validation) -- this helper's only job is to surface the
+/// underlying `JoinPath` so those gates can run.
+unsafe fn unwrap_path_wrappers(mut path: *mut pg_sys::Path) -> *mut pg_sys::Path {
+    loop {
+        if path.is_null() {
+            return path;
+        }
+        let next = match (*path).type_ {
+            // Parallel-to-serial bridge: same row set, same schema.
+            pg_sys::NodeTag::T_GatherPath => (*(path as *mut pg_sys::GatherPath)).subpath,
+            // Sorted parallel-to-serial bridge: same rows, preserves order.
+            pg_sys::NodeTag::T_GatherMergePath => (*(path as *mut pg_sys::GatherMergePath)).subpath,
+            // Cached materialisation for inner-side replay: same rows, same schema.
+            pg_sys::NodeTag::T_MaterialPath => (*(path as *mut pg_sys::MaterialPath)).subpath,
+            // Adjusts the target list above the underlying path; the join
+            // structure (RTIs, equi-keys, jointype) we read below is unchanged.
+            pg_sys::NodeTag::T_ProjectionPath => (*(path as *mut pg_sys::ProjectionPath)).subpath,
+            _ => return path,
+        };
+        if next.is_null() || next == path {
+            return path;
+        }
+        path = next;
+    }
 }
 
 /// Helper to resolve the final relation from an inner query's PlannerInfo (`root`).

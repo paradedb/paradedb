@@ -446,22 +446,27 @@ pub unsafe fn try_create_subplan_join_paths(
 
     // Phase 1: validate + build JoinCSClause.
     let has_distinct = !(*(*root).parse).distinctClause.is_null();
-    let (join_clause, limit_offset) =
-        match JoinScan::validate_and_build_clause(root, &plan, &join_keys, has_distinct) {
-            Ok(res) => res,
-            Err(reason) => {
-                let aliases: Vec<String> = plan
-                    .sources()
-                    .iter()
-                    .map(|s| {
-                        RelationAlias::new(s.scan_info.alias.as_deref())
-                            .warning_context(s.scan_info.heaprelid)
-                    })
-                    .collect();
-                reason.emit(&aliases);
-                return Vec::new();
-            }
-        };
+    let (join_clause, limit_offset) = match JoinScan::validate_and_build_clause(
+        root,
+        &plan,
+        &join_keys,
+        has_distinct,
+        build::SwapSides::NoSwap,
+    ) {
+        Ok(res) => res,
+        Err(reason) => {
+            let aliases: Vec<String> = plan
+                .sources()
+                .iter()
+                .map(|s| {
+                    RelationAlias::new(s.scan_info.alias.as_deref())
+                        .warning_context(s.scan_info.heaprelid)
+                })
+                .collect();
+            reason.emit(&aliases);
+            return Vec::new();
+        }
+    };
 
     // No join-level predicate extraction needed for SubPlan-based paths.
 
@@ -484,6 +489,7 @@ impl JoinScan {
         plan: &RelNode,
         join_keys: &[build::JoinKeyPair],
         has_distinct: bool,
+        swap_sides: build::SwapSides,
     ) -> Result<(JoinCSClause, Option<LimitOffset>), JoinDeclineReason> {
         let all_sources = plan.sources();
 
@@ -595,7 +601,12 @@ impl JoinScan {
         }
 
         if join_clause.plan.has_semi_or_anti() {
-            if join_clause.partitioning_source_index() != 0 {
+            // Skip on the swap variant: PG calls this hook for both the
+            // canonical (NoSwap) and the parallel-aware mirror (Swap), and
+            // the canonical invocation already fired the warning.
+            if join_clause.partitioning_source_index() != 0
+                && matches!(swap_sides, build::SwapSides::NoSwap)
+            {
                 pgrx::warning!(
                     "For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal \
                      parallel partitioning strategy for this query. See \
@@ -1949,7 +1960,8 @@ impl JoinScan {
 
         // Phase 1: shared activation checks + JoinCSClause construction.
         let (mut join_clause, limit_offset) =
-            Self::validate_and_build_clause(root, &plan, &join_keys, has_distinct).map_err(warn)?;
+            Self::validate_and_build_clause(root, &plan, &join_keys, has_distinct, swap_sides)
+                .map_err(warn)?;
 
         // --- Join-level predicate extraction (join-hook specific) ---
         // This builds an expression tree that can reference:

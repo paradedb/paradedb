@@ -16,7 +16,14 @@ concurrency:
 jobs:
   publish-stressgres-docker:
     name: Publish Stressgres Docker Image to Docker Hub
-    runs-on: ubicloud-standard-8
+    runs-on:
+      # General-purpose m-family — Docker buildx is RAM-heavy.
+      # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
+      - runs-on=${{ github.run_id }}
+      - family=m7a+m7i
+      - cpu=8
+      - ram=32
+      - image=ubuntu24-full-x64
 
     steps:
       - name: Checkout Git Repository

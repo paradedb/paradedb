@@ -26,7 +26,15 @@ concurrency:
 jobs:
   schemabot-generate-diff:
     name: SchemaBot
-    runs-on: ubicloud-standard-8-arm-ubuntu-2404
+    runs-on:
+      # Compute-optimized c-family — Rust schema generation is CPU-bound.
+      # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
+      - runs-on=${{ github.run_id }}
+      - family=c7g+c8g
+      - cpu=8
+      - ram=16
+      - image=ubuntu24-full-arm64
+      - extras=s3-cache
     defaults:
       run:
         shell: bash -eo pipefail {0}

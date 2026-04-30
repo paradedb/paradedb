@@ -27,16 +27,30 @@ concurrency:
 jobs:
   test-paradedb:
     name: Test ParadeDB Docker Image (${{ matrix.arch }})
-    runs-on: ${{ matrix.runner }}
+    # General-purpose m-family — Docker buildx is RAM-heavy.
+    # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=${{ matrix.runner_family }}
+      - cpu=${{ matrix.cpu }}
+      - ram=${{ matrix.ram }}
+      - image=${{ matrix.runner_image }}
+      - extras=s3-cache
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: amd64
-            runner: ubicloud-standard-2-ubuntu-2404
+            cpu: 8
+            ram: 32
+            runner_family: m7a+m7i
+            runner_image: ubuntu24-full-x64
             platform: linux/amd64
           - arch: arm64
-            runner: ubicloud-standard-2-arm-ubuntu-2404
+            cpu: 16
+            ram: 64
+            runner_family: m7g+m8g
+            runner_image: ubuntu24-full-arm64
             platform: linux/arm64
 
     steps:
@@ -90,21 +104,25 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      # We tag the image as `latest` so it can be picked up by `docker-compose.yml` for testing,
-      # and we set `push: false` since this is just a test build. Each matrix entry builds its
-      # own arch natively (via a runner on that arch) so `load: true` works and the `docker run`
-      # smoke tests below exercise the image natively — no emulation, no cross-arch shenanigans.
-      - name: Build the ParadeDB Docker Image via Depot
-        uses: depot/build-push-action@v1
-        with:
-          context: .
-          file: docker/Dockerfile
-          platforms: ${{ matrix.platform }}
-          load: true
-          push: false
-          tags: paradedb/paradedb:latest
-          project: ${{ secrets.DEPOT_PROJECT }}
-          token: ${{ secrets.DEPOT_TOKEN }}
+      # Each matrix entry builds its own arch natively (via a runner on that arch) so `--load`
+      # works and the `docker run` smoke tests below exercise the image natively — no emulation,
+      # no cross-arch shenanigans. We tag the image `latest` to match the tag used by the smoke
+      # tests, and skip pushing since this is just a test build. Building directly (rather than
+      # via Depot) avoids requiring repo secrets, which would block community-contributor PRs.
+      #
+      # The BuildKit `type=gha` cache is transparently backed by runs-on's S3 cache (via the
+      # `extras=s3-cache` runner label above), so it works without configuring a separate
+      # registry cache. Scoped per-arch so amd64 and arm64 don't evict each other.
+      - name: Build the ParadeDB Docker Image
+        run: |
+          docker buildx build \
+            --platform ${{ matrix.platform }} \
+            --file docker/Dockerfile \
+            --tag paradedb/paradedb:latest \
+            --cache-from type=gha,scope=paradedb-docker-${{ matrix.arch }} \
+            --cache-to type=gha,mode=max,scope=paradedb-docker-${{ matrix.arch }} \
+            --load \
+            .
 
       # Start the ParadeDB Docker image using `docker run` to test the standalone Docker image.
       # We add a --tmpfs mount as a test of compatibility with the upstream `postgres` image.

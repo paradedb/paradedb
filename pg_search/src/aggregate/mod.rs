@@ -636,7 +636,7 @@ fn set_missing_on_terms(
 }
 
 /// Walk the json value looking for NULL sentinel "key" values where they would be in a
-/// `pdb.agg('{"terms":{...` query, and if found, replace the sentinel with null.
+/// `pdb.agg('{"terms":{...` agg query, and if found, replace the sentinel with null
 pub(crate) fn scrub_missing_sentinel_value(val: &mut serde_json::Value) {
     if let Some(buckets) = val.get_mut("buckets").and_then(|v| v.as_array_mut()) {
         for bucket in buckets.iter_mut().filter_map(|b| b.as_object_mut()) {
@@ -806,8 +806,6 @@ mod scrub_missing_sentinel_value_tests {
 
     #[test]
     fn recurses_into_subagg_buckets() {
-        // Documents current behavior: only the top-level "buckets" array is scrubbed.
-        // Sentinels nested inside sub-aggregations are left in place.
         let mut input = json!({
             "buckets": [
                 {

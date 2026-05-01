@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>ParadeDB Benchmarks</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.0" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/sql-formatter@15/dist/sql-formatter.min.js"></script>
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg: #f4f5f7;
+            --card: #ffffff;
+            --border: #e5e7eb;
+            --border-hover: #d1d5db;
+            --text: #111827;
+            --text-secondary: #6b7280;
+            --text-tertiary: #9ca3af;
+            --accent: #6366f1;
+            --accent-light: #eef2ff;
+            --green: #16a34a;
+            --red: #dc2626;
+            --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+            --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+            --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+            --radius: 12px;
+            --radius-sm: 8px;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            background: var(--bg); color: var(--text); line-height: 1.5;
+            -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+        }
+
+        .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+        .container { max-width: 1320px; margin: 0 auto; padding: 2rem 2rem 4rem; }
+
+        header { margin-bottom: 2rem; }
+        header h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; }
+        header p { color: var(--text-secondary); font-size: 0.8125rem; margin-top: 0.25rem; }
+        .controls { display: flex; align-items: center; gap: 0.75rem; margin-top: 1rem; flex-wrap: wrap; }
+
+        .select-wrap { position: relative; }
+        .select-wrap select {
+            appearance: none; background: var(--card); border: 1px solid var(--border);
+            border-radius: var(--radius-sm); padding: 0.4375rem 2rem 0.4375rem 0.75rem;
+            font: 500 0.8125rem/1.4 'Inter', sans-serif; color: var(--text); cursor: pointer;
+            transition: border-color .15s, box-shadow .15s;
+        }
+        .select-wrap select:hover { border-color: var(--border-hover); }
+        .select-wrap select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-light); }
+        .select-wrap::after {
+            content: ''; position: absolute; right: 0.625rem; top: 50%; transform: translateY(-50%);
+            border: 4px solid transparent; border-top: 5px solid var(--text-tertiary); pointer-events: none;
+        }
+
+        .section-group { margin-bottom: 2.5rem; }
+        .section-title { font-size: 1.125rem; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 1rem; }
+
+        .chart-card {
+            background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+            box-shadow: var(--shadow-sm); margin-bottom: 1.25rem; transition: box-shadow .2s;
+        }
+        .chart-card:hover { box-shadow: var(--shadow); }
+
+        .chart-card-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 1rem 1.25rem 0; gap: 0.75rem; flex-wrap: wrap;
+        }
+        .chart-card-title { font-size: 0.875rem; font-weight: 600; }
+        .chart-toolbar { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+
+        .toggle { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; user-select: none; }
+        .toggle input { display: none; }
+        .toggle-track {
+            width: 32px; height: 18px; background: var(--border); border-radius: 9px;
+            position: relative; transition: background .2s; flex-shrink: 0;
+        }
+        .toggle input:checked + .toggle-track { background: var(--accent); }
+        .toggle-track::after {
+            content: ''; position: absolute; top: 2px; left: 2px;
+            width: 14px; height: 14px; background: #fff; border-radius: 50%;
+            transition: transform .2s; box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+        }
+        .toggle input:checked + .toggle-track::after { transform: translateX(14px); }
+        .toggle-label { font-size: 0.75rem; color: var(--text-secondary); }
+
+        .slider-group { display: flex; align-items: center; gap: 0.5rem; min-width: 160px; }
+        .slider-group label { font-size: 0.75rem; color: var(--text-secondary); white-space: nowrap; }
+        .slider-group input[type="range"] {
+            flex: 1; -webkit-appearance: none; height: 3px;
+            background: var(--border); border-radius: 2px; outline: none;
+        }
+        .slider-group input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 14px; height: 14px; background: var(--accent);
+            border-radius: 50%; cursor: pointer; box-shadow: 0 0 0 3px var(--accent-light);
+        }
+        .slider-value {
+            font: 500 0.6875rem/1 'JetBrains Mono', monospace; color: var(--text-tertiary);
+            background: var(--bg); padding: 0.1875rem 0.375rem; border-radius: 4px;
+            max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+
+        .btn {
+            display: inline-flex; align-items: center; gap: 0.25rem;
+            padding: 0.3125rem 0.625rem; font: 500 0.75rem/1.4 'Inter', sans-serif;
+            border: 1px solid var(--border); border-radius: 6px;
+            background: var(--card); color: var(--text-secondary); cursor: pointer; transition: all .15s;
+        }
+        .btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
+        .btn svg { width: 14px; height: 14px; }
+
+        .canvas-wrap { padding: 0.75rem 1.25rem 1rem; position: relative; }
+        .canvas-wrap canvas { min-height: 280px; }
+        .chart-actions { display: flex; gap: 0.5rem; padding: 0 1.25rem 1rem; }
+
+        /* ── Tooltip ── */
+        #tooltip {
+            position: fixed; z-index: 9999; pointer-events: none;
+            background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+            box-shadow: var(--shadow-lg); opacity: 0; width: max-content; max-width: 520px;
+            transition: opacity .1s ease; font-size: 0.8125rem; overflow: hidden;
+        }
+        #tooltip.visible { opacity: 1; }
+
+        .tt-header { padding: 0.5rem 0.75rem; background: #fafbfc; border-bottom: 1px solid var(--border); }
+        .tt-title { font-weight: 600; font-size: 0.8125rem; color: var(--text); line-height: 1.35; margin-bottom: 0.125rem; }
+        .tt-meta { font: 400 0.6875rem/1.4 'JetBrains Mono', monospace; color: var(--text-tertiary); }
+        .tt-meta a { color: var(--accent); text-decoration: none; }
+        .tt-meta a:hover { text-decoration: underline; }
+
+        .tt-body { padding: 0.375rem 0.75rem; }
+        .tt-row { padding: 0.25rem 0; }
+        .tt-row + .tt-row { border-top: 1px solid #f3f4f6; }
+        .tt-row-main { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+        .tt-name { display: flex; align-items: center; gap: 0.375rem; font-weight: 500; color: var(--text); }
+        .tt-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+        .tt-val { font: 500 0.8125rem/1 'JetBrains Mono', monospace; white-space: nowrap; }
+        .tt-changes { font-size: 0.6875rem; color: var(--text-tertiary); padding-left: 1.25rem; }
+        .tt-changes .up { color: var(--red); font-weight: 500; }
+        .tt-changes .down { color: var(--green); font-weight: 500; }
+        .tt-changes.mono { font-family: 'JetBrains Mono', monospace; font-size: 0.625rem; color: var(--text-tertiary); }
+
+        .tt-footer {
+            padding: 0.375rem 0.75rem 0.5rem; border-top: 1px solid var(--border);
+            font: 400 0.625rem/1.5 'JetBrains Mono', monospace; color: var(--text-tertiary);
+            white-space: pre-wrap; word-break: break-all; max-height: 100px; overflow-y: auto;
+        }
+
+        .loading { display: flex; align-items: center; justify-content: center; padding: 5rem; color: var(--text-secondary); gap: 0.75rem; }
+        .spinner {
+            width: 18px; height: 18px; border: 2px solid var(--border);
+            border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .empty { text-align: center; padding: 4rem 2rem; color: var(--text-secondary); font-size: 0.875rem; }
+
+        #legend-popover {
+            position: fixed; z-index: 9998; pointer-events: none;
+            background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+            box-shadow: var(--shadow-lg); padding: 0.5rem 0.75rem;
+            font: 400 0.6875rem/1.5 'JetBrains Mono', monospace; color: var(--text-secondary);
+            white-space: pre-wrap; word-break: break-all; max-width: 960px; max-height: 200px;
+            overflow-y: auto; opacity: 0; transition: opacity .12s ease;
+        }
+        #legend-popover.visible { opacity: 1; }
+        #legend-popover .lp-label { font: 600 0.75rem/1.4 'Inter', sans-serif; color: var(--text); margin-bottom: 0.25rem; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>ParadeDB Benchmarks</h1>
+        <p>Performance tracking across commits</p>
+        <div class="controls">
+            <div class="select-wrap"><select id="dataset-filter"></select></div>
+        </div>
+    </header>
+    <div id="charts">
+        <div class="loading"><div class="spinner"></div><span>Loading benchmarks&hellip;</span></div>
+    </div>
+</div>
+<div id="tooltip"></div>
+<div id="legend-popover"></div>
+
+<script>
+// Chart.js default palette
+const COLORS = [
+    '#36a2eb','#ff6384','#4bc0c0','#ff9f40','#9966ff',
+    '#ffcd56','#c9cbcf','#36a2eb','#ff6384','#4bc0c0',
+    '#ff9f40','#9966ff','#ffcd56','#c9cbcf','#36a2eb',
+];
+
+let allRawData = {};
+let hashInfo = {};
+
+function getCommonSubstring(strings) {
+    if (!strings || strings.length === 0) return '';
+    if (strings.length === 1) return strings[0];
+    const first = strings[0];
+    let longest = '';
+    for (let i = 0; i < first.length; i++) {
+        for (let j = i + longest.length + 1; j <= first.length; j++) {
+            const sub = first.substring(i, j);
+            if (strings.every(s => s.includes(sub))) longest = sub;
+            else break;
+        }
+    }
+    return longest.length > 5 ? longest : '';
+}
+
+function parseDatasetId(key) {
+    const m = key.match(/'([^']+)'(?:\s*\(([^)]+)\))?/);
+    if (m) return m[2] ? `${m[1]} (${m[2]})` : m[1];
+    return key;
+}
+
+function extractQuery(raw) {
+    if (!raw) return '';
+    const m = raw.match(/query\s*=\s*(.*)/is);
+    return m ? m[1].trim() : raw.trim();
+}
+
+function extractMeta(raw) {
+    if (!raw) return '';
+    // Extract key=value pairs before query= (e.g. "cold_query_ms=104.103; query=...")
+    const parts = raw.split(/;\s*query\s*=/i);
+    if (parts.length > 1) {
+        // Has query= separator — return everything before it
+        const meta = parts[0].trim();
+        return meta || '';
+    }
+    // No query= separator — if it looks like key=value pairs (not raw SQL), show it
+    if (/^\w+=/.test(raw) && !/\bSELECT\b/i.test(raw)) return raw.trim();
+    return '';
+}
+
+function prettySql(raw) {
+    const sql = extractQuery(raw);
+    if (!sql) return '';
+    return sqlFormatter.format(sql, { language: 'postgresql', tabWidth: 2 });
+}
+
+function getUniqueDatasets(raw) { return [...new Set(Object.keys(raw).map(parseDatasetId))]; }
+
+function filterData(raw, ds) {
+    const out = {};
+    for (const [k, v] of Object.entries(raw)) { if (parseDatasetId(k) === ds) out[k] = v; }
+    return out;
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function fmtDate(ts) {
+    if (!ts) return '';
+    return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/* ── External Tooltip ── */
+const tooltipEl = document.getElementById('tooltip');
+
+function externalTooltipHandler(context) {
+    const { chart, tooltip } = context;
+    if (tooltip.opacity === 0) {
+        tooltipEl.classList.remove('visible');
+        return;
+    }
+    document.getElementById('legend-popover').classList.remove('visible');
+
+    const idx = tooltip.dataPoints?.[0]?.dataIndex;
+    if (idx == null) return;
+
+    const meta = chart._pdbMeta;
+    const ws = meta.windowStart || 0;
+    const run = meta.runs[idx + ws];
+    const info = run ? hashInfo[run.short] : null;
+    const commitUrl = info?.url || run?.commitUrl;
+
+    // info.label defaults to the short hash — only use it if it's actually a PR/release title
+    const infoLabel = info?.label && info.label !== run?.short ? info.label : null;
+    const title = infoLabel || run?.commitMsg || run?.short || '';
+    const author = run?.author || '';
+    const date = fmtDate(info?.timestamp || run?.timestamp);
+    const shortHash = run?.short || '';
+
+    let html = `<div class="tt-header"><div class="tt-title">${esc(title)}</div><div class="tt-meta">`;
+    html += esc(shortHash);
+    if (author) html += ` &middot; ${esc(author)}`;
+    if (date) html += ` &middot; ${esc(date)}`;
+    html += `</div></div><div class="tt-body">`;
+
+    for (const pt of (tooltip.dataPoints || [])) {
+        const ds = pt.dataset;
+        const val = ds.original[idx + ws];
+        const color = ds.borderColor || '#888';
+
+        html += '<div class="tt-row"><div class="tt-row-main">';
+        html += `<span class="tt-name"><span class="tt-dot" style="background:${color}"></span>${esc(ds.label)}</span>`;
+        html += `<span class="tt-val">${val != null ? val.toFixed(3) : '–'}</span></div>`;
+
+        const orig = ds.original;
+        const oi = idx + ws;
+        const changes = [];
+        if (chart.normalized && orig[0] != null && val != null) {
+            const pct = ((val / orig[0]) - 1) * 100;
+            const cls = pct > 0 ? 'up' : 'down';
+            changes.push(`<span class="${cls}">${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%</span> from first`);
+        }
+        if (oi > 0 && orig[oi - 1] != null && val != null) {
+            const pct = ((val - orig[oi - 1]) / orig[oi - 1]) * 100;
+            const cls = pct > 0 ? 'up' : 'down';
+            changes.push(`<span class="${cls}">${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%</span> from prev`);
+        }
+        if (changes.length) html += `<div class="tt-changes">${changes.join(' &middot; ')}</div>`;
+
+        // Show metadata (everything except query=...) from extras
+        if (ds.extras) {
+            const extra = ds.extras[idx + ws];
+            if (extra) {
+                const meta = extractMeta(extra);
+                if (meta) html += `<div class="tt-changes mono">${esc(meta)}</div>`;
+            }
+        }
+
+        html += '</div>';
+    }
+    html += '</div>';
+
+    tooltipEl.innerHTML = html;
+    tooltipEl.classList.add('visible');
+
+    const canvasRect = chart.canvas.getBoundingClientRect();
+    let left = canvasRect.left + tooltip.caretX + 16;
+    let top = canvasRect.top + tooltip.caretY - 16;
+    const ttRect = tooltipEl.getBoundingClientRect();
+    if (left + ttRect.width > window.innerWidth - 12) left = canvasRect.left + tooltip.caretX - ttRect.width - 16;
+    if (top + ttRect.height > window.innerHeight - 12) top = window.innerHeight - ttRect.height - 12;
+    if (top < 8) top = 8;
+    tooltipEl.style.left = left + 'px';
+    tooltipEl.style.top = top + 'px';
+}
+
+/* ── Render ── */
+function applyWindow(chart, ws, norm, labels) {
+    chart.data.datasets.forEach(ds => {
+        const sliced = ds.original.slice(ws);
+        ds.data = norm ? sliced.map(v => v != null && sliced[0] != null ? v / sliced[0] : null) : sliced.slice();
+        ds.pointBorderColor = sliced.map((v, i, arr) => {
+            if (i > 0 && arr[i - 1] != null && v != null) {
+                const pct = (v - arr[i - 1]) / arr[i - 1];
+                if (Math.abs(pct) >= 0.10) return pct > 0 ? 'rgb(255,0,0)' : 'rgb(0,255,0)';
+            }
+            return Chart.defaults.borderColor;
+        });
+    });
+    chart.data.labels = labels.slice(ws);
+}
+
+function renderCharts(rawData) {
+    const container = document.getElementById('charts');
+    container.innerHTML = '';
+    if (!Object.keys(rawData).length) { container.innerHTML = '<div class="empty">No data for this dataset.</div>'; return; }
+
+    const fileGroups = {};
+    for (const [cat, ents] of Object.entries(rawData)) {
+        const fn = cat.split(' ')[1] || cat;
+        (fileGroups[fn] = fileGroups[fn] || []).push(...ents);
+    }
+
+    for (const [fn, entries] of Object.entries(fileGroups)) {
+        const section = document.createElement('div');
+        section.className = 'section-group';
+        section.innerHTML = `<h2 class="section-title">${esc(fn)}</h2>`;
+
+        const benches = entries.flatMap(ent => ent.benches.map(b => ({
+            name: b.name, unit: b.unit,
+            timestamp: new Date(hashInfo[ent.commit.id.slice(0, 7)]?.timestamp || ent.commit.timestamp).getTime(),
+            run: ent.date, short: ent.commit.id.slice(0, 7),
+            value: b.value, extra: b.extra || '',
+            author: ent.commit.author?.username || ent.commit.author?.name || '',
+            commitMsg: (ent.commit.message || '').split('\n')[0],
+            commitUrl: ent.commit.url || '', tool: ent.tool || '',
+        }))).sort((a, b) => a.name.localeCompare(b.name));
+
+        const prefixGroups = {};
+        for (const b of benches) {
+            const sep = b.name.indexOf(' - ');
+            const prefix = sep > -1 ? b.name.slice(0, sep) : b.name;
+            (prefixGroups[prefix] = prefixGroups[prefix] || []).push(b);
+        }
+
+        for (const [prefix, group] of Object.entries(prefixGroups)) {
+            const runKeys = [...new Set(group.map(d => `${d.timestamp}|${d.run}|${d.short}`))];
+            const runs = runKeys.map(k => {
+                const [ts, r, sh] = k.split('|');
+                const sample = group.find(g => g.short === sh);
+                return { timestamp: +ts, run: +r, short: sh, author: sample?.author, commitMsg: sample?.commitMsg, commitUrl: sample?.commitUrl };
+            });
+            const labels = runs.map(r => {
+                const lbl = hashInfo[r.short]?.label || r.short;
+                return lbl.length > 25 ? lbl.slice(0, 25) + '…' : lbl;
+            });
+
+            const tool = group[0]?.tool || '';
+            const smallerIsBetter = tool.toLowerCase().includes('smaller');
+
+            const seriesMap = {}, extraMap = {};
+            for (const d of group) {
+                const idx = runs.findIndex(r => r.timestamp === d.timestamp && r.run === d.run && r.short === d.short);
+                (seriesMap[d.name] = seriesMap[d.name] || Array(runs.length).fill(null))[idx] = d.value;
+                (extraMap[d.name] = extraMap[d.name] || Array(runs.length).fill(null))[idx] = d.extra;
+            }
+
+            let ci = 0;
+            const datasets = Object.entries(seriesMap).map(([name, data]) => {
+                const c = COLORS[ci++ % COLORS.length];
+                return {
+                    label: name, data: data.slice(), original: data.slice(), extras: extraMap[name].slice(),
+                    borderColor: c, backgroundColor: c + '18', fill: false, tension: 0.35, borderWidth: 2,
+                    pointStyle: 'circle', pointRadius: 3, pointHoverRadius: 5,
+                    pointBorderColor: data.map((v, i, arr) => {
+                        if (i > 0 && arr[i - 1] != null && v != null) {
+                            const pct = (v - arr[i - 1]) / arr[i - 1];
+                            if (Math.abs(pct) >= 0.10) return pct > 0 ? 'rgb(255,0,0)' : 'rgb(0,255,0)';
+                        }
+                        return Chart.defaults.borderColor;
+                    }),
+                    _origColor: c,
+                };
+            });
+
+            const hasSig = datasets.some(ds => ds.original.some((v, i, a) => i > 0 && a[i-1] != null && v != null && Math.abs((v - a[i-1]) / a[i-1]) >= 0.10));
+            const hasExt = datasets.some(ds => ds.original.some((v, i, a) => i > 0 && a[i-1] != null && v != null && Math.abs((v - a[i-1]) / a[i-1]) >= 100));
+            const defNorm = hasSig && !hasExt;
+            const yUnit = group[0].unit;
+
+            const card = document.createElement('div');
+            card.className = 'chart-card';
+            card.innerHTML = `
+                <div class="chart-card-header">
+                    <span class="chart-card-title">${esc(prefix)}</span>
+                    <div class="chart-toolbar">
+                        <label class="toggle"><input type="checkbox" class="norm-toggle" ${defNorm ? 'checked' : ''}><span class="toggle-track"></span><span class="toggle-label">Normalize</span></label>
+                        <div class="slider-group"><label>Start</label><input type="range" class="window-slider" min="0" max="${Math.max(0, labels.length - 1)}" value="0"><span class="slider-value">0</span></div>
+                    </div>
+                </div>
+                <div class="canvas-wrap"><canvas></canvas></div>
+                <div class="chart-actions">
+                    <button class="btn zoom-reset-btn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="4.5"/><path d="M5 7h4M12 12l2.5 2.5"/></svg>Reset Zoom</button>
+                </div>`;
+            section.appendChild(card);
+
+            const canvas = card.querySelector('canvas');
+            function makeY(norm) {
+                return norm
+                    ? { beginAtZero: false, title: { display: true, text: '% change from first', font: { size: 11, family: 'Inter' } }, ticks: { maxTicksLimit: 6, font: { size: 11 }, callback: v => `${Math.round((v*100)-100)}%` }, grid: { color: '#f3f4f6' } }
+                    : { beginAtZero: true, title: { display: true, text: yUnit, font: { size: 11, family: 'Inter' } }, ticks: { maxTicksLimit: 6, font: { size: 11 } }, grid: { color: '#f3f4f6' } };
+            }
+
+            const chart = new Chart(canvas.getContext('2d'), {
+                type: 'line', data: { labels, datasets },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    scales: { x: { ticks: { maxRotation: 35, minRotation: 35, font: { size: 10 }, color: '#6366f1' }, grid: { display: false } }, y: makeY(defNorm) },
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { boxWidth: 28, boxHeight: 3, padding: 16, font: { size: 11, family: 'Inter' } },
+                            onHover: (e, legendItem, legend) => {
+                                const ch = legend.chart;
+                                ch.data.datasets.forEach((ds, i) => {
+                                    ds.borderWidth = i === legendItem.datasetIndex ? 3 : 1;
+                                    ds.borderColor = i === legendItem.datasetIndex ? ds._origColor : ds._origColor + '40';
+                                });
+                                ch.update('none');
+                                // Hide data tooltip, show query popover
+                                tooltipEl.classList.remove('visible');
+                                const ds = ch.data.datasets[legendItem.datasetIndex];
+                                const extra = ds.extras?.find(e => e);
+                                const pop = document.getElementById('legend-popover');
+                                if (extra) {
+                                    pop.innerHTML = `<div class="lp-label">${esc(ds.label)}</div>${esc(prettySql(extra))}`;
+                                    pop.classList.add('visible');
+                                    const rect = ch.canvas.getBoundingClientRect();
+                                    let left = e.native?.clientX ?? (rect.left + rect.width / 2);
+                                    let top = (e.native?.clientY ?? rect.bottom) - 8;
+                                    pop.style.left = left + 'px';
+                                    pop.style.top = 'auto';
+                                    pop.style.bottom = (window.innerHeight - top) + 'px';
+                                    // Clamp horizontal
+                                    const popRect = pop.getBoundingClientRect();
+                                    if (popRect.right > window.innerWidth - 12) {
+                                        pop.style.left = (window.innerWidth - popRect.width - 12) + 'px';
+                                    }
+                                } else {
+                                    pop.classList.remove('visible');
+                                }
+                            },
+                            onLeave: (e, legendItem, legend) => {
+                                legend.chart.data.datasets.forEach(ds => {
+                                    ds.borderWidth = 2;
+                                    ds.borderColor = ds._origColor;
+                                });
+                                legend.chart.update('none');
+                                document.getElementById('legend-popover').classList.remove('visible');
+                            },
+                            onClick: (e, legendItem, legend) => {
+                                const ds = legend.chart.data.datasets[legendItem.datasetIndex];
+                                const extra = ds.extras?.find(ex => ex);
+                                if (extra) {
+                                    const sql = extractQuery(extra);
+                                    navigator.clipboard.writeText(sql).then(() => {
+                                        const pop = document.getElementById('legend-popover');
+                                        pop.innerHTML = '<div class="lp-label" style="color:var(--green)">Copied to clipboard!</div>';
+                                        pop.classList.add('visible');
+                                        setTimeout(() => pop.classList.remove('visible'), 1500);
+                                    });
+                                }
+                            },
+                        },
+                        title: { display: false },
+                        tooltip: { enabled: false, external: externalTooltipHandler },
+                        zoom: { zoom: { drag: { enabled: true, backgroundColor: 'rgba(99,102,241,0.1)', borderColor: '#6366f1', borderWidth: 1 }, pinch: { enabled: true }, mode: 'x' } },
+                    },
+                },
+            });
+
+            chart._pdbMeta = { runs, windowStart: 0, smallerIsBetter };
+            // X-axis label click → open commit
+            canvas.addEventListener('click', (e) => {
+                const xScale = chart.scales.x;
+                const yScale = chart.scales.y;
+                if (!xScale || !yScale) return;
+                // Only handle clicks in the x-axis label zone (between chart bottom and legend)
+                const rect = canvas.getBoundingClientRect();
+                const y = e.clientY - rect.top;
+                const legendTop = chart.legend?.top ?? rect.height;
+                if (y < yScale.bottom || y > legendTop) return;
+                const x = e.clientX - rect.left;
+                // Find closest tick
+                let closest = -1, minDist = Infinity;
+                for (let i = 0; i < xScale.ticks.length; i++) {
+                    const px = xScale.getPixelForTick(i);
+                    const dist = Math.abs(px - x);
+                    if (dist < minDist) { minDist = dist; closest = i; }
+                }
+                if (closest >= 0 && minDist < 40) {
+                    const ws = chart._pdbMeta.windowStart || 0;
+                    const r = runs[closest + ws];
+                    const url = r ? (hashInfo[r.short]?.url || r.commitUrl) : null;
+                    if (url) window.open(url, '_blank');
+                }
+            });
+            // Cursor pointer on x-axis labels
+            canvas.addEventListener('mousemove', (e) => {
+                const yScale = chart.scales.y;
+                if (!yScale) return;
+                const rect = canvas.getBoundingClientRect();
+                const y = e.clientY - rect.top;
+                const legendTop = chart.legend?.bottom ?? rect.height;
+                canvas.style.cursor = (y > yScale.bottom && y < legendTop) ? 'pointer' : '';
+            });
+            chart.normalized = defNorm;
+            if (defNorm) {
+                chart.data.datasets.forEach(ds => { ds.data = ds.original.map(v => v != null && ds.original[0] != null ? v / ds.original[0] : null); });
+                chart.update();
+            }
+
+            card.querySelector('.norm-toggle').addEventListener('change', e => {
+                const norm = e.target.checked;
+                const ws = parseInt(card.querySelector('.window-slider').value);
+                chart.normalized = norm;
+                chart._pdbMeta.windowStart = ws;
+                applyWindow(chart, ws, norm, labels);
+                chart.options.scales.y = makeY(norm);
+                chart.resetZoom(); chart.update();
+            });
+
+            card.querySelector('.window-slider').addEventListener('input', e => {
+                const ws = parseInt(e.target.value);
+                card.querySelector('.slider-value').textContent = labels[ws] || ws;
+                const norm = card.querySelector('.norm-toggle').checked;
+                chart._pdbMeta.windowStart = ws;
+                applyWindow(chart, ws, norm, labels);
+                chart.update();
+            });
+
+            card.querySelector('.zoom-reset-btn').addEventListener('click', () => chart.resetZoom());
+        }
+        container.appendChild(section);
+    }
+}
+
+/* ── Init ── */
+async function init() {
+    const container = document.getElementById('charts');
+    try {
+        const res = await fetch('data.js');
+        eval(await res.text());
+        Chart.register(ChartZoom);
+
+        allRawData = window.BENCHMARK_DATA?.entries || {};
+        if (!Object.keys(allRawData).length) { container.innerHTML = '<div class="empty">No benchmark data found.</div>'; return; }
+
+        const allEntries = Object.values(allRawData).flat();
+        const uniqueShorts = [...new Set(allEntries.map(e => e.commit.id.slice(0, 7)))];
+        for (const ent of allEntries) {
+            const sh = ent.commit.id.slice(0, 7);
+            if (!hashInfo[sh]) hashInfo[sh] = { label: sh, url: ent.commit.url || null, timestamp: ent.commit.timestamp };
+        }
+
+        try {
+            const [refs, releases] = await Promise.all([
+                fetch('https://api.github.com/repos/paradedb/paradedb/git/refs/tags').then(r => r.json()),
+                fetch('https://api.github.com/repos/paradedb/paradedb/releases').then(r => r.json()),
+            ]);
+            const releasesByTag = {};
+            if (Array.isArray(releases)) for (const r of releases) releasesByTag[r.tag_name] = r.created_at;
+            const releaseMap = {};
+            if (Array.isArray(refs)) {
+                for (const ref of refs) {
+                    const tag = ref.ref.replace('refs/tags/', '');
+                    let sha = ref.object.sha;
+                    if (ref.object.type === 'tag') { try { sha = (await (await fetch(ref.object.url)).json()).object.sha; } catch {} }
+                    const sh = sha.slice(0, 7);
+                    releaseMap[sh] = { label: tag, url: `https://github.com/paradedb/paradedb/releases/tag/${tag}`, timestamp: releasesByTag[tag] };
+                    hashInfo[sh] = releaseMap[sh];
+                }
+            }
+            await Promise.all(uniqueShorts.filter(sh => !releaseMap[sh]).map(sh =>
+                fetch(`https://api.github.com/repos/paradedb/paradedb/commits/${sh}/pulls`, {
+                    headers: { Accept: 'application/vnd.github.groot-preview+json' },
+                }).then(r => r.json()).then(prs => {
+                    if (Array.isArray(prs) && prs.length) {
+                        const pr = prs[0];
+                        hashInfo[sh] = { ...hashInfo[sh], label: `#${pr.number}: ${pr.title}`, url: pr.html_url };
+                    }
+                }).catch(() => {})
+            ));
+        } catch {}
+
+        const dropdown = document.getElementById('dataset-filter');
+        const datasets = getUniqueDatasets(allRawData);
+        for (const ds of datasets) { const o = document.createElement('option'); o.value = ds; o.textContent = ds; dropdown.appendChild(o); }
+        if (datasets.length) { const last = datasets[datasets.length - 1]; dropdown.value = last; renderCharts(filterData(allRawData, last)); }
+        else renderCharts(allRawData);
+        dropdown.addEventListener('change', e => renderCharts(filterData(allRawData, e.target.value)));
+    } catch (err) {
+        console.error(err);
+        container.innerHTML = '<div class="empty" style="color:var(--red)">Failed to load benchmark data.</div>';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

@@ -75,7 +75,9 @@ impl From<SessionContextProfile> for MppSessionProfile {
 /// tag fields, so we do our own versioning.
 pub const MPP_PLAN_BROADCAST_VERSION: u8 = 1;
 
-/// Per-query identifier for `MppStage.query_id`, derived on the leader from
+/// Per-query identifier for the boundary [`Stage::query_id`] (low 64 bits;
+/// see [`walker::emit_shuffle_cut`]) and every [`MppTaskKey::query_id`].
+/// Derived on the leader from
 /// `MyProcPid` and `GetCurrentStatementStartTimestamp`. `u64` is enough:
 /// the bottom 32 bits (timestamp µs, wraps every ~71 min) distinguish
 /// sequential queries in one backend; `pid ^ (ts >> 32)` in the top 32
@@ -120,11 +122,13 @@ pub struct MppPlanBroadcast {
     pub logical_plan: Vec<u8>,
     pub total_participants: u32,
     pub session_profile: MppSessionProfile,
-    /// Per-query identifier stamped on every [`MppStage`] / [`MppTaskKey`]
-    /// boundary descriptor. Workers reuse the same value so mesh framing
-    /// agrees across participants. Leader fills via [`derive_query_id`].
+    /// Per-query identifier stamped on every boundary [`Stage`] (as the
+    /// low 64 bits of [`Stage::query_id`]) and every [`MppTaskKey`].
+    /// Workers reuse the same value so mesh framing agrees across
+    /// participants. Leader fills via [`derive_query_id`].
     ///
-    /// [`MppStage`]: super::stage::MppStage
+    /// [`Stage`]: datafusion_distributed::Stage
+    /// [`Stage::query_id`]: datafusion_distributed::Stage::query_id
     /// [`MppTaskKey`]: super::stage::MppTaskKey
     pub query_id: u64,
 }

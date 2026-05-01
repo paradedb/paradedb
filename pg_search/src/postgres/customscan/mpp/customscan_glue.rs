@@ -73,10 +73,10 @@ impl MppExecutionState {
         matches!(self, MppExecutionState::Leader(_))
     }
 
-    /// Per-query identifier used to stamp every
-    /// [`MppStage`](crate::postgres::customscan::mpp::stage::MppStage) a
-    /// bridge or the generic cut walker builds. Leader derives it once at
-    /// plan time via
+    /// Per-query identifier used to stamp every boundary
+    /// [`Stage`](datafusion_distributed::Stage) (as the low 64 bits of
+    /// [`Stage::query_id`](datafusion_distributed::Stage::query_id)) the
+    /// generic cut walker builds. Leader derives it once at plan time via
     /// [`derive_query_id`](crate::postgres::customscan::mpp::session::derive_query_id)
     /// and ships it to workers inside `MppPlanBroadcast`.
     pub fn query_id(&self) -> u64 {

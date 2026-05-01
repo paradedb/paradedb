@@ -125,8 +125,9 @@ pub struct LeaderMppContext {
     /// One [`LeaderMesh`] per shuffle mesh, in the order the shape requested.
     pub meshes: Vec<LeaderMesh>,
     pub participant_config: MppParticipantConfig,
-    /// Per-query identifier the leader derived at plan time. Stamped on
-    /// every [`MppStage`](super::stage::MppStage) so workers and leader
+    /// Per-query identifier the leader derived at plan time. Stamped (as
+    /// the low 64 bits) on every boundary
+    /// [`Stage`](datafusion_distributed::Stage) so workers and leader
     /// agree on the key that keys cross-participant mesh traffic.
     pub query_id: u64,
 }

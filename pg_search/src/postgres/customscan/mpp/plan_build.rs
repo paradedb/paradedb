@@ -81,8 +81,8 @@ use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 
 use crate::postgres::customscan::mpp::shuffle::{MppShuffleExec, ShuffleWiring};
-use crate::postgres::customscan::mpp::stage::{MppNetworkBoundary, MppStage};
 use crate::postgres::customscan::mpp::transport::DrainHandle;
+use datafusion_distributed::{NetworkBoundary, Stage};
 
 /// Inputs to [`wrap_with_mpp_shuffle`].
 ///
@@ -106,7 +106,7 @@ pub struct MppShuffleInputs {
     pub drain_handle: Arc<DrainHandle>,
     pub wrapped_schema: SchemaRef,
     pub tag: &'static str,
-    pub stage: Option<MppStage>,
+    pub stage: Option<Stage>,
     pub hash_keys: Option<Vec<Arc<dyn PhysicalExpr>>>,
     pub drive_partition: u32,
 }
@@ -161,10 +161,10 @@ pub fn wrap_with_mpp_shuffle(
     let shuffle_node =
         MppShuffleExec::new(child, wiring, drain_handle, hash_keys, drive_partition, tag);
     match stage {
-        // Stamp via the `MppNetworkBoundary` seam. The trait method consumes
-        // the wiring + drain_handle Mutex<Option<>>s and produces a fresh
-        // `Arc`; the unstamped node is dropped immediately after.
-        Some(s) => MppNetworkBoundary::with_input_stage(&shuffle_node, s),
+        // Stamp via the fork's `NetworkBoundary` trait. The trait method
+        // consumes the wiring + drain_handle Mutex<Option<>>s and produces
+        // a fresh `Arc`; the unstamped node is dropped immediately after.
+        Some(s) => NetworkBoundary::with_input_stage(&shuffle_node, s),
         None => Ok(Arc::new(shuffle_node)),
     }
 }

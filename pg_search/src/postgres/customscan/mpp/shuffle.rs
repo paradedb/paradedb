@@ -86,11 +86,10 @@ use tokio::task::yield_now;
 
 #[cfg(not(test))]
 use crate::gucs::mpp_trace;
-use crate::postgres::customscan::mpp::stage::{MppNetworkBoundary, MppStage};
 use crate::postgres::customscan::mpp::transport::{
     DrainHandle, DrainItem, MppSender, SendBatchStats,
 };
-use datafusion_distributed::{NetworkBoundary as DfdNetworkBoundary, Stage as DfdStage};
+use datafusion_distributed::{NetworkBoundary, Stage};
 use uuid::Uuid;
 
 /// GUC read wrapper that is inert under `cfg(test)`.
@@ -878,18 +877,14 @@ pub struct MppShuffleExec {
     tag: &'static str,
     participant_index: u32,
     drive_partition: u32,
-    /// Stage this boundary consumes from, in ParadeDB's local
-    /// representation. Carries the `(query_id: u64, stage_id: u32,
-    /// task_count: u32)` tuple that frame headers use directly.
-    #[allow(dead_code)]
-    input_stage: Option<MppStage>,
-    /// Same stage info, in `datafusion-distributed`'s representation,
-    /// stamped on construction whenever `input_stage` is `Some`. The
-    /// fork's [`DfdNetworkBoundary`] trait returns `&Stage`, so this
-    /// has to live as an owned field rather than be derived on demand.
+    /// Stage this boundary consumes from. Stamped by the walker via
+    /// [`NetworkBoundary::with_input_stage`]; `None` only on un-stamped
+    /// test fixtures that construct `MppShuffleExec` directly. The fork's
+    /// [`NetworkBoundary`] trait returns `&Stage`, so we keep an owned
+    /// field rather than synthesize one on demand. ParadeDB's u64
     /// `query_id` round-trips as the low 64 bits of a UUID
     /// ([`Uuid::from_u128`] of `query_id as u128`).
-    network_stage: Option<DfdStage>,
+    input_stage: Option<Stage>,
 }
 
 impl fmt::Debug for MppShuffleExec {
@@ -961,28 +956,25 @@ impl MppShuffleExec {
             participant_index,
             drive_partition,
             input_stage: None,
-            network_stage: None,
         }
     }
 }
 
-/// Convert ParadeDB's [`MppStage`] (u64 query_id, u32 stage_id, u32 task_count)
-/// to the fork's [`DfdStage`] (Uuid query_id, usize num, Vec<ExecutionTask>).
-/// The UUID encodes our `u64` in its low 64 bits via `Uuid::from_u128`.
-fn mpp_stage_to_dfd_stage(s: &MppStage) -> DfdStage {
-    DfdStage::new_unaddressed(
-        Uuid::from_u128(s.query_id as u128),
-        s.stage_id as usize,
-        s.task_count as usize,
-    )
-}
-
-impl MppNetworkBoundary for MppShuffleExec {
-    fn input_stage(&self) -> Option<&MppStage> {
-        self.input_stage.as_ref()
+impl NetworkBoundary for MppShuffleExec {
+    fn input_stage(&self) -> &Stage {
+        // The fork's walker (idempotency check, metrics rewriter,
+        // stage-extraction paths) calls this before any in-band traversal,
+        // so an un-stamped boundary returning a placeholder Stage is safe —
+        // every walker-emitted boundary has `input_stage = Some(_)` from
+        // `with_input_stage`. Test fixtures that construct an MppShuffleExec
+        // directly hit the placeholder.
+        self.input_stage.as_ref().unwrap_or_else(|| {
+            static PLACEHOLDER: std::sync::OnceLock<Stage> = std::sync::OnceLock::new();
+            PLACEHOLDER.get_or_init(|| Stage::new_unaddressed(Uuid::nil(), 0, 0))
+        })
     }
 
-    fn with_input_stage(&self, stage: MppStage) -> DFResult<Arc<dyn ExecutionPlan>> {
+    fn with_input_stage(&self, stage: Stage) -> DFResult<Arc<dyn ExecutionPlan>> {
         let wiring = self.wiring.lock().unwrap().take().ok_or_else(|| {
             DataFusionError::Internal(
                 "MppShuffleExec::with_input_stage: wiring already consumed".into(),
@@ -1005,42 +997,8 @@ impl MppNetworkBoundary for MppShuffleExec {
             self.drive_partition,
             self.tag,
         );
-        node.network_stage = Some(mpp_stage_to_dfd_stage(&stage));
         node.input_stage = Some(stage);
         Ok(Arc::new(node))
-    }
-}
-
-impl DfdNetworkBoundary for MppShuffleExec {
-    fn input_stage(&self) -> &DfdStage {
-        // The walker's idempotency check + metrics paths call this before
-        // any in-band traversal, so an unstamped boundary returning a
-        // placeholder Stage is safe — the only consumer of the inner
-        // fields runs against walker-emitted boundaries (which always
-        // have `network_stage = Some(_)` from `with_input_stage`).
-        self.network_stage.as_ref().unwrap_or_else(|| {
-            // Static placeholder for un-stamped fixtures (only test code
-            // constructs MppShuffleExec without going through the walker).
-            // Heap-allocated once, leaked into a `&'static`, so the
-            // returned reference outlives the call.
-            static PLACEHOLDER: std::sync::OnceLock<DfdStage> = std::sync::OnceLock::new();
-            PLACEHOLDER.get_or_init(|| DfdStage::new_unaddressed(Uuid::nil(), 0, 0))
-        })
-    }
-
-    fn with_input_stage(&self, _input_stage: DfdStage) -> DFResult<Arc<dyn ExecutionPlan>> {
-        // ParadeDB stamps stage info via the local `MppNetworkBoundary`
-        // trait (which carries the u64 query_id and u32 stage_id without
-        // a UUID round-trip). The fork's walker never calls this method
-        // directly on our type — `MppBoundaryFactory::shuffle/coalesce`
-        // emits a fully-stamped MppShuffleExec via `wrap_with_mpp_shuffle`.
-        // If a future caller routes through the fork's walker without our
-        // factory, surface a planner error rather than silently no-op.
-        Err(DataFusionError::Plan(
-            "mpp: MppShuffleExec::with_input_stage (DfdNetworkBoundary) not supported — \
-             ParadeDB stamps via its local MppNetworkBoundary trait through MppBoundaryFactory"
-                .into(),
-        ))
     }
 }
 

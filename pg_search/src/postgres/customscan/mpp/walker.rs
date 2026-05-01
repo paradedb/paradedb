@@ -23,7 +23,7 @@
 //! network boundary, and rewrites those cuts to emit
 //! [`ShuffleExec`](crate::postgres::customscan::mpp::shuffle::ShuffleExec) +
 //! [`DrainGatherExec`](crate::postgres::customscan::mpp::shuffle::DrainGatherExec)
-//! pairs whose [`MppNetworkBoundary::input_stage`] is stamped by the walker.
+//! pairs whose [`NetworkBoundary::input_stage`] is stamped by the walker.
 //!
 //! # What this module does
 //!
@@ -125,10 +125,11 @@ use super::shape::MppPlanShape;
 use super::shuffle::{
     FixedTargetPartitioner, HashPartitioner, MppShuffleExec, RowPartitioner, ShuffleWiring,
 };
-use super::stage::{MppStage, MppTaskKey};
+use super::stage::MppTaskKey;
 use super::transport::{DrainBuffer, DrainHandle, MppReceiver, MppSender};
 use super::worker::{LeaderMesh, WorkerMesh};
 use crate::scan::execution_plan::PgSearchScanPlan;
+use datafusion_distributed::Stage;
 
 /// How many shuffle cuts the walker will insert for `shape`. Called by the
 /// DSM-estimate hooks in `aggregatescan/mod.rs` and `joinscan/mod.rs` at
@@ -165,7 +166,7 @@ pub fn worst_case_cut_count() -> u32 {
 
 /// Walk `standard` and rewrite it into an MPP-partitioned plan by
 /// identifying cut points and inserting `ShuffleExec` / `DrainGatherExec`
-/// pairs stamped with an [`MppStage`].
+/// pairs stamped with an input [`Stage`].
 ///
 /// Topology is derived from plan structure — the walker locates
 /// `HashJoinExec` and any `AggregateExec(Partial|Single)` above it, and
@@ -651,11 +652,19 @@ impl MppBoundaryFactory {
                      insert_mpp_cuts / cut_count_for_shape disagree"
                 ))
             })?;
-        let stage = MppStage::new(self.query_id, cut_index, self.total_participants);
+        // ParadeDB's u64 `query_id` round-trips as the low 64 bits of the
+        // fork's UUID (`Uuid::from_u128(query_id as u128)`). The wire-format
+        // [`MppTaskKey`] is reconstructed from the local primitives below,
+        // not from the Stage, so the conversion stays at this single seam.
+        let stage = Stage::new_unaddressed(
+            Uuid::from_u128(self.query_id as u128),
+            cut_index as usize,
+            self.total_participants as usize,
+        );
         let drain = spawn_drain(mesh.inbound);
         let task_key = MppTaskKey {
-            query_id: stage.query_id,
-            stage_id: stage.stage_id,
+            query_id: self.query_id,
+            stage_id: cut_index,
             task_number: self.participant_index,
         };
         let outbound = attach_cooperative_drain(stamp_frame_ids(mesh.outbound, task_key), &drain);
@@ -942,8 +951,8 @@ fn distribute_plan_generic(
     // Drive the fork's walker through our `MppBoundaryFactory`. The fork's
     // `_distribute_plan` increments `stage_id` once per emitted boundary
     // bottom-up, which is exactly the cut index our `tag_for_cut` and
-    // `MppStage::new` consume. Starting from 0 keeps the tag mapping
-    // identical to the legacy walker.
+    // `Stage::new_unaddressed` consume. Starting from 0 keeps the tag
+    // mapping identical to the legacy walker.
     let factory = MppBoundaryFactory::from_state(mpp_state, shape, expected_cuts);
     // Fork's `_distribute_plan` calls `DistributedConfig::from_config_options`
     // which expects the extension to be registered. We don't tune any
@@ -2057,12 +2066,11 @@ mod tests {
             Some(MppSender::new(Box::new(tx3))),
         ];
 
-        let stage = MppStage::new(0xa5a5, 2, 4);
         let stamped = stamp_frame_ids(
             senders,
             MppTaskKey {
-                query_id: stage.query_id,
-                stage_id: stage.stage_id,
+                query_id: 0xa5a5,
+                stage_id: 2,
                 task_number: 0, // pretend we're participant 0
             },
         );
@@ -2481,7 +2489,7 @@ mod tests {
     // 2c-ii). The `Plan` arm exercises `with_new_children` recursion; the
     // `Shuffle` and `Coalesce` arms hit `wrap_with_mpp_shuffle` against a
     // synthetic in-process mesh and verify the resulting tree embeds the
-    // expected number of `ShuffleExec` nodes with stamped `MppStage` ids.
+    // expected number of `ShuffleExec` nodes with stamped input `Stage` ids.
     // ========================================================================
 
     #[test]

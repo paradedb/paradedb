@@ -24,7 +24,7 @@
 //! - Type conversion is limited to aggregate-relevant types
 
 use super::join_targetlist::{AggKind, JoinAggregateTargetList};
-use arrow_array::{Array, ArrayRef, RecordBatch};
+use arrow_array::{Array, RecordBatch};
 use pgrx::{pg_sys, IntoDatum};
 
 /// Project a single row from an aggregate `RecordBatch` into a Postgres `TupleTableSlot`.
@@ -75,12 +75,22 @@ pub unsafe fn project_aggregate_row_to_slot(
             isnull[pg_idx] = true;
             datums[pg_idx] = pg_sys::Datum::null();
         } else {
-            match arrow_value_to_datum(col, row_idx, expected_type) {
-                Some(datum) => {
+            match crate::postgres::types_arrow::arrow_array_to_datum(
+                col.as_ref(),
+                row_idx,
+                pgrx::PgOid::from(expected_type),
+                None,
+            ) {
+                Ok(Some(datum)) => {
                     datums[pg_idx] = datum;
                     isnull[pg_idx] = false;
                 }
-                None => {
+                Ok(None) => {
+                    isnull[pg_idx] = true;
+                    datums[pg_idx] = pg_sys::Datum::null();
+                }
+                Err(e) => {
+                    pgrx::warning!("Aggregate projection failed: {}", e);
                     isnull[pg_idx] = true;
                     datums[pg_idx] = pg_sys::Datum::null();
                 }
@@ -117,12 +127,22 @@ pub unsafe fn project_aggregate_row_to_slot(
                 }
             }
         } else {
-            match arrow_value_to_datum(col, row_idx, agg.result_type_oid) {
-                Some(datum) => {
+            match crate::postgres::types_arrow::arrow_array_to_datum(
+                col.as_ref(),
+                row_idx,
+                pgrx::PgOid::from(agg.result_type_oid),
+                None,
+            ) {
+                Ok(Some(datum)) => {
                     datums[pg_idx] = datum;
                     isnull[pg_idx] = false;
                 }
-                None => {
+                Ok(None) => {
+                    isnull[pg_idx] = true;
+                    datums[pg_idx] = pg_sys::Datum::null();
+                }
+                Err(e) => {
+                    pgrx::warning!("Aggregate projection failed: {}", e);
                     isnull[pg_idx] = true;
                     datums[pg_idx] = pg_sys::Datum::null();
                 }
@@ -138,279 +158,26 @@ pub unsafe fn project_aggregate_row_to_slot(
     slot
 }
 
-/// Convert a single value from an Arrow array to a Postgres `Datum`.
-///
-/// TODO: Duplicated with `arrow_array_to_datum` in `types_arrow.rs`.
-/// See https://github.com/paradedb/paradedb/issues/4959
-///
-/// Dispatches on the Arrow data type and converts to the target Postgres type OID.
-/// Returns `None` for unsupported type combinations.
-fn arrow_value_to_datum(
-    col: &ArrayRef,
-    row_idx: usize,
-    typoid: pg_sys::Oid,
-) -> Option<pg_sys::Datum> {
-    use arrow_array::*;
-    use arrow_schema::DataType;
-
-    /// Downcast `col` to the given Arrow array type and read `row_idx`.
-    /// Expands to `col.as_any().downcast_ref::<$arr>()?.value(row_idx)` so
-    /// each match arm becomes a single line.
-    macro_rules! downcast_value {
-        ($arr:ty) => {
-            col.as_any().downcast_ref::<$arr>()?.value(row_idx)
-        };
-    }
-
-    match col.data_type() {
-        DataType::Int64 => int64_to_datum(downcast_value!(Int64Array), typoid),
-        DataType::Int32 => int64_to_datum(downcast_value!(Int32Array) as i64, typoid),
-        DataType::Int16 => int64_to_datum(downcast_value!(Int16Array) as i64, typoid),
-        DataType::UInt64 => {
-            let val = downcast_value!(UInt64Array);
-            // Use checked conversion to avoid silent overflow for values > i64::MAX
-            match i64::try_from(val) {
-                Ok(i_val) => int64_to_datum(i_val, typoid),
-                Err(_) => float64_to_datum(val as f64, typoid),
-            }
-        }
-        DataType::Float64 => float64_to_datum(downcast_value!(Float64Array), typoid),
-        DataType::Float32 => float64_to_datum(downcast_value!(Float32Array) as f64, typoid),
-        DataType::Utf8 => {
-            let s = downcast_value!(StringArray);
-            if typoid == pg_sys::JSONOID || typoid == pg_sys::JSONBOID {
-                let json = serde_json::from_str(s)
-                    .unwrap_or_else(|_| serde_json::Value::String(s.to_string()));
-                if typoid == pg_sys::JSONOID {
-                    pgrx::Json(json).into_datum()
-                } else {
-                    pgrx::datum::JsonB(json).into_datum()
-                }
-            } else {
-                s.to_string().into_datum()
-            }
-        }
-        DataType::Utf8View => {
-            let s = downcast_value!(StringViewArray);
-            if typoid == pg_sys::JSONOID || typoid == pg_sys::JSONBOID {
-                let json = serde_json::from_str(s)
-                    .unwrap_or_else(|_| serde_json::Value::String(s.to_string()));
-                if typoid == pg_sys::JSONOID {
-                    pgrx::Json(json).into_datum()
-                } else {
-                    pgrx::datum::JsonB(json).into_datum()
-                }
-            } else {
-                s.to_string().into_datum()
-            }
-        }
-        DataType::LargeUtf8 => {
-            let s = downcast_value!(LargeStringArray);
-            if typoid == pg_sys::JSONOID || typoid == pg_sys::JSONBOID {
-                let json = serde_json::from_str(s)
-                    .unwrap_or_else(|_| serde_json::Value::String(s.to_string()));
-                if typoid == pg_sys::JSONOID {
-                    pgrx::Json(json).into_datum()
-                } else {
-                    pgrx::datum::JsonB(json).into_datum()
-                }
-            } else {
-                s.to_string().into_datum()
-            }
-        }
-        DataType::Boolean => downcast_value!(BooleanArray).into_datum(),
-        DataType::Timestamp(unit, _tz_opt) => {
-            let nanos = match unit {
-                arrow_schema::TimeUnit::Nanosecond => downcast_value!(TimestampNanosecondArray),
-                arrow_schema::TimeUnit::Microsecond => {
-                    downcast_value!(TimestampMicrosecondArray).checked_mul(1_000)?
-                }
-                arrow_schema::TimeUnit::Millisecond => {
-                    downcast_value!(TimestampMillisecondArray).checked_mul(1_000_000)?
-                }
-                arrow_schema::TimeUnit::Second => {
-                    downcast_value!(TimestampSecondArray).checked_mul(1_000_000_000)?
-                }
-            };
-            // DataFusion stores all timestamps as UTC internally. The Arrow
-            // tz_opt is source metadata, not a conversion directive — the nanos
-            // we extracted are already UTC, so we must tell pgrx "these
-            // components are UTC" regardless of the original source timezone.
-            timestamp_nanos_to_datum(nanos, typoid)
-        }
-        DataType::Date32 => {
-            // Date32: days since epoch → convert to nanoseconds
-            let days = downcast_value!(Date32Array);
-            let nanos = (days as i64).checked_mul(86_400_000_000_000)?;
-            timestamp_nanos_to_datum(nanos, typoid)
-        }
-        DataType::Date64 => {
-            // Date64: milliseconds since epoch → convert to nanoseconds
-            let millis = downcast_value!(Date64Array);
-            let nanos = millis.checked_mul(1_000_000)?;
-            timestamp_nanos_to_datum(nanos, typoid)
-        }
-        DataType::Decimal128(_, scale) => {
-            let val = downcast_value!(Decimal128Array);
-            let scale = *scale as u32;
-            if typoid == pg_sys::NUMERICOID {
-                // Convert via string to preserve precision for NUMERIC targets
-                use pgrx::AnyNumeric;
-                let s = if scale == 0 {
-                    format!("{}", val)
-                } else {
-                    let divisor = 10i128.pow(scale);
-                    let whole = val / divisor;
-                    let frac = (val % divisor).unsigned_abs();
-                    format!("{}.{:0>width$}", whole, frac, width = scale as usize)
-                };
-                let numeric = AnyNumeric::try_from(s.as_str()).ok()?;
-                numeric.into_datum()
-            } else {
-                let divisor = 10_f64.powi(scale as i32);
-                let f_val = val as f64 / divisor;
-                float64_to_datum(f_val, typoid)
-            }
-        }
-        DataType::List(_) | DataType::LargeList(_) => list_to_datum(col, row_idx, typoid),
-        DataType::Binary => {
-            let val = downcast_value!(BinaryArray);
-            if typoid == pg_sys::UUIDOID {
-                let uuid = pgrx::Uuid::from_bytes(val.try_into().ok()?);
-                uuid.into_datum()
-            } else {
-                val.to_vec().into_datum()
-            }
-        }
-        DataType::FixedSizeBinary(16) => {
-            let val = downcast_value!(FixedSizeBinaryArray);
-            let uuid = pgrx::Uuid::from_bytes(val.try_into().ok()?);
-            uuid.into_datum()
-        }
-        _ => {
-            // Warning (not error) to avoid crashing the entire query for a
-            // missing type mapping. Returning None drops this datum, which the
-            // caller handles. Extend the match arms above to add support.
-            pgrx::warning!(
-                "Unsupported Arrow type {:?} (Postgres OID {}) for aggregate projection",
-                col.data_type(),
-                typoid.to_u32()
-            );
-            None
-        }
-    }
-}
-
-/// Convert an i64 value to the appropriate Postgres integer datum.
-///
-/// Handles NUMERICOID explicitly because NUMERIC is pass-by-reference in
-/// Postgres — returning a raw i64 for a NUMERIC slot would be interpreted
-/// as a pointer, causing a segfault.
-fn int64_to_datum(val: i64, typoid: pg_sys::Oid) -> Option<pg_sys::Datum> {
-    match typoid {
-        pg_sys::INT8OID => val.into_datum(),
-        pg_sys::INT4OID => (val as i32).into_datum(),
-        pg_sys::INT2OID => (val as i16).into_datum(),
-        pg_sys::FLOAT8OID => (val as f64).into_datum(),
-        pg_sys::FLOAT4OID => (val as f32).into_datum(),
-        pg_sys::NUMERICOID => {
-            // Convert via string to preserve full i64 precision.
-            // `val as f64` would lose precision for values above 2^53.
-            use pgrx::AnyNumeric;
-            let numeric = AnyNumeric::try_from(val.to_string().as_str()).ok()?;
-            numeric.into_datum()
-        }
-        _ => val.into_datum(), // Default to i64
-    }
-}
-
-/// Convert an f64 value to the appropriate Postgres numeric datum.
-fn float64_to_datum(val: f64, typoid: pg_sys::Oid) -> Option<pg_sys::Datum> {
-    match typoid {
-        pg_sys::FLOAT8OID => val.into_datum(),
-        pg_sys::FLOAT4OID => (val as f32).into_datum(),
-        pg_sys::INT8OID => (val as i64).into_datum(),
-        pg_sys::INT4OID => (val as i32).into_datum(),
-        pg_sys::INT2OID => (val as i16).into_datum(),
-        pg_sys::NUMERICOID => {
-            // Convert f64 to Postgres NUMERIC via pgrx AnyNumeric
-            use pgrx::AnyNumeric;
-            let numeric = AnyNumeric::try_from(val).ok()?;
-            numeric.into_datum()
-        }
-        _ => val.into_datum(), // Default to f64
-    }
-}
-
-/// Convert an Arrow List array element to a Postgres array datum.
-///
-/// Handles `ARRAY_AGG` results by converting the inner array elements to
-/// a Postgres array via `Vec<T>::into_datum()`.
-fn list_to_datum(col: &ArrayRef, row_idx: usize, _typoid: pg_sys::Oid) -> Option<pg_sys::Datum> {
-    use arrow_array::*;
-    use arrow_schema::DataType;
-
-    /// Downcast an Arrow array to `$ArrayType`, collect nullable elements into
-    /// `Vec<Option<$RustType>>`, and convert to a Postgres array datum.
-    macro_rules! collect_list {
-        ($inner:expr, $ArrayType:ty, $RustType:ty) => {{
-            let arr = $inner.as_any().downcast_ref::<$ArrayType>()?;
-            let vals: Vec<Option<$RustType>> = (0..arr.len())
-                .map(|i| {
-                    if arr.is_null(i) {
-                        None
-                    } else {
-                        Some(arr.value(i).into())
-                    }
-                })
-                .collect();
-            vals.into_datum()
-        }};
-    }
-
-    let list = col.as_any().downcast_ref::<ListArray>()?;
-    let inner = list.value(row_idx);
-    let inner_type = inner.data_type();
-
-    match inner_type {
-        DataType::Utf8 => collect_list!(inner, StringArray, String),
-        DataType::Utf8View => collect_list!(inner, StringViewArray, String),
-        DataType::LargeUtf8 => collect_list!(inner, LargeStringArray, String),
-        DataType::Int64 => collect_list!(inner, Int64Array, i64),
-        DataType::Int32 => collect_list!(inner, Int32Array, i32),
-        DataType::Float64 => collect_list!(inner, Float64Array, f64),
-        DataType::Boolean => collect_list!(inner, BooleanArray, bool),
-        _ => {
-            // Warning (not error) because returning None silently drops the row,
-            // but crashing the query is worse for the user. This branch indicates
-            // a missing type mapping — extend the macro arms above to fix.
-            pgrx::warning!(
-                "Unsupported Arrow List element type {:?} for ARRAY_AGG projection",
-                inner_type
-            );
-            None
-        }
-    }
-}
-
-/// Convert nanosecond timestamp to the appropriate Postgres date/time datum.
-///
-/// Delegates to `types_arrow::try_convert_timestamp_nanos_to_datum` which handles
-/// the nanos→PrimitiveDateTime→pgrx datum conversion for all timestamp-family OIDs.
-fn timestamp_nanos_to_datum(nanos: i64, typoid: pg_sys::Oid) -> Option<pg_sys::Datum> {
-    use pgrx::PgOid;
-    let oid = PgOid::from(typoid);
-    crate::postgres::types_arrow::try_convert_timestamp_nanos_to_datum(nanos, &oid)
-        .and_then(|r| r.ok())
-        .flatten()
-}
-
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
     use super::*;
     use arrow_array::*;
     use std::sync::Arc;
+
+    fn arrow_value_to_datum(
+        col: &ArrayRef,
+        row_idx: usize,
+        typoid: pg_sys::Oid,
+    ) -> Option<pg_sys::Datum> {
+        crate::postgres::types_arrow::arrow_array_to_datum(
+            col.as_ref(),
+            row_idx,
+            pgrx::PgOid::from(typoid),
+            None,
+        )
+        .unwrap_or(None)
+    }
 
     #[pgrx::pg_test]
     fn test_agg_project_arrow_int64() {

@@ -38,6 +38,56 @@ use pgrx::{datum, IntoDatum, PgBuiltInOids, PgOid};
 /// responsible for converting those widened types (e.g. `Utf8View`) back into specific
 /// Postgres OIDs where applicable. See the TODO on `WhichFastField` about increasing accuracy.
 ///
+/// Helper function to extract lists. Moved from datafusion_project.rs
+fn arrow_array_to_datum_list(
+    array: &dyn Array,
+    index: usize,
+) -> Result<Option<pg_sys::Datum>, String> {
+    use arrow_array::*;
+    use arrow_schema::DataType;
+
+    macro_rules! collect_list {
+        ($inner:expr, $ArrayType:ty, $RustType:ty) => {{
+            let arr = $inner
+                .as_any()
+                .downcast_ref::<$ArrayType>()
+                .ok_or("Failed to downcast inner list array")?;
+            let vals: Vec<Option<$RustType>> = (0..arr.len())
+                .map(|i| {
+                    if arr.is_null(i) {
+                        None
+                    } else {
+                        Some(arr.value(i).into())
+                    }
+                })
+                .collect();
+            Ok(vals.into_datum())
+        }};
+    }
+
+    let list = array
+        .as_any()
+        .downcast_ref::<ListArray>()
+        .ok_or("Failed to downcast to ListArray")?;
+    let inner = list.value(index);
+    let inner_type = inner.data_type();
+
+    match inner_type {
+        DataType::Utf8 => collect_list!(inner, StringArray, String),
+        DataType::Utf8View => collect_list!(inner, StringViewArray, String),
+        DataType::LargeUtf8 => collect_list!(inner, LargeStringArray, String),
+        DataType::Int64 => collect_list!(inner, Int64Array, i64),
+        DataType::Int32 => collect_list!(inner, Int32Array, i32),
+        DataType::Float64 => collect_list!(inner, Float64Array, f64),
+        DataType::Boolean => collect_list!(inner, BooleanArray, bool),
+        _ => Err(format!(
+            "Unsupported Arrow List element type {inner_type:?} for ARRAY_AGG projection"
+        )),
+    }
+}
+
+/// Convert an Arrow array slice into a Postgres `Datum`.
+///
 /// The `numeric_scale` parameter is used for `Numeric64` and `NumericBytes` fields.
 /// For `Numeric64`, the scale is used to convert scaled i64 values back to NUMERIC.
 /// For `NumericBytes`, the scale is used to format the output with proper trailing zeros.
@@ -63,12 +113,12 @@ pub fn arrow_array_to_datum(
                 | PgOid::BuiltIn(PgBuiltInOids::VARCHAROID) => s.into_datum(),
                 PgOid::BuiltIn(PgBuiltInOids::JSONOID) => pgrx::Json(
                     serde_json::from_str(s)
-                        .map_err(|e| format!("Failed to decode as JSON: {e}"))?,
+                        .unwrap_or_else(|_| serde_json::Value::String(s.to_string())),
                 )
                 .into_datum(),
                 PgOid::BuiltIn(PgBuiltInOids::JSONBOID) => datum::JsonB(
                     serde_json::from_str(s)
-                        .map_err(|e| format!("Failed to decode as JSON: {e}"))?,
+                        .unwrap_or_else(|_| serde_json::Value::String(s.to_string())),
                 )
                 .into_datum(),
                 PgOid::BuiltIn(PgBuiltInOids::UUIDOID) => {
@@ -117,7 +167,39 @@ pub fn arrow_array_to_datum(
             match &oid {
                 PgOid::BuiltIn(PgBuiltInOids::TEXTOID)
                 | PgOid::BuiltIn(PgBuiltInOids::VARCHAROID) => s.into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::JSONOID) => pgrx::Json(
+                    serde_json::from_str(s)
+                        .unwrap_or_else(|_| serde_json::Value::String(s.to_string())),
+                )
+                .into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::JSONBOID) => datum::JsonB(
+                    serde_json::from_str(s)
+                        .unwrap_or_else(|_| serde_json::Value::String(s.to_string())),
+                )
+                .into_datum(),
                 _ => return Err(format!("Unsupported OID for Utf8 Arrow type: {oid:?}")),
+            }
+        }
+        DataType::LargeUtf8 => {
+            let arr = array
+                .as_any()
+                .downcast_ref::<arrow_array::LargeStringArray>()
+                .unwrap();
+            let s = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::TEXTOID)
+                | PgOid::BuiltIn(PgBuiltInOids::VARCHAROID) => s.into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::JSONOID) => pgrx::Json(
+                    serde_json::from_str(s)
+                        .unwrap_or_else(|_| serde_json::Value::String(s.to_string())),
+                )
+                .into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::JSONBOID) => datum::JsonB(
+                    serde_json::from_str(s)
+                        .unwrap_or_else(|_| serde_json::Value::String(s.to_string())),
+                )
+                .into_datum(),
+                _ => return Err(format!("Unsupported OID for LargeUtf8 Arrow type: {oid:?}")),
             }
         }
         DataType::BinaryView => {
@@ -150,14 +232,57 @@ pub fn arrow_array_to_datum(
                 }
             }
         }
+        DataType::Binary => {
+            let arr = array
+                .as_any()
+                .downcast_ref::<arrow_array::BinaryArray>()
+                .unwrap();
+            let val = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::BYTEAOID) => val.to_vec().into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::UUIDOID) => {
+                    let uuid =
+                        pgrx::Uuid::from_bytes(val.try_into().map_err(|_| "Invalid UUID bytes")?);
+                    uuid.into_datum()
+                }
+                _ => return Err(format!("Unsupported OID for Binary Arrow type: {oid:?}")),
+            }
+        }
+        DataType::FixedSizeBinary(16) => {
+            let arr = array
+                .as_any()
+                .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
+                .unwrap();
+            let val = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::UUIDOID) => {
+                    let uuid =
+                        pgrx::Uuid::from_bytes(val.try_into().map_err(|_| "Invalid UUID bytes")?);
+                    uuid.into_datum()
+                }
+                _ => {
+                    return Err(format!(
+                        "Unsupported OID for FixedSizeBinary(16) Arrow type: {oid:?}"
+                    ))
+                }
+            }
+        }
         DataType::UInt64 => {
             let arr = array.as_primitive::<arrow_array::types::UInt64Type>();
             let val = arr.value(index);
             match &oid {
                 PgOid::BuiltIn(PgBuiltInOids::INT8OID) => (val as i64).into_datum(), // Convert u64 to i64 for INT8OID
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => (val as f64).into_datum(),
                 PgOid::BuiltIn(PgBuiltInOids::OIDOID) => {
                     pgrx::pg_sys::Oid::from(val as u32).into_datum()
                 } // Cast u64 to u32 for OID
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => {
+                    let numeric_str = val.to_string();
+                    numeric_str
+                        .parse::<pgrx::AnyNumeric>()
+                        .map_err(|e| format!("Failed to parse u64 string as AnyNumeric: {e}"))?
+                        .into_datum()
+                }
                 // Consider other potential integer OIDs (INT2OID, INT4OID) if overflow is handled or guaranteed not to occur.
                 _ => return Err(format!("Unsupported OID for UInt64 Arrow type: {oid:?}")),
             }
@@ -177,18 +302,23 @@ pub fn arrow_array_to_datum(
                 PgOid::BuiltIn(PgBuiltInOids::INT8OID) => val.into_datum(),
                 PgOid::BuiltIn(PgBuiltInOids::INT4OID) => (val as i32).into_datum(), // Cast i64 to i32
                 PgOid::BuiltIn(PgBuiltInOids::INT2OID) => (val as i16).into_datum(), // Cast i64 to i16
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => (val as f64).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT4OID) => (val as f32).into_datum(),
                 PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => {
                     // Numeric64: convert scaled i64 back to NUMERIC
-                    let scale = numeric_scale.ok_or_else(|| {
-                        "NUMERICOID requires numeric_scale for Int64 conversion".to_string()
-                    })?;
-
-                    let numeric_str =
-                        Decimal64NoScale::from_raw(val).to_string_with_scale(scale as i32);
-                    numeric_str
-                        .parse::<pgrx::AnyNumeric>()
-                        .map_err(|e| format!("Failed to parse scaled i64 as AnyNumeric: {e}"))?
-                        .into_datum()
+                    if let Some(scale) = numeric_scale {
+                        let numeric_str =
+                            Decimal64NoScale::from_raw(val).to_string_with_scale(scale as i32);
+                        numeric_str
+                            .parse::<pgrx::AnyNumeric>()
+                            .map_err(|e| format!("Failed to parse scaled i64 as AnyNumeric: {e}"))?
+                            .into_datum()
+                    } else {
+                        // Without scale, treat as raw integer value for NUMERIC
+                        let numeric = pgrx::AnyNumeric::try_from(val.to_string().as_str())
+                            .map_err(|e| format!("Failed to parse i64 as AnyNumeric: {e}"))?;
+                        numeric.into_datum()
+                    }
                 }
                 _ => {
                     if let Some(res) = try_convert_timestamp_nanos_to_datum(val, &oid) {
@@ -199,18 +329,57 @@ pub fn arrow_array_to_datum(
                 }
             }
         }
+        DataType::Int32 => {
+            let arr = array.as_primitive::<arrow_array::types::Int32Type>();
+            let val = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::INT8OID) => (val as i64).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::INT4OID) => val.into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::INT2OID) => (val as i16).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => (val as f64).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT4OID) => (val as f32).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => {
+                    let numeric = pgrx::AnyNumeric::try_from(val.to_string().as_str())
+                        .map_err(|e| format!("Failed to parse i32 as AnyNumeric: {e}"))?;
+                    numeric.into_datum()
+                }
+                _ => return Err(format!("Unsupported OID for Int32 Arrow type: {oid:?}")),
+            }
+        }
+        DataType::Int16 => {
+            let arr = array.as_primitive::<arrow_array::types::Int16Type>();
+            let val = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::INT8OID) => (val as i64).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::INT4OID) => (val as i32).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::INT2OID) => val.into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => (val as f64).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT4OID) => (val as f32).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => {
+                    let numeric = pgrx::AnyNumeric::try_from(val.to_string().as_str())
+                        .map_err(|e| format!("Failed to parse i16 as AnyNumeric: {e}"))?;
+                    numeric.into_datum()
+                }
+                _ => return Err(format!("Unsupported OID for Int16 Arrow type: {oid:?}")),
+            }
+        }
         DataType::Float64 => {
             let arr = array.as_primitive::<arrow_array::types::Float64Type>();
             let val = arr.value(index);
             match &oid {
                 PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => val.into_datum(),
                 PgOid::BuiltIn(PgBuiltInOids::FLOAT4OID) => (val as f32).into_datum(), // Cast f64 to f32
+                PgOid::BuiltIn(PgBuiltInOids::INT8OID) => (val as i64).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::INT4OID) => (val as i32).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::INT2OID) => (val as i16).into_datum(),
                 // Legacy pre-v0.22.0 indexes stored NUMERIC fields as F64. Reading those
                 // fast fields back must round-trip through `AnyNumeric` to return a NUMERIC
                 // datum rather than the FLOAT8 the column-type widening would imply.
-                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => pgrx::AnyNumeric::try_from(val)
-                    .map_err(|e| format!("Failed to convert f64 to AnyNumeric: {e:?}"))?
-                    .into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => {
+                    let numeric = pgrx::AnyNumeric::try_from(val)
+                        .map_err(|_| "Failed to convert f64 to AnyNumeric")?;
+                    numeric.into_datum()
+                }
                 _ => return Err(format!("Unsupported OID for Float64 Arrow type: {oid:?}")),
             }
         }
@@ -220,7 +389,53 @@ pub fn arrow_array_to_datum(
             match &oid {
                 PgOid::BuiltIn(PgBuiltInOids::FLOAT4OID) => val.into_datum(),
                 PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => (val as f64).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::INT8OID) => (val as f64 as i64).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::INT4OID) => (val as f64 as i32).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::INT2OID) => (val as f64 as i16).into_datum(),
+                // Legacy pre-v0.22.0 indexes stored NUMERIC fields as F64. Reading those
+                // fast fields back must round-trip through `AnyNumeric` to return a NUMERIC
+                // datum rather than the FLOAT8 the column-type widening would imply.
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => {
+                    let numeric = pgrx::AnyNumeric::try_from(val as f64)
+                        .map_err(|_| "Failed to convert f32 to AnyNumeric")?;
+                    numeric.into_datum()
+                }
                 _ => return Err(format!("Unsupported OID for Float32 Arrow type: {oid:?}")),
+            }
+        }
+        DataType::Decimal128(_, scale) => {
+            let arr = array.as_primitive::<arrow_array::types::Decimal128Type>();
+            let val = arr.value(index);
+            let scale = *scale as u32;
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => {
+                    let s = if scale == 0 {
+                        format!("{}", val)
+                    } else {
+                        let divisor = 10i128.pow(scale);
+                        let whole = val / divisor;
+                        let frac = (val % divisor).unsigned_abs();
+                        format!("{}.{:0>width$}", whole, frac, width = scale as usize)
+                    };
+                    let numeric = pgrx::AnyNumeric::try_from(s.as_str())
+                        .map_err(|e| format!("Failed to parse Decimal128 as AnyNumeric: {e}"))?;
+                    numeric.into_datum()
+                }
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => {
+                    let divisor = 10_f64.powi(scale as i32);
+                    let f_val = val as f64 / divisor;
+                    f_val.into_datum()
+                }
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT4OID) => {
+                    let divisor = 10_f64.powi(scale as i32);
+                    let f_val = val as f64 / divisor;
+                    (f_val as f32).into_datum()
+                }
+                _ => {
+                    return Err(format!(
+                        "Unsupported OID for Decimal128 Arrow type: {oid:?}"
+                    ))
+                }
             }
         }
         DataType::Boolean => {
@@ -231,16 +446,59 @@ pub fn arrow_array_to_datum(
                 _ => return Err(format!("Unsupported OID for Boolean Arrow type: {oid:?}")),
             }
         }
-        DataType::Timestamp(arrow_schema::TimeUnit::Nanosecond, None) => {
-            let arr = array.as_primitive::<arrow_array::types::TimestampNanosecondType>();
-            let ts_nanos = arr.value(index);
-            if let Some(res) = try_convert_timestamp_nanos_to_datum(ts_nanos, &oid) {
+        DataType::Date32 => {
+            let arr = array.as_primitive::<arrow_array::types::Date32Type>();
+            let days = arr.value(index);
+            let nanos = (days as i64)
+                .checked_mul(86_400_000_000_000)
+                .ok_or("Overflow calculating nanoseconds from Date32")?;
+            if let Some(res) = try_convert_timestamp_nanos_to_datum(nanos, &oid) {
                 res?
             } else {
-                return Err(format!(
-                    "Unsupported OID for TimestampNanosecond Arrow type: {oid:?}"
-                ));
+                return Err(format!("Unsupported OID for Date32 Arrow type: {oid:?}"));
             }
+        }
+        DataType::Date64 => {
+            let arr = array.as_primitive::<arrow_array::types::Date64Type>();
+            let millis = arr.value(index);
+            let nanos = millis
+                .checked_mul(1_000_000)
+                .ok_or("Overflow calculating nanoseconds from Date64")?;
+            if let Some(res) = try_convert_timestamp_nanos_to_datum(nanos, &oid) {
+                res?
+            } else {
+                return Err(format!("Unsupported OID for Date64 Arrow type: {oid:?}"));
+            }
+        }
+        DataType::Timestamp(unit, _tz) => {
+            let nanos = match unit {
+                arrow_schema::TimeUnit::Nanosecond => array
+                    .as_primitive::<arrow_array::types::TimestampNanosecondType>()
+                    .value(index),
+                arrow_schema::TimeUnit::Microsecond => array
+                    .as_primitive::<arrow_array::types::TimestampMicrosecondType>()
+                    .value(index)
+                    .checked_mul(1_000)
+                    .ok_or("Overflow calculating nanoseconds from TimestampMicrosecond")?,
+                arrow_schema::TimeUnit::Millisecond => array
+                    .as_primitive::<arrow_array::types::TimestampMillisecondType>()
+                    .value(index)
+                    .checked_mul(1_000_000)
+                    .ok_or("Overflow calculating nanoseconds from TimestampMillisecond")?,
+                arrow_schema::TimeUnit::Second => array
+                    .as_primitive::<arrow_array::types::TimestampSecondType>()
+                    .value(index)
+                    .checked_mul(1_000_000_000)
+                    .ok_or("Overflow calculating nanoseconds from TimestampSecond")?,
+            };
+            if let Some(res) = try_convert_timestamp_nanos_to_datum(nanos, &oid) {
+                res?
+            } else {
+                return Err(format!("Unsupported OID for Timestamp Arrow type: {oid:?}"));
+            }
+        }
+        DataType::List(_) | DataType::LargeList(_) => {
+            return arrow_array_to_datum_list(array, index)
         }
         dt => return Err(format!("Unsupported Arrow data type: {dt:?}")),
     };

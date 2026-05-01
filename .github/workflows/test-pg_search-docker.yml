@@ -46,7 +46,7 @@ jobs:
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
       - image=${{ matrix.runner_image }}
-      - disk=large
+      - disk=large # 80GB (default is 40GB)
       - extras=s3-cache
     strategy:
       fail-fast: false

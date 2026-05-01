@@ -178,10 +178,10 @@ pub fn aggregate_result_to_datum(
     expected_typoid: pg_sys::Oid,
 ) -> Option<pg_sys::Datum> {
     match agg_result {
-        Some(AggregateResult::Json(json_value)) => {
+        Some(AggregateResult::Json(mut json_value)) => {
             // Custom aggregate - return as JSONB
-            let scrubbed = scrub_missing_sentinel_value(json_value);
-            JsonB(scrubbed).into_datum()
+            scrub_missing_sentinel_value(&mut json_value);
+            JsonB(json_value).into_datum()
         }
         Some(AggregateResult::Metric(metric)) => {
             // Standard metric - convert f64 to appropriate type

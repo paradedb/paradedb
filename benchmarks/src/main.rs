@@ -18,7 +18,6 @@
 use anyhow::{bail, Context};
 use clap::{Parser, Subcommand};
 use paradedb::median;
-use paradedb::micro_benchmarks::benchmark_columnar;
 use sqlx::{Connection, PgConnection, Row};
 use std::fs::File;
 use std::io::Write;
@@ -92,18 +91,6 @@ struct CommonBenchmarkArgs {
     #[arg(long, value_parser = ["md", "csv", "json"], default_value = "md")]
     output: String,
 
-    #[arg(long, value_parser = ["fastfields", "sql"], default_value = "sql")]
-    benchmark: String,
-
-    #[arg(long, default_value = "2")]
-    warmups: usize,
-
-    #[arg(long, default_value = "5")]
-    iterations: usize,
-
-    #[arg(long, default_value = "100000")]
-    batch_size: usize,
-
     /// Whether to fail on query errors. Set to false for backfills against older versions
     /// that may not support all query syntax.
     #[arg(long, default_value_t = true, num_args = 1)]
@@ -158,48 +145,24 @@ async fn run_benchmark(mode: BenchmarkMode) -> anyhow::Result<()> {
 
 async fn run_benchmark_generated(args: GeneratedArgs) -> anyhow::Result<()> {
     let common = &args.common;
-    if common.benchmark == "fastfields" {
-        let mut conn = PgConnection::connect(&common.url).await?;
-        let res = benchmark_columnar(
-            &mut conn,
-            common.skip_setup,
-            common.runs,
-            common.warmups,
-            args.rows as usize,
-            common.batch_size,
-        )
-        .await;
-        println!("Columnar Benchmark Completed: {res:?}");
-    } else if common.benchmark == "sql" {
-        if !common.skip_setup {
-            generate_test_data(&common.url, &common.dataset, args.rows)?
-        }
-        let rows_display = args.rows.to_string();
-        run_sql_benchmarks(common, &rows_display).await?
-    } else {
-        bail!("Invalid benchmark type");
+    if !common.skip_setup {
+        generate_test_data(&common.url, &common.dataset, args.rows)?
     }
-    Ok(())
+    let rows_display = args.rows.to_string();
+    run_sql_benchmarks(common, &rows_display).await
 }
 
 async fn run_benchmark_existing(args: ExistingArgs) -> anyhow::Result<()> {
     let common = &args.common;
-    if common.benchmark == "fastfields" {
-        bail!("Fastfields benchmark is not supported with existing datasets");
-    } else if common.benchmark == "sql" {
-        if !common.skip_setup {
-            load_external_data(
-                &common.url,
-                &common.dataset,
-                &args.size,
-                args.data_source.as_deref(),
-            )?;
-        }
-        run_sql_benchmarks(common, &args.size).await?
-    } else {
-        bail!("Invalid benchmark type");
+    if !common.skip_setup {
+        load_external_data(
+            &common.url,
+            &common.dataset,
+            &args.size,
+            args.data_source.as_deref(),
+        )?;
     }
-    Ok(())
+    run_sql_benchmarks(common, &args.size).await
 }
 
 async fn run_sql_benchmarks(args: &CommonBenchmarkArgs, rows_display: &str) -> anyhow::Result<()> {

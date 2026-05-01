@@ -195,8 +195,15 @@ CREATE EXTENSION pg_search;
 ### Testing
 
 This section covers the **unit tests** located in the `pg_search/src` directory. For a complete overview of ParadeDB's testing infrastructure (which includes integration tests, client property tests, and pg regress tests), please see the [Testing section in `CONTRIBUTING.md`](../CONTRIBUTING.md#testing).
+For the other test categories (pg regress, integration tests, client property tests, stress tests, upgrade tests), see:
 
 Unit tests can be run using `cargo test -p pg_search -- a_specific_method_to_run`. These tests sometimes (if marked `#[pg_test]`) run inside the Postgres process, which allows them to use all of Postgres APIs via `pgrx`. There is no need to pre-install the extension for these: the `#[pg_test]` annotation on the test will re-install the extension automatically.
+
+- [`pg_search/tests/pg_regress/README.md`](tests/pg_regress/README.md) — pg_regress tests
+- [`tests/README.md`](../tests/README.md) — integration tests and client property tests
+- [`stressgres/README.md`](../stressgres/README.md) — Stressgres, the stress-testing tool used locally and in CI
+- [`CONTRIBUTING.md#testing`](../CONTRIBUTING.md#testing) — overview of all test categories and when to use which
+- [`test-pg_search-upgrade/README.md`](../.github/actions/test-pg_search-upgrade/README.md) - compatibility tests for extension version upgrades
 
 _Note: For **pg regress tests**, please refer to [pg_search/tests/pg_regress/README.md](tests/pg_regress/README.md). For **integration tests** and **client property tests**, please refer to [tests/README.md](../tests/README.md)._
 

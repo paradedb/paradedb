@@ -329,18 +329,21 @@ jobs:
           asset_name: postgresql-${{ matrix.pg_version }}-pg-search_${{ steps.version.outputs.tag_version }}-1PARADEDB-${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb
           overwrite: true
 
+      # Note: We install the Cloudsmith CLI directly via pip rather than using
+      # cloudsmith-io/action, which pulls in actions/setup-python@v5 with
+      # python-version: 3.x. That resolves to Python 3.14+, whose prebuilt
+      # tool-cache binary requires GLIBC_2.38 and fails to load inside the
+      # debian:12-slim container (glibc 2.36).
       - name: Push pg_search .deb to Cloudsmith
-        uses: cloudsmith-io/action@v0.6.14
-        with:
-          api-key: ${{ secrets.CLOUDSMITH_API_KEY }}
-          command: "push"
-          format: "deb"
-          owner: "paradedb"
-          repo: "paradedb"
-          distro: "debian"
-          release: ${{ steps.version.outputs.os_version }}
-          republish: "true"
-          file: "./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb"
+        env:
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+        run: |
+          DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pip
+          pip3 install --break-system-packages --quiet cloudsmith-cli
+          cloudsmith push deb \
+            paradedb/paradedb/debian/${{ steps.version.outputs.os_version }} \
+            ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb \
+            --republish
 
       - name: Notify Slack on Failure
         if: failure()

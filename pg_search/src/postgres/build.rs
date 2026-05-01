@@ -308,6 +308,10 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
     let settings = IndexSettings {
         sort_by_field,
         docstore_compress_dedicated_thread: false,
+        codec_types: vec![
+            tantivy::columnar::CodecType::Bitpacked,
+            tantivy::columnar::CodecType::BlockwiseLinear,
+        ],
         ..IndexSettings::default()
     };
     let _ = Index::create(directory, schema, settings)?;
@@ -450,5 +454,34 @@ mod tests {
         let sort_field = stored_settings.sort_by_field.as_ref().unwrap();
         assert_eq!(sort_field.field, "score");
         assert_eq!(sort_field.order, Order::Desc);
+    }
+
+    #[pg_test]
+    fn test_new_index_uses_configured_codecs() {
+        use tantivy::columnar::CodecType;
+        use tantivy::directory::RamDirectory;
+
+        let mut builder = Schema::builder();
+        builder.add_u64_field("val", FAST);
+        let schema = builder.build();
+
+        let settings = IndexSettings {
+            codec_types: vec![CodecType::Bitpacked, CodecType::BlockwiseLinear],
+            ..IndexSettings::default()
+        };
+
+        let directory = RamDirectory::create();
+        let index = Index::create(directory, schema, settings).unwrap();
+
+        // Verify codec_types persisted and round-tripped
+        let stored = index.settings();
+        assert_eq!(
+            stored.codec_types,
+            vec![CodecType::Bitpacked, CodecType::BlockwiseLinear]
+        );
+        assert_eq!(
+            stored.columnar_codec_types(),
+            &[CodecType::Bitpacked, CodecType::BlockwiseLinear]
+        );
     }
 }

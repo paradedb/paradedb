@@ -54,10 +54,6 @@ impl FileHandle for SegmentComponentReader {
     fn read_bytes(&self, range: Range<usize>) -> Result<OwnedBytes, Error> {
         self.read_bytes_raw(range)
     }
-
-    fn read_byte(&self, offset: usize) -> Result<u8, Error> {
-        Ok(unsafe { self.block_list.get_byte(offset) })
-    }
 }
 
 impl HasLen for SegmentComponentReader {

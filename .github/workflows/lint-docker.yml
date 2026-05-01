@@ -26,6 +26,11 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v6
 
+      - name: Verify Generated Dockerfiles Are In Sync With Template
+        run: |
+          docker/generate-dockerfiles.sh
+          git diff --exit-code -- docker
+
       - name: Run Hadolint
         uses: jbergstroem/hadolint-gh-action@v1
         with:

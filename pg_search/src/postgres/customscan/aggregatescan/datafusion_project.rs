@@ -140,6 +140,9 @@ pub unsafe fn project_aggregate_row_to_slot(
 
 /// Convert a single value from an Arrow array to a Postgres `Datum`.
 ///
+/// TODO: Duplicated with `arrow_array_to_datum` in `types_arrow.rs`.
+/// See https://github.com/paradedb/paradedb/issues/4959
+///
 /// Dispatches on the Arrow data type and converts to the target Postgres type OID.
 /// Returns `None` for unsupported type combinations.
 fn arrow_value_to_datum(

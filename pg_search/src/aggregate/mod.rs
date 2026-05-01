@@ -635,6 +635,191 @@ fn set_missing_on_terms(
     }
 }
 
+/// Walk the json value looking for NULL sentinel "key" values where they would be in a
+/// `pdb.agg('{"terms":{...` query, and if found, replace the sentinel with null.
+pub(crate) fn scrub_missing_sentinel_value(mut val: serde_json::Value) -> serde_json::Value {
+    if let Some(buckets) = val.get_mut("buckets").and_then(|v| v.as_array_mut()) {
+        for bucket in buckets {
+            if let Some(key_val) = bucket.get_mut("key") {
+                match key_val {
+                    serde_json::Value::String(k)
+                        if k == NULL_SENTINEL_MAX || k == NULL_SENTINEL_MIN =>
+                    {
+                        *key_val = serde_json::Value::Null;
+                    }
+                    _ => (),
+                }
+            }
+        }
+    }
+    val
+}
+
+#[cfg(test)]
+mod scrub_missing_sentinel_value_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn replaces_min_sentinel_key_with_null() {
+        let input = json!({
+            "buckets": [
+                { "key": NULL_SENTINEL_MIN, "doc_count": 5 }
+            ]
+        });
+        let result = scrub_missing_sentinel_value(input);
+        assert_eq!(result["buckets"][0]["key"], serde_json::Value::Null);
+        assert_eq!(result["buckets"][0]["doc_count"], 5);
+    }
+
+    #[test]
+    fn replaces_max_sentinel_key_with_null() {
+        let input = json!({
+            "buckets": [
+                { "key": NULL_SENTINEL_MAX, "doc_count": 3 }
+            ]
+        });
+        let result = scrub_missing_sentinel_value(input);
+        assert_eq!(result["buckets"][0]["key"], serde_json::Value::Null);
+        assert_eq!(result["buckets"][0]["doc_count"], 3);
+    }
+
+    #[test]
+    fn replaces_only_sentinel_keys_in_mixed_buckets() {
+        let input = json!({
+            "buckets": [
+                { "key": "alpha", "doc_count": 1 },
+                { "key": NULL_SENTINEL_MAX, "doc_count": 2 },
+                { "key": "beta", "doc_count": 3 },
+                { "key": NULL_SENTINEL_MIN, "doc_count": 4 }
+            ]
+        });
+        let result = scrub_missing_sentinel_value(input);
+        assert_eq!(result["buckets"][0]["key"], "alpha");
+        assert_eq!(result["buckets"][1]["key"], serde_json::Value::Null);
+        assert_eq!(result["buckets"][2]["key"], "beta");
+        assert_eq!(result["buckets"][3]["key"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn leaves_normal_string_keys_unchanged() {
+        let input = json!({
+            "buckets": [
+                { "key": "alpha", "doc_count": 1 },
+                { "key": "", "doc_count": 2 }
+            ]
+        });
+        let result = scrub_missing_sentinel_value(input.clone());
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn leaves_numeric_keys_unchanged() {
+        let input = json!({
+            "buckets": [
+                { "key": 42, "doc_count": 1 },
+                { "key": -1, "doc_count": 2 },
+                { "key": 3.444, "doc_count": 3 }
+            ]
+        });
+        let result = scrub_missing_sentinel_value(input.clone());
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn leaves_boolean_and_null_keys_unchanged() {
+        let input = json!({
+            "buckets": [
+                { "key": true, "doc_count": 1 },
+                { "key": null, "doc_count": 2 }
+            ]
+        });
+        let result = scrub_missing_sentinel_value(input.clone());
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn returns_unchanged_when_no_buckets_field() {
+        let input = json!({
+            "value": 42,
+            "other": "data"
+        });
+        let result = scrub_missing_sentinel_value(input.clone());
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn returns_unchanged_when_buckets_is_not_array() {
+        let input = json!({ "buckets": "not an array" });
+        let result = scrub_missing_sentinel_value(input.clone());
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn handles_empty_buckets_array() {
+        let input = json!({ "buckets": [] });
+        let result = scrub_missing_sentinel_value(input.clone());
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn leaves_bucket_without_key_field_unchanged() {
+        let input = json!({
+            "buckets": [
+                { "doc_count": 5 }
+            ]
+        });
+        let result = scrub_missing_sentinel_value(input.clone());
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn does_not_replace_sentinel_in_non_key_field() {
+        let input = json!({
+            "buckets": [
+                { "key": "alpha", "label": NULL_SENTINEL_MAX, "doc_count": 1 }
+            ]
+        });
+        let result = scrub_missing_sentinel_value(input);
+        assert_eq!(result["buckets"][0]["key"], "alpha");
+        assert_eq!(result["buckets"][0]["label"], NULL_SENTINEL_MAX);
+    }
+
+    #[test]
+    fn returns_unchanged_when_top_level_is_not_object() {
+        let input = json!([
+            { "buckets": [{ "key": NULL_SENTINEL_MIN }] }
+        ]);
+        let result = scrub_missing_sentinel_value(input.clone());
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn does_not_recurse_into_sub_buckets() {
+        // Documents current behavior: only the top-level "buckets" array is scrubbed.
+        // Sentinels nested inside sub-aggregations are left in place.
+        let input = json!({
+            "buckets": [
+                {
+                    "key": NULL_SENTINEL_MAX,
+                    "doc_count": 1,
+                    "sub": {
+                        "buckets": [
+                            { "key": NULL_SENTINEL_MIN, "doc_count": 1 }
+                        ]
+                    }
+                }
+            ]
+        });
+        let result = scrub_missing_sentinel_value(input);
+        assert_eq!(result["buckets"][0]["key"], serde_json::Value::Null);
+        assert_eq!(
+            result["buckets"][0]["sub"]["buckets"][0]["key"],
+            NULL_SENTINEL_MIN
+        );
+    }
+}
+
 // Batch size used by both the MVCC visibility collector and the interrupt-check collector.
 //
 // This is significantly larger than COLLECT_BLOCK_BUFFER_LEN (64) to reduce the overhead

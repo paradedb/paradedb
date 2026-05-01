@@ -86,6 +86,13 @@ SELECT pdb.agg('{"terms": {"field": "has_flag"}}'::jsonb)
 FROM docs_nullable
 WHERE body @@@ pdb.all();
 
+-- 4e: Verify pdb.agg terms on nullable bool includes all docs outside of custom scan
+SET paradedb.enable_aggregate_custom_scan = off;
+SELECT pdb.agg('{"terms": {"field": "has_flag"}}'::jsonb)
+FROM docs_nullable
+WHERE body @@@ pdb.all();
+
+
 DROP TABLE docs_nullable CASCADE;
 
 -- Cleanup

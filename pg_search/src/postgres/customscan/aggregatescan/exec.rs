@@ -17,7 +17,7 @@
 
 use crate::gucs;
 
-use crate::aggregate::{execute_aggregate, AggregateRequest};
+use crate::aggregate::{execute_aggregate, scrub_missing_sentinel_value, AggregateRequest};
 use crate::api::HashMap;
 use crate::customscan::aggregatescan::build::{
     AggregationKey, DocCountKey, FilterSentinelKey, GroupedKey,
@@ -180,7 +180,8 @@ pub fn aggregate_result_to_datum(
     match agg_result {
         Some(AggregateResult::Json(json_value)) => {
             // Custom aggregate - return as JSONB
-            JsonB(json_value).into_datum()
+            let scrubbed = scrub_missing_sentinel_value(json_value);
+            JsonB(scrubbed).into_datum()
         }
         Some(AggregateResult::Metric(metric)) => {
             // Standard metric - convert f64 to appropriate type

@@ -741,14 +741,16 @@ fn try_convert_in_list_to_query(
     // tantivy. The optional `strategy_sink` is a per-scan AtomicU8 that the
     // planner stores its decision into so EXPLAIN ANALYZE can report which
     // strategy fired.
+    // The four other density fields (posting/bitset/hash_probe/
+    // subsequent_bitset) gate strategies that route to TermSetDocSet via
+    // stubs in tantivy today, so leaving them at TermSetStrategyConfig's
+    // tantivy-side defaults via struct update syntax keeps behavior
+    // identical to a bare tantivy caller until follow-ups A and B land.
     let cfg = TermSetStrategyConfig {
         gallop_enabled: crate::gucs::term_set_gallop_enabled(),
         gallop_max_density: crate::gucs::term_set_gallop_max_density(),
-        posting_max_density: crate::gucs::term_set_posting_max_density(),
-        bitset_max_density: crate::gucs::term_set_bitset_max_density(),
-        hash_probe_max_density: crate::gucs::term_set_hash_probe_max_density(),
-        subsequent_bitset_max_density: crate::gucs::term_set_subsequent_bitset_max_density(),
         strategy_sink,
+        ..TermSetStrategyConfig::default()
     };
 
     let term_set_query = TermSetQuery::new(terms).with_strategy_config(cfg);

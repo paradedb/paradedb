@@ -168,9 +168,12 @@ pub struct PgSearchScanPlan {
     sort_order: Option<SortByField>,
     /// Captures the per-segment `TermSetStrategy` chosen by the tantivy planner
     /// for the pushed-down dynamic filter (issue #4895). Last-segment-wins is
-    /// fine because `EXPLAIN ANALYZE` only asks "did any segment use it?". A
-    /// value of `0` (`tantivy::query::strategy_tag::NONE`) means no dispatch
-    /// happened, e.g. the InList didn't reach the FastField path.
+    /// fine because `EXPLAIN ANALYZE` only asks "did any segment use it?".
+    /// Stored as `u8` so it can live behind an `AtomicU8`; round-tripped
+    /// through `tantivy::query::StrategyTag` at render time. A value of
+    /// `StrategyTag::None as u8` (= 0) means no dispatch happened, e.g. the
+    /// InList didn't reach the FastField path (K ≤ 1024 routes to
+    /// AutomatonWeight which doesn't write the sink).
     dynamic_filter_strategy: Arc<AtomicU8>,
 }
 
@@ -373,20 +376,20 @@ fn build_equivalence_properties(
     eq_properties
 }
 
-/// Translate a `tantivy::query::strategy_tag` numeric tag back into the
-/// human-readable strategy name surfaced in `EXPLAIN ANALYZE` output.
-/// Exhaustive on the tag set so follow-ups A and B (filling in the
+/// Translate a `tantivy::query::StrategyTag` back into the human-readable
+/// strategy name surfaced in `EXPLAIN ANALYZE` output. The match is
+/// exhaustive on the enum so follow-ups A and B (filling in the
 /// posting-direct and bitset-from-postings dispatch arms) don't need to
-/// revisit this site.
-fn strategy_tag_name(tag: u8) -> &'static str {
-    use tantivy::query::strategy_tag;
-    match tag {
-        strategy_tag::GALLOP => "gallop",
-        strategy_tag::LINEAR => "linear",
-        strategy_tag::BITSET => "bitset_from_postings",
-        strategy_tag::POSTING => "posting_direct",
-        strategy_tag::HASH => "hash_probe",
-        _ => "unknown",
+/// revisit this site — the compiler will flag any new variant.
+fn strategy_name(strategy: tantivy::query::StrategyTag) -> &'static str {
+    use tantivy::query::StrategyTag;
+    match strategy {
+        StrategyTag::None => "none",
+        StrategyTag::Gallop => "gallop",
+        StrategyTag::Linear => "linear",
+        StrategyTag::Bitset => "bitset_from_postings",
+        StrategyTag::Posting => "posting_direct",
+        StrategyTag::Hash => "hash_probe",
     }
 }
 
@@ -401,15 +404,23 @@ impl DisplayAs for PgSearchScanPlan {
             write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
         }
         if self.dynamic_filter_pushdown.load(Ordering::Relaxed) {
-            write!(f, ", dynamic_filter_pushdown=true")?;
-        }
-        let tag = self.dynamic_filter_strategy.load(Ordering::Relaxed);
-        if tag != tantivy::query::strategy_tag::NONE {
-            write!(
-                f,
-                ", dynamic_filter_pushdown_strategy={}",
-                strategy_tag_name(tag),
-            )?;
+            // Render a single token. When the strategy framework engaged
+            // (K > 1024 reached FastFieldTermSetWeight and select_strategy
+            // wrote the sink), the value is the strategy name. Otherwise
+            // (K ≤ 1024 routed via AutomatonWeight, which doesn't write the
+            // sink) it falls back to "true".
+            let tag = self.dynamic_filter_strategy.load(Ordering::Relaxed);
+            let strategy = tantivy::query::StrategyTag::try_from(tag)
+                .unwrap_or(tantivy::query::StrategyTag::None);
+            if matches!(strategy, tantivy::query::StrategyTag::None) {
+                write!(f, ", dynamic_filter_pushdown=true")?;
+            } else {
+                write!(
+                    f,
+                    ", dynamic_filter_pushdown={}",
+                    strategy_name(strategy)
+                )?;
+            }
         }
         write!(f, ", query={}", self.query_for_display.explain_format())
     }

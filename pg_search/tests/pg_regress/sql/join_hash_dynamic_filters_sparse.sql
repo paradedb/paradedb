@@ -19,17 +19,17 @@
 --   matches the shape of the existing TEST 1/2 fixtures in join_hash.sql).
 --
 -- ---------------------------------------------------------------------------
--- A note on `dynamic_filter_pushdown_strategy=...` in the EXPLAIN output
+-- A note on `dynamic_filter_pushdown=<strategy>` in the EXPLAIN output
 -- ---------------------------------------------------------------------------
 -- The strategy_sink is per-PgSearchScan and uses last-segment-wins semantics:
 -- whatever the FINAL select_strategy() call wrote is what shows up. For
 -- multi-column queries (Q2 / Q3) this means the displayed strategy reflects
 -- the LAST filter dispatched, not the union of all filters. In particular,
--- a Q3 line reading `dynamic_filter_pushdown_strategy=linear` does NOT mean
--- gallop didn't fire — it means the last column dispatched landed on the
--- linear path (typically fk_b or fk_c, which are unsorted), overwriting the
--- gallop tag fk_a's dispatch wrote earlier. This is documented as Shape A
--- in implementation.md §7. The correctness gate (Block B) is what proves
+-- a Q3 line reading `dynamic_filter_pushdown=linear` does NOT mean gallop
+-- didn't fire — it means the last column dispatched landed on the linear
+-- path (typically fk_b or fk_c, which are unsorted), overwriting the gallop
+-- tag fk_a's dispatch wrote earlier. This is documented as Shape A in
+-- implementation.md §7. The correctness gate (Block B) is what proves
 -- gallop+smart-seek produced identical results to all-linear; the EXPLAIN
 -- token is informational, not assertive.
 
@@ -141,10 +141,9 @@ ANALYZE t2_c;
 -- ===========================================================================
 
 -- Block A: confirm pushdown shape. Look for `dynamic_filters=1,
--- dynamic_filter_pushdown=true` on the inner PgSearchScan; the
--- dynamic_filter_pushdown_strategy token's value is captured but not
--- asserted on (last-writer-wins; Q1 has only one filter so the value is
--- whatever fk_a's dispatch produced).
+-- dynamic_filter_pushdown=<strategy>` on the inner PgSearchScan; the
+-- strategy value is captured but not asserted on (last-writer-wins; Q1 has
+-- only one filter so the value is whatever fk_a's dispatch produced).
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT t1.id
 FROM t1

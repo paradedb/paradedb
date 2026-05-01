@@ -55,16 +55,16 @@ LIMIT 10;
 -- TEST 2: Hash Join with sorted segment on the FK column (issue #4895)
 -- =============================================================================
 -- Purpose: capture an EXPLAIN ANALYZE of a hash-join probe where the inner
--- index is sorted ASC by the foreign-key column, demonstrating the new
--- dynamic_filter_pushdown_strategy=... EXPLAIN token.
+-- index is sorted ASC by the foreign-key column, demonstrating that the
+-- dynamic_filter_pushdown=... EXPLAIN token reports the chosen strategy.
 --
 -- The test asserts BOTH dispatch outcomes:
 --   2a. With default gallop_max_density (1/100), K/N is too dense for gallop
 --       on this small corpus → linear strategy, EXPLAIN says
---       dynamic_filter_pushdown_strategy=linear.
+--       dynamic_filter_pushdown=linear.
 --   2b. With paradedb.term_set_gallop_max_density set high enough to admit
 --       this corpus, gallop fires → EXPLAIN says
---       dynamic_filter_pushdown_strategy=gallop.
+--       dynamic_filter_pushdown=gallop.
 
 DROP TABLE IF EXISTS hash_sorted_t1 CASCADE;
 DROP TABLE IF EXISTS hash_sorted_t2 CASCADE;
@@ -130,6 +130,27 @@ WHERE t1.val @@@ 'val'
 ORDER BY t1.id ASC
 LIMIT 10;
 
+RESET paradedb.term_set_gallop_max_density;
+
+-- =============================================================================
+-- TEST 3: paradedb.hash_join_inlist_pushdown_max_distinct_values = 0 disables
+-- =============================================================================
+-- The GUC is documented as a kill switch. DataFusion's HashJoinExec applies
+-- the same predicate (`num_of_distinct_key > max_distinct_values` ⇒ fallback
+-- to hash-table map), so 0 disables the InList materialization path on both
+-- sides of the boundary. EXPLAIN should NOT show `dynamic_filter_pushdown=`.
+SET paradedb.hash_join_inlist_pushdown_max_distinct_values = 0;
+SET paradedb.term_set_gallop_max_density = 1.0;
+
+EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
+SELECT t1.val, t2.val
+FROM hash_sorted_t1 t1
+JOIN hash_sorted_t2 t2 ON t1.id = t2.t1_id
+WHERE t1.val @@@ 'val'
+ORDER BY t1.id ASC
+LIMIT 10;
+
+RESET paradedb.hash_join_inlist_pushdown_max_distinct_values;
 RESET paradedb.term_set_gallop_max_density;
 
 -- =============================================================================

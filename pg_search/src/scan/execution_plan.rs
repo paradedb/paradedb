@@ -415,11 +415,7 @@ impl DisplayAs for PgSearchScanPlan {
             if matches!(strategy, tantivy::query::StrategyTag::None) {
                 write!(f, ", dynamic_filter_pushdown=true")?;
             } else {
-                write!(
-                    f,
-                    ", dynamic_filter_pushdown={}",
-                    strategy_name(strategy)
-                )?;
+                write!(f, ", dynamic_filter_pushdown={}", strategy_name(strategy))?;
             }
         }
         write!(f, ", query={}", self.query_for_display.explain_format())

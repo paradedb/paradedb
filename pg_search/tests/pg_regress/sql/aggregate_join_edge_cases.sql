@@ -279,6 +279,39 @@ ORDER BY 1;
 SET paradedb.enable_aggregate_custom_scan TO on;
 
 -- =====================================================================
+-- Test 6: Complex 3-table join (FULL + LEFT) with JSONB aggregation
+-- Adapted from user query: FULL JOIN, LEFT JOIN, and JSONB GROUP BY
+-- =====================================================================
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json
+FROM ec_products p
+FULL JOIN ec_reviews r ON p.id = r.id
+LEFT JOIN ec_suppliers s ON r.category = s.category
+WHERE p.description @@@ 'laptop'
+GROUP BY p.metadata->>'brand', p.metadata->'brand'
+ORDER BY brand_text;
+
+SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json
+FROM ec_products p
+FULL JOIN ec_reviews r ON p.id = r.id
+LEFT JOIN ec_suppliers s ON r.category = s.category
+WHERE p.description @@@ 'laptop'
+GROUP BY p.metadata->>'brand', p.metadata->'brand'
+ORDER BY brand_text;
+
+-- Parity
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json
+FROM ec_products p
+FULL JOIN ec_reviews r ON p.id = r.id
+LEFT JOIN ec_suppliers s ON r.category = s.category
+WHERE p.description @@@ 'laptop'
+GROUP BY p.metadata->>'brand', p.metadata->'brand'
+ORDER BY brand_text;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- =====================================================================
 -- Clean up
 -- =====================================================================
 DROP TABLE ec_suppliers;

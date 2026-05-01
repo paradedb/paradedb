@@ -852,8 +852,7 @@ async fn generated_aggregate_join(database: Db) {
 
     grouping_columns.extend(vec![
         // Group by text representation
-        // TODO: Fails: fix in followup.
-        //format!("{}->>'brand'", format!("{}.metadata", all_tables[0])),
+        format!("{}->>'brand'", format!("{}.metadata", all_tables[0])),
         // Group by JSONB representation
         format!("{}->'brand'", format!("{}.metadata", all_tables[0])),
     ]);

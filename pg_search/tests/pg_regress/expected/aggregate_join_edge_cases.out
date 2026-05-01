@@ -417,6 +417,53 @@ ORDER BY 1;
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 -- =====================================================================
+-- Test 6: Complex 3-table join (FULL + LEFT) with JSONB aggregation
+-- Adapted from user query: FULL JOIN, LEFT JOIN, and JSONB GROUP BY
+-- =====================================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json
+FROM ec_products p
+FULL JOIN ec_reviews r ON p.id = r.id
+LEFT JOIN ec_suppliers s ON r.category = s.category
+WHERE p.description @@@ 'laptop'
+GROUP BY p.metadata->>'brand', p.metadata->'brand'
+ORDER BY brand_text;
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ Sort
+   Output: ((p.metadata ->> 'brand'::text)), ((p.metadata -> 'brand'::text))
+   Sort Key: ((p.metadata ->> 'brand'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: ((p.metadata ->> 'brand'::text)), ((p.metadata -> 'brand'::text))
+         Backend: DataFusion
+         Indexes: ec_products_idx (p), ec_reviews_idx (r), ec_suppliers_idx (s)
+         Group By: metadata.brand, metadata.brand
+(8 rows)
+
+SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json
+FROM ec_products p
+FULL JOIN ec_reviews r ON p.id = r.id
+LEFT JOIN ec_suppliers s ON r.category = s.category
+WHERE p.description @@@ 'laptop'
+GROUP BY p.metadata->>'brand', p.metadata->'brand'
+ORDER BY brand_text;
+ERROR:  index out of bounds: the len is 1 but the index is 1
+-- Parity
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json
+FROM ec_products p
+FULL JOIN ec_reviews r ON p.id = r.id
+LEFT JOIN ec_suppliers s ON r.category = s.category
+WHERE p.description @@@ 'laptop'
+GROUP BY p.metadata->>'brand', p.metadata->'brand'
+ORDER BY brand_text;
+ brand_text | brand_json 
+------------+------------
+ TechCorp   | "TechCorp"
+(1 row)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- =====================================================================
 -- Clean up
 -- =====================================================================
 DROP TABLE ec_suppliers;

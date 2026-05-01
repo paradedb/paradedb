@@ -26,6 +26,15 @@ codegen-units = 1
 [profile.release-with-debug]
 inherits = "release"
 debug = true
+# Override release's `lto = "fat"` + `codegen-units = 1` so the linker can
+# fit the docker `cargo pgrx package` step under the GitHub runner's memory
+# budget. Fat LTO + single codegen unit + full debug symbols pushes peak
+# linker RSS past 20 GB once we link the datafusion-distributed dep tree
+# (arrow-flight, tonic, prost, ...) and the runner OOMs. Thin LTO and
+# codegen-units = 16 trade a small amount of runtime perf for a much
+# smaller linker working set; the production `release` profile is unaffected.
+lto = "thin"
+codegen-units = 16
 
 [workspace.dependencies]
 tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "3b6bcdaee22a39f5f9a72f7d64b3527ab4b48152", features = [

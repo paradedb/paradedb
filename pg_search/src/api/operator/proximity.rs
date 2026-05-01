@@ -47,7 +47,7 @@ fn rhs_prox(left: ProximityClause, right: ProximityClause) -> ProximityClause {
                 right: Box::new(right),
             }
         }
-        _ => panic!("lhs of ## must be an unordered ProximityClause with an uninitialized rhs"),
+        _ => panic!("lhs of `##` must be a `<token-expression> ## <distance>`"),
     }
 }
 
@@ -80,6 +80,6 @@ fn rhs_prox_in_order(left: ProximityClause, right: ProximityClause) -> Proximity
                 right: Box::new(right),
             }
         }
-        _ => panic!("lhs of ##> must be an ordered ProximityClause with an uninitialized rhs"),
+        _ => panic!("lhs of `##>` must be a `<token-expression> ##> <distance>`"),
     }
 }

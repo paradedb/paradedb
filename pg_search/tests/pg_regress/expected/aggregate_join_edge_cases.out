@@ -447,7 +447,11 @@ LEFT JOIN ec_suppliers s ON r.category = s.category
 WHERE p.description @@@ 'laptop'
 GROUP BY p.metadata->>'brand', p.metadata->'brand'
 ORDER BY brand_text;
-ERROR:  index out of bounds: the len is 1 but the index is 1
+ brand_text | brand_json 
+------------+------------
+ TechCorp   | "TechCorp"
+(1 row)
+
 -- Parity
 SET paradedb.enable_aggregate_custom_scan TO off;
 SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json

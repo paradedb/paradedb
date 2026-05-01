@@ -43,23 +43,22 @@ pub unsafe fn project_aggregate_row_to_slot(
     batch: &RecordBatch,
     row_idx: usize,
     targetlist: &JoinAggregateTargetList,
+    group_df_indices: &[usize],
 ) -> *mut pg_sys::TupleTableSlot {
     let tupdesc = (*slot).tts_tupleDescriptor;
     let natts = (*tupdesc).natts as usize;
     let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
     let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
 
-    // DataFusion output column index: group columns come first, then aggregates
-    let mut df_col_idx = 0;
-
     // Fill GROUP BY columns
-    for gc in &targetlist.group_columns {
+    for (i, gc) in targetlist.group_columns.iter().enumerate() {
         let pg_idx = gc.output_index;
         if pg_idx >= natts {
-            df_col_idx += 1;
             continue;
         }
 
+        // Use the pre-calculated DataFusion column index for this GROUP BY column
+        let df_col_idx = group_df_indices[i];
         let col = batch.column(df_col_idx);
         let expected_type = {
             #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
@@ -87,10 +86,15 @@ pub unsafe fn project_aggregate_row_to_slot(
                 }
             }
         }
-        df_col_idx += 1;
     }
 
     // Fill aggregate columns
+    // Aggregate columns always follow ALL deduplicated GROUP BY columns in the
+    // RecordBatch. The number of deduplicated group columns is the number of
+    // unique indices in group_df_indices.
+    let num_unique_group_cols = group_df_indices.iter().max().map(|&m| m + 1).unwrap_or(0);
+    let mut df_col_idx = num_unique_group_cols;
+
     for agg in &targetlist.aggregates {
         let pg_idx = agg.output_index;
         if pg_idx >= natts {

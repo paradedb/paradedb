@@ -38,17 +38,16 @@ fn rhs_prox(left: ProximityClause, right: ProximityClause) -> ProximityClause {
     match left {
         ProximityClause::Proximity {
             left,
-            distance,
+            distance: distance @ ProximityDistance::AnyOrder(_),
             right: original_right,
-        } if matches!(original_right.as_ref(), ProximityClause::Uninitialized) => match distance {
-            ProximityDistance::AnyOrder(_) => ProximityClause::Proximity {
+        } if matches!(original_right.as_ref(), ProximityClause::Uninitialized) => {
+            ProximityClause::Proximity {
                 left,
                 distance,
                 right: Box::new(right),
-            },
-            _ => panic!("mismatched proximity operators: cannot mix ## and ##>"),
-        },
-        _ => panic!("lhs of ## must be a ProximityClause with an uninitialized rhs"),
+            }
+        }
+        _ => panic!("lhs of ## must be an unordered ProximityClause with an uninitialized rhs"),
     }
 }
 
@@ -72,16 +71,15 @@ fn rhs_prox_in_order(left: ProximityClause, right: ProximityClause) -> Proximity
     match left {
         ProximityClause::Proximity {
             left,
-            distance,
+            distance: distance @ ProximityDistance::InOrder(_),
             right: original_right,
-        } if matches!(original_right.as_ref(), ProximityClause::Uninitialized) => match distance {
-            ProximityDistance::InOrder(_) => ProximityClause::Proximity {
+        } if matches!(original_right.as_ref(), ProximityClause::Uninitialized) => {
+            ProximityClause::Proximity {
                 left,
                 distance,
                 right: Box::new(right),
-            },
-            _ => panic!("mismatched proximity operators: cannot mix ## and ##>"),
-        },
-        _ => panic!("lhs of ##> must be a ProximityClause with an uninitialized rhs"),
+            }
+        }
+        _ => panic!("lhs of ##> must be an ordered ProximityClause with an uninitialized rhs"),
     }
 }

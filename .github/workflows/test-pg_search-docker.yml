@@ -45,8 +45,8 @@ jobs:
       - family=${{ matrix.runner_family }}
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
-      - disk=large
       - image=${{ matrix.runner_image }}
+      - disk=large
       - extras=s3-cache
     strategy:
       fail-fast: false

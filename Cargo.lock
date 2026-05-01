@@ -709,7 +709,7 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "benchmarks"
-version = "0.23.2"
+version = "0.23.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -4717,7 +4717,7 @@ dependencies = [
 
 [[package]]
 name = "macros"
-version = "0.23.2"
+version = "0.23.3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5096,13 +5096,12 @@ checksum = "269bca4c2591a28585d6bf10d9ed0332b7d76900a1b02bec41bdc3a2cdcda107"
 
 [[package]]
 name = "opencc-jieba-rs"
-version = "0.7.2"
+version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1374548d1a5832b9a25a69aef815a5ec9128051f7f583ed0452cdfeafcb427d0"
+checksum = "f1fc1e7585809b7c6292ef55fbf9c4c9fcc5333d26bfbedd0b93585425472150"
 dependencies = [
  "include-flate",
  "jieba-rs 0.7.4",
- "once_cell",
  "rayon",
  "rayon-core",
  "regex",
@@ -5355,7 +5354,7 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
-version = "0.23.2"
+version = "0.23.3"
 dependencies = [
  "anyhow",
  "arrow-array",
@@ -7598,7 +7597,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stressgres"
-version = "0.23.2"
+version = "0.23.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -7980,7 +7979,7 @@ dependencies = [
 
 [[package]]
 name = "tests"
-version = "0.23.2"
+version = "0.23.3"
 dependencies = [
  "anyhow",
  "approx",
@@ -8149,7 +8148,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokenizers"
-version = "0.23.2"
+version = "0.23.3"
 dependencies = [
  "anyhow",
  "emoji",
@@ -9465,9 +9464,9 @@ checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
 
 [[package]]
 name = "yeslogic-fontconfig-sys"
-version = "6.0.0"
+version = "6.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "503a066b4c037c440169d995b869046827dbc71263f6e8f3be6d77d4f3229dbd"
+checksum = "1d8b8abf912b9a29ff112e1671c97c33636903d13a69712037190e6805af4f76"
 dependencies = [
  "dlib",
  "once_cell",

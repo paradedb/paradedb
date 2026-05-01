@@ -154,10 +154,8 @@ jobs:
         uses: depot/build-push-action@v1
         with:
           context: .
-          build-args: |
-            PG_VERSION_MAJOR=${{ matrix.pg_version }}
           platforms: linux/amd64,linux/arm64
-          file: docker/Dockerfile
+          file: docker/paradedb/${{ matrix.pg_version }}/Dockerfile
           push: true
           sbom: true
           provenance: mode=max

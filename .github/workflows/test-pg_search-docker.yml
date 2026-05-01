@@ -38,7 +38,7 @@ concurrency:
 
 jobs:
   test-paradedb:
-    name: Test ParadeDB Docker Image (${{ matrix.arch }})
+    name: Test ${{ matrix.flavor }} Docker Image (${{ matrix.arch }})
     # General-purpose m-family — Docker buildx is RAM-heavy.
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
@@ -54,12 +54,32 @@ jobs:
       matrix:
         include:
           - arch: amd64
+            flavor: paradedb
+            dockerfile: docker/paradedb/18/Dockerfile
             cpu: 16
             ram: 64
             runner_family: m7a+m7i
             runner_image: ubuntu24-full-x64
             platform: linux/amd64
           - arch: arm64
+            flavor: paradedb
+            dockerfile: docker/paradedb/18/Dockerfile
+            cpu: 16
+            ram: 64
+            runner_family: m7g+m8g
+            runner_image: ubuntu24-full-arm64
+            platform: linux/arm64
+          - arch: amd64
+            flavor: official
+            dockerfile: docker/official/18/Dockerfile
+            cpu: 8
+            ram: 32
+            runner_family: m7a+m7i
+            runner_image: ubuntu24-full-x64
+            platform: linux/amd64
+          - arch: arm64
+            flavor: official
+            dockerfile: docker/official/18/Dockerfile
             cpu: 16
             ram: 64
             runner_family: m7g+m8g
@@ -86,15 +106,15 @@ jobs:
         run: |
           docker buildx build \
             --platform ${{ matrix.platform }} \
-            --file docker/Dockerfile \
+            --file ${{ matrix.dockerfile }} \
             --tag paradedb/paradedb:latest \
-            --cache-from type=gha,scope=paradedb-docker-${{ matrix.arch }} \
-            --cache-to type=gha,mode=max,scope=paradedb-docker-${{ matrix.arch }} \
+            --cache-from type=gha,scope=paradedb-docker-${{ matrix.flavor }}-${{ matrix.arch }} \
+            --cache-to type=gha,mode=max,scope=paradedb-docker-${{ matrix.flavor }}-${{ matrix.arch }} \
             --load \
             .
 
       - name: Verify PGDG apt packages are available
-        run: docker run --rm paradedb/paradedb:latest bash -c 'apt-get update && apt-get install -y --no-install-recommends postgresql-${PG_VERSION_MAJOR}-partman'
+        run: docker run --rm paradedb/paradedb:latest bash -c 'apt-get update && apt-get install -y --no-install-recommends postgresql-18-partman'
 
       # Start the ParadeDB Docker image using `docker run` to test the standalone Docker image.
       # We add a --tmpfs mount as a test of compatibility with the upstream `postgres` image.
@@ -150,6 +170,7 @@ jobs:
           docker exec paradedb psql -U myuser -d mydatabase -c "SELECT extname, extversion FROM pg_extension ORDER BY extname;"
 
       - name: Verify barman-cloud is functional
+        if: matrix.flavor == 'paradedb'
         run: docker exec paradedb barman-cloud-wal-archive --help
 
       # Useful for debugging discrepancies between local and remote ParadeDB Docker images

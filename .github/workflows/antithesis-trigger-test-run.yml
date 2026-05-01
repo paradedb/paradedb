@@ -154,11 +154,8 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          build-args: |
-            PG_VERSION_MAJOR=${{ matrix.pg_version }}
-            ENABLE_ANTITHESIS_INSTRUMENTATION=true
           platforms: linux/amd64
-          file: docker/Dockerfile
+          file: docker/antithesis/${{ matrix.pg_version }}/Dockerfile
           push: true
           tags: ${{ steps.extract-workload-metadata.outputs.tags }}
           labels: ${{ steps.extract-workload-metadata.outputs.labels }}

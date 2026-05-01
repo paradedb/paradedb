@@ -164,3 +164,10 @@ SELECT pdb.snippet(text) FROM prox WHERE text @@@ ('z' ##>24##> 'a');   -- no ma
 ---------
 (0 rows)
 
+--
+-- mismatched proximity operators should error
+--
+SELECT * FROM prox WHERE text @@@ ('a' ##>1## 'b');   -- error: left is ##>, right is ##
+ERROR:  mismatched proximity operators: cannot mix ## and ##>
+SELECT * FROM prox WHERE text @@@ ('a' ##1##> 'b');   -- error: left is ##, right is ##>
+ERROR:  mismatched proximity operators: cannot mix ## and ##>

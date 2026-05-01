@@ -40,13 +40,14 @@ fn rhs_prox(left: ProximityClause, right: ProximityClause) -> ProximityClause {
             left,
             distance,
             right: original_right,
-        } if matches!(original_right.as_ref(), ProximityClause::Uninitialized) => {
-            ProximityClause::Proximity {
+        } if matches!(original_right.as_ref(), ProximityClause::Uninitialized) => match distance {
+            ProximityDistance::AnyOrder(_) => ProximityClause::Proximity {
                 left,
                 distance,
                 right: Box::new(right),
-            }
-        }
+            },
+            _ => panic!("mismatched proximity operators: cannot mix ## and ##>"),
+        },
         _ => panic!("lhs of ## must be a ProximityClause with an uninitialized rhs"),
     }
 }
@@ -73,13 +74,14 @@ fn rhs_prox_in_order(left: ProximityClause, right: ProximityClause) -> Proximity
             left,
             distance,
             right: original_right,
-        } if matches!(original_right.as_ref(), ProximityClause::Uninitialized) => {
-            ProximityClause::Proximity {
+        } if matches!(original_right.as_ref(), ProximityClause::Uninitialized) => match distance {
+            ProximityDistance::InOrder(_) => ProximityClause::Proximity {
                 left,
                 distance,
                 right: Box::new(right),
-            }
-        }
-        _ => panic!("lhs of ## must be a ProximityClause with an uninitialized rhs"),
+            },
+            _ => panic!("mismatched proximity operators: cannot mix ## and ##>"),
+        },
+        _ => panic!("lhs of ##> must be a ProximityClause with an uninitialized rhs"),
     }
 }

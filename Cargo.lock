@@ -714,7 +714,6 @@ dependencies = [
  "anyhow",
  "clap",
  "duckdb",
- "futures",
  "serde",
  "serde_json",
  "sqlx",

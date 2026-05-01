@@ -18,7 +18,6 @@ sqlx = { version = "0.8.6", features = [
 tokio = { version = "1.52", features = ["full"] }
 serde = { version = "1.0.228", features = ["derive"] }
 toml = "0.8"
-futures = "0.3.32"
 duckdb = { version = "1.10502.0", features = ["bundled"] }
 
 [lib]

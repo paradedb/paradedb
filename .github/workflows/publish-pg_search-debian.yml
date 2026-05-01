@@ -329,6 +329,19 @@ jobs:
           asset_name: postgresql-${{ matrix.pg_version }}-pg-search_${{ steps.version.outputs.tag_version }}-1PARADEDB-${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb
           overwrite: true
 
+      - name: Push pg_search .deb to Cloudsmith
+        uses: cloudsmith-io/action@v0.6.14
+        with:
+          api-key: ${{ secrets.CLOUDSMITH_API_KEY }}
+          command: "push"
+          format: "deb"
+          owner: "paradedb"
+          repo: "paradedb"
+          distro: "debian"
+          release: ${{ steps.version.outputs.os_version }}
+          republish: "true"
+          file: "./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb"
+
       - name: Notify Slack on Failure
         if: failure()
         run: |

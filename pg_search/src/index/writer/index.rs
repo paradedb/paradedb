@@ -175,6 +175,10 @@ impl SerialIndexWriter {
             SearchIndexSchema::build_sort_by_field(&options.sort_by(), &tantivy_schema);
         let settings = IndexSettings {
             sort_by_field,
+            codec_types: vec![
+                tantivy::columnar::CodecType::Bitpacked,
+                tantivy::columnar::CodecType::BlockwiseLinear,
+            ],
             ..IndexSettings::default()
         };
         let mut index = Index::create(directory, tantivy_schema, settings)?;

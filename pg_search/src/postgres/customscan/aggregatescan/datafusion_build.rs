@@ -428,7 +428,12 @@ unsafe fn build_join_node(
 ) -> Result<RelNode, String> {
     let join = &*join_expr;
 
+    let outer = build_relnode_from_node(root, join.larg, sources)?;
+    let inner = build_relnode_from_node(root, join.rarg, sources)?;
+
     let join_type = JoinType::try_from(join.jointype).map_err(|e| e.to_string())?;
+    let left = outer;
+    let right = inner;
 
     // Support INNER, LEFT/RIGHT, and FULL OUTER JOINs
     match join_type {
@@ -440,9 +445,6 @@ unsafe fn build_join_node(
             ));
         }
     }
-
-    let left = build_relnode_from_node(root, join.larg, sources)?;
-    let right = build_relnode_from_node(root, join.rarg, sources)?;
 
     // Extract equi-join keys from ON clause (join.quals)
     let equi_keys = if !join.quals.is_null() {

@@ -160,7 +160,6 @@ jobs:
           build-args: |
             PG_VERSION_MAJOR=${{ matrix.pg_version }}
             COMMIT_SHA=${{ steps.version.outputs.commit_sha }}
-            PARADEDB_VERSION=${{ steps.version.outputs.version }}
           platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile
           push: true

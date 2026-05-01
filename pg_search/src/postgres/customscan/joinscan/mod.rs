@@ -1829,9 +1829,6 @@ impl JoinScan {
 
         join_keys.extend(join_conditions.equi_keys.clone());
 
-        let parsed_jointype = build::JoinType::try_from(jointype)
-            .map_err(|e| warn(JoinDeclineReason::new(e.to_string())))?;
-
         // For Semi/Anti with additional conditions that cannot ride the
         // MultiTablePredicate pipeline (setrefs would fail to resolve inner-side
         // Vars once the inner relation is pruned), try to absorb each condition
@@ -1905,6 +1902,8 @@ impl JoinScan {
             )));
         }
 
+        let parsed_jointype = build::JoinType::try_from(jointype)
+            .map_err(|e| warn(JoinDeclineReason::new(e.to_string())))?;
         let mut plan = RelNode::Join(Box::new(build::JoinNode {
             join_type: parsed_jointype,
             left: outer_node,

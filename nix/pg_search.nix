@@ -59,12 +59,13 @@ buildPgrxExtension (finalAttrs: {
   pname = "pg_search";
   version = rootCargoToml.workspace.package.version;
   src = self;
+  COMMIT_SHA = self.rev or self.dirtyRev or "unknown";
 
   # This hash needs to change any time the Rust dependencies are updated.
   # If maintainers forget to do so, Nix will throw an error message that begins
   # like this and then provides the correct new hash:
   # error: hash mismatch in fixed-output derivation '...'
-  cargoHash = "sha256-Qs+EXx3QYjpF1UlO0zqYckUwXzbDW+ATdLIjDRfjTSQ=";
+  cargoHash = "sha256-8KwmxgzHOQZ3DB/hMSTajKwyA4UTV0UONUhGtxc/Q1c=";
 
   inherit cargo-pgrx postgresql;
 

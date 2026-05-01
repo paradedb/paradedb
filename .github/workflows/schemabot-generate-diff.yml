@@ -93,7 +93,7 @@ jobs:
         run: |
           cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           # Save the pgrx version for comparison later
-          echo "FIRST_PGRX_VERSION=${PGRX_VERSION}" >> $GITHUB_ENV
+          echo "FIRST_PGRX_VERSION=${{ steps.pgrx.outputs.version }}" >> $GITHUB_ENV
 
       - name: Generate Schema from this git rev
         run: cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
@@ -102,7 +102,17 @@ jobs:
         run: |
           # Switch to the base git rev
           git checkout .
-          git checkout ${{ github.event.pull_request.base.ref }}
+
+          # Fetch the base ref from the upstream repository (the repo the PR
+          # targets), not from the PR head's repo. For fork-based PRs the head
+          # repo's `main` branch is often stale, which would otherwise produce
+          # a misleading schema diff (and pull in a stale pgrx version below).
+          BASE_REPO="${{ github.event.pull_request.base.repo.full_name || github.repository }}"
+          BASE_REF="${{ github.event.pull_request.base.ref || github.ref_name }}"
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream "https://github.com/${BASE_REPO}.git"
+          git fetch --depth=1 upstream "${BASE_REF}"
+          git checkout FETCH_HEAD
 
           # See if we need a different cargo-pgrx and install it if so
           THIS_PGRX_VERSION=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)

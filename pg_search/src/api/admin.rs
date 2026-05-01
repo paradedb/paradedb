@@ -756,9 +756,7 @@ fn version_info() -> TableIterator<
         .unwrap_or("unknown")
         .to_string();
 
-    let git_sha = option_env!("VERGEN_GIT_SHA")
-        .unwrap_or("unknown")
-        .to_string();
+    let git_sha = option_env!("COMMIT_SHA").unwrap_or("unknown").to_string();
 
     let build_mode = if cfg!(debug_assertions) {
         "debug".to_string()

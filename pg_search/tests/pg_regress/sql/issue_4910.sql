@@ -1,0 +1,140 @@
+-- Regression test for issue paradedb/paradedb#4910:
+-- "Joins: JoinScan declines in parallel mode for 3-way EXISTS + NOT EXISTS".
+--
+-- The original failing query joins a primary BM25-indexed table with two
+-- related tables via EXISTS and NOT EXISTS. In parallel mode, the 3-way
+-- absorption walker bailed when cheapest_total_path was wrapped in
+-- GatherPath / GatherMergePath / MaterialPath / ProjectionPath, so the
+-- third relation stayed un-absorbed and is_limit_pushdown_safe rejected
+-- the JoinScan candidate.
+--
+-- This test uses `debug_parallel_query = on` to force the planner to pick
+-- parallel paths regardless of data size. Without the GUC, the natural cost
+-- model picks serial paths at small scale and the failing code path
+-- (GatherPath wrapper peeling in the absorption walker) is not exercised.
+-- With the GUC, the same `Gather Merge -> Parallel Custom Scan (ParadeDB
+-- Join Scan)` shape that the original 1M-row repro produced is reproduced
+-- at 1K rows. Do NOT remove `debug_parallel_query` without scaling row
+-- counts up.
+SET client_min_messages TO WARNING;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+DROP TABLE IF EXISTS cccf, csa_exists, csa_not_exists CASCADE;
+
+CREATE TABLE cccf (
+    contact_id bigint PRIMARY KEY,
+    company_id bigint,
+    revenue_rank integer
+);
+CREATE TABLE csa_exists (
+    unique_id bigserial PRIMARY KEY,
+    company_id bigint
+);
+CREATE TABLE csa_not_exists (
+    unique_id bigserial PRIMARY KEY,
+    company_id bigint,
+    speciality text
+);
+
+INSERT INTO cccf SELECT s, s % 10, s % 20 FROM generate_series(1, 1000) s;
+INSERT INTO csa_exists (company_id) SELECT s FROM generate_series(1, 10) s;
+INSERT INTO csa_not_exists (company_id, speciality)
+  SELECT s, CASE WHEN s % 2 = 0 THEN 'salesforce' ELSE 'other' END
+  FROM generate_series(1, 10) s;
+
+-- v2 BM25 index syntax: numeric columns are fast by default; the speciality
+-- text column uses pdb.literal (raw tokenizer + fast field) for equality
+-- matching without a text_fields JSON.
+CREATE INDEX cccf_idx ON cccf
+  USING bm25 (contact_id, company_id, revenue_rank)
+  WITH (key_field = contact_id);
+CREATE INDEX csa_exists_idx ON csa_exists
+  USING bm25 (unique_id, company_id)
+  WITH (key_field = unique_id);
+CREATE INDEX csa_not_exists_idx ON csa_not_exists
+  USING bm25 (unique_id, company_id, (speciality::pdb.literal))
+  WITH (key_field = unique_id);
+
+ANALYZE cccf;
+ANALYZE csa_exists;
+ANALYZE csa_not_exists;
+
+SET min_parallel_table_scan_size = 0;
+SET min_parallel_index_scan_size = 0;
+SET parallel_setup_cost = 0;
+SET parallel_tuple_cost = 0;
+SET work_mem = '1GB';
+SET paradedb.enable_join_custom_scan TO on;
+SET debug_parallel_query = on;
+
+-- Parallel mode: the originally failing case. After the fix, JoinScan
+-- absorbs all three relations and is wrapped in `Gather Merge` for parallel
+-- execution. Pre-fix this fell back to native `Parallel Hash Right Anti
+-- Join` over `Parallel Hash Semi Join` and emitted a planner warning that
+-- LIMIT pushdown was unsafe due to un-absorbed relations.
+SET max_parallel_workers_per_gather = 8;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT contact_id, company_id, revenue_rank
+FROM cccf
+WHERE
+    EXISTS (SELECT 1 FROM csa_exists ce WHERE ce.company_id = cccf.company_id)
+    AND NOT EXISTS (
+        SELECT 1 FROM csa_not_exists cne
+        WHERE cne.company_id = cccf.company_id
+          AND cne.unique_id @@@ paradedb.parse('speciality:salesforce')
+    )
+    AND contact_id @@@ paradedb.range(field => 'contact_id', range => '(0,)'::int8range)
+ORDER BY revenue_rank DESC NULLS LAST, contact_id ASC
+LIMIT 25;
+
+-- Result rows in parallel mode (verifies correctness, not just plan shape).
+SELECT contact_id, company_id, revenue_rank
+FROM cccf
+WHERE
+    EXISTS (SELECT 1 FROM csa_exists ce WHERE ce.company_id = cccf.company_id)
+    AND NOT EXISTS (
+        SELECT 1 FROM csa_not_exists cne
+        WHERE cne.company_id = cccf.company_id
+          AND cne.unique_id @@@ paradedb.parse('speciality:salesforce')
+    )
+    AND contact_id @@@ paradedb.range(field => 'contact_id', range => '(0,)'::int8range)
+ORDER BY revenue_rank DESC NULLS LAST, contact_id ASC
+LIMIT 25;
+
+-- Sequential mode: control. JoinScan was already selected here pre-fix, but
+-- we capture it to guard against regressions that might break the simpler
+-- code path while fixing parallel.
+SET max_parallel_workers_per_gather = 0;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT contact_id, company_id, revenue_rank
+FROM cccf
+WHERE
+    EXISTS (SELECT 1 FROM csa_exists ce WHERE ce.company_id = cccf.company_id)
+    AND NOT EXISTS (
+        SELECT 1 FROM csa_not_exists cne
+        WHERE cne.company_id = cccf.company_id
+          AND cne.unique_id @@@ paradedb.parse('speciality:salesforce')
+    )
+    AND contact_id @@@ paradedb.range(field => 'contact_id', range => '(0,)'::int8range)
+ORDER BY revenue_rank DESC NULLS LAST, contact_id ASC
+LIMIT 25;
+
+-- Native PG (JoinScan disabled) rows on the same data, parallel mode.
+-- The rows must match the JoinScan-on rows above; capturing both blocks in
+-- the .out file means any divergence shows up as a regression diff.
+SET max_parallel_workers_per_gather = 8;
+SET paradedb.enable_join_custom_scan TO off;
+SELECT contact_id, company_id, revenue_rank
+FROM cccf
+WHERE
+    EXISTS (SELECT 1 FROM csa_exists ce WHERE ce.company_id = cccf.company_id)
+    AND NOT EXISTS (
+        SELECT 1 FROM csa_not_exists cne
+        WHERE cne.company_id = cccf.company_id
+          AND cne.unique_id @@@ paradedb.parse('speciality:salesforce')
+    )
+    AND contact_id @@@ paradedb.range(field => 'contact_id', range => '(0,)'::int8range)
+ORDER BY revenue_rank DESC NULLS LAST, contact_id ASC
+LIMIT 25;
+
+DROP TABLE cccf, csa_exists, csa_not_exists CASCADE;

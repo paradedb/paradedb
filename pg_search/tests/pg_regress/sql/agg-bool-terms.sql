@@ -46,18 +46,19 @@ DROP TABLE IF EXISTS docs_nullable CASCADE;
 CREATE TABLE docs_nullable (
     id SERIAL PRIMARY KEY,
     body TEXT,
+    category TEXT NOT NULL,
     has_flag BOOLEAN
 );
 
-INSERT INTO docs_nullable (body, has_flag) VALUES
-    ('doc with true',   true),
-    ('doc with false',  false),
-    ('doc with null 1', NULL),
-    ('doc with null 2', NULL),
-    ('another true',    true);
+INSERT INTO docs_nullable (body, category, has_flag) VALUES
+    ('doc with true',   'x', true),
+    ('doc with false',  'y', false),
+    ('doc with null 1', 'x', NULL),
+    ('doc with null 2', 'y', NULL),
+    ('another true',    'x', true);
 
 CREATE INDEX docs_nullable_idx ON docs_nullable
-USING bm25 (id, body, has_flag)
+USING bm25 (id, body, (category::pdb.unicode_words('columnar=true')), has_flag)
 WITH (key_field = 'id');
 
 -- 4a: EXPLAIN to confirm aggregate custom scan is used
@@ -81,8 +82,23 @@ SELECT pdb.agg('{"terms": {"field": "has_flag"}}'::jsonb)
 FROM docs_nullable
 WHERE body @@@ pdb.all();
 
--- 4d: Verify pdb.agg terms on nullable bool includes all docs
+-- 4d: Verify pdb.agg terms on nullable bool includes all docs and the null sentinel is scrubbed 
+-- when not using custom scan
+SET paradedb.enable_aggregate_custom_scan = off;
 SELECT pdb.agg('{"terms": {"field": "has_flag"}}'::jsonb)
+FROM docs_nullable
+WHERE body @@@ pdb.all();
+
+-- 4e: Verify pdb.agg terms on nullable bool includes all docs and the null sentinel is scrubbed
+-- when using custom scan
+SET paradedb.enable_aggregate_custom_scan = on;
+SELECT pdb.agg('{"terms": {"field": "has_flag"}}'::jsonb)
+FROM docs_nullable
+WHERE body @@@ pdb.all();
+
+-- Test 5: Nested terms sub-aggregation over a nullable bool — sentinel must be
+-- scrubbed at every level of the bucket tree, not just the top.
+SELECT pdb.agg('{"terms": {"field": "category"}, "aggs": {"by_flag": {"terms": {"field": "has_flag"}}}}'::jsonb)
 FROM docs_nullable
 WHERE body @@@ pdb.all();
 

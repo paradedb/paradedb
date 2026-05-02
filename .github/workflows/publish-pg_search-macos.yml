@@ -95,7 +95,6 @@ jobs:
           fi
           echo "GitHub Tag Version: $VERSION"
           echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
-          echo "commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
           OS_VERSION=$(sw_vers -productVersion)
           case $OS_VERSION in
@@ -138,8 +137,6 @@ jobs:
           PG_CONFIG_PATH="/opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/bin/pg_config"
           export PATH="/opt/homebrew/bin:$PATH"
           cargo pgrx package --pg-config $PG_CONFIG_PATH
-        env:
-          COMMIT_SHA: ${{ steps.version.outputs.commit_sha }}
 
       - name: Create .pkg Package
         run: |

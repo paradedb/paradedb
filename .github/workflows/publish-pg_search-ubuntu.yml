@@ -195,7 +195,6 @@ jobs:
           fi
           echo "GitHub Tag Version: $VERSION"
           echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
-          echo "commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
           OS_VERSION="$(lsb_release -cs)"
           echo "OS Version: $OS_VERSION"
@@ -240,8 +239,6 @@ jobs:
 
       - name: Package pg_search Extension with pgrx
         working-directory: pg_search/
-        env:
-          COMMIT_SHA: ${{ steps.version.outputs.commit_sha }}
         run: |
           PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           cargo pgrx package --pg-config $PG_CONFIG_PATH

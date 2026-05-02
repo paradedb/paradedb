@@ -49,6 +49,7 @@ use std::ptr::{addr_of_mut, NonNull};
 use std::sync::OnceLock;
 use tantivy::{SegmentMeta, TantivyDocument};
 
+const TUPLES_DONE_BATCH_SIZE: usize = 5;
 /// General, immutable configuration used for the workers
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -93,11 +94,11 @@ impl WorkerCoordination {
         let _lock = self.mutex.acquire();
         self.nlaunched
     }
-    fn inc_ntuples_done(&mut self) {
+    fn add_tuples_done(&mut self, count: usize) {
         let _lock = self.mutex.acquire();
-        self.ntuples_done += 1;
+        self.ntuples_done += count;
     }
-    fn ntuples_done(&mut self) -> usize {
+    fn tuples_done(&mut self) -> usize {
         let _lock = self.mutex.acquire();
         self.ntuples_done
     }
@@ -304,6 +305,7 @@ struct WorkerBuildState<'a> {
     next_xid: pg_sys::FullTransactionId,
     indexrel: PgSearchRelation,
     heaprel: PgSearchRelation,
+    worker_number: i32,
     // the following statistics are used to determine when and what to merge:
     //
     // 1. how many segments does this worker expect to make, assuming no merges?
@@ -320,6 +322,7 @@ struct WorkerBuildState<'a> {
     //
     // 5. unmerged segment metas that this worker has created so far
     unmerged_metas: Vec<SegmentMeta>,
+    local_tuple_done_count: usize, // worker-local number of tuples done - used to updated the shared `ntuples_done` in `coordination`
 }
 
 impl<'a> WorkerBuildState<'a> {
@@ -365,6 +368,8 @@ impl<'a> WorkerBuildState<'a> {
             estimated_nsegments: OnceLock::new(),
             nmerges: Default::default(),
             unmerged_metas: Default::default(),
+            worker_number,
+            local_tuple_done_count: 0,
         })
     }
 
@@ -534,7 +539,22 @@ unsafe extern "C-unwind" fn build_callback(
     });
     build_state.per_row_context.reset();
 
-    build_state.coordination.inc_ntuples_done();
+    build_state.local_tuple_done_count += 1;
+    // we're making the assumption, based on the logic in the `build_index` function, that the leader (if participating) has the last worker number (equivalent to nlaunched)
+    let is_leader = build_state.worker_number == (build_state.coordination.nlaunched() as i32);
+
+    if build_state.local_tuple_done_count % TUPLES_DONE_BATCH_SIZE == 0 {
+        build_state
+            .coordination
+            .add_tuples_done(TUPLES_DONE_BATCH_SIZE);
+
+        if is_leader {
+            pg_sys::pgstat_progress_update_param(
+                pg_sys::PROGRESS_CREATEIDX_TUPLES_DONE as i32,
+                build_state.coordination.tuples_done() as i64,
+            );
+        }
+    }
 
     if let Some(segment_meta) = segment_meta {
         build_state.unmerged_metas.push(segment_meta);
@@ -625,6 +645,7 @@ pub(super) fn build_index(
 
                 // directly instantiate a worker for the leader and have it do its build
                 let mut worker = BuildWorker::new_parallel_worker(*process.state_manager());
+                // NOTE: this logic of setting the worker number of the leader as `nlaunched_plus_leader` is used to determine, in `build_callback`, if a certain worker is the leader
                 worker.do_build(nlaunched_plus_leader as i32)?
             } else {
                 pgrx::debug1!("build_index: leader is not participating");

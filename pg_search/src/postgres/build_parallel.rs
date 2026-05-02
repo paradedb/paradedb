@@ -72,6 +72,7 @@ struct WorkerCoordination {
     mutex: Spinlock,
     nstarted: usize,
     nlaunched: usize,
+    ntuples_done: usize,
 }
 
 impl ParallelStateType for WorkerCoordination {}
@@ -91,6 +92,14 @@ impl WorkerCoordination {
     fn nlaunched(&mut self) -> usize {
         let _lock = self.mutex.acquire();
         self.nlaunched
+    }
+    fn inc_ntuples_done(&mut self) {
+        let _lock = self.mutex.acquire();
+        self.ntuples_done += 1;
+    }
+    fn ntuples_done(&mut self) -> usize {
+        let _lock = self.mutex.acquire();
+        self.ntuples_done
     }
 }
 
@@ -261,7 +270,7 @@ impl<'a> BuildWorker<'a> {
                 self.config.current_xid,
                 self.config.next_xid,
                 worker_segment_target.max(1),
-                nlaunched,
+                self.coordination,
                 worker_number,
             )?;
 
@@ -287,7 +296,7 @@ impl<'a> BuildWorker<'a> {
 }
 
 /// Internal state used by each parallel build worker
-struct WorkerBuildState {
+struct WorkerBuildState<'a> {
     writer: Option<SerialIndexWriter>,
     categorized_fields: Vec<(SearchField, CategorizedFieldData)>,
     per_row_context: PgMemoryContexts,
@@ -306,16 +315,14 @@ struct WorkerBuildState {
     // 3. how many merges has this worker done so far? (incrementing counter)
     nmerges: usize,
     //
-    // 4. how many workers are there in total? (including the leader)
-    nlaunched: usize,
+    // 4. how many workers are there in total? (including the leader) - utilizing the `nlaunched` field in WorkerCoordination
+    coordination: &'a mut WorkerCoordination, // passing in `WorkerCoordination` to have a shared view of `ntuples_done`, used for reporting `tuples_done` in progress monitoring view
     //
     // 5. unmerged segment metas that this worker has created so far
     unmerged_metas: Vec<SegmentMeta>,
-
-    cnt: usize,
 }
 
-impl WorkerBuildState {
+impl<'a> WorkerBuildState<'a> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         heaprel: &PgSearchRelation,
@@ -324,7 +331,7 @@ impl WorkerBuildState {
         current_xid: pg_sys::FullTransactionId,
         next_xid: pg_sys::FullTransactionId,
         worker_segment_target: usize,
-        nlaunched: usize,
+        coordination: &'a mut WorkerCoordination,
         worker_number: i32,
     ) -> anyhow::Result<Self> {
         // if we're making more than one segment, do an early cutoff based on doc count in case
@@ -332,7 +339,7 @@ impl WorkerBuildState {
         let max_docs_per_segment = if worker_segment_target > 1 {
             Some(
                 plan::estimate_heap_reltuples(heaprel) as u32
-                    / nlaunched as u32
+                    / coordination.nlaunched as u32
                     / worker_segment_target as u32,
             )
         } else {
@@ -354,11 +361,10 @@ impl WorkerBuildState {
             current_xid,
             next_xid,
             worker_segment_target,
-            nlaunched,
+            coordination,
             estimated_nsegments: OnceLock::new(),
             nmerges: Default::default(),
             unmerged_metas: Default::default(),
-            cnt: 0,
         })
     }
 
@@ -468,9 +474,9 @@ impl WorkerBuildState {
     fn estimated_nsegments(&self, docs_per_segment: u32) -> usize {
         *self.estimated_nsegments.get_or_init(|| {
             let reltuples = plan::estimate_heap_reltuples(&self.heaprel);
-            let reltuples_per_worker = reltuples / self.nlaunched as f64;
+            let reltuples_per_worker = reltuples / self.coordination.nlaunched as f64;
             let nsegments = (reltuples_per_worker / docs_per_segment as f64).ceil() as usize;
-            pgrx::debug1!("estimated that this worker will make {nsegments} segments, based on reltuples: {reltuples}, nlaunched: {}, reltuples_per_worker: {reltuples_per_worker}, docs_per_segment: {docs_per_segment}", self.nlaunched);
+            pgrx::debug1!("estimated that this worker will make {nsegments} segments, based on reltuples: {reltuples}, nlaunched: {}, reltuples_per_worker: {reltuples_per_worker}, docs_per_segment: {docs_per_segment}", self.coordination.nlaunched);
             nsegments
         })
     }
@@ -528,7 +534,7 @@ unsafe extern "C-unwind" fn build_callback(
     });
     build_state.per_row_context.reset();
 
-    build_state.cnt += 1;
+    build_state.coordination.inc_ntuples_done();
 
     if let Some(segment_meta) = segment_meta {
         build_state.unmerged_metas.push(segment_meta);

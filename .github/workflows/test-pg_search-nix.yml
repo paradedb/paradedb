@@ -68,8 +68,15 @@ jobs:
               exit 1
             fi
 
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
+            PR_USER_LOGIN="${{ github.event.pull_request.user.login }}"
+            PR_USER_ID="${{ github.event.pull_request.user.id }}"
+            if [ -n "$PR_USER_LOGIN" ] && [ -n "$PR_USER_ID" ]; then
+              git config user.name "$PR_USER_LOGIN"
+              git config user.email "${PR_USER_ID}+${PR_USER_LOGIN}@users.noreply.github.com"
+            else
+              git config user.name "paradedb-bot"
+              git config user.email "developers@paradedb.com"
+            fi
             git add nix/pg_search.nix
             git commit -m "fix: update nix cargoHash for changed Cargo.lock"
             git push

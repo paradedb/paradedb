@@ -43,7 +43,7 @@ create table orders_part_empty partition of orders_part for values in (999);
 select * from orders_part where customer_name ||| 'Nobody';
 
 -- Added as requested
-EXPLAIN SELECT * FROM orders_part WHERE customer_name ||| 'John';
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM orders_part WHERE customer_name ||| 'John';
 -- Cleanup
 drop table orders_part cascade;
 drop table items cascade;

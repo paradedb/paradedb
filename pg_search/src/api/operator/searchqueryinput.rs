@@ -190,10 +190,13 @@ pub fn search_with_query_input(
         let index_kind = IndexKind::for_index(index_relation)
             .expect("search_with_query_input: valid index kind required");
 
-        // TODO: This naive implementation collects all matching primary keys from all child 
-        // partitions into a single in-memory HashSet. For millions of rows, this OOMs.
-        // A streaming approach (one tuple at a time) is required for future large-scale optimization.
-        let mut matches = crate::api::HashSet::default();
+        // TODO: This naive implementation collects all matching primary keys from
+        // all child partitions into a single in-memory HashSet. The HashSet uses
+        // Rust's global allocator (not Postgres palloc), so it does NOT respect
+        // `work_mem` or any other Postgres memory limit — it grows until the
+        // backend is OOM-killed by the OS. A streaming approach driven by the
+        // custom scan path is the right long-term fix.
+        let mut matches = HashSet::default();
 
         for child_relation in index_kind.partitions() {
             let search_reader = SearchIndexReader::open(

@@ -391,12 +391,7 @@ impl BaseScanState {
     ///
     /// This function supports text, text[], and json/jsonb fields
     unsafe fn doc_from_heap(&self, ctid: u64, field: &FieldName) -> Option<String> {
-        let heaprel = match self.heaprel.as_ref() {
-            Some(rel) => rel,
-            None => {
-                pgrx::error!("doc_from_heap: should have a heap relation");
-            }
-        };
+        let heaprel = self.heaprel.as_ref().expect("should have a heap relation");
         let mut ipd = pg_sys::ItemPointerData::default();
         u64_to_item_pointer(ctid, &mut ipd);
 

@@ -702,6 +702,7 @@ impl JoinScan {
         let relevant_pathkeys =
             planning::count_relevant_pathkeys(root, &join_clause.plan.sources());
         let private_data = PrivateData::new(join_clause);
+        #[allow(clippy::needless_update)]
         let mut custom_path = pg_sys::CustomPath {
             path: pg_sys::Path {
                 type_: pg_sys::NodeTag::T_CustomPath,

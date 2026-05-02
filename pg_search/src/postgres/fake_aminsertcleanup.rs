@@ -50,11 +50,6 @@ use std::collections::hash_map::Entry;
 ///
 /// This invariant is enforced by the depth counter in `ExecutorRunEntry`
 /// and the early-return logic in `executor_run_hook` / `executor_finish_hook`.
-///
-/// Note: An automated regression test for this invariant is not possible without
-/// the bingo extension (or a custom C extension that calls ExecutorRun() directly).
-/// Standard SPI does not re-enter ExecutorRun_hook. Validation was confirmed
-/// manually by the original reporter (@Pandaaaa906) against their bingo setup.
 #[derive(Default)]
 struct ExecutorRunEntry {
     active: HashMap<pg_sys::Oid, InsertState>,
@@ -215,6 +210,10 @@ pub unsafe fn register() {
     }
 
     unsafe fn aminsertcleanup_stack() -> Option<()> {
+        // `??` tolerates an empty stack: the abort callback registered in
+        // `push_insert_state` may have already called `EXECUTOR_RUN_STACK.clear()`
+        // before `executor_finish_hook` fires. That is the only legitimate
+        // empty-stack path; any other would be a logic bug surfaced in review.
         let entry = EXECUTOR_RUN_STACK.pop()??;
         for (_, mut insert_state) in entry.active {
             let mode = std::mem::replace(&mut insert_state.mode, InsertMode::Completed);

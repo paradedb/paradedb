@@ -560,18 +560,8 @@ DROP TABLE details_test CASCADE;
 
 
 -- =============================================================================
--- Regression guard for Issue #4843
+-- Test 33: Multi-row INSERT/UPDATE with a BM25 expression index
 -- =============================================================================
---
--- Problem: Multi-row INSERT/UPDATE with a BM25 expression index could panic
--- with "get_insert_state: tried to get the InsertState for relation ... but
--- it was never pushed" when the expression function triggers a nested
--- ExecutorRun (e.g., bingo.cansmiles via internal C++ SPI).
---
--- This test exercises the multi-row + expression-index path. It does NOT
--- trigger the nested-executor bug (that requires the external bingo extension),
--- but it guards against regressions in the normal fake-aminsertcleanup flow.
--- -----------------------------------------------------------------------------
 
 CREATE TABLE test_multirow_expr_guard (
     id SERIAL PRIMARY KEY,

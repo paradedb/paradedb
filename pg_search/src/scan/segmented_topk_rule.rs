@@ -172,12 +172,14 @@ fn resolve_physical_index(col: &Column, schema: &datafusion::arrow::datatypes::S
         matches[occurrence]
     };
 
-    pgrx::debug1!(
-        "SegmentedTopK: mapping logical index {} to physical index {} for column '{}'",
-        logical_idx,
-        physical_idx,
-        col_name
-    );
+    if physical_idx != logical_idx {
+        pgrx::debug2!(
+            "SegmentedTopK: remapped '{}' index {} -> {}",
+            col_name,
+            logical_idx,
+            physical_idx
+        );
+    }
 
     physical_idx
 }

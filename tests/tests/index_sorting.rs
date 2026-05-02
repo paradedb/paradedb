@@ -475,12 +475,8 @@ fn index_sort_by_type_multi_segment(mut conn: PgConnection, #[case] variant: &st
                 r#"
                     CREATE TABLE test_sort (id SERIAL PRIMARY KEY, content TEXT, sort_col TEXT);
                     CREATE INDEX test_sort_idx ON test_sort
-                    USING bm25 (id, content, sort_col)
-                    WITH (
-                        key_field = 'id',
-                        text_fields = '{"content": {}, "sort_col": {"fast": true, "tokenizer": {"type": "raw"}}}',
-                        sort_by = 'sort_col ASC NULLS FIRST'
-                    );
+                    USING bm25 (id, content, (sort_col::pdb.literal))
+                    WITH (key_field = 'id', sort_by = 'sort_col ASC NULLS FIRST');
                 "#,
                 vec![
                     "INSERT INTO test_sort (content, sort_col) VALUES ('fruit', 'mango'), ('fruit', 'apple')",
@@ -501,12 +497,8 @@ fn index_sort_by_type_multi_segment(mut conn: PgConnection, #[case] variant: &st
                 r#"
                     CREATE TABLE test_sort (id SERIAL PRIMARY KEY, content TEXT, sort_col TEXT);
                     CREATE INDEX test_sort_idx ON test_sort
-                    USING bm25 (id, content, sort_col)
-                    WITH (
-                        key_field = 'id',
-                        text_fields = '{"content": {}, "sort_col": {"fast": true, "tokenizer": {"type": "raw"}}}',
-                        sort_by = 'sort_col DESC NULLS LAST'
-                    );
+                    USING bm25 (id, content, (sort_col::pdb.literal))
+                    WITH (key_field = 'id', sort_by = 'sort_col DESC NULLS LAST');
                 "#,
                 vec![
                     "INSERT INTO test_sort (content, sort_col) VALUES ('fruit', 'mango'), ('fruit', 'apple')",
@@ -527,19 +519,15 @@ fn index_sort_by_type_multi_segment(mut conn: PgConnection, #[case] variant: &st
                 r#"
                     CREATE TABLE test_sort (id SERIAL PRIMARY KEY, content TEXT, sort_col UUID);
                     CREATE INDEX test_sort_idx ON test_sort
-                    USING bm25 (id, content, sort_col)
-                    WITH (
-                        key_field = 'id',
-                        text_fields = '{"content": {}, "sort_col": {"fast": true, "tokenizer": {"type": "keyword"}}}',
-                        sort_by = 'sort_col ASC NULLS FIRST'
-                    );
+                    USING bm25 (id, content, (sort_col::pdb.literal))
+                    WITH (key_field = 'id', sort_by = 'sort_col ASC NULLS FIRST');
                 "#,
                 vec![
                     "INSERT INTO test_sort (content, sort_col) VALUES ('uuid', '00000000-0000-0000-0000-000000000002'), ('uuid', '00000000-0000-0000-0000-000000000010')",
                     "INSERT INTO test_sort (content, sort_col) VALUES ('uuid', '00000000-0000-0000-0000-000000000001'), ('uuid', NULL)",
                     "INSERT INTO test_sort (content, sort_col) VALUES ('uuid', '00000000-0000-0000-0000-000000000003'), ('uuid', '00000000-0000-0000-0000-000000000100')",
                 ],
-                "SELECT sort_col::text FROM test_sort WHERE content @@@ 'uuid' ORDER BY sort_col ASC NULLS FIRST",
+                "SELECT sort_col::text AS sort_col_text FROM test_sort WHERE content @@@ 'uuid' ORDER BY sort_col ASC NULLS FIRST",
                 vec![
                     None,
                     Some("00000000-0000-0000-0000-000000000001".into()),
@@ -554,21 +542,14 @@ fn index_sort_by_type_multi_segment(mut conn: PgConnection, #[case] variant: &st
                     CREATE TABLE test_sort (id SERIAL PRIMARY KEY, content TEXT, sort_col NUMERIC(30,0));
                     CREATE INDEX test_sort_idx ON test_sort
                     USING bm25 (id, content, sort_col)
-                    WITH (
-                        key_field = 'id',
-                        text_fields = '{"content": {}}',
-                        numeric_fields = '{"sort_col": {"fast": true}}',
-                        sort_by = 'sort_col ASC NULLS FIRST'
-                    );
+                    WITH (key_field = 'id', sort_by = 'sort_col ASC NULLS FIRST');
                 "#,
                 vec![
                     "INSERT INTO test_sort (content, sort_col) VALUES ('num', NULL), ('num', 100000000000000000000000000000), ('num', 5)",
                     "INSERT INTO test_sort (content, sort_col) VALUES ('num', 10), ('num', 1), ('num', 100000000000000000000000000001)",
                     "INSERT INTO test_sort (content, sort_col) VALUES ('num', 500), ('num', 50)",
                 ],
-                // Table-qualify sort_col so Postgres doesn't resolve to the output column
-                // (sort_col::text) and sort lexicographically instead of numerically.
-                "SELECT sort_col::text FROM test_sort WHERE content @@@ 'num' ORDER BY test_sort.sort_col ASC NULLS FIRST",
+                "SELECT sort_col::text AS sort_col_text FROM test_sort WHERE content @@@ 'num' ORDER BY sort_col ASC NULLS FIRST",
                 vec![
                     None,
                     Some("1".into()),

@@ -26,7 +26,15 @@ concurrency:
 jobs:
   schemabot-generate-diff:
     name: SchemaBot
-    runs-on: ubicloud-standard-8-arm-ubuntu-2404
+    runs-on:
+      # Compute-optimized c-family — Rust schema generation is CPU-bound.
+      # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
+      - runs-on=${{ github.run_id }}
+      - family=c7g+c8g
+      - cpu=8
+      - ram=16
+      - image=ubuntu24-full-arm64
+      - extras=s3-cache
     defaults:
       run:
         shell: bash -eo pipefail {0}
@@ -63,7 +71,8 @@ jobs:
           shared-key: pg${{ matrix.pg_version }}
           cache-targets: true
           cache-all-crates: true
-          save-if: ${{ github.event_name != 'pull_request' }}
+          # We don't save the cache here to avoid thrashing. The cache is only saved on the nightly run of test-pg_search.yml
+          save-if: false
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |
@@ -84,7 +93,7 @@ jobs:
         run: |
           cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           # Save the pgrx version for comparison later
-          echo "FIRST_PGRX_VERSION=${PGRX_VERSION}" >> $GITHUB_ENV
+          echo "FIRST_PGRX_VERSION=${{ steps.pgrx.outputs.version }}" >> $GITHUB_ENV
 
       - name: Generate Schema from this git rev
         run: cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
@@ -93,7 +102,17 @@ jobs:
         run: |
           # Switch to the base git rev
           git checkout .
-          git checkout ${{ github.event.pull_request.base.ref }}
+
+          # Fetch the base ref from the upstream repository (the repo the PR
+          # targets), not from the PR head's repo. For fork-based PRs the head
+          # repo's `main` branch is often stale, which would otherwise produce
+          # a misleading schema diff (and pull in a stale pgrx version below).
+          BASE_REPO="${{ github.event.pull_request.base.repo.full_name || github.repository }}"
+          BASE_REF="${{ github.event.pull_request.base.ref || github.ref_name }}"
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream "https://github.com/${BASE_REPO}.git"
+          git fetch --depth=1 upstream "${BASE_REF}"
+          git checkout FETCH_HEAD
 
           # See if we need a different cargo-pgrx and install it if so
           THIS_PGRX_VERSION=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)

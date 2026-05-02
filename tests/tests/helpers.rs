@@ -100,6 +100,7 @@ fn list_tokenizers(mut conn: PgConnection) {
             ("chinese_compatible".into(),),
             ("source_code".into(),),
             ("ngram".into(),),
+            ("edge_ngram".into(),),
             ("chinese_lindera_deprecated".into(),),
             ("chinese_lindera".into(),),
             ("japanese_lindera_deprecated".into(),),

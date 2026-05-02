@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::api::operator::boost::{query_to_boost, BoostType};
+use crate::api::operator::const_score::{query_to_const, ConstType};
 use crate::query::pdb_query::pdb;
 use pgrx::{extension_sql, pg_cast, pg_extern};
 
@@ -44,7 +45,7 @@ mod sql_datum_support {
     use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
     use pgrx::nullable::Nullable;
     use pgrx::pgrx_sql_entity_graph::metadata::{
-        ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
+        ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
     };
     use pgrx::{pg_sys, FromDatum, IntoDatum};
 
@@ -75,13 +76,12 @@ mod sql_datum_support {
     }
 
     unsafe impl SqlTranslatable for FuzzyType {
-        fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-            Ok(SqlMapping::As("pdb.fuzzy".into()))
-        }
-
-        fn return_sql() -> Result<Returns, ReturnsError> {
-            Ok(Returns::One(SqlMapping::As("pdb.fuzzy".into())))
-        }
+        const TYPE_IDENT: &'static str = pgrx::pgrx_resolved_type!(FuzzyType);
+        const TYPE_ORIGIN: TypeOrigin = TypeOrigin::External;
+        const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
+            Ok(SqlMappingRef::literal("pdb.fuzzy"));
+        const RETURN_SQL: Result<ReturnsRef, ReturnsError> =
+            Ok(ReturnsRef::One(SqlMappingRef::literal("pdb.fuzzy")));
     }
 
     unsafe impl BoxRet for FuzzyType {
@@ -213,7 +213,11 @@ fn query_to_fuzzy(mut input: pdb::Query, typmod: i32, _is_explicit: bool) -> Fuz
 }
 
 #[pg_extern(immutable, parallel_safe)]
-fn text_array_to_fuzzy(array: Vec<String>, typmod: i32, _is_explicit: bool) -> FuzzyType {
+pub(crate) fn text_array_to_fuzzy(
+    array: Vec<String>,
+    typmod: i32,
+    _is_explicit: bool,
+) -> FuzzyType {
     let mut query = pdb::Query::UnclassifiedArray {
         array,
         fuzzy_data: None,
@@ -231,6 +235,11 @@ fn fuzzy_to_query(input: FuzzyType) -> pdb::Query {
 #[pg_extern(immutable, parallel_safe)]
 fn fuzzy_to_boost(input: FuzzyType, typmod: i32, is_explicit: bool) -> BoostType {
     query_to_boost(input.0, typmod, is_explicit)
+}
+
+#[pg_extern(immutable, parallel_safe)]
+fn fuzzy_to_const(input: FuzzyType, typmod: i32, is_explicit: bool) -> ConstType {
+    query_to_const(input.0, typmod, is_explicit)
 }
 
 /// SQL `CAST` function used by Postgres to apply the `typmod` value after the type has been constructed
@@ -257,12 +266,14 @@ extension_sql!(
         CREATE CAST (text[] AS pdb.fuzzy) WITH FUNCTION text_array_to_fuzzy(text[], integer, boolean) AS ASSIGNMENT;
         CREATE CAST (pdb.query AS pdb.fuzzy) WITH FUNCTION query_to_fuzzy(pdb.query, integer, boolean) AS ASSIGNMENT;
         CREATE CAST (pdb.fuzzy AS pdb.boost) WITH FUNCTION fuzzy_to_boost(pdb.fuzzy, integer, boolean) AS IMPLICIT;
+        CREATE CAST (pdb.fuzzy AS pdb.const) WITH FUNCTION fuzzy_to_const(pdb.fuzzy, integer, boolean) AS IMPLICIT;
         CREATE CAST (pdb.fuzzy AS pdb.fuzzy) WITH FUNCTION fuzzy_to_fuzzy(pdb.fuzzy, integer, boolean) AS IMPLICIT;
     "#,
     name = "cast_to_fuzzy",
     requires = [
         query_to_fuzzy,
         fuzzy_to_boost,
+        fuzzy_to_const,
         fuzzy_to_fuzzy,
         text_array_to_fuzzy,
         "FuzzyType_final"

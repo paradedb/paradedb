@@ -12,7 +12,6 @@
 **/*.tsv.gz
 **/*.txt
 **/*.zip
-/docker/.docker_cache_dev/
 /docker/manifests/
 /docs/documentation/aggregates/overview.mdx
 /docs/documentation/aggregates/common.mdx

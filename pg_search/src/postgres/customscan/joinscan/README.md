@@ -48,7 +48,11 @@ String columns are emitted as a [3-way `UnionArray`](../../scan/deferred_encode.
 
 ### 5. Pruning Path
 
-The **global threshold** is the primary pruning mechanism. After the first K rows fill the [global heap][global-heap] (during the [collection phase][collect-batch]), a [`DynamicFilterPhysicalExpr`][global-filter] is pushed down to the scan via filter pushdown. This works because [`SegmentedTopKExec`][topk-exec] and [`PgSearchScan`][scan-plan] share an `Arc<DynamicFilterPhysicalExpr>` — no row flow required. The [scanner reads `current()`][scanner-next] on every batch and translates string literals to per-segment ordinal bounds via [`try_rewrite_binary`][rewrite-binary].
+There are two primary pruning mechanisms for dynamic filters that are pushed down to the scan:
+
+1. **Query-Time Pushdown (Inverted Index):** Filters that are static and known at the start of the scan (such as `InList` predicates generated from a `HashJoin` build side) are intercepted during the first `poll_next` of the scan stream. They are converted into native Tantivy queries (e.g., `TermSetQuery`) and `AND`ed into the main search query via [`try_dynamic_filter_pushdown`][try-pushdown]. This allows Tantivy to use its inverted index to filter documents _while_ executing the search, providing the highest possible pruning performance. The DataFusion expressions are then rewritten to `lit(true)` so they are not evaluated again.
+
+2. **Pre-Filter Pushdown (Fast Fields):** For evolving thresholds, such as the global threshold from [`SegmentedTopKExec`][topk-exec], the threshold is pushed down to the scan via filter pushdown. This works because `SegmentedTopKExec` and [`PgSearchScan`][scan-plan] share an `Arc<DynamicFilterPhysicalExpr>`. The [scanner reads `current()`][scanner-next] on every batch and applies the filter _after_ the search but _before_ Arrow column materialization. For strings, it translates literals to per-segment ordinal bounds via [`try_rewrite_binary`][rewrite-binary] and filters directly against the fetched term ordinals.
 
 ### 6. Execution Result
 
@@ -95,7 +99,6 @@ Execution-layer files under [`pg_search/src/scan/`](../../scan/):
 [second-pushdown]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/postgres/customscan/joinscan/scan_state.rs#L213
 [smj-enforcer]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/postgres/customscan/joinscan/planner.rs#L60
 [topk-exec]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/segmented_topk_exec.rs#L150
-[collect-batch]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/segmented_topk_exec.rs#L483
 [global-filter]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/segmented_topk_exec.rs#L924
 [global-heap]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/segmented_topk_exec.rs#L447
 [topk-rule]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/segmented_topk_rule.rs#L63
@@ -108,3 +111,4 @@ Execution-layer files under [`pg_search/src/scan/`](../../scan/):
 [rewrite-binary]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/pre_filter.rs#L383
 [collect-filters]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/pre_filter.rs#L254
 [defer-decision]: https://github.com/paradedb/paradedb/blob/53b9d11/pg_search/src/scan/table_provider.rs#L126
+[try-pushdown]: ../../scan/pre_filter.rs

@@ -164,3 +164,10 @@ SELECT pdb.snippet(text) FROM prox WHERE text @@@ ('z' ##>24##> 'a');   -- no ma
 ---------
 (0 rows)
 
+--
+-- mismatched proximity operators should error
+--
+SELECT * FROM prox WHERE text @@@ ('a' ##>1## 'b');   -- error: left is ##>, right is ##
+ERROR:  left hand side of `##` must be a `<token-expression> ## <distance>`, see https://docs.paradedb.com/documentation/full-text/proximity
+SELECT * FROM prox WHERE text @@@ ('a' ##1##> 'b');   -- error: left is ##, right is ##>
+ERROR:  left hand side of `##>` must be a `<token-expression> ##> <distance>`, see https://docs.paradedb.com/documentation/full-text/proximity

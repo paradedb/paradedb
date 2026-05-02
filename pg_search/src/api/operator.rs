@@ -17,15 +17,15 @@
 
 mod andandand;
 mod atatat;
-mod boost;
-mod const_score;
+pub(crate) mod boost;
+pub(crate) mod const_score;
 mod eqeqeq;
-mod fuzzy;
+pub(crate) mod fuzzy;
 mod hashhashhash;
 mod ororor;
 mod proximity;
 mod searchqueryinput;
-mod slop;
+pub(crate) mod slop;
 
 use crate::api::operator::boost::{boost_to_boost, BoostType};
 use crate::api::operator::fuzzy::{fuzzy_to_fuzzy, FuzzyType};
@@ -58,7 +58,7 @@ use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::pgrx_sql_entity_graph::metadata::{
-    ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
+    ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
 };
 use pgrx::*;
 use std::ptr::NonNull;
@@ -87,13 +87,12 @@ unsafe impl BoxRet for ReturnedNodePointer {
 }
 
 unsafe impl SqlTranslatable for ReturnedNodePointer {
-    fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-        Ok(SqlMapping::As("internal".into()))
-    }
-
-    fn return_sql() -> Result<Returns, ReturnsError> {
-        Ok(Returns::One(SqlMapping::As("internal".into())))
-    }
+    const TYPE_IDENT: &'static str = pgrx::pgrx_resolved_type!(ReturnedNodePointer);
+    const TYPE_ORIGIN: TypeOrigin = TypeOrigin::External;
+    const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
+        Ok(SqlMappingRef::literal("internal"));
+    const RETURN_SQL: Result<ReturnsRef, ReturnsError> =
+        Ok(ReturnsRef::One(SqlMappingRef::literal("internal")));
 }
 
 pub fn with_index_procoid() -> pg_sys::Oid {

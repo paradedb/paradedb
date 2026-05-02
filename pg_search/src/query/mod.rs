@@ -326,6 +326,43 @@ impl SearchQueryInput {
         }
     }
 
+    pub fn needs_tokenizer(&self) -> bool {
+        match self {
+            SearchQueryInput::Uninitialized
+            | SearchQueryInput::All
+            | SearchQueryInput::Empty
+            | SearchQueryInput::TermSet { .. }
+            | SearchQueryInput::PostgresExpression { .. } => false,
+
+            SearchQueryInput::Parse { .. } | SearchQueryInput::MoreLikeThis { .. } => true,
+
+            SearchQueryInput::FieldedQuery { query, .. } => query.needs_tokenizer(),
+            SearchQueryInput::Boolean {
+                must,
+                should,
+                must_not,
+            } => must
+                .iter()
+                .chain(should.iter())
+                .chain(must_not.iter())
+                .any(Self::needs_tokenizer),
+            SearchQueryInput::Boost { query, .. }
+            | SearchQueryInput::ConstScore { query, .. }
+            | SearchQueryInput::WithIndex { query, .. }
+            | SearchQueryInput::HeapFilter {
+                indexed_query: query,
+                ..
+            } => query.needs_tokenizer(),
+            SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+                disjuncts.iter().any(Self::needs_tokenizer)
+            }
+            SearchQueryInput::ScoreFilter {
+                query: Some(query), ..
+            } => query.needs_tokenizer(),
+            SearchQueryInput::ScoreFilter { query: None, .. } => false,
+        }
+    }
+
     /// Returns `true` if constructing a Tantivy Scorer for this query would be expensive.
     /// Used by `estimate_selectivity` to short-circuit and return a heuristic instead.
     pub fn is_expensive_to_estimate(&self) -> bool {
@@ -1370,6 +1407,11 @@ fn value_to_json_term(
     Ok(term)
 }
 
+/// Converts a dot-separated path string (e.g. `"Top.Science.Biology"`) to a Tantivy [`Facet`].
+pub(super) fn dot_path_to_facet(text: &str) -> tantivy::schema::Facet {
+    tantivy::schema::Facet::from_path(text.split('.'))
+}
+
 pub fn value_to_term(
     field: Field,
     value: &OwnedValue,
@@ -1401,6 +1443,13 @@ pub fn value_to_term(
                 field,
                 date.truncate(DATE_TIME_PRECISION_INDEXED),
             ));
+        }
+    }
+
+    // For facet fields, convert string values to facet terms
+    if matches!(field_type, FieldType::Facet(_)) {
+        if let OwnedValue::Str(text) = value {
+            return Ok(Term::from_facet(field, &dot_path_to_facet(text)));
         }
     }
 

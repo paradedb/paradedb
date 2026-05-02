@@ -19,9 +19,6 @@ IGNORED_CODEGROUPS = {
     # CodeGroup is used here to switch between Chinese, Korean, and Japanese
     # not SQL vs ORMs
     "documentation__tokenizers__available-tokenizers__lindera__group-001",
-    # Once https://github.com/paradedb/paradedb/issues/4456 is fixed,
-    # we should unignore this snippet.
-    "documentation__aggregates__overview__group-004",
 }
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent

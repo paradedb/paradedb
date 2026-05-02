@@ -28,7 +28,6 @@ use crate::api::HashMap;
 use crate::index::fast_fields_helper::{build_arrow_schema, FFHelper, WhichFastField};
 use crate::nodecast;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
-use crate::postgres::customscan::basescan::privdat::Limit;
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::parallel::checkout_segment;
@@ -36,7 +35,7 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::SortByField;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types_arrow::arrow_array_to_datum;
-use crate::scan::execution_plan::{create_sorted_scan, PgSearchScanPlan};
+use crate::scan::execution_plan::{create_sorted_scan, PgSearchScanPlan, ScanState};
 use crate::scan::Scanner;
 
 use pgrx::{pg_sys, IntoDatum, PgOid, PgTupleDesc};
@@ -321,7 +320,6 @@ impl ColumnarExecState {
     pub fn new(
         which_fast_fields: Vec<WhichFastField>,
         extra_fast_fields: Vec<WhichFastField>,
-        limit: Option<usize>,
         sort_order: Option<SortByField>,
     ) -> Self {
         // Build scanner fields: projected + extra + [Ctid]
@@ -356,13 +354,12 @@ impl ColumnarExecState {
             None => ColumnarExecStrategy::Unsorted,
         };
 
-        // If there is a limit, then we use a batch size hint which is a small multiple of the
-        // limit, in case of dead tuples.
-        let batch_size_hint = limit.map(|limit| limit * 2);
+        // batch_size_hint is computed in `init` from the resolved LIMIT/OFFSET,
+        // when EState is available.
         Self {
             inner: Inner::new(which_fast_fields),
             scanner_fast_fields,
-            batch_size_hint,
+            batch_size_hint: None,
             strategy,
             runtime: None,
             stream: None,
@@ -388,31 +385,13 @@ impl ColumnarExecState {
         self.inner.did_query = true;
 
         let search_reader = state.search_reader.as_ref().unwrap();
-
-        let search_results = if let Some(parallel_state) = state.parallel_state {
-            search_reader.search_lazy(parallel_state, 0)
-        } else {
-            search_reader.search()
-        };
-
-        let heaprel = self
-            .inner
-            .heaprel
-            .as_ref()
-            .expect("ColumnarExecState: heaprel should be initialized");
+        let index_rel = state.indexrel.as_ref().unwrap();
+        let heap_rel = state.heaprel.as_ref().unwrap();
         let ffhelper = self
             .inner
             .ffhelper
             .as_ref()
             .expect("ColumnarExecState: ffhelper should be initialized");
-
-        // Create scanner
-        let scanner = Scanner::new(
-            search_results,
-            self.batch_size_hint,
-            self.scanner_fast_fields.clone(),
-            heaprel.oid().into(),
-        );
 
         // Clone visibility checker for the plan
         // TODO: This will cause metrics to be lost for fast field scans: see `impl Clone for VisibilityChecker`.
@@ -422,20 +401,33 @@ impl ColumnarExecState {
             .expect("ColumnarExecState: visibility_checker should be initialized")
             .clone();
 
+        let scanner_config = crate::scan::execution_plan::ScannerConfig {
+            which_fast_fields: self.scanner_fast_fields.clone(),
+            heap_relid: heap_rel.oid().to_u32(),
+            batch_size_hint: self.batch_size_hint,
+        };
+
         // Create PgSearchScanPlan and execute via DataFusion
+        let state_partition = ScanState {
+            recipe: crate::scan::execution_plan::ScanRecipe::Lazy {
+                parallel_state: state.parallel_state,
+                planner_estimated_rows: 0,
+                scanner_config,
+            },
+            ffhelper: Arc::clone(ffhelper),
+            visibility: Box::new(visibility) as Box<VisibilityChecker>,
+            reader: search_reader.clone(),
+        };
+
         let plan = PgSearchScanPlan::new(
-            vec![(scanner, Arc::clone(ffhelper), Box::new(visibility))],
+            vec![state_partition],
             build_arrow_schema(&self.scanner_fast_fields),
             // TODO: Switch to an Arc in the scan state.
             state.search_query_input().clone(),
             None,
             Vec::new(),
             None,
-            state
-                .indexrel
-                .as_ref()
-                .map(|r| r.oid().to_u32())
-                .unwrap_or(0),
+            index_rel.oid().to_u32(),
             None,
         );
 
@@ -463,8 +455,6 @@ impl ColumnarExecState {
         &mut self,
         state: &mut BaseScanState,
     ) -> Option<SendableRecordBatchStream> {
-        use crate::scan::execution_plan::ScanState;
-
         if self.inner.did_query {
             return None;
         }
@@ -508,22 +498,23 @@ impl ColumnarExecState {
                     break;
                 };
 
-                // Open the segment and create a scanner.
                 let search_results = search_reader.search_segments([segment_id].into_iter());
                 let mut scanner = Scanner::new(
                     search_results,
                     self.batch_size_hint,
                     self.scanner_fast_fields.clone(),
-                    heaprel.oid().into(),
+                    heaprel.oid().to_u32(),
                 );
                 let mut visibility = visibility_checker.clone();
                 // Do real work between checkouts to avoid one worker claiming all segments.
                 scanner.prefetch_next(&ffhelper, &mut visibility, None);
-                segments.push((
-                    scanner,
-                    Arc::clone(&ffhelper),
-                    Box::new(visibility) as Box<VisibilityChecker>,
-                ));
+
+                segments.push(ScanState {
+                    recipe: crate::scan::execution_plan::ScanRecipe::Prefetched { scanner },
+                    ffhelper: Arc::clone(&ffhelper),
+                    visibility: Box::new(visibility) as Box<VisibilityChecker>,
+                    reader: search_reader.clone(),
+                });
             }
 
             if segments.is_empty() {
@@ -532,7 +523,7 @@ impl ColumnarExecState {
 
             segments
         } else {
-            // Non-parallel execution: open all segments upfront
+            // Non-parallel: Open all segments immediately
             let segment_readers = search_reader.segment_readers();
             if segment_readers.is_empty() {
                 return None;
@@ -540,32 +531,36 @@ impl ColumnarExecState {
             segment_readers
                 .iter()
                 .map(|r| {
-                    let search_results =
-                        search_reader.search_segments([r.segment_id()].into_iter());
-                    let scanner = Scanner::new(
-                        search_results,
-                        self.batch_size_hint,
-                        self.scanner_fast_fields.clone(),
-                        heaprel.oid().into(),
-                    );
                     let visibility = visibility_checker.clone();
-                    (
-                        scanner,
-                        Arc::clone(&ffhelper),
-                        Box::new(visibility) as Box<VisibilityChecker>,
-                    )
+                    let scanner_config = crate::scan::execution_plan::ScannerConfig {
+                        which_fast_fields: self.scanner_fast_fields.clone(),
+                        heap_relid: heaprel.oid().to_u32(),
+                        batch_size_hint: self.batch_size_hint,
+                    };
+                    ScanState {
+                        recipe: crate::scan::execution_plan::ScanRecipe::Eager {
+                            segment_ids: vec![r.segment_id()],
+                            scanner_config,
+                        },
+                        ffhelper: Arc::clone(&ffhelper),
+                        visibility: Box::new(visibility) as Box<VisibilityChecker>,
+                        reader: search_reader.clone(),
+                    }
                 })
                 .collect()
         };
+
+        let index_rel = state.indexrel.as_ref().unwrap();
 
         // Create sorted scan plan with SortPreservingMergeExec
         // Returns Error if the sort field is not in the schema
         let plan = create_sorted_scan(
             pre_opened,
-            schema,
+            schema.clone(),
             // TODO: Switch to an Arc in the scan state.
             state.search_query_input().clone(),
             sort_order,
+            index_rel.oid().to_u32(),
         )
         .unwrap_or_else(|e| {
             // Sort field not in schema - this is a fatal error.
@@ -597,16 +592,18 @@ impl ExecMethod for ColumnarExecState {
     /// * `state` - The current scan state containing query information
     /// * `cstate` - PostgreSQL's custom scan state pointer
     fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
-        // Resolve parameterized limit for batch size hint
-        if self.batch_size_hint.is_none() {
-            if let ExecMethodType::Columnar { ref mut limit, .. } = state.exec_method_type {
-                if let Some(param_limit) = limit.as_ref().filter(|l| l.static_value().is_none()) {
-                    unsafe {
-                        let estate = (*cstate).ss.ps.state;
-                        let resolved = param_limit.resolve(estate);
-                        self.batch_size_hint = Some(resolved * 2);
-                        *limit = Some(Limit::Static(resolved));
-                    }
+        // Resolve LIMIT/OFFSET for the batch size hint. `resolve_mut`
+        // converts each Param → Static in place, so the LimitOffset stored
+        // on ExecMethodType ends up holding resolved values for EXPLAIN.
+        if let ExecMethodType::Columnar {
+            limit_offset: Some(ref mut lo),
+            ..
+        } = state.exec_method_type
+        {
+            unsafe {
+                let estate = (*cstate).ss.ps.state;
+                if let Some(fetch) = lo.resolve_mut(estate).and_then(|lo| lo.static_fetch()) {
+                    self.batch_size_hint = Some(fetch * 2);
                 }
             }
         }
@@ -671,9 +668,8 @@ impl ExecMethod for ColumnarExecState {
         loop {
             // Try to get next batch from existing stream
             // Scope the runtime borrow to avoid conflicts with mutable borrows below
-            if self.stream.is_some() {
+            if let Some(stream) = &mut self.stream {
                 let runtime = self.runtime.as_ref().unwrap();
-                let stream = self.stream.as_mut().unwrap();
                 match poll_next_sync(runtime, stream) {
                     Some(Ok(batch)) => {
                         self.current_record_batch = Some(batch);

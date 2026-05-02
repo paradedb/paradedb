@@ -41,19 +41,16 @@ pub fn open_duckdb_conn() -> Result<Connection> {
     Ok(conn)
 }
 
-/// check that each table has at least one parquet file, and that the output location for each
-/// table is empty
-pub fn validate_input_output(
-    tables: &[String],
+/// check that each table has at least one parquet file at the input location
+pub fn validate_input<'a>(
+    tables: impl Iterator<Item = &'a str>,
     conn: &Connection,
     input: &str,
-    output: &str,
 ) -> Result<()> {
-    println!("Validating input and output paths...");
+    println!("Validating input path...");
     let mut missing_tables: Vec<String> = Vec::new();
-    let mut filled_outputs: Vec<String> = Vec::new();
 
-    for table in tables.iter() {
+    for table in tables {
         let input_glob = format!("{input}/{table}/*.parquet");
         let input_file_count: usize = conn
             .query_row(
@@ -64,6 +61,35 @@ pub fn validate_input_output(
             .with_context(|| format!("Failed to check parquet files for table '{table}'"))?;
         let input_exists = input_file_count > 0;
 
+        if !input_exists {
+            println!("  {table}: no parquet files found at '{input_glob}'");
+            missing_tables.push(table.to_string());
+        } else {
+            println!("  {table}: ok");
+        }
+    }
+
+    if !missing_tables.is_empty() {
+        bail!(
+            "No parquet files found for {} table(s): {}. Aborting before doing any work.",
+            missing_tables.len(),
+            missing_tables.join(", ")
+        );
+    }
+
+    Ok(())
+}
+
+/// check that the output location for each table is empty
+pub fn validate_output<'a>(
+    tables: impl Iterator<Item = &'a str>,
+    conn: &Connection,
+    output: &str,
+) -> Result<()> {
+    println!("Validating output path...");
+    let mut filled_outputs: Vec<String> = Vec::new();
+
+    for table in tables {
         let output_glob = format!("{output}/{table}/*");
         let output_file_count: usize = conn
             .query_row(
@@ -74,38 +100,20 @@ pub fn validate_input_output(
             .with_context(|| format!("Failed to check output files for table '{table}'"))?;
         let output_empty = output_file_count == 0;
 
-        if !input_exists {
-            println!("  {table}: no parquet files found at '{input_glob}'");
-            missing_tables.push(table.clone());
-        }
         if !output_empty {
             println!("  {table}: output directory not empty '{output_glob}'");
-            filled_outputs.push(table.clone());
-        }
-        if input_exists && output_empty {
+            filled_outputs.push(table.to_string());
+        } else {
             println!("  {table}: ok");
         }
     }
 
-    match (missing_tables.is_empty(), filled_outputs.is_empty()) {
-        (false, false) => bail!(
-            "No parquet files found for {} table(s): {}.\nOutput directories not empty for {} table(s): {}\nAborting before any conversion work.",
+    if !filled_outputs.is_empty() {
+        bail!(
+            "Output directories not empty for {} table(s): {}. Aborting before doing any work.",
             filled_outputs.len(),
             filled_outputs.join(", "),
-            missing_tables.len(),
-            missing_tables.join(", ")
-        ),
-        (false, true) => bail!(
-            "No parquet files found for {} table(s): {}. Aborting before any conversion work.",
-            missing_tables.len(),
-            missing_tables.join(", ")
-        ),
-        (true, false) => bail!(
-            "Output directories not empty for {} table(s): {} Aborting before any conversion work.",
-            filled_outputs.len(),
-            filled_outputs.join(", "),
-        ),
-        (true, true) => {}
+        );
     }
 
     Ok(())

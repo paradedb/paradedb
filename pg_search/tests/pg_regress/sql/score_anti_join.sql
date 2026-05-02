@@ -39,6 +39,7 @@ WITH (key_field = 'id');
 SET max_parallel_workers_per_gather = 4;
 SET enable_hashjoin = off;
 SET enable_mergejoin = off;
+SET enable_indexscan = off;
 
 -- Verify the plan uses an Anti Join
 EXPLAIN (COSTS OFF)
@@ -143,6 +144,7 @@ LIMIT 5;
 RESET max_parallel_workers_per_gather;
 RESET enable_hashjoin;
 RESET enable_mergejoin;
+RESET enable_indexscan;
 
 -- Cleanup
 DROP TABLE IF EXISTS score_aj_entries CASCADE;

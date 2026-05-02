@@ -25,34 +25,41 @@ use pgrx::pg_sys::AsPgCStr;
 use pgrx::prelude::*;
 use pgrx::PgList;
 
-/// Serializable representation of a HAVING clause expression.
-/// References aggregate results by index and group columns by name.
+/// Serializable boolean expression IR used for both HAVING clauses and
+/// per-aggregate FILTER clauses.
+///
+/// HAVING uses `AggRef` and `GroupRef` (post-aggregate references).
+/// FILTER uses `ColumnRef` (pre-aggregate row-level references).
+/// Both share the same operator, literal, and boolean combinators.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub enum HavingExpr {
-    /// Reference to an aggregate result by its index in targetlist.aggregates.
-    /// Translates to `col("agg_{idx}")` in DataFusion.
+pub enum FilterExpr {
+    /// Reference to an aggregate result by index (HAVING context).
     AggRef(usize),
-    /// Reference to a GROUP BY column by field name.
+    /// Reference to a GROUP BY column by field name (HAVING context).
     GroupRef(String),
-    /// Literal values
+    /// Reference to a pre-aggregate table column (FILTER context).
+    ColumnRef {
+        rti: pgrx::pg_sys::Index,
+        field_name: String,
+    },
     LitInt(i64),
     LitFloat(f64),
     LitBool(bool),
-    /// Comparison operator
+    LitString(String),
     BinOp {
-        left: Box<HavingExpr>,
-        op: HavingOp,
-        right: Box<HavingExpr>,
+        left: Box<FilterExpr>,
+        op: CompareOp,
+        right: Box<FilterExpr>,
     },
-    And(Vec<HavingExpr>),
-    Or(Vec<HavingExpr>),
-    Not(Box<HavingExpr>),
-    IsNull(Box<HavingExpr>),
-    IsNotNull(Box<HavingExpr>),
+    And(Vec<FilterExpr>),
+    Or(Vec<FilterExpr>),
+    Not(Box<FilterExpr>),
+    IsNull(Box<FilterExpr>),
+    IsNotNull(Box<FilterExpr>),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub enum HavingOp {
+pub enum CompareOp {
     Eq,
     NotEq,
     Lt,
@@ -155,7 +162,7 @@ pub enum PrivateData {
         multi_table_clause_count: usize,
         /// HAVING clause filter applied after aggregation.
         #[serde(default)]
-        having_filter: Option<HavingExpr>,
+        having_filter: Option<FilterExpr>,
     },
 }
 

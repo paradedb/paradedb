@@ -1,7 +1,17 @@
 # workflows/test-pg_search-docker.yml
 #
 # Test pg_search (Docker)
-# Test building and running the ParadeDB Docker Image using Docker Compose.
+# Test building and running the ParadeDB Docker Image.
+#
+# Note: unlike `publish-paradedb-docker.yml`, this workflow cannot use Depot to
+# accelerate the build. Depot requires the `DEPOT_PROJECT` / `DEPOT_TOKEN` repo
+# secrets, which GitHub does not expose to PRs from forks — so any Depot-based
+# step would fail on community-contributor PRs. That's fine here because, unlike
+# the publish workflow, we don't need to produce a single universal image — we
+# only need to smoke-test that the image builds and runs on each arch. So we
+# skip cross-compilation entirely: the matrix below builds amd64 and arm64 in
+# parallel, each natively on a runner of its own arch via `docker buildx build`,
+# which works without secrets.
 
 name: Test pg_search (Docker)
 
@@ -17,6 +27,7 @@ on:
       - "docker/**"
       - "!docker/Dockerfile.stressgres"
       - "pg_search/**"
+      - "!pg_search/README.md"
       - "tokenizers/**"
   workflow_dispatch:
 
@@ -26,8 +37,33 @@ concurrency:
 
 jobs:
   test-paradedb:
-    name: Test ParadeDB Docker Image
-    runs-on: ubicloud-standard-8-arm-ubuntu-2404
+    name: Test ParadeDB Docker Image (${{ matrix.arch }})
+    # General-purpose m-family — Docker buildx is RAM-heavy.
+    # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=${{ matrix.runner_family }}
+      - cpu=${{ matrix.cpu }}
+      - ram=${{ matrix.ram }}
+      - image=${{ matrix.runner_image }}
+      - volume=80gb # default runner ships with 40GB — see https://runs-on.com/runners/linux/
+      - extras=s3-cache
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            cpu: 8
+            ram: 32
+            runner_family: m7a+m7i
+            runner_image: ubuntu24-full-x64
+            platform: linux/amd64
+          - arch: arm64
+            cpu: 16
+            ram: 64
+            runner_family: m7g+m8g
+            runner_image: ubuntu24-full-arm64
+            platform: linux/arm64
 
     steps:
       - name: Checkout Git Repository
@@ -73,19 +109,35 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
-        with:
-          platforms: linux/amd64,linux/arm64
 
-      - name: Build the ParadeDB Docker Image via Docker Compose
-        working-directory: docker/
-        run: docker compose -f docker-compose.dev.yml build
+      # Each matrix entry builds its own arch natively (via a runner on that arch) so `--load`
+      # works and the `docker run` smoke tests below exercise the image natively — no emulation,
+      # no cross-arch shenanigans. We tag the image `latest` to match the tag used by the smoke
+      # tests, and skip pushing since this is just a test build. Building directly (rather than
+      # via Depot) avoids requiring repo secrets, which would block community-contributor PRs.
+      #
+      # The BuildKit `type=gha` cache is transparently backed by runs-on's S3 cache (via the
+      # `extras=s3-cache` runner label above), so it works without configuring a separate
+      # registry cache. Scoped per-arch so amd64 and arm64 don't evict each other.
+      - name: Build the ParadeDB Docker Image
+        run: |
+          docker buildx build \
+            --platform ${{ matrix.platform }} \
+            --file docker/Dockerfile \
+            --tag paradedb/paradedb:latest \
+            --cache-from type=gha,scope=paradedb-docker-${{ matrix.arch }} \
+            --cache-to type=gha,mode=max,scope=paradedb-docker-${{ matrix.arch }} \
+            --load \
+            .
+
+      - name: Verify PGDG apt packages are available
+        run: docker run --rm paradedb/paradedb:latest bash -c 'apt-get update && apt-get install -y --no-install-recommends postgresql-${PG_VERSION_MAJOR}-partman'
 
       # Start the ParadeDB Docker image using `docker run` to test the standalone Docker image.
       # We add a --tmpfs mount as a test of compatibility with the upstream `postgres` image.
-      # The `docker run` command will use the local ParadeDB image that we just built since we
-      # tagged it with `latest` in docker-compose.dev.yml.
+      # The `docker run` command uses the local ParadeDB image that we just built and loaded
+      # under the `paradedb/paradedb:latest` tag.
       - name: Start the ParadeDB Docker Image via Docker Run
-        working-directory: docker/
         run: |
           docker run -d \
             --name paradedb \

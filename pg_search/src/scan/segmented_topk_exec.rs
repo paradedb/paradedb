@@ -1269,7 +1269,7 @@ impl SegmentedTopKState {
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
-    use super::*;
+    use super::{Array, *};
 
     use std::collections::BTreeSet;
 

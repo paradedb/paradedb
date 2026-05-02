@@ -19,16 +19,17 @@ use std::cell::RefCell;
 
 use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
+use crate::index::fast_fields_helper::{resolve_ctid, FFType};
 use crate::index::reader::index::{
     SearchIndexReader, TopKAuxiliaryCollector, TopKSearchResults, MAX_TOPK_FEATURES,
 };
 use crate::postgres::customscan::aggregatescan::exec::AggregationResults;
 use crate::postgres::customscan::aggregatescan::AggregateType;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
-use crate::postgres::customscan::basescan::privdat::Limit;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
 use crate::postgres::customscan::builders::custom_path::ExecMethodType;
+use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::parallel::checkout_segment;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::ParallelScanState;
@@ -41,6 +42,7 @@ use tantivy::aggregation::{
     AggContextParams, AggregationLimitsGuard, DistributedAggregationCollector,
 };
 use tantivy::index::SegmentId;
+use tantivy::SegmentOrdinal;
 
 struct PreparedAggregations {
     aggregations: Aggregations,
@@ -53,6 +55,10 @@ struct PreparedAggregations {
 }
 
 pub struct TopKScanExecState {
+    /// Resolved value of `LIMIT + OFFSET` (the K our scan must produce so PG's
+    /// outer Limit node can apply OFFSET and return LIMIT). `Some` when both
+    /// sides are static at construction; otherwise resolved in `init` from
+    /// the `LimitOffset` carried on `ExecMethodType::TopK`.
     limit: Option<usize>,
     orderby_info: Option<Vec<OrderByInfo>>,
 
@@ -73,12 +79,14 @@ pub struct TopKScanExecState {
     scale_factor: f64,
     // Window aggregates to compute
     window_aggregates: Vec<WindowAggregateInfo>,
+    /// Cached per-segment ctid fast-field reader.
+    ctid_cache: Option<(SegmentOrdinal, FFType)>,
 }
 
 impl TopKScanExecState {
     pub fn new(
         heaprelid: pg_sys::Oid,
-        limit: Option<usize>,
+        limit_offset: &LimitOffset,
         orderby_info: Option<Vec<OrderByInfo>>,
     ) -> Self {
         if matches!(&orderby_info, Some(orderby_info) if orderby_info.len() > MAX_TOPK_FEATURES) {
@@ -104,8 +112,11 @@ impl TopKScanExecState {
             1.0 + ((1.0 + n_dead as f64) / (1.0 + n_live as f64))
         } * crate::gucs::limit_fetch_multiplier();
 
+        // Resolve K eagerly when both sides are static; otherwise leave it as
+        // None and resolve in `init` from the LimitOffset carried on
+        // ExecMethodType::TopK.
         Self {
-            limit,
+            limit: limit_offset.static_fetch(),
             orderby_info,
             search_query_input: None,
             search_reader: None,
@@ -119,6 +130,7 @@ impl TopKScanExecState {
             claimed_segments: RefCell::default(),
             scale_factor,
             window_aggregates: Vec::new(),
+            ctid_cache: None,
         }
     }
 
@@ -265,14 +277,22 @@ impl TopKScanExecState {
 impl ExecMethod for TopKScanExecState {
     /// Initialize the exec method with data from the scan state
     fn init(&mut self, state: &mut BaseScanState, cstate: *mut pg_sys::CustomScanState) {
-        // Resolve parameterized limit from executor params
+        // Resolve K = LIMIT + OFFSET from EState when not already known.
+        // `fetch_mut` converts each `Param` → `Static` in place on the
+        // `LimitOffset` carried by `ExecMethodType::TopK`, so EXPLAIN ANALYZE
+        // sees resolved values without us holding a separate copy.
         if self.limit.is_none() {
-            if let ExecMethodType::TopK { ref mut limit, .. } = state.exec_method_type {
-                unsafe {
-                    let estate = (*cstate).ss.ps.state;
-                    let resolved = limit.resolve(estate);
-                    self.limit = Some(resolved);
-                    *limit = Limit::Static(resolved);
+            unsafe {
+                let estate = (*cstate).ss.ps.state;
+                if let ExecMethodType::TopK {
+                    ref mut limit_offset,
+                    ..
+                } = state.exec_method_type
+                {
+                    self.limit = limit_offset
+                        .resolve_mut(estate)
+                        .expect("LIMIT must be resolvable from EState (param missing or NULL)")
+                        .static_fetch();
                 }
             }
         }
@@ -458,8 +478,10 @@ impl ExecMethod for TopKScanExecState {
                 }
                 Some((scored, doc_address)) => {
                     self.nresults += 1;
+                    let searcher = self.search_reader.as_ref().unwrap().searcher();
+                    let ctid = resolve_ctid(&mut self.ctid_cache, searcher, doc_address);
                     return ExecState::FromHeap {
-                        ctid: scored.ctid,
+                        ctid,
                         score: scored.bm25,
                         doc_address,
                     };
@@ -496,6 +518,7 @@ impl ExecMethod for TopKScanExecState {
         self.search_query_input = Some(state.search_query_input().clone());
         self.search_reader = state.search_reader.clone();
         self.search_results = TopKSearchResults::empty();
+        self.ctid_cache = None;
 
         // Get window aggregates from state if available
         if let ExecMethodType::TopK {

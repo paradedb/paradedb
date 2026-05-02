@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::index::fast_fields_helper::{resolve_ctid, FFType};
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
@@ -31,6 +32,8 @@ pub struct NormalScanExecState {
     search_results: Option<MultiSegmentSearchResults>,
 
     did_query: bool,
+    /// Cached per-segment ctid fast-field reader.
+    ctid_cache: Option<(tantivy::SegmentOrdinal, FFType)>,
 }
 
 impl Default for NormalScanExecState {
@@ -41,6 +44,7 @@ impl Default for NormalScanExecState {
             slot: std::ptr::null_mut(),
             search_results: None,
             did_query: false,
+            ctid_cache: None,
         }
     }
 }
@@ -86,13 +90,19 @@ impl ExecMethod for NormalScanExecState {
     }
 
     fn internal_next(&mut self, state: &mut BaseScanState) -> ExecState {
-        match self.search_results.as_mut().and_then(|r| r.next()) {
+        // Extract the result first so the mutable borrow on search_results is released
+        // before we need to access self.ctid_cache and state.search_reader.
+        let next_result = self.search_results.as_mut().and_then(|r| r.next());
+        match next_result {
             None => ExecState::Eof,
 
             // we have a row, and we're set up such that we can check it with the visibility map
             Some((scored, doc_address)) if self.can_use_visibility_map => unsafe {
+                let searcher = state.search_reader.as_ref().unwrap().searcher();
+                let ctid = resolve_ctid(&mut self.ctid_cache, searcher, doc_address);
+
                 let mut tid = pg_sys::ItemPointerData::default();
-                u64_to_item_pointer(scored.ctid, &mut tid);
+                u64_to_item_pointer(ctid, &mut tid);
 
                 let blockno = item_pointer_get_block_number(&tid);
                 // We only use `is_block_all_visible` here to determine if we can emit a virtual
@@ -114,7 +124,7 @@ impl ExecMethod for NormalScanExecState {
                     // some rows on this block are not visible, so we need to fetch it from
                     // the heap to do a proper visibility check
                     ExecState::FromHeap {
-                        ctid: scored.ctid,
+                        ctid,
                         score: scored.bm25,
                         doc_address,
                     }
@@ -122,16 +132,21 @@ impl ExecMethod for NormalScanExecState {
             },
 
             // otherwise we'll always fetch from the heap
-            Some((scored, doc_address)) => ExecState::FromHeap {
-                ctid: scored.ctid,
-                score: scored.bm25,
-                doc_address,
-            },
+            Some((scored, doc_address)) => {
+                let searcher = state.search_reader.as_ref().unwrap().searcher();
+                let ctid = resolve_ctid(&mut self.ctid_cache, searcher, doc_address);
+                ExecState::FromHeap {
+                    ctid,
+                    score: scored.bm25,
+                    doc_address,
+                }
+            }
         }
     }
 
     fn reset(&mut self, _state: &mut BaseScanState) {
         self.did_query = false;
         self.search_results = None;
+        self.ctid_cache = None;
     }
 }

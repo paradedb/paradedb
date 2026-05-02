@@ -146,78 +146,45 @@ fn arrow_value_to_datum(
     use arrow_array::*;
     use arrow_schema::DataType;
 
+    /// Downcast `col` to the given Arrow array type and read `row_idx`.
+    /// Expands to `col.as_any().downcast_ref::<$arr>()?.value(row_idx)` so
+    /// each match arm becomes a single line.
+    macro_rules! downcast_value {
+        ($arr:ty) => {
+            col.as_any().downcast_ref::<$arr>()?.value(row_idx)
+        };
+    }
+
     match col.data_type() {
-        DataType::Int64 => {
-            let val = col.as_any().downcast_ref::<Int64Array>()?.value(row_idx);
-            int64_to_datum(val, typoid)
-        }
-        DataType::Int32 => {
-            let val = col.as_any().downcast_ref::<Int32Array>()?.value(row_idx);
-            int64_to_datum(val as i64, typoid)
-        }
-        DataType::Int16 => {
-            let val = col.as_any().downcast_ref::<Int16Array>()?.value(row_idx);
-            int64_to_datum(val as i64, typoid)
-        }
+        DataType::Int64 => int64_to_datum(downcast_value!(Int64Array), typoid),
+        DataType::Int32 => int64_to_datum(downcast_value!(Int32Array) as i64, typoid),
+        DataType::Int16 => int64_to_datum(downcast_value!(Int16Array) as i64, typoid),
         DataType::UInt64 => {
-            let val = col.as_any().downcast_ref::<UInt64Array>()?.value(row_idx);
+            let val = downcast_value!(UInt64Array);
             // Use checked conversion to avoid silent overflow for values > i64::MAX
             match i64::try_from(val) {
                 Ok(i_val) => int64_to_datum(i_val, typoid),
                 Err(_) => float64_to_datum(val as f64, typoid),
             }
         }
-        DataType::Float64 => {
-            let val = col.as_any().downcast_ref::<Float64Array>()?.value(row_idx);
-            float64_to_datum(val, typoid)
-        }
-        DataType::Float32 => {
-            let val = col.as_any().downcast_ref::<Float32Array>()?.value(row_idx);
-            float64_to_datum(val as f64, typoid)
-        }
-        DataType::Utf8 => {
-            let val = col.as_any().downcast_ref::<StringArray>()?.value(row_idx);
-            val.to_string().into_datum()
-        }
-        DataType::Utf8View => {
-            let val = col
-                .as_any()
-                .downcast_ref::<StringViewArray>()?
-                .value(row_idx);
-            val.to_string().into_datum()
-        }
-        DataType::LargeUtf8 => {
-            let val = col
-                .as_any()
-                .downcast_ref::<LargeStringArray>()?
-                .value(row_idx);
-            val.to_string().into_datum()
-        }
-        DataType::Boolean => {
-            let val = col.as_any().downcast_ref::<BooleanArray>()?.value(row_idx);
-            val.into_datum()
-        }
+        DataType::Float64 => float64_to_datum(downcast_value!(Float64Array), typoid),
+        DataType::Float32 => float64_to_datum(downcast_value!(Float32Array) as f64, typoid),
+        DataType::Utf8 => downcast_value!(StringArray).to_string().into_datum(),
+        DataType::Utf8View => downcast_value!(StringViewArray).to_string().into_datum(),
+        DataType::LargeUtf8 => downcast_value!(LargeStringArray).to_string().into_datum(),
+        DataType::Boolean => downcast_value!(BooleanArray).into_datum(),
         DataType::Timestamp(unit, _tz_opt) => {
             let nanos = match unit {
-                arrow_schema::TimeUnit::Nanosecond => col
-                    .as_any()
-                    .downcast_ref::<TimestampNanosecondArray>()?
-                    .value(row_idx),
-                arrow_schema::TimeUnit::Microsecond => col
-                    .as_any()
-                    .downcast_ref::<TimestampMicrosecondArray>()?
-                    .value(row_idx)
-                    .checked_mul(1_000)?,
-                arrow_schema::TimeUnit::Millisecond => col
-                    .as_any()
-                    .downcast_ref::<TimestampMillisecondArray>()?
-                    .value(row_idx)
-                    .checked_mul(1_000_000)?,
-                arrow_schema::TimeUnit::Second => col
-                    .as_any()
-                    .downcast_ref::<TimestampSecondArray>()?
-                    .value(row_idx)
-                    .checked_mul(1_000_000_000)?,
+                arrow_schema::TimeUnit::Nanosecond => downcast_value!(TimestampNanosecondArray),
+                arrow_schema::TimeUnit::Microsecond => {
+                    downcast_value!(TimestampMicrosecondArray).checked_mul(1_000)?
+                }
+                arrow_schema::TimeUnit::Millisecond => {
+                    downcast_value!(TimestampMillisecondArray).checked_mul(1_000_000)?
+                }
+                arrow_schema::TimeUnit::Second => {
+                    downcast_value!(TimestampSecondArray).checked_mul(1_000_000_000)?
+                }
             };
             // DataFusion stores all timestamps as UTC internally. The Arrow
             // tz_opt is source metadata, not a conversion directive — the nanos
@@ -227,27 +194,18 @@ fn arrow_value_to_datum(
         }
         DataType::Date32 => {
             // Date32: days since epoch → convert to nanoseconds
-            let days = col
-                .as_any()
-                .downcast_ref::<arrow_array::Date32Array>()?
-                .value(row_idx);
+            let days = downcast_value!(Date32Array);
             let nanos = (days as i64).checked_mul(86_400_000_000_000)?;
             timestamp_nanos_to_datum(nanos, typoid)
         }
         DataType::Date64 => {
             // Date64: milliseconds since epoch → convert to nanoseconds
-            let millis = col
-                .as_any()
-                .downcast_ref::<arrow_array::Date64Array>()?
-                .value(row_idx);
+            let millis = downcast_value!(Date64Array);
             let nanos = millis.checked_mul(1_000_000)?;
             timestamp_nanos_to_datum(nanos, typoid)
         }
         DataType::Decimal128(_, scale) => {
-            let val = col
-                .as_any()
-                .downcast_ref::<Decimal128Array>()?
-                .value(row_idx);
+            let val = downcast_value!(Decimal128Array);
             let scale = *scale as u32;
             if typoid == pg_sys::NUMERICOID {
                 // Convert via string to preserve precision for NUMERIC targets
@@ -270,7 +228,7 @@ fn arrow_value_to_datum(
         }
         DataType::List(_) | DataType::LargeList(_) => list_to_datum(col, row_idx, typoid),
         DataType::Binary => {
-            let val = col.as_any().downcast_ref::<BinaryArray>()?.value(row_idx);
+            let val = downcast_value!(BinaryArray);
             if typoid == pg_sys::UUIDOID {
                 let uuid = pgrx::Uuid::from_bytes(val.try_into().ok()?);
                 uuid.into_datum()
@@ -279,10 +237,7 @@ fn arrow_value_to_datum(
             }
         }
         DataType::FixedSizeBinary(16) => {
-            let val = col
-                .as_any()
-                .downcast_ref::<FixedSizeBinaryArray>()?
-                .value(row_idx);
+            let val = downcast_value!(FixedSizeBinaryArray);
             let uuid = pgrx::Uuid::from_bytes(val.try_into().ok()?);
             uuid.into_datum()
         }

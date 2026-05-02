@@ -8,7 +8,7 @@
 SET paradedb.enable_aggregate_custom_scan TO off; SELECT f.title, COUNT(*), SUM(p."sizeInBytes")
 FROM files f
 JOIN pages p ON f.id = p."fileId"
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.title
 ORDER BY f.title;
 
@@ -16,6 +16,6 @@ ORDER BY f.title;
 SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SELECT f.title, COUNT(*), SUM(p."sizeInBytes")
 FROM files f
 JOIN pages p ON f.id = p."fileId"
-WHERE f.content @@@ 'Section'
+WHERE f.content ||| 'Section'
 GROUP BY f.title
 ORDER BY f.title;

@@ -23,7 +23,6 @@ use std::sync::Arc;
 
 use crate::aggregate::mvcc_collector::MVCCFilterCollector;
 use crate::api::{FieldName, HashMap, OrderByFeature, OrderByInfo, SortDirection};
-use crate::index::fast_fields_helper::FFType;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::scorer::{DeferredScorer, ScorerIter};
 use crate::index::setup_tokenizers;
@@ -61,25 +60,21 @@ pub const MAX_TOPK_FEATURES: usize = 5;
 /// Item alongside the originating tantivy [`DocAddress`]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SearchIndexScore {
-    pub ctid: u64,
     pub bm25: f32,
 }
 
 impl SearchIndexScore {
     #[inline]
-    pub fn new(ctid: u64, score: Score) -> Self {
-        Self { ctid, bm25: score }
+    pub fn new(score: Score) -> Self {
+        Self { bm25: score }
     }
 }
 
 impl PartialOrd for SearchIndexScore {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        // TODO: Should also compare the ctid for stability.
         self.bm25.partial_cmp(&other.bm25)
     }
 }
-
-pub type FastFieldCache = HashMap<SegmentOrdinal, FFType>;
 
 /// See `SearchIndexReader::top_in_segments`.
 type TopKWithAggregate<T> = (
@@ -111,29 +106,14 @@ impl TopKSearchResults {
     }
 
     fn new_for_score(
-        searcher: &Searcher,
         results: impl IntoIterator<Item = (Score, DocAddress)>,
         aggregation_results: Option<IntermediateAggregationResults>,
     ) -> Self {
-        // TODO: Execute batch lookups for ctids?
-        let mut ff_lookup = FastFieldCache::default();
         Self::new(
             results
                 .into_iter()
                 .map(|(score, doc_address)| {
-                    let ctid = ff_lookup
-                        .entry(doc_address.segment_ord)
-                        .or_insert_with(|| {
-                            FFType::new_ctid(
-                                searcher
-                                    .segment_reader(doc_address.segment_ord)
-                                    .fast_fields(),
-                            )
-                        })
-                        .as_u64(doc_address.doc_id)
-                        .expect("ctid should be present");
-
-                    let scored = SearchIndexScore { ctid, bm25: score };
+                    let scored = SearchIndexScore { bm25: score };
                     (scored, doc_address)
                 })
                 .collect(),
@@ -146,10 +126,9 @@ impl TopKSearchResults {
     ///
     /// TODO: We could in theory actually render that field using a virtual tuple (for the right
     /// query), similar to what we do in fast-fields execution.
-    fn new_for_discarded_field<T>(searcher: &Searcher, results: TopKWithAggregate<T>) -> Self {
+    fn new_for_discarded_field<T>(results: TopKWithAggregate<T>) -> Self {
         let (results, aggregation_results) = results;
         Self::new_for_score(
-            searcher,
             results
                 .into_iter()
                 .map(|((_, score), doc)| (score.unwrap_or(1.0), doc)),
@@ -171,7 +150,6 @@ impl TopKSearchResults {
 /// May be consumed via `Iterator`, or directly via its methods in a segment-aware fashion.
 pub struct MultiSegmentSearchResults {
     searcher: Searcher,
-    ctid_column: Option<FFType>,
     iterators: Vec<ScorerIter>,
     lazy_iterators: Option<Box<dyn Iterator<Item = ScorerIter> + Send>>,
     lazy_estimated_rows: Option<u64>,
@@ -214,6 +192,10 @@ impl MultiSegmentSearchResults {
         self.iterators.pop()
     }
 
+    pub fn segment_ids(&self) -> Vec<tantivy::index::SegmentId> {
+        self.iterators.iter().map(|it| it.segment_id()).collect()
+    }
+
     /// Returns the total estimated number of documents across all segments in these results.
     ///
     /// This has no visible sideeffects, but it requires actually opening all DeferredScorers
@@ -244,7 +226,6 @@ impl MultiSegmentSearchResults {
     pub fn from_single_segment(searcher: Searcher, scorer_iter: ScorerIter) -> Self {
         Self {
             searcher,
-            ctid_column: None,
             iterators: vec![scorer_iter],
             lazy_iterators: None,
             lazy_estimated_rows: None,
@@ -261,27 +242,11 @@ impl Iterator for MultiSegmentSearchResults {
             let last = self.current_segment()?;
             match last.next() {
                 Some((score, doc_address)) => {
-                    let ctid_ff = self.ctid_column.get_or_insert_with(|| {
-                        FFType::new_ctid(
-                            self.searcher
-                                .segment_reader(doc_address.segment_ord)
-                                .fast_fields(),
-                        )
-                    });
-                    let scored = SearchIndexScore {
-                        ctid: ctid_ff
-                            .as_u64(doc_address.doc_id)
-                            .expect("ctid should be present"),
-                        bm25: score,
-                    };
-
-                    return Some((scored, doc_address));
+                    return Some((SearchIndexScore { bm25: score }, doc_address));
                 }
                 None => {
-                    // last iterator is empty, so pop it off, clear the fast field type cache,
-                    // and loop back around to get the next one
+                    // last iterator is empty, pop it and loop around to the next one
                     self.current_segment_pop();
-                    self.ctid_column = None;
                     continue;
                 }
             }
@@ -364,6 +329,7 @@ impl SearchIndexReader {
     fn open_index_components(
         index_relation: &PgSearchRelation,
         mvcc_style: MvccSatisfies,
+        needs_tokenizer_manager: bool,
     ) -> Result<IndexComponents> {
         let cleanup_lock = Arc::new(MetaPage::open(index_relation).cleanup_lock_pinned());
 
@@ -376,7 +342,9 @@ impl SearchIndexReader {
             .total_docs()
             .load(std::sync::atomic::Ordering::Relaxed) as u64;
         let schema = index_relation.schema()?;
-        setup_tokenizers(index_relation, &mut index)?;
+        if needs_tokenizer_manager {
+            setup_tokenizers(index_relation, &mut index)?;
+        }
 
         let reader = index
             .reader_builder()
@@ -408,6 +376,7 @@ impl SearchIndexReader {
         need_scores: bool,
         mvcc_style: MvccSatisfies,
     ) -> Result<Self> {
+        let needs_tokenizer_manager = search_query_input.needs_tokenizer();
         Self::open_with_context(
             index_relation,
             search_query_input,
@@ -415,6 +384,7 @@ impl SearchIndexReader {
             mvcc_style,
             None,
             None,
+            needs_tokenizer_manager,
         )
     }
 
@@ -426,8 +396,10 @@ impl SearchIndexReader {
         mvcc_style: MvccSatisfies,
         expr_context: Option<NonNull<pgrx::pg_sys::ExprContext>>,
         planstate: Option<NonNull<pgrx::pg_sys::PlanState>>,
+        needs_tokenizer_manager: bool,
     ) -> Result<Self> {
-        let components = Self::open_index_components(index_relation, mvcc_style)?;
+        let components =
+            Self::open_index_components(index_relation, mvcc_style, needs_tokenizer_manager)?;
         let IndexComponents {
             cleanup_lock,
             index,
@@ -493,6 +465,15 @@ impl SearchIndexReader {
 
     pub fn query(&self) -> &dyn Query {
         &self.query
+    }
+
+    pub fn and_query(&mut self, additional_query: Box<dyn Query>) {
+        let existing = std::mem::replace(&mut self.query, Box::new(tantivy::query::EmptyQuery));
+        let boolean_query = tantivy::query::BooleanQuery::new(vec![
+            (tantivy::query::Occur::Must, existing),
+            (tantivy::query::Occur::Must, additional_query),
+        ]);
+        self.query = Box::new(boolean_query);
     }
 
     pub fn weight(&self) -> Box<dyn Weight> {
@@ -566,6 +547,17 @@ impl SearchIndexReader {
     /// Returns the total number of segments in the index, according to the MVCC directory.
     pub fn total_segment_count(&self) -> usize {
         self.total_segment_count
+    }
+
+    pub fn estimated_docs_in_segments(&self, segment_ids: impl Iterator<Item = SegmentId>) -> u64 {
+        segment_ids
+            .map(|id| {
+                let ord = self
+                    .segment_ordinal_by_id(&id)
+                    .unwrap_or_else(|| panic!("segment {id} should exist"));
+                self.searcher.segment_reader(ord).num_docs() as u64
+            })
+            .sum()
     }
 
     /// Returns the total number of docs in the index, according to the MVCC directory.
@@ -661,7 +653,6 @@ impl SearchIndexReader {
 
         MultiSegmentSearchResults {
             searcher: self.searcher.clone(),
-            ctid_column: Default::default(),
             iterators,
             lazy_iterators: None,
             lazy_estimated_rows: None,
@@ -724,7 +715,6 @@ impl SearchIndexReader {
 
         MultiSegmentSearchResults {
             searcher: self.searcher.clone(),
-            ctid_column: Default::default(),
             iterators: vec![],
             lazy_iterators: Some(Box::new(lazy_iterators)),
             lazy_estimated_rows: Some(estimated_rows),
@@ -782,64 +772,58 @@ impl SearchIndexReader {
                     .expect("sort field should exist in index schema");
                 let order: ComparatorEnum = (*direction).into();
                 match field.field_entry().field_type().value_type() {
-                    tantivy::schema::Type::Str => TopKSearchResults::new_for_discarded_field(
-                        &self.searcher,
-                        self.top_in_segments(
+                    tantivy::schema::Type::Str => {
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByString::for_field(sort_field), order),
                             erased_features,
                             n,
                             offset,
                             aux_collector,
-                        ),
-                    ),
-                    tantivy::schema::Type::U64 => TopKSearchResults::new_for_discarded_field(
-                        &self.searcher,
-                        self.top_in_segments(
+                        ))
+                    }
+                    tantivy::schema::Type::U64 => {
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByStaticFastValue::<u64>::for_field(sort_field), order),
                             erased_features,
                             n,
                             offset,
                             aux_collector,
-                        ),
-                    ),
-                    tantivy::schema::Type::I64 => TopKSearchResults::new_for_discarded_field(
-                        &self.searcher,
-                        self.top_in_segments(
+                        ))
+                    }
+                    tantivy::schema::Type::I64 => {
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByStaticFastValue::<i64>::for_field(sort_field), order),
                             erased_features,
                             n,
                             offset,
                             aux_collector,
-                        ),
-                    ),
-                    tantivy::schema::Type::F64 => TopKSearchResults::new_for_discarded_field(
-                        &self.searcher,
-                        self.top_in_segments(
+                        ))
+                    }
+                    tantivy::schema::Type::F64 => {
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByStaticFastValue::<f64>::for_field(sort_field), order),
                             erased_features,
                             n,
                             offset,
                             aux_collector,
-                        ),
-                    ),
-                    tantivy::schema::Type::Bool => TopKSearchResults::new_for_discarded_field(
-                        &self.searcher,
-                        self.top_in_segments(
+                        ))
+                    }
+                    tantivy::schema::Type::Bool => {
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByStaticFastValue::<bool>::for_field(sort_field), order),
                             erased_features,
                             n,
                             offset,
                             aux_collector,
-                        ),
-                    ),
-                    tantivy::schema::Type::Date => TopKSearchResults::new_for_discarded_field(
-                        &self.searcher,
-                        self.top_in_segments(
+                        ))
+                    }
+                    tantivy::schema::Type::Date => {
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (
                                 SortByStaticFastValue::<DateTime>::for_field(sort_field),
@@ -849,19 +833,18 @@ impl SearchIndexReader {
                             n,
                             offset,
                             aux_collector,
-                        ),
-                    ),
-                    tantivy::schema::Type::Bytes => TopKSearchResults::new_for_discarded_field(
-                        &self.searcher,
-                        self.top_in_segments(
+                        ))
+                    }
+                    tantivy::schema::Type::Bytes => {
+                        TopKSearchResults::new_for_discarded_field(self.top_in_segments(
                             segment_ids,
                             (SortByBytes::for_field(sort_field), order),
                             erased_features,
                             n,
                             offset,
                             aux_collector,
-                        ),
-                    ),
+                        ))
+                    }
                     tantivy::schema::Type::Facet => {
                         unimplemented!("Cannot sort by facet field")
                     }
@@ -891,7 +874,6 @@ impl SearchIndexReader {
                     aux_collector,
                 );
                 TopKSearchResults::new_for_score(
-                    &self.searcher,
                     top_docs.into_iter().map(|((f, _), doc)| (f, doc)),
                     aggregation_results,
                 )
@@ -903,6 +885,10 @@ impl SearchIndexReader {
                 // TODO: See method docs.
                 self.top_by_score_in_segments(segment_ids, *direction, n, offset, aux_collector)
             }
+            OrderByInfo {
+                feature: OrderByFeature::NullTest { .. },
+                ..
+            } => unreachable!("NullTest ORDER BY is only used in JoinScan"),
         }
     }
 
@@ -1096,7 +1082,6 @@ impl SearchIndexReader {
                     self.collect_maybe_auxiliary(segment_ids, top_docs_collector, aux_collector);
 
                 TopKSearchResults::new_for_score(
-                    &self.searcher,
                     top_docs
                         .into_iter()
                         .map(|(score, doc_address)| (score.score, doc_address)),
@@ -1111,7 +1096,7 @@ impl SearchIndexReader {
                 let (top_docs, aggregation_results) =
                     self.collect_maybe_auxiliary(segment_ids, top_docs_collector, aux_collector);
 
-                TopKSearchResults::new_for_score(&self.searcher, top_docs, aggregation_results)
+                TopKSearchResults::new_for_score(top_docs, aggregation_results)
             }
         }
     }
@@ -1379,6 +1364,10 @@ impl SearchIndexReader {
                     feature: OrderByFeature::Var { .. },
                     ..
                 } => unimplemented!("Sorting by variable is not supported in raw index search"),
+                OrderByInfo {
+                    feature: OrderByFeature::NullTest { .. },
+                    ..
+                } => unreachable!("NullTest ORDER BY is only used in JoinScan"),
             }
         }
 
@@ -1432,7 +1421,8 @@ impl SearchIndexReader {
 impl SearchIndexManifest {
     /// Capture the currently visible segment set without building a search query.
     pub fn capture(index_relation: &PgSearchRelation, mvcc_style: MvccSatisfies) -> Result<Self> {
-        let components = SearchIndexReader::open_index_components(index_relation, mvcc_style)?;
+        let components =
+            SearchIndexReader::open_index_components(index_relation, mvcc_style, false)?;
         Ok(Self {
             searcher: components.searcher,
             _cleanup_lock: components.cleanup_lock,

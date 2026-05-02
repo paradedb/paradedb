@@ -608,6 +608,14 @@ pub(super) fn build_index(
     let nworkers = plan::create_index_nworkers(&heaprel, &indexrel);
     pgrx::debug1!("build_index: asked for {nworkers} workers");
 
+    // This is updating `tuples_total` in the `pg_stat_progress_create_index` view - `tuples_done` is incremented in `build_callback`
+    unsafe {
+        pg_sys::pgstat_progress_update_param(
+            pg_sys::PROGRESS_CREATEIDX_TUPLES_TOTAL as i32,
+            plan::estimate_heap_reltuples(&heaprel) as i64,
+        );
+    }
+
     let total_tuples = if let Some(mut process) = launch_parallel_process!(
         ParallelBuild<BuildWorker>,
         process,

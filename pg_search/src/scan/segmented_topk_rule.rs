@@ -132,27 +132,21 @@ fn try_inject_at_sort(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionP
         None => Ok(plan),
     }
 }
-
 /// Resolve the physical index in `schema` for a column reference from a SortExec.
 ///
-/// SortExec column indices are logical positions relative to *its* input schema
-/// (i.e. `TantivyLookupExec`'s output). After a join, the physical schema seen
-/// by `lookup_child` may reorder or duplicate fields — for example a HashJoinExec
-/// output like `[ctid_0, s.name, ctid_1, p.name]` gives `p.name` the physical
-/// index 3, while the SortExec might carry logical index 1.
-///
 /// Resolution strategy:
-///   1. Collect all fields in `schema` whose name matches `col.name()`.
-///   2. Use `col.index()` as the *N-th occurrence* hint: take the `col.index()`-th
-///      match (0-based among same-named fields).  This handles the common join case
-///      where two tables contribute columns with the same base name.
-///   3. If no name match is found at all, fall back to `col.index()` directly
-///      (pre-join, single-table path — maintains backward compatibility).
+///   - If the column name is **unique** in the schema, use `index_of` for an
+///     exact name-based lookup. This correctly handles cross-table joins where
+///     two different tables contribute differently-named columns.
+///   - If the column name appears **more than once** (self-join with duplicate
+///     field names), fall back to `col.index()` directly. DataFusion already
+///     assigned the correct physical index when it built the SortExec.
+///   - If the name is not found at all, fall back to `col.index()` (single-table
+///     pre-join path).
 fn resolve_physical_index(col: &Column, schema: &datafusion::arrow::datatypes::SchemaRef) -> usize {
     let col_name = col.name();
     let logical_idx = col.index();
 
-    // Collect positions of all fields matching this name.
     let matches: Vec<usize> = schema
         .fields()
         .iter()
@@ -160,16 +154,20 @@ fn resolve_physical_index(col: &Column, schema: &datafusion::arrow::datatypes::S
         .filter_map(|(i, f)| if f.name() == col_name { Some(i) } else { None })
         .collect();
 
-    let physical_idx = if matches.is_empty() {
-        // No name match — fall back to the raw logical index.
-        logical_idx
-    } else {
-        // Use the logical index as an occurrence hint.
-        // E.g. if two fields are named "name" at positions [1, 3], and the
-        // SortExec carries logical index 1, we want the *second* occurrence → 3.
-        // Clamp to the last occurrence to avoid panics on unexpected schemas.
-        let occurrence = logical_idx.min(matches.len() - 1);
-        matches[occurrence]
+    let physical_idx = match matches.len() {
+        0 => {
+            // Name not found — trust the logical index (single-table path).
+            logical_idx
+        }
+        1 => {
+            // Unique name — use the exact physical position from the schema.
+            matches[0]
+        }
+        _ => {
+            // Duplicate names (self-join) — DataFusion already set col.index()
+            // to the correct physical position when building the SortExec.
+            logical_idx
+        }
     };
 
     if physical_idx != logical_idx {
@@ -180,7 +178,6 @@ fn resolve_physical_index(col: &Column, schema: &datafusion::arrow::datatypes::S
             physical_idx
         );
     }
-
     physical_idx
 }
 

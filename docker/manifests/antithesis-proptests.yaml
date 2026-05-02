@@ -10,7 +10,7 @@ spec:
   restartPolicy: Never
   containers:
     - name: proptests
-      image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-proptests
+      image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/proptests
       imagePullPolicy: IfNotPresent
       command:
         - sleep

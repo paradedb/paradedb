@@ -61,3 +61,10 @@ SELECT pdb.snippet(text) FROM prox WHERE text @@@ ('a' ##1## ARRAY['b', 'c', 'd'
 SELECT pdb.snippet(text) FROM prox WHERE text @@@ ('z' ##24## 'a');   -- match, any order
 SELECT pdb.snippet(text) FROM prox WHERE text @@@ ('z' ##>24##> 'a');   -- no match, in order
 
+--
+-- mismatched proximity operators should error
+--
+
+SELECT * FROM prox WHERE text @@@ ('a' ##>1## 'b');   -- error: left is ##>, right is ##
+SELECT * FROM prox WHERE text @@@ ('a' ##1##> 'b');   -- error: left is ##, right is ##>
+

@@ -55,12 +55,10 @@ RUN PGRX_VERSION=$(grep 'pgrx =' Cargo.toml | head -n 1 | cut -d '"' -f 2 | tr -
 # pg_search
 ######################
 
-ARG COMMIT_SHA
 ARG ENABLE_ANTITHESIS_INSTRUMENTATION
 
 # Declare compile-time environment variables
-ENV COMMIT_SHA=${COMMIT_SHA} \
-    ENABLE_ANTITHESIS_INSTRUMENTATION=${ENABLE_ANTITHESIS_INSTRUMENTATION}
+ENV ENABLE_ANTITHESIS_INSTRUMENTATION=${ENABLE_ANTITHESIS_INSTRUMENTATION}
 
 COPY Cargo.toml Cargo.lock rust-toolchain.toml /tmp/
 COPY .cargo/ /tmp/.cargo/

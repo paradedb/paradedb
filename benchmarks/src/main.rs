@@ -389,15 +389,13 @@ async fn write_test_info_csv(args: &CommonBenchmarkArgs, rows_display: &str) -> 
         let mut conn = PgConnection::connect(&args.url)
             .await
             .with_context(|| "Failed to connect to database for version info")?;
-        let row = sqlx::query("SELECT version, githash, build_mode FROM paradedb.version_info()")
+        let row = sqlx::query("SELECT version, build_mode FROM paradedb.version_info()")
             .fetch_one(&mut conn)
             .await
             .with_context(|| "Failed to fetch paradedb.version_info()")?;
         let version: String = row.get(0);
-        let githash: String = row.get(1);
-        let build_mode: String = row.get(2);
+        let build_mode: String = row.get(1);
         writeln!(file, "pg_search Version,{version}")?;
-        writeln!(file, "pg_search Git Hash,{githash}")?;
         writeln!(file, "pg_search Build Mode,{build_mode}")?;
     }
     Ok(())
@@ -514,15 +512,13 @@ async fn write_test_info(
         let mut conn = PgConnection::connect(&args.url)
             .await
             .with_context(|| "Failed to connect to database for version info")?;
-        let row = sqlx::query("SELECT version, githash, build_mode FROM paradedb.version_info()")
+        let row = sqlx::query("SELECT version, build_mode FROM paradedb.version_info()")
             .fetch_one(&mut conn)
             .await
             .with_context(|| "Failed to fetch paradedb.version_info()")?;
         let version: String = row.get(0);
-        let githash: String = row.get(1);
-        let build_mode: String = row.get(2);
+        let build_mode: String = row.get(1);
         writeln!(file, "| pg_search Version | {version} |")?;
-        writeln!(file, "| pg_search Git Hash | {githash} |")?;
         writeln!(file, "| pg_search Build Mode | {build_mode} |")?;
     }
     Ok(())

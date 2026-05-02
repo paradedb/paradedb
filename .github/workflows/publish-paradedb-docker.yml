@@ -90,7 +90,6 @@ jobs:
           echo "GitHub Tag Version: $VERSION"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
       - name: Determine if Release Should be Marked as Latest
         id: release_latest
@@ -159,7 +158,6 @@ jobs:
           context: .
           build-args: |
             PG_VERSION_MAJOR=${{ matrix.pg_version }}
-            COMMIT_SHA=${{ steps.version.outputs.commit_sha }}
           platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile
           push: true

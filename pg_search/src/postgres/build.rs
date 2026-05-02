@@ -310,7 +310,7 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
         docstore_compress_dedicated_thread: false,
         codec_types: vec![
             tantivy::columnar::CodecType::Bitpacked,
-            tantivy::columnar::CodecType::BlockwiseLinear,
+            tantivy::columnar::CodecType::BlockwiseLinearV2,
         ],
         ..IndexSettings::default()
     };
@@ -466,7 +466,7 @@ mod tests {
         let schema = builder.build();
 
         let settings = IndexSettings {
-            codec_types: vec![CodecType::Bitpacked, CodecType::BlockwiseLinear],
+            codec_types: vec![CodecType::Bitpacked, CodecType::BlockwiseLinearV2],
             ..IndexSettings::default()
         };
 
@@ -477,11 +477,11 @@ mod tests {
         let stored = index.settings();
         assert_eq!(
             stored.codec_types,
-            vec![CodecType::Bitpacked, CodecType::BlockwiseLinear]
+            vec![CodecType::Bitpacked, CodecType::BlockwiseLinearV2]
         );
         assert_eq!(
             stored.columnar_codec_types(),
-            &[CodecType::Bitpacked, CodecType::BlockwiseLinear]
+            &[CodecType::Bitpacked, CodecType::BlockwiseLinearV2]
         );
     }
 }

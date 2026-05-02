@@ -46,6 +46,7 @@ jobs:
       - cpu=${{ matrix.cpu }}
       - ram=${{ matrix.ram }}
       - image=${{ matrix.runner_image }}
+      - volume=80gb # default runner ships with 40GB — see https://runs-on.com/runners/linux/
       - extras=s3-cache
     strategy:
       fail-fast: false
@@ -124,11 +125,13 @@ jobs:
             --platform ${{ matrix.platform }} \
             --file docker/Dockerfile \
             --tag paradedb/paradedb:latest \
-            --build-arg COMMIT_SHA=${{ github.sha }} \
             --cache-from type=gha,scope=paradedb-docker-${{ matrix.arch }} \
             --cache-to type=gha,mode=max,scope=paradedb-docker-${{ matrix.arch }} \
             --load \
             .
+
+      - name: Verify PGDG apt packages are available
+        run: docker run --rm paradedb/paradedb:latest bash -c 'apt-get update && apt-get install -y --no-install-recommends postgresql-${PG_VERSION_MAJOR}-partman'
 
       # Start the ParadeDB Docker image using `docker run` to test the standalone Docker image.
       # We add a --tmpfs mount as a test of compatibility with the upstream `postgres` image.

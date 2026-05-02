@@ -59,7 +59,6 @@ buildPgrxExtension (finalAttrs: {
   pname = "pg_search";
   version = rootCargoToml.workspace.package.version;
   src = self;
-  COMMIT_SHA = self.rev or self.dirtyRev or "unknown";
 
   # This hash needs to change any time the Rust dependencies are updated.
   # If maintainers forget to do so, Nix will throw an error message that begins

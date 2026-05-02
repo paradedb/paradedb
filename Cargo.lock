@@ -709,13 +709,11 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "benchmarks"
-version = "0.23.2"
+version = "0.23.3"
 dependencies = [
  "anyhow",
  "clap",
  "duckdb",
- "futures",
- "pretty_assertions",
  "serde",
  "serde_json",
  "sqlx",
@@ -4717,7 +4715,7 @@ dependencies = [
 
 [[package]]
 name = "macros"
-version = "0.23.2"
+version = "0.23.3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5355,7 +5353,7 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
-version = "0.23.2"
+version = "0.23.3"
 dependencies = [
  "anyhow",
  "arrow-array",
@@ -7598,7 +7596,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stressgres"
-version = "0.23.2"
+version = "0.23.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -7980,12 +7978,11 @@ dependencies = [
 
 [[package]]
 name = "tests"
-version = "0.23.2"
+version = "0.23.3"
 dependencies = [
  "anyhow",
  "approx",
  "async-std",
- "benchmarks",
  "bigdecimal",
  "bytes",
  "chrono",
@@ -8149,7 +8146,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokenizers"
-version = "0.23.2"
+version = "0.23.3"
 dependencies = [
  "anyhow",
  "emoji",

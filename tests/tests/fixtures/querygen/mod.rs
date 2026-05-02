@@ -24,10 +24,10 @@ pub mod pagegen;
 pub mod wheregen;
 
 use std::fmt::{Debug, Write};
+use std::sync::OnceLock;
 
 use futures::executor::block_on;
 use proptest::prelude::*;
-use proptest_derive::Arbitrary;
 use sqlx::{Connection, PgConnection};
 
 use crate::fixtures::db::Query;
@@ -324,7 +324,7 @@ pub fn arb_joins_and_wheres(
         })
 }
 
-#[derive(Copy, Clone, Debug, Arbitrary)]
+#[derive(Copy, Clone, Debug)]
 pub struct PgGucs {
     pub aggregate_custom_scan: bool,
     pub custom_scan: bool,
@@ -339,6 +339,60 @@ pub struct PgGucs {
     pub columnar_exec: bool,
     /// Enable sorted execution for ColumnarExecState.
     pub columnar_sort: bool,
+}
+
+/// When `PARADEDB_FORCE_PARALLEL=1` (or `=true`), the proptest `Arbitrary` impl pins
+/// `parallel_workers = true` and `PgGucs::set` additionally emits
+/// `SET debug_parallel_query = regress` so Postgres picks a parallel plan even on
+/// the small property-test tables. Other GUCs continue to vary across cases.
+fn force_parallel() -> bool {
+    static V: OnceLock<bool> = OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("PARADEDB_FORCE_PARALLEL")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+    })
+}
+
+/// Server-side `statement_timeout` (ms) emitted by `PgGucs::set`, so a hung query
+/// surfaces as a failure instead of stalling the run. Override with
+/// `PARADEDB_QGEN_STATEMENT_TIMEOUT_MS`; defaults to 60000.
+fn statement_timeout_ms() -> u64 {
+    static V: OnceLock<u64> = OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("PARADEDB_QGEN_STATEMENT_TIMEOUT_MS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(60_000)
+    })
+}
+
+impl Arbitrary for PgGucs {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        any::<[bool; 10]>()
+            .prop_map(|b| {
+                let mut g = PgGucs {
+                    aggregate_custom_scan: b[0],
+                    custom_scan: b[1],
+                    custom_scan_without_operator: b[2],
+                    filter_pushdown: b[3],
+                    join_custom_scan: b[4],
+                    seqscan: b[5],
+                    indexscan: b[6],
+                    parallel_workers: b[7],
+                    columnar_exec: b[8],
+                    columnar_sort: b[9],
+                };
+                if force_parallel() {
+                    g.parallel_workers = true;
+                }
+                g
+            })
+            .boxed()
+    }
 }
 
 impl Default for PgGucs {
@@ -411,6 +465,10 @@ impl PgGucs {
             "SET paradedb.enable_columnar_sort TO {columnar_sort};"
         )
         .unwrap();
+        writeln!(gucs, "SET statement_timeout TO {};", statement_timeout_ms()).unwrap();
+        if force_parallel() {
+            writeln!(gucs, "SET debug_parallel_query TO regress;").unwrap();
+        }
         gucs
     }
 }

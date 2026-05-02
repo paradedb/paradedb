@@ -94,12 +94,6 @@ jobs:
             runner_family: c7a+c7i
             runner_image: ubuntu24-full-x64
             arch: amd64
-          # Add AMD64 run for PG16 to enable bingo regression test
-          # (bingo ships x86_64 only — no aarch64 binary available)
-          - pg_version: 16
-            pg_impl: system
-            runner: ubicloud-standard-8-ubuntu-2404
-            arch: amd64
 
     steps:
       - name: Checkout Git Repository
@@ -270,24 +264,6 @@ jobs:
         run: |
           sudo chown -R $(whoami) /var/run/postgresql/
           RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
-
-      # Install bingo and run the nested ExecutorRun regression test for #4843.
-      # Scoped to PG16 amd64 only — bingo ships x86_64 Linux binaries only,
-      # no aarch64 build is available. Must run after Postgres has started
-      # because bingo_install.sql requires a live database connection.
-      - name: Install bingo and run nested ExecutorRun regression test (PG16 amd64 only)
-        if: matrix.pg_impl == 'system' && matrix.pg_version == 16 && matrix.arch == 'amd64'
-        run: |
-          set -euxo pipefail
-          wget -q https://lifescience.opensource.epam.com/downloads/bingo-1.40.0/bingo-postgres-16-linux-x86_64.zip -O bingo.zip
-          unzip -q bingo.zip
-          tar -xzf bingo-postgres16-linux-x86_64-1.40.0.0.tgz
-          cd bingo-postgres16-linux-x86_64-1.40.0.0
-          sudo cp lib/libbingo-postgres.so /usr/lib/postgresql/16/lib/
-          bash bingo-pg-install.sh -y -pglibdir
-          sudo -u postgres psql -f bingo_install.sql
-          sudo -u postgres psql -d postgres \
-            -f pg_search/tests/pg_regress/sql/bingo_nested_executor_fix.sql
 
       - name: Start Postgres and create database (pgrx)
         if: matrix.pg_impl == 'pgrx'

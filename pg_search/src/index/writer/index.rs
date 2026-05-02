@@ -177,7 +177,7 @@ impl SerialIndexWriter {
             sort_by_field,
             codec_types: vec![
                 tantivy::columnar::CodecType::Bitpacked,
-                tantivy::columnar::CodecType::BlockwiseLinear,
+                tantivy::columnar::CodecType::BlockwiseLinearV2,
             ],
             ..IndexSettings::default()
         };

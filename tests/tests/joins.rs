@@ -376,7 +376,7 @@ fn joinscan_cross_table_duplicate_output_name_matches_fallback(
     USING bm25 (id, name, description, supplier_id)
     WITH (
         key_field = 'id',
-        text_fields = '{"name": {"fast": true}}',
+        text_fields = '{"name": {"fast": true}, "description": {"fast": true}}',
         numeric_fields = '{"supplier_id": {"fast": true}}'
     );
 
@@ -392,15 +392,15 @@ fn joinscan_cross_table_duplicate_output_name_matches_fallback(
     "#
     .execute(&mut conn);
 
-    // Both tables have a column called `name`. DISTINCT + upper() forces a projection
-    // that exposes the duplicate-name misbinding bug where JoinScan was sorting on
-    // the wrong physical column index.
+    // Both tables have a column called `name`. Ordering by p.name (a fast field)
+    // while s.name is also a fast field exposes the duplicate-name misbinding bug
+    // where JoinScan was sorting on the wrong physical column index.
     let query = r#"
-        SELECT DISTINCT upper(s.name) AS upper_supplier, p.name
+        SELECT p.name AS p_name, s.name AS s_name
         FROM misbind_products p
         JOIN misbind_suppliers s ON p.supplier_id = s.id
         WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
-        ORDER BY p.name
+        ORDER BY p.name ASC
         LIMIT 10
     "#;
 

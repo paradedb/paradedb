@@ -633,7 +633,8 @@ pub(super) fn build_index(
 
         // account for the leader in the coordination
         let mut nlaunched_plus_leader = nlaunched;
-        if unsafe { pg_sys::parallel_leader_participation } {
+        let leader_participating = unsafe { pg_sys::parallel_leader_participation };
+        if leader_participating {
             nlaunched_plus_leader += 1;
         }
 
@@ -641,24 +642,23 @@ pub(super) fn build_index(
         coordination.set_nlaunched(nlaunched_plus_leader);
         pgrx::debug1!("build_index: has {nlaunched_plus_leader} workers (including leader)");
 
-        let (mut total_tuples, mut total_merges) =
-            if unsafe { pg_sys::parallel_leader_participation } {
-                // if the leader is to participate too, it's nice for it to wait until all the other workers
-                // have indicated that they're running.  Otherwise, it's likely the leader will get ahead
-                // of the workers, which doesn't allow for "evenly" distributing the work
-                while coordination.nstarted() != nlaunched {
-                    check_for_interrupts!();
-                    std::thread::yield_now();
-                }
+        let (mut total_tuples, mut total_merges) = if leader_participating {
+            // if the leader is to participate too, it's nice for it to wait until all the other workers
+            // have indicated that they're running.  Otherwise, it's likely the leader will get ahead
+            // of the workers, which doesn't allow for "evenly" distributing the work
+            while coordination.nstarted() != nlaunched {
+                check_for_interrupts!();
+                std::thread::yield_now();
+            }
 
-                // directly instantiate a worker for the leader and have it do its build
-                let mut worker = BuildWorker::new_parallel_worker(*process.state_manager());
-                // NOTE: this logic of setting the worker number of the leader as `nlaunched_plus_leader` is used to determine, in `build_callback`, if a certain worker is the leader
-                worker.do_build(nlaunched_plus_leader as i32)?
-            } else {
-                pgrx::debug1!("build_index: leader is not participating");
-                (0.0, 0)
-            };
+            // directly instantiate a worker for the leader and have it do its build
+            let mut worker = BuildWorker::new_parallel_worker(*process.state_manager());
+            // NOTE: this logic of setting the worker number of the leader as `nlaunched_plus_leader` is used to determine, in `build_callback`, if a certain worker is the leader
+            worker.do_build(nlaunched_plus_leader as i32)?
+        } else {
+            pgrx::debug1!("build_index: leader is not participating");
+            (0.0, 0)
+        };
 
         // wait for the workers to finish by collecting all their response messages
         for (_, message) in process {

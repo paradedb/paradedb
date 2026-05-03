@@ -42,12 +42,18 @@ impl IndexKind {
                     &[index_relation.oid().into()],
                 )
                 .expect("failed to lookup child partitions")
-                .unwrap();
+                .unwrap_or_default();
                 let child_relations = child_array
                     .into_iter()
                     .map(|oid| {
                         // TODO: Do these acquisitions need to be sorted?
-                        PgSearchRelation::with_lock(oid, pg_sys::AccessShareLock as _)
+                        let rel = PgSearchRelation::with_lock(oid, pg_sys::AccessShareLock as _);
+                        if rel.relkind() == pg_sys::RELKIND_PARTITIONED_INDEX {
+                            pgrx::error!(
+                                "multi-level partitioned BM25 indexes are not yet supported. Only single-level partitioned indexes are currently handled."
+                            );
+                        }
+                        rel
                     })
                     .collect();
                 Ok(IndexKind::PartitionedIndex(child_relations))

@@ -329,20 +329,13 @@ pub(crate) fn estimate_selectivity(
 
     let row_estimate = RowEstimate::from_reltuples(reltuples);
 
-    let search_reader = match SearchIndexReader::open(
+    let search_reader = SearchIndexReader::open(
         indexrel,
         search_query_input,
         false,
         MvccSatisfies::LargestSegment,
-    ) {
-        Ok(reader) => reader,
-        Err(e) => {
-            pgrx::error!(
-                "estimate_selectivity: failed to open SearchIndexReader: {}",
-                e
-            );
-        }
-    };
+    )
+    .expect("estimate_selectivity: should be able to open a SearchIndexReader");
 
     // We estimate both the number of matching docs and the total number of docs.
     // If reltuples is Known, total_rows will match it. If Unknown, total_rows

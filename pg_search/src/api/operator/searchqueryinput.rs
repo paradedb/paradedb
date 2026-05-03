@@ -174,15 +174,9 @@ pub fn search_with_query_input(
             }
         }
 
-        let index_oid = match search_query_input.index_oid() {
-            Some(oid) => oid,
-            None => {
-                pgrx::error!(
-                    "search_with_query_input: the query argument must be wrapped in a `SearchQueryInput::WithIndex` variant. \
-                     Try using `paradedb.with_index('<index name>', <original expression>)`"
-                );
-            }
-        };
+        let index_oid = search_query_input
+            .index_oid()
+            .unwrap_or_else(|| panic!("the query argument must be wrapped in a `SearchQueryInput::WithIndex` variant.  Try using `paradedb.with_index('<index name>', <original expression>)`"));
 
         let index_relation =
             PgSearchRelation::with_lock(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
@@ -233,15 +227,8 @@ pub fn search_with_query_input(
     // is contained in the matches set
     unsafe {
         let element = pg_getarg_datum_raw(fcinfo, 0);
-        let user_value = match TantivyValue::try_from_datum(element, *element_oid) {
-            Ok(val) => val,
-            Err(e) => {
-                pgrx::error!(
-                    "search_with_query_input: lhs value could not be converted: {}",
-                    e
-                );
-            }
-        };
+        let user_value =
+            TantivyValue::try_from_datum(element, *element_oid).expect("no value present");
         matches.contains(&user_value)
     }
 }

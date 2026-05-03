@@ -449,7 +449,7 @@ function renderCharts(rawData) {
             const yUnit = group[0].unit;
 
             const dsName = fileGroupDataset[fn] || '';
-            const sqlUrl = dsName ? `https://github.com/paradedb/paradedb/blob/main/benchmarks/datasets/${dsName}/queries/${prefix}.sql` : '';
+            const sqlUrl = dsName ? `https://github.com/paradedb/paradedb/blob/main/benchmarks/datasets/${dsName}/queries/pg_search/${prefix}.sql` : '';
 
             const card = document.createElement('div');
             card.className = 'chart-card';

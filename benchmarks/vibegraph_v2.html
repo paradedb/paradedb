@@ -306,8 +306,9 @@ function externalTooltipHandler(context) {
         const orig = ds.original;
         const oi = idx + ws;
         const changes = [];
-        if (chart.normalized && orig[0] != null && val != null) {
-            const pct = ((val / orig[0]) - 1) * 100;
+        const base = orig.find(v => v != null);
+        if (chart.normalized && base != null && val != null) {
+            const pct = ((val / base) - 1) * 100;
             const cls = pct > 0 ? 'up' : 'down';
             changes.push(`<span class="${cls}">${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%</span> from first`);
         }
@@ -349,7 +350,8 @@ function externalTooltipHandler(context) {
 function applyWindow(chart, ws, norm, labels) {
     chart.data.datasets.forEach(ds => {
         const sliced = ds.original.slice(ws);
-        ds.data = norm ? sliced.map(v => v != null && sliced[0] != null ? v / sliced[0] : null) : sliced.slice();
+        const base = norm ? sliced.find(v => v != null) : null;
+        ds.data = norm ? sliced.map(v => v != null && base != null ? v / base : null) : sliced.slice();
         ds.pointBorderColor = sliced.map((v, i, arr) => {
             if (i > 0 && arr[i - 1] != null && v != null) {
                 const pct = (v - arr[i - 1]) / arr[i - 1];
@@ -568,7 +570,10 @@ function renderCharts(rawData) {
             });
             chart.normalized = defNorm;
             if (defNorm) {
-                chart.data.datasets.forEach(ds => { ds.data = ds.original.map(v => v != null && ds.original[0] != null ? v / ds.original[0] : null); });
+                chart.data.datasets.forEach(ds => {
+                    const base = ds.original.find(v => v != null);
+                    ds.data = ds.original.map(v => v != null && base != null ? v / base : null);
+                });
                 chart.update();
             }
 

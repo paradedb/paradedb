@@ -21,6 +21,7 @@ use crate::index::writer::index::{
     IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
 };
 use crate::launch_parallel_process;
+use crate::parallel_worker::builder::ParallelProcessMessageQueue;
 use crate::parallel_worker::mqueue::MessageQueueSender;
 use crate::parallel_worker::{
     chunk_range, ParallelProcess, ParallelState, ParallelStateManager, ParallelStateType,
@@ -103,6 +104,10 @@ impl WorkerCoordination {
         self.ntuples_done
     }
 }
+
+#[derive(Copy, Clone)]
+struct CoordinationPtr(*mut WorkerCoordination);
+unsafe impl Send for CoordinationPtr {}
 
 /// The parallel process for setting up a parallel index build
 struct ParallelBuild {
@@ -660,8 +665,20 @@ pub(super) fn build_index(
             (0.0, 0)
         };
 
+        // Creating the message queue with the closure to update the `tuples_done` progress report periodically
+        let coordination_ptr = CoordinationPtr(coordination as *mut WorkerCoordination);
+        let process_queue = ParallelProcessMessageQueue::new(
+            process,
+            Box::new(move || unsafe {
+                pg_sys::pgstat_progress_update_param(
+                    pg_sys::PROGRESS_CREATEIDX_TUPLES_DONE as i32,
+                    (*coordination_ptr.0).tuples_done() as i64,
+                );
+            }),
+        );
+
         // wait for the workers to finish by collecting all their response messages
-        for (_, message) in process {
+        for (_, message) in process_queue {
             check_for_interrupts!();
             let worker_response = serde_json::from_slice::<WorkerResponse>(&message)?;
             total_tuples += worker_response.reltuples;

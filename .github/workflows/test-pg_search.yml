@@ -86,7 +86,7 @@ jobs:
             runner_family: c7g+c8g
             runner_image: ubuntu24-full-arm64
             arch: arm64
-          # Add AMD64 run for PG18 (system Postgres)
+          # Add AMD run for PG 18 (system Postgres)
           - pg_version: 18
             pg_impl: system
             cpu: 8
@@ -339,10 +339,7 @@ jobs:
 
       - name: Print the Postgres Logs
         if: always()
-        run: |
-          cat ~/.pgrx/${{ matrix.pg_version}}.log 2>/dev/null || \
-          cat /var/log/postgresql/postgresql-${{ matrix.pg_version }}-main.log 2>/dev/null || \
-          echo "No postgres log found"
+        run: cat ~/.pgrx/${{ matrix.pg_version}}.log
 
   upload-coverage:
     name: Upload Combined Coverage to Codecov

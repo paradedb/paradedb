@@ -66,8 +66,17 @@ pub struct FFHelper {
 }
 
 impl FFHelper {
-    pub fn empty() -> Self {
-        Self::default()
+    /// Build an FFHelper that only tracks the ctid fast field (no named columns).
+    pub fn ctid_only(reader: &SearchIndexReader) -> Self {
+        let segment_caches = reader
+            .segment_readers()
+            .iter()
+            .map(|reader| {
+                let fast_fields_reader = reader.fast_fields().clone();
+                (fast_fields_reader, Vec::new(), OnceLock::default())
+            })
+            .collect();
+        Self { segment_caches }
     }
 
     pub fn with_fields(reader: &SearchIndexReader, fields: &[WhichFastField]) -> Self {
@@ -100,6 +109,14 @@ impl FFHelper {
     pub fn ctid(&self, segment_ord: SegmentOrdinal) -> &FFType {
         let (ff_readers, _, ctid) = &self.segment_caches[segment_ord as usize];
         ctid.get_or_init(|| FFType::new_ctid(ff_readers))
+    }
+
+    /// Look up the u64 ctid for a [`DocAddress`], panicking if absent.
+    #[inline(always)]
+    pub fn ctid_u64(&self, doc_address: DocAddress) -> u64 {
+        self.ctid(doc_address.segment_ord)
+            .as_u64(doc_address.doc_id)
+            .expect("ctid should be present")
     }
 
     pub fn column(&self, segment_ord: SegmentOrdinal, field: FFIndex) -> &FFType {

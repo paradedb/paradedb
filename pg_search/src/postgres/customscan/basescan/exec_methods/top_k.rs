@@ -373,10 +373,7 @@ impl ExecMethod for TopKScanExecState {
                 .as_ref()
                 .unwrap()
                 .search_top_k_in_segments(
-                    self.segments_to_query(
-                        state.search_reader.as_ref().unwrap(),
-                        state.parallel_state,
-                    ),
+                    self.segments_to_query(state.search_reader().unwrap(), state.parallel_state),
                     orderby_info,
                     local_limit,
                     self.offset,
@@ -387,10 +384,7 @@ impl ExecMethod for TopKScanExecState {
                 .as_ref()
                 .unwrap()
                 .search_top_k_unordered_in_segments(
-                    self.segments_to_query(
-                        state.search_reader.as_ref().unwrap(),
-                        state.parallel_state,
-                    ),
+                    self.segments_to_query(state.search_reader().unwrap(), state.parallel_state),
                     local_limit,
                     self.offset,
                 )
@@ -473,11 +467,7 @@ impl ExecMethod for TopKScanExecState {
                 }
                 Some((scored, doc_address)) => {
                     self.nresults += 1;
-                    let ctid = state
-                        .ctid_cache
-                        .ctid(doc_address.segment_ord)
-                        .as_u64(doc_address.doc_id)
-                        .expect("ctid should be present");
+                    let ctid = state.ctid_cache().ctid_u64(doc_address);
                     return ExecState::FromHeap {
                         ctid,
                         score: scored.bm25,
@@ -514,7 +504,7 @@ impl ExecMethod for TopKScanExecState {
         self.did_query = false;
         self.exhausted = false;
         self.search_query_input = Some(state.search_query_input().clone());
-        self.search_reader = state.search_reader.clone();
+        self.search_reader = state.search_reader().cloned();
         self.search_results = TopKSearchResults::empty();
 
         // Get window aggregates from state if available

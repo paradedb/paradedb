@@ -372,9 +372,13 @@ function renderCharts(rawData) {
     if (!Object.keys(rawData).length) { container.innerHTML = '<div class="empty">No data for this dataset.</div>'; return; }
 
     const fileGroups = {};
+    const fileGroupDataset = {};
     for (const [cat, ents] of Object.entries(rawData)) {
         const fn = cat.split(' ')[1] || cat;
         (fileGroups[fn] = fileGroups[fn] || []).push(...ents);
+        // Extract raw dataset name (e.g. 'logs' → logs)
+        const dsMatch = cat.match(/'([^']+)'/);
+        if (dsMatch) fileGroupDataset[fn] = dsMatch[1];
     }
 
     for (const [fn, entries] of Object.entries(fileGroups)) {
@@ -444,11 +448,14 @@ function renderCharts(rawData) {
             const defNorm = hasSig && !hasExt;
             const yUnit = group[0].unit;
 
+            const dsName = fileGroupDataset[fn] || '';
+            const sqlUrl = dsName ? `https://github.com/paradedb/paradedb/blob/main/benchmarks/datasets/${dsName}/queries/${prefix}.sql` : '';
+
             const card = document.createElement('div');
             card.className = 'chart-card';
             card.innerHTML = `
                 <div class="chart-card-header">
-                    <span class="chart-card-title">${esc(prefix)}</span>
+                    <span class="chart-card-title">${sqlUrl ? `<a href="${sqlUrl}" target="_blank" style="color:inherit;text-decoration:none;border-bottom:1px dashed var(--border-hover)">${esc(prefix)}</a>` : esc(prefix)}</span>
                     <div class="chart-toolbar">
                         <label class="toggle"><input type="checkbox" class="norm-toggle" ${defNorm ? 'checked' : ''}><span class="toggle-track"></span><span class="toggle-label">Normalize</span></label>
                         <div class="slider-group"><label>Start</label><input type="range" class="window-slider" min="0" max="${Math.max(0, labels.length - 1)}" value="0"><span class="slider-value">0</span></div>

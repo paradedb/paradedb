@@ -305,7 +305,7 @@ function externalTooltipHandler(context) {
 
         const orig = ds.original;
         const oi = idx + ws;
-        const unit = meta.yUnit || '';
+        const unit = 'ms';
         const changes = [];
         const base = orig.find(v => v != null);
         if (base != null && val != null && base !== val) {

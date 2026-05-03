@@ -305,17 +305,20 @@ function externalTooltipHandler(context) {
 
         const orig = ds.original;
         const oi = idx + ws;
+        const unit = meta.yUnit || '';
         const changes = [];
         const base = orig.find(v => v != null);
-        if (chart.normalized && base != null && val != null) {
+        if (base != null && val != null && base !== val) {
             const pct = ((val / base) - 1) * 100;
+            const diff = val - base;
             const cls = pct > 0 ? 'up' : 'down';
-            changes.push(`<span class="${cls}">${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%</span> from first`);
+            changes.push(`<span class="${cls}">${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% (${diff >= 0 ? '+' : ''}${diff.toFixed(1)} ${unit})</span> from first`);
         }
         if (oi > 0 && orig[oi - 1] != null && val != null) {
             const pct = ((val - orig[oi - 1]) / orig[oi - 1]) * 100;
+            const diff = val - orig[oi - 1];
             const cls = pct > 0 ? 'up' : 'down';
-            changes.push(`<span class="${cls}">${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%</span> from prev`);
+            changes.push(`<span class="${cls}">${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% (${diff >= 0 ? '+' : ''}${diff.toFixed(1)} ${unit})</span> from prev`);
         }
         if (changes.length) html += `<div class="tt-changes">${changes.join(' &middot; ')}</div>`;
 
@@ -533,7 +536,7 @@ function renderCharts(rawData) {
                 },
             });
 
-            chart._pdbMeta = { runs, windowStart: 0, smallerIsBetter };
+            chart._pdbMeta = { runs, windowStart: 0, smallerIsBetter, yUnit };
             // X-axis label click → open commit
             canvas.addEventListener('click', (e) => {
                 const xScale = chart.scales.x;

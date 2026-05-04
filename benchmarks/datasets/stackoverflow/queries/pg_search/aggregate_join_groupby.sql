@@ -15,8 +15,8 @@ WHERE p.body ||| 'code'
 GROUP BY p.title
 ORDER BY p.title;
 
--- DataFusion aggregate scan
-SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SELECT p.title, COUNT(*), SUM(c.score)
+-- DataFusion aggregate scan (temporarily increased from 4GB to 8GB)
+SET work_mem TO '8GB'; SET paradedb.enable_aggregate_custom_scan TO on; SELECT p.title, COUNT(*), SUM(c.score)
 FROM stackoverflow_posts p
 JOIN comments c ON p.id = c.post_id
 WHERE p.body ||| 'code'

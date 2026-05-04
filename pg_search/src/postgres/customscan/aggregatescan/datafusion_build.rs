@@ -993,11 +993,29 @@ pub unsafe fn populate_required_fields(
             if !source.contains_rti(gc.rti) {
                 continue;
             }
-            if let Some(field) = resolve_fast_field(gc.attno as i32, &tupdesc, indexrel) {
-                source.scan_info.add_field(gc.attno, field);
-            } else if let Some(field) = resolve_fast_field_by_name(&gc.field_name, indexrel) {
-                source.scan_info.add_field_by_name(gc.attno, field);
-            } else {
+
+            let mut resolved_field = None;
+            // For dotted names (JSON sub-fields), try resolving by name first.
+            // This is more specific than attno-based resolution which might
+            // find the parent JSON column if it's also indexed as text.
+            if gc.field_name.contains('.') {
+                if let Some(field) = resolve_fast_field_by_name(&gc.field_name, indexrel) {
+                    source.scan_info.add_field_by_name(gc.attno, field.clone());
+                    resolved_field = Some(field);
+                }
+            }
+
+            if resolved_field.is_none() {
+                if let Some(field) = resolve_fast_field(gc.attno as i32, &tupdesc, indexrel) {
+                    source.scan_info.add_field(gc.attno, field.clone());
+                    resolved_field = Some(field);
+                } else if let Some(field) = resolve_fast_field_by_name(&gc.field_name, indexrel) {
+                    source.scan_info.add_field_by_name(gc.attno, field.clone());
+                    resolved_field = Some(field);
+                }
+            }
+
+            if resolved_field.is_none() {
                 return Err(format!(
                     "GROUP BY column '{}' (attno={}) is not a fast field on table {}",
                     gc.field_name,
@@ -1009,10 +1027,10 @@ pub unsafe fn populate_required_fields(
 
         // Aggregate arguments.
         for agg in &targetlist.aggregates {
-            for (rti, attno, _) in &agg.field_refs {
+            for (rti, attno, field_name) in &agg.field_refs {
                 if source.contains_rti(*rti) {
                     require_fast_field(source, &tupdesc, indexrel, *attno, || {
-                        format!("aggregate argument (attno={attno})")
+                        format!("aggregate argument '{}' (attno={attno})", field_name)
                     })?;
                 }
             }

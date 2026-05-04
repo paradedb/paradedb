@@ -27,6 +27,9 @@ use pgrx::{datum, IntoDatum, PgBuiltInOids, PgOid};
 
 /// Get a value of the given type from the given index/row of the given array.
 ///
+/// TODO: Duplicated with `arrow_value_to_datum` in `datafusion_project.rs`.
+/// See https://github.com/paradedb/paradedb/issues/4959
+///
 /// This effectively inlines `TantivyValue::try_into_datum` in order to avoid creating both
 /// `OwnedValue` and `TantivyValue` wrappers around primitives (but particularly around strings).
 ///

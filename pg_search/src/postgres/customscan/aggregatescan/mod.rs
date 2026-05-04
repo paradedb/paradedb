@@ -344,6 +344,7 @@ impl CustomScan for AggregateScan {
                     stream: None,
                     current_batch: None,
                     batch_row_idx: 0,
+                    group_df_indices: Vec::new(),
                 });
                 builder.build()
             }
@@ -378,12 +379,17 @@ impl CustomScan for AggregateScan {
 
                 // Show GROUP BY columns
                 if !df_state.targetlist.group_columns.is_empty() {
-                    let groups: Vec<String> = df_state
+                    // TODO: When grouping on expressions with the same underlying input columns,
+                    // it's possible to get dupes here. We should consider rendering the expression
+                    // instead, but for now we dedupe.
+                    let mut groups: Vec<String> = df_state
                         .targetlist
                         .group_columns
                         .iter()
                         .map(|gc| gc.field_name.clone())
                         .collect();
+                    groups.sort();
+                    groups.dedup();
                     explainer.add_text("Group By", groups.join(", "));
                 }
 
@@ -993,7 +999,7 @@ impl AggregateScan {
             let custom_exprs = df_state.custom_exprs;
             let custom_scan_tlist = df_state.custom_scan_tlist;
             let physical_plan = runtime.block_on(async {
-                let logical = build_join_aggregate_plan(
+                let (logical, group_df_indices) = build_join_aggregate_plan(
                     &df_state.plan,
                     &df_state.targetlist,
                     df_state.topk.as_ref(),
@@ -1004,6 +1010,7 @@ impl AggregateScan {
                     &ctx,
                 )
                 .await?;
+                df_state.group_df_indices = group_df_indices;
                 build_physical_plan(&ctx, logical).await
             });
 
@@ -1040,8 +1047,15 @@ impl AggregateScan {
                     }
                     let row_idx = df_state.batch_row_idx;
                     let targetlist = &df_state.targetlist;
+                    let group_df_indices = &df_state.group_df_indices;
                     let result = unsafe {
-                        project_aggregate_row_to_slot(scan_slot, batch, row_idx, targetlist)
+                        project_aggregate_row_to_slot(
+                            scan_slot,
+                            batch,
+                            row_idx,
+                            targetlist,
+                            group_df_indices,
+                        )
                     };
                     df_state.batch_row_idx += 1;
                     return result;

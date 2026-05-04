@@ -79,7 +79,7 @@ pub async fn build_join_aggregate_plan(
     custom_scan_tlist: *mut pg_sys::List,
     having_filter: Option<&FilterExpr>,
     ctx: &SessionContext,
-) -> Result<datafusion::logical_expr::LogicalPlan> {
+) -> Result<(datafusion::logical_expr::LogicalPlan, Vec<usize>)> {
     // Step 1: Build the join DataFrame from the RelNode tree
     let df = build_relnode_df(
         ctx,
@@ -91,11 +91,26 @@ pub async fn build_join_aggregate_plan(
     .await?;
 
     // Step 2: Build GROUP BY expressions
-    let group_exprs: Vec<Expr> = targetlist
-        .group_columns
-        .iter()
-        .map(|gc| make_rti_col(plan, gc.rti, &gc.field_name))
-        .collect();
+    // DataFusion deduplicates grouping expressions that resolve to the same
+    // column name (e.g. metadata.brand). We must track which DataFusion output
+    // column index corresponds to each of our original targetlist.group_columns.
+    let mut group_exprs = Vec::new();
+    let mut field_to_df_idx = crate::api::HashMap::default();
+    let mut group_df_indices = Vec::with_capacity(targetlist.group_columns.len());
+
+    for gc in &targetlist.group_columns {
+        let entry = field_to_df_idx.entry((gc.rti, gc.field_name.clone()));
+        let df_idx = match entry {
+            std::collections::hash_map::Entry::Vacant(v) => {
+                let df_idx = group_exprs.len();
+                v.insert(df_idx);
+                group_exprs.push(make_rti_col(plan, gc.rti, &gc.field_name));
+                df_idx
+            }
+            std::collections::hash_map::Entry::Occupied(o) => *o.get(),
+        };
+        group_df_indices.push(df_idx);
+    }
 
     // Step 3: Build aggregate expressions
     let agg_exprs: Vec<Expr> = targetlist
@@ -218,10 +233,10 @@ pub async fn build_join_aggregate_plan(
             .sort(topk.direction.is_asc(), topk.direction.is_nulls_first());
         let df = df.sort(vec![sort_expr])?;
         let df = df.limit(0, Some(topk.k))?;
-        return df.into_optimized_plan();
+        return Ok((df.into_optimized_plan()?, group_df_indices));
     }
 
-    df.into_optimized_plan()
+    Ok((df.into_optimized_plan()?, group_df_indices))
 }
 
 /// Recursively lower a [`RelNode`] tree into a DataFusion [`DataFrame`].

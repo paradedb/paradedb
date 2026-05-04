@@ -308,6 +308,7 @@ async fn run_benchmarks(args: &CommonBenchmarkArgs) -> anyhow::Result<Vec<QueryR
                     panic!("Failed to clear caches before query: {err}");
                 }
             }
+
             println!("Query Type: {query_type}\nQuery: {query}");
             let result = execute_query_multiple_times(
                 &args.url,
@@ -892,18 +893,13 @@ async fn execute_query_multiple_times(
     // query
     let stats_query = "SELECT max_exec_time, max_plan_time, rows FROM pg_stat_statements WHERE query LIKE 'SELECT%' AND query NOT LIKE '%pg_stat_statements%';";
     let stats_reset_query = "SELECT pg_stat_statements_reset();";
-    let evict_query = "SELECT pg_buffercache_evict_all();";
 
-    sqlx::raw_sql(evict_query)
-        .execute(&mut conn)
-        .await
-        .with_context(|| format!("Failed to execute query: {evict_query}"))?;
     for i in 0..times {
         let result: anyhow::Result<(f64, f64, i64)> = {
             sqlx::raw_sql(stats_reset_query)
                 .execute(&mut conn)
                 .await
-                .with_context(|| format!("Failed to execute query: {evict_query}"))?;
+                .with_context(|| format!("Failed to execute query: {stats_query}"))?;
             sqlx::raw_sql(query)
                 .execute(&mut conn)
                 .await
@@ -992,16 +988,11 @@ async fn ensure_pg_buffercache_extension(conn: &mut PgConnection) -> anyhow::Res
     Ok(())
 }
 
-async fn evict_postgres_buffer_cache(conn: &mut PgConnection) -> Result<(), String> {
-    let sql = "DO $$ \
-               BEGIN \
-                   PERFORM pg_buffercache_evict(bufferid) \
-                   FROM pg_buffercache \
-                   WHERE relfilenode IS NOT NULL; \
-               END \
-               $$";
-    sqlx::query(sql).execute(&mut *conn).await.map_err(|e| {
-        format!("failed to evict PostgreSQL buffer cache via pg_buffercache (`{sql}`): {e}")
-    })?;
+async fn evict_postgres_buffer_cache(conn: &mut PgConnection) -> anyhow::Result<()> {
+    let evict_query = "SELECT pg_buffercache_evict_all();";
+    sqlx::raw_sql(evict_query)
+        .execute(conn)
+        .await
+        .with_context(|| format!("Failed to PostgreSQL buffer cache: {evict_query}"))?;
     Ok(())
 }

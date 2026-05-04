@@ -428,7 +428,12 @@ unsafe fn build_join_node(
 ) -> Result<RelNode, String> {
     let join = &*join_expr;
 
+    let outer = build_relnode_from_node(root, join.larg, sources)?;
+    let inner = build_relnode_from_node(root, join.rarg, sources)?;
+
     let join_type = JoinType::try_from(join.jointype).map_err(|e| e.to_string())?;
+    let left = outer;
+    let right = inner;
 
     // Support INNER, LEFT/RIGHT, and FULL OUTER JOINs
     match join_type {
@@ -440,9 +445,6 @@ unsafe fn build_join_node(
             ));
         }
     }
-
-    let left = build_relnode_from_node(root, join.larg, sources)?;
-    let right = build_relnode_from_node(root, join.rarg, sources)?;
 
     // Extract equi-join keys from ON clause (join.quals)
     let equi_keys = if !join.quals.is_null() {
@@ -991,11 +993,29 @@ pub unsafe fn populate_required_fields(
             if !source.contains_rti(gc.rti) {
                 continue;
             }
-            if let Some(field) = resolve_fast_field(gc.attno as i32, &tupdesc, indexrel) {
-                source.scan_info.add_field(gc.attno, field);
-            } else if let Some(field) = resolve_fast_field_by_name(&gc.field_name, indexrel) {
-                source.scan_info.add_field_by_name(gc.attno, field);
-            } else {
+
+            let mut resolved_field = None;
+            // For dotted names (JSON sub-fields), try resolving by name first.
+            // This is more specific than attno-based resolution which might
+            // find the parent JSON column if it's also indexed as text.
+            if gc.field_name.contains('.') {
+                if let Some(field) = resolve_fast_field_by_name(&gc.field_name, indexrel) {
+                    source.scan_info.add_field_by_name(gc.attno, field.clone());
+                    resolved_field = Some(field);
+                }
+            }
+
+            if resolved_field.is_none() {
+                if let Some(field) = resolve_fast_field(gc.attno as i32, &tupdesc, indexrel) {
+                    source.scan_info.add_field(gc.attno, field.clone());
+                    resolved_field = Some(field);
+                } else if let Some(field) = resolve_fast_field_by_name(&gc.field_name, indexrel) {
+                    source.scan_info.add_field_by_name(gc.attno, field.clone());
+                    resolved_field = Some(field);
+                }
+            }
+
+            if resolved_field.is_none() {
                 return Err(format!(
                     "GROUP BY column '{}' (attno={}) is not a fast field on table {}",
                     gc.field_name,
@@ -1007,10 +1027,10 @@ pub unsafe fn populate_required_fields(
 
         // Aggregate arguments.
         for agg in &targetlist.aggregates {
-            for (rti, attno, _) in &agg.field_refs {
+            for (rti, attno, field_name) in &agg.field_refs {
                 if source.contains_rti(*rti) {
                     require_fast_field(source, &tupdesc, indexrel, *attno, || {
-                        format!("aggregate argument (attno={attno})")
+                        format!("aggregate argument '{}' (attno={attno})", field_name)
                     })?;
                 }
             }

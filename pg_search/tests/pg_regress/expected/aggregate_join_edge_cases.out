@@ -11,7 +11,8 @@ CREATE TABLE ec_products (
     id SERIAL PRIMARY KEY,
     description TEXT,
     category TEXT,
-    price FLOAT
+    price FLOAT,
+    metadata JSONB
 );
 CREATE TABLE ec_reviews (
     id SERIAL PRIMARY KEY,
@@ -24,12 +25,12 @@ CREATE TABLE ec_suppliers (
     category TEXT,
     supplier_name TEXT
 );
-INSERT INTO ec_products (description, category, price) VALUES
-    ('Laptop computer', 'Electronics', 999.99),
-    ('Desktop monitor', 'Electronics', 499.99),
-    ('Running shoes', 'Sports', 89.99),
-    ('Tennis racket', 'Sports', 149.99),
-    ('Winter jacket', 'Clothing', 129.99);
+INSERT INTO ec_products (description, category, price, metadata) VALUES
+    ('Laptop computer', 'Electronics', 999.99, '{"brand": "TechCorp"}'),
+    ('Desktop monitor', 'Electronics', 499.99, '{"brand": "ViewSonic"}'),
+    ('Running shoes', 'Sports', 89.99, '{"brand": "Speedy"}'),
+    ('Tennis racket', 'Sports', 149.99, '{"brand": "Smash"}'),
+    ('Winter jacket', 'Clothing', 129.99, '{"brand": "Warmth"}');
 INSERT INTO ec_reviews (category, rating, reviewer) VALUES
     ('Electronics', 5, 'alice'),
     ('Electronics', 4, 'bob'),
@@ -45,7 +46,7 @@ INSERT INTO ec_suppliers (category, supplier_name) VALUES
     ('Clothing', 'FashionInc'),
     ('Clothing', 'StyleHouse');
 CREATE INDEX ec_products_idx ON ec_products
-USING bm25 (id, description, category, price)
+USING bm25 (id, description, category, price, (metadata::pdb.literal_normalized))
 WITH (
     key_field='id',
     text_fields='{"description": {}, "category": {"fast": true}}',
@@ -162,8 +163,8 @@ ORDER BY p.category;
 
 -- Test 1e: LEFT JOIN with non-unique key — all products, even unmatched
 -- If we add a product with category 'Books' (no reviews), LEFT JOIN should include it
-INSERT INTO ec_products (description, category, price) VALUES
-    ('Science fiction novel', 'Books', 19.99);
+INSERT INTO ec_products (description, category, price, metadata) VALUES
+    ('Science fiction novel', 'Books', 19.99, '{"brand": "PublisherX"}');
 -- Re-index is automatic on INSERT
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
 SELECT p.category, COUNT(*), COUNT(r.rating)
@@ -358,6 +359,112 @@ ORDER BY p.category;
  Electronics |     6 |     6
  Sports      |     4 |     4
 (4 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- =====================================================================
+-- Test 5: Join with JSONB field and GROUP BY
+-- =====================================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.metadata -> 'brand'
+FROM ec_products p
+JOIN ec_reviews r ON p.category = r.category
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+GROUP BY 1
+ORDER BY 1;
+                        QUERY PLAN                        
+----------------------------------------------------------
+ Sort
+   Output: ((p.metadata -> 'brand'::text))
+   Sort Key: ((p.metadata -> 'brand'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: ((p.metadata -> 'brand'::text))
+         Backend: DataFusion
+         Indexes: ec_products_idx (p), ec_reviews_idx (r)
+         Group By: metadata.brand
+(8 rows)
+
+SELECT p.metadata -> 'brand'
+FROM ec_products p
+JOIN ec_reviews r ON p.category = r.category
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+GROUP BY 1
+ORDER BY 1;
+  ?column?   
+-------------
+ "Smash"
+ "Speedy"
+ "TechCorp"
+ "ViewSonic"
+ "Warmth"
+(5 rows)
+
+-- Parity
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.metadata -> 'brand'
+FROM ec_products p
+JOIN ec_reviews r ON p.category = r.category
+WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
+GROUP BY 1
+ORDER BY 1;
+  ?column?   
+-------------
+ "Smash"
+ "Speedy"
+ "TechCorp"
+ "ViewSonic"
+ "Warmth"
+(5 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+-- =====================================================================
+-- Test 6: Complex 3-table join (FULL + LEFT) with JSONB aggregation
+-- Adapted from user query: FULL JOIN, LEFT JOIN, and JSONB GROUP BY
+-- =====================================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json
+FROM ec_products p
+FULL JOIN ec_reviews r ON p.id = r.id
+LEFT JOIN ec_suppliers s ON r.category = s.category
+WHERE p.description @@@ 'laptop'
+GROUP BY p.metadata->>'brand', p.metadata->'brand'
+ORDER BY brand_text;
+                                    QUERY PLAN                                     
+-----------------------------------------------------------------------------------
+ Sort
+   Output: ((p.metadata ->> 'brand'::text)), ((p.metadata -> 'brand'::text))
+   Sort Key: ((p.metadata ->> 'brand'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Output: ((p.metadata ->> 'brand'::text)), ((p.metadata -> 'brand'::text))
+         Backend: DataFusion
+         Indexes: ec_products_idx (p), ec_reviews_idx (r), ec_suppliers_idx (s)
+         Group By: metadata.brand
+(8 rows)
+
+SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json
+FROM ec_products p
+FULL JOIN ec_reviews r ON p.id = r.id
+LEFT JOIN ec_suppliers s ON r.category = s.category
+WHERE p.description @@@ 'laptop'
+GROUP BY p.metadata->>'brand', p.metadata->'brand'
+ORDER BY brand_text;
+ brand_text | brand_json 
+------------+------------
+ TechCorp   | "TechCorp"
+(1 row)
+
+-- Parity
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json
+FROM ec_products p
+FULL JOIN ec_reviews r ON p.id = r.id
+LEFT JOIN ec_suppliers s ON r.category = s.category
+WHERE p.description @@@ 'laptop'
+GROUP BY p.metadata->>'brand', p.metadata->'brand'
+ORDER BY brand_text;
+ brand_text | brand_json 
+------------+------------
+ TechCorp   | "TechCorp"
+(1 row)
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 -- =====================================================================

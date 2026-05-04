@@ -89,7 +89,8 @@ ERROR:  operator is not unique: text === pdb.slop at character 97
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ pdb.term('running shoes')::pdb.slop(2);
 ERROR:  query type is not compatible with slop
 -- test for JIEBA tokenizer
-CREATE TABLE IF NOT EXISTS content_segment_text (
+DROP TABLE IF EXISTS content_segment_text;
+CREATE TABLE content_segment_text (
 id VARCHAR, -- 唯一标识（fileid_chunkid）
 routing_id VARCHAR NOT NULL, -- 对应 ES 的 routing
 chunk_id INT NOT NULL, -- 文档内容块的 ID

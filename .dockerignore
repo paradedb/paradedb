@@ -7,3 +7,5 @@
 **/*.tsv.gz
 **/*.txt
 **/*.zip
+.git
+target/

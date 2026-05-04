@@ -160,7 +160,13 @@ impl AggregateType {
                     .expect("invalid JSON in pdb.agg")
                     .0
             } else {
-                panic!("pdb.agg argument must be a constant");
+                // Parameterized pdb.agg() can't be lowered into the aggregate
+                // pushdown plan because we need the JSON spec at planning time
+                // to validate fields and choose a strategy. Return Err so the
+                // AggregateScan path declines and PG falls back to standard
+                // aggregate processing — same behaviour as a query without
+                // pdb.agg() pushdown.
+                return Err("pdb.agg argument must be a constant for aggregate pushdown".into());
             };
 
             // Extract solve_mvcc bool argument (second arg) if using the two-arg overload

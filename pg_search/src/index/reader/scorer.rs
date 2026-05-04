@@ -115,6 +115,10 @@ impl ScorerIter {
         self.segment_ord
     }
 
+    pub fn segment_id(&self) -> tantivy::index::SegmentId {
+        self.segment_reader.segment_id()
+    }
+
     /// Returns the estimated number of documents that will be yielded by this iterator.
     ///
     /// This is used for query planning statistics and uses Tantivy's `size_hint`.

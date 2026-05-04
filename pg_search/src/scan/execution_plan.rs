@@ -30,6 +30,7 @@
 
 use std::any::Any;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
@@ -54,27 +55,64 @@ use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
 };
 use futures::Stream;
+use tantivy::index::SegmentId;
 
 use crate::index::fast_fields_helper::FFHelper;
+use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::explain::ExplainFormat;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
+use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
 use crate::scan::late_materialization::DeferredField;
-use crate::scan::pre_filter::{collect_filters, PreFilter};
+use crate::scan::pre_filter::{collect_filters, try_dynamic_filter_pushdown, PreFilter};
 use crate::scan::Scanner;
 
 /// A wrapper that implements Send + Sync unconditionally.
 /// UNSAFE: Only use this when you guarantee single-threaded access or manual synchronization.
 /// This is safe in pg_search because Postgres extensions run single-threaded.
+#[derive(Clone)]
 pub(crate) struct UnsafeSendSync<T>(pub T);
 
 unsafe impl<T> Send for UnsafeSendSync<T> {}
 unsafe impl<T> Sync for UnsafeSendSync<T> {}
 
+/// Ingredients needed to construct a Scanner for deferred search.
+#[derive(Clone)]
+pub struct ScannerConfig {
+    pub which_fast_fields: Vec<WhichFastField>,
+    pub heap_relid: u32,
+    pub batch_size_hint: Option<usize>,
+}
+
+/// Recipe for a scan partition.
+pub enum ScanRecipe {
+    /// Eager scan: already have a specific set of segments to scan.
+    Eager {
+        segment_ids: Vec<SegmentId>,
+        scanner_config: ScannerConfig,
+    },
+    /// Lazy scan: segments are claimed dynamically from parallel state.
+    Lazy {
+        parallel_state: Option<*mut ParallelScanState>,
+        planner_estimated_rows: u64,
+        scanner_config: ScannerConfig,
+    },
+    /// Prefetched scan: scanner is already created and has prefetched data.
+    Prefetched { scanner: Scanner },
+}
+
 /// State for a scan partition.
 /// Uses Arc<FFHelper> so the same FFHelper can be shared across multiple partitions.
-pub type ScanState = (Scanner, Arc<FFHelper>, Box<VisibilityChecker>);
+pub struct ScanPartition {
+    pub recipe: ScanRecipe,
+    pub ffhelper: Arc<FFHelper>,
+    pub visibility: Box<VisibilityChecker>,
+    pub reader: SearchIndexReader,
+}
+
+pub type ScanState = ScanPartition;
 
 /// A DataFusion `ExecutionPlan` for scanning `pg_search` index segments.
 ///
@@ -123,6 +161,11 @@ pub struct PgSearchScanPlan {
     pub indexrelid: u32,
     /// The JoinScan source identity when visibility is deferred.
     deferred_ctid_plan_position: Option<usize>,
+    /// When true, a HashJoin InList was successfully pushed down to a TermSet query.
+    dynamic_filter_pushdown: Arc<AtomicBool>,
+    /// Sort order preserved across `with_filter_pushdown` rebuilds so the
+    /// rebuilt plan keeps its equivalence properties.
+    sort_order: Option<SortByField>,
 }
 
 impl std::fmt::Debug for PgSearchScanPlan {
@@ -175,7 +218,16 @@ impl PgSearchScanPlan {
         } else {
             states
                 .iter()
-                .map(|(scanner, _, _)| scanner.estimated_rows())
+                .map(|s| match &s.recipe {
+                    ScanRecipe::Eager { segment_ids, .. } => s
+                        .reader
+                        .estimated_docs_in_segments(segment_ids.iter().cloned()),
+                    ScanRecipe::Lazy {
+                        planner_estimated_rows,
+                        ..
+                    } => *planner_estimated_rows,
+                    ScanRecipe::Prefetched { scanner } => scanner.estimated_rows(),
+                })
                 .collect()
         };
 
@@ -195,7 +247,74 @@ impl PgSearchScanPlan {
             ffhelper,
             indexrelid,
             deferred_ctid_plan_position,
+            dynamic_filter_pushdown: Arc::new(AtomicBool::new(false)),
+            sort_order: sort_order.cloned(),
         }
+    }
+
+    /// Produce a plan identical to `dyn_plan` but with `dynamic_filters` emptied.
+    ///
+    /// Used by MPP: the join's dynamic-filter Arc is pushed to the probe-side
+    /// scan by `FilterPushdown`, but MPP needs to apply it *after* the probe
+    /// shuffle (so local bounds are not applied to rows destined for peer
+    /// participants). We strip it from the scan and re-apply it via a
+    /// `FilterExec` above the post-shuffle output.
+    ///
+    /// Transfers scan state out of the original plan — the original becomes
+    /// a dead stub whose `execute` returns empty streams. Returns the plan
+    /// unchanged when there are no dynamic filters to strip.
+    ///
+    /// # Caller contract
+    ///
+    /// This is a primitive: it strips unconditionally and does not validate
+    /// that re-attaching the filter elsewhere is safe. It is correct only
+    /// when the caller is rebuilding the plan such that the stripped
+    /// filter will be reapplied above a `ShuffleExec` that crosses
+    /// participant boundaries.
+    ///
+    /// In particular, do *not* call this on a scan whose enclosing
+    /// `HashJoinExec` lives entirely on one participant (e.g., a join that
+    /// is itself below a shuffle): the dynamic filter is fully populated
+    /// locally there and dropping it loses a valuable optimization with no
+    /// correctness benefit.
+    #[allow(dead_code)] // walker (PR #4870) is the live caller
+    pub fn strip_dynamic_filters_from_dyn(
+        dyn_plan: Arc<dyn ExecutionPlan>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        let scan = match dyn_plan.as_any().downcast_ref::<PgSearchScanPlan>() {
+            Some(s) => s,
+            None => {
+                return Err(DataFusionError::Internal(
+                    "strip_dynamic_filters_from_dyn called on a non-PgSearchScanPlan ExecutionPlan"
+                        .into(),
+                ));
+            }
+        };
+
+        if scan.dynamic_filters.is_empty() {
+            return Ok(dyn_plan);
+        }
+
+        let taken = {
+            let mut guard = scan.states.lock().map_err(|e| {
+                DataFusionError::Internal(format!("Failed to lock PgSearchScanPlan state: {e}"))
+            })?;
+            std::mem::take(&mut *guard)
+        };
+        let states: Vec<ScanState> = taken.into_iter().flatten().map(|u| u.0).collect();
+
+        let schema = scan.properties.eq_properties.schema().clone();
+        let new_plan = PgSearchScanPlan::new(
+            states,
+            schema,
+            scan.query_for_display.clone(),
+            scan.sort_order.as_ref(),
+            scan.deferred_fields.clone(),
+            scan.ffhelper.clone(),
+            scan.indexrelid,
+            scan.deferred_ctid_plan_position,
+        );
+        Ok(Arc::new(new_plan))
     }
 
     pub fn has_deferred_fields(&self) -> bool {
@@ -256,6 +375,9 @@ impl DisplayAs for PgSearchScanPlan {
         )?;
         if !self.dynamic_filters.is_empty() {
             write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
+        }
+        if self.dynamic_filter_pushdown.load(Ordering::Relaxed) {
+            write!(f, ", dynamic_filter_pushdown=true")?;
         }
         write!(f, ", query={}", self.query_for_display.explain_format())
     }
@@ -341,13 +463,14 @@ impl ExecutionPlan for PgSearchScanPlan {
             }));
         }
 
-        let UnsafeSendSync((mut scanner, ffhelper, mut visibility)) =
-            states[partition].take().ok_or_else(|| {
-                DataFusionError::Internal(format!(
-                    "Partition {} has already been executed",
-                    partition
-                ))
-            })?;
+        let UnsafeSendSync(ScanState {
+            recipe,
+            ffhelper,
+            mut visibility,
+            mut reader,
+        }) = states[partition].take().ok_or_else(|| {
+            DataFusionError::Internal(format!("Partition {} has already been executed", partition))
+        })?;
 
         let has_dynamic_filters = !self.dynamic_filters.is_empty();
         let rows_scanned = has_dynamic_filters
@@ -359,7 +482,55 @@ impl ExecutionPlan for PgSearchScanPlan {
         let schema = self.properties.eq_properties.schema().clone();
         let dynamic_filters = self.dynamic_filters.clone();
 
+        // Capture self-references for the async block
+        let dynamic_filter_pushdown = self.dynamic_filter_pushdown.clone();
+
         let stream_gen = async_stream::try_stream! {
+            // Optimized Search Integration:
+            // We initialize the search here, inside the stream, because for HashJoin
+            // this block is evaluated lazily during the first `poll_next`, which happens
+            // AFTER the build side has completed and dynamic filters are published.
+            let mut dynamic_filters = dynamic_filters.clone();
+            if !dynamic_filters.is_empty()
+                && try_dynamic_filter_pushdown(&mut reader, &mut dynamic_filters)
+            {
+                dynamic_filter_pushdown.store(true, Ordering::Relaxed);
+            }
+
+            let mut scanner = match recipe {
+                ScanRecipe::Prefetched { scanner } => scanner,
+                other_recipe => {
+                    let (search_results, scanner_config) = match other_recipe {
+                        ScanRecipe::Eager { segment_ids, scanner_config } => {
+                            (reader.search_segments(segment_ids.into_iter()), scanner_config)
+                        }
+                        ScanRecipe::Lazy {
+                            parallel_state,
+                            planner_estimated_rows,
+                            scanner_config,
+                        } => {
+                            let res = if let Some(ps) = parallel_state {
+                                reader.search_lazy(ps, planner_estimated_rows)
+                            } else {
+                                reader.search()
+                            };
+                            (res, scanner_config)
+                        }
+                        ScanRecipe::Prefetched { .. } => unreachable!(),
+                    };
+                    Scanner::new(
+                        search_results,
+                        scanner_config.batch_size_hint,
+                        scanner_config.which_fast_fields,
+                        scanner_config.heap_relid,
+                    )
+                }
+            };
+            let df_batch_size = crate::gucs::dynamic_filter_batch_size();
+            if df_batch_size > 0 {
+                scanner.set_batch_size(df_batch_size as usize);
+            }
+
             loop {
                 let timer = baseline_metrics.elapsed_compute().timer();
                 let pre_filters = build_filters(&dynamic_filters, &schema);
@@ -444,7 +615,7 @@ impl ExecutionPlan for PgSearchScanPlan {
 
         if !dynamic_filters.is_empty() {
             // Transfer state from the old plan to the new one.
-            let mut states: Vec<_> = self
+            let states: Vec<_> = self
                 .states
                 .lock()
                 .map_err(|e| {
@@ -455,25 +626,23 @@ impl ExecutionPlan for PgSearchScanPlan {
                 .drain(..)
                 .collect();
 
-            // When the GUC is set, cap the scanner batch size so that Top K
-            // can tighten its threshold between batches.
-            let df_batch_size = crate::gucs::dynamic_filter_batch_size();
-            if df_batch_size > 0 {
-                for UnsafeSendSync(ref mut inner) in states.iter_mut().flatten() {
-                    inner.0.set_batch_size(df_batch_size as usize);
-                }
-            }
+            let query_for_display = self.query_for_display.clone();
+
             let new_plan = Arc::new(PgSearchScanPlan {
                 states: Mutex::new(states),
                 partition_row_counts: self.partition_row_counts.clone(),
                 properties: self.properties.clone(),
-                query_for_display: self.query_for_display.clone(),
+                query_for_display,
                 dynamic_filters,
                 metrics: self.metrics.clone(),
                 deferred_fields: self.deferred_fields.clone(),
                 ffhelper: self.ffhelper.clone(),
                 indexrelid: self.indexrelid,
                 deferred_ctid_plan_position: self.deferred_ctid_plan_position,
+                dynamic_filter_pushdown: Arc::new(AtomicBool::new(
+                    self.dynamic_filter_pushdown.load(Ordering::Relaxed),
+                )),
+                sort_order: self.sort_order.clone(),
             });
             Ok(
                 FilterPushdownPropagation::with_parent_pushdown_result(filters)
@@ -502,6 +671,8 @@ fn build_filters(dynamic_filters: &[Arc<dyn PhysicalExpr>], schema: &SchemaRef) 
             if let Ok(current_expr) = dynamic.current() {
                 collect_filters(&current_expr, schema, &mut filters);
             }
+        } else {
+            collect_filters(df, schema, &mut filters);
         }
     }
     filters
@@ -556,6 +727,7 @@ pub fn create_sorted_scan(
     schema: SchemaRef,
     query_for_display: SearchQueryInput,
     sort_order: &SortByField,
+    indexrelid: u32,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     // Validate that the sort field exists in the schema
     let field_name = sort_order.field_name.as_ref();
@@ -578,7 +750,7 @@ pub fn create_sorted_scan(
         Some(sort_order),
         Vec::new(),
         None,
-        0,
+        indexrelid,
         None,
     ));
 
@@ -635,6 +807,20 @@ mod tests {
             None,
             0,
             Some(1),
+        );
+    }
+
+    #[pg_test]
+    fn can_construct_plan() {
+        let _ = PgSearchScanPlan::new(
+            vec![],
+            empty_schema(),
+            SearchQueryInput::All,
+            None,
+            Vec::new(),
+            None,
+            0,
+            None,
         );
     }
 }

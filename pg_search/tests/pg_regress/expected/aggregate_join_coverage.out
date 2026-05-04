@@ -95,7 +95,7 @@ JOIN cov_items i ON o.id = i.order_id
 WHERE o.description @@@ 'laptop OR shoes';
  min | max 
 -----+-----
-     |    
+   1 |  50
 (1 row)
 
 -- Test 3b: MIN/MAX on integer from the joined table

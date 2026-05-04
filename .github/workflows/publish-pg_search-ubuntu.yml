@@ -31,75 +31,130 @@ permissions:
 jobs:
   publish-pg_search:
     name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} ${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
+    # Compute-optimized c-family — Rust release build is CPU-bound.
+    # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=${{ matrix.runner_family }}
+      - cpu=${{ matrix.cpu }}
+      - ram=${{ matrix.ram }}
+      - image=${{ matrix.runner_image }}
     if: ${{ !contains(github.ref, '-rc.') }}
     strategy:
       matrix:
         include:
           # Ubuntu 22.04
           - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-8-ubuntu-2204
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             pg_version: 15
             arch: amd64
           - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-4-arm-ubuntu-2204
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             pg_version: 15
             arch: arm64
           - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-8-ubuntu-2204
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             pg_version: 16
             arch: amd64
           - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-4-arm-ubuntu-2204
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             pg_version: 16
             arch: arm64
           - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-8-ubuntu-2204
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             pg_version: 17
             arch: amd64
           - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-4-arm-ubuntu-2204
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             pg_version: 17
             arch: arm64
           - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-8-ubuntu-2204
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             pg_version: 18
             arch: amd64
           - name: Ubuntu 22.04 (Jammy)
-            runner: ubicloud-standard-4-arm-ubuntu-2204
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             pg_version: 18
             arch: arm64
           # Ubuntu 24.04
           - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-8-ubuntu-2404
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             pg_version: 15
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-4-arm-ubuntu-2404
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             pg_version: 15
             arch: arm64
           - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-8-ubuntu-2404
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             pg_version: 16
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-4-arm-ubuntu-2404
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             pg_version: 16
             arch: arm64
           - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-8-ubuntu-2404
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             pg_version: 17
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-4-arm-ubuntu-2404
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             pg_version: 17
             arch: arm64
           - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-8-ubuntu-2404
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             pg_version: 18
             arch: amd64
           - name: Ubuntu 24.04 (Noble)
-            runner: ubicloud-standard-4-arm-ubuntu-2404
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             pg_version: 18
             arch: arm64
 
@@ -140,7 +195,6 @@ jobs:
           fi
           echo "GitHub Tag Version: $VERSION"
           echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
-          echo "commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
           OS_VERSION="$(lsb_release -cs)"
           echo "OS Version: $OS_VERSION"
@@ -185,9 +239,6 @@ jobs:
 
       - name: Package pg_search Extension with pgrx
         working-directory: pg_search/
-        env:
-          COMMIT_SHA: ${{ steps.version.outputs.commit_sha }}
-          PARADEDB_VERSION: ${{ steps.version.outputs.tag_version }}
         run: |
           PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           cargo pgrx package --pg-config $PG_CONFIG_PATH

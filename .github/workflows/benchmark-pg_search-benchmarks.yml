@@ -144,7 +144,7 @@ jobs:
 
       - name: Resolve git ref to PR
         id: pr_label
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           # ← Set this to whatever ref you’re resolving:
           # • a SHA:            ${{ github.sha }}

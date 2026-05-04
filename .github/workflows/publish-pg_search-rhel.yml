@@ -31,7 +31,14 @@ permissions:
 jobs:
   publish-pg_search:
     name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.name }} ${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
+    # Compute-optimized c-family — Rust release build inside matrix.image container is CPU-bound.
+    # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=${{ matrix.runner_family }}
+      - cpu=${{ matrix.cpu }}
+      - ram=${{ matrix.ram }}
+      - image=${{ matrix.runner_image }}
     container:
       image: ${{ matrix.image }}
     if: ${{ !contains(github.ref, '-rc.') }}
@@ -40,83 +47,131 @@ jobs:
         include:
           # Red Hat Enterprise Linux 9
           - name: Red Hat Enterprise Linux 9
-            runner: ubicloud-standard-8
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             image: redhat/ubi9:latest
             pg_version: 15
             arch: x86_64
           - name: Red Hat Enterprise Linux 9
-            runner: ubicloud-standard-4-arm
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             image: redhat/ubi9:latest
             pg_version: 15
             arch: aarch64
           - name: Red Hat Enterprise Linux 9
-            runner: ubicloud-standard-8
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             image: redhat/ubi9:latest
             pg_version: 16
             arch: x86_64
           - name: Red Hat Enterprise Linux 9
-            runner: ubicloud-standard-4-arm
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             image: redhat/ubi9:latest
             pg_version: 16
             arch: aarch64
           - name: Red Hat Enterprise Linux 9
-            runner: ubicloud-standard-8
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             image: redhat/ubi9:latest
             pg_version: 17
             arch: x86_64
           - name: Red Hat Enterprise Linux 9
-            runner: ubicloud-standard-4-arm
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             image: redhat/ubi9:latest
             pg_version: 17
             arch: aarch64
           - name: Red Hat Enterprise Linux 9
-            runner: ubicloud-standard-8
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             image: redhat/ubi9:latest
             pg_version: 18
             arch: x86_64
           - name: Red Hat Enterprise Linux 9
-            runner: ubicloud-standard-4-arm
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             image: redhat/ubi9:latest
             pg_version: 18
             arch: aarch64
           # Red Hat Enterprise Linux 10
           - name: Red Hat Enterprise Linux 10
-            runner: ubicloud-standard-8
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             image: redhat/ubi10:latest
             pg_version: 15
             arch: x86_64
           - name: Red Hat Enterprise Linux 10
-            runner: ubicloud-standard-4-arm
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             image: redhat/ubi10:latest
             pg_version: 15
             arch: aarch64
           - name: Red Hat Enterprise Linux 10
-            runner: ubicloud-standard-8
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             image: redhat/ubi10:latest
             pg_version: 16
             arch: x86_64
           - name: Red Hat Enterprise Linux 10
-            runner: ubicloud-standard-4-arm
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             image: redhat/ubi10:latest
             pg_version: 16
             arch: aarch64
           - name: Red Hat Enterprise Linux 10
-            runner: ubicloud-standard-8
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             image: redhat/ubi10:latest
             pg_version: 17
             arch: x86_64
           - name: Red Hat Enterprise Linux 10
-            runner: ubicloud-standard-4-arm
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             image: redhat/ubi10:latest
             pg_version: 17
             arch: aarch64
           - name: Red Hat Enterprise Linux 10
-            runner: ubicloud-standard-8
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             image: redhat/ubi10:latest
             pg_version: 18
             arch: x86_64
           - name: Red Hat Enterprise Linux 10
-            runner: ubicloud-standard-4-arm
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             image: redhat/ubi10:latest
             pg_version: 18
             arch: aarch64
@@ -197,7 +252,6 @@ jobs:
           fi
           echo "GitHub Tag Version: $VERSION"
           echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
-          echo "commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
           OS_VERSION="el$(cat /etc/os-release | grep ^VERSION_ID= | cut -d= -f2 | tr -d '"' | cut -d. -f1)"
           echo "OS Version: $OS_VERSION"
@@ -243,9 +297,6 @@ jobs:
 
       - name: Package pg_search Extension with pgrx
         working-directory: pg_search/
-        env:
-          COMMIT_SHA: ${{ steps.version.outputs.commit_sha }}
-          PARADEDB_VERSION: ${{ steps.version.outputs.tag_version }}
         run: |
           PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
           cargo pgrx package --pg-config $PG_CONFIG_PATH

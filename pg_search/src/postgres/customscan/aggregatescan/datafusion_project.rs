@@ -43,23 +43,22 @@ pub unsafe fn project_aggregate_row_to_slot(
     batch: &RecordBatch,
     row_idx: usize,
     targetlist: &JoinAggregateTargetList,
+    group_df_indices: &[usize],
 ) -> *mut pg_sys::TupleTableSlot {
     let tupdesc = (*slot).tts_tupleDescriptor;
     let natts = (*tupdesc).natts as usize;
     let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
     let isnull = std::slice::from_raw_parts_mut((*slot).tts_isnull, natts);
 
-    // DataFusion output column index: group columns come first, then aggregates
-    let mut df_col_idx = 0;
-
     // Fill GROUP BY columns
-    for gc in &targetlist.group_columns {
+    for (i, gc) in targetlist.group_columns.iter().enumerate() {
         let pg_idx = gc.output_index;
         if pg_idx >= natts {
-            df_col_idx += 1;
             continue;
         }
 
+        // Use the pre-calculated DataFusion column index for this GROUP BY column
+        let df_col_idx = group_df_indices[i];
         let col = batch.column(df_col_idx);
         let expected_type = {
             #[cfg(any(feature = "pg15", feature = "pg16", feature = "pg17"))]
@@ -87,10 +86,15 @@ pub unsafe fn project_aggregate_row_to_slot(
                 }
             }
         }
-        df_col_idx += 1;
     }
 
     // Fill aggregate columns
+    // Aggregate columns always follow ALL deduplicated GROUP BY columns in the
+    // RecordBatch. The number of deduplicated group columns is the number of
+    // unique indices in group_df_indices.
+    let num_unique_group_cols = group_df_indices.iter().max().map(|&m| m + 1).unwrap_or(0);
+    let mut df_col_idx = num_unique_group_cols;
+
     for agg in &targetlist.aggregates {
         let pg_idx = agg.output_index;
         if pg_idx >= natts {
@@ -136,6 +140,9 @@ pub unsafe fn project_aggregate_row_to_slot(
 
 /// Convert a single value from an Arrow array to a Postgres `Datum`.
 ///
+/// TODO: Duplicated with `arrow_array_to_datum` in `types_arrow.rs`.
+/// See https://github.com/paradedb/paradedb/issues/4959
+///
 /// Dispatches on the Arrow data type and converts to the target Postgres type OID.
 /// Returns `None` for unsupported type combinations.
 fn arrow_value_to_datum(
@@ -169,9 +176,48 @@ fn arrow_value_to_datum(
         }
         DataType::Float64 => float64_to_datum(downcast_value!(Float64Array), typoid),
         DataType::Float32 => float64_to_datum(downcast_value!(Float32Array) as f64, typoid),
-        DataType::Utf8 => downcast_value!(StringArray).to_string().into_datum(),
-        DataType::Utf8View => downcast_value!(StringViewArray).to_string().into_datum(),
-        DataType::LargeUtf8 => downcast_value!(LargeStringArray).to_string().into_datum(),
+        DataType::Utf8 => {
+            let s = downcast_value!(StringArray);
+            if typoid == pg_sys::JSONOID || typoid == pg_sys::JSONBOID {
+                let json = serde_json::from_str(s)
+                    .unwrap_or_else(|_| serde_json::Value::String(s.to_string()));
+                if typoid == pg_sys::JSONOID {
+                    pgrx::Json(json).into_datum()
+                } else {
+                    pgrx::datum::JsonB(json).into_datum()
+                }
+            } else {
+                s.to_string().into_datum()
+            }
+        }
+        DataType::Utf8View => {
+            let s = downcast_value!(StringViewArray);
+            if typoid == pg_sys::JSONOID || typoid == pg_sys::JSONBOID {
+                let json = serde_json::from_str(s)
+                    .unwrap_or_else(|_| serde_json::Value::String(s.to_string()));
+                if typoid == pg_sys::JSONOID {
+                    pgrx::Json(json).into_datum()
+                } else {
+                    pgrx::datum::JsonB(json).into_datum()
+                }
+            } else {
+                s.to_string().into_datum()
+            }
+        }
+        DataType::LargeUtf8 => {
+            let s = downcast_value!(LargeStringArray);
+            if typoid == pg_sys::JSONOID || typoid == pg_sys::JSONBOID {
+                let json = serde_json::from_str(s)
+                    .unwrap_or_else(|_| serde_json::Value::String(s.to_string()));
+                if typoid == pg_sys::JSONOID {
+                    pgrx::Json(json).into_datum()
+                } else {
+                    pgrx::datum::JsonB(json).into_datum()
+                }
+            } else {
+                s.to_string().into_datum()
+            }
+        }
         DataType::Boolean => downcast_value!(BooleanArray).into_datum(),
         DataType::Timestamp(unit, _tz_opt) => {
             let nanos = match unit {

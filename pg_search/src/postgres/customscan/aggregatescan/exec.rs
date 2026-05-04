@@ -17,7 +17,7 @@
 
 use crate::gucs;
 
-use crate::aggregate::{execute_aggregate, AggregateRequest};
+use crate::aggregate::{execute_aggregate, scrub_missing_sentinel_value, AggregateRequest};
 use crate::api::HashMap;
 use crate::customscan::aggregatescan::build::{
     AggregationKey, DocCountKey, FilterSentinelKey, GroupedKey,
@@ -178,8 +178,9 @@ pub fn aggregate_result_to_datum(
     expected_typoid: pg_sys::Oid,
 ) -> Option<pg_sys::Datum> {
     match agg_result {
-        Some(AggregateResult::Json(json_value)) => {
+        Some(AggregateResult::Json(mut json_value)) => {
             // Custom aggregate - return as JSONB
+            scrub_missing_sentinel_value(&mut json_value);
             JsonB(json_value).into_datum()
         }
         Some(AggregateResult::Metric(metric)) => {
@@ -448,7 +449,7 @@ impl AggregationResults {
 
         if let Some(row) = rows.into_iter().next() {
             for (agg_idx, (agg_type, agg_result)) in
-                agg_types.iter().zip(row.aggregates.into_iter()).enumerate()
+                agg_types.iter().zip(row.aggregates).enumerate()
             {
                 let expected_typoid = agg_type.result_type_oid();
                 results[agg_idx] = aggregate_result_to_datum(agg_result, agg_type, expected_typoid);

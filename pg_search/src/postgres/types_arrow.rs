@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::catalog::is_citext_oid;
+use crate::postgres::catalog::{facet_encoded_str_to_ltree_text, is_citext_oid, is_ltree_oid};
 use crate::postgres::datetime::MICROSECONDS_IN_SECOND;
 
 use arrow_array::cast::AsArray;
@@ -26,6 +26,9 @@ use pgrx::pg_sys;
 use pgrx::{datum, IntoDatum, PgBuiltInOids, PgOid};
 
 /// Get a value of the given type from the given index/row of the given array.
+///
+/// TODO: Duplicated with `arrow_value_to_datum` in `datafusion_project.rs`.
+/// See https://github.com/paradedb/paradedb/issues/4959
 ///
 /// This effectively inlines `TantivyValue::try_into_datum` in order to avoid creating both
 /// `OwnedValue` and `TantivyValue` wrappers around primitives (but particularly around strings).
@@ -80,6 +83,24 @@ pub fn arrow_array_to_datum(
                 PgOid::Custom(custom) => {
                     if is_citext_oid(*custom) {
                         s.into_datum()
+                    } else if is_ltree_oid(*custom) {
+                        // Facet fast fields store the value as a null-byte-separated string.
+                        // Convert back to dot-separated ltree path using the shared helper.
+                        let ltree_text = facet_encoded_str_to_ltree_text(s);
+                        unsafe {
+                            let mut typinput: pg_sys::Oid = pg_sys::InvalidOid;
+                            let mut typioparam: pg_sys::Oid = pg_sys::InvalidOid;
+                            pg_sys::getTypeInputInfo(*custom, &mut typinput, &mut typioparam);
+                            let cstring = std::ffi::CString::new(ltree_text)
+                                .map_err(|e| format!("Failed to create CString for ltree: {e}"))?;
+                            let datum = pg_sys::OidInputFunctionCall(
+                                typinput,
+                                cstring.as_ptr() as *mut std::ffi::c_char,
+                                typioparam,
+                                -1,
+                            );
+                            Some(datum)
+                        }
                     } else {
                         return Err(format!("Unsupported OID for Utf8 Arrow type: {oid:?}"));
                     }
@@ -184,6 +205,12 @@ pub fn arrow_array_to_datum(
             match &oid {
                 PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => val.into_datum(),
                 PgOid::BuiltIn(PgBuiltInOids::FLOAT4OID) => (val as f32).into_datum(), // Cast f64 to f32
+                // Legacy pre-v0.22.0 indexes stored NUMERIC fields as F64. Reading those
+                // fast fields back must round-trip through `AnyNumeric` to return a NUMERIC
+                // datum rather than the FLOAT8 the column-type widening would imply.
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => pgrx::AnyNumeric::try_from(val)
+                    .map_err(|e| format!("Failed to convert f64 to AnyNumeric: {e:?}"))?
+                    .into_datum(),
                 _ => return Err(format!("Unsupported OID for Float64 Arrow type: {oid:?}")),
             }
         }
@@ -562,6 +589,12 @@ mod tests {
                 let oid_f32 = PgOid::from(PgBuiltInOids::FLOAT4OID.value());
                 test_conversion_roundtrip(original_val, create_float64_array, oid_f32, |v| v as f32);
             }
+
+            // Test NUMERICOID (legacy pre-v0.22.0 indexes stored NUMERIC as F64).
+            let oid_numeric = PgOid::from(PgBuiltInOids::NUMERICOID.value());
+            test_conversion_roundtrip(original_val, create_float64_array, oid_numeric, |v| {
+                pgrx::AnyNumeric::try_from(v).unwrap()
+            });
         });
     }
 

@@ -1,0 +1,24 @@
+---
+title: 0.23.2
+noindex: true
+---
+
+## New Features 🎉
+
+- Support more semi/anti join cases via nested loop joins in the join scan.
+
+## Performance Improvements 🚀
+
+- Allow for pushing down dynamic filters as Tantivy queries during hash joins.
+
+## Stability Improvements 💪
+
+- Backwards compatibility fixes for pre-`0.22.x` indexes containing NUMERIC columns.
+- Fixes for safety checks of N-way parallel joins, allowing the join scan to execute in more cases.
+- Tighten guidance around using pg_search in `shared_preload_requirements`.
+- Fix parameterized LIMIT, OFFSET, and snippet arguments in prepared statements.
+- Better behavior with complex tokenizer definitions (particularly `pdb.regex_pattern`).
+- Fix resolution of table aliases during join scan planning.
+- Make join scan planning warnings more specific in a variety of cases.
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.23.2).

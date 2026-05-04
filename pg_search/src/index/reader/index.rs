@@ -192,6 +192,10 @@ impl MultiSegmentSearchResults {
         self.iterators.pop()
     }
 
+    pub fn segment_ids(&self) -> Vec<tantivy::index::SegmentId> {
+        self.iterators.iter().map(|it| it.segment_id()).collect()
+    }
+
     /// Returns the total estimated number of documents across all segments in these results.
     ///
     /// This has no visible sideeffects, but it requires actually opening all DeferredScorers
@@ -463,6 +467,15 @@ impl SearchIndexReader {
         &self.query
     }
 
+    pub fn and_query(&mut self, additional_query: Box<dyn Query>) {
+        let existing = std::mem::replace(&mut self.query, Box::new(tantivy::query::EmptyQuery));
+        let boolean_query = tantivy::query::BooleanQuery::new(vec![
+            (tantivy::query::Occur::Must, existing),
+            (tantivy::query::Occur::Must, additional_query),
+        ]);
+        self.query = Box::new(boolean_query);
+    }
+
     pub fn weight(&self) -> Box<dyn Weight> {
         self.query
             .weight(if self.need_scores {
@@ -534,6 +547,17 @@ impl SearchIndexReader {
     /// Returns the total number of segments in the index, according to the MVCC directory.
     pub fn total_segment_count(&self) -> usize {
         self.total_segment_count
+    }
+
+    pub fn estimated_docs_in_segments(&self, segment_ids: impl Iterator<Item = SegmentId>) -> u64 {
+        segment_ids
+            .map(|id| {
+                let ord = self
+                    .segment_ordinal_by_id(&id)
+                    .unwrap_or_else(|| panic!("segment {id} should exist"));
+                self.searcher.segment_reader(ord).num_docs() as u64
+            })
+            .sum()
     }
 
     /// Returns the total number of docs in the index, according to the MVCC directory.

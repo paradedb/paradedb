@@ -288,7 +288,7 @@ INSERT into {tname} ({insert_columns}) SELECT {random_generators} FROM generate_
 
 {b_tree_indexes}
 
-ANALYZE;
+ANALYZE {tname};
 "#,
             b_tree_indexes = columns_def
                 .iter()
@@ -302,6 +302,14 @@ ANALYZE;
         );
 
         (&sql).execute(conn);
+        setup_sql.push_str(&sql);
+    }
+
+    // Delete a small fraction of each table to force the visibility map and heap resolution to be
+    // more interesting.
+    for (tname, _) in tables {
+        let sql = format!("DELETE FROM {tname} WHERE random() < 0.01;\n");
+        sql.as_str().execute(conn);
         setup_sql.push_str(&sql);
     }
 

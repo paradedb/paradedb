@@ -379,12 +379,17 @@ impl CustomScan for AggregateScan {
 
                 // Show GROUP BY columns
                 if !df_state.targetlist.group_columns.is_empty() {
-                    let groups: Vec<String> = df_state
+                    // TODO: When grouping on expressions with the same underlying input columns,
+                    // it's possible to get dupes here. We should consider rendering the expression
+                    // instead, but for now we dedupe.
+                    let mut groups: Vec<String> = df_state
                         .targetlist
                         .group_columns
                         .iter()
                         .map(|gc| gc.field_name.clone())
                         .collect();
+                    groups.sort();
+                    groups.dedup();
                     explainer.add_text("Group By", groups.join(", "));
                 }
 

@@ -1029,14 +1029,6 @@ pub unsafe fn populate_required_fields(
         for agg in &targetlist.aggregates {
             for (rti, attno, field_name) in &agg.field_refs {
                 if source.contains_rti(*rti) {
-                    // Try by name first if it's a dotted name (JSON sub-field)
-                    if field_name.contains('.') {
-                        if let Some(field) = resolve_fast_field_by_name(field_name, indexrel) {
-                            source.scan_info.add_field_by_name(*attno, field);
-                            continue;
-                        }
-                    }
-
                     require_fast_field(source, &tupdesc, indexrel, *attno, || {
                         format!("aggregate argument '{}' (attno={attno})", field_name)
                     })?;

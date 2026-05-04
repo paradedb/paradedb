@@ -852,9 +852,9 @@ async fn generated_aggregate_join(database: Db) {
 
     grouping_columns.extend(vec![
         // Group by text representation
-        format!("{}->>'brand'", format!("{}.metadata", all_tables[0])),
+        format!("{}.metadata->>'brand'", all_tables[0]),
         // Group by JSONB representation
-        format!("{}->'brand'", format!("{}.metadata", all_tables[0])),
+        format!("{}.metadata->'brand'", all_tables[0]),
     ]);
 
     proptest!(|(
@@ -870,11 +870,6 @@ async fn generated_aggregate_join(database: Db) {
                 "AVG(users.age)",
                 "MIN(users.rating)",
                 "MAX(users.rating)",
-                // JSON aggregates
-                "SUM((users.metadata->'rating')::int)",
-                "SUM((users.metadata->>'rating')::int)",
-                "MIN((users.metadata->>'rating')::int)",
-                "MAX((users.metadata->>'rating')::int)",
             ],
         ),
     )| {

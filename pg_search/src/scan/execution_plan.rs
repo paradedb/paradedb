@@ -163,6 +163,9 @@ pub struct PgSearchScanPlan {
     deferred_ctid_plan_position: Option<usize>,
     /// When true, a HashJoin InList was successfully pushed down to a TermSet query.
     dynamic_filter_pushdown: Arc<AtomicBool>,
+    /// Sort order preserved across `with_filter_pushdown` rebuilds so the
+    /// rebuilt plan keeps its equivalence properties.
+    sort_order: Option<SortByField>,
 }
 
 impl std::fmt::Debug for PgSearchScanPlan {
@@ -245,7 +248,73 @@ impl PgSearchScanPlan {
             indexrelid,
             deferred_ctid_plan_position,
             dynamic_filter_pushdown: Arc::new(AtomicBool::new(false)),
+            sort_order: sort_order.cloned(),
         }
+    }
+
+    /// Produce a plan identical to `dyn_plan` but with `dynamic_filters` emptied.
+    ///
+    /// Used by MPP: the join's dynamic-filter Arc is pushed to the probe-side
+    /// scan by `FilterPushdown`, but MPP needs to apply it *after* the probe
+    /// shuffle (so local bounds are not applied to rows destined for peer
+    /// participants). We strip it from the scan and re-apply it via a
+    /// `FilterExec` above the post-shuffle output.
+    ///
+    /// Transfers scan state out of the original plan — the original becomes
+    /// a dead stub whose `execute` returns empty streams. Returns the plan
+    /// unchanged when there are no dynamic filters to strip.
+    ///
+    /// # Caller contract
+    ///
+    /// This is a primitive: it strips unconditionally and does not validate
+    /// that re-attaching the filter elsewhere is safe. It is correct only
+    /// when the caller is rebuilding the plan such that the stripped
+    /// filter will be reapplied above a `ShuffleExec` that crosses
+    /// participant boundaries.
+    ///
+    /// In particular, do *not* call this on a scan whose enclosing
+    /// `HashJoinExec` lives entirely on one participant (e.g., a join that
+    /// is itself below a shuffle): the dynamic filter is fully populated
+    /// locally there and dropping it loses a valuable optimization with no
+    /// correctness benefit.
+    #[allow(dead_code)] // walker (PR #4870) is the live caller
+    pub fn strip_dynamic_filters_from_dyn(
+        dyn_plan: Arc<dyn ExecutionPlan>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        let scan = match dyn_plan.as_any().downcast_ref::<PgSearchScanPlan>() {
+            Some(s) => s,
+            None => {
+                return Err(DataFusionError::Internal(
+                    "strip_dynamic_filters_from_dyn called on a non-PgSearchScanPlan ExecutionPlan"
+                        .into(),
+                ));
+            }
+        };
+
+        if scan.dynamic_filters.is_empty() {
+            return Ok(dyn_plan);
+        }
+
+        let taken = {
+            let mut guard = scan.states.lock().map_err(|e| {
+                DataFusionError::Internal(format!("Failed to lock PgSearchScanPlan state: {e}"))
+            })?;
+            std::mem::take(&mut *guard)
+        };
+        let states: Vec<ScanState> = taken.into_iter().flatten().map(|u| u.0).collect();
+
+        let schema = scan.properties.eq_properties.schema().clone();
+        let new_plan = PgSearchScanPlan::new(
+            states,
+            schema,
+            scan.query_for_display.clone(),
+            scan.sort_order.as_ref(),
+            scan.deferred_fields.clone(),
+            scan.ffhelper.clone(),
+            scan.indexrelid,
+            scan.deferred_ctid_plan_position,
+        );
+        Ok(Arc::new(new_plan))
     }
 
     pub fn has_deferred_fields(&self) -> bool {
@@ -573,6 +642,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                 dynamic_filter_pushdown: Arc::new(AtomicBool::new(
                     self.dynamic_filter_pushdown.load(Ordering::Relaxed),
                 )),
+                sort_order: self.sort_order.clone(),
             });
             Ok(
                 FilterPushdownPropagation::with_parent_pushdown_result(filters)

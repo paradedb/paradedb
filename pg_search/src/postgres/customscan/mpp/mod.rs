@@ -29,8 +29,10 @@ pub mod mesh;
 pub mod partitioner;
 pub mod rpc_mesh;
 pub mod session;
+pub mod shape;
 pub mod shm_mq_producer;
 pub mod shm_mq_transport;
+pub mod stage;
 pub mod transport;
 pub mod worker;
 

@@ -99,6 +99,9 @@ jobs:
         run: cargo pgrx schema -p pg_search pg${{ matrix.pg_version }} > ~/this.sql
 
       - name: Switch to Base git rev and Generate Schema Again
+        env:
+          BASE_REPO: ${{ github.event.pull_request.base.repo.full_name || github.repository }}
+          BASE_REF: ${{ github.event.pull_request.base.ref || github.ref_name }}
         run: |
           # Switch to the base git rev
           git checkout .
@@ -107,8 +110,6 @@ jobs:
           # targets), not from the PR head's repo. For fork-based PRs the head
           # repo's `main` branch is often stale, which would otherwise produce
           # a misleading schema diff (and pull in a stale pgrx version below).
-          BASE_REPO="${{ github.event.pull_request.base.repo.full_name || github.repository }}"
-          BASE_REF="${{ github.event.pull_request.base.ref || github.ref_name }}"
           git remote remove upstream 2>/dev/null || true
           git remote add upstream "https://github.com/${BASE_REPO}.git"
           git fetch --depth=1 upstream "${BASE_REF}"
@@ -152,9 +153,11 @@ jobs:
           perl -i -pe 'chomp if eof' ~/diff.sql
 
       - name: Switch Back to PR Branch
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref || github.ref }}
         run: |
           # Switch back to the PR branch to check the migration file
-          git checkout ${{ github.event.pull_request.head.ref || github.ref }}
+          git checkout "$HEAD_REF"
 
       - name: Check Schema Diff and Validate Migration
         id: check_schema_diff

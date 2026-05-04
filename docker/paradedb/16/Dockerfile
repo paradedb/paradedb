@@ -9,13 +9,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # Install pg_search from Cloudsmith
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    apt-transport-https \
-    ca-certificates \
-    curl \
-    debian-archive-keyring \
-    debian-keyring \
-    gnupg \
+    apt-get install -y --no-install-recommends apt-transport-https ca-certificates curl debian-archive-keyring debian-keyring gnupg \
     && keyring_location=/usr/share/keyrings/paradedb-paradedb-archive-keyring.gpg && \
     curl -1sLf "https://dl.cloudsmith.io/public/paradedb/paradedb/gpg.B82501FB00B5422B.key" | gpg --dearmor -o "${keyring_location}" && \
     curl -1sLf "https://dl.cloudsmith.io/public/paradedb/paradedb/config.deb.txt?distro=debian&codename=trixie&component=main" > /etc/apt/sources.list.d/paradedb-paradedb.list && \

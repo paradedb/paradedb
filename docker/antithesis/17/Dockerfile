@@ -86,21 +86,15 @@ COPY --from=builder /tmp/pg_ivm/*.so /usr/lib/postgresql/17/lib/
 COPY --from=builder /tmp/pg_ivm/*.control /usr/share/postgresql/17/extension/
 COPY --from=builder /tmp/pg_ivm/*.sql /usr/share/postgresql/17/extension/
 
-# Install pg_search from Cloudsmith
+# Install the locally built, Antithesis-instrumented pg_search package.
+COPY pg_search-0.0.0-trixie-amd64-pg17.deb /tmp/pg_search.deb
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    apt-transport-https \
-    ca-certificates \
-    curl \
-    debian-archive-keyring \
-    debian-keyring \
-    gnupg \
-    && keyring_location=/usr/share/keyrings/paradedb-paradedb-archive-keyring.gpg && \
-    curl -1sLf "https://dl.cloudsmith.io/public/paradedb/paradedb/gpg.B82501FB00B5422B.key" | gpg --dearmor -o "${keyring_location}" && \
-    curl -1sLf "https://dl.cloudsmith.io/public/paradedb/paradedb/config.deb.txt?distro=debian&codename=trixie&component=main" > /etc/apt/sources.list.d/paradedb-paradedb.list && \
-    chmod 644 "${keyring_location}" /etc/apt/sources.list.d/paradedb-paradedb.list && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends postgresql-17-pg-search=0.0.0 && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
+    curl -fsSL -o /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so && \
+    dpkg -i /tmp/pg_search.deb && \
+    rm /tmp/pg_search.deb && \
+    mkdir /symbols && \
+    ln -s /usr/lib/postgresql/17/lib/pg_search.so /symbols/pg_search.so && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Barman Cloud and its dependencies for Azure, Google, and AWS via `pip`, and clean up after the installation to
@@ -139,11 +133,6 @@ RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_sea
     grep "shared_preload_libraries = 'pg_search,pg_cron,pg_stat_statements'" /usr/share/postgresql/postgresql.conf.sample && \
     echo "cron.database_name = 'postgres'" >> /usr/share/postgresql/postgresql.conf.sample && \
     echo "pg_stat_statements.track = 'top'" >> /usr/share/postgresql/postgresql.conf.sample
-
-# Install the Antithesis instrumentation library and add debug symbols where Antithesis expects them.
-RUN curl -fsSL -o /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so && \
-    mkdir /symbols && \
-    ln -s /usr/lib/postgresql/17/lib/pg_search.so /symbols/pg_search.so
 
 # Reset the working directory to the root directory
 WORKDIR /

@@ -86,6 +86,19 @@ COPY --from=builder /tmp/pg_ivm/*.so /usr/lib/postgresql/@@PG_VERSION_MAJOR@@/li
 COPY --from=builder /tmp/pg_ivm/*.control /usr/share/postgresql/@@PG_VERSION_MAJOR@@/extension/
 COPY --from=builder /tmp/pg_ivm/*.sql /usr/share/postgresql/@@PG_VERSION_MAJOR@@/extension/
 
+# %%ANTITHESIS_BEGIN%%
+# Install the locally built, Antithesis-instrumented pg_search package.
+COPY pg_search-0.0.0-trixie-amd64-pg@@PG_VERSION_MAJOR@@.deb /tmp/pg_search.deb
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
+    curl -fsSL -o /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so && \
+    dpkg -i /tmp/pg_search.deb && \
+    rm /tmp/pg_search.deb && \
+    mkdir /symbols && \
+    ln -s /usr/lib/postgresql/@@PG_VERSION_MAJOR@@/lib/pg_search.so /symbols/pg_search.so && \
+    rm -rf /var/lib/apt/lists/*
+# %%ANTITHESIS_END%%
+# %%STANDARD_BEGIN%%
 # Install pg_search from Cloudsmith
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -102,6 +115,7 @@ RUN apt-get update && \
     apt-get update && \
     apt-get install -y --no-install-recommends postgresql-@@PG_VERSION_MAJOR@@-pg-search=0.0.0 && \
     rm -rf /var/lib/apt/lists/*
+# %%STANDARD_END%%
 
 # %%BARMAN_BEGIN%%
 # Install Barman Cloud and its dependencies for Azure, Google, and AWS via `pip`, and clean up after the installation to
@@ -141,13 +155,6 @@ RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_sea
     grep "shared_preload_libraries = 'pg_search,pg_cron,pg_stat_statements'" /usr/share/postgresql/postgresql.conf.sample && \
     echo "cron.database_name = 'postgres'" >> /usr/share/postgresql/postgresql.conf.sample && \
     echo "pg_stat_statements.track = 'top'" >> /usr/share/postgresql/postgresql.conf.sample
-
-# %%ANTITHESIS_BEGIN%%
-# Install the Antithesis instrumentation library and add debug symbols where Antithesis expects them.
-RUN curl -fsSL -o /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so && \
-    mkdir /symbols && \
-    ln -s /usr/lib/postgresql/@@PG_VERSION_MAJOR@@/lib/pg_search.so /symbols/pg_search.so
-# %%ANTITHESIS_END%%
 
 # Reset the working directory to the root directory
 WORKDIR /

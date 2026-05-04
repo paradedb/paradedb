@@ -131,6 +131,16 @@ const COLUMNS: &[Column] = &[
         .random_generator_sql(
             "(ARRAY ['Hello World', 'HELLO WORLD', 'hello world', 'HeLLo WoRLD', 'GOODBYE WORLD', 'goodbye world']::text[])[(floor(random() * 6) + 1)::int]"
         ),
+    Column::new("metadata", "JSONB", "'{\"brand\": \"apple\", \"rating\": 4}'")
+        .whereable(false)
+        .groupable(false)
+        .bm25_json_field(r#""metadata": { "fast": true }"#)
+        .random_generator_sql(
+            "jsonb_build_object(
+                'brand', (ARRAY ['apple', 'samsung', 'sony', 'lg']::text[])[(floor(random() * 4) + 1)::int],
+                'rating', (floor(random() * 5) + 1)::int
+            )"
+        ),
 ];
 
 fn columns_named(names: Vec<&'static str>) -> Vec<Column> {
@@ -834,11 +844,18 @@ async fn generated_aggregate_join(database: Db) {
     // Columns for join keys
     let join_key_columns = vec!["id", "age"];
     // Columns for GROUP BY (must be fast fields)
-    let grouping_columns: Vec<&str> = COLUMNS
+    let mut grouping_columns: Vec<String> = COLUMNS
         .iter()
         .filter(|col| col.is_groupable && col.is_whereable)
-        .map(|col| col.name)
+        .map(|col| format!("{}.{}", all_tables[0], col.name))
         .collect();
+
+    grouping_columns.extend(vec![
+        // Group by text representation
+        format!("{}.metadata->>'brand'", all_tables[0]),
+        // Group by JSONB representation
+        format!("{}.metadata->'brand'", all_tables[0]),
+    ]);
 
     proptest!(|(
         num_tables in 2..=3usize,
@@ -846,7 +863,7 @@ async fn generated_aggregate_join(database: Db) {
         outer_bm25 in arb_wheres(vec![all_tables[0]], &text_columns),
         // GROUP BY + aggregates
         group_by_expr in arb_group_by(
-            grouping_columns.iter().map(|c| format!("{}.{}", all_tables[0], c)).collect::<Vec<_>>(),
+            grouping_columns.clone(),
             vec![
                 "COUNT(*)",
                 "SUM(users.age)",

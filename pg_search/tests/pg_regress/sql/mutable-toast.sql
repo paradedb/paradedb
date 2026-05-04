@@ -1,5 +1,6 @@
 \i common/common_setup.sql
 
+DROP TABLE IF EXISTS data_docstore;
 CREATE TABLE data_docstore (
     id SERIAL PRIMARY KEY,
     doc_text VARCHAR
@@ -31,3 +32,5 @@ BEGIN
     UPDATE data_docstore SET doc_text = repeat('BigData_ ', 200000) WHERE id = 1;
   END LOOP;
 END$$;
+
+DROP TABLE data_docstore;

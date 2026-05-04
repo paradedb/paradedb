@@ -9,6 +9,7 @@ CALL paradedb.create_bm25_test_table(
 
 CREATE INDEX search_idx ON mock_items USING bm25 (id, description, rating, (category::pdb.literal), metadata) WITH (key_field='id');
 
+DROP TABLE IF EXISTS allowed_categories;
 CREATE TABLE allowed_categories (
     category TEXT PRIMARY KEY
 );

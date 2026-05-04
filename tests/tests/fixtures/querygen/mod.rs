@@ -116,6 +116,14 @@ impl Column {
         self
     }
 
+    pub const fn bm25_json_field(mut self, config_json: &'static str) -> Self {
+        self.bm25_options = Some(BM25Options {
+            field_type: "json_fields",
+            config_json,
+        });
+        self
+    }
+
     /// Note: should use only the `random()` function to generate random data.
     pub const fn random_generator_sql(mut self, random_generator_sql: &'static str) -> Self {
         self.random_generator_sql = random_generator_sql;
@@ -196,6 +204,15 @@ pub fn generated_queries_setup(
         .collect::<Vec<_>>()
         .join(",\n");
 
+    let json_fields = columns_def
+        .iter()
+        .filter(|c| c.is_indexed && c.index_expression.is_none())
+        .filter_map(|c| c.bm25_options.as_ref())
+        .filter(|o| o.field_type == "json_fields")
+        .map(|o| o.config_json)
+        .collect::<Vec<_>>()
+        .join(",\n");
+
     // Find the first indexed numeric/date fast field for sort_by (Tantivy doesn't support Str).
     let sortable_types = [
         "INT",
@@ -261,7 +278,8 @@ CREATE TABLE {tname} (
 CREATE INDEX idx{tname} ON {tname} USING bm25 ({bm25_columns}) WITH (
     key_field = '{key_field}',
     text_fields = '{{ {text_fields} }}',
-    numeric_fields = '{{ {numeric_fields} }}'{sort_by_clause}
+    numeric_fields = '{{ {numeric_fields} }}',
+    json_fields = '{{ {json_fields} }}'{sort_by_clause}
 );
 
 INSERT into {tname} ({insert_columns}) VALUES ({sample_values});

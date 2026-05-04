@@ -871,8 +871,8 @@ async fn prewarm_indexes(
 /// necessary for compatibility with custom scan providers. Compound statements
 /// (e.g., `SET ...; SELECT ...`) are handled natively by the simple protocol.
 ///
-/// Timing uses `Instant` around `execute()`, which consumes the entire result set from
-/// the wire without per-row object allocation, matching how `psql` with `\timing` works.
+/// Timing uses the results of server-side planning + execution time from pg_stat_statements,
+/// limiting the amount of non-extenstion-code time captured.
 ///
 /// Returns `None` when `fail_on_error` is false and the query errors (the query is skipped).
 async fn execute_query_multiple_times(
@@ -888,16 +888,38 @@ async fn execute_query_multiple_times(
     let mut results = Vec::new();
     let mut num_results = 0;
 
+    // SELECT the times for the last query run, making sure we don't accidentally get the 'reset'
+    // query
+    let stats_query = "SELECT max_exec_time, max_plan_time, rows FROM pg_stat_statements WHERE query LIKE 'SELECT%' AND query NOT LIKE '%pg_stat_statements%';";
+    let stats_reset_query = "SELECT pg_stat_statements_reset();";
+    let evict_query = "SELECT pg_buffercache_evict_all();";
+
+    sqlx::raw_sql(evict_query)
+        .execute(&mut conn)
+        .await
+        .with_context(|| format!("Failed to execute query: {evict_query}"))?;
     for i in 0..times {
-        let start = Instant::now();
-        let result = sqlx::raw_sql(query).execute(&mut conn).await;
-        let elapsed = start.elapsed();
+        let result: anyhow::Result<(f64, f64, i64)> = {
+            sqlx::raw_sql(stats_reset_query)
+                .execute(&mut conn)
+                .await
+                .with_context(|| format!("Failed to execute query: {evict_query}"))?;
+            sqlx::raw_sql(query)
+                .execute(&mut conn)
+                .await
+                .with_context(|| format!("Failed to execute query: {query}"))?;
+            let res = sqlx::query_as(stats_query)
+                .fetch_one(&mut conn)
+                .await
+                .with_context(|| format!("Failed to execute query: {stats_query}"))?;
+            Ok(res)
+        };
 
         match result {
-            Ok(r) => {
-                results.push(elapsed.as_secs_f64() * 1000.0);
+            Ok((exec_time_ms, plan_time_ms, rows)) => {
+                results.push(exec_time_ms + plan_time_ms);
                 if i == 0 {
-                    num_results = r.rows_affected() as usize;
+                    num_results = rows as usize;
                 }
             }
             Err(err) => {

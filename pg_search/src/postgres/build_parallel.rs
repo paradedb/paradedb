@@ -310,7 +310,6 @@ struct WorkerBuildState<'a> {
     next_xid: pg_sys::FullTransactionId,
     indexrel: PgSearchRelation,
     heaprel: PgSearchRelation,
-    worker_number: i32,
     // the following statistics are used to determine when and what to merge:
     //
     // 1. how many segments does this worker expect to make, assuming no merges?
@@ -362,7 +361,7 @@ impl<'a> WorkerBuildState<'a> {
         let schema = writer.schema();
         let categorized_fields = schema.categorized_fields().clone();
         // we're making the assumption, based on the logic in the `build_index` function, that the leader (if participating) has the last worker number (equivalent to nlaunched)
-        let is_leader = worker_number == (coordination.nlaunched as i32);
+        let is_leader = worker_number == coordination.nlaunched as i32;
         Ok(Self {
             writer: Some(writer),
             categorized_fields,
@@ -376,7 +375,6 @@ impl<'a> WorkerBuildState<'a> {
             estimated_nsegments: OnceLock::new(),
             nmerges: Default::default(),
             unmerged_metas: Default::default(),
-            worker_number,
             local_tuple_done_count: 0,
             is_leader,
         })

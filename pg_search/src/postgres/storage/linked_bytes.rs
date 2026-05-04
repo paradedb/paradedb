@@ -386,6 +386,7 @@ impl LinkedBytesList {
             }
         }
         if let Some(pos) = cache.iter().rposition(|e| e.block_ord == block_ord) {
+            // No LRU promotion — not needed for fieldnorm reads.
             return cache[pos].block_bytes[local_offset];
         }
 

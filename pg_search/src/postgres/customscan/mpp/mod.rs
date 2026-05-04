@@ -26,7 +26,10 @@
 //! consumer-side backpressure from producer-side backpressure.
 
 pub mod mesh;
+pub mod rpc_mesh;
 pub mod session;
+pub mod shm_mq_producer;
+pub mod shm_mq_transport;
 pub mod shuffle;
 pub mod transport;
 pub mod worker;

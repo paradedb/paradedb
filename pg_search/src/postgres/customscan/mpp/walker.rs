@@ -48,9 +48,14 @@
 
 use std::sync::Arc;
 
+use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::common::{DataFusionError, Result as DfResult};
-use datafusion::physical_plan::aggregates::{AggregateExec, AggregateMode};
-use datafusion::physical_plan::ExecutionPlan;
+use datafusion::physical_plan::aggregates::{AggregateExec, AggregateMode, PhysicalGroupBy};
+use datafusion::physical_plan::empty::EmptyExec;
+use datafusion::physical_plan::repartition::RepartitionExec;
+use datafusion::physical_plan::{ExecutionPlan, Partitioning};
+use datafusion_distributed::NetworkShuffleExec;
+use uuid::Uuid;
 
 use crate::postgres::customscan::mpp::partitioner::{FixedTargetPartitioner, RowPartitioner};
 use crate::postgres::customscan::mpp::shape::MppPlanShape;
@@ -146,16 +151,66 @@ fn distribute_scalar_agg(
         .expect("path returned by find_partial_aggregate_path is reachable");
 
     // Worker plan: replace the Partial subtree with a producer wrap.
-    let producer_subtree = wrap_with_producer(partial_node, n_workers)?;
-    let worker_plan = replace_at_path(physical_plan, &partial_idx, producer_subtree)?;
+    let producer_subtree = wrap_with_producer(Arc::clone(&partial_node), n_workers)?;
+    let worker_plan = replace_at_path(Arc::clone(&physical_plan), &partial_idx, producer_subtree)?;
 
-    // Leader plan construction is follow-up work (see fn doc).
-    Err(DataFusionError::NotImplemented(format!(
-        "mpp: leader-plan construction is follow-up work; worker plan built \
-         successfully ({} ops). Leader needs NetworkShuffleExec + Stage \
-         population + Final aggregate re-wrap.",
-        count_ops(&worker_plan)
-    )))
+    // Leader plan: replace the Partial subtree with NetworkShuffleExec(reads
+    // from N workers' single consumer partition) + AggregateExec(FinalPartitioned).
+    let partial_agg = partial_node
+        .as_any()
+        .downcast_ref::<AggregateExec>()
+        .expect("partial_node located via find_partial_aggregate_path");
+    let leader_subtree = build_leader_finalize(partial_agg, n_workers)?;
+    let leader_plan = replace_at_path(physical_plan, &partial_idx, leader_subtree)?;
+
+    Ok(MppPlanPair {
+        leader_plan,
+        worker_plan,
+    })
+}
+
+/// Build the leader-side replacement for the `AggregateExec(Partial)`-rooted
+/// subtree:
+///
+/// ```text
+///   AggregateExec(FinalPartitioned, group=empty, agg=<original>)
+///     NetworkShuffleExec(input_task_count=N, output=Hash([], 1))
+///       RepartitionExec(Hash([], 1), EmptyExec(partial_output_schema))
+/// ```
+///
+/// The `EmptyExec` + `RepartitionExec` is a structural placeholder for the
+/// fork's `NetworkShuffleExec::try_new` (which validates the input is hash-
+/// partitioned). At execute time the fork bypasses the input entirely and
+/// pulls record batches through the registered `WorkerTransport` (our
+/// `ShmMqWorkerTransport`), so the placeholder is never run.
+fn build_leader_finalize(
+    partial: &AggregateExec,
+    n_workers: u32,
+) -> DfResult<Arc<dyn ExecutionPlan>> {
+    let partial_output_schema: SchemaRef = partial.schema();
+    let stub: Arc<dyn ExecutionPlan> = Arc::new(EmptyExec::new(Arc::clone(&partial_output_schema)));
+    let hash_partitioned: Arc<dyn ExecutionPlan> = Arc::new(RepartitionExec::try_new(
+        stub,
+        Partitioning::Hash(vec![], 1),
+    )?);
+    let network_shuffle =
+        NetworkShuffleExec::try_new(hash_partitioned, Uuid::nil(), 0, 1, n_workers as usize)?;
+    let network_shuffle: Arc<dyn ExecutionPlan> = Arc::new(network_shuffle);
+
+    // Re-apply the partial's aggregate spec on top, in FinalPartitioned mode.
+    // We reuse `partial.group_expr()`, `partial.aggr_expr()`, and
+    // `partial.filter_expr()`; the input schema for the Final pass is
+    // `partial_output_schema` (= partial's output, which the fork-shuffle
+    // streams to us).
+    let final_agg = AggregateExec::try_new(
+        AggregateMode::FinalPartitioned,
+        PhysicalGroupBy::new_single(vec![]),
+        partial.aggr_expr().to_vec(),
+        partial.filter_expr().to_vec(),
+        network_shuffle,
+        partial_output_schema,
+    )?;
+    Ok(Arc::new(final_agg))
 }
 
 /// Wrap `partial` in a [`ShmMqProducerExec`] using a
@@ -365,16 +420,17 @@ mod tests {
     }
 
     #[test]
-    fn distribute_scalar_agg_returns_not_implemented_until_leader_plan_lands() {
-        // Worker-plan rewrite succeeds, but leader-plan construction is
-        // follow-up work — surfaced as `NotImplemented`.
-        let p = partial_agg(empty_plan());
-        let err = distribute_scalar_agg(p, 4).unwrap_err();
-        assert!(matches!(err, DataFusionError::NotImplemented(_)));
-        let msg = err.to_string();
-        assert!(
-            msg.contains("worker plan built successfully"),
-            "expected 'worker plan built successfully' in message: {msg}"
-        );
+    fn distribute_scalar_agg_builds_both_plans_for_root_partial() {
+        // Plan = bare AggregateExec(Partial); walker produces leader + worker
+        // plans without error. Worker plan top is ShmMqProducerExec (single
+        // op above Partial). Leader plan top is AggregateExec(FinalPartitioned)
+        // wrapping NetworkShuffleExec.
+        let p: Arc<dyn ExecutionPlan> = partial_agg(empty_plan());
+        let pair = distribute_scalar_agg(p, 4).unwrap();
+        assert_eq!(pair.worker_plan.name(), "ShmMqProducerExec");
+        assert_eq!(pair.leader_plan.name(), "AggregateExec");
+        // Leader's child should be NetworkShuffleExec.
+        let leader_child = pair.leader_plan.children()[0].clone();
+        assert_eq!(leader_child.name(), "NetworkShuffleExec");
     }
 }

@@ -9,6 +9,9 @@
 
 FROM rust:1.95-slim
 
+# Required for the piped RUN below (hadolint DL4006).
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 # Install build and runtime dependencies. `jq` is used during build to extract
 # the test binary path from cargo's JSON output.
 RUN apt-get update && apt-get install -y --no-install-recommends \

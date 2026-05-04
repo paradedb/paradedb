@@ -20,10 +20,10 @@ on:
       workload:
         type: choice
         required: false
-        default: both
+        default: all
         description: Which workload(s) to run on Antithesis
         options:
-          - both
+          - all
           - stressgres
           - proptests
       duration:
@@ -43,9 +43,9 @@ on:
 
 jobs:
   # Resolve which workload(s) to run based on the trigger:
-  # - schedule: both
-  # - workflow_dispatch: from `inputs.workload` (default both)
-  # - pull_request labeled: `antithesis` => both, `antithesis-stressgres` => stressgres,
+  # - schedule: all
+  # - workflow_dispatch: from `inputs.workload` (default all)
+  # - pull_request labeled: `antithesis-all` => all, `antithesis-stressgres` => stressgres,
   #   `antithesis-proptests` => proptests, anything else => skip
   setup:
     name: Resolve Workloads
@@ -53,7 +53,7 @@ jobs:
     if: |
       (github.event_name == 'schedule' && github.repository == 'paradedb/paradedb-enterprise')
       || github.event_name == 'workflow_dispatch'
-      || (github.event_name == 'pull_request' && contains(fromJSON('["antithesis","antithesis-stressgres","antithesis-proptests"]'), github.event.label.name))
+      || (github.event_name == 'pull_request' && contains(fromJSON('["antithesis-all","antithesis-stressgres","antithesis-proptests"]'), github.event.label.name))
     outputs:
       workloads: ${{ steps.compute.outputs.workloads }}
     steps:
@@ -70,15 +70,15 @@ jobs:
               WORKLOADS='["stressgres","proptests"]'
               ;;
             workflow_dispatch)
-              case "${INPUT_WORKLOAD:-both}" in
+              case "${INPUT_WORKLOAD:-all}" in
                 stressgres) WORKLOADS='["stressgres"]' ;;
                 proptests)  WORKLOADS='["proptests"]'  ;;
-                both|"")    WORKLOADS='["stressgres","proptests"]' ;;
+                all|"")     WORKLOADS='["stressgres","proptests"]' ;;
               esac
               ;;
             pull_request)
               case "$LABEL" in
-                antithesis)            WORKLOADS='["stressgres","proptests"]' ;;
+                antithesis-all)        WORKLOADS='["stressgres","proptests"]' ;;
                 antithesis-stressgres) WORKLOADS='["stressgres"]' ;;
                 antithesis-proptests)  WORKLOADS='["proptests"]'  ;;
               esac
@@ -107,13 +107,13 @@ jobs:
         workload: ${{ fromJSON(needs.setup.outputs.workloads) }}
 
     steps:
-      # The job can be triggered manually by attaching the `antithesis`,
+      # The job can be triggered manually by attaching the `antithesis-all`,
       # `antithesis-stressgres`, or `antithesis-proptests` label to a PR. This
       # step removes the triggering label once the job has started so it can be
       # applied again if needed.
       - name: Maybe Remove Label
         uses: actions-ecosystem/action-remove-labels@v1
-        if: github.event_name == 'pull_request' && contains(fromJSON('["antithesis","antithesis-stressgres","antithesis-proptests"]'), github.event.label.name)
+        if: github.event_name == 'pull_request' && contains(fromJSON('["antithesis-all","antithesis-stressgres","antithesis-proptests"]'), github.event.label.name)
         with:
           labels: ${{ github.event.label.name }}
 

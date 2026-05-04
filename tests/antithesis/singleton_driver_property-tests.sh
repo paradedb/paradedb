@@ -21,8 +21,8 @@ echo ""
 echo "Starting qgen property test loop..."
 iter=0
 while true; do
-    iter=$((iter + 1))
-    echo ""
-    echo "=== qgen iteration ${iter} ==="
-    /home/app/qgen --nocapture
+  iter=$((iter + 1))
+  echo ""
+  echo "=== qgen iteration ${iter} ==="
+  /home/app/qgen --nocapture
 done

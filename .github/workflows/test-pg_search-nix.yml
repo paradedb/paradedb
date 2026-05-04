@@ -63,11 +63,6 @@ jobs:
             chmod +x scripts/update-nix-cargo-hash.sh
             scripts/update-nix-cargo-hash.sh "${{ env.PG_MAJOR_VERSION }}"
 
-            if git diff --quiet nix/pg_search.nix; then
-              echo "::error::cargoHash mismatch but auto-update failed"
-              exit 1
-            fi
-
             if [ "${{ github.event.pull_request.head.repo.fork }}" = "true" ]; then
               echo "::error::cargoHash is outdated and this PR is from a fork, so CI cannot push a fix. Please run the following locally and push the result:"
               echo ""

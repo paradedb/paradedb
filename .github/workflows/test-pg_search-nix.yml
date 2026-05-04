@@ -68,15 +68,21 @@ jobs:
               exit 1
             fi
 
-            PR_USER_LOGIN="${{ github.event.pull_request.user.login }}"
-            PR_USER_ID="${{ github.event.pull_request.user.id }}"
-            if [ -n "$PR_USER_LOGIN" ] && [ -n "$PR_USER_ID" ]; then
-              git config user.name "$PR_USER_LOGIN"
-              git config user.email "${PR_USER_ID}+${PR_USER_LOGIN}@users.noreply.github.com"
-            else
-              git config user.name "paradedb-bot"
-              git config user.email "developers@paradedb.com"
+            if [ "${{ github.event.pull_request.head.repo.fork }}" = "true" ]; then
+              echo "::error::cargoHash is outdated and this PR is from a fork, so CI cannot push a fix. Please run the following locally and push the result:"
+              echo ""
+              echo "  scripts/update-nix-cargo-hash.sh ${{ env.PG_MAJOR_VERSION }}"
+              echo "  git add nix/pg_search.nix"
+              echo "  git commit -m \"fix: update nix cargoHash for changed Cargo.lock\""
+              echo "  git push"
+              echo ""
+              echo "Computed nix/pg_search.nix diff:"
+              git --no-pager diff nix/pg_search.nix
+              exit 1
             fi
+
+            git config user.name "paradedb-bot"
+            git config user.email "developers@paradedb.com"
             git add nix/pg_search.nix
             git commit -m "fix: update nix cargoHash for changed Cargo.lock"
             git push

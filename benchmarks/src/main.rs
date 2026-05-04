@@ -268,7 +268,7 @@ async fn run_benchmarks(args: &CommonBenchmarkArgs) -> anyhow::Result<Vec<QueryR
         .with_context(|| "Failed to connect to database")?;
 
     if args.vacuum {
-        sqlx::query("VACUUM ANALYZE")
+        sqlx::query("VACUUM FULL ANALYZE")
             .execute(&mut utility_conn)
             .await
             .with_context(|| "Failed to vacuum")?;
@@ -308,6 +308,11 @@ async fn run_benchmarks(args: &CommonBenchmarkArgs) -> anyhow::Result<Vec<QueryR
                     panic!("Failed to clear caches before query: {err}");
                 }
             }
+
+            sqlx::raw_sql("CHECKPOINT;")
+                .execute(&mut utility_conn)
+                .await
+                .with_context(|| "Failed to execute checkpoint.")?;
 
             println!("Query Type: {query_type}\nQuery: {query}");
             let result = execute_query_multiple_times(

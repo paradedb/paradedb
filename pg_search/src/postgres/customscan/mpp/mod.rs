@@ -25,6 +25,7 @@
 //! that reads all inbound queues into a spillable local buffer — this decouples
 //! consumer-side backpressure from producer-side backpressure.
 
+pub mod customscan_glue;
 pub mod mesh;
 pub mod partitioner;
 pub mod rpc_mesh;

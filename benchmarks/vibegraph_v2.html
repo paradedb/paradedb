@@ -264,6 +264,76 @@ function fmtDate(ts) {
 /* ── External Tooltip ── */
 const tooltipEl = document.getElementById('tooltip');
 
+function buildTooltipHtml(chart, dataIndex) {
+    const meta = chart._pdbMeta;
+    const ws = meta.windowStart || 0;
+    const oi = dataIndex + ws;
+    const run = meta.runs[oi];
+    const info = run ? hashInfo[run.short] : null;
+
+    const infoLabel = info?.label && info.label !== run?.short ? info.label : null;
+    const title = infoLabel || run?.commitMsg || run?.short || '';
+    const author = info?.prAuthor || run?.author || '';
+    const date = fmtDate(info?.timestamp || run?.timestamp);
+    const shortHash = run?.short || '';
+    const prState = info?.prState;
+    const prMergedAt = info?.prMergedAt;
+
+    let html = `<div class="tt-header"><div class="tt-title">${esc(title)}</div><div class="tt-meta">`;
+    html += `<span style="color:var(--accent);cursor:pointer">${esc(shortHash)}</span>`;
+    if (author) html += ` &middot; ${esc(author)}`;
+    if (date) html += ` &middot; ${esc(date)}`;
+    if (prMergedAt) html += ` &middot; <span style="color:var(--green)">merged</span>`;
+    else if (prState === 'open') html += ` &middot; <span style="color:#f59e0b">open</span>`;
+    else if (prState === 'closed') html += ` &middot; <span style="color:var(--red)">closed</span>`;
+    html += `</div></div><div class="tt-body">`;
+
+    for (const ds of chart.data.datasets) {
+        const val = ds.original[oi];
+        if (val == null) continue;
+        const color = ds.borderColor || '#888';
+
+        html += '<div class="tt-row"><div class="tt-row-main">';
+        html += `<span class="tt-name"><span class="tt-dot" style="background:${color}"></span>${esc(ds.label)}</span>`;
+        html += `<span class="tt-val">${val.toFixed(3)}</span></div>`;
+
+        const orig = ds.original;
+        const unit = 'ms';
+        const changes = [];
+        const base = orig.find(v => v != null);
+        if (base != null && val != null && base !== val) {
+            const pct = ((val / base) - 1) * 100;
+            const diff = val - base;
+            const cls = pct > 0 ? 'up' : 'down';
+            changes.push(`<span class="${cls}">${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% (${diff >= 0 ? '+' : ''}${diff.toFixed(1)} ${unit})</span> from first`);
+        }
+        if (oi > 0 && orig[oi - 1] != null && val != null) {
+            const pct = ((val - orig[oi - 1]) / orig[oi - 1]) * 100;
+            const diff = val - orig[oi - 1];
+            const cls = pct > 0 ? 'up' : 'down';
+            changes.push(`<span class="${cls}">${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% (${diff >= 0 ? '+' : ''}${diff.toFixed(1)} ${unit})</span> from prev`);
+        }
+        if (changes.length) html += `<div class="tt-changes">${changes.join(' &middot; ')}</div>`;
+        html += '</div>';
+    }
+
+    html += '</div>';
+    return html;
+}
+
+function showTooltipAt(html, x, y) {
+    tooltipEl.innerHTML = html;
+    tooltipEl.classList.add('visible');
+    const ttRect = tooltipEl.getBoundingClientRect();
+    let left = x + 16;
+    let top = y - 16;
+    if (left + ttRect.width > window.innerWidth - 12) left = x - ttRect.width - 16;
+    if (top + ttRect.height > window.innerHeight - 12) top = window.innerHeight - ttRect.height - 12;
+    if (top < 8) top = 8;
+    tooltipEl.style.left = left + 'px';
+    tooltipEl.style.top = top + 'px';
+}
+
 function externalTooltipHandler(context) {
     const { chart, tooltip } = context;
     if (tooltip.opacity === 0) {
@@ -284,14 +354,19 @@ function externalTooltipHandler(context) {
     // info.label defaults to the short hash — only use it if it's actually a PR/release title
     const infoLabel = info?.label && info.label !== run?.short ? info.label : null;
     const title = infoLabel || run?.commitMsg || run?.short || '';
-    const author = run?.author || '';
+    const author = info?.prAuthor || run?.author || '';
     const date = fmtDate(info?.timestamp || run?.timestamp);
     const shortHash = run?.short || '';
+    const prState = info?.prState;
+    const prMergedAt = info?.prMergedAt;
 
     let html = `<div class="tt-header"><div class="tt-title">${esc(title)}</div><div class="tt-meta">`;
-    html += esc(shortHash);
+    html += `<span style="color:var(--accent)">${esc(shortHash)}</span>`;
     if (author) html += ` &middot; ${esc(author)}`;
     if (date) html += ` &middot; ${esc(date)}`;
+    if (prMergedAt) html += ` &middot; <span style="color:var(--green)">merged</span>`;
+    else if (prState === 'open') html += ` &middot; <span style="color:#f59e0b">open</span>`;
+    else if (prState === 'closed') html += ` &middot; <span style="color:var(--red)">closed</span>`;
     html += `</div></div><div class="tt-body">`;
 
     for (const pt of (tooltip.dataPoints || [])) {
@@ -569,14 +644,33 @@ function renderCharts(rawData) {
                     if (url) window.open(url, '_blank');
                 }
             });
-            // Cursor pointer on x-axis labels
+            // X-axis hover → show tooltip with commit info; cursor pointer
             canvas.addEventListener('mousemove', (e) => {
+                const xScale = chart.scales.x;
                 const yScale = chart.scales.y;
-                if (!yScale) return;
+                if (!xScale || !yScale) return;
                 const rect = canvas.getBoundingClientRect();
                 const y = e.clientY - rect.top;
-                const legendTop = chart.legend?.bottom ?? rect.height;
-                canvas.style.cursor = (y > yScale.bottom && y < legendTop) ? 'pointer' : '';
+                const legendTop = chart.legend?.top ?? rect.height;
+                const inAxisZone = y > yScale.bottom && y < legendTop;
+                canvas.style.cursor = inAxisZone ? 'pointer' : '';
+                if (!inAxisZone) return;
+                const x = e.clientX - rect.left;
+                let closest = -1, minDist = Infinity;
+                for (let i = 0; i < xScale.ticks.length; i++) {
+                    const px = xScale.getPixelForTick(i);
+                    const dist = Math.abs(px - x);
+                    if (dist < minDist) { minDist = dist; closest = i; }
+                }
+                if (closest >= 0 && minDist < 40) {
+                    const html = buildTooltipHtml(chart, closest);
+                    showTooltipAt(html, e.clientX, e.clientY);
+                } else {
+                    tooltipEl.classList.remove('visible');
+                }
+            });
+            canvas.addEventListener('mouseleave', () => {
+                tooltipEl.classList.remove('visible');
             });
             chart.normalized = defNorm;
             if (defNorm) {
@@ -654,7 +748,7 @@ async function init() {
                 }).then(r => r.json()).then(prs => {
                     if (Array.isArray(prs) && prs.length) {
                         const pr = prs[0];
-                        hashInfo[sh] = { ...hashInfo[sh], label: `#${pr.number}: ${pr.title}`, url: pr.html_url };
+                        hashInfo[sh] = { ...hashInfo[sh], label: `#${pr.number}: ${pr.title}`, url: pr.html_url, prNumber: pr.number, prTitle: pr.title, prAuthor: pr.user?.login, prMergedAt: pr.merged_at, prState: pr.state };
                     }
                 }).catch(() => {})
             ));

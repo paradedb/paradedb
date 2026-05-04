@@ -21,7 +21,7 @@ ORDER BY
     u.display_name ASC              -- Single Feature Sort (Parent Field)
 LIMIT 50;
 
-SET work_mem TO '64MB'; SET paradedb.enable_join_custom_scan TO on; SELECT DISTINCT
+SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT DISTINCT
     u.id,
     u.display_name,
     u.about_me

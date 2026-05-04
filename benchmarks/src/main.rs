@@ -174,6 +174,13 @@ async fn run_sql_benchmarks(args: &CommonBenchmarkArgs, rows_display: &str) -> a
     }
 }
 
+#[derive(Default)]
+pub struct QueryRunResults {
+    pub cold: f64,
+    pub samples: Vec<f64>,
+    pub num_results: usize,
+}
+
 struct IndexCreationResult {
     duration_min_ms: f64,
     index_name: String,
@@ -184,8 +191,7 @@ struct IndexCreationResult {
 struct QueryResult {
     query_type: String,
     query: String,
-    runtimes_ms: Vec<f64>,
-    num_results: usize,
+    results: QueryRunResults,
 }
 
 #[derive(serde::Serialize)]
@@ -198,12 +204,9 @@ struct JSONBenchmarkResult {
 
 impl From<QueryResult> for JSONBenchmarkResult {
     fn from(res: QueryResult) -> Self {
-        let median = median(res.runtimes_ms.iter());
-        let cold_query_extra = res
-            .runtimes_ms
-            .first()
-            .map(|ms| format!("cold_query_ms={ms:.3}; query={}", res.query))
-            .unwrap_or_else(|| format!("cold_query_ms=NA; query={}", res.query));
+        let median = median(res.results.samples.iter());
+        let cold_query_extra =
+            format!("cold_query_ms={:.3}; query={}", res.results.cold, res.query);
 
         Self {
             name: res.query_type,
@@ -324,13 +327,15 @@ async fn run_benchmarks(args: &CommonBenchmarkArgs) -> anyhow::Result<Vec<QueryR
             )
             .await?;
             match result {
-                Some((runtimes_ms, num_results)) => {
-                    println!("Results: {runtimes_ms:?} | Rows Returned: {num_results}\n");
+                Some(query_results) => {
+                    println!(
+                        "Results: [cold: {:?} ] {:?} | Rows Returned: {}\n",
+                        query_results.cold, query_results.samples, query_results.num_results
+                    );
                     results.push(QueryResult {
                         query_type,
                         query,
-                        runtimes_ms,
-                        num_results,
+                        results: query_results,
                     });
                 }
                 None => {
@@ -479,17 +484,16 @@ async fn run_benchmarks_csv(args: &CommonBenchmarkArgs) -> anyhow::Result<()> {
         let QueryResult {
             query_type,
             query,
-            runtimes_ms,
-            num_results,
+            results,
         } = result;
 
         let mut result_line = query_type;
-        for &runtime_ms in &runtimes_ms {
+        for &runtime_ms in &results.samples {
             result_line.push_str(&format!(",{runtime_ms:.0}"));
         }
         result_line.push_str(&format!(
             ",{},\"{}\"",
-            num_results,
+            results.num_results,
             query.replace("\"", "\"\"")
         ));
         writeln!(file, "{result_line}")?;
@@ -729,11 +733,16 @@ async fn run_benchmarks_md(file: &mut File, args: &CommonBenchmarkArgs) -> anyho
         let QueryResult {
             query_type,
             query,
-            runtimes_ms,
-            num_results,
+            results,
         } = result;
         let md_query = query.replace("|", "\\|");
-        write_benchmark_results_md(file, &query_type, &runtimes_ms, num_results, &md_query)?;
+        write_benchmark_results_md(
+            file,
+            &query_type,
+            &results.samples,
+            results.num_results,
+            &md_query,
+        )?;
     }
     Ok(())
 }
@@ -887,13 +896,12 @@ async fn execute_query_multiple_times(
     query: &str,
     times: usize,
     fail_on_error: bool,
-) -> anyhow::Result<Option<(Vec<f64>, usize)>> {
+) -> anyhow::Result<Option<QueryRunResults>> {
     let mut conn = PgConnection::connect(url)
         .await
         .with_context(|| "Failed to connect to database")?;
     let mut window = Window::new(3);
-    let mut results = Vec::with_capacity(11); // 1 cold, plus 10 samples
-    let mut num_results = 0;
+    let mut results = QueryRunResults::default();
 
     // SELECT the times for the last query run, making sure we don't accidentally get the 'reset'
     // query
@@ -902,7 +910,9 @@ async fn execute_query_multiple_times(
 
     // run until run-to-run variance is sub-1% (query is warmed) or
     // until 10 runs have passed, then take the next 10 results
-    for i in 0..times {
+    let mut times_ran = 0;
+    let mut samples_taken = 0;
+    while samples_taken < times {
         let result: anyhow::Result<(f64, f64, i64)> = {
             sqlx::raw_sql(stats_reset_query)
                 .execute(&mut conn)
@@ -921,9 +931,17 @@ async fn execute_query_multiple_times(
 
         match result {
             Ok((exec_time_ms, plan_time_ms, rows)) => {
-                results.push(exec_time_ms + plan_time_ms);
-                if i == 0 {
-                    num_results = rows as usize;
+                let time = exec_time_ms + plan_time_ms;
+                window.push(time);
+                if times_ran == 0 {
+                    results.num_results = rows as usize;
+                    results.cold = time;
+                } else if (window.is_full() && window.variance().filter(|v| *v <= 0.02).is_some())
+                    || times_ran >= 10
+                {
+                    // only record once the query is sufficiently warm, or if we've already ran 10
+                    results.samples.push(time);
+                    samples_taken += 1;
                 }
             }
             Err(err) => {
@@ -935,9 +953,11 @@ async fn execute_query_multiple_times(
                 }
             }
         }
+
+        times_ran += 1;
     }
 
-    Ok(Some((results, num_results)))
+    Ok(Some(results))
 }
 
 fn drop_os_page_cache() -> Result<(), String> {

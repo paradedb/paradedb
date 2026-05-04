@@ -31,12 +31,6 @@ pub fn median<'a>(data: impl Iterator<Item = &'a f64>) -> f64 {
     }
 }
 
-pub struct QueryRunResults {
-    pub cold: f64,
-    pub samples: [f64; 10],
-    pub num_results: usize,
-}
-
 pub struct Window {
     size: usize,
     contents: VecDeque<f64>,
@@ -49,7 +43,7 @@ impl Window {
         }
     }
 
-    pub fn push(mut self, el: f64) {
+    pub fn push(&mut self, el: f64) {
         if self.contents.len() == self.size {
             self.contents.pop_front();
         }
@@ -76,9 +70,13 @@ impl Window {
 
     pub fn variance(&self) -> Option<f64> {
         match (self.min(), self.max()) {
-            (Some(min), Some(max)) => Some(max / min),
+            (Some(min), Some(max)) => Some((max / min) - 1.0),
             (None, None) => None,
             _ => unreachable!("min and max should either both be available or neither should"),
         }
+    }
+
+    pub fn is_full(&self) -> bool {
+        self.contents.len() == self.size
     }
 }

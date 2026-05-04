@@ -31,8 +31,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends postgresql-@@PG_VERSION_MAJOR@@-pg-search=0.0.0 && \
     rm -rf /var/lib/apt/lists/*
 # %%STANDARD_END%%
-
 # %%BARMAN_BEGIN%%
+
 # Install Barman Cloud and its dependencies for Azure, Google, and AWS via `pip`, and clean up after the installation to
 # minimize the size of the image. These are required for enabling Postgres backups in our CloudNativePG deployments.
 RUN apt-get update && \

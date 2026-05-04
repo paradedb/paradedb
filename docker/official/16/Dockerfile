@@ -18,7 +18,6 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends postgresql-16-pg-search=0.0.0 && \
     rm -rf /var/lib/apt/lists/*
 
-
 # Install core extensions
 # Use the PGDG archive so these pinned extension versions remain available after newer
 # versions replace them in the live Debian and PGDG apt repositories.

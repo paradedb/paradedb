@@ -17,7 +17,7 @@
 
 use anyhow::{bail, Context};
 use clap::{Parser, Subcommand};
-use paradedb::median;
+use paradedb::{median, Window};
 use sqlx::{Connection, PgConnection, Row};
 use std::fs::File;
 use std::io::Write;
@@ -891,7 +891,8 @@ async fn execute_query_multiple_times(
     let mut conn = PgConnection::connect(url)
         .await
         .with_context(|| "Failed to connect to database")?;
-    let mut results = Vec::new();
+    let mut window = Window::new(3);
+    let mut results = Vec::with_capacity(11); // 1 cold, plus 10 samples
     let mut num_results = 0;
 
     // SELECT the times for the last query run, making sure we don't accidentally get the 'reset'
@@ -899,6 +900,8 @@ async fn execute_query_multiple_times(
     let stats_query = "SELECT max_exec_time, max_plan_time, rows FROM pg_stat_statements WHERE query LIKE 'SELECT%' AND query NOT LIKE '%pg_stat_statements%';";
     let stats_reset_query = "SELECT pg_stat_statements_reset();";
 
+    // run until run-to-run variance is sub-1% (query is warmed) or
+    // until 10 runs have passed, then take the next 10 results
     for i in 0..times {
         let result: anyhow::Result<(f64, f64, i64)> = {
             sqlx::raw_sql(stats_reset_query)

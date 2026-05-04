@@ -5,7 +5,7 @@
 -- TopKAggregateExec optimization versus full aggregation + post-hoc sort.
 
 -- Query Info (statistics from 100k dataset; larger datasets may have different values):
--- - 'the' selectivity on stackoverflow_posts.body: ~80%
+-- - 'code' selectivity on stackoverflow_posts.body: ~75%
 
 -- Postgres default plan (aggregate custom scan off)
 SET paradedb.enable_aggregate_custom_scan TO off; SELECT
@@ -14,7 +14,7 @@ SET paradedb.enable_aggregate_custom_scan TO off; SELECT
 FROM stackoverflow_posts p
 JOIN comments c ON p.id = c.post_id
 WHERE
-    p.body ||| 'the'
+    p.body ||| 'code'
 GROUP BY
     p.title
 ORDER BY
@@ -28,7 +28,7 @@ SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SELECT
 FROM stackoverflow_posts p
 JOIN comments c ON p.id = c.post_id
 WHERE
-    p.body ||| 'the'
+    p.body ||| 'code'
 GROUP BY
     p.title
 ORDER BY

@@ -816,6 +816,16 @@ pub unsafe fn row_to_search_document<'a>(
                         document.add_field_value(search_field.field(), &OwnedValue::from(value));
                     }
                 }
+                // Legacy pre-v0.22.0 indexes stored NUMERIC arrays as F64 in the tantivy schema.
+                SearchFieldType::F64(oid) if oid == pg_sys::NUMERICOID => {
+                    for value in TantivyValue::try_from_numeric_array_f64(actual_datum)
+                        .unwrap_or_else(|e| {
+                            panic!("could not parse field `{}`: {e}", search_field.field_name())
+                        })
+                    {
+                        document.add_field_value(search_field.field(), &OwnedValue::from(value));
+                    }
+                }
                 _ => {
                     for value in TantivyValue::try_from_datum_array(actual_datum, *base_oid)
                         .unwrap_or_else(|e| {
@@ -842,6 +852,10 @@ pub unsafe fn row_to_search_document<'a>(
                 }
                 SearchFieldType::NumericBytes(..) => {
                     TantivyValue::try_from_numeric_bytes(actual_datum)
+                }
+                // Legacy pre-v0.22.0 indexes stored NUMERIC as F64 in the tantivy schema.
+                SearchFieldType::F64(oid) if oid == pg_sys::NUMERICOID => {
+                    TantivyValue::try_from_numeric_f64(actual_datum)
                 }
                 _ => TantivyValue::try_from_datum(actual_datum, *base_oid),
             }

@@ -1750,11 +1750,11 @@ unsafe fn optimize_and_branch_with_heap_expr(quals: &mut Vec<Qual>) {
                 if matches!(**search_query_input, SearchQueryInput::All)
                     && !indexed_queries.is_empty()
                 {
-                    *search_query_input = Box::new(SearchQueryInput::Boolean {
+                    **search_query_input = SearchQueryInput::Boolean {
                         must: indexed_queries.clone(),
                         should: vec![],
                         must_not: vec![],
-                    });
+                    };
                 }
             }
         }

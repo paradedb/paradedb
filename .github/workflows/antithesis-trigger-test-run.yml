@@ -34,7 +34,15 @@ on:
 jobs:
   antithesis-trigger-test-run:
     name: Test pg_search via Antithesis
-    runs-on: ubicloud-standard-8-ubuntu-2404
+    runs-on:
+      # General-purpose m-family — Docker buildx is RAM-heavy.
+      # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
+      - runs-on=${{ github.run_id }}
+      - family=m7a+m7i
+      - cpu=8
+      - ram=32
+      - image=ubuntu24-full-x64
+      - extras=s3-cache
     if: (github.event_name == 'schedule' && github.repository == 'paradedb/paradedb-enterprise') || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'antithesis')
     strategy:
       matrix:
@@ -82,7 +90,6 @@ jobs:
           context: .
           build-args: |
             PG_VERSION_MAJOR=${{ matrix.pg_version }}
-            COMMIT_SHA=${{ github.sha }}
             ENABLE_ANTITHESIS_INSTRUMENTATION=true
           platforms: linux/amd64
           file: docker/Dockerfile

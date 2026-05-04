@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.23.1"
+version = "0.23.3"
 edition = "2021"
 license = "AGPL-3.0"
 
@@ -31,6 +31,7 @@ debug = true
 tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "3ca4a31718891479b8661e61625fe71d6f529fe0", features = [
   "columnar-zstd-compression",
   "lz4-compression",
+  "paradedb",
   "quickwit",                  # for sstable support
   "stemmer",
   "stopwords",

@@ -744,19 +744,8 @@ fn page_info(
 }
 
 #[pg_extern]
-fn version_info() -> TableIterator<
-    'static,
-    (
-        name!(version, String),
-        name!(githash, String),
-        name!(build_mode, String),
-    ),
-> {
+fn version_info() -> TableIterator<'static, (name!(version, String), name!(build_mode, String))> {
     let version = option_env!("CARGO_PKG_VERSION")
-        .unwrap_or("unknown")
-        .to_string();
-
-    let git_sha = option_env!("VERGEN_GIT_SHA")
         .unwrap_or("unknown")
         .to_string();
 
@@ -766,7 +755,7 @@ fn version_info() -> TableIterator<
         "release".to_string()
     };
 
-    TableIterator::once((version, git_sha, build_mode))
+    TableIterator::once((version, build_mode))
 }
 
 #[pg_extern(name = "force_merge")]

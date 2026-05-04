@@ -13,33 +13,31 @@ ARG ENABLE_ANTITHESIS_INSTRUMENTATION=false
 FROM postgres:${PG_VERSION_MAJOR}-trixie AS builder
 
 ARG PG_VERSION_MAJOR
-ARG RUST_VERSION=stable
 
 # Declare buildtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
-    RUST_VERSION=${RUST_VERSION}
+    RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
     build-essential \
-    gnupg \
+    ca-certificates \
+    clang \
     curl \
     git \
-    make \
-    gcc \
-    clang \
-    pkg-config \
+    gnupg \
     libopenblas-dev \
-    postgresql-server-dev-all \
+    pkg-config \
+    postgresql-server-dev-${PG_VERSION_MAJOR} \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Rust
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain "${RUST_VERSION}" -y
+COPY --from=rust:1.95.0-trixie /usr/local/cargo /usr/local/cargo
+COPY --from=rust:1.95.0-trixie /usr/local/rustup /usr/local/rustup
 
-ENV PATH="/usr/local/bin:/root/.cargo/bin:$PATH" \
+ENV PATH="/usr/local/bin:/usr/local/cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
 # Copy only Cargo.toml to extract pgrx version without invalidating cache on source changes
@@ -57,19 +55,25 @@ RUN PGRX_VERSION=$(grep 'pgrx =' Cargo.toml | head -n 1 | cut -d '"' -f 2 | tr -
 # pg_search
 ######################
 
-FROM builder AS builder-pg_search
-
-ARG COMMIT_SHA
-ARG PARADEDB_VERSION
 ARG ENABLE_ANTITHESIS_INSTRUMENTATION
 
 # Declare compile-time environment variables
-ENV COMMIT_SHA=${COMMIT_SHA} \
-    PARADEDB_VERSION=${PARADEDB_VERSION} \
-    ENABLE_ANTITHESIS_INSTRUMENTATION=${ENABLE_ANTITHESIS_INSTRUMENTATION}
+ENV ENABLE_ANTITHESIS_INSTRUMENTATION=${ENABLE_ANTITHESIS_INSTRUMENTATION}
 
-# Copy the full project. This layer will invalidate if any project file changes.
-COPY . /tmp/
+COPY Cargo.toml Cargo.lock rust-toolchain.toml /tmp/
+COPY .cargo/ /tmp/.cargo/
+COPY pg_search/ /tmp/pg_search/
+COPY tokenizers/ /tmp/tokenizers/
+COPY macros/ /tmp/macros/
+
+# tests, benchmarks, and stressgres are only required because they are included as workspace members
+# in the main Cargo.toml
+COPY tests/Cargo.toml /tmp/tests/
+COPY tests/src/lib.rs /tmp/tests/src/
+COPY benchmarks/Cargo.toml /tmp/benchmarks/
+COPY benchmarks/src/lib.rs /tmp/benchmarks/src/
+COPY stressgres/Cargo.toml /tmp/stressgres/
+COPY stressgres/src/main.rs /tmp/stressgres/src/
 
 # Build the extension in release mode, but with debug symbols (which will be split out later)
 # Optionally install the Antithesis instrumentation library if this Docker build is intended for use with Antithesis
@@ -87,55 +91,51 @@ RUN LIB_PATH="/tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr
     objcopy --add-gnu-debuglink="${LIB_PATH}.dbg" "${LIB_PATH}"
 
 ######################
-# pgvector
+# pgvector v0.8.1
 ######################
 
-FROM builder AS builder-pgvector
-
-ARG PG_VERSION_MAJOR
 ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
 # Build the extension
 WORKDIR /tmp
-RUN git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git
+RUN curl -fsSL -o pgvector.tar.gz "https://codeload.github.com/pgvector/pgvector/tar.gz/778dacf20c07caf904557a88705142631818d8cb" && \
+    echo "4c33cf053329784ba6d992d05c9588b93789e907a7511f20ff5a5a5b8a0703c1 *pgvector.tar.gz" | sha256sum --strict --check && \
+    mkdir pgvector && \
+    tar -xzf pgvector.tar.gz -C pgvector --strip-components=1 && \
+    rm pgvector.tar.gz
 WORKDIR /tmp/pgvector
 RUN export PG_CFLAGS="-Wall -Wextra -Wno-unused-parameter -Wno-sign-compare" && \
-    echo "trusted = true" >> vector.control && \
     make clean -j && \
     make USE_PGXS=1 OPTFLAGS="" -j
 
 ######################
-# pg_cron
+# pg_cron v1.6.7
 ######################
-
-FROM builder AS builder-pg_cron
-
-ARG PG_VERSION_MAJOR
-ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
 # Build the extension
 WORKDIR /tmp
-RUN git clone --branch v1.6.7 https://github.com/citusdata/pg_cron.git
+RUN curl -fsSL -o pg_cron.tar.gz "https://codeload.github.com/citusdata/pg_cron/tar.gz/465b38c737f584d520229f5a1d69d1d44649e4e5" && \
+    echo "ab41d388d845c05ab6f34fa8e12011da2d71f7f562194ee105a6fdecb506a70f *pg_cron.tar.gz" | sha256sum --strict --check && \
+    mkdir pg_cron && \
+    tar -xzf pg_cron.tar.gz -C pg_cron --strip-components=1 && \
+    rm pg_cron.tar.gz
 WORKDIR /tmp/pg_cron
-RUN echo "trusted = true" >> pg_cron.control && \
-    make clean -j && \
+RUN make clean -j && \
     make USE_PGXS=1 -j
 
 ######################
-# pg_ivm
+# pg_ivm v1.13
 ######################
-
-FROM builder AS builder-pg_ivm
-
-ARG PG_VERSION_MAJOR
-ENV PG_CONFIG=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
 # Build the extension
 WORKDIR /tmp
-RUN git clone --branch v1.13 https://github.com/sraoss/pg_ivm.git
+RUN curl -fsSL -o pg_ivm.tar.gz "https://codeload.github.com/sraoss/pg_ivm/tar.gz/98a262ce0906b8afbb8e6bce8dd05779f8c50cac" && \
+    echo "8d91beee4cf0f1d5bfc2b056b7513e0ea060d4da442926f5c6925ed6b77c528c *pg_ivm.tar.gz" | sha256sum --strict --check && \
+    mkdir pg_ivm && \
+    tar -xzf pg_ivm.tar.gz -C pg_ivm --strip-components=1 && \
+    rm pg_ivm.tar.gz
 WORKDIR /tmp/pg_ivm
-RUN echo "trusted = true" >> pg_ivm.control && \
-    make clean -j && \
+RUN make clean -j && \
     make USE_PGXS=1 -j
 
 ###############################################
@@ -158,15 +158,15 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # Copy third-party extensions from their builder stages
-COPY --from=builder-pgvector /tmp/pgvector/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-COPY --from=builder-pgvector /tmp/pgvector/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_cron /tmp/pg_cron/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-COPY --from=builder-pg_cron /tmp/pg_cron/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_cron /tmp/pg_cron/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_ivm /tmp/pg_ivm/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-COPY --from=builder-pg_ivm /tmp/pg_ivm/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_ivm /tmp/pg_ivm/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder /tmp/pgvector/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder /tmp/pgvector/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder /tmp/pgvector/sql/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder /tmp/pg_cron/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder /tmp/pg_cron/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder /tmp/pg_cron/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder /tmp/pg_ivm/*.so /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder /tmp/pg_ivm/*.control /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder /tmp/pg_ivm/*.sql /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 
 # Install Barman Cloud and its dependencies for Azure, Google, and AWS via `pip`, and clean up after the installation to
 # minimize the size of the image. These are required for enabling Postgres backups in our CloudNativePG deployments.
@@ -205,14 +205,9 @@ RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_sea
     echo "cron.database_name = 'postgres'" >> /usr/share/postgresql/postgresql.conf.sample && \
     echo "pg_stat_statements.track = 'top'" >> /usr/share/postgresql/postgresql.conf.sample
 
-
-WORKDIR /tmp
-RUN apt-get update && apt-get install -y --no-install-recommends wget && \
-    rm -rf /var/lib/apt/lists/*
-
 # Copy the ParadeDB extension from its builder stage
-COPY --from=builder-pg_search /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-COPY --from=builder-pg_search /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 
 # Optionally install the Antithesis instrumentation library if this Docker build is intended for use with Antithesis
 RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
@@ -220,23 +215,6 @@ RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
    mkdir /symbols && \
    ln -s /usr/lib/postgresql/18/lib/pg_search.so /symbols/pg_search.so ; \
  fi
-
-# In order for users to manually install additional PostgreSQL extensions
-# (e.g. PostGIS, pg_partman, etc.) that ParadeDB does not ship with by default,
-# we ensure the PostgreSQL APT (PGDG) repository is present in the image.
-#
-# The upstream `postgres` image already installs the PGDG signing key into
-# /usr/local/share/keyrings/postgres.gpg.asc. We reference that key explicitly
-# via `signed-by` so the repository can be verified correctly.
-#
-# We intentionally do NOT run `apt-get update` here to avoid downloading
-# package indexes during image build. Users can run `apt-get update`
-# themselves before installing additional packages.
-RUN echo "deb [signed-by=/usr/local/share/keyrings/postgres.gpg.asc] https://apt.postgresql.org/pub/repos/apt trixie-pgdg main" \
-    > /etc/apt/sources.list.d/pgdg.list && \
-    apt-get purge -y wget && \
-    apt-get autoremove -y && \
-    rm -rf /var/lib/apt/lists/*
 
 # Reset the working directory to the root directory
 WORKDIR /

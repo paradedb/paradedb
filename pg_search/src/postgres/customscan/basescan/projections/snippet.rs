@@ -19,12 +19,13 @@ use std::ptr::addr_of_mut;
 
 use crate::api::{FieldName, HashMap, Varno};
 use crate::nodecast;
+use crate::postgres::customscan::parameterized_value::ParameterizedValue;
 use crate::postgres::var::find_one_var;
 
 use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{
     default, direct_function_call, extension_sql, pg_extern, pg_guard, pg_sys, AnyElement,
-    FromDatum, IntoDatum, PgList,
+    IntoDatum, PgList,
 };
 use std::sync::OnceLock;
 use tantivy::snippet::{SnippetGenerator, SnippetSortOrder};
@@ -36,24 +37,35 @@ const DEFAULT_SNIPPET_LIMIT: i32 = 5;
 const DEFAULT_SNIPPET_OFFSET: i32 = 0;
 
 /// The limit and offset for "fragments" (essentially, matches with a small amount of context).
+///
+/// Both fields are wrapped in `ParameterizedValue` so they can carry either a
+/// planning-time `Const` or an extern `Param` resolved at execution time.
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct FragmentPositionsConfig {
-    pub limit: Option<i32>,
-    pub offset: Option<i32>,
+    pub limit: Option<ParameterizedValue<i32>>,
+    pub offset: Option<ParameterizedValue<i32>>,
 }
 
 impl FragmentPositionsConfig {
-    pub fn limit(&self) -> Option<usize> {
-        self.limit.map(|v| {
-            assert!(v >= 0, "limit must not be negative");
-            v as usize
+    /// Resolve the LIMIT against the executor state. Returns `None` if there is
+    /// no LIMIT or the parameter resolves to NULL.
+    pub unsafe fn resolve_limit(&self, estate: *mut pg_sys::EState) -> Option<usize> {
+        self.limit.as_ref().and_then(|v| {
+            v.resolve(estate).map(|raw| {
+                assert!(raw >= 0, "limit must not be negative");
+                raw as usize
+            })
         })
     }
 
-    pub fn offset(&self) -> Option<usize> {
-        self.offset.map(|v| {
-            assert!(v >= 0, "offset must not be negative");
-            v as usize
+    /// Resolve the OFFSET against the executor state. Returns `None` if there is
+    /// no OFFSET or the parameter resolves to NULL.
+    pub unsafe fn resolve_offset(&self, estate: *mut pg_sys::EState) -> Option<usize> {
+        self.offset.as_ref().and_then(|v| {
+            v.resolve(estate).map(|raw| {
+                assert!(raw >= 0, "offset must not be negative");
+                raw as usize
+            })
         })
     }
 }
@@ -62,19 +74,29 @@ impl FragmentPositionsConfig {
 /// size limit).
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct SnippetPositionsConfig {
-    pub limit: Option<i32>,
-    pub offset: Option<i32>,
+    pub limit: Option<ParameterizedValue<i32>>,
+    pub offset: Option<ParameterizedValue<i32>>,
 }
 
 impl SnippetPositionsConfig {
-    pub fn limit_or_default(&self) -> usize {
-        let limit = self.limit.unwrap_or(DEFAULT_SNIPPET_LIMIT);
+    /// Resolve the LIMIT, falling back to `DEFAULT_SNIPPET_LIMIT` when absent or NULL.
+    pub unsafe fn resolve_limit_or_default(&self, estate: *mut pg_sys::EState) -> usize {
+        let limit = self
+            .limit
+            .as_ref()
+            .and_then(|v| v.resolve(estate))
+            .unwrap_or(DEFAULT_SNIPPET_LIMIT);
         assert!(limit >= 0, "limit must not be negative");
         limit as usize
     }
 
-    pub fn offset_or_default(&self) -> usize {
-        let offset = self.offset.unwrap_or(DEFAULT_SNIPPET_OFFSET);
+    /// Resolve the OFFSET, falling back to `DEFAULT_SNIPPET_OFFSET` when absent or NULL.
+    pub unsafe fn resolve_offset_or_default(&self, estate: *mut pg_sys::EState) -> usize {
+        let offset = self
+            .offset
+            .as_ref()
+            .and_then(|v| v.resolve(estate))
+            .unwrap_or(DEFAULT_SNIPPET_OFFSET);
         assert!(offset >= 0, "offset must not be negative");
         offset as usize
     }
@@ -82,11 +104,45 @@ impl SnippetPositionsConfig {
 
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct SnippetConfig {
-    pub start_tag: String,
-    pub end_tag: String,
-    pub max_num_chars: usize,
+    pub start_tag: ParameterizedValue<String>,
+    pub end_tag: ParameterizedValue<String>,
+    pub max_num_chars: ParameterizedValue<i32>,
 }
 
+impl SnippetConfig {
+    pub unsafe fn resolve_start_tag(&self, estate: *mut pg_sys::EState) -> String {
+        resolve_tag_or_default(&self.start_tag, estate, DEFAULT_SNIPPET_PREFIX)
+    }
+
+    pub unsafe fn resolve_end_tag(&self, estate: *mut pg_sys::EState) -> String {
+        resolve_tag_or_default(&self.end_tag, estate, DEFAULT_SNIPPET_POSTFIX)
+    }
+
+    pub unsafe fn resolve_max_num_chars(&self, estate: *mut pg_sys::EState) -> usize {
+        let v = self
+            .max_num_chars
+            .resolve(estate)
+            .unwrap_or(DEFAULT_SNIPPET_MAX_NUM_CHARS);
+        assert!(v >= 0, "max_num_chars must not be negative");
+        v as usize
+    }
+}
+
+unsafe fn resolve_tag_or_default(
+    tag: &ParameterizedValue<String>,
+    estate: *mut pg_sys::EState,
+    default: &str,
+) -> String {
+    tag.resolve(estate).unwrap_or_else(|| default.to_string())
+}
+
+// TODO: `SnippetType` is used as a `HashMap` key, so `SnippetConfig` fields
+// (which contain `ParameterizedValue<String>`) cannot use `resolve_mut` to
+// convert Param → Static in place — mutating a key would corrupt the map.
+// The clean fix is to separate identity (field name + param IDs → key) from
+// mutable config (resolved tags, generator, const nodes → value) into a
+// single `HashMap<SnippetId, SnippetState>`. Until then, snippet resolution
+// uses `resolve()` (clones per call) instead of `resolve_mut()`.
 #[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub enum SnippetType {
     SingleText(FieldName, SnippetConfig, FragmentPositionsConfig),
@@ -94,9 +150,24 @@ pub enum SnippetType {
         FieldName,
         SnippetConfig,
         SnippetPositionsConfig,
-        SnippetSortOrder,
+        // Sort order is held as a string so a parameterized `sort_by` arg can
+        // reach execution time before being converted to `SnippetSortOrder`.
+        ParameterizedValue<String>,
     ),
     Positions(FieldName, FragmentPositionsConfig),
+}
+
+/// Parse a `sort_by` string into a `SnippetSortOrder`. NULL falls back to the
+/// default (`Score`); any other value reports a SQL error at execution time
+/// (parameterized values can't be validated at planning time).
+fn parse_sort_order(s: Option<&str>) -> SnippetSortOrder {
+    match s {
+        None | Some("score") => SnippetSortOrder::Score,
+        Some("position") => SnippetSortOrder::Position,
+        Some(_) => {
+            pgrx::error!("invalid sort_by value for pdb.snippets: must be 'score' or 'position'")
+        }
+    }
 }
 
 impl SnippetType {
@@ -116,10 +187,16 @@ impl SnippetType {
         }
     }
 
-    pub fn configure_generator(&self, generator: &mut SnippetGenerator) {
+    pub unsafe fn configure_generator(
+        &self,
+        generator: &mut SnippetGenerator,
+        estate: *mut pg_sys::EState,
+    ) {
         match self {
             SnippetType::SingleText(_, config, positions_config) => {
-                if positions_config.limit().is_some() || positions_config.offset().is_some() {
+                let limit = positions_config.resolve_limit(estate);
+                let offset = positions_config.resolve_offset(estate);
+                if limit.is_some() || offset.is_some() {
                     pg_sys::panic::ErrorReport::new(
                         pgrx::PgSqlErrorCode::ERRCODE_WARNING_DEPRECATED_FEATURE,
                         "using `limit` or `offset` with `pdb.snippet` is deprecated",
@@ -131,30 +208,31 @@ impl SnippetType {
                 }
                 // Do not use a limit or offset unless they have been specified: otherwise we might
                 // not highlight all matches in the configured `max_num_chars`.
-                if let Some(limit) = positions_config.limit() {
-                    generator.set_matches_limit(limit as usize);
+                if let Some(limit) = limit {
+                    generator.set_matches_limit(limit);
                 }
-                if let Some(offset) = positions_config.offset() {
-                    generator.set_matches_offset(offset as usize);
+                if let Some(offset) = offset {
+                    generator.set_matches_offset(offset);
                 }
-                generator.set_max_num_chars(config.max_num_chars);
+                generator.set_max_num_chars(config.resolve_max_num_chars(estate));
             }
-            SnippetType::MultipleText(_, config, positions_config, sort_order) => {
+            SnippetType::MultipleText(_, config, positions_config, sort_by) => {
                 // We always use a (default) limit and offset for positions, as we might
                 // potentially produce a huge array otherwise.
-                generator.set_snippets_limit(positions_config.limit_or_default());
-                generator.set_snippets_offset(positions_config.offset_or_default());
-                generator.set_max_num_chars(config.max_num_chars);
-                generator.set_sort_order(*sort_order);
+                generator.set_snippets_limit(positions_config.resolve_limit_or_default(estate));
+                generator.set_snippets_offset(positions_config.resolve_offset_or_default(estate));
+                generator.set_max_num_chars(config.resolve_max_num_chars(estate));
+                let resolved = sort_by.resolve(estate);
+                generator.set_sort_order(parse_sort_order(resolved.as_deref()));
             }
             SnippetType::Positions(_, positions_config) => {
                 // Positions are expected to be fairly small, so we always render all of them by
                 // default.
-                if let Some(limit) = positions_config.limit() {
-                    generator.set_matches_limit(limit as usize);
+                if let Some(limit) = positions_config.resolve_limit(estate) {
+                    generator.set_matches_limit(limit);
                 }
-                if let Some(offset) = positions_config.offset() {
-                    generator.set_matches_offset(offset as usize);
+                if let Some(offset) = positions_config.resolve_offset(estate) {
+                    generator.set_matches_offset(offset);
                 }
                 // If SnippetType::Positions, set max_num_chars to u32::MAX because the entire doc must be considered
                 // This assumes text fields can be no more than u32::MAX bytes.
@@ -516,6 +594,23 @@ pub unsafe fn uses_snippets(
     context.snippet_type
 }
 
+/// Resolve the field arg (always arg 0) of a snippet function to its
+/// indexed `FieldName`. Returns `None` if the arg isn't a single Var.
+#[inline]
+unsafe fn extract_snippet_field_attname(
+    args: &PgList<pg_sys::Node>,
+    planning_rti: pg_sys::Index,
+    attname_lookup: &HashMap<(Varno, pg_sys::AttrNumber), FieldName>,
+) -> Option<FieldName> {
+    let field_arg = find_one_var(args.get_ptr(0).unwrap())?;
+    Some(
+        attname_lookup
+            .get(&(planning_rti as _, (*field_arg).varattno as _))
+            .cloned()
+            .expect("Var attname should be in lookup"),
+    )
+}
+
 #[inline(always)]
 pub unsafe fn extract_snippet(
     func: *mut pg_sys::FuncExpr,
@@ -529,53 +624,29 @@ pub unsafe fn extract_snippet(
     let args = PgList::<pg_sys::Node>::from_pg((*func).args);
     assert!(args.len() == 6);
 
-    let field_arg = find_one_var(args.get_ptr(0).unwrap());
-    let start_arg = nodecast!(Const, T_Const, args.get_ptr(1).unwrap());
-    let end_arg = nodecast!(Const, T_Const, args.get_ptr(2).unwrap());
-    let max_num_chars_arg = nodecast!(Const, T_Const, args.get_ptr(3).unwrap());
-    let limit_arg = nodecast!(Const, T_Const, args.get_ptr(4).unwrap());
-    let offset_arg = nodecast!(Const, T_Const, args.get_ptr(5).unwrap());
+    let attname = extract_snippet_field_attname(&args, planning_rti, attname_lookup)?;
 
-    if let (
-        Some(field_arg),
-        Some(start_arg),
-        Some(end_arg),
-        Some(max_num_chars_arg),
-        Some(limit_arg),
-        Some(offset_arg),
-    ) = (
-        field_arg,
-        start_arg,
-        end_arg,
-        max_num_chars_arg,
-        limit_arg,
-        offset_arg,
-    ) {
-        let attname = attname_lookup
-            .get(&(planning_rti as _, (*field_arg).varattno as _))
-            .cloned()
-            .expect("Var attname should be in lookup");
-        let start_tag = String::from_datum((*start_arg).constvalue, (*start_arg).constisnull);
-        let end_tag = String::from_datum((*end_arg).constvalue, (*end_arg).constisnull);
-        let max_num_chars = i32::from_datum(
-            (*max_num_chars_arg).constvalue,
-            (*max_num_chars_arg).constisnull,
-        );
-        let limit = i32::from_datum((*limit_arg).constvalue, (*limit_arg).constisnull);
-        let offset = i32::from_datum((*offset_arg).constvalue, (*offset_arg).constisnull);
+    // All formatting/limit args may be either Const (resolved at planning
+    // time) or extern Param (resolved at execution time in GENERIC plan
+    // mode). The legacy code panicked on Param here.
+    let start_tag = ParameterizedValue::<String>::from_node(args.get_ptr(1).unwrap())
+        .unwrap_or_else(|| ParameterizedValue::Static(DEFAULT_SNIPPET_PREFIX.to_string()));
+    let end_tag = ParameterizedValue::<String>::from_node(args.get_ptr(2).unwrap())
+        .unwrap_or_else(|| ParameterizedValue::Static(DEFAULT_SNIPPET_POSTFIX.to_string()));
+    let max_num_chars = ParameterizedValue::<i32>::from_node(args.get_ptr(3).unwrap())
+        .unwrap_or(ParameterizedValue::Static(DEFAULT_SNIPPET_MAX_NUM_CHARS));
+    let limit = ParameterizedValue::<i32>::from_node(args.get_ptr(4).unwrap());
+    let offset = ParameterizedValue::<i32>::from_node(args.get_ptr(5).unwrap());
 
-        Some(SnippetType::SingleText(
-            attname,
-            SnippetConfig {
-                start_tag: start_tag.unwrap_or_else(|| DEFAULT_SNIPPET_PREFIX.to_string()),
-                end_tag: end_tag.unwrap_or_else(|| DEFAULT_SNIPPET_POSTFIX.to_string()),
-                max_num_chars: max_num_chars.unwrap_or(DEFAULT_SNIPPET_MAX_NUM_CHARS) as usize,
-            },
-            FragmentPositionsConfig { limit, offset },
-        ))
-    } else {
-        panic!("`pdb.snippets()`'s arguments must be literals")
-    }
+    Some(SnippetType::SingleText(
+        attname,
+        SnippetConfig {
+            start_tag,
+            end_tag,
+            max_num_chars,
+        },
+        FragmentPositionsConfig { limit, offset },
+    ))
 }
 
 #[inline(always)]
@@ -591,65 +662,32 @@ pub unsafe fn extract_snippets(
     let args = PgList::<pg_sys::Node>::from_pg((*func).args);
     assert!(args.len() == 7);
 
-    let field_arg = find_one_var(args.get_ptr(0).unwrap());
-    let start_arg = nodecast!(Const, T_Const, args.get_ptr(1).unwrap());
-    let end_arg = nodecast!(Const, T_Const, args.get_ptr(2).unwrap());
-    let max_num_chars_arg = nodecast!(Const, T_Const, args.get_ptr(3).unwrap());
-    let limit_arg = nodecast!(Const, T_Const, args.get_ptr(4).unwrap());
-    let offset_arg = nodecast!(Const, T_Const, args.get_ptr(5).unwrap());
-    let sort_by_arg = nodecast!(Const, T_Const, args.get_ptr(6).unwrap());
+    let attname = extract_snippet_field_attname(&args, planning_rti, attname_lookup)?;
 
-    if let (
-        Some(field_arg),
-        Some(start_arg),
-        Some(end_arg),
-        Some(max_num_chars_arg),
-        Some(limit_arg),
-        Some(offset_arg),
-        Some(sort_by_arg),
-    ) = (
-        field_arg,
-        start_arg,
-        end_arg,
-        max_num_chars_arg,
-        limit_arg,
-        offset_arg,
-        sort_by_arg,
-    ) {
-        let attname = attname_lookup
-            .get(&(planning_rti as _, (*field_arg).varattno as _))
-            .cloned()
-            .expect("Var attname should be in lookup");
-        let start_tag = String::from_datum((*start_arg).constvalue, (*start_arg).constisnull);
-        let end_tag = String::from_datum((*end_arg).constvalue, (*end_arg).constisnull);
-        let max_num_chars = i32::from_datum(
-            (*max_num_chars_arg).constvalue,
-            (*max_num_chars_arg).constisnull,
-        );
-        let limit = i32::from_datum((*limit_arg).constvalue, (*limit_arg).constisnull);
-        let offset = i32::from_datum((*offset_arg).constvalue, (*offset_arg).constisnull);
-        let sort_by = String::from_datum((*sort_by_arg).constvalue, (*sort_by_arg).constisnull)
-            .unwrap_or_else(|| "score".to_string());
+    let start_tag = ParameterizedValue::<String>::from_node(args.get_ptr(1).unwrap())
+        .unwrap_or_else(|| ParameterizedValue::Static(DEFAULT_SNIPPET_PREFIX.to_string()));
+    let end_tag = ParameterizedValue::<String>::from_node(args.get_ptr(2).unwrap())
+        .unwrap_or_else(|| ParameterizedValue::Static(DEFAULT_SNIPPET_POSTFIX.to_string()));
+    let max_num_chars = ParameterizedValue::<i32>::from_node(args.get_ptr(3).unwrap())
+        .unwrap_or(ParameterizedValue::Static(DEFAULT_SNIPPET_MAX_NUM_CHARS));
+    let limit = ParameterizedValue::<i32>::from_node(args.get_ptr(4).unwrap());
+    let offset = ParameterizedValue::<i32>::from_node(args.get_ptr(5).unwrap());
+    // sort_by is a String at the SQL level; we defer the conversion to
+    // SnippetSortOrder until execution time so a parameterized value can
+    // also flow through.
+    let sort_by = ParameterizedValue::<String>::from_node(args.get_ptr(6).unwrap())
+        .unwrap_or_else(|| ParameterizedValue::Static("score".to_string()));
 
-        let sort_order = match sort_by.as_str() {
-            "score" => SnippetSortOrder::Score,
-            "position" => SnippetSortOrder::Position,
-            _ => panic!("invalid sort_by value for pdb.snippets: must be 'score' or 'position'"),
-        };
-
-        Some(SnippetType::MultipleText(
-            attname,
-            SnippetConfig {
-                start_tag: start_tag.unwrap_or_else(|| DEFAULT_SNIPPET_PREFIX.to_string()),
-                end_tag: end_tag.unwrap_or_else(|| DEFAULT_SNIPPET_POSTFIX.to_string()),
-                max_num_chars: max_num_chars.unwrap_or(DEFAULT_SNIPPET_MAX_NUM_CHARS) as usize,
-            },
-            SnippetPositionsConfig { limit, offset },
-            sort_order,
-        ))
-    } else {
-        panic!("`pdb.snippets()`'s arguments must be literals")
-    }
+    Some(SnippetType::MultipleText(
+        attname,
+        SnippetConfig {
+            start_tag,
+            end_tag,
+            max_num_chars,
+        },
+        SnippetPositionsConfig { limit, offset },
+        sort_by,
+    ))
 }
 
 #[inline(always)]
@@ -668,25 +706,13 @@ pub unsafe fn extract_snippet_positions(
     let args = PgList::<pg_sys::Node>::from_pg((*func).args);
     assert!(args.len() == 3);
 
-    let field_arg = find_one_var(args.get_ptr(0).unwrap());
-    let limit_arg = nodecast!(Const, T_Const, args.get_ptr(1).unwrap());
-    let offset_arg = nodecast!(Const, T_Const, args.get_ptr(2).unwrap());
+    let attname = extract_snippet_field_attname(&args, planning_rti, attname_lookup)?;
 
-    if let (Some(field_arg), Some(limit_arg), Some(offset_arg)) = (field_arg, limit_arg, offset_arg)
-    {
-        let attname = attname_lookup
-            .get(&(planning_rti as _, (*field_arg).varattno as _))
-            .cloned()
-            .expect("Var attname should be in lookup");
+    let limit = ParameterizedValue::<i32>::from_node(args.get_ptr(1).unwrap());
+    let offset = ParameterizedValue::<i32>::from_node(args.get_ptr(2).unwrap());
 
-        let limit = i32::from_datum((*limit_arg).constvalue, (*limit_arg).constisnull);
-        let offset = i32::from_datum((*offset_arg).constvalue, (*offset_arg).constisnull);
-
-        Some(SnippetType::Positions(
-            attname,
-            FragmentPositionsConfig { limit, offset },
-        ))
-    } else {
-        panic!("`pdb.extract_snippet_positions()`'s arguments must be literals")
-    }
+    Some(SnippetType::Positions(
+        attname,
+        FragmentPositionsConfig { limit, offset },
+    ))
 }

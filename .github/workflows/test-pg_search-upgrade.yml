@@ -71,7 +71,15 @@ jobs:
   test-pg_search-upgrade:
     name: Test upgrading pg_search via ALTER EXTENSION
     needs: discover-upgrade-starting-points
-    runs-on: ubicloud-standard-8-arm-ubuntu-2404
+    runs-on:
+      # Compute-optimized c-family — Rust + Postgres tests are CPU-bound.
+      # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
+      - runs-on=${{ github.run_id }}
+      - family=c7g+c8g
+      - cpu=8
+      - ram=16
+      - image=ubuntu24-full-arm64
+      - extras=s3-cache
     strategy:
       fail-fast: false
       matrix:

@@ -20,40 +20,51 @@
 //! See the [JoinScan README](../../postgres/customscan/joinscan/README.md) for
 //! how dynamic filters fit into the overall pruning pipeline.
 //!
-//! Dynamic filters allow parent operators (e.g. `SortExec(TopK)`) to push evolving
-//! thresholds into scan nodes so that rows failing the threshold are pruned *before*
-//! column materialization — at the term-ordinal level for strings and direct
-//! fast-field comparisons for numerics. This is critical for `ORDER BY … LIMIT`
-//! queries over joins: without it, the scan must materialize every row even though
-//! only the Top K are needed.
+//! Dynamic filters allow parent operators (e.g. `SortExec(TopK)` or `HashJoinExec`)
+//! to push filters down into scan nodes so that rows failing the filter are pruned
+//! before column materialization.
+//!
+//! There are two distinct mechanisms for dynamic filter pushdown:
+//!
+//! 1. **Query-Time Pushdown (Inverted Index):** Filters that are known before the scan
+//!    begins (such as `InList` predicates from a completed HashJoin build-side) are
+//!    intercepted during the first `poll_next` of the scan stream. They are converted
+//!    into native Tantivy queries (e.g., `TermSetQuery`) and `AND`ed into the main
+//!    search query. This filters documents *while* executing the search, leveraging
+//!    the inverted index for maximum performance.
+//!
+//! 2. **Pre-Filter Pushdown (Fast Fields):** Evolving thresholds (such as the rolling
+//!    Top K threshold from `SortExec`) or filters that cannot be mapped to the inverted
+//!    index are applied as `PreFilter`s *after* the search but *before* Arrow column
+//!    materialization. These evaluate directly against Tantivy fast fields (using
+//!    term-ordinal bounds for strings or direct numeric comparisons).
 //!
 //! # Data Flow
 //!
 //! ```text
-//! SortExec(TopK)
-//!   creates DynamicFilterPhysicalExpr ("val < current_threshold")
+//! HashJoinExec / SortExec(TopK)
+//!   creates DynamicFilterPhysicalExpr (e.g. "col IN (...)" or "val < current_threshold")
 //!        │
 //!        │  FilterPushdown pass
 //!        ▼
-//! FilterPassthroughExec               ← routes filter to correct join side
-//!   (wraps SortMergeJoinExec)          using FilterDescription::from_children
-//!        │
-//!        ▼
 //! PgSearchScanPlan                   ← handle_child_pushdown_result stores
-//!   .dynamic_filters                   the DynamicFilterPhysicalExpr; when
-//!                                      paradedb.dynamic_filter_batch_size > 0,
-//!                                      caps the scanner batch size so Top K can
-//!                                      tighten its threshold between batches
+//!   .dynamic_filters                   the DynamicFilterPhysicalExpr.
 //!        │
-//!        │  at poll time
+//!        │  at first poll_next
+//!        ▼
+//! try_dynamic_filter_pushdown()      ← Converts eligible static filters (like InList)
+//!                                      into a Tantivy Query and modifies the SearchIndexReader.
+//!                                      Rewrites the DataFusion expr to lit(true).
+//!        │
+//!        │  at every poll_next
 //!        ▼
 //! ScanStream::collect_pre_filters    ← calls DynamicFilterPhysicalExpr::current()
-//!   → collect_filters()                to get the latest threshold, decomposes
-//!   → Vec<PreFilter>                   it into PreFilter(s)
+//!   → collect_filters()                to get the latest threshold for remaining filters,
+//!   → Vec<PreFilter>                   decomposes them into PreFilter(s).
 //!        │
 //!        ▼
 //! Scanner::next()                    ← applies PreFilters via apply_arrow()
-//!   prunes doc IDs in-place            before materializing Arrow columns
+//!   prunes doc IDs in-place            before materializing Arrow columns.
 //! ```
 //!
 //! # SortMergeJoin Propagation
@@ -106,7 +117,13 @@ use datafusion::physical_plan::expressions::InListExpr;
 use datafusion::physical_plan::joins::HashTableLookupExpr;
 use tantivy::SegmentOrdinal;
 
+use crate::api::HashSet;
 use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
+use crate::query::value_to_term;
+use crate::scan::filter_pushdown::scalar_to_owned_value;
+use crate::schema::SearchFieldType;
+use tantivy::query::{BooleanQuery, ConstScoreQuery, Occur, Query, TermSetQuery};
+use tantivy::Term;
 
 /// A pre-materialization filter applied inside `Scanner::next()`.
 ///
@@ -627,5 +644,167 @@ fn flip_operator(op: &Operator) -> Option<Operator> {
         Operator::Eq => Some(Operator::Eq),
         Operator::NotEq => Some(Operator::NotEq),
         _ => None,
+    }
+}
+
+fn extract_physical_scalar_value(expr: &Arc<dyn PhysicalExpr>) -> Option<ScalarValue> {
+    if let Some(lit) = expr.as_any().downcast_ref::<Literal>() {
+        return Some(lit.value().clone());
+    }
+    None
+}
+
+fn extract_in_list_exprs<'a>(
+    expr: &'a Arc<dyn PhysicalExpr>,
+    in_lists: &mut Vec<&'a Arc<dyn PhysicalExpr>>,
+) {
+    if expr.as_any().downcast_ref::<InListExpr>().is_some() {
+        in_lists.push(expr);
+    } else if let Some(binary) = expr.as_any().downcast_ref::<BinaryExpr>() {
+        if matches!(binary.op(), Operator::And) {
+            extract_in_list_exprs(binary.left(), in_lists);
+            extract_in_list_exprs(binary.right(), in_lists);
+        }
+    }
+}
+
+fn try_convert_in_list_to_query(
+    in_list: &InListExpr,
+    schema: &crate::schema::SearchIndexSchema,
+) -> Option<Box<dyn Query>> {
+    if in_list.negated() {
+        return None;
+    }
+
+    let col = in_list.expr().as_any().downcast_ref::<Column>()?;
+    let field = schema.search_field(col.name())?;
+
+    if field.is_text() && !field.is_keyword() {
+        return None;
+    }
+
+    let field_type = field.field_type();
+
+    // Check GUC thresholds
+    let max_size = crate::gucs::hash_join_inlist_pushdown_max_size() as usize;
+    let max_distinct = crate::gucs::hash_join_inlist_pushdown_max_distinct_values() as usize;
+
+    if in_list.list().len() > max_distinct {
+        return None;
+    }
+
+    // Estimate size: this is a rough estimate based on the number of elements
+    // and their typical size.
+    let estimated_size = in_list.list().len() * 32; // Assume ~32 bytes per element
+    if estimated_size > max_size {
+        return None;
+    }
+
+    let tantivy_schema = schema.tantivy_schema();
+    let tantivy_field = tantivy_schema.get_field(col.name()).ok()?;
+    let tantivy_field_type = tantivy_schema.get_field_entry(tantivy_field).field_type();
+    let is_date = matches!(field_type, SearchFieldType::Date(_));
+
+    let terms: Option<Vec<Term>> = in_list
+        .list()
+        .iter()
+        .map(|expr| {
+            let scalar = extract_physical_scalar_value(expr)?;
+            let owned_value = scalar_to_owned_value(&scalar, &field_type)?;
+            value_to_term(
+                tantivy_field,
+                &owned_value,
+                tantivy_field_type,
+                None,
+                is_date,
+            )
+            .ok()
+        })
+        .collect();
+
+    let terms = terms?;
+    if terms.is_empty() {
+        return None;
+    }
+
+    let term_set_query = TermSetQuery::new(terms);
+    let const_score_query = ConstScoreQuery::new(Box::new(term_set_query), 0.0);
+    Some(Box::new(const_score_query) as Box<dyn Query>)
+}
+
+/// Try to push down `InList` expressions from `dynamic_filters` into the search query.
+///
+/// This is called during the first `poll_next` of the scan stream to convert eligible `InList`
+/// predicates (e.g. generated from a `HashJoin` build side) into native Tantivy `TermSet` queries.
+///
+/// By modifying the `SearchIndexReader` directly, this optimization allows Tantivy to filter
+/// documents via its inverted index *while* executing the search, rather than filtering them
+/// via fast fields after the search has returned.
+///
+/// If any expressions are successfully pushed down, this function:
+/// 1. Combines them into a `BooleanQuery` and `AND`s it into the `reader`'s query.
+/// 2. Mutates the provided `dynamic_filters` array in-place, rewriting the DataFusion
+///    expressions to replace the pushed down nodes with `lit(true)` so they are not evaluated again.
+/// 3. Returns `true` to indicate that a pushdown occurred.
+pub fn try_dynamic_filter_pushdown(
+    reader: &mut crate::index::reader::index::SearchIndexReader,
+    dynamic_filters: &mut [Arc<dyn PhysicalExpr>],
+) -> bool {
+    let mut pushed_down_queries: Vec<Box<dyn Query>> = Vec::new();
+    let mut pushed_down_pointers = HashSet::default();
+    let schema = reader.schema();
+
+    for df in dynamic_filters {
+        let Some(dynamic) = df.as_any().downcast_ref::<DynamicFilterPhysicalExpr>() else {
+            continue;
+        };
+        let Ok(current_expr) = dynamic.current() else {
+            continue;
+        };
+
+        let mut extracted_in_lists = Vec::new();
+        extract_in_list_exprs(&current_expr, &mut extracted_in_lists);
+
+        for in_list_arc in extracted_in_lists {
+            let in_list = in_list_arc.as_any().downcast_ref::<InListExpr>().unwrap();
+
+            if let Some(query) = try_convert_in_list_to_query(in_list, schema) {
+                pushed_down_queries.push(query);
+                pushed_down_pointers.insert(Arc::as_ptr(in_list_arc) as *const () as usize);
+            }
+        }
+
+        if !pushed_down_pointers.is_empty() {
+            // Rewrite the expression to replace those nodes with lit(true)
+            let rewritten = current_expr
+                .clone()
+                .transform_down(|node| {
+                    if pushed_down_pointers.contains(&(Arc::as_ptr(&node) as *const () as usize)) {
+                        Ok(Transformed::yes(Arc::new(Literal::new(
+                            ScalarValue::Boolean(Some(true)),
+                        ))))
+                    } else {
+                        Ok(Transformed::no(node))
+                    }
+                })
+                .unwrap()
+                .data;
+
+            // Replace the DynamicFilterPhysicalExpr with the rewritten normal expression!
+            *df = rewritten;
+            pushed_down_pointers.clear();
+        }
+    }
+
+    if pushed_down_queries.is_empty() {
+        false
+    } else {
+        let combined_musts: Vec<(Occur, Box<dyn Query>)> = pushed_down_queries
+            .into_iter()
+            .map(|q| (Occur::Must, q))
+            .collect();
+        let boolean_query = BooleanQuery::new(combined_musts);
+        reader.and_query(Box::new(boolean_query));
+        true
     }
 }

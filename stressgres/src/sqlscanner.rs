@@ -108,71 +108,61 @@ impl<'a> SqlStatementScannerIterator<'a> {
 
             match c {
                 // handle $foo$ quoting
-                '$' => {
-                    if !(in_sl_comment || in_ml_comment) {
-                        let begin = idx;
-                        let mut end = idx;
-                        let mut incomplete = false;
-                        loop {
-                            match iter.next() {
-                                Some((i2, c2)) => {
-                                    end = i2;
-                                    if c2 == '$' {
-                                        break;
-                                    } else if !c2.is_alphanumeric() && c2 != '_' {
-                                        // not a valid "dollar tag"
-                                        putback = Some((i2, c2));
-                                        break;
-                                    }
-                                }
-                                None => {
-                                    incomplete = true;
+                '$' if !(in_sl_comment || in_ml_comment) => {
+                    let begin = idx;
+                    let mut end = idx;
+                    let mut incomplete = false;
+                    loop {
+                        match iter.next() {
+                            Some((i2, c2)) => {
+                                end = i2;
+                                if c2 == '$' {
+                                    break;
+                                } else if !c2.is_alphanumeric() && c2 != '_' {
+                                    // not a valid "dollar tag"
+                                    putback = Some((i2, c2));
                                     break;
                                 }
                             }
-                        }
-                        if putback.is_some() {
-                            continue;
-                        }
-                        if !incomplete {
-                            let quote = &input[begin..=end];
-                            match current_dollar_quote.as_ref() {
-                                Some(q) if quote == *q => {
-                                    // end the quote
-                                    current_dollar_quote = None;
-                                }
-                                None => {
-                                    // start a new quote
-                                    current_dollar_quote = Some(quote);
-                                }
-                                _ => {}
+                            None => {
+                                incomplete = true;
+                                break;
                             }
+                        }
+                    }
+                    if putback.is_some() {
+                        continue;
+                    }
+                    if !incomplete {
+                        let quote = &input[begin..=end];
+                        match current_dollar_quote.as_ref() {
+                            Some(q) if quote == *q => {
+                                // end the quote
+                                current_dollar_quote = None;
+                            }
+                            None => {
+                                // start a new quote
+                                current_dollar_quote = Some(quote);
+                            }
+                            _ => {}
                         }
                     }
                 }
 
                 // toggles
-                '"' => {
-                    if !(in_sl_comment || in_ml_comment || in_squote) {
-                        in_dquote = !in_dquote;
-                    }
+                '"' if !(in_sl_comment || in_ml_comment || in_squote) => {
+                    in_dquote = !in_dquote;
                 }
-                '\'' => {
-                    if !(in_sl_comment || in_ml_comment || in_dquote) {
-                        in_squote = !in_squote;
-                    }
+                '\'' if !(in_sl_comment || in_ml_comment || in_dquote) => {
+                    in_squote = !in_squote;
                 }
 
                 // slash slash or dash dash for single line comments
-                '/' if nextc == '/' => {
-                    if !in_ml_comment {
-                        in_sl_comment = true;
-                    }
+                '/' if nextc == '/' && !in_ml_comment => {
+                    in_sl_comment = true;
                 }
-                '-' if nextc == '-' => {
-                    if !in_ml_comment {
-                        in_sl_comment = true;
-                    }
+                '-' if nextc == '-' && !in_ml_comment => {
+                    in_sl_comment = true;
                 }
                 '\r' | '\n' => {
                     if in_sl_comment && !(in_squote || in_dquote || current_dollar_quote.is_some())
@@ -183,43 +173,37 @@ impl<'a> SqlStatementScannerIterator<'a> {
                 }
 
                 // slash star to start or star slash to end multi line
-                '/' if nextc == '*' => {
-                    if !in_sl_comment {
-                        in_ml_comment = true;
-                    }
+                '/' if nextc == '*' && !in_sl_comment => {
+                    in_ml_comment = true;
                 }
                 '*' if nextc == '/' => {
                     in_ml_comment = false;
                 }
 
                 // skip escapes
-                '\\' => {
-                    if !(in_sl_comment || in_ml_comment) {
-                        // skip next char
-                        iter.next();
-                    }
+                '\\' if !(in_sl_comment || in_ml_comment) => {
+                    // skip next char
+                    iter.next();
                 }
 
                 // semicolon ends the statement if not inside quotes/comments
-                ';' => {
-                    if !(in_sl_comment
-                        || in_ml_comment
-                        || in_squote
-                        || in_dquote
-                        || current_dollar_quote.is_some())
-                    {
-                        // consume trailing whitespace
-                        while nextc.is_whitespace() && iter.next().is_some() {
-                            nextc = match iter.peek() {
-                                Some((_, cc)) => *cc,
-                                None => '\0',
-                            };
-                            idx += 1;
-                        }
-                        sql = Some(&input[offset..=idx]);
-                        self.start += idx + 1;
-                        break;
+                ';' if !(in_sl_comment
+                    || in_ml_comment
+                    || in_squote
+                    || in_dquote
+                    || current_dollar_quote.is_some()) =>
+                {
+                    // consume trailing whitespace
+                    while nextc.is_whitespace() && iter.next().is_some() {
+                        nextc = match iter.peek() {
+                            Some((_, cc)) => *cc,
+                            None => '\0',
+                        };
+                        idx += 1;
                     }
+                    sql = Some(&input[offset..=idx]);
+                    self.start += idx + 1;
+                    break;
                 }
                 _ => {}
             }

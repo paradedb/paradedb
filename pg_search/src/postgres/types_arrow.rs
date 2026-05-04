@@ -202,6 +202,12 @@ pub fn arrow_array_to_datum(
             match &oid {
                 PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => val.into_datum(),
                 PgOid::BuiltIn(PgBuiltInOids::FLOAT4OID) => (val as f32).into_datum(), // Cast f64 to f32
+                // Legacy pre-v0.22.0 indexes stored NUMERIC fields as F64. Reading those
+                // fast fields back must round-trip through `AnyNumeric` to return a NUMERIC
+                // datum rather than the FLOAT8 the column-type widening would imply.
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => pgrx::AnyNumeric::try_from(val)
+                    .map_err(|e| format!("Failed to convert f64 to AnyNumeric: {e:?}"))?
+                    .into_datum(),
                 _ => return Err(format!("Unsupported OID for Float64 Arrow type: {oid:?}")),
             }
         }
@@ -580,6 +586,12 @@ mod tests {
                 let oid_f32 = PgOid::from(PgBuiltInOids::FLOAT4OID.value());
                 test_conversion_roundtrip(original_val, create_float64_array, oid_f32, |v| v as f32);
             }
+
+            // Test NUMERICOID (legacy pre-v0.22.0 indexes stored NUMERIC as F64).
+            let oid_numeric = PgOid::from(PgBuiltInOids::NUMERICOID.value());
+            test_conversion_roundtrip(original_val, create_float64_array, oid_numeric, |v| {
+                pgrx::AnyNumeric::try_from(v).unwrap()
+            });
         });
     }
 

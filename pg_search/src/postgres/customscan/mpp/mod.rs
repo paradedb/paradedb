@@ -34,6 +34,7 @@ pub mod shm_mq_producer;
 pub mod shm_mq_transport;
 pub mod stage;
 pub mod transport;
+pub mod walker;
 pub mod worker;
 
 use serde::{Deserialize, Serialize};

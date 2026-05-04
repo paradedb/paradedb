@@ -26,6 +26,7 @@
 //! consumer-side backpressure from producer-side backpressure.
 
 pub mod customscan_glue;
+pub mod dsm_layout;
 pub mod mesh;
 pub mod partitioner;
 pub mod rpc_mesh;

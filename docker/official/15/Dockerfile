@@ -5,70 +5,15 @@
 # Note: Debian Trixie = Debian 13
 FROM postgres:15-trixie AS builder
 
-# Declare buildtime environment variables
-ENV RUSTUP_HOME=/usr/local/rustup \
-    CARGO_HOME=/usr/local/cargo
-
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     ca-certificates \
-    clang \
     curl \
-    git \
-    gnupg \
-    libopenblas-dev \
-    pkg-config \
     postgresql-server-dev-15 \
     && rm -rf /var/lib/apt/lists/*
-
-COPY --from=rust:1.95.0-trixie /usr/local/cargo /usr/local/cargo
-COPY --from=rust:1.95.0-trixie /usr/local/rustup /usr/local/rustup
-
-ENV PATH="/usr/local/bin:/usr/local/cargo/bin:$PATH" \
-    PGX_HOME=/usr/lib/postgresql/15
-
-# Copy only Cargo.toml to extract pgrx version without invalidating cache on source changes
-COPY Cargo.toml /tmp/
-WORKDIR /tmp/
-
-# Extract version from Cargo.toml (handles 'pgrx = "=0.18.0"')
-# This replaces `cargo tree` to avoid needing the full source tree
-RUN PGRX_VERSION=$(grep 'pgrx =' Cargo.toml | head -n 1 | cut -d '"' -f 2 | tr -d '=') && \
-    echo "PGRX_VERSION=$PGRX_VERSION" && \
-    cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
-    cargo pgrx init "--pg15=/usr/lib/postgresql/15/bin/pg_config"
-
-######################
-# pg_search
-######################
-
-COPY Cargo.toml Cargo.lock rust-toolchain.toml /tmp/
-COPY .cargo/ /tmp/.cargo/
-COPY pg_search/ /tmp/pg_search/
-COPY tokenizers/ /tmp/tokenizers/
-COPY macros/ /tmp/macros/
-
-# tests, benchmarks, and stressgres are only required because they are included as workspace members
-# in the main Cargo.toml
-COPY tests/Cargo.toml /tmp/tests/
-COPY tests/src/lib.rs /tmp/tests/src/
-COPY benchmarks/Cargo.toml /tmp/benchmarks/
-COPY benchmarks/src/lib.rs /tmp/benchmarks/src/
-COPY stressgres/Cargo.toml /tmp/stressgres/
-COPY stressgres/src/main.rs /tmp/stressgres/src/
-
-# Build the extension in release mode, but with debug symbols (which will be split out later)
-RUN cd /tmp/pg_search && \
-    cargo pgrx package --profile=release-with-debug --pg-config "/usr/lib/postgresql/15/bin/pg_config"
-
-# Strip debug symbols from the extension and add a debug link
-RUN LIB_PATH="/tmp/target/release-with-debug/pg_search-pg15/usr/lib/postgresql/15/lib/pg_search.so" && \
-    objcopy --only-keep-debug "${LIB_PATH}" "${LIB_PATH}.dbg" && \
-    objcopy --strip-debug "${LIB_PATH}" && \
-    objcopy --add-gnu-debuglink="${LIB_PATH}.dbg" "${LIB_PATH}"
 
 ######################
 # pgvector v0.8.1
@@ -141,6 +86,23 @@ COPY --from=builder /tmp/pg_ivm/*.so /usr/lib/postgresql/15/lib/
 COPY --from=builder /tmp/pg_ivm/*.control /usr/share/postgresql/15/extension/
 COPY --from=builder /tmp/pg_ivm/*.sql /usr/share/postgresql/15/extension/
 
+# Install pg_search from Cloudsmith
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    apt-transport-https \
+    ca-certificates \
+    curl \
+    debian-archive-keyring \
+    debian-keyring \
+    gnupg \
+    && keyring_location=/usr/share/keyrings/paradedb-paradedb-archive-keyring.gpg && \
+    curl -1sLf "https://dl.cloudsmith.io/public/paradedb/paradedb/gpg.B82501FB00B5422B.key" | gpg --dearmor -o "${keyring_location}" && \
+    curl -1sLf "https://dl.cloudsmith.io/public/paradedb/paradedb/config.deb.txt?distro=debian&codename=trixie&component=main" > /etc/apt/sources.list.d/paradedb-paradedb.list && \
+    chmod 644 "${keyring_location}" /etc/apt/sources.list.d/paradedb-paradedb.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends postgresql-15-pg-search=0.0.0 && \
+    rm -rf /var/lib/apt/lists/*
+
 
 # Install Postgis and ca-certificates
 # ca-certificates required for PostGIS
@@ -164,10 +126,6 @@ RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_sea
     grep "shared_preload_libraries = 'pg_search,pg_cron,pg_stat_statements'" /usr/share/postgresql/postgresql.conf.sample && \
     echo "cron.database_name = 'postgres'" >> /usr/share/postgresql/postgresql.conf.sample && \
     echo "pg_stat_statements.track = 'top'" >> /usr/share/postgresql/postgresql.conf.sample
-
-# Copy the ParadeDB extension from its builder stage
-COPY --from=builder /tmp/target/release-with-debug/pg_search-pg15/usr/lib/postgresql/15/lib/* /usr/lib/postgresql/15/lib/
-COPY --from=builder /tmp/target/release-with-debug/pg_search-pg15/usr/share/postgresql/15/extension/* /usr/share/postgresql/15/extension/
 
 
 # Reset the working directory to the root directory

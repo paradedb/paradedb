@@ -343,7 +343,7 @@ pub struct PgGucs {
 
 /// When `PARADEDB_FORCE_PARALLEL=1` (or `=true`), the proptest `Arbitrary` impl pins
 /// `parallel_workers = true` and `PgGucs::set` additionally emits
-/// `SET debug_parallel_query = regress` so Postgres picks a parallel plan even on
+/// `SET debug_parallel_query = on` so Postgres picks a parallel plan even on
 /// the small property-test tables. Other GUCs continue to vary across cases.
 fn force_parallel() -> bool {
     static V: OnceLock<bool> = OnceLock::new();
@@ -467,7 +467,7 @@ impl PgGucs {
         .unwrap();
         writeln!(gucs, "SET statement_timeout TO {};", statement_timeout_ms()).unwrap();
         if force_parallel() {
-            writeln!(gucs, "SET debug_parallel_query TO regress;").unwrap();
+            writeln!(gucs, "SET debug_parallel_query TO on;").unwrap();
         }
         gucs
     }

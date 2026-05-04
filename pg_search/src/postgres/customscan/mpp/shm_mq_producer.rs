@@ -43,8 +43,8 @@ use datafusion::physical_plan::{
 };
 use futures::StreamExt;
 
+use crate::postgres::customscan::mpp::partitioner::{split_batch_by_partition, RowPartitioner};
 use crate::postgres::customscan::mpp::rpc_mesh::MppRpcMesh;
-use crate::postgres::customscan::mpp::shuffle::{split_batch_by_partition, RowPartitioner};
 use crate::postgres::customscan::mpp::transport::SendBatchStats;
 
 /// Pulls all rows from `child`, hash-routes them into `n_partitions` consumer

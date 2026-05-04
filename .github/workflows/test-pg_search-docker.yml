@@ -42,13 +42,12 @@ env:
 jobs:
   test-paradedb:
     name: Test ${{ matrix.flavor }} Docker Image (${{ matrix.arch }})
-    # General-purpose m-family — Docker buildx is RAM-heavy.
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=${{ matrix.runner_family }}
-      - cpu=${{ matrix.cpu }}
-      - ram=${{ matrix.ram }}
+      - cpu=4
+      - ram=16
       - image=${{ matrix.runner_image }}
       - volume=80gb # default runner ships with 40GB — see https://runs-on.com/runners/linux/
       - extras=s3-cache
@@ -58,29 +57,21 @@ jobs:
         include:
           - arch: amd64
             flavor: paradedb
-            cpu: 16
-            ram: 64
             runner_family: m7a+m7i
             runner_image: ubuntu24-full-x64
             platform: linux/amd64
           - arch: arm64
             flavor: paradedb
-            cpu: 16
-            ram: 64
             runner_family: m7g+m8g
             runner_image: ubuntu24-full-arm64
             platform: linux/arm64
           - arch: amd64
             flavor: official
-            cpu: 8
-            ram: 32
             runner_family: m7a+m7i
             runner_image: ubuntu24-full-x64
             platform: linux/amd64
           - arch: arm64
             flavor: official
-            cpu: 16
-            ram: 64
             runner_family: m7g+m8g
             runner_image: ubuntu24-full-arm64
             platform: linux/arm64

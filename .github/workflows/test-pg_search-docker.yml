@@ -53,8 +53,8 @@ jobs:
       matrix:
         include:
           - arch: amd64
-            cpu: 8
-            ram: 32
+            cpu: 16
+            ram: 64
             runner_family: m7a+m7i
             runner_image: ubuntu24-full-x64
             platform: linux/amd64

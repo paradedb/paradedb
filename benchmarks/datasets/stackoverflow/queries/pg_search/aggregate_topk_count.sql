@@ -4,28 +4,31 @@
 -- and LIMIT 10. Tests the Tantivy TopK optimization (TermsAggregation.size=K)
 -- versus full aggregation + post-hoc sort.
 
+-- Query Info (statistics from 100k dataset; larger datasets may have different values):
+-- - 'code' selectivity on stackoverflow_posts.body: ~75%
+
 -- Postgres default plan (aggregate custom scan off)
 SET paradedb.enable_aggregate_custom_scan TO off; SELECT
-    f.title,
+    p.title,
     COUNT(*)
-FROM files f
+FROM stackoverflow_posts p
 WHERE
-    f.content ||| 'Section'
+    p.body ||| 'code'
 GROUP BY
-    f.title
+    p.title
 ORDER BY
     COUNT(*) DESC
 LIMIT 10;
 
 -- Tantivy TopK aggregate scan
 SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SELECT
-    f.title,
+    p.title,
     COUNT(*)
-FROM files f
+FROM stackoverflow_posts p
 WHERE
-    f.content ||| 'Section'
+    p.body ||| 'code'
 GROUP BY
-    f.title
+    p.title
 ORDER BY
     COUNT(*) DESC
 LIMIT 10;

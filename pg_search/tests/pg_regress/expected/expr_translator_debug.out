@@ -61,22 +61,23 @@ DEBUG:  PredicateTranslator: unsupported operator [OpExpr] op="pg_catalog.||", t
 WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
 DEBUG:  PredicateTranslator: unsupported const type [Const] type=text
 DEBUG:  PredicateTranslator: unsupported operator [OpExpr] op="pg_catalog.||", types=(text, text) | T_OpExpr
-                                                                                                     QUERY PLAN                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                        
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i ANTI e
          Limit: 5
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, ctid_0@0 as ctid_0]
-           :   HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(name@1, CAST(pdb_eval_expr_opexpr_927de030(CAST(e_1.pattern AS Utf8)) AS Utf8View)@1)], projection=[ctid_0@0], fetch=5
+           :   GlobalLimitExec: skip=0, fetch=5
            :     VisibilityFilterExec: tables=[i]
-           :       CooperativeExec
-           :         PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
-           :     ProjectionExec: expr=[pattern@0 as pattern, CAST(pdb_eval_expr_opexpr_927de030(CAST(pattern@0 AS Utf8)) AS Utf8View) as CAST(pdb_eval_expr_opexpr_927de030(CAST(e_1.pattern AS Utf8)) AS Utf8View)]
-           :       CooperativeExec
-           :         PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
-(13 rows)
+           :       HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(name@1, CAST(pdb_eval_expr_opexpr_927de030(CAST(e_1.pattern AS Utf8)) AS Utf8View)@1)]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
+           :         ProjectionExec: expr=[pattern@0 as pattern, CAST(pdb_eval_expr_opexpr_927de030(CAST(pattern@0 AS Utf8)) AS Utf8View) as CAST(pdb_eval_expr_opexpr_927de030(CAST(e_1.pattern AS Utf8)) AS Utf8View)]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
+(14 rows)
 
 -- =====================================================================
 -- 2. Unknown function → [FuncExpr] no native mapping
@@ -95,22 +96,23 @@ LIMIT 5;
 DEBUG:  PredicateTranslator: no native mapping [FuncExpr] func=pg_catalog.md5, arity=1 | T_FuncExpr
 WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
 DEBUG:  PredicateTranslator: no native mapping [FuncExpr] func=pg_catalog.md5, arity=1 | T_FuncExpr
-                                                                                                       QUERY PLAN                                                                                                        
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i ANTI e
          Limit: 5
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, ctid_0@0 as ctid_0]
-           :   HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(name@1, CAST(pdb_eval_expr_funcexpr_685b54ea(CAST(e_1.pattern AS Utf8)) AS Utf8View)@1)], projection=[ctid_0@0], fetch=5
+           :   GlobalLimitExec: skip=0, fetch=5
            :     VisibilityFilterExec: tables=[i]
-           :       CooperativeExec
-           :         PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
-           :     ProjectionExec: expr=[pattern@0 as pattern, CAST(pdb_eval_expr_funcexpr_685b54ea(CAST(pattern@0 AS Utf8)) AS Utf8View) as CAST(pdb_eval_expr_funcexpr_685b54ea(CAST(e_1.pattern AS Utf8)) AS Utf8View)]
-           :       CooperativeExec
-           :         PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
-(13 rows)
+           :       HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(name@1, CAST(pdb_eval_expr_funcexpr_685b54ea(CAST(e_1.pattern AS Utf8)) AS Utf8View)@1)]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
+           :         ProjectionExec: expr=[pattern@0 as pattern, CAST(pdb_eval_expr_funcexpr_685b54ea(CAST(pattern@0 AS Utf8)) AS Utf8View) as CAST(pdb_eval_expr_funcexpr_685b54ea(CAST(e_1.pattern AS Utf8)) AS Utf8View)]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
+(14 rows)
 
 -- =====================================================================
 -- 3. Cross-type cast → [CoerceViaIO] rejected + deparsed SQL in log
@@ -134,22 +136,23 @@ LIMIT 5;
 DEBUG:  PredicateTranslator: rejected cross-type coercion [CoerceViaIO] source=integer, target=text | (i.value)::text
 WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a suboptimal parallel partitioning strategy for this query. See https://github.com/paradedb/paradedb/issues/4152
 DEBUG:  PredicateTranslator: rejected cross-type coercion [CoerceViaIO] source=integer, target=text | (i.value)::text
-                                                                                                  QUERY PLAN                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                     
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Join Scan)
          Relation Tree: i ANTI e
          Limit: 5
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[NULL as col_1, ctid_0@0 as ctid_0]
-           :   HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(CAST(pdb_eval_expr_coerceviaio_66583d6c(i_0.value) AS Utf8View)@2, pattern@0)], projection=[ctid_0@0, value@1], fetch=5
-           :     ProjectionExec: expr=[ctid_0@0 as ctid_0, value@1 as value, CAST(pdb_eval_expr_coerceviaio_66583d6c(value@1) AS Utf8View) as CAST(pdb_eval_expr_coerceviaio_66583d6c(i_0.value) AS Utf8View)]
-           :       VisibilityFilterExec: tables=[i]
+           :   GlobalLimitExec: skip=0, fetch=5
+           :     VisibilityFilterExec: tables=[i]
+           :       HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(CAST(pdb_eval_expr_coerceviaio_66583d6c(i_0.value) AS Utf8View)@2, pattern@0)], projection=[ctid_0@0, value@1]
+           :         ProjectionExec: expr=[ctid_0@0 as ctid_0, value@1 as value, CAST(pdb_eval_expr_coerceviaio_66583d6c(value@1) AS Utf8View) as CAST(pdb_eval_expr_coerceviaio_66583d6c(i_0.value) AS Utf8View)]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
            :         CooperativeExec
            :           PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
-           :     CooperativeExec
-           :       PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
-(13 rows)
+(14 rows)
 
 -- Cleanup
 RESET client_min_messages;

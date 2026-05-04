@@ -68,6 +68,10 @@ pub struct DataFusionAggState {
     pub current_batch: Option<RecordBatch>,
     /// Row index within current_batch.
     pub batch_row_idx: usize,
+    /// Mapping from group_columns[i] to its 0-based column index in DataFusion's
+    /// output RecordBatch. Needed because DataFusion deduplicates grouping
+    /// expressions (e.g. metadata.brand).
+    pub group_df_indices: Vec<usize>,
 }
 
 /// State for projecting wrapped aggregate expressions through Postgres' own

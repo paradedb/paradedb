@@ -84,8 +84,8 @@ WHERE p.id NOT IN (
        OR p.company_id IN (SELECT c.id FROM issue_4719_companies c))
 ORDER BY p.id DESC
 LIMIT 26;
-                                                                                                                     QUERY PLAN                                                                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                      QUERY PLAN                                                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -100,12 +100,12 @@ LIMIT 26;
            :   SortExec: TopK(fetch=26), expr=[id@1 DESC], preserve_partitioning=[false]
            :     FilterExec: mark@3 OR company_id@1 IS NULL, projection=[ctid_0@0, id@2]
            :       HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(company_id@1, id@1)]
-           :         HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@2, person_id@0)]
-           :           VisibilityFilterExec: tables=[p]
+           :         VisibilityFilterExec: tables=[p]
+           :           HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(person_id@0, id@2)]
+           :             CooperativeExec
+           :               PgSearchScan: segments=1, query={"term_set":{"terms":[{"field":"company_id","value":10,"is_datetime":false},{"field":"company_id","value":20,"is_datetime":false},{"field":"company_id","value":50,"is_datetime":false}]}}
            :             CooperativeExec
            :               PgSearchScan: segments=1, dynamic_filters=1, query="all"
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"term_set":{"terms":[{"field":"company_id","value":10,"is_datetime":false},{"field":"company_id","value":20,"is_datetime":false},{"field":"company_id","value":50,"is_datetime":false}]}}
            :         VisibilityFilterExec: tables=[c]
            :           CooperativeExec
            :             PgSearchScan: segments=1, query="all"

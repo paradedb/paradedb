@@ -328,6 +328,7 @@ struct WorkerBuildState<'a> {
     // 5. unmerged segment metas that this worker has created so far
     unmerged_metas: Vec<SegmentMeta>,
     local_tuple_done_count: usize, // worker-local number of tuples done - used to updated the shared `ntuples_done` in `coordination`
+    is_leader: bool,
 }
 
 impl<'a> WorkerBuildState<'a> {
@@ -360,6 +361,8 @@ impl<'a> WorkerBuildState<'a> {
         let writer = SerialIndexWriter::open(indexrel, config, worker_number)?;
         let schema = writer.schema();
         let categorized_fields = schema.categorized_fields().clone();
+        // we're making the assumption, based on the logic in the `build_index` function, that the leader (if participating) has the last worker number (equivalent to nlaunched)
+        let is_leader = worker_number == (coordination.nlaunched as i32);
         Ok(Self {
             writer: Some(writer),
             categorized_fields,
@@ -375,6 +378,7 @@ impl<'a> WorkerBuildState<'a> {
             unmerged_metas: Default::default(),
             worker_number,
             local_tuple_done_count: 0,
+            is_leader,
         })
     }
 
@@ -545,15 +549,13 @@ unsafe extern "C-unwind" fn build_callback(
     build_state.per_row_context.reset();
 
     build_state.local_tuple_done_count += 1;
-    // we're making the assumption, based on the logic in the `build_index` function, that the leader (if participating) has the last worker number (equivalent to nlaunched)
-    let is_leader = build_state.worker_number == (build_state.coordination.nlaunched() as i32);
 
     if build_state.local_tuple_done_count % TUPLES_DONE_BATCH_SIZE == 0 {
         build_state
             .coordination
             .add_tuples_done(TUPLES_DONE_BATCH_SIZE);
 
-        if is_leader {
+        if build_state.is_leader {
             pg_sys::pgstat_progress_update_param(
                 pg_sys::PROGRESS_CREATEIDX_TUPLES_DONE as i32,
                 build_state.coordination.tuples_done() as i64,

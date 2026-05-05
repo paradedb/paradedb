@@ -57,7 +57,9 @@ use datafusion::physical_plan::{ExecutionPlan, Partitioning};
 use datafusion_distributed::NetworkShuffleExec;
 use uuid::Uuid;
 
-use crate::postgres::customscan::mpp::partitioner::{FixedTargetPartitioner, RowPartitioner};
+use crate::postgres::customscan::mpp::partitioner::{
+    FixedTargetPartitioner, HashPartitioner, RowPartitioner,
+};
 use crate::postgres::customscan::mpp::shape::MppPlanShape;
 use crate::postgres::customscan::mpp::shm_mq_producer::ShmMqProducerExec;
 
@@ -91,17 +93,95 @@ pub fn distribute_plan(
         MppPlanShape::ScalarAggOnBinaryJoin => distribute_scalar_agg(physical_plan, n_workers),
         MppPlanShape::GroupByAggOnBinaryJoin
         | MppPlanShape::TopKGroupByAggOnBinaryJoin
-        | MppPlanShape::GroupByAggSingleTable
-        | MppPlanShape::JoinOnly => Err(DataFusionError::NotImplemented(format!(
-            "mpp: walker dispatch for shape {shape:?} is follow-up work; \
-             only ScalarAggOnBinaryJoin lands in this PR"
-        ))),
+        | MppPlanShape::GroupByAggSingleTable => distribute_groupby_agg(physical_plan, n_workers),
+        MppPlanShape::JoinOnly => distribute_join_only(physical_plan, n_workers),
         MppPlanShape::Ineligible => Err(DataFusionError::Plan(
             "mpp: distribute_plan called with Ineligible shape; caller should \
              have routed to the serial path"
                 .into(),
         )),
     }
+}
+
+/// `GroupByAggOnBinaryJoin` / `TopKGroupByAggOnBinaryJoin` /
+/// `GroupByAggSingleTable` rewrite.
+///
+/// Same producer-side rewrite as scalar agg (wrap the Partial in a
+/// `ShmMqProducerExec`), but the partitioner is now a [`HashPartitioner`] on
+/// the group-by keys so each consumer partition holds one slice of the
+/// keyspace and `AggregateExec(FinalPartitioned)` produces correct group
+/// results without a final cross-partition merge.
+///
+/// Leader plan: `AggregateExec(FinalPartitioned, group=<orig>)` →
+/// `NetworkShuffleExec(K=n_workers)` reading from `N×K` queues.
+fn distribute_groupby_agg(
+    physical_plan: Arc<dyn ExecutionPlan>,
+    n_workers: u32,
+) -> DfResult<MppPlanPair> {
+    if n_workers == 0 {
+        return Err(DataFusionError::Plan(
+            "mpp: distribute_groupby_agg requires n_workers >= 1".into(),
+        ));
+    }
+    let partial_idx = find_partial_aggregate_path(physical_plan.as_ref()).ok_or_else(|| {
+        DataFusionError::Plan(
+            "mpp: distribute_groupby_agg: no AggregateExec(Partial) found in plan".into(),
+        )
+    })?;
+    let partial_node = node_at_path(&physical_plan, &partial_idx)
+        .expect("path returned by find_partial_aggregate_path is reachable");
+    let partial_agg = partial_node
+        .as_any()
+        .downcast_ref::<AggregateExec>()
+        .expect("partial_node located via find_partial_aggregate_path");
+
+    // For now, a simplified hash-key spec: identify group-by columns by index.
+    // The walker carries no semantic knowledge of which keys are stable across
+    // workers (ParadeDB-side classifier already vetted that); we just pass
+    // the group_expr indices through.
+    let group_keys: Vec<usize> = (0..partial_agg.group_expr().expr().len()).collect();
+    if group_keys.is_empty() {
+        // Group expr is empty — that's actually a scalar agg in disguise.
+        return distribute_scalar_agg(physical_plan, n_workers);
+    }
+
+    let producer_subtree =
+        wrap_with_hash_producer(Arc::clone(&partial_node), &group_keys, n_workers)?;
+    let worker_plan = replace_at_path(Arc::clone(&physical_plan), &partial_idx, producer_subtree)?;
+
+    let leader_subtree = build_leader_groupby_finalize(partial_agg, n_workers)?;
+    let leader_plan = replace_at_path(physical_plan, &partial_idx, leader_subtree)?;
+
+    Ok(MppPlanPair {
+        leader_plan,
+        worker_plan,
+    })
+}
+
+/// `JoinOnly` rewrite. Hash-shuffles each side of the inner `HashJoinExec`
+/// across `n_workers` consumer partitions, then runs the join on the leader.
+///
+/// Worker plan: pump the existing tree, but replace the `HashJoinExec` with
+/// a sub-tree that ships rows of *both* sides — left and right — through
+/// `ShmMqProducerExec` keyed on their respective join columns. The leader
+/// reconstitutes both sides via `NetworkShuffleExec` and runs the join.
+///
+/// This implementation is a **placeholder**: it returns `NotImplemented`.
+/// JoinOnly is structurally distinct because it needs *two* producer subtrees
+/// per worker (one per join side), each with its own outbound mesh and key
+/// list. The walker's API today returns a single `worker_plan`, which forces
+/// us to either (a) emit a `UnionExec(left_producer, right_producer)` to
+/// keep one plan root or (b) extend `MppPlanPair` to carry an arbitrary
+/// number of producer subtrees. Both options need design work.
+fn distribute_join_only(
+    _physical_plan: Arc<dyn ExecutionPlan>,
+    _n_workers: u32,
+) -> DfResult<MppPlanPair> {
+    Err(DataFusionError::NotImplemented(
+        "mpp: distribute_join_only requires per-side producer subtrees, \
+         which need an MppPlanPair shape extension; tracked as follow-up"
+            .into(),
+    ))
 }
 
 /// `ScalarAggOnBinaryJoin` rewrite.
@@ -223,6 +303,70 @@ fn wrap_with_producer(
     let partitioner: Arc<dyn RowPartitioner> = Arc::new(FixedTargetPartitioner::new(0, 1));
     let producer = ShmMqProducerExec::try_new(partial, partitioner, 1)?;
     Ok(Arc::new(producer))
+}
+
+/// Wrap `partial` in a [`ShmMqProducerExec`] using a [`HashPartitioner`] over
+/// `key_columns` so each row routes to one of `n_workers` consumer partitions
+/// keyed by `hash(key_columns) % n_workers`.
+fn wrap_with_hash_producer(
+    partial: Arc<dyn ExecutionPlan>,
+    key_columns: &[usize],
+    n_workers: u32,
+) -> DfResult<Arc<dyn ExecutionPlan>> {
+    let partitioner: Arc<dyn RowPartitioner> =
+        Arc::new(HashPartitioner::new(key_columns.to_vec(), n_workers));
+    let producer = ShmMqProducerExec::try_new(partial, partitioner, n_workers as usize)?;
+    Ok(Arc::new(producer))
+}
+
+/// Leader-side replacement for the group-by aggregate's `Partial`-rooted
+/// subtree: `AggregateExec(FinalPartitioned, group=<orig>) →
+/// NetworkShuffleExec(K=n_workers) → RepartitionExec(Hash(group_keys, n_workers))
+/// → EmptyExec(partial_output_schema)`.
+///
+/// `n_workers` consumer partitions (one per worker) so PG's Gather can fan
+/// the resulting groups across the parallel-query consumers without any
+/// post-aggregate gather to the leader.
+fn build_leader_groupby_finalize(
+    partial: &AggregateExec,
+    n_workers: u32,
+) -> DfResult<Arc<dyn ExecutionPlan>> {
+    use datafusion::physical_expr::expressions::Column;
+    use datafusion::physical_expr::PhysicalExpr;
+
+    let partial_output_schema: SchemaRef = partial.schema();
+    let stub: Arc<dyn ExecutionPlan> = Arc::new(EmptyExec::new(Arc::clone(&partial_output_schema)));
+    // Repartition on the group-by columns by index in the partial's output
+    // schema. The partial-output column order is `[group_cols..., agg_cols...]`,
+    // so group columns occupy the first `n_groups` positions.
+    let n_groups = partial.group_expr().expr().len();
+    let group_exprs: Vec<Arc<dyn PhysicalExpr>> = (0..n_groups)
+        .map(|i| {
+            Arc::new(Column::new(partial_output_schema.field(i).name(), i)) as Arc<dyn PhysicalExpr>
+        })
+        .collect();
+    let hash_partitioned: Arc<dyn ExecutionPlan> = Arc::new(RepartitionExec::try_new(
+        stub,
+        Partitioning::Hash(group_exprs, n_workers as usize),
+    )?);
+    let network_shuffle = NetworkShuffleExec::try_new(
+        hash_partitioned,
+        Uuid::nil(),
+        0,
+        n_workers as usize,
+        n_workers as usize,
+    )?;
+    let network_shuffle: Arc<dyn ExecutionPlan> = Arc::new(network_shuffle);
+
+    let final_agg = AggregateExec::try_new(
+        AggregateMode::FinalPartitioned,
+        partial.group_expr().clone(),
+        partial.aggr_expr().to_vec(),
+        partial.filter_expr().to_vec(),
+        network_shuffle,
+        partial_output_schema,
+    )?;
+    Ok(Arc::new(final_agg))
 }
 
 /// Walk the plan top-down depth-first and return the path
@@ -392,17 +536,12 @@ mod tests {
     }
 
     #[test]
-    fn distribute_plan_returns_not_implemented_for_unsupported_shapes() {
-        let p = partial_agg(empty_plan());
-        for shape in [
-            MppPlanShape::GroupByAggOnBinaryJoin,
-            MppPlanShape::TopKGroupByAggOnBinaryJoin,
-            MppPlanShape::GroupByAggSingleTable,
-            MppPlanShape::JoinOnly,
-        ] {
-            let err = distribute_plan(shape, p.clone(), 4).unwrap_err();
-            assert!(matches!(err, DataFusionError::NotImplemented(_)));
-        }
+    fn distribute_plan_returns_not_implemented_for_join_only() {
+        let p: Arc<dyn ExecutionPlan> = partial_agg(empty_plan());
+        // JoinOnly still NotImplemented — needs `MppPlanPair` shape extension
+        // to carry per-side producer subtrees.
+        let err = distribute_plan(MppPlanShape::JoinOnly, p, 4).unwrap_err();
+        assert!(matches!(err, DataFusionError::NotImplemented(_)));
     }
 
     #[test]
@@ -417,6 +556,49 @@ mod tests {
         let p = partial_agg(empty_plan());
         let err = distribute_scalar_agg(p, 0).unwrap_err();
         assert!(matches!(err, DataFusionError::Plan(_)));
+    }
+
+    fn partial_agg_with_group_by(input: Arc<dyn ExecutionPlan>) -> Arc<AggregateExec> {
+        use datafusion::physical_expr::expressions::Column;
+        use datafusion::physical_expr::PhysicalExpr;
+        let group_by = PhysicalGroupBy::new_single(vec![(
+            Arc::new(Column::new(input.schema().field(0).name(), 0)) as Arc<dyn PhysicalExpr>,
+            input.schema().field(0).name().to_string(),
+        )]);
+        let agg = AggregateExec::try_new(
+            AggregateMode::Partial,
+            group_by,
+            vec![],
+            vec![],
+            input.clone(),
+            input.schema(),
+        )
+        .expect("AggregateExec construction with group");
+        Arc::new(agg)
+    }
+
+    #[test]
+    fn distribute_groupby_agg_builds_both_plans() {
+        let p: Arc<dyn ExecutionPlan> = partial_agg_with_group_by(empty_plan());
+        let pair = distribute_plan(MppPlanShape::GroupByAggOnBinaryJoin, p, 4)
+            .expect("groupby distribute");
+        // Worker plan top is the producer wrapped on the partial.
+        assert_eq!(pair.worker_plan.name(), "ShmMqProducerExec");
+        // Leader plan top is FinalPartitioned wrapping NetworkShuffleExec.
+        assert_eq!(pair.leader_plan.name(), "AggregateExec");
+        assert_eq!(pair.leader_plan.children()[0].name(), "NetworkShuffleExec");
+    }
+
+    #[test]
+    fn distribute_groupby_agg_with_empty_group_falls_back_to_scalar() {
+        // Group expr is empty — `distribute_groupby_agg` recognizes this and
+        // delegates to scalar-agg (single-partition gather) so we don't try
+        // to hash on no keys.
+        let p: Arc<dyn ExecutionPlan> = partial_agg(empty_plan());
+        let pair =
+            distribute_plan(MppPlanShape::GroupByAggSingleTable, p, 4).expect("scalar fallback");
+        assert_eq!(pair.worker_plan.name(), "ShmMqProducerExec");
+        assert_eq!(pair.leader_plan.name(), "AggregateExec");
     }
 
     #[test]

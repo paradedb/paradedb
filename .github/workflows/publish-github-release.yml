@@ -47,13 +47,13 @@ jobs:
 
       - name: Checkout Git Repository
         uses: actions/checkout@v6
-        with:
-          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
 
       # We confirm that if the release type is beta, the version in Cargo.toml matches with "-rc.X", and that the
       # version provided matches the version in Cargo.toml. If the user forgot to increment the version, they will
       # need to do it in a PR, which will trigger the workflow test_pg_search-upgrade.yml, ensuring that the upgrade is tested.
       - name: Validate Cargo.toml Version Matches Release Type
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Checking for existing release..."
           if gh release view v${{ github.event.inputs.version }} > /dev/null 2>&1; then
@@ -125,7 +125,7 @@ jobs:
       - name: Determine if Release Should be Marked as Latest
         id: release_latest
         env:
-          GITHUB_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           current_tag_version="${{ github.event.inputs.version }}"
           latest_tag_version=$(gh release list --jq '.[] | select(.isLatest == true) | .name' --json=name,isLatest | sed 's/^v//')
@@ -176,7 +176,7 @@ jobs:
           make_latest: ${{ steps.release_latest.outputs.is_latest }}
           generate_release_notes: true
         env:
-          GITHUB_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Notify Slack on Failure
         if: failure()

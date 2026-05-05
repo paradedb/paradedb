@@ -79,6 +79,7 @@ jobs:
       - cpu=8
       - ram=16
       - image=ubuntu24-full-arm64
+      - volume=80gb # default runner ships with 40GB — see https://runs-on.com/runners/linux/
       - extras=s3-cache
     strategy:
       fail-fast: false

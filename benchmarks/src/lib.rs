@@ -18,52 +18,39 @@
 use std::collections::VecDeque;
 
 pub struct Window {
-    size: usize,
+    capacity: usize,
     contents: VecDeque<f64>,
 }
 impl Window {
-    pub fn new(size: usize) -> Self {
+    pub fn new(capacity: usize) -> Self {
         Window {
-            size,
-            contents: VecDeque::with_capacity(size),
+            capacity,
+            contents: VecDeque::with_capacity(capacity),
         }
     }
 
     pub fn push(&mut self, el: f64) {
-        if self.contents.len() == self.size {
+        if self.contents.len() == self.capacity {
             self.contents.pop_front();
         }
         self.contents.push_back(el);
     }
 
-    pub fn min(&self) -> Option<f64> {
+    /// Returns the variance of the window contents as a percent of the mean
+    /// Requires self to be mutable so that self.contents can be made contiguous
+    pub fn percent_variance(&mut self) -> Option<f64> {
         if self.contents.is_empty() {
             None
         } else {
-            let res = self.contents.iter().fold(f64::MAX, |acc, el| acc.min(*el));
-            Some(res)
-        }
-    }
-
-    pub fn max(&self) -> Option<f64> {
-        if self.contents.is_empty() {
-            None
-        } else {
-            let res = self.contents.iter().fold(f64::MIN, |acc, el| acc.max(*el));
-            Some(res)
-        }
-    }
-
-    pub fn variance(&self) -> Option<f64> {
-        match (self.min(), self.max()) {
-            (Some(min), Some(max)) => Some((max / min) - 1.0),
-            (None, None) => None,
-            _ => unreachable!("min and max should either both be available or neither should"),
+            self.contents.make_contiguous();
+            let contents = self.contents.as_slices().0;
+            let pct_variance = variance(contents) / mean(contents);
+            Some(pct_variance)
         }
     }
 
     pub fn is_full(&self) -> bool {
-        self.contents.len() == self.size
+        self.contents.len() == self.capacity
     }
 }
 
@@ -72,13 +59,19 @@ pub fn mean(data: &[f64]) -> f64 {
     data.iter().sum::<f64>() / data.len() as f64
 }
 
-pub fn single_level_confidence_interval(data: &[f64], confidence_level: f64) -> f64 {
+/// Returns the half-width of the confidence interval for the provided confidence level
+///
+/// The math for this comes from single-level version of what is shown in this paper:
+/// https://dl.acm.org/doi/10.1145/2555670.2464160.
+///
+///
+pub fn confidence_interval(data: &[f64], confidence_level: f64) -> f64 {
     assert!(!data.is_empty());
     assert!(confidence_level > 0.0);
     assert!(confidence_level < 1.0);
 
     let reps = data.len() as f64;
-    let variance = single_level_variance(data);
+    let variance = variance(data);
 
     let alpha = (1.0 - confidence_level) / 2.0;
     let t = distrs::StudentsT::ppf(alpha, reps - 1.0);
@@ -86,13 +79,12 @@ pub fn single_level_confidence_interval(data: &[f64], confidence_level: f64) -> 
     t * ((variance / reps).sqrt())
 }
 
-fn single_level_variance(data: &[f64]) -> f64 {
+/// Returns the variance of the slice contents
+fn variance(data: &[f64]) -> f64 {
     assert!(!data.is_empty());
 
     let mean: f64 = mean(data);
     let reps = data.len() as f64;
 
-    let variance: f64 =
-        (1.0 / (reps - 1.0)) * (data.iter().map(|v| (v - mean).powi(2)).sum::<f64>());
-    variance
+    (1.0 / (reps - 1.0)) * (data.iter().map(|v| (v - mean).powi(2)).sum::<f64>())
 }

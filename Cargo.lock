@@ -713,6 +713,7 @@ version = "0.23.3"
 dependencies = [
  "anyhow",
  "clap",
+ "distrs",
  "duckdb",
  "serde",
  "serde_json",
@@ -2589,6 +2590,12 @@ dependencies = [
  "quote",
  "syn 2.0.117",
 ]
+
+[[package]]
+name = "distrs"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2906d3628a885aa49a23b88e71f63e51ae8df41cd76652287f0a6179a11833a9"
 
 [[package]]
 name = "dlib"

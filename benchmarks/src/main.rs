@@ -17,7 +17,7 @@
 
 use anyhow::{bail, Context};
 use clap::{Parser, Subcommand};
-use paradedb::{mean, single_level_confidence_interval, Window};
+use paradedb::{confidence_interval, mean, Window};
 use sqlx::{Connection, PgConnection, Row};
 use std::fs::File;
 use std::io::Write;
@@ -206,7 +206,7 @@ struct JSONBenchmarkResult {
 impl From<QueryResult> for JSONBenchmarkResult {
     fn from(res: QueryResult) -> Self {
         let mean = mean(&res.results.samples);
-        let ci_half_width = single_level_confidence_interval(&res.results.samples, 0.95);
+        let ci_half_width = confidence_interval(&res.results.samples, 0.95);
 
         let cold_query_extra =
             format!("cold_query_ms={:.3}; query={}", res.results.cold, res.query);
@@ -882,24 +882,27 @@ async fn prewarm_indexes(
     Ok(())
 }
 
-/// Execute a benchmark query multiple times on a single reused connection.
+/// Execute a benchmark query, taking sample_count warmed samples on a single reused connection.
 ///
 /// This creates a fresh connection for each benchmark query and then reuses it across repeated
 /// runs of that query.
+///
+/// The query will be ran repeatedly, warming it,until a 3-run window shows sub-2% variance, or
+/// it has been ran 10 times. At that point, sample_count samples will be taken.
 ///
 /// Uses the simple query protocol (via `raw_sql`) to match `psql` behavior, which is
 /// necessary for compatibility with custom scan providers. Compound statements
 /// (e.g., `SET ...; SELECT ...`) are handled natively by the simple protocol.
 ///
 /// Timing uses the results of server-side planning + execution time from pg_stat_statements,
-/// limiting the amount of non-extenstion-code time captured.
+/// limiting the amount of non-extension-code time captured.
 ///
 /// Returns `None` when `fail_on_error` is false and the query errors (the query is skipped).
 async fn execute_query_multiple_times(
     url: &str,
     query_type: &str,
     query: &str,
-    times: usize,
+    sample_count: usize,
     fail_on_error: bool,
 ) -> anyhow::Result<Option<QueryRunResults>> {
     let mut conn = PgConnection::connect(url)
@@ -910,14 +913,15 @@ async fn execute_query_multiple_times(
 
     // SELECT the times for the last query run, making sure we don't accidentally get the 'reset'
     // query
+    // NOTE: This assumes all measured queries being with 'SELECT'.
     let stats_query = "SELECT max_exec_time, max_plan_time, rows FROM pg_stat_statements WHERE query LIKE 'SELECT%' AND query NOT LIKE '%pg_stat_statements%';";
     let stats_reset_query = "SELECT pg_stat_statements_reset();";
 
-    // run until run-to-run variance is sub-1% (query is warmed) or
-    // until 10 runs have passed, then take the next 10 results
-    let mut times_ran = 0;
+    // run until run-to-run variance is sub-2% (query is warmed) or
+    // until 10 runs have passed, then take the next sample_count results
+    let mut runs_completed = 0;
     let mut samples_taken = 0;
-    while samples_taken < times {
+    while samples_taken < sample_count {
         let result: anyhow::Result<(f64, f64, i64)> = {
             sqlx::raw_sql(stats_reset_query)
                 .execute(&mut conn)
@@ -938,11 +942,12 @@ async fn execute_query_multiple_times(
             Ok((exec_time_ms, plan_time_ms, rows)) => {
                 let time = exec_time_ms + plan_time_ms;
                 window.push(time);
-                if times_ran == 0 {
+                if runs_completed == 0 {
                     results.num_results = rows as usize;
                     results.cold = time;
-                } else if (window.is_full() && window.variance().filter(|v| *v <= 0.02).is_some())
-                    || times_ran >= 10
+                } else if (window.is_full()
+                    && window.percent_variance().filter(|v| *v <= 0.02).is_some())
+                    || runs_completed >= 10
                 {
                     // only record once the query is sufficiently warm, or if we've already ran 10
                     results.samples.push(time);
@@ -959,7 +964,7 @@ async fn execute_query_multiple_times(
             }
         }
 
-        times_ran += 1;
+        runs_completed += 1;
     }
 
     Ok(Some(results))

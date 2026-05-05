@@ -28,11 +28,5 @@ while true; do
   iter=$((iter + 1))
   echo ""
   echo "=== qgen iteration ${iter} ==="
-  # Rewrite WARN to ERROR in the level slot of tracing-formatted lines so
-  # Antithesis picks them up as failed codepaths instead of silently logging
-  # them. Word-bounded so it only matches the level field and not arbitrary
-  # log payload text. `sed -u` keeps output line-buffered so we don't lose
-  # recent lines if qgen crashes; pipefail preserves qgen's exit status.
-  /home/app/qgen --nocapture 2>&1 \
-    | sed -uE 's/(^|[[:space:]])WARN($|[[:space:]])/\1ERROR\2/g'
+  /home/app/qgen --nocapture
 done

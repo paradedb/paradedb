@@ -76,7 +76,7 @@ struct CommonBenchmarkArgs {
     prewarm: bool,
 
     /// Whether to run `VACUUM ANALYZE` before executing queries.
-    #[arg(long, default_value = "true")]
+    #[arg(long, default_value_t = true, num_args = 1)]
     vacuum: bool,
 
     /// Skip data setup and index creation. Assumes tables and indexes already exist.
@@ -299,6 +299,7 @@ async fn run_benchmarks(args: &CommonBenchmarkArgs) -> anyhow::Result<Vec<QueryR
         .await
         .with_context(|| "Failed to connect to database")?;
 
+    println!("vacuuming...");
     if args.vacuum {
         sqlx::query("VACUUM FULL ANALYZE")
             .execute(&mut utility_conn)
@@ -909,6 +910,18 @@ async fn prewarm_indexes(
     Ok(())
 }
 
+async fn get_query_id(query: &str, conn: &mut PgConnection) -> anyhow::Result<i64> {
+    let explain_str = format!("EXPLAIN (VERBOSE, FORMAT JSON) {query}");
+    let sqlx::types::Json(res): sqlx::types::Json<serde_json::Value> =
+        sqlx::query_scalar(&explain_str).fetch_one(conn).await?;
+
+    let query_id = res[0]["Query Identifier"]
+        .as_i64()
+        .ok_or_else(|| anyhow::anyhow!("Failed to find query id"))?;
+
+    Ok(query_id)
+}
+
 /// Execute a benchmark query, taking sample_count warmed samples on a single reused connection.
 ///
 /// This creates a fresh connection for each benchmark query and then reuses it across repeated
@@ -939,11 +952,13 @@ async fn execute_query_multiple_times(
     let mut window = Window::new(3);
     let mut results = QueryRunResults::default();
 
+    let measured_query = query.split(";").last().unwrap().trim();
     // SELECT the times for the last query run, making sure we don't accidentally get the 'reset'
     // query
-    // NOTE: This assumes all measured queries begin with 'SELECT'.
-    let stats_query = "SELECT max_exec_time, max_plan_time, rows FROM pg_stat_statements WHERE query LIKE 'SELECT%' AND query NOT LIKE '%pg_stat_statements%';";
     let stats_reset_query = "SELECT pg_stat_statements_reset();";
+
+    let query_id = get_query_id(measured_query, &mut conn).await?;
+    let stats_query = format!("SELECT max_exec_time, max_plan_time, rows FROM pg_stat_statements WHERE queryid = {query_id};");
 
     // run until run-to-run variance is sub-0.1% (query is warmed) or
     // until 10 runs have passed, then take the next sample_count results
@@ -954,12 +969,12 @@ async fn execute_query_multiple_times(
             sqlx::raw_sql(stats_reset_query)
                 .execute(&mut conn)
                 .await
-                .with_context(|| format!("Failed to execute query: {stats_query}"))?;
+                .with_context(|| format!("Failed to execute query: {stats_reset_query}"))?;
             sqlx::raw_sql(query)
                 .execute(&mut conn)
                 .await
                 .with_context(|| format!("Failed to execute query: {query}"))?;
-            let res = sqlx::query_as(stats_query)
+            let res = sqlx::query_as(&stats_query)
                 .fetch_one(&mut conn)
                 .await
                 .with_context(|| format!("Failed to execute query: {stats_query}"))?;

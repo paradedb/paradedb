@@ -40,6 +40,8 @@ Before triggering the workflow, create a **Release Preparation PR** against `mai
 
 Here is an [example release preparation PR](https://github.com/paradedb/paradedb/pull/2770) for your reference.
 
+> **Patch releases:** `main` is typically already at the next dev version (bumped post-release), so the prep PR against `main` may not need to touch `Cargo.toml` / `Cargo.lock`. When the prep is then cherry-picked onto the stable branch, **manually re-add the `Cargo.toml` bump and refreshed `Cargo.lock`** in the cherry-pick — the stable branch needs them even though main didn't.
+
 ## Triggering a Release
 
 ### Minor & Beta

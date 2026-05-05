@@ -71,7 +71,7 @@ use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, Pla
 use datafusion::physical_planner::{ExtensionPlanner, PhysicalPlanner};
 use pgrx::pg_sys;
 
-use crate::index::fast_fields_helper::{resolve_by_segment, FFHelper};
+use crate::index::fast_fields_helper::{for_each_segment, FFHelper};
 use crate::postgres::customscan::joinscan::build::{JoinType, RelNode};
 use crate::postgres::customscan::joinscan::CtidColumn;
 use crate::postgres::heap::VisibilityChecker;
@@ -80,6 +80,7 @@ use crate::scan::execution_plan::UnsafeSendStream;
 use crate::scan::table_provider::{PgSearchTableProvider, VisibilitySourceMetadata};
 use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
 use arrow_select::filter::filter_record_batch;
+use tantivy::DocId;
 
 // ---------------------------------------------------------------------------
 // Logical Node
@@ -967,13 +968,21 @@ fn materialize_deferred_ctid(
         .filter(|&i| !doc_addr_array.is_null(i))
         .map(|i| (i, doc_addr_array.value(i)));
 
-    let resolved = resolve_by_segment(packed_iter, num_rows, |seg_ord, doc_ids| {
+    let mut output: Vec<Option<u64>> = vec![None; num_rows];
+
+    for_each_segment(packed_iter, |seg_ord, rows| {
+        let doc_ids: Vec<DocId> = rows.iter().map(|(_, id)| *id).collect();
+
         let mut ctids = vec![None; doc_ids.len()];
-        ffhelper.ctid(seg_ord).as_u64s(doc_ids, &mut ctids);
-        Ok(ctids)
+        ffhelper.ctid(seg_ord).as_u64s(&doc_ids, &mut ctids);
+
+        for ((row_idx, _), value) in rows.into_iter().zip(ctids) {
+            output[row_idx] = value;
+        }
+        Ok(())
     })?;
 
-    Ok(uint64_array_from_options(&resolved))
+    Ok(uint64_array_from_options(&output))
 }
 
 fn uint64_array_from_options(values: &[Option<u64>]) -> ArrayRef {

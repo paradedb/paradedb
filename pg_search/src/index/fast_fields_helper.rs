@@ -466,43 +466,6 @@ where
     Ok(())
 }
 
-/// Partitions packed doc addresses by segment ordinal, invokes a caller-supplied
-/// resolver for each segment's batch of doc IDs, and scatters the results back
-/// into original row order.
-///
-/// This is a convenience wrapper around [`for_each_segment`] for callers that
-/// need a flat `Vec<Option<T>>` output indexed by row position.
-///
-/// The `packed_iter` argument yields `(row_index, packed_doc_address)`
-///
-/// The `resolve_segment` argument is called once per distinct segment with `(segment_ord, doc_ids)` and
-/// must return a `Vec<Option<T>>` parallel to `doc_ids`.
-///
-/// Returns a `Vec<Option<T>>` of length `num_rows` with each resolved value placed
-/// at its original row position. Rows not present in `packed_iter` remain `None`.
-pub fn resolve_by_segment<T, F>(
-    packed_iter: impl Iterator<Item = (usize, u64)>,
-    num_rows: usize,
-    mut resolve_segment: F,
-) -> Result<Vec<Option<T>>>
-where
-    F: FnMut(SegmentOrdinal, &[DocId]) -> Result<Vec<Option<T>>>,
-{
-    let mut output: Vec<Option<T>> = Vec::with_capacity(num_rows);
-    output.resize_with(num_rows, || None);
-
-    for_each_segment(packed_iter, |seg_ord, rows| {
-        let doc_ids: Vec<DocId> = rows.iter().map(|(_, id)| *id).collect();
-        let resolved = resolve_segment(seg_ord, &doc_ids)?;
-        for ((row_idx, _), value) in rows.into_iter().zip(resolved) {
-            output[row_idx] = value;
-        }
-        Ok(())
-    })?;
-
-    Ok(output)
-}
-
 pub(crate) const NULL_TERM_ORDINAL: TermOrdinal = u64::MAX;
 
 /// `NULL_TERM_ORDINAL` represents NULL, and will be emitted last in the sorted order.

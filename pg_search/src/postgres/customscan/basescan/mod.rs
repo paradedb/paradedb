@@ -326,10 +326,17 @@ impl BaseScan {
         // Finally, decide whether we can actually use the extracted quals.
         // We allow custom scan if:
         // 1. The query uses @@@ operator, OR
-        // 2. enable_custom_scan_without_operator is true, OR
-        // 3. The query has window aggregates (pdb.agg()) that we must handle
+        // 2. A plain PostgreSQL operator was successfully pushed down into an
+        //    indexed ParadeDB/Tantivy predicate, e.g.
+        //      path <@ 'Top.Science'::ltree
+        //    -> ltree facet subtree query, OR
+        // 3. enable_custom_scan_without_operator is true, OR
+        // 4. The query has window aggregates (pdb.agg()) that we must handle.
         let has_window_aggs = query_has_window_agg_functions(root);
-        if state.uses_our_operator || gucs::enable_custom_scan_without_operator() || has_window_aggs
+        if state.uses_our_operator
+            || state.uses_index_pushdown
+            || gucs::enable_custom_scan_without_operator()
+            || has_window_aggs
         {
             quals
         } else {

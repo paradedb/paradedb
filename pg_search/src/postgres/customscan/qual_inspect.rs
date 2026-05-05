@@ -98,6 +98,19 @@ pub enum Qual {
     PushdownIsNotNull {
         field: PushdownField,
     },
+    /// Represents `ltree_column <@ 'ancestor.path'::ltree`.
+    ///
+    /// PostgreSQL semantics:
+    ///   lhs <@ rhs  means lhs is a descendant of rhs, or equal to rhs.
+    ///
+    /// ParadeDB stores ltree fields as Tantivy Facet fields, so this is lowered
+    /// into a fielded ParseWithField query. `parse_with_field()` has a special
+    /// FieldType::Facet branch that converts dotted ltree text into a Tantivy
+    /// Facet term, e.g. "Top.Science" -> /Top/Science.
+    PushdownLtreeDescendant {
+        field: PushdownField,
+        ancestor: String,
+    },
     ScoreExpr {
         opoid: pg_sys::Oid,
         value: *mut pg_sys::Node,
@@ -132,6 +145,7 @@ impl Qual {
             Qual::PushdownVarIsTrue { .. } => false,
             Qual::PushdownVarIsFalse { .. } => false,
             Qual::PushdownIsNotNull { .. } => false,
+            Qual::PushdownLtreeDescendant { .. } => false,
             Qual::ScoreExpr { .. } => false,
             Qual::HeapExpr {
                 search_query_input, ..
@@ -155,6 +169,7 @@ impl Qual {
             Qual::PushdownVarIsTrue { .. } => false,
             Qual::PushdownVarIsFalse { .. } => false,
             Qual::PushdownIsNotNull { .. } => false,
+            Qual::PushdownLtreeDescendant { .. } => false,
             Qual::ScoreExpr { .. } => false,
             Qual::HeapExpr { .. } => false,
             Qual::And(quals) => quals.iter().any(|q| q.contains_external_var()),
@@ -176,6 +191,7 @@ impl Qual {
             Qual::PushdownVarIsTrue { .. } => false,
             Qual::PushdownVarIsFalse { .. } => false,
             Qual::PushdownIsNotNull { .. } => false,
+            Qual::PushdownLtreeDescendant { .. } => false,
             Qual::ScoreExpr { .. } => false,
             Qual::HeapExpr { expr_node, .. } => contains_correlated_param(root, *expr_node),
             Qual::And(quals) => quals.iter().any(|q| q.contains_correlated_param(root)),
@@ -197,6 +213,7 @@ impl Qual {
             Qual::PushdownVarIsTrue { .. } => true,
             Qual::PushdownVarIsFalse { .. } => true,
             Qual::PushdownIsNotNull { .. } => false,
+            Qual::PushdownLtreeDescendant { .. } => false,
             Qual::ScoreExpr { .. } => false,
             Qual::HeapExpr { .. } => true,
             Qual::And(quals) => quals.iter().any(|q| q.contains_exprs()),
@@ -218,6 +235,7 @@ impl Qual {
             Qual::PushdownVarIsTrue { .. } => false,
             Qual::PushdownVarIsFalse { .. } => false,
             Qual::PushdownIsNotNull { .. } => false,
+            Qual::PushdownLtreeDescendant { .. } => false,
             Qual::ScoreExpr { .. } => true,
             Qual::HeapExpr { .. } => false,
             Qual::And(quals) => quals.iter().any(|q| q.contains_score_exprs()),
@@ -347,6 +365,15 @@ impl From<&Qual> for SearchQueryInput {
             Qual::PushdownIsNotNull { field } => SearchQueryInput::FieldedQuery {
                 field: field.attname(),
                 query: pdb::Query::Exists,
+            },
+            Qual::PushdownLtreeDescendant { field, ancestor } => SearchQueryInput::FieldedQuery {
+                field: field.attname(),
+                query: pdb::Query::ParseWithField {
+                    query_string: ancestor.clone(),
+                    lenient: Some(false),
+                    conjunction_mode: None,
+                    fuzzy_data: None,
+                },
             },
             Qual::ScoreExpr { opoid, value } => unsafe {
                 let score_value = {
@@ -555,6 +582,19 @@ pub struct QualExtractState {
     pub uses_tantivy_to_query: bool,
     pub uses_our_operator: bool,
     pub uses_heap_expr: bool,
+
+    /// True when a plain PostgreSQL predicate was successfully converted into
+    /// an indexed ParadeDB/Tantivy predicate.
+    ///
+    /// Example:
+    ///   path <@ 'Top.Science'::ltree
+    /// becomes:
+    ///   path @@@ facet(/Top/Science)
+    ///
+    /// This is distinct from `uses_our_operator`: the original SQL did not
+    /// contain @@@, but the predicate is still index-backed and safe to use
+    /// as the base CustomScan qual.
+    pub uses_index_pushdown: bool,
 }
 
 /// Check if a clause contains node types that extract_quals cannot handle
@@ -1232,6 +1272,29 @@ unsafe fn try_pushdown(
     } else {
         // SUCCESS: Predicate can be pushed down to index for fast evaluation
         state.uses_tantivy_to_query = true;
+
+        // This was not necessarily written with @@@ in SQL. For example:
+        //
+        //   path <@ 'Top.Science'::ltree
+        //
+        // is a plain PostgreSQL operator, but if it reaches this branch as
+        // PushdownLtreeDescendant, it is backed by a real Tantivy facet query and
+        // should be enough to allow BaseScan.
+        if matches!(
+            &pushdown_result,
+            Some(
+                Qual::PushdownExpr { .. }
+                    | Qual::PushdownVarEqTrue { .. }
+                    | Qual::PushdownVarEqFalse { .. }
+                    | Qual::PushdownVarIsTrue { .. }
+                    | Qual::PushdownVarIsFalse { .. }
+                    | Qual::PushdownIsNotNull { .. }
+                    | Qual::PushdownLtreeDescendant { .. }
+            )
+        ) {
+            state.uses_index_pushdown = true;
+        }
+
         pushdown_result
     }
 }

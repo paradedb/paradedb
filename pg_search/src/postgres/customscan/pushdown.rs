@@ -19,17 +19,232 @@ use crate::api::operator::{field_name_from_node, searchqueryinput_typoid};
 use crate::api::tokenizers::type_is_alias;
 use crate::api::{fieldname_typoid, FieldName};
 use crate::nodecast;
-use crate::postgres::catalog::{lookup_procoid, lookup_typoid};
+use crate::postgres::catalog::{is_ltree_oid, lookup_procoid, lookup_typoid};
 use crate::postgres::customscan::operator_oid;
 use crate::postgres::customscan::opexpr::{lookup_operator, OpExpr, TantivyOperatorExt};
 use crate::postgres::customscan::qual_inspect::{contains_correlated_param, PlannerContext, Qual};
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::types::TantivyValue;
 use crate::postgres::var::{find_json_path, find_vars, VarContext};
-use crate::schema::SearchField;
+use crate::schema::{SearchField, SearchFieldType};
 use pgrx::pg_sys::NodeTag::T_Const;
-use pgrx::{direct_function_call, is_a, pg_guard, pg_sys, FromDatum, IntoDatum, PgList};
+use pgrx::{direct_function_call, is_a, pg_guard, pg_sys, FromDatum, IntoDatum, PgList, PgOid};
+use std::ffi::CStr;
 use std::sync::OnceLock;
+
+pub struct LTreeContext<'ctx, 'op, 'idx> {
+    pub context: &'ctx PlannerContext,
+    pub opexpr: &'op OpExpr,
+    pub rti: pg_sys::Index,
+    pub lhs: *mut pg_sys::Node,
+    pub rhs: *mut pg_sys::Node,
+    pub indexrel: &'idx PgSearchRelation,
+}
+
+impl<'ctx, 'op, 'idx> LTreeContext<'ctx, 'op, 'idx> {
+    #[inline]
+    pub fn new(
+        context: &'ctx PlannerContext,
+        opexpr: &'op OpExpr,
+        rti: pg_sys::Index,
+        lhs: *mut pg_sys::Node,
+        rhs: *mut pg_sys::Node,
+        indexrel: &'idx PgSearchRelation,
+    ) -> Self {
+        Self {
+            context,
+            opexpr,
+            rti,
+            lhs,
+            rhs,
+            indexrel,
+        }
+    }
+}
+
+pub struct LTreeOperator<'ctx, 'op, 'idx> {
+    pub kind: LtreeOperatorKind,
+    pub ctx: LTreeContext<'ctx, 'op, 'idx>,
+}
+
+impl<'ctx, 'op, 'idx> LTreeOperator<'ctx, 'op, 'idx> {
+    pub fn try_new(ctx: LTreeContext<'ctx, 'op, 'idx>) -> Option<Self> {
+        let kind = LtreeOperatorKind::try_find(&ctx)?;
+        Some(Self { kind, ctx })
+    }
+
+    pub fn pushdown(&self) -> Option<Qual> {
+        unsafe {
+            Self::try_pushdown_ltree_descendant(
+                self.ctx.context,
+                self.ctx.rti,
+                self.ctx.lhs,
+                self.ctx.rhs,
+                self.ctx.indexrel,
+            )
+        }
+    }
+
+    /// Pushdown PostgreSQL ltree descendant operator `<@` to the BM25 index.
+    ///
+    /// Converts:
+    ///
+    /// ```sql
+    /// path <@ 'Top.Science'::ltree
+    /// ```
+    ///
+    /// into the moral equivalent of:
+    ///
+    /// ```sql
+    /// path @@@ 'Top.Science'
+    /// ```
+    ///
+    /// for an ltree-backed ParadeDB field.
+    ///
+    /// This is correct because ParadeDB stores ltree as a Tantivy Facet:
+    ///
+    /// ```text
+    /// Top.Science.Biology -> /Top/Science/Biology
+    /// ```
+    ///
+    /// and Tantivy facet term lookup on `/Top/Science` matches documents in that
+    /// facet subtree.
+    ///
+    /// Returns `None` if:
+    /// - RHS is not a non-null Const;
+    /// - LHS is not an indexed ParadeDB field;
+    /// - the indexed field is not SearchFieldType::Ltree;
+    /// - the predicate belongs to another relation in a non-join context.
+    unsafe fn try_pushdown_ltree_descendant(
+        context: &PlannerContext,
+        rti: pg_sys::Index,
+        lhs: *mut pg_sys::Node,
+        rhs: *mut pg_sys::Node,
+        indexrel: &PgSearchRelation,
+    ) -> Option<Qual> {
+        // RHS must be a non-null ltree Const:
+        //
+        //   path <@ 'Top.Science'::ltree
+        //           ^^^^^^^^^^^^^^^^^^^^^
+        let rhs_const = nodecast!(Const, T_Const, rhs).filter(|c| !(**c).constisnull)?;
+
+        // Be defensive: the caller already checked operator name and operand types,
+        // but keep the invariant local to this function too.
+        if !is_ltree_oid((*rhs_const).consttype) {
+            return None;
+        }
+
+        // LHS must resolve to an indexed field in this ParadeDB index.
+        //
+        // This handles simple Vars and the same expression/alias resolution used by
+        // the other pushdown paths.
+        let pushdown = PushdownField::try_new_with_context(context.var_context(), lhs, indexrel)?;
+        let search_field = pushdown.search_field();
+
+        // Only ltree fields are valid here. Do not accidentally push `<@` into a
+        // text field or some future unrelated Facet field.
+        if !matches!(search_field.field_type(), SearchFieldType::Ltree(_)) {
+            return None;
+        }
+
+        // Check relation ownership. If this is a join qual referencing a different
+        // relation, preserve the existing convention and return ExternalVar.
+        if pushdown.varno() != rti {
+            return Some(Qual::ExternalVar);
+        }
+
+        // Convert the ltree datum into its canonical dotted text representation.
+        //
+        // TantivyValue::try_from_datum for ltree uses PostgreSQL's type output
+        // function and then converts the dotted path into OwnedValue::Facet.
+        // Its Display impl converts Facet back to dotted text via facet.to_path().join(".").
+        let ancestor = TantivyValue::try_from_datum(
+            (*rhs_const).constvalue,
+            PgOid::from_untagged((*rhs_const).consttype),
+        )
+        .ok()?
+        .to_string();
+
+        // Empty ltree paths are not useful for the current dot_path_to_facet()
+        // implementation: dot_path_to_facet("") would create a facet with an empty
+        // path component rather than Tantivy's root facet. Avoid an incorrect
+        // pushdown; let PostgreSQL handle it.
+        if ancestor.is_empty() {
+            return None;
+        }
+
+        Some(Qual::PushdownLtreeDescendant {
+            field: pushdown,
+            ancestor,
+        })
+    }
+}
+
+pub enum LtreeOperatorKind {
+    /// The `<@` operator, used to check
+    /// if an left ltree value is a
+    /// descendant of right ltree value.
+    /// Operator: `ltree <@ ltree`
+    Descendant,
+}
+
+impl LtreeOperatorKind {
+    pub fn try_find(context: &LTreeContext) -> Option<Self> {
+        let opexpr = match context.opexpr {
+            OpExpr::Array(_) => return None,
+            OpExpr::Single(opexpr) => *opexpr,
+        };
+
+        let opno = unsafe { (*opexpr).opno };
+
+        let found_descendant = Self::is_ltree_descendant_operator(opno, context.lhs, context.rhs);
+        found_descendant.then_some(Self::Descendant)
+        // Self::try_from_opexpr(context.opexpr, context.lhs, context.rhs)
+    }
+
+    // pub fn try_from_opexpr(
+    //     opexpr: &OpExpr,
+    //     lhs: *mut pg_sys::Node,
+    //     rhs: *mut pg_sys::Node,
+    // ) -> Option<Self> {
+    //     let opexpr = match opexpr {
+    //         OpExpr::Array(_) => return None,
+    //         OpExpr::Single(opexpr) => *opexpr,
+    //     };
+
+    //     let opno = unsafe { (*opexpr).opno };
+
+    //     let found_descendant = Self::is_ltree_descendant_operator(opno, lhs, rhs);
+    //     found_descendant.then_some(Self::Descendant)
+    // }
+
+    fn is_ltree_descendant_operator(
+        opno: pg_sys::Oid,
+        lhs: *mut pg_sys::Node,
+        rhs: *mut pg_sys::Node,
+    ) -> bool {
+        if opno == pg_sys::InvalidOid || lhs.is_null() || rhs.is_null() {
+            return false;
+        }
+
+        unsafe {
+            let lhs_type = pg_sys::exprType(lhs);
+            let rhs_type = pg_sys::exprType(rhs);
+
+            if !is_ltree_oid(lhs_type) || !is_ltree_oid(rhs_type) {
+                return false;
+            }
+
+            let op_name = pg_sys::get_opname(opno);
+            if op_name.is_null() {
+                return false;
+            }
+
+            CStr::from_ptr(op_name).to_bytes() == b"<@"
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct PushdownField {
@@ -159,6 +374,18 @@ pub unsafe fn try_build_pushdown_qual(
     if opexpr.opno() == *JSONB_EXISTS_OPOID.get_or_init(|| operator_oid("?(jsonb,text)")) {
         return try_pushdown_jsonb_exists(context, rti, lhs, rhs, indexrel);
     }
+
+    {
+      let ltree_ctx = LTreeContext::new(context, &opexpr, rti, lhs, rhs, indexrel);
+      let ltree_op = LTreeOperator::try_new(ltree_ctx);
+
+      if let Some(ltree_op) = ltree_op {
+          return ltree_op.pushdown();
+      }
+    }
+
+    // let res = LtreeOperator::try_from_opexpr(&opexpr, lhs, rhs);
+    // res.map(|ltree_op| {})
 
     // If <field> is an array, 'literal' = ANY(<field>) puts the value on the lhs.
     // In all other pushdown scenarios, the value is on the rhs.

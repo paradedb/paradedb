@@ -188,7 +188,7 @@ static HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: GucSetting<i32> =
 /// Kill-switch for galloping execution of `FastFieldTermSetQuery` on
 /// sorted segments. When `false`, the planner never returns the gallop
 /// strategy regardless of density, and pushed-down InList filters fall
-/// back to the legacy linear scan even on sorted segments.
+/// back to the legacy linear scan even for sorted segments.
 static TERM_SET_GALLOP_ENABLED: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 /// Density gate for the gallop dispatch path. Gallop is selected when

@@ -18,8 +18,10 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
 SET paradedb.enable_join_custom_scan TO on;
 
--- Small worker count keeps the mesh cheap to allocate during regress.
-SET paradedb.mpp_worker_count TO 2;
+-- Use the closed chain's default worker count so PG sees enough workers
+-- to actually parallelize (with parallel_workers = 1, PG falls into the
+-- `Single Copy: true` path and never exercises the MPP shuffle).
+SET paradedb.mpp_worker_count TO 4;
 SET max_parallel_workers_per_gather TO 4;
 SET max_parallel_workers TO 8;
 -- Force parallel even on this tiny dataset; otherwise the cost-based
@@ -27,9 +29,6 @@ SET max_parallel_workers TO 8;
 SET min_parallel_table_scan_size TO 0;
 SET parallel_setup_cost TO 0;
 SET parallel_tuple_cost TO 0;
--- Force parallel even on upper-rel paths so the planner doesn't fall
--- back to serial when parallel costs equal serial.
-SET debug_parallel_query TO on;
 
 -- =====================================================================
 -- Test data
@@ -77,6 +76,11 @@ ANALYZE mpp_pages;
 
 -- =====================================================================
 -- Pass 1: serial baseline (enable_mpp = off)
+--
+-- Scalar COUNT(*) without GROUP BY: PG's planner doesn't parallelize
+-- scalar aggregates on small datasets (no natural Partial+Final split
+-- available), so this only exercises the serial customscan path. The
+-- result is the correctness baseline for pass 2.
 -- =====================================================================
 
 SET paradedb.enable_mpp TO off;
@@ -90,17 +94,30 @@ SELECT COUNT(*)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section';
 
+-- GROUP BY: PG can pick a parallel-aggregate plan for this shape.
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT COUNT(*), SUM(p.size_bytes)
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section';
+WHERE f.content @@@ 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
 
-SELECT COUNT(*), SUM(p.size_bytes)
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section';
+WHERE f.content @@@ 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
 
 -- =====================================================================
--- Pass 2: MPP path (enable_mpp = on). Same queries; results must match.
+-- Pass 2: MPP path (enable_mpp = on). Same queries, same expected results.
+--
+-- The scalar COUNT(*) case still falls back to serial — PG won't
+-- parallelize scalar aggregates at this scale even with the parallel-
+-- cost knobs zeroed. The GROUP BY case should flip into a `Gather →
+-- Parallel Custom Scan` shape with `Workers Planned > 0`, exercising
+-- the MPP DSM init / shm_mq mesh / `NetworkShuffleExec` path.
 -- =====================================================================
 
 SET paradedb.enable_mpp TO on;
@@ -115,13 +132,19 @@ FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section';
 
 EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
-SELECT COUNT(*), SUM(p.size_bytes)
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section';
+WHERE f.content @@@ 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
 
-SELECT COUNT(*), SUM(p.size_bytes)
+SELECT f.title, COUNT(*), SUM(p.size_bytes)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
-WHERE f.content @@@ 'Section';
+WHERE f.content @@@ 'Section'
+GROUP BY f.title
+ORDER BY f.title
+LIMIT 5;
 
 -- =====================================================================
 -- Cleanup

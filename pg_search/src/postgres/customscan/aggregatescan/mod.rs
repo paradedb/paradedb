@@ -292,14 +292,27 @@ impl CustomScan for AggregateScan {
                     cscan.custom_exprs = custom_exprs_list.into_pg();
                 }
 
-                if !has_pathkeys {
-                    // No ORDER BY: safe to replace Aggrefs at plan time.
+                let parallel_aware = (*best_path).path.parallel_aware;
+                if !has_pathkeys && !parallel_aware {
+                    // Non-MPP, no-pathkeys: safe to replace Aggrefs at plan
+                    // time. The customscan emits final aggregate rows, no
+                    // Gather above us, no setrefs match needed.
                     let plan = &mut cscan.scan.plan;
                     replace_aggrefs_in_target_list(plan);
                 }
-                // When has_pathkeys: aggrefs stay in plan.targetlist so Postgres's
-                // make_sort_from_pathkeys can find them. Replacement is deferred to
-                // create_custom_scan_state (execution time).
+                // MPP path (parallel_aware): leave Aggrefs in
+                // `plan.targetlist`. PG's parallel-aggregate machinery will
+                // add Partial+Final Aggregate around our Gather; setrefs
+                // uses `equal()`-matching to rewire the Aggrefs across the
+                // Gather boundary, which only works if our targetlist still
+                // carries them. Replacing them with `pdb.agg_fn(...)`
+                // placeholders breaks every match and the planner rejects
+                // the parallel path, falling back to `Single Copy: true`.
+                //
+                // When has_pathkeys: same reason — `make_sort_from_pathkeys`
+                // needs to see the original Aggrefs. Replacement deferred
+                // to `create_custom_scan_state` (execution time) for both
+                // MPP-on and MPP-off+ORDER-BY cases.
                 cscan
             }
         }
@@ -895,11 +908,22 @@ impl AggregateScan {
             Ok(p) => p,
             Err(e) => pgrx::error!("mpp worker: create_physical_plan failed: {e}"),
         };
-        // Find the bottom NetworkShuffleExec; its input_stage.plan (== children()[0])
-        // is the worker fragment.
+        // Find the bottom NetworkShuffleExec; its input_stage.plan (==
+        // children()[0]) is the worker fragment. If the fork's planner
+        // didn't insert one (some plan shapes don't benefit from a network
+        // shuffle, or PartialReduce isn't enabled), the worker has no
+        // fragment to run — emit zero rows and let the leader produce
+        // results via its own copy. Logging at WARNING so production
+        // monitors can spot the falls-back-to-no-op case.
         let fragment = match Self::find_worker_fragment(&physical_plan) {
             Some(f) => f,
-            None => pgrx::error!("mpp worker: no NetworkShuffleExec found in distributed plan"),
+            None => {
+                pgrx::warning!(
+                    "mpp worker: no NetworkShuffleExec found in distributed plan; \
+                     skipping producer-fragment run (worker emits zero rows)"
+                );
+                return std::ptr::null_mut();
+            }
         };
         let task_ctx = build_task_context(
             &session,
@@ -1098,6 +1122,19 @@ impl AggregateScan {
             }
         };
 
+        // Activate MPP at planning time if the GUC is on. Must be set on
+        // the builder *before* `.build()` — PG's path-builder freezes the
+        // parallel flags at build time, and setting them after produces a
+        // `Single Copy: true` Gather where the customscan never actually
+        // runs in multiple workers.
+        let builder = if crate::postgres::customscan::mpp::glue::mpp_is_active() {
+            let n_workers = crate::postgres::customscan::mpp::glue::mpp_worker_count();
+            let workers_to_launch = (n_workers.saturating_sub(1) as usize).max(1);
+            builder.set_parallel(workers_to_launch)
+        } else {
+            builder
+        };
+
         // Build the custom path with DataFusion private data
         let multi_table_clause_count = multi_table_clauses.len();
         let mut custom_path = builder.build(PrivateData::DataFusion {
@@ -1109,23 +1146,6 @@ impl AggregateScan {
             multi_table_clause_count,
             having_filter,
         });
-
-        // Activate MPP at planning time if the GUC is on. The customscan's
-        // `ParallelQueryCapable` impl + `begin_custom_scan` build the
-        // distributed plan + DSM mesh; here we just opt into PG's parallel-
-        // query subsystem so the workers actually launch.
-        if crate::postgres::customscan::mpp::glue::mpp_is_active() {
-            let n_workers = crate::postgres::customscan::mpp::glue::mpp_worker_count();
-            // PG launches `parallel_workers` workers in addition to the
-            // leader; mpp_worker_count counts every participant including
-            // the leader-as-worker-0, so we subtract 1.
-            let workers_to_launch = n_workers.saturating_sub(1) as i32;
-            if workers_to_launch > 0 {
-                custom_path.path.parallel_aware = true;
-                custom_path.path.parallel_safe = true;
-                custom_path.path.parallel_workers = workers_to_launch;
-            }
-        }
 
         // Append raw PG Expr pointers to custom_private after the serialized
         // PrivateData. Structure: [PrivateData JSON, expr_1, expr_2, ...]

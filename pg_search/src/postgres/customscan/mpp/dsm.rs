@@ -315,14 +315,15 @@ pub unsafe fn worker_attach(
         .to_vec()
     };
 
-    // Attach as sender to every (worker_index, p) slot.
+    // Attach as sender to every (worker_index, p) slot. `ShmMqSender::attach`
+    // already calls `shm_mq_set_sender(mq, MyProc)` internally — calling it
+    // a second time here trips PG's `Assert("mq->mq_sender == NULL")` and
+    // aborts the worker.
     let mut outbound_senders = Vec::with_capacity(header.n_partitions as usize);
     for p in 0..header.n_partitions {
         let off = header.slot_offset(worker_index, p) as usize;
         let mq_addr = unsafe { base.add(off) };
         let mq = mq_addr.cast::<pg_sys::shm_mq>();
-        // Set the sender to MyProc so PG knows who owns the producer end.
-        unsafe { pg_sys::shm_mq_set_sender(mq, pg_sys::MyProc) };
         outbound_senders.push(unsafe { ShmMqSender::attach(seg, mq) });
     }
 

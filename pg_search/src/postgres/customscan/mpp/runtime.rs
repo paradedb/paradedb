@@ -171,3 +171,59 @@ impl WorkerResolver for MppWorkerResolver {
         Ok(vec![url; self.n_workers])
     }
 }
+
+/// Worker-side [`WorkerTransport`] that resolves nested network boundaries
+/// (such as a `NetworkBroadcastExec` on the build side of a `HashJoin`) by
+/// executing the boundary's `input_stage.plan` locally on the worker.
+///
+/// In the fork's gRPC distributed model, every worker would pull the
+/// broadcast data from a designated source via a Flight stream. In our
+/// in-process model the producer fragment that workers run already contains
+/// these network boundary nodes (the worker re-plans from the same logical
+/// plan as the leader), and rather than fan a broadcast across an in-process
+/// mesh we just have each worker re-execute the build-side plan locally —
+/// it's a small index scan, cheap enough that duplicating the work across
+/// `n_workers` producers is preferable to wiring a second mesh.
+///
+/// The worker's session must keep `input_stage.plan = Some(...)` (i.e. the
+/// fork's `prepare_plan` is *not* invoked on the worker side because we
+/// drop into `find_worker_fragment` below the leader's `DistributedExec`).
+pub struct LocalExecWorkerTransport;
+
+impl WorkerTransport for LocalExecWorkerTransport {
+    fn open(
+        &self,
+        input_stage: &Stage,
+        _target_partitions: Range<usize>,
+        _target_task: usize,
+        ctx: &Arc<TaskContext>,
+        _metrics: &ExecutionPlanMetricsSet,
+    ) -> Result<Box<dyn WorkerConnection + Send + Sync>> {
+        let plan = input_stage.plan().cloned().ok_or_else(|| {
+            DataFusionError::Internal(
+                "LocalExecWorkerTransport: input_stage.plan is None — \
+                 worker re-plan must keep the boundary's input subtree intact"
+                    .into(),
+            )
+        })?;
+        Ok(Box::new(LocalExecWorkerConnection {
+            plan,
+            ctx: Arc::clone(ctx),
+        }))
+    }
+}
+
+struct LocalExecWorkerConnection {
+    plan: Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+    ctx: Arc<TaskContext>,
+}
+
+impl WorkerConnection for LocalExecWorkerConnection {
+    fn stream_partition(&self, partition: usize) -> Result<WorkerPartitionStream> {
+        let stream = self.plan.execute(partition, Arc::clone(&self.ctx))?;
+        // SendableRecordBatchStream is already `Pin<Box<dyn Stream<Item = Result<RecordBatch>> + Send>>`;
+        // the WorkerPartitionStream alias drops the schema bound, so the
+        // existing pinned box satisfies it directly.
+        Ok(stream)
+    }
+}

@@ -141,6 +141,34 @@ pub struct AggregateScanState {
     /// Created once during begin_custom_scan and cleared/reused for each row
     /// to avoid per-row memory allocation and leaks
     pub scan_slot: Option<*mut pg_sys::TupleTableSlot>,
+
+    /// MPP-only: shared state for slicing the partitioning source's segments
+    /// across parallel workers. Set by `initialize_dsm_custom_scan` (leader)
+    /// or `initialize_worker_custom_scan` (worker). Threaded into
+    /// `deserialize_logical_plan_with_runtime` so each worker's
+    /// `PgSearchTableProvider` sees only its slice.
+    pub parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+
+    /// MPP-only: canonical segment ID sets for non-partitioning sources, in
+    /// the same order they appear in `plan.sources()` (partitioning source
+    /// excluded). Populated alongside `parallel_state` and injected into
+    /// the codec so all workers replicate the same segment view.
+    pub non_partitioning_segments: Vec<crate::api::HashSet<tantivy::index::SegmentId>>,
+
+    /// MPP-only: captured source manifests held by the leader. Serves two
+    /// purposes (mirrors JoinScan):
+    /// 1. Provides segment counts for DSM sizing in `estimate_dsm_custom_scan`
+    ///    and segment readers for DSM population in `initialize_dsm_custom_scan`.
+    /// 2. Keeps Tantivy buffer pins alive through `exec_custom_scan` so
+    ///    background merges don't recycle the canonical segments before
+    ///    workers can open them via `MvccSatisfies::ParallelWorker(ids)`.
+    pub source_manifests: Vec<crate::index::reader::index::SearchIndexManifest>,
+
+    /// MPP-only: which entry in `plan.sources()` is the partitioning source
+    /// (the one whose segments workers claim from). Stamped into the DSM
+    /// header by the leader and read back by workers; used in
+    /// `exec_mpp_worker` to key `index_segment_ids` correctly.
+    pub mpp_partitioning_source_idx: Option<usize>,
 }
 
 impl AggregateScanState {

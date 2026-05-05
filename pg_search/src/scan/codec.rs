@@ -365,6 +365,7 @@ pub fn serialize_logical_plan(plan: &LogicalPlan) -> Result<bytes::Bytes> {
 }
 
 /// Deserializes a DataFusion `LogicalPlan` from bytes using the `PgSearchExtensionCodec`.
+#[allow(dead_code)]
 pub fn deserialize_logical_plan(
     bytes: &[u8],
     ctx: &datafusion::execution::TaskContext,
@@ -395,4 +396,57 @@ pub fn deserialize_logical_plan_with_runtime(
         index_segment_ids,
     };
     datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(bytes, ctx, &codec)
+}
+
+/// Stub `PhysicalExtensionCodec` registered with the fork's distributed planner
+/// (via `with_distributed_user_codec`). The fork's `DistributedExec::prepare_plan`
+/// always tries to serialize the worker subplan to ship over gRPC, even when the
+/// `WorkerTransport` is in-process (our `ShmMqWorkerTransport`). Without a codec
+/// for our custom physical execs, encoding fails before any execution starts.
+///
+/// In our model, workers re-plan from the **logical** plan we ship via DSM (see
+/// `exec_mpp_worker`); they never deserialize the encoded physical plan, and the
+/// gRPC plan-send to the fake `http://mpp.local/` URL fails silently in the
+/// fork's `JoinSet` without affecting correctness. So this codec only needs
+/// `try_encode` to succeed for the leader's physical plan walker — the encoded
+/// bytes are inert. `try_decode` is unreachable in our setup.
+#[derive(Debug)]
+pub struct PgSearchPhysicalCodecStub;
+
+impl datafusion_proto::physical_plan::PhysicalExtensionCodec for PgSearchPhysicalCodecStub {
+    fn try_decode(
+        &self,
+        _buf: &[u8],
+        _inputs: &[Arc<dyn datafusion::physical_plan::ExecutionPlan>],
+        _ctx: &TaskContext,
+    ) -> Result<Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
+        Err(DataFusionError::Internal(
+            "PgSearchPhysicalCodecStub::try_decode invoked; \
+             workers re-plan from the logical plan in DSM and should never \
+             deserialize a physical subplan over the wire"
+                .into(),
+        ))
+    }
+
+    fn try_encode(
+        &self,
+        node: Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+        _buf: &mut Vec<u8>,
+    ) -> Result<()> {
+        // Recognize every custom physical exec we might emit. Encode to empty
+        // bytes; the encoded plan is shipped to a stub URL that no real worker
+        // listens on, so the bytes themselves are never observed.
+        match node.name() {
+            "PgSearchScan"
+            | "VisibilityFilterExec"
+            | "VisibilityFilter"
+            | "VisibilityFilterInjection"
+            | "SegmentedTopKExec"
+            | "TantivyLookupExec"
+            | "FilterPassthroughExec" => Ok(()),
+            other => Err(DataFusionError::Internal(format!(
+                "PgSearchPhysicalCodecStub::try_encode: unrecognized custom exec {other}"
+            ))),
+        }
+    }
 }

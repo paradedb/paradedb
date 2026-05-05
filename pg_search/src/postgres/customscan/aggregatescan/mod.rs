@@ -593,6 +593,47 @@ impl CustomScan for AggregateScan {
 /// plan twice. The serialization itself happens via the
 /// `PgSearchExtensionCodec` and the fork's `DistributedCodec` so
 /// `NetworkShuffleExec` round-trips through the worker side.
+/// DSM layout used by AggregateScan in MPP mode:
+///
+/// ```text
+/// [0 .. 8)                     u64 mpp_offset            (offset to MPP region)
+/// [8 .. 16)                    u64 partitioning_source_idx
+/// [pscan_offset .. mpp_offset) ParallelScanState (variable size)
+/// [mpp_offset .. total)        MPP region (header + queues + plan_bytes)
+/// ```
+///
+/// Workers don't carry the source manifests the leader saw, so the
+/// MPP-region offset and the partitioning-source index are stamped into
+/// the first 16 bytes by the leader and read back by workers — neither
+/// has to be re-derived.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct MppAggDsmHeader {
+    mpp_offset: u64,
+    partitioning_source_idx: u64,
+}
+
+const MPP_AGG_DSM_HEADER_SIZE: usize = std::mem::size_of::<MppAggDsmHeader>();
+
+fn mpp_align(n: usize) -> usize {
+    let a = pg_sys::MAXIMUM_ALIGNOF as usize;
+    n.next_multiple_of(a)
+}
+
+fn mpp_agg_pscan_offset() -> usize {
+    mpp_align(MPP_AGG_DSM_HEADER_SIZE)
+}
+
+unsafe fn mpp_agg_read_header(coordinate: *const std::os::raw::c_void) -> MppAggDsmHeader {
+    unsafe { *(coordinate as *const MppAggDsmHeader) }
+}
+
+unsafe fn mpp_agg_write_header(coordinate: *mut std::os::raw::c_void, header: MppAggDsmHeader) {
+    unsafe {
+        *(coordinate as *mut MppAggDsmHeader) = header;
+    }
+}
+
 impl crate::postgres::customscan::dsm::ParallelQueryCapable for AggregateScan {
     fn estimate_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
@@ -604,16 +645,38 @@ impl crate::postgres::customscan::dsm::ParallelQueryCapable for AggregateScan {
         let Some(plan_bytes) = df_state.mpp_plan_bytes.as_ref() else {
             return 0;
         };
-        match crate::postgres::customscan::mpp::glue::estimate_dsm_size(
-            plan_bytes.len(),
-            df_state.mpp_n_partitions,
+        let n_partitions = df_state.mpp_n_partitions;
+        let plan_bytes_len = plan_bytes.len();
+
+        // Capture source manifests so we can size the ParallelScanState block.
+        Self::ensure_source_manifests(state);
+        let all_nsegments: Vec<usize> = state
+            .custom_state()
+            .source_manifests
+            .iter()
+            .map(|m| m.segment_count())
+            .collect();
+        let partitioning_idx = Self::partitioning_source_idx(state);
+        let pscan_size = crate::postgres::ParallelScanState::size_of(
+            &all_nsegments,
+            partitioning_idx,
+            &[],
+            false,
+        );
+        let mpp_offset = mpp_align(mpp_agg_pscan_offset() + pscan_size);
+
+        let mpp_size = match crate::postgres::customscan::mpp::glue::estimate_dsm_size(
+            plan_bytes_len,
+            n_partitions,
         ) {
-            Ok(sz) => sz as pg_sys::Size,
+            Ok(sz) => sz,
             Err(e) => {
                 pgrx::warning!("mpp: estimate_dsm failed: {e}; falling back to serial");
-                0
+                return 0;
             }
-        }
+        };
+
+        (mpp_offset + mpp_size) as pg_sys::Size
     }
 
     fn initialize_dsm_custom_scan(
@@ -629,9 +692,68 @@ impl crate::postgres::customscan::dsm::ParallelQueryCapable for AggregateScan {
         };
         let n_partitions = df_state.mpp_n_partitions;
         let seg = unsafe { (*pcxt).seg };
+
+        // Capture manifests + size the ParallelScanState block.
+        Self::ensure_source_manifests(state);
+        let partitioning_idx = Self::partitioning_source_idx(state);
+        let all_nsegments: Vec<usize> = state
+            .custom_state()
+            .source_manifests
+            .iter()
+            .map(|m| m.segment_count())
+            .collect();
+        let pscan_size = crate::postgres::ParallelScanState::size_of(
+            &all_nsegments,
+            partitioning_idx,
+            &[],
+            false,
+        );
+        let pscan_offset = mpp_agg_pscan_offset();
+        let mpp_offset = mpp_align(pscan_offset + pscan_size);
+
+        // Stamp the MPP-region offset and partitioning-source index into
+        // the DSM header so workers can skip past the ParallelScanState
+        // block and key index_segment_ids the same way as the leader.
+        unsafe {
+            mpp_agg_write_header(
+                coordinate,
+                MppAggDsmHeader {
+                    mpp_offset: mpp_offset as u64,
+                    partitioning_source_idx: partitioning_idx as u64,
+                },
+            )
+        };
+
+        // Init the ParallelScanState at `pscan_offset`.
+        let pscan_state = unsafe {
+            (coordinate as *mut u8).add(pscan_offset) as *mut crate::postgres::ParallelScanState
+        };
+        assert!(!pscan_state.is_null(), "MPP DSM coordinate is null");
+        unsafe {
+            let all_sources: Vec<&[tantivy::SegmentReader]> = state
+                .custom_state()
+                .source_manifests
+                .iter()
+                .map(|m| m.segment_readers())
+                .collect();
+            (*pscan_state).create_and_populate(crate::postgres::ParallelScanArgs {
+                all_sources,
+                partitioning_source_idx: partitioning_idx,
+                query: vec![],
+                with_aggregates: false,
+            });
+        }
+        let non_partitioning_segments = unsafe { (*pscan_state).non_partitioning_segment_ids() };
+        state.custom_state_mut().parallel_state = Some(pscan_state);
+        state.custom_state_mut().non_partitioning_segments = non_partitioning_segments;
+        state.custom_state_mut().mpp_partitioning_source_idx = Some(partitioning_idx);
+
+        // Init the MPP region.
+        let mpp_coordinate =
+            unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut std::os::raw::c_void };
         let leader = match unsafe {
             crate::postgres::customscan::mpp::glue::leader_setup(
-                coordinate,
+                mpp_coordinate,
                 seg,
                 n_partitions,
                 plan_bytes,
@@ -643,14 +765,27 @@ impl crate::postgres::customscan::dsm::ParallelQueryCapable for AggregateScan {
                 return;
             }
         };
+        let df_state = state
+            .custom_state_mut()
+            .datafusion_state
+            .as_mut()
+            .expect("datafusion_state must still be set");
         df_state.mpp = Some(scan_state::MppExecState::Leader(leader));
     }
 
     fn reinitialize_dsm_custom_scan(
         _state: &mut CustomScanStateWrapper<Self>,
         _pcxt: *mut pg_sys::ParallelContext,
-        _coordinate: *mut std::os::raw::c_void,
+        coordinate: *mut std::os::raw::c_void,
     ) {
+        // Reset the ParallelScanState header so a re-execution re-claims segments.
+        let pscan_offset = mpp_agg_pscan_offset();
+        let pscan_state = unsafe {
+            (coordinate as *mut u8).add(pscan_offset) as *mut crate::postgres::ParallelScanState
+        };
+        if !pscan_state.is_null() {
+            unsafe { (*pscan_state).reset() };
+        }
     }
 
     fn initialize_worker_custom_scan(
@@ -658,16 +793,40 @@ impl crate::postgres::customscan::dsm::ParallelQueryCapable for AggregateScan {
         _toc: *mut pg_sys::shm_toc,
         coordinate: *mut std::os::raw::c_void,
     ) {
-        let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() else {
+        if state.custom_state().datafusion_state.is_none() {
             return;
+        }
+
+        // Read the MPP-region offset + partitioning-source index from the
+        // DSM header.
+        let header = unsafe { mpp_agg_read_header(coordinate) };
+        let mpp_offset = header.mpp_offset as usize;
+        let pscan_offset = mpp_agg_pscan_offset();
+        state.custom_state_mut().mpp_partitioning_source_idx =
+            Some(header.partitioning_source_idx as usize);
+
+        // Attach to the ParallelScanState and wait for the leader to
+        // populate it before reading the canonical segment list.
+        let pscan_state = unsafe {
+            (coordinate as *mut u8).add(pscan_offset) as *mut crate::postgres::ParallelScanState
         };
+        assert!(!pscan_state.is_null(), "MPP DSM coordinate is null");
+        unsafe { (*pscan_state).wait_for_initialization() };
+        let non_partitioning_segments = unsafe { (*pscan_state).non_partitioning_segment_ids() };
+        state.custom_state_mut().parallel_state = Some(pscan_state);
+        state.custom_state_mut().non_partitioning_segments = non_partitioning_segments;
+
+        // Attach to the MPP region.
+        let mpp_coordinate =
+            unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut std::os::raw::c_void };
         let region_total = unsafe {
-            (*coordinate.cast::<crate::postgres::customscan::mpp::dsm::MppDsmHeader>()).region_total
+            (*mpp_coordinate.cast::<crate::postgres::customscan::mpp::dsm::MppDsmHeader>())
+                .region_total
         };
         let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
         let worker = match unsafe {
             crate::postgres::customscan::mpp::glue::worker_setup(
-                coordinate,
+                mpp_coordinate,
                 region_total,
                 worker_number,
                 std::ptr::null_mut(),
@@ -679,6 +838,11 @@ impl crate::postgres::customscan::dsm::ParallelQueryCapable for AggregateScan {
                 return;
             }
         };
+        let df_state = state
+            .custom_state_mut()
+            .datafusion_state
+            .as_mut()
+            .expect("checked above");
         df_state.mpp = Some(scan_state::MppExecState::Worker(worker));
     }
 }
@@ -751,12 +915,76 @@ pub trait CustomScanClause<CS: CustomScan> {
 }
 
 impl AggregateScan {
+    /// Capture per-source `SearchIndexManifest`s for every PgSearchScan
+    /// reachable from the aggregate's `RelNode` plan tree. Mirrors
+    /// `JoinScan::ensure_source_manifests`. Required at DSM-init time so
+    /// `ParallelScanState::size_of` can size the shared region; the buffer
+    /// pins must also outlive the scan itself, hence storing on
+    /// `AggregateScanState` rather than as a local.
+    fn ensure_source_manifests(state: &mut CustomScanStateWrapper<Self>) {
+        if !state.custom_state().source_manifests.is_empty() {
+            return;
+        }
+        let Some(df_state) = state.custom_state().datafusion_state.as_ref() else {
+            return;
+        };
+        let manifests: Vec<crate::index::reader::index::SearchIndexManifest> = df_state
+            .plan
+            .sources()
+            .iter()
+            .map(|source| {
+                let rel = crate::postgres::rel::PgSearchRelation::open(source.scan_info.indexrelid);
+                crate::index::reader::index::SearchIndexManifest::capture(
+                    &rel,
+                    crate::index::mvcc::MvccSatisfies::Snapshot,
+                )
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "Failed to capture source manifest for indexrelid {}: {e}",
+                        source.scan_info.indexrelid
+                    )
+                })
+            })
+            .collect();
+        state.custom_state_mut().source_manifests = manifests;
+    }
+
+    /// Pick the partitioning source — the one whose segment list workers
+    /// claim from. Pick the largest source by segment count. (JoinScan
+    /// derives this from `partitioning_source_index()` on its join clause;
+    /// AggregateScan doesn't carry the same metadata, so use a size
+    /// heuristic. For two-table joins this is almost always the larger
+    /// fact table, which is the right call for parallel slicing.)
+    fn partitioning_source_idx(state: &CustomScanStateWrapper<Self>) -> usize {
+        state
+            .custom_state()
+            .source_manifests
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, m)| m.segment_count())
+            .map(|(i, _)| i)
+            .unwrap_or(0)
+    }
+
     /// Serialize the leader's logical plan (already on `df_state`) and stash
     /// the bytes on `df_state.mpp_plan_bytes`. `estimate_dsm_custom_scan`
     /// reads the length to size the DSM region; `initialize_dsm_custom_scan`
     /// hands the bytes to `glue::leader_setup` which copies them into DSM
     /// for workers.
     fn stash_mpp_plan_bytes(state: &mut CustomScanStateWrapper<Self>) {
+        // Capture source manifests + partitioning_source_idx BEFORE building
+        // the logical plan. Each `PgSearchTableProvider` needs to know whether
+        // it's the partitioning source (uses `parallel_state.checkout_segment`
+        // to slice work across PG parallel workers) or non-partitioning
+        // (replicated view via canonical segment IDs). These flags are baked
+        // into the serialized plan; workers re-derive them via the codec.
+        Self::ensure_source_manifests(state);
+        let partitioning_idx = Self::partitioning_source_idx(state);
+        let mpp_ctx = crate::postgres::customscan::aggregatescan::datafusion_exec::MppPlanContext {
+            partitioning_plan_position: partitioning_idx,
+        };
+        state.custom_state_mut().mpp_partitioning_source_idx = Some(partitioning_idx);
+
         let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() else {
             return;
         };
@@ -786,6 +1014,7 @@ impl AggregateScan {
                 custom_scan_tlist,
                 df_state.having_filter.as_ref(),
                 &ctx,
+                Some(mpp_ctx),
             )
             .await
         });
@@ -804,9 +1033,14 @@ impl AggregateScan {
             }
         };
         df_state.mpp_plan_bytes = Some(bytes.to_vec());
-        // Default n_partitions=1 (scalar-agg final-gather). Group-by-agg
-        // would set this to mpp_worker_count when the walker matures.
-        df_state.mpp_n_partitions = 1;
+        // Each producer writes `target_partitions` partitions per worker.
+        // The fork's `_distribute_plan` is patched so that in in-process
+        // mode (custom WorkerTransport registered) it clamps the Shuffle's
+        // consumer_task_count to 1, which disables `NetworkShuffleExec`'s
+        // per-task hash scaling. So producer output = target_partitions =
+        // n_workers (matching `build_mpp_leader_session_context`).
+        let n_workers = crate::postgres::customscan::mpp::glue::producer_worker_count();
+        df_state.mpp_n_partitions = n_workers.max(1);
     }
 
     /// MPP leader exec helper: build a `SessionContext` that mirrors
@@ -820,8 +1054,23 @@ impl AggregateScan {
         mesh: Arc<crate::postgres::customscan::mpp::runtime::MppMesh>,
     ) -> datafusion::prelude::SessionContext {
         let serial = create_aggregate_session_context();
-        let cfg = serial.copied_config();
         let n_workers = mesh.n_workers as usize;
+        // Four-knob unlock for actually inserting NetworkShuffleExec/etc.:
+        //   1. target_partitions(N) — without this, EnforceDistribution skips
+        //      every RepartitionExec, so the annotator never sees a Shuffle.
+        //   2. distributed_task_estimator(N) — without this, leaves default to
+        //      Maximum(1) and `_distribute_plan` elides every shuffle.
+        //   3. distributed_broadcast_joins(true) — CollectLeft HashJoins
+        //      otherwise cap their stage's task_count to Maximum(1) and
+        //      propagate that cap upward, eliding shuffles above the join.
+        //   4. distributed_user_codec — the fork's prepare_plan unconditionally
+        //      encodes worker subplans for gRPC shipment; without a codec for
+        //      our custom physical execs, encoding errors before execution.
+        //      In our model the encoded bytes are never observed (workers
+        //      re-plan from the logical plan in DSM), so the codec is a stub.
+        let cfg = serial
+            .copied_config()
+            .with_target_partitions(n_workers.max(2));
 
         use datafusion::execution::SessionStateBuilder;
         use datafusion_distributed::SessionStateBuilderExt;
@@ -834,6 +1083,10 @@ impl AggregateScan {
             .with_distributed_worker_transport(
                 crate::postgres::customscan::mpp::runtime::ShmMqWorkerTransport::new(mesh),
             )
+            .with_distributed_task_estimator(n_workers)
+            .with_distributed_broadcast_joins(true)
+            .expect("with_distributed_broadcast_joins")
+            .with_distributed_user_codec(crate::scan::codec::PgSearchPhysicalCodecStub)
             .with_distributed_planner();
         datafusion::prelude::SessionContext::new_with_state(state_builder.build())
     }
@@ -845,9 +1098,32 @@ impl AggregateScan {
     /// [`mpp::exec::run_producer_fragment`] which pushes every output batch
     /// to the leader's shm_mq queues. Workers emit zero rows back to PG;
     /// returning `null_mut()` signals end-of-stream.
-    fn exec_mpp_worker(
-        df_state: &mut scan_state::DataFusionAggState,
-    ) -> *mut pg_sys::TupleTableSlot {
+    fn exec_mpp_worker(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
+        // Pull worker-thread inputs from the outer state before we borrow
+        // df_state mutably. parallel_state and non_partitioning_segments
+        // are required to pin each worker's PgSearchTableProvider to the
+        // right segment slice (the partitioning source) and the leader's
+        // canonical replica (the non-partitioning sources). Without them,
+        // every worker re-scans the full data and the leader-side hash
+        // partitions get the same rows from every worker.
+        let parallel_state = state.custom_state().parallel_state;
+        let non_partitioning_segments = state.custom_state().non_partitioning_segments.clone();
+        let partitioning_source_idx = state
+            .custom_state()
+            .mpp_partitioning_source_idx
+            .unwrap_or(0);
+        let plan_sources_count = state
+            .custom_state()
+            .source_manifests
+            .len()
+            .max(non_partitioning_segments.len() + 1);
+
+        let df_state = state
+            .custom_state_mut()
+            .datafusion_state
+            .as_mut()
+            .expect("DataFusion state must be initialized");
+
         if df_state.runtime.is_some() {
             // Already drained on a prior call; just signal EOF.
             return std::ptr::null_mut();
@@ -857,6 +1133,12 @@ impl AggregateScan {
             unreachable!("exec_mpp_worker called outside Worker state");
         };
         let plan_bytes = worker.plan_bytes.clone();
+        // Worker count from the participant config (matches the leader's
+        // mesh.n_workers). `outbound_senders.len()` gives partitions-per-
+        // producer (= mpp_n_partitions), not the worker count — using it as
+        // n_workers misconfigured the planner so NetworkShuffleExec scaled
+        // its hash to mpp_n_partitions × mpp_n_partitions = 81 partitions.
+        let n_workers = worker.participant_config.total_participants;
         let outbound_senders: Vec<crate::postgres::customscan::mpp::transport::MppSender> =
             match df_state.mpp.as_mut() {
                 Some(scan_state::MppExecState::Worker(w)) => {
@@ -874,30 +1156,76 @@ impl AggregateScan {
         };
         df_state.runtime = Some(runtime);
         let runtime = df_state.runtime.as_ref().unwrap();
-
-        let n_workers = outbound_senders.len() as u32;
         // Use a bare SessionContext for plan deserialization; the workers
         // need the same `with_distributed_planner` config the leader had so
         // the resulting physical plan exposes the matching NetworkShuffleExec.
         let ctx = create_aggregate_session_context();
-        let logical =
-            match crate::scan::codec::deserialize_logical_plan(&plan_bytes, &ctx.task_ctx()) {
-                Ok(lp) => lp,
-                Err(e) => pgrx::error!("mpp worker: deserialize_logical_plan failed: {e}"),
-            };
+
+        // Build per-source canonical segment ID sets. For the partitioning
+        // source, pull the full list out of the populated ParallelScanState
+        // (workers will then claim individual segments via `checkout_segment`
+        // inside their `PgSearchTableProvider`). For non-partitioning sources,
+        // use the segment IDs the leader snapshotted into shared memory.
+        let mut index_segment_ids: Vec<crate::api::HashSet<tantivy::index::SegmentId>> =
+            vec![crate::api::HashSet::default(); plan_sources_count];
+        if let Some(ps) = parallel_state {
+            let mut np_counter = 0usize;
+            for (i, slot) in index_segment_ids.iter_mut().enumerate() {
+                if i == partitioning_source_idx {
+                    *slot = unsafe { crate::postgres::customscan::parallel::list_segment_ids(ps) };
+                } else if let Some(ids) = non_partitioning_segments.get(np_counter) {
+                    *slot = ids.clone();
+                    np_counter += 1;
+                }
+            }
+        }
+
+        let logical = match crate::scan::codec::deserialize_logical_plan_with_runtime(
+            &plan_bytes,
+            &ctx.task_ctx(),
+            parallel_state,
+            None, // expr_context: bm25 search predicates don't need runtime params
+            None, // planstate: same
+            non_partitioning_segments,
+            index_segment_ids,
+        ) {
+            Ok(lp) => lp,
+            Err(e) => pgrx::error!("mpp worker: deserialize_logical_plan failed: {e}"),
+        };
 
         // Build state with the fork's distributed planner so create_physical_plan
-        // produces a DistributedExec wrapping NetworkShuffleExec.
+        // produces a DistributedExec wrapping NetworkShuffleExec. The
+        // target_partitions, task-estimator, broadcast-joins and codec
+        // overrides must mirror the leader (see
+        // `build_mpp_leader_session_context`); otherwise the worker re-plans
+        // a different shape and `find_worker_fragment` returns None.
+        let n_workers_us = n_workers as usize;
+        let cfg = ctx
+            .copied_config()
+            .with_target_partitions(n_workers_us.max(2));
         use datafusion::execution::SessionStateBuilder;
         use datafusion_distributed::SessionStateBuilderExt;
         let state_builder = SessionStateBuilder::new()
             .with_default_features()
-            .with_config(ctx.copied_config())
+            .with_config(cfg)
             .with_distributed_worker_resolver(
-                crate::postgres::customscan::mpp::runtime::MppWorkerResolver::new(
-                    n_workers as usize,
-                ),
+                crate::postgres::customscan::mpp::runtime::MppWorkerResolver::new(n_workers_us),
             )
+            // Workers may encounter nested network boundaries inside the
+            // producer fragment (e.g. a `NetworkBroadcastExec` on the build
+            // side of a `HashJoin`). Without a transport registered, the
+            // default `FlightWorkerTransport` would try to dial the empty
+            // URL and error out. The `LocalExecWorkerTransport` re-executes
+            // the boundary's input subtree locally — duplicates the build
+            // scan across workers, but for small index scans that's cheap
+            // and keeps the in-process design self-contained.
+            .with_distributed_worker_transport(
+                crate::postgres::customscan::mpp::runtime::LocalExecWorkerTransport,
+            )
+            .with_distributed_task_estimator(n_workers_us)
+            .with_distributed_broadcast_joins(true)
+            .expect("with_distributed_broadcast_joins")
+            .with_distributed_user_codec(crate::scan::codec::PgSearchPhysicalCodecStub)
             .with_distributed_planner();
         let session_state = state_builder.build();
         let session = datafusion::prelude::SessionContext::new_with_state(session_state);
@@ -1350,7 +1678,7 @@ impl AggregateScan {
         // call, then return null forever. Workers emit zero rows back to
         // PG; the leader assembles the result via the consumer plan.
         if let Some(scan_state::MppExecState::Worker(_)) = &df_state.mpp {
-            return Self::exec_mpp_worker(df_state);
+            return Self::exec_mpp_worker(state);
         }
 
         // First call: build and execute the DataFusion plan
@@ -1384,6 +1712,7 @@ impl AggregateScan {
                     custom_scan_tlist,
                     df_state.having_filter.as_ref(),
                     &ctx,
+                    None,
                 )
                 .await?;
                 df_state.group_df_indices = group_df_indices;

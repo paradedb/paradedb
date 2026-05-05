@@ -17,7 +17,7 @@
 
 use anyhow::{bail, Context};
 use clap::{Parser, Subcommand};
-use paradedb::{confidence_interval, mean, Window};
+use paradedb::{confidence_interval_half_width, mean, Window};
 use sqlx::{Connection, PgConnection, Row};
 use std::fs::File;
 use std::io::Write;
@@ -206,7 +206,7 @@ struct JSONBenchmarkResult {
 impl From<QueryResult> for JSONBenchmarkResult {
     fn from(res: QueryResult) -> Self {
         let mean = mean(&res.results.samples);
-        let ci_half_width = confidence_interval(&res.results.samples, 0.95);
+        let ci_half_width = confidence_interval_half_width(&res.results.samples, 0.95);
 
         let cold_query_extra =
             format!("cold_query_ms={:.3}; query={}", res.results.cold, res.query);
@@ -917,7 +917,7 @@ async fn execute_query_multiple_times(
     let stats_query = "SELECT max_exec_time, max_plan_time, rows FROM pg_stat_statements WHERE query LIKE 'SELECT%' AND query NOT LIKE '%pg_stat_statements%';";
     let stats_reset_query = "SELECT pg_stat_statements_reset();";
 
-    // run until run-to-run variance is sub-2% (query is warmed) or
+    // run until run-to-run variance is sub-0.1% (query is warmed) or
     // until 10 runs have passed, then take the next sample_count results
     let mut runs_completed = 0;
     let mut samples_taken = 0;
@@ -946,7 +946,7 @@ async fn execute_query_multiple_times(
                     results.num_results = rows as usize;
                     results.cold = time;
                 } else if (window.is_full()
-                    && window.percent_variance().filter(|v| *v <= 0.02).is_some())
+                    && window.percent_variance().filter(|v| *v <= 0.1).is_some())
                     || runs_completed >= 10
                 {
                     // only record once the query is sufficiently warm, or if we've already ran 10

@@ -274,7 +274,7 @@ impl BaseScan {
                 }
             }
             if !partial_quals.is_empty()
-                && partial_state.uses_our_operator
+                && (partial_state.uses_our_operator || partial_state.uses_index_pushdown)
                 && all_skipped_are_subplans
             {
                 state = partial_state;
@@ -348,7 +348,7 @@ impl BaseScan {
         state: &QualExtractState,
         quals: &mut Option<Qual>,
     ) -> Option<Qual> {
-        if state.uses_heap_expr && !state.uses_our_operator {
+        if state.uses_heap_expr && !(state.uses_our_operator || state.uses_index_pushdown) {
             return None;
         }
 

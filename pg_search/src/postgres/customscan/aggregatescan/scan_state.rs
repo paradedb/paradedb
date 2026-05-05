@@ -79,6 +79,16 @@ pub struct DataFusionAggState {
     /// outbound senders for this worker plus the deserialized fragment plan.
     #[allow(dead_code)]
     pub mpp: Option<MppExecState>,
+    /// Serialized logical-plan bytes that the leader writes into DSM and
+    /// workers read back. Computed by `begin_custom_scan` when MPP is
+    /// active; consulted by `estimate_dsm_custom_scan` and
+    /// `initialize_dsm_custom_scan`.
+    #[allow(dead_code)]
+    pub mpp_plan_bytes: Option<Vec<u8>>,
+    /// MPP cut shape (consumer-partition count K). Computed alongside
+    /// `mpp_plan_bytes`; used to size the DSM mesh.
+    #[allow(dead_code)]
+    pub mpp_n_partitions: u32,
 }
 
 /// Per-query MPP state. Distinct variants for leader vs worker because the

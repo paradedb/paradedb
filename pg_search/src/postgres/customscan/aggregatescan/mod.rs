@@ -36,6 +36,10 @@ pub use aggregate_type::AggregateType;
 pub use groupby::GroupingColumn;
 pub use targetlist::TargetListEntry;
 
+use std::sync::Arc;
+
+use datafusion_distributed::DistributedExt;
+
 use crate::api::agg_funcoid;
 use crate::api::SortDirection;
 use crate::gucs;
@@ -354,6 +358,8 @@ impl CustomScan for AggregateScan {
                     batch_row_idx: 0,
                     group_df_indices: Vec::new(),
                     mpp: None,
+                    mpp_plan_bytes: None,
+                    mpp_n_partitions: 1,
                 });
                 builder.build()
             }
@@ -477,6 +483,16 @@ impl CustomScan for AggregateScan {
                 );
                 state.custom_state_mut().scan_slot = Some(scan_slot);
             }
+            // MPP: serialize the logical plan so estimate_dsm/initialize_dsm
+            // can write it into the DSM region. Only the leader runs
+            // this branch (`ParallelWorkerNumber == -1` in the leader
+            // backend); workers read the bytes back from DSM in
+            // initialize_worker_custom_scan.
+            if crate::postgres::customscan::mpp::glue::mpp_is_active()
+                && unsafe { pg_sys::ParallelWorkerNumber } == -1
+            {
+                Self::stash_mpp_plan_bytes(state);
+            }
             return;
         }
 
@@ -569,23 +585,52 @@ impl crate::postgres::customscan::dsm::ParallelQueryCapable for AggregateScan {
         state: &mut CustomScanStateWrapper<Self>,
         _pcxt: *mut pg_sys::ParallelContext,
     ) -> pg_sys::Size {
-        // For now, MPP isn't activated (begin_custom_scan doesn't yet build
-        // the distributed plan + populate fragment bytes). Return 0 to opt
-        // out of DSM allocation; PG accepts zero-byte requests by skipping
-        // the DSM init hook entirely.
-        let _ = state;
-        0
+        let Some(df_state) = state.custom_state().datafusion_state.as_ref() else {
+            return 0;
+        };
+        let Some(plan_bytes) = df_state.mpp_plan_bytes.as_ref() else {
+            return 0;
+        };
+        match crate::postgres::customscan::mpp::glue::estimate_dsm_size(
+            plan_bytes.len(),
+            df_state.mpp_n_partitions,
+        ) {
+            Ok(sz) => sz as pg_sys::Size,
+            Err(e) => {
+                pgrx::warning!("mpp: estimate_dsm failed: {e}; falling back to serial");
+                0
+            }
+        }
     }
 
     fn initialize_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
-        _pcxt: *mut pg_sys::ParallelContext,
-        _coordinate: *mut std::os::raw::c_void,
+        pcxt: *mut pg_sys::ParallelContext,
+        coordinate: *mut std::os::raw::c_void,
     ) {
-        let _ = state;
-        // No-op until begin_custom_scan populates fragment bytes; DSM
-        // estimate returns 0 so PG does not actually call this with a
-        // non-null coordinate.
+        let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() else {
+            return;
+        };
+        let Some(plan_bytes) = df_state.mpp_plan_bytes.take() else {
+            return;
+        };
+        let n_partitions = df_state.mpp_n_partitions;
+        let seg = unsafe { (*pcxt).seg };
+        let leader = match unsafe {
+            crate::postgres::customscan::mpp::glue::leader_setup(
+                coordinate,
+                seg,
+                n_partitions,
+                plan_bytes,
+            )
+        } {
+            Ok(l) => l,
+            Err(e) => {
+                pgrx::warning!("mpp: leader_setup failed: {e}; falling back to serial");
+                return;
+            }
+        };
+        df_state.mpp = Some(scan_state::MppExecState::Leader(leader));
     }
 
     fn reinitialize_dsm_custom_scan(
@@ -598,9 +643,30 @@ impl crate::postgres::customscan::dsm::ParallelQueryCapable for AggregateScan {
     fn initialize_worker_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
         _toc: *mut pg_sys::shm_toc,
-        _coordinate: *mut std::os::raw::c_void,
+        coordinate: *mut std::os::raw::c_void,
     ) {
-        let _ = state;
+        let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() else {
+            return;
+        };
+        let region_total = unsafe {
+            (*coordinate.cast::<crate::postgres::customscan::mpp::dsm::MppDsmHeader>()).region_total
+        };
+        let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
+        let worker = match unsafe {
+            crate::postgres::customscan::mpp::glue::worker_setup(
+                coordinate,
+                region_total,
+                worker_number,
+                std::ptr::null_mut(),
+            )
+        } {
+            Ok(w) => w,
+            Err(e) => {
+                pgrx::warning!("mpp: worker_setup failed: {e}; falling back to serial");
+                return;
+            }
+        };
+        df_state.mpp = Some(scan_state::MppExecState::Worker(worker));
     }
 }
 
@@ -672,6 +738,177 @@ pub trait CustomScanClause<CS: CustomScan> {
 }
 
 impl AggregateScan {
+    /// Serialize the leader's logical plan (already on `df_state`) and stash
+    /// the bytes on `df_state.mpp_plan_bytes`. `estimate_dsm_custom_scan`
+    /// reads the length to size the DSM region; `initialize_dsm_custom_scan`
+    /// hands the bytes to `glue::leader_setup` which copies them into DSM
+    /// for workers.
+    fn stash_mpp_plan_bytes(state: &mut CustomScanStateWrapper<Self>) {
+        let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() else {
+            return;
+        };
+        // Build a logical plan eagerly. The DataFusion exec path normally
+        // builds it lazily on first `exec_custom_scan` call; for MPP we
+        // need it before estimate_dsm fires.
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(e) => {
+                pgrx::warning!("mpp: tokio runtime build failed: {e}; skipping MPP");
+                return;
+            }
+        };
+        let ctx = create_aggregate_session_context();
+        let custom_exprs = df_state.custom_exprs;
+        let custom_scan_tlist = df_state.custom_scan_tlist;
+        let logical = runtime.block_on(async {
+            build_join_aggregate_plan(
+                &df_state.plan,
+                &df_state.targetlist,
+                df_state.topk.as_ref(),
+                &df_state.join_level_predicates,
+                custom_exprs,
+                custom_scan_tlist,
+                df_state.having_filter.as_ref(),
+                &ctx,
+            )
+            .await
+        });
+        let logical = match logical {
+            Ok((lp, _group_df_indices)) => lp,
+            Err(e) => {
+                pgrx::warning!("mpp: build_join_aggregate_plan failed: {e}; skipping MPP");
+                return;
+            }
+        };
+        let bytes = match crate::scan::codec::serialize_logical_plan(&logical) {
+            Ok(b) => b,
+            Err(e) => {
+                pgrx::warning!("mpp: serialize_logical_plan failed: {e}; skipping MPP");
+                return;
+            }
+        };
+        df_state.mpp_plan_bytes = Some(bytes.to_vec());
+        // Default n_partitions=1 (scalar-agg final-gather). Group-by-agg
+        // would set this to mpp_worker_count when the walker matures.
+        df_state.mpp_n_partitions = 1;
+    }
+
+    /// MPP worker exec: deserialize the logical plan from DSM, build the
+    /// distributed physical plan (matching what the leader produced), find
+    /// the worker fragment (the `input_stage.plan` of the bottom
+    /// `NetworkShuffleExec`), and run it via
+    /// [`mpp::exec::run_producer_fragment`] which pushes every output batch
+    /// to the leader's shm_mq queues. Workers emit zero rows back to PG;
+    /// returning `null_mut()` signals end-of-stream.
+    fn exec_mpp_worker(
+        df_state: &mut scan_state::DataFusionAggState,
+    ) -> *mut pg_sys::TupleTableSlot {
+        if df_state.runtime.is_some() {
+            // Already drained on a prior call; just signal EOF.
+            return std::ptr::null_mut();
+        }
+        let scan_state::MppExecState::Worker(worker) = df_state.mpp.as_ref().expect("checked")
+        else {
+            unreachable!("exec_mpp_worker called outside Worker state");
+        };
+        let plan_bytes = worker.plan_bytes.clone();
+        let outbound_senders: Vec<crate::postgres::customscan::mpp::transport::MppSender> =
+            match df_state.mpp.as_mut() {
+                Some(scan_state::MppExecState::Worker(w)) => {
+                    std::mem::take(&mut w.outbound_senders)
+                }
+                _ => unreachable!(),
+            };
+
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(e) => pgrx::error!("mpp worker: tokio runtime build failed: {e}"),
+        };
+        df_state.runtime = Some(runtime);
+        let runtime = df_state.runtime.as_ref().unwrap();
+
+        let n_workers = outbound_senders.len() as u32;
+        // Use a bare SessionContext for plan deserialization; the workers
+        // need the same `with_distributed_planner` config the leader had so
+        // the resulting physical plan exposes the matching NetworkShuffleExec.
+        let ctx = create_aggregate_session_context();
+        let logical =
+            match crate::scan::codec::deserialize_logical_plan(&plan_bytes, &ctx.task_ctx()) {
+                Ok(lp) => lp,
+                Err(e) => pgrx::error!("mpp worker: deserialize_logical_plan failed: {e}"),
+            };
+
+        // Build state with the fork's distributed planner so create_physical_plan
+        // produces a DistributedExec wrapping NetworkShuffleExec.
+        use datafusion::execution::SessionStateBuilder;
+        use datafusion_distributed::SessionStateBuilderExt;
+        let state_builder = SessionStateBuilder::new()
+            .with_default_features()
+            .with_config(ctx.copied_config())
+            .with_distributed_worker_resolver(
+                crate::postgres::customscan::mpp::runtime::MppWorkerResolver::new(
+                    n_workers as usize,
+                ),
+            )
+            .with_distributed_planner();
+        let session_state = state_builder.build();
+        let session = datafusion::prelude::SessionContext::new_with_state(session_state);
+
+        let physical_plan =
+            runtime.block_on(async { session.state().create_physical_plan(&logical).await });
+        let physical_plan = match physical_plan {
+            Ok(p) => p,
+            Err(e) => pgrx::error!("mpp worker: create_physical_plan failed: {e}"),
+        };
+        // Find the bottom NetworkShuffleExec; its input_stage.plan (== children()[0])
+        // is the worker fragment.
+        let fragment = match Self::find_worker_fragment(&physical_plan) {
+            Some(f) => f,
+            None => pgrx::error!("mpp worker: no NetworkShuffleExec found in distributed plan"),
+        };
+        let task_ctx = build_task_context(
+            &session,
+            &fragment,
+            unsafe { pg_sys::work_mem as usize * 1024 },
+            unsafe { pg_sys::hash_mem_multiplier },
+        );
+        let result = runtime.block_on(async {
+            crate::postgres::customscan::mpp::exec::run_producer_fragment(
+                fragment,
+                outbound_senders,
+                task_ctx,
+            )
+            .await
+        });
+        if let Err(e) = result {
+            pgrx::error!("mpp worker: run_producer_fragment failed: {e}");
+        }
+        std::ptr::null_mut()
+    }
+
+    /// Walk a DistributedExec-rooted plan and return the bottom
+    /// NetworkShuffleExec's input subtree (the worker fragment). Returns
+    /// `None` if no NetworkShuffleExec is reachable from the root.
+    fn find_worker_fragment(
+        plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+    ) -> Option<Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
+        if plan.name() == "NetworkShuffleExec" {
+            return plan.children().first().map(|c| Arc::clone(c));
+        }
+        for child in plan.children() {
+            if let Some(found) = Self::find_worker_fragment(child) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
     /// Existing single-table Tantivy aggregate path.
     fn build_tantivy_aggregate_path(
         builder: CustomPathBuilder<Self>,
@@ -843,6 +1080,23 @@ impl AggregateScan {
             multi_table_clause_count,
             having_filter,
         });
+
+        // Activate MPP at planning time if the GUC is on. The customscan's
+        // `ParallelQueryCapable` impl + `begin_custom_scan` build the
+        // distributed plan + DSM mesh; here we just opt into PG's parallel-
+        // query subsystem so the workers actually launch.
+        if crate::postgres::customscan::mpp::glue::mpp_is_active() {
+            let n_workers = crate::postgres::customscan::mpp::glue::mpp_worker_count();
+            // PG launches `parallel_workers` workers in addition to the
+            // leader; mpp_worker_count counts every participant including
+            // the leader-as-worker-0, so we subtract 1.
+            let workers_to_launch = n_workers.saturating_sub(1) as i32;
+            if workers_to_launch > 0 {
+                custom_path.path.parallel_aware = true;
+                custom_path.path.parallel_safe = true;
+                custom_path.path.parallel_workers = workers_to_launch;
+            }
+        }
 
         // Append raw PG Expr pointers to custom_private after the serialized
         // PrivateData. Structure: [PrivateData JSON, expr_1, expr_2, ...]
@@ -1041,6 +1295,14 @@ impl AggregateScan {
             .datafusion_state
             .as_mut()
             .expect("DataFusion state must be initialized");
+
+        // MPP worker fast-path: run the producer fragment to exhaustion
+        // (pushing every batch into the leader's shm_mq mesh) on the first
+        // call, then return null forever. Workers emit zero rows back to
+        // PG; the leader assembles the result via the consumer plan.
+        if let Some(scan_state::MppExecState::Worker(_)) = &df_state.mpp {
+            return Self::exec_mpp_worker(df_state);
+        }
 
         // First call: build and execute the DataFusion plan
         if df_state.runtime.is_none() {

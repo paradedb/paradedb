@@ -25,7 +25,9 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::process::Command;
+use std::sync::Arc;
 use std::time::Instant;
+use tokio::sync::Semaphore;
 
 mod config;
 mod convert;
@@ -591,10 +593,7 @@ fn generate_test_data(url: &str, dataset: &str, rows: u32) -> anyhow::Result<()>
 
 async fn build_store(
     source_url: &str,
-) -> anyhow::Result<(
-    std::sync::Arc<dyn object_store::ObjectStore>,
-    object_store::path::Path,
-)> {
+) -> anyhow::Result<(Arc<dyn ObjectStore>, object_store::path::Path)> {
     let url = url::Url::parse(source_url)
         .unwrap_or_else(|_| url::Url::from_file_path(source_url).unwrap());
 
@@ -623,13 +622,15 @@ async fn build_store(
             builder = builder.with_region(region);
 
             // Increase timeouts and retries for robustness with large files and concurrent loads.
-            // DuckDB used a 120s timeout; we'll match that here.
+            // DuckDB used a 120s timeout; we'll use 600s here to accommodate large files.
             builder = builder
-                .with_config("timeout".parse().unwrap(), "120s")
-                .with_config("connect_timeout".parse().unwrap(), "10s")
+                .with_config("timeout".parse().unwrap(), "600s")
+                .with_config("connect_timeout".parse().unwrap(), "15s")
+                .with_config("pool_idle_timeout".parse().unwrap(), "60s")
                 .with_retry(object_store::RetryConfig {
                     max_retries: 10,
-                    retry_timeout: std::time::Duration::from_secs(300),
+                    // Total time spent retrying. Should be larger than individual request timeout.
+                    retry_timeout: std::time::Duration::from_secs(1200),
                     ..Default::default()
                 });
 
@@ -647,24 +648,18 @@ async fn build_store(
             }
 
             let store = builder.build()?;
-            Ok((
-                std::sync::Arc::new(store),
-                object_store::path::Path::from(url.path()),
-            ))
+            Ok((Arc::new(store), object_store::path::Path::from(url.path())))
         }
         "http" | "https" => {
             let store = object_store::http::HttpBuilder::new()
                 .with_url(source_url)
                 .build()?;
-            Ok((
-                std::sync::Arc::new(store),
-                object_store::path::Path::from(url.path()),
-            ))
+            Ok((Arc::new(store), object_store::path::Path::from(url.path())))
         }
         _ => {
             // Default to local filesystem
             Ok((
-                std::sync::Arc::new(object_store::local::LocalFileSystem::new()),
+                Arc::new(object_store::local::LocalFileSystem::new()),
                 object_store::path::Path::from(url.path()),
             ))
         }
@@ -730,23 +725,32 @@ async fn load_external_data(
         .with_context(|| format!("Failed to create temp directory '{temp_dir}'"))?;
 
     let mut join_set = tokio::task::JoinSet::new();
+    // Throttle total concurrent S3 downloads and psql loads.
+    // Reduced to 8 to provide more bandwidth per stream and avoid timeouts on large files.
+    let semaphore = Arc::new(Semaphore::new(8));
+
+    println!("Connecting to data source: {source_path}");
+    let (store, base_prefix) = build_store(&source_path).await?;
 
     for table_name in config.all_table_names() {
         let url = url.to_string();
-        let source_path = source_path.clone();
         let temp_dir = temp_dir.clone();
         let table_name = table_name.to_string();
+        let semaphore = Arc::clone(&semaphore);
+        let store = Arc::clone(&store);
+        let base_prefix = base_prefix.clone();
 
         join_set.spawn(async move {
-            let csv_source = format!("{source_path}/{table_name}");
             let table_temp_dir = format!("{temp_dir}/{table_name}");
             tokio::fs::create_dir_all(&table_temp_dir)
                 .await
                 .with_context(|| format!("Failed to create temp directory '{table_temp_dir}'"))?;
 
-            println!("Finding CSVs for '{table_name}' from {csv_source}...");
-            let (store, prefix) = build_store(&csv_source).await?;
-            let mut list_stream = store.list(Some(&prefix));
+            // Append table name to the base prefix
+            let table_prefix = base_prefix.clone().join(&*table_name);
+
+            println!("Finding CSVs for '{table_name}'...");
+            let mut list_stream = store.list(Some(&table_prefix));
 
             let mut file_locations = Vec::new();
             while let Some(meta) = list_stream.next().await.transpose()? {
@@ -763,20 +767,28 @@ async fn load_external_data(
             let mut download_tasks = tokio::task::JoinSet::new();
 
             for location in file_locations {
-                let store_clone = std::sync::Arc::clone(&store);
+                let store = Arc::clone(&store);
                 let table_temp_dir = table_temp_dir.clone();
                 let table_name = table_name.clone();
                 let url = url.clone();
+                let semaphore = Arc::clone(&semaphore);
 
                 download_tasks.spawn(async move {
                     let filename = location.parts().next_back().unwrap().as_ref().to_string();
                     let local_path = format!("{table_temp_dir}/{filename}");
 
+                    let _permit = semaphore.acquire().await.context("Semaphore closed")?;
+
                     // Download the file
                     let mut file = tokio::fs::File::create(&local_path).await?;
-                    let mut stream = store_clone.get(&location).await?.into_stream();
+                    let mut stream = store
+                        .get(&location)
+                        .await
+                        .with_context(|| format!("Failed to start download of {filename}"))?
+                        .into_stream();
                     while let Some(chunk_res) = stream.next().await {
-                        let chunk = chunk_res?;
+                        let chunk = chunk_res
+                            .with_context(|| format!("Error while streaming {filename}"))?;
                         tokio::io::AsyncWriteExt::write_all(&mut file, &chunk).await?;
                     }
                     // Flush and sync to be safe
@@ -801,7 +813,6 @@ async fn load_external_data(
                     Ok::<(), anyhow::Error>(())
                 });
             }
-
             let mut loaded_files = 0;
             while let Some(res) = download_tasks.join_next().await {
                 res??;

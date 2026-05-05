@@ -255,8 +255,9 @@ pub unsafe fn leader_init(
 
     // Create every shm_mq slot. Each slot is `queue_bytes` aligned bytes; we
     // pass the address to `shm_mq_create` which initializes the ring buffer.
-    let leader_idx: u32 = 0;
-    let mut outbound_senders = Vec::with_capacity(layout.n_partitions as usize);
+    // The leader is a consumer-only participant (leader-as-worker-0 is
+    // deferred), so it attaches as receiver to every slot but as sender to
+    // none — workers attach to their own row in `worker_attach`.
     let mut inbound_receivers =
         Vec::with_capacity((layout.n_workers as usize) * (layout.n_partitions as usize));
     for w in 0..layout.n_workers {
@@ -264,17 +265,12 @@ pub unsafe fn leader_init(
             let off = (w as usize) * (layout.n_partitions as usize) + (p as usize);
             let mq_addr = unsafe { base.add(layout.queues_offset + off * layout.queue_bytes) };
             let mq = unsafe { pg_sys::shm_mq_create(mq_addr.cast(), layout.queue_bytes) };
-            if w == leader_idx {
-                // Leader is the producer for slot (leader, p).
-                outbound_senders.push(unsafe { ShmMqSender::attach(seg, mq) });
-            }
-            // Leader is the consumer for every (w, p) — attach as receiver.
             inbound_receivers.push(unsafe { ShmMqReceiver::attach_existing(seg, mq) });
         }
     }
 
     Ok(LeaderAttach {
-        outbound_senders,
+        outbound_senders: Vec::new(),
         inbound_receivers,
     })
 }
@@ -303,9 +299,9 @@ pub unsafe fn worker_attach(
     header
         .validate(region_total)
         .map_err(|e| format!("mpp: worker DSM validate: {e}"))?;
-    if worker_index == 0 || worker_index >= header.n_workers {
+    if worker_index >= header.n_workers {
         return Err(format!(
-            "mpp: worker_index {worker_index} not in 1..{}",
+            "mpp: worker_index {worker_index} not in 0..{}",
             header.n_workers
         ));
     }

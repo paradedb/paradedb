@@ -63,16 +63,25 @@ pub fn mpp_queue_size() -> usize {
 }
 
 /// Body of `estimate_dsm_custom_scan`. Returns total DSM bytes the leader
-/// will need for plan + N×K queue mesh.
+/// will need for plan + N×K queue mesh. `N` is the *worker* count
+/// (`mpp_worker_count - 1`); the leader is a consumer-only participant
+/// in this iteration, so its slot is omitted from the mesh.
 pub fn estimate_dsm_size(plan_bytes_len: usize, n_partitions: u32) -> Result<usize, String> {
     let layout = compute_dsm_layout(
-        mpp_worker_count(),
+        producer_worker_count(),
         n_partitions,
         mpp_queue_size(),
         plan_bytes_len,
     )
     .map_err(|e| format!("mpp: estimate_dsm_size: {e}"))?;
     Ok(layout.region_total)
+}
+
+/// Number of producer workers in the mesh: `mpp_worker_count - 1`. The leader
+/// is a consumer-only participant for now (leader-as-worker-0 deferred); its
+/// slot is omitted, so PG launches exactly this many parallel workers.
+pub fn producer_worker_count() -> u32 {
+    mpp_worker_count().saturating_sub(1).max(1)
 }
 
 /// Returned to the leader from [`leader_setup`]. The customscan stashes this
@@ -105,7 +114,7 @@ pub unsafe fn leader_setup(
     n_partitions: u32,
     plan_bytes: Vec<u8>,
 ) -> Result<MppLeaderState, String> {
-    let n_workers = mpp_worker_count();
+    let n_workers = producer_worker_count();
     let layout = compute_dsm_layout(n_workers, n_partitions, mpp_queue_size(), plan_bytes.len())
         .map_err(|e| format!("mpp: leader_setup compute layout: {e}"))?;
 
@@ -128,15 +137,16 @@ pub unsafe fn leader_setup(
         drains,
     });
 
-    let outbound_senders = attach
-        .outbound_senders
-        .into_iter()
-        .map(|s| MppSender::new(Box::new(s)))
-        .collect();
+    // Drop the leader's own producer slot senders — the leader doesn't
+    // produce in this iteration, so its slot would never receive data.
+    // Dropping them now means peer receivers observe Detached at first
+    // poll and short-circuit cleanly. (When leader-as-worker-0 lands,
+    // we'll route these into a Tokio-spawned producer subplan instead.)
+    drop(attach.outbound_senders);
 
     Ok(MppLeaderState {
         mesh,
-        outbound_senders,
+        outbound_senders: Vec::new(),
         participant_config: MppParticipantConfig {
             participant_index: 0,
             total_participants: n_workers,
@@ -173,9 +183,9 @@ pub unsafe fn worker_setup(
     if worker_number < 0 {
         return Err("mpp: worker_number < 0".into());
     }
-    let worker_index = (worker_number as u32)
-        .checked_add(1)
-        .ok_or_else(|| "mpp: worker_number + 1 overflowed".to_string())?;
+    // Leader is consumer-only, so all parallel workers map directly to mesh
+    // slots: ParallelWorkerNumber 0..N-1 maps to slot 0..N-1.
+    let worker_index = worker_number as u32;
 
     let (header, plan_bytes, attach) =
         unsafe { worker_attach(coordinate, region_total, worker_index, seg) }?;

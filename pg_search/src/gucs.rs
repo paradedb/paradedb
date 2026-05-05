@@ -165,6 +165,19 @@ static MPP_WORKER_COUNT: GucSetting<i32> = GucSetting::<i32>::new(4);
 /// likely a per-query DSM cap than a raw per-edge byte count.
 static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(64 * 1024 * 1024);
 
+/// The maximum size of an InList that can be pushed down to a TermSet Query.
+static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
+    GucSetting::<i32>::new(16 * 1024 * 1024);
+
+/// The maximum number of distinct values in an InList that can be pushed down to a TermSet Query.
+///
+/// TODO: Adjust this as https://github.com/paradedb/paradedb/issues/4895 and followups land: if
+/// the TermSet scans the entire fast field column (without taking advantage of its shape to skip
+/// data), then creating a Query can be a pessimization, because the HashExpr that DataFusion uses
+/// is ~directly calculated from the pre-hashed values in the HashJoin's hash table.
+static HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: GucSetting<i32> =
+    GucSetting::<i32>::new(16_000);
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -422,6 +435,28 @@ pub fn init() {
           Global thresholds are published progressively to the scanner \
           for early row pruning during collection.",
         &ENABLE_SEGMENTED_TOPK,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.hash_join_inlist_pushdown_max_size",
+        c"The maximum size in bytes of an InList that can be pushed down to a TermSet Query.",
+        c"The maximum size in bytes of an InList that can be pushed down to a TermSet Query.",
+        &HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.hash_join_inlist_pushdown_max_distinct_values",
+        c"The maximum number of distinct values in an InList that can be pushed down to a TermSet Query.",
+        c"The maximum number of distinct values in an InList that can be pushed down to a TermSet Query.",
+        &HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES,
+        0,
+        i32::MAX,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -692,6 +727,14 @@ pub fn mpp_worker_count() -> i32 {
 
 pub fn mpp_queue_size() -> usize {
     MPP_QUEUE_SIZE.get() as usize
+}
+
+pub fn hash_join_inlist_pushdown_max_size() -> i32 {
+    HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE.get()
+}
+
+pub fn hash_join_inlist_pushdown_max_distinct_values() -> i32 {
+    HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

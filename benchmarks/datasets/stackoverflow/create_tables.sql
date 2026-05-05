@@ -2,6 +2,8 @@
 
 DROP TABLE IF EXISTS stackoverflow_posts CASCADE;
 DROP TABLE IF EXISTS badges CASCADE;
+DROP TABLE IF EXISTS comments CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
 
 CREATE TABLE stackoverflow_posts (
     id INTEGER PRIMARY KEY,
@@ -33,4 +35,30 @@ CREATE TABLE badges (
     user_id INTEGER,
     class INTEGER,
     tag_based BOOLEAN
+);
+
+CREATE TABLE comments (
+    id INTEGER PRIMARY KEY,
+    text TEXT,
+    creation_date TIMESTAMP,
+    post_id INTEGER,
+    user_id INTEGER,
+    user_display_name VARCHAR,
+    score INTEGER
+);
+
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY,
+    display_name VARCHAR,
+    about_me TEXT,
+    age INTEGER,
+    creation_date TIMESTAMP,
+    last_access_date TIMESTAMP,
+    location VARCHAR,
+    reputation INTEGER,
+    up_votes INTEGER,
+    down_votes INTEGER,
+    views INTEGER,
+    profile_image_url VARCHAR,
+    website_url VARCHAR
 );

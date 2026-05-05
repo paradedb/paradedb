@@ -21,7 +21,15 @@ concurrency:
 jobs:
   lint-rust:
     name: Lint Rust Files
-    runs-on: ubicloud-standard-4-arm
+    runs-on:
+      # Compute-optimized c-family — Rust clippy/fmt is CPU-bound.
+      # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
+      - runs-on=${{ github.run_id }}
+      - family=c7g+c8g
+      - cpu=4
+      - ram=8
+      - image=ubuntu24-full-arm64
+      - extras=s3-cache
     strategy:
       matrix:
         pg_version: [18]

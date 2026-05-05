@@ -28,7 +28,7 @@ Releases must always be triggered **from the branch being released** (e.g., `mai
 
 ## Release Preparation
 
-Before triggering the workflow, create a **Release Preparation PR** against the branch you're releasing from (`main`, or a stable branch like `0.16.x`):
+Before triggering the workflow, create a **Release Preparation PR** against `main`. This is true even when releasing a patch from a stable branch like `0.23.x`: the prep PR always targets `main`, and the PR description should reference the stable branch the release is being cut from. The actual release is then triggered against the stable branch via the workflow.
 
 - Update the `Cargo.toml` version:
   - `a.b.c-rc.d` for **beta** releases

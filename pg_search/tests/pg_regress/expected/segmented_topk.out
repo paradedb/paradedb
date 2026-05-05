@@ -166,7 +166,7 @@ LIMIT 3;
            :           CooperativeExec
            :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=5, output_bytes=152.0 B, output_batches=1]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[output_rows=50, output_bytes=1882.0 B, output_batches=1, rows_pruned=50, rows_scanned=100]
+           :             PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=true, query="all", metrics=[output_rows=50, output_bytes=1882.0 B, output_batches=1, rows_pruned=0, rows_scanned=50]
 (16 rows)
 
 -- =============================================================================
@@ -672,7 +672,7 @@ LIMIT 5;
            :           CooperativeExec
            :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"PROJECT_ALPHA","lenient":null,"conjunction_mode":null}}}}, metrics=[output_rows=3, output_bytes=104.0 B, output_batches=1]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, query="all", metrics=[output_rows=14.26 K, output_bytes=515.3 KB, output_batches=4, rows_pruned=35.74 K, rows_scanned=50.00 K]
+           :             PgSearchScan: segments=1, dynamic_filters=2, dynamic_filter_pushdown=true, query="all", metrics=[output_rows=14.26 K, output_bytes=515.3 KB, output_batches=4, rows_pruned=15.74 K, rows_scanned=30.00 K]
 (16 rows)
 
 SELECT f.id, f.title

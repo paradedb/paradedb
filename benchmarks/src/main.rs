@@ -18,7 +18,6 @@
 use anyhow::{bail, Context};
 use clap::{Parser, Subcommand};
 use paradedb::median;
-use paradedb::micro_benchmarks::benchmark_columnar;
 use sqlx::{Connection, PgConnection, Row};
 use std::fs::File;
 use std::io::Write;
@@ -92,18 +91,6 @@ struct CommonBenchmarkArgs {
     #[arg(long, value_parser = ["md", "csv", "json"], default_value = "md")]
     output: String,
 
-    #[arg(long, value_parser = ["fastfields", "sql"], default_value = "sql")]
-    benchmark: String,
-
-    #[arg(long, default_value = "2")]
-    warmups: usize,
-
-    #[arg(long, default_value = "5")]
-    iterations: usize,
-
-    #[arg(long, default_value = "100000")]
-    batch_size: usize,
-
     /// Whether to fail on query errors. Set to false for backfills against older versions
     /// that may not support all query syntax.
     #[arg(long, default_value_t = true, num_args = 1)]
@@ -158,48 +145,24 @@ async fn run_benchmark(mode: BenchmarkMode) -> anyhow::Result<()> {
 
 async fn run_benchmark_generated(args: GeneratedArgs) -> anyhow::Result<()> {
     let common = &args.common;
-    if common.benchmark == "fastfields" {
-        let mut conn = PgConnection::connect(&common.url).await?;
-        let res = benchmark_columnar(
-            &mut conn,
-            common.skip_setup,
-            common.runs,
-            common.warmups,
-            args.rows as usize,
-            common.batch_size,
-        )
-        .await;
-        println!("Columnar Benchmark Completed: {res:?}");
-    } else if common.benchmark == "sql" {
-        if !common.skip_setup {
-            generate_test_data(&common.url, &common.dataset, args.rows)?
-        }
-        let rows_display = args.rows.to_string();
-        run_sql_benchmarks(common, &rows_display).await?
-    } else {
-        bail!("Invalid benchmark type");
+    if !common.skip_setup {
+        generate_test_data(&common.url, &common.dataset, args.rows)?
     }
-    Ok(())
+    let rows_display = args.rows.to_string();
+    run_sql_benchmarks(common, &rows_display).await
 }
 
 async fn run_benchmark_existing(args: ExistingArgs) -> anyhow::Result<()> {
     let common = &args.common;
-    if common.benchmark == "fastfields" {
-        bail!("Fastfields benchmark is not supported with existing datasets");
-    } else if common.benchmark == "sql" {
-        if !common.skip_setup {
-            load_external_data(
-                &common.url,
-                &common.dataset,
-                &args.size,
-                args.data_source.as_deref(),
-            )?;
-        }
-        run_sql_benchmarks(common, &args.size).await?
-    } else {
-        bail!("Invalid benchmark type");
+    if !common.skip_setup {
+        load_external_data(
+            &common.url,
+            &common.dataset,
+            &args.size,
+            args.data_source.as_deref(),
+        )?;
     }
-    Ok(())
+    run_sql_benchmarks(common, &args.size).await
 }
 
 async fn run_sql_benchmarks(args: &CommonBenchmarkArgs, rows_display: &str) -> anyhow::Result<()> {
@@ -299,6 +262,22 @@ async fn process_index_creation(
     Ok(results)
 }
 
+async fn process_after_create_index_sql(args: &CommonBenchmarkArgs) -> anyhow::Result<()> {
+    let after_create_index_sql = format!("datasets/{}/after_create_index.sql", args.dataset);
+    if Path::new(&after_create_index_sql).exists() {
+        let status = Command::new("psql")
+            .arg(&args.url)
+            .arg("-f")
+            .arg(&after_create_index_sql)
+            .status()
+            .with_context(|| "Failed to execute after_create_index.sql")?;
+        if !status.success() {
+            bail!("Failed to create tables from {after_create_index_sql}");
+        }
+    }
+    Ok(())
+}
+
 async fn run_benchmarks(args: &CommonBenchmarkArgs) -> anyhow::Result<Vec<QueryResult>> {
     let mut utility_conn = PgConnection::connect(&args.url)
         .await
@@ -386,6 +365,7 @@ async fn generate_markdown_output(
     write_postgres_settings(&mut file, &args.url).await?;
     if !args.skip_setup {
         process_index_creation_md(&mut file, args).await?;
+        process_after_create_index_sql(args).await?;
     }
     run_benchmarks_md(&mut file, args).await?;
     Ok(())
@@ -396,6 +376,7 @@ async fn generate_csv_output(args: &CommonBenchmarkArgs, rows_display: &str) -> 
     write_postgres_settings_csv(&args.url, &args.r#type).await?;
     if !args.skip_setup {
         process_index_creation_csv(args).await?;
+        process_after_create_index_sql(args).await?;
     }
     run_benchmarks_csv(args).await?;
     Ok(())
@@ -407,6 +388,7 @@ async fn generate_json_output(
 ) -> anyhow::Result<()> {
     if !args.skip_setup {
         process_index_creation_json(args).await?;
+        process_after_create_index_sql(args).await?;
     }
     run_benchmarks_json(args).await?;
     Ok(())
@@ -426,15 +408,13 @@ async fn write_test_info_csv(args: &CommonBenchmarkArgs, rows_display: &str) -> 
         let mut conn = PgConnection::connect(&args.url)
             .await
             .with_context(|| "Failed to connect to database for version info")?;
-        let row = sqlx::query("SELECT version, githash, build_mode FROM paradedb.version_info()")
+        let row = sqlx::query("SELECT version, build_mode FROM paradedb.version_info()")
             .fetch_one(&mut conn)
             .await
             .with_context(|| "Failed to fetch paradedb.version_info()")?;
         let version: String = row.get(0);
-        let githash: String = row.get(1);
-        let build_mode: String = row.get(2);
+        let build_mode: String = row.get(1);
         writeln!(file, "pg_search Version,{version}")?;
-        writeln!(file, "pg_search Git Hash,{githash}")?;
         writeln!(file, "pg_search Build Mode,{build_mode}")?;
     }
     Ok(())
@@ -551,15 +531,13 @@ async fn write_test_info(
         let mut conn = PgConnection::connect(&args.url)
             .await
             .with_context(|| "Failed to connect to database for version info")?;
-        let row = sqlx::query("SELECT version, githash, build_mode FROM paradedb.version_info()")
+        let row = sqlx::query("SELECT version, build_mode FROM paradedb.version_info()")
             .fetch_one(&mut conn)
             .await
             .with_context(|| "Failed to fetch paradedb.version_info()")?;
         let version: String = row.get(0);
-        let githash: String = row.get(1);
-        let build_mode: String = row.get(2);
+        let build_mode: String = row.get(1);
         writeln!(file, "| pg_search Version | {version} |")?;
-        writeln!(file, "| pg_search Git Hash | {githash} |")?;
         writeln!(file, "| pg_search Build Mode | {build_mode} |")?;
     }
     Ok(())

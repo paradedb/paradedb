@@ -25,7 +25,7 @@ use crate::postgres::customscan::CustomScan;
 use crate::postgres::rel::PgSearchRelation;
 use pgrx::pg_sys;
 
-impl CustomScanClause<AggregateScan> for LimitOffset {
+impl CustomScanClause<AggregateScan> for Option<LimitOffset> {
     type Args = <AggregateScan as CustomScan>::Args;
 
     fn add_to_custom_path(
@@ -37,15 +37,12 @@ impl CustomScanClause<AggregateScan> for LimitOffset {
 
     fn explain_output(&self) -> Box<dyn Iterator<Item = (String, String)>> {
         let mut output = Vec::new();
-
-        if let Some(limit) = self.limit() {
-            output.push((String::from("Limit"), limit.to_string()));
+        if let Some(lo) = self {
+            output.push((String::from("Limit"), lo.limit.to_string()));
+            if let Some(off) = &lo.offset {
+                output.push((String::from("Offset"), off.to_string()));
+            }
         }
-
-        if let Some(offset) = self.offset() {
-            output.push((String::from("Offset"), offset.to_string()));
-        }
-
         Box::new(output.into_iter())
     }
 
@@ -57,11 +54,16 @@ impl CustomScanClause<AggregateScan> for LimitOffset {
         let parse = args.root().parse;
         let limit_offset = unsafe { LimitOffset::from_parse(parse) };
 
-        unsafe {
-            if !(*parse).groupClause.is_null()
-                && limit_offset.fetch().unwrap_or(0) > gucs::max_term_agg_buckets() as usize
-            {
-                return Err("limit + offset exceeds max_term_agg_buckets".into());
+        // Bucket-limit guard only applies when the row count is statically
+        // known. Parameterized LIMIT/OFFSET values flow through unchecked at
+        // planning time; the bucket cap is enforced lazily by Tantivy at
+        // execution time.
+        if let Some(fetch) = limit_offset.as_ref().and_then(|lo| lo.static_fetch()) {
+            unsafe {
+                if !(*parse).groupClause.is_null() && fetch > gucs::max_term_agg_buckets() as usize
+                {
+                    return Err("limit + offset exceeds max_term_agg_buckets".into());
+                }
             }
         }
 

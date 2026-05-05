@@ -424,21 +424,22 @@ impl PgSearchTableProvider {
         &self,
         reader: &SearchIndexReader,
         segment_id: SegmentId,
-        fields: &[WhichFastField],
         ffhelper: &Arc<FFHelper>,
         visibility: &VisibilityChecker,
-        heap_relid: pg_sys::Oid,
+        scanner_config: crate::scan::execution_plan::ScannerConfig,
     ) -> ScanState {
-        let search_results = reader.search_segments(std::iter::once(segment_id));
-
-        let scanner = Scanner::new(search_results, None, fields.to_vec(), heap_relid.into());
-        (
-            scanner,
-            ffhelper.clone(),
-            Box::new(visibility.clone()) as Box<VisibilityChecker>,
-        )
+        ScanState {
+            recipe: crate::scan::execution_plan::ScanRecipe::Eager {
+                segment_ids: vec![segment_id],
+                scanner_config,
+            },
+            ffhelper: ffhelper.clone(),
+            visibility: Box::new(visibility.clone()) as Box<VisibilityChecker>,
+            reader: reader.clone(),
+        }
     }
     /// Creates a PgSearchScanPlan from a list of segments.
+    #[allow(clippy::too_many_arguments)]
     fn create_scan(
         &self,
         segments: Vec<ScanState>,
@@ -463,10 +464,10 @@ impl PgSearchTableProvider {
         // Expose one shared FFHelper when this scan participates in either
         // late materialization or deferred visibility. Downstream callers
         // decide whether they should use it by checking the deferred metadata.
-        let ffhelper = if deferred.is_empty() && deferred_ctid_plan_position.is_none() {
+        let ffhelper_arg = if deferred.is_empty() && deferred_ctid_plan_position.is_none() {
             None
         } else {
-            Some(ffhelper.clone())
+            Some(ffhelper)
         };
 
         Ok(Arc::new(PgSearchScanPlan::new(
@@ -475,7 +476,7 @@ impl PgSearchTableProvider {
             query_for_display,
             actual_sort_order,
             deferred,
-            ffhelper,
+            ffhelper_arg,
             self.scan_info.indexrelid.to_u32(),
             deferred_ctid_plan_position,
         )))
@@ -499,7 +500,7 @@ impl PgSearchTableProvider {
         &self,
         parallel_state: *mut ParallelScanState,
         reader: &SearchIndexReader,
-        fields: &[WhichFastField],
+        which_fast_fields: Vec<WhichFastField>,
         ffhelper: FFHelper,
         visibility: VisibilityChecker,
         heap_relid: pg_sys::Oid,
@@ -518,16 +519,23 @@ impl PgSearchTableProvider {
                 break;
             };
 
-            let mut partition = self.create_scan_partition(
-                reader,
-                segment_id,
-                fields,
-                &ffhelper,
-                &visibility,
-                heap_relid,
+            let search_results = reader.search_segments(std::iter::once(segment_id));
+            let mut scanner = Scanner::new(
+                search_results,
+                None, // batch size hint
+                which_fast_fields.clone(),
+                heap_relid.into(),
             );
+            let mut visibility_clone = visibility.clone();
             // Do real work between checkouts to avoid one worker claiming all segments.
-            partition.0.prefetch_next(&ffhelper, &mut partition.2, None);
+            scanner.prefetch_next(&ffhelper, &mut visibility_clone, None);
+
+            let partition = ScanState {
+                recipe: crate::scan::execution_plan::ScanRecipe::Prefetched { scanner },
+                ffhelper: Arc::clone(&ffhelper),
+                visibility: Box::new(visibility_clone) as Box<VisibilityChecker>,
+                reader: reader.clone(),
+            };
 
             segments.push(partition);
         }
@@ -550,7 +558,7 @@ impl PgSearchTableProvider {
     fn create_eager_scan(
         &self,
         reader: &SearchIndexReader,
-        fields: &[WhichFastField],
+        which_fast_fields: Vec<WhichFastField>,
         ffhelper: FFHelper,
         visibility: VisibilityChecker,
         heap_relid: pg_sys::Oid,
@@ -559,6 +567,11 @@ impl PgSearchTableProvider {
         sort_order: Option<&crate::postgres::options::SortByField>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let ffhelper = Arc::new(ffhelper);
+        let scanner_config = crate::scan::execution_plan::ScannerConfig {
+            which_fast_fields: which_fast_fields.clone(),
+            heap_relid: heap_relid.into(),
+            batch_size_hint: None,
+        };
         let segments: Vec<ScanState> = reader
             .segment_readers()
             .iter()
@@ -566,10 +579,9 @@ impl PgSearchTableProvider {
                 self.create_scan_partition(
                     reader,
                     r.segment_id(),
-                    fields,
                     &ffhelper,
                     &visibility,
-                    heap_relid,
+                    scanner_config.clone(),
                 )
             })
             .collect();
@@ -597,7 +609,7 @@ impl PgSearchTableProvider {
         &self,
         parallel_state: Option<*mut ParallelScanState>,
         reader: &SearchIndexReader,
-        fields: &[WhichFastField],
+        which_fast_fields: Vec<WhichFastField>,
         ffhelper: FFHelper,
         visibility: VisibilityChecker,
         heap_relid: pg_sys::Oid,
@@ -605,33 +617,29 @@ impl PgSearchTableProvider {
         query_for_display: SearchQueryInput,
         planner_estimated_rows: u64,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let search_results = if let Some(parallel_state) = parallel_state {
-            reader.search_lazy(parallel_state, planner_estimated_rows)
-        } else {
-            // Unsorted Serial
-            reader.search()
+        let ffhelper = Arc::new(ffhelper);
+        let scanner_config = crate::scan::execution_plan::ScannerConfig {
+            which_fast_fields: which_fast_fields.clone(),
+            heap_relid: heap_relid.into(),
+            batch_size_hint: None,
         };
-
-        let scanner = Scanner::new(
-            search_results,
-            None, // batch size hint
-            fields.to_vec(),
-            heap_relid.into(),
-        );
-
-        let ffhelper_arc = Arc::new(ffhelper);
-        let state = (
-            scanner,
-            ffhelper_arc.clone(),
-            Box::new(visibility) as Box<VisibilityChecker>,
-        );
+        let state = ScanState {
+            recipe: crate::scan::execution_plan::ScanRecipe::Lazy {
+                parallel_state,
+                planner_estimated_rows,
+                scanner_config,
+            },
+            ffhelper: ffhelper.clone(),
+            visibility: Box::new(visibility) as Box<VisibilityChecker>,
+            reader: reader.clone(),
+        };
 
         self.create_scan(
             vec![state],
             schema,
             query_for_display,
             None, // no sort order
-            ffhelper_arc,
+            ffhelper,
         )
     }
 }
@@ -785,7 +793,7 @@ impl TableProvider for PgSearchTableProvider {
                 self.create_throttled_scan(
                     parallel_state,
                     &reader,
-                    &projected_fields,
+                    projected_fields,
                     ffhelper,
                     visibility,
                     heap_relid,
@@ -797,7 +805,7 @@ impl TableProvider for PgSearchTableProvider {
                 // Serial sorted scan (or replicated source with sorting)
                 self.create_eager_scan(
                     &reader,
-                    &projected_fields,
+                    projected_fields,
                     ffhelper,
                     visibility,
                     heap_relid,
@@ -816,7 +824,7 @@ impl TableProvider for PgSearchTableProvider {
             self.create_lazy_scan(
                 parallel_state,
                 &reader,
-                &projected_fields,
+                projected_fields,
                 ffhelper,
                 visibility,
                 heap_relid,

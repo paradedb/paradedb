@@ -38,16 +38,31 @@ concurrency:
 jobs:
   test-paradedb:
     name: Test ParadeDB Docker Image (${{ matrix.arch }})
-    runs-on: ${{ matrix.runner }}
+    # General-purpose m-family — Docker buildx is RAM-heavy.
+    # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=${{ matrix.runner_family }}
+      - cpu=${{ matrix.cpu }}
+      - ram=${{ matrix.ram }}
+      - image=${{ matrix.runner_image }}
+      - volume=80gb # default runner ships with 40GB — see https://runs-on.com/runners/linux/
+      - extras=s3-cache
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: amd64
-            runner: ubicloud-standard-16-ubuntu-2404
+            cpu: 16
+            ram: 64
+            runner_family: m7a+m7i
+            runner_image: ubuntu24-full-x64
             platform: linux/amd64
           - arch: arm64
-            runner: ubicloud-standard-16-arm-ubuntu-2404
+            cpu: 16
+            ram: 64
+            runner_family: m7g+m8g
+            runner_image: ubuntu24-full-arm64
             platform: linux/arm64
 
     steps:
@@ -100,14 +115,23 @@ jobs:
       # no cross-arch shenanigans. We tag the image `latest` to match the tag used by the smoke
       # tests, and skip pushing since this is just a test build. Building directly (rather than
       # via Depot) avoids requiring repo secrets, which would block community-contributor PRs.
+      #
+      # The BuildKit `type=gha` cache is transparently backed by runs-on's S3 cache (via the
+      # `extras=s3-cache` runner label above), so it works without configuring a separate
+      # registry cache. Scoped per-arch so amd64 and arm64 don't evict each other.
       - name: Build the ParadeDB Docker Image
         run: |
           docker buildx build \
             --platform ${{ matrix.platform }} \
             --file docker/Dockerfile \
             --tag paradedb/paradedb:latest \
+            --cache-from type=gha,scope=paradedb-docker-${{ matrix.arch }} \
+            --cache-to type=gha,mode=max,scope=paradedb-docker-${{ matrix.arch }} \
             --load \
             .
+
+      - name: Verify PGDG apt packages are available
+        run: docker run --rm paradedb/paradedb:latest bash -c 'apt-get update && apt-get install -y --no-install-recommends postgresql-${PG_VERSION_MAJOR}-partman'
 
       # Start the ParadeDB Docker image using `docker run` to test the standalone Docker image.
       # We add a --tmpfs mount as a test of compatibility with the upstream `postgres` image.

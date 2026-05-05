@@ -20,6 +20,15 @@ runs:
       shell: bash
       run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
 
+    - name: Preserve SQL Files
+      shell: bash
+      run: |
+        SQL_DIR="$(mktemp -d)"
+        for case_dir in "${{ github.action_path }}"/*; do
+          [ -d "$case_dir" ] && cp -R "$case_dir" "$SQL_DIR/"
+        done
+        echo "UPGRADE_SQL_DIR=$SQL_DIR" >> "$GITHUB_ENV"
+
     # This is the pgrx version compatible with ParadeDB ${{ inputs.prior_pg_search_version }}
     - name: Install pgrx for ParadeDB ${{ inputs.prior_pg_search_version }}
       shell: bash
@@ -43,6 +52,11 @@ runs:
       shell: bash
       run: cargo pgrx install --sudo --pg-config="/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"
 
+    - name: Add pg_search to shared_preload_libraries
+      working-directory: /home/runner/.pgrx/data-${{ inputs.pg_version }}/
+      shell: bash
+      run: echo "shared_preload_libraries = 'pg_search'" >> postgresql.conf
+
     - name: Start Postgres via pgrx
       working-directory: pg_search/
       shell: bash
@@ -56,15 +70,17 @@ runs:
       shell: bash
       run: psql -h localhost -p 288${{ inputs.pg_version }} postgres -c 'CREATE EXTENSION pg_search;'
 
-    # We create and test the BM25 index before and after the upgrade to test for version compatibility
-    - name: Create and Test BM25 Index
+    - name: Create Upgrade Test Databases
       working-directory: pg_search/
       shell: bash
       run: |
-        psql -h localhost -p 288${{ inputs.pg_version }} postgres -c "CALL paradedb.create_bm25_test_table(schema_name => 'public', table_name => 'mock_items');"
-        psql -h localhost -p 288${{ inputs.pg_version }} postgres -c "SELECT description, rating, category FROM mock_items LIMIT 3;"
-        psql -h localhost -p 288${{ inputs.pg_version }} postgres -c "CREATE INDEX search_idx ON mock_items USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range) WITH (key_field='id');"
-        psql -h localhost -p 288${{ inputs.pg_version }} postgres -c "SELECT description, rating, category FROM mock_items WHERE description @@@ 'shoes' OR category @@@ 'footwear' AND rating @@@ '>2' ORDER BY description LIMIT 5;"
+        set -euo pipefail
+        for case_dir in "$UPGRADE_SQL_DIR"/*; do
+          db="$(basename "$case_dir")"
+          createdb -h localhost -p 288${{ inputs.pg_version }} "$db"
+          psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} "$db" -c 'CREATE EXTENSION pg_search;'
+          psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} "$db" -f "$case_dir/setup.sql"
+        done
 
     - name: Stop Postgres via pgrx
       working-directory: pg_search/
@@ -99,6 +115,11 @@ runs:
       shell: bash
       run: cargo pgrx install --sudo --pg-config="/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"
 
+    - name: Add pg_search to shared_preload_libraries
+      working-directory: /home/runner/.pgrx/data-${{ inputs.pg_version }}/
+      shell: bash
+      run: echo "shared_preload_libraries = 'pg_search'" >> postgresql.conf
+
     - name: Start Postgres via pgrx
       working-directory: pg_search/
       shell: bash
@@ -111,16 +132,26 @@ runs:
       working-directory: pg_search/
       shell: bash
       run: |
+        set -euo pipefail
         VERSION=$(grep "^version" ../Cargo.toml | head -1 | awk -F '"' '{print $2}')
         psql -h localhost -p 288${{ inputs.pg_version }} postgres -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
+        for case_dir in "$UPGRADE_SQL_DIR"/*; do
+          db="$(basename "$case_dir")"
+          echo "Creating database $db"
+          psql -h localhost -p 288${{ inputs.pg_version }} "$db" -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
+        done
 
-    # We test the BM25 index before and after the upgrade to test for version compatibility
+    # We test each BM25 index after the upgrade to test for version compatibility.
     - name: Test BM25 Index
       working-directory: pg_search/
       shell: bash
       run: |
-        psql -h localhost -p 288${{ inputs.pg_version }} postgres -c "CREATE OR REPLACE FUNCTION assert(a bigint, b bigint) RETURNS bool STABLE STRICT LANGUAGE plpgsql AS \$\$ BEGIN IF a <> b THEN RAISE EXCEPTION 'Assertion failed: % <> %', a, b; END IF; RETURN true; END; \$\$;"
-        psql -h localhost -p 288${{ inputs.pg_version }} postgres -c "SELECT assert(count(*), 0) FROM (SELECT * FROM pdb.verify_index('search_idx') WHERE NOT passed) failed;"
+        set -euo pipefail
+        for case_dir in "$UPGRADE_SQL_DIR"/*; do
+          db="$(basename "$case_dir")"
+          echo "Running queries against $db"
+          psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} "$db" -f "$case_dir/queries.sql"
+        done
 
     # We only run the integration tests since pgrx won't run the #[pg_test] unit tests in an existing database
     - name: Run pg_search Integration Tests

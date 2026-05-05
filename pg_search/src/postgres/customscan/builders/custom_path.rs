@@ -17,8 +17,8 @@
 
 use crate::api::{Cardinality, FieldName, HashSet, OrderByFeature, OrderByInfo, SortDirection};
 use crate::index::fast_fields_helper::WhichFastField;
-use crate::postgres::customscan::basescan::privdat::Limit;
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
+use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::options::SortByField;
 use pgrx::{pg_sys, PgList};
@@ -116,13 +116,13 @@ pub enum ExecMethodType {
     Normal,
     TopK {
         heaprelid: pg_sys::Oid,
-        limit: Limit,
+        limit_offset: LimitOffset,
         orderby_info: Option<Vec<OrderByInfo>>,
         window_aggregates: Vec<WindowAggregateInfo>,
     },
     Columnar {
         which_fast_fields: HashSet<WhichFastField>,
-        limit: Option<Limit>,
+        limit_offset: Option<LimitOffset>,
         sort_order: Option<SortByField>,
     },
 }

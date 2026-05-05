@@ -17,7 +17,7 @@
 
 use anyhow::{bail, Context};
 use clap::{Parser, Subcommand};
-use paradedb::{median, Window};
+use paradedb::{mean, single_level_confidence_interval, Window};
 use sqlx::{Connection, PgConnection, Row};
 use std::fs::File;
 use std::io::Write;
@@ -199,19 +199,24 @@ struct JSONBenchmarkResult {
     name: String,
     unit: &'static str,
     value: f64,
+    range: String,
     extra: String,
 }
 
 impl From<QueryResult> for JSONBenchmarkResult {
     fn from(res: QueryResult) -> Self {
-        let median = median(res.results.samples.iter());
+        let mean = mean(&res.results.samples);
+        let ci_half_width = single_level_confidence_interval(&res.results.samples, 0.95);
+
         let cold_query_extra =
             format!("cold_query_ms={:.3}; query={}", res.results.cold, res.query);
+        let range_str = format!("±{ci_half_width:.3} ms");
 
         Self {
             name: res.query_type,
-            unit: "median ms",
-            value: median,
+            unit: "mean ms",
+            value: mean,
+            range: range_str,
             extra: cold_query_extra,
         }
     }

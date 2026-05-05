@@ -17,20 +17,6 @@
 
 use std::collections::VecDeque;
 
-pub fn median<'a>(data: impl Iterator<Item = &'a f64>) -> f64 {
-    let mut sorted = data.copied().collect::<Vec<_>>();
-    sorted.sort_unstable_by(|a, b| a.total_cmp(b));
-    let n = sorted.len();
-    if n == 0 {
-        return f64::NAN;
-    }
-    if n % 2 == 1 {
-        sorted[n / 2]
-    } else {
-        (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
-    }
-}
-
 pub struct Window {
     size: usize,
     contents: VecDeque<f64>,
@@ -79,4 +65,34 @@ impl Window {
     pub fn is_full(&self) -> bool {
         self.contents.len() == self.size
     }
+}
+
+pub fn mean(data: &[f64]) -> f64 {
+    assert!(!data.is_empty());
+    data.iter().sum::<f64>() / data.len() as f64
+}
+
+pub fn single_level_confidence_interval(data: &[f64], confidence_level: f64) -> f64 {
+    assert!(!data.is_empty());
+    assert!(confidence_level > 0.0);
+    assert!(confidence_level < 1.0);
+
+    let reps = data.len() as f64;
+    let variance = single_level_variance(data);
+
+    let alpha = (1.0 - confidence_level) / 2.0;
+    let t = distrs::StudentsT::ppf(alpha, reps - 1.0);
+
+    t * ((variance / reps).sqrt())
+}
+
+fn single_level_variance(data: &[f64]) -> f64 {
+    assert!(!data.is_empty());
+
+    let mean: f64 = mean(data);
+    let reps = data.len() as f64;
+
+    let variance: f64 =
+        (1.0 / (reps - 1.0)) * (data.iter().map(|v| (v - mean).powi(2)).sum::<f64>());
+    variance
 }

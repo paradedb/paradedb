@@ -142,10 +142,18 @@ impl CustomScan for AggregateScan {
             ReScanCustomScan: Some(crate::postgres::customscan::exec::rescan_custom_scan::<Self>),
             MarkPosCustomScan: None,
             RestrPosCustomScan: None,
-            EstimateDSMCustomScan: None,
-            InitializeDSMCustomScan: None,
-            ReInitializeDSMCustomScan: None,
-            InitializeWorkerCustomScan: None,
+            EstimateDSMCustomScan: Some(
+                crate::postgres::customscan::dsm::estimate_dsm_custom_scan::<Self>,
+            ),
+            InitializeDSMCustomScan: Some(
+                crate::postgres::customscan::dsm::initialize_dsm_custom_scan::<Self>,
+            ),
+            ReInitializeDSMCustomScan: Some(
+                crate::postgres::customscan::dsm::reinitialize_dsm_custom_scan::<Self>,
+            ),
+            InitializeWorkerCustomScan: Some(
+                crate::postgres::customscan::dsm::initialize_worker_custom_scan::<Self>,
+            ),
             ShutdownCustomScan: Some(
                 crate::postgres::customscan::exec::shutdown_custom_scan::<Self>,
             ),
@@ -345,6 +353,7 @@ impl CustomScan for AggregateScan {
                     current_batch: None,
                     batch_row_idx: 0,
                     group_df_indices: Vec::new(),
+                    mpp: None,
                 });
                 builder.build()
             }
@@ -546,6 +555,52 @@ impl CustomScan for AggregateScan {
                 pg_sys::ExecDropSingleTupleTableSlot(slot);
             }
         }
+    }
+}
+
+/// MPP DSM hook impl. The query's serialized worker-fragment plan bytes are
+/// stashed on the customscan state by `begin_custom_scan` so estimate +
+/// initialize see the same bytes; without that we'd have to re-build the
+/// plan twice. The serialization itself happens via the
+/// `PgSearchExtensionCodec` and the fork's `DistributedCodec` so
+/// `NetworkShuffleExec` round-trips through the worker side.
+impl crate::postgres::customscan::dsm::ParallelQueryCapable for AggregateScan {
+    fn estimate_dsm_custom_scan(
+        state: &mut CustomScanStateWrapper<Self>,
+        _pcxt: *mut pg_sys::ParallelContext,
+    ) -> pg_sys::Size {
+        // For now, MPP isn't activated (begin_custom_scan doesn't yet build
+        // the distributed plan + populate fragment bytes). Return 0 to opt
+        // out of DSM allocation; PG accepts zero-byte requests by skipping
+        // the DSM init hook entirely.
+        let _ = state;
+        0
+    }
+
+    fn initialize_dsm_custom_scan(
+        state: &mut CustomScanStateWrapper<Self>,
+        _pcxt: *mut pg_sys::ParallelContext,
+        _coordinate: *mut std::os::raw::c_void,
+    ) {
+        let _ = state;
+        // No-op until begin_custom_scan populates fragment bytes; DSM
+        // estimate returns 0 so PG does not actually call this with a
+        // non-null coordinate.
+    }
+
+    fn reinitialize_dsm_custom_scan(
+        _state: &mut CustomScanStateWrapper<Self>,
+        _pcxt: *mut pg_sys::ParallelContext,
+        _coordinate: *mut std::os::raw::c_void,
+    ) {
+    }
+
+    fn initialize_worker_custom_scan(
+        state: &mut CustomScanStateWrapper<Self>,
+        _toc: *mut pg_sys::shm_toc,
+        _coordinate: *mut std::os::raw::c_void,
+    ) {
+        let _ = state;
     }
 }
 

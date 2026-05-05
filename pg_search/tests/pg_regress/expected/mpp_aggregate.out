@@ -201,9 +201,6 @@ GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
 WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
-WARNING:  mpp worker: no NetworkShuffleExec found in distributed plan; skipping producer-fragment run (worker emits zero rows)
-WARNING:  mpp worker: no NetworkShuffleExec found in distributed plan; skipping producer-fragment run (worker emits zero rows)
-WARNING:  mpp worker: no NetworkShuffleExec found in distributed plan; skipping producer-fragment run (worker emits zero rows)
   title   | count |  sum  
 ----------+-------+-------
  file-1   |     5 | 10040

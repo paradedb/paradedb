@@ -122,7 +122,9 @@ use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
 use crate::query::value_to_term;
 use crate::scan::filter_pushdown::scalar_to_owned_value;
 use crate::schema::SearchFieldType;
-use tantivy::query::{BooleanQuery, ConstScoreQuery, Occur, Query, TermSetQuery};
+use tantivy::query::{
+    BooleanQuery, ConstScoreQuery, Occur, Query, TermSetQuery, TermSetStrategyConfig,
+};
 use tantivy::Term;
 
 /// A pre-materialization filter applied inside `Scanner::next()`.
@@ -671,6 +673,7 @@ fn extract_in_list_exprs<'a>(
 fn try_convert_in_list_to_query(
     in_list: &InListExpr,
     schema: &crate::schema::SearchIndexSchema,
+    strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
 ) -> Option<Box<dyn Query>> {
     if in_list.negated() {
         return None;
@@ -689,6 +692,10 @@ fn try_convert_in_list_to_query(
     let max_size = crate::gucs::hash_join_inlist_pushdown_max_size() as usize;
     let max_distinct = crate::gucs::hash_join_inlist_pushdown_max_distinct_values() as usize;
 
+    // K cap. Default 20,000 is bench-tuned to the win/lose crossover for
+    // pushdown vs PreFilter at N=1M sorted. See
+    // gucs::HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES doc for the
+    // reasoning and trade-off. Set to 0 to disable pushdown.
     if in_list.list().len() > max_distinct {
         return None;
     }
@@ -727,7 +734,26 @@ fn try_convert_in_list_to_query(
         return None;
     }
 
-    let term_set_query = TermSetQuery::new(terms);
+    // Build a strategy config from the paradedb.term_set_*_max_density GUCs
+    // so the sorted-segment gallop fast path is enabled by default but
+    // operators can override the densities or kill the optimization without
+    // a recompile. Defaults mirror TermSetStrategyConfig::default() in
+    // tantivy. The optional `strategy_sink` is a per-scan AtomicU8 that the
+    // planner stores its decision into so EXPLAIN ANALYZE can report which
+    // strategy fired.
+    // The four other density fields (posting/bitset/hash_probe/
+    // subsequent_bitset) gate strategies that route to TermSetDocSet via
+    // stubs in tantivy today, so leaving them at TermSetStrategyConfig's
+    // tantivy-side defaults via struct update syntax keeps behavior
+    // identical to a bare tantivy caller until follow-ups A and B land.
+    let cfg = TermSetStrategyConfig {
+        gallop_enabled: crate::gucs::term_set_gallop_enabled(),
+        gallop_max_density: crate::gucs::term_set_gallop_max_density(),
+        strategy_sink,
+        ..TermSetStrategyConfig::default()
+    };
+
+    let term_set_query = TermSetQuery::new(terms).with_strategy_config(cfg);
     let const_score_query = ConstScoreQuery::new(Box::new(term_set_query), 0.0);
     Some(Box::new(const_score_query) as Box<dyn Query>)
 }
@@ -749,6 +775,7 @@ fn try_convert_in_list_to_query(
 pub fn try_dynamic_filter_pushdown(
     reader: &mut crate::index::reader::index::SearchIndexReader,
     dynamic_filters: &mut [Arc<dyn PhysicalExpr>],
+    strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
 ) -> bool {
     let mut pushed_down_queries: Vec<Box<dyn Query>> = Vec::new();
     let mut pushed_down_pointers = HashSet::default();
@@ -768,7 +795,9 @@ pub fn try_dynamic_filter_pushdown(
         for in_list_arc in extracted_in_lists {
             let in_list = in_list_arc.as_any().downcast_ref::<InListExpr>().unwrap();
 
-            if let Some(query) = try_convert_in_list_to_query(in_list, schema) {
+            if let Some(query) =
+                try_convert_in_list_to_query(in_list, schema, strategy_sink.clone())
+            {
                 pushed_down_queries.push(query);
                 pushed_down_pointers.insert(Arc::as_ptr(in_list_arc) as *const () as usize);
             }

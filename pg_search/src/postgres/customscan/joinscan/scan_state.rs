@@ -340,6 +340,12 @@ pub fn create_datafusion_session_context(profile: SessionContextProfile) -> Sess
         .optimizer
         .hash_join_inlist_pushdown_max_size =
         crate::gucs::hash_join_inlist_pushdown_max_size() as usize;
+    // 0 is also DataFusion's kill switch: HashJoinExec rejects InList
+    // materialization when num_of_distinct_key() > max_distinct_values, and
+    // any non-empty build side has at least one distinct key. So setting
+    // the GUC to 0 disables the InList path on both sides of the boundary
+    // — paradedb's try_convert_in_list_to_query and DataFusion's hash-join
+    // pushdown agree on disable semantics.
     config
         .options_mut()
         .optimizer

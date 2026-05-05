@@ -63,13 +63,21 @@ jobs:
             chmod +x scripts/update-nix-cargo-hash.sh
             scripts/update-nix-cargo-hash.sh "${{ env.PG_MAJOR_VERSION }}"
 
-            if git diff --quiet nix/pg_search.nix; then
-              echo "::error::cargoHash mismatch but auto-update failed"
+            if [ "${{ github.event.pull_request.head.repo.fork }}" = "true" ]; then
+              echo "::error::cargoHash is outdated and this PR is from a fork, so CI cannot push a fix. Please run the following locally and push the result:"
+              echo ""
+              echo "  scripts/update-nix-cargo-hash.sh ${{ env.PG_MAJOR_VERSION }}"
+              echo "  git add nix/pg_search.nix"
+              echo "  git commit -m \"fix: update nix cargoHash for changed Cargo.lock\""
+              echo "  git push"
+              echo ""
+              echo "Computed nix/pg_search.nix diff:"
+              git --no-pager diff nix/pg_search.nix
               exit 1
             fi
 
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git config user.name "paradedb-bot"
+            git config user.email "developers@paradedb.com"
             git add nix/pg_search.nix
             git commit -m "fix: update nix cargoHash for changed Cargo.lock"
             git push

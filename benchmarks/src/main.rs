@@ -262,6 +262,22 @@ async fn process_index_creation(
     Ok(results)
 }
 
+async fn process_after_create_index_sql(args: &CommonBenchmarkArgs) -> anyhow::Result<()> {
+    let after_create_index_sql = format!("datasets/{}/after_create_index.sql", args.dataset);
+    if Path::new(&after_create_index_sql).exists() {
+        let status = Command::new("psql")
+            .arg(&args.url)
+            .arg("-f")
+            .arg(&after_create_index_sql)
+            .status()
+            .with_context(|| "Failed to execute after_create_index.sql")?;
+        if !status.success() {
+            bail!("Failed to create tables from {after_create_index_sql}");
+        }
+    }
+    Ok(())
+}
+
 async fn run_benchmarks(args: &CommonBenchmarkArgs) -> anyhow::Result<Vec<QueryResult>> {
     let mut utility_conn = PgConnection::connect(&args.url)
         .await
@@ -349,6 +365,7 @@ async fn generate_markdown_output(
     write_postgres_settings(&mut file, &args.url).await?;
     if !args.skip_setup {
         process_index_creation_md(&mut file, args).await?;
+        process_after_create_index_sql(args).await?;
     }
     run_benchmarks_md(&mut file, args).await?;
     Ok(())
@@ -359,6 +376,7 @@ async fn generate_csv_output(args: &CommonBenchmarkArgs, rows_display: &str) -> 
     write_postgres_settings_csv(&args.url, &args.r#type).await?;
     if !args.skip_setup {
         process_index_creation_csv(args).await?;
+        process_after_create_index_sql(args).await?;
     }
     run_benchmarks_csv(args).await?;
     Ok(())
@@ -370,6 +388,7 @@ async fn generate_json_output(
 ) -> anyhow::Result<()> {
     if !args.skip_setup {
         process_index_creation_json(args).await?;
+        process_after_create_index_sql(args).await?;
     }
     run_benchmarks_json(args).await?;
     Ok(())

@@ -566,11 +566,11 @@ fn build_relnode_df<'a>(
                 let df = build_relnode_df(rctx, &filter.input).await?;
 
                 // Compute per-plan_position deferred visibility. A plan_position's
-                // ctid is "deferred" (packed DocAddress) if it flows only through
-                // inner joins from the leaf scan. Non-inner joins (semi, anti, etc.)
-                // trigger per-child visibility barriers that resolve ctids to real
-                // heap TIDs. In mixed trees like (A INNER B) INNER (C SEMI D),
-                // ctid_A and ctid_B are still packed while ctid_C is resolved.
+                // ctid is "deferred" (packed DocAddress) if it flows through inner
+                // joins or the preserved side of a left/right/semi/anti join from the leaf
+                // scan. Other non-inner joins (full, etc.) trigger per-child
+                // visibility barriers that resolve ctids to real heap TIDs, while
+                // left/right/semi/anti joins only force the null-supplying side.
                 let deferred_positions =
                     super::visibility_filter::deferred_plan_positions(&filter.input);
                 let sources = filter.input.sources();

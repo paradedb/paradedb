@@ -302,12 +302,19 @@ pub fn deferred_plan_positions(node: &RelNode) -> crate::api::HashSet<usize> {
             RelNode::Scan(source) => {
                 acc.insert(source.plan_position);
             }
-            RelNode::Join(join) => {
-                if matches!(join.join_type, JoinType::Inner) {
+            RelNode::Join(join) => match join.join_type {
+                JoinType::Inner => {
                     collect(&join.left, acc);
                     collect(&join.right, acc);
                 }
-            }
+                JoinType::Left => collect(&join.left, acc),
+                JoinType::Semi => collect(&join.left, acc),
+                JoinType::Anti => collect(&join.left, acc),
+                JoinType::Right => collect(&join.right, acc),
+                JoinType::RightSemi => collect(&join.right, acc),
+                JoinType::RightAnti => collect(&join.right, acc),
+                _ => (),
+            },
             RelNode::Filter(filter) => collect(&filter.input, acc),
         }
     }
@@ -463,24 +470,10 @@ fn analyze_and_inject(
             .or_insert(VisibilityStatus::Unverified);
     }
 
-    // Barrier nodes and lineage drops both force visibility injection here.
-    let needs_barrier = is_barrier(&plan);
-    let lineage_dropped: BTreeSet<usize> = merged
-        .iter()
-        .filter(|(plan_pos, status)| {
-            **status == VisibilityStatus::Unverified && !parent_lineage.contains(plan_pos)
-        })
-        .map(|(plan_pos, _)| *plan_pos)
-        .collect();
-    let force_positions: BTreeSet<usize> = if needs_barrier {
-        merged
-            .iter()
-            .filter(|(_, status)| **status == VisibilityStatus::Unverified)
-            .map(|(plan_pos, _)| *plan_pos)
-            .collect()
-    } else {
-        lineage_dropped
-    };
+    // Fetching the barrier status for this plan & the plan positions to force visibility checks for based on barrier status
+    let barrier_status = barrier_status(&plan);
+    let force_positions =
+        get_force_positions(barrier_status, &merged, &child_states, &parent_lineage);
 
     if !force_positions.is_empty() {
         // Only wrap children that still carry one of the forced plan positions.
@@ -529,28 +522,90 @@ fn analyze_and_inject(
     }
 }
 
-/// Returns true if the given plan node is a "barrier" — a point where visibility
-/// must be checked before proceeding. Barriers include non-inner joins (semi, outer),
+// Returning a BTreeSet of plan positions that need to visibility checks
+// Barrier nodes and lineage drops both force visibility injection here.
+fn get_force_positions(
+    barrier_status: BarrierStatus,
+    merged: &BTreeMap<usize, VisibilityStatus>,
+    child_states: &[BTreeMap<usize, VisibilityStatus>],
+    parent_lineage: &BTreeSet<usize>,
+) -> BTreeSet<usize> {
+    match barrier_status {
+        // For a Full barrier, any plan with an unverified status needs to be visibility checked
+        BarrierStatus::Full => merged
+            .iter()
+            .filter(|(_, status)| **status == VisibilityStatus::Unverified)
+            .map(|(plan_pos, _)| *plan_pos)
+            .collect(),
+        BarrierStatus::Partial(barrier_child) => {
+            // For a Partial barrier, only the plan positions in the child specified need to be visibility checked
+            merged
+                .iter()
+                .filter(|(_, status)| **status == VisibilityStatus::Unverified)
+                .map(|(plan_pos, _)| *plan_pos)
+                .filter(|plan_pos| {
+                    child_states
+                        .get(barrier_child)
+                        .is_some_and(|cs| cs.contains_key(plan_pos))
+                })
+                .collect()
+        }
+        BarrierStatus::None => {
+            // For no barrier, any plan with an unverified status that's not in any node above needs to be checked
+            merged
+                .iter()
+                .filter(|(plan_pos, status)| {
+                    **status == VisibilityStatus::Unverified && !parent_lineage.contains(plan_pos)
+                })
+                .map(|(plan_pos, _)| *plan_pos)
+                .collect()
+        }
+    }
+}
+
+enum BarrierStatus {
+    None,
+    Partial(usize), // a barrier only on plan positions for the child specified
+    Full,
+}
+/// Returns the "barrier status" of the given plan node (either full, partial, or no barrier) — a point where visibility
+/// must be checked before proceeding.
+///
+/// Partial Barriers include left/left semi/left anti and right/right semi/right anti joins - the null-supplying child must have visibility checked, while
+/// the preserved side should remain deferred
+///
+/// Full Barriers include all other non-inner joins (outer, etc),
 /// aggregates, distinct, window functions, and sort-with-limit.
 ///
 /// A plain `Sort` is not a barrier because it only reorders rows; deferred ctids can
-/// safely flow through it unchanged. `Sort` with `fetch` is a barrier because Top-N
+/// safely flow through it unchanged. `Sort` with `fetch` is a full barrier because Top-N
 /// semantics can discard rows permanently, so visibility must be resolved first.
-fn is_barrier(plan: &LogicalPlan) -> bool {
-    use datafusion::logical_expr::logical_plan::*;
-    matches!(
-        plan,
-        LogicalPlan::Limit(_)
-            | LogicalPlan::Aggregate(_)
-            | LogicalPlan::Distinct(_)
-            | LogicalPlan::Window(_)
-    ) || match plan {
-        LogicalPlan::Sort(sort) => sort.fetch.is_some(),
-        // TODO: For Left/Right/Full joins, the preserved side(s) could remain
-        // deferred past the barrier. Currently all non-inner joins are treated
-        // as full barriers forcing both sides to be resolved.
-        LogicalPlan::Join(join) => !matches!(join.join_type, datafusion::common::JoinType::Inner),
-        _ => false,
+fn barrier_status(plan: &LogicalPlan) -> BarrierStatus {
+    match plan {
+        LogicalPlan::Sort(sort) => {
+            if sort.fetch.is_some() {
+                BarrierStatus::Full
+            } else {
+                BarrierStatus::None
+            }
+        }
+        LogicalPlan::Join(join) => match join.join_type {
+            datafusion::common::JoinType::Inner => BarrierStatus::None,
+            // specifying that for a left/left semi/left anti join, we want to visiblity-check the right side only and vice-versa
+            // note that the ordering here comes from DataFusion's `inputs` method, which returns left then right children
+            datafusion::common::JoinType::Left => BarrierStatus::Partial(1),
+            datafusion::common::JoinType::LeftSemi => BarrierStatus::Partial(1),
+            datafusion::common::JoinType::LeftAnti => BarrierStatus::Partial(1),
+            datafusion::common::JoinType::Right => BarrierStatus::Partial(0),
+            datafusion::common::JoinType::RightSemi => BarrierStatus::Partial(0),
+            datafusion::common::JoinType::RightAnti => BarrierStatus::Partial(0),
+            _ => BarrierStatus::Full,
+        },
+        LogicalPlan::Limit(_) => BarrierStatus::Full,
+        LogicalPlan::Aggregate(_) => BarrierStatus::Full,
+        LogicalPlan::Distinct(_) => BarrierStatus::Full,
+        LogicalPlan::Window(_) => BarrierStatus::Full,
+        _ => BarrierStatus::None,
     }
 }
 
@@ -1345,103 +1400,137 @@ mod tests {
         Ok(())
     }
 
-    #[pg_test]
-    fn left_join_injects_per_side_visibility() -> Result<()> {
+    /// Helper: builds a two-table join of the given type, runs the optimizer,
+    /// and asserts partial-barrier structure: the forced child (index
+    /// `forced_child`, 0=left, 1=right) is wrapped with visibility at the
+    /// join, the preserved child is deferred to the root.
+    fn assert_partial_barrier_join(
+        join_type: datafusion::common::JoinType,
+        forced_child: usize,
+    ) -> Result<()> {
         let config = OptimizerContext::new();
 
         const POS_A: usize = 0;
         const POS_B: usize = 1;
         let oid_a = pg_sys::Oid::from(42);
         let oid_b = pg_sys::Oid::from(43);
+
+        let (preserved_pos, preserved_oid, forced_pos, forced_oid) = if forced_child == 1 {
+            (POS_A, oid_a, POS_B, oid_b)
+        } else {
+            (POS_B, oid_b, POS_A, oid_a)
+        };
 
         let rule = VisibilityFilterOptimizerRule::new();
 
         let left = make_ctid_plan(POS_A, oid_a, Some("a"))?;
         let right = make_ctid_plan(POS_B, oid_b, Some("b"))?;
 
-        // LEFT join is a barrier — visibility must be injected per-side.
         let plan = LogicalPlanBuilder::from(left)
             .join_on(
                 right,
-                datafusion::common::JoinType::Left,
+                join_type,
                 vec![col(CtidColumn::new(POS_A).to_string())
                     .eq(col(CtidColumn::new(POS_B).to_string()))],
             )?
             .build()?;
 
         let first = rule.rewrite(plan, &config)?;
-        assert!(first.transformed);
-        // LEFT join is a barrier, so visibility filters are injected into
-        // each child that has unverified plan_positions — 2 total.
-        assert_eq!(count_visibility_nodes(&first.data), 2);
+        assert!(
+            first.transformed,
+            "{join_type:?}: first pass should transform"
+        );
+        assert_eq!(
+            count_visibility_nodes(&first.data),
+            2,
+            "{join_type:?}: expected 2 visibility nodes"
+        );
+
+        // Root should be a VisibilityFilterNode covering the preserved side.
+        let LogicalPlan::Extension(root_ext) = &first.data else {
+            panic!("{join_type:?}: expected root to be VisibilityFilterNode");
+        };
+        let root_vf = root_ext
+            .node
+            .as_any()
+            .downcast_ref::<VisibilityFilterNode>()
+            .expect("root should be VisibilityFilterNode");
+        assert_eq!(
+            root_vf.plan_pos_oids,
+            vec![(preserved_pos, preserved_oid)],
+            "{join_type:?}: root visibility should cover preserved side"
+        );
+
+        // Under the root visibility node should be the join.
+        let LogicalPlan::Join(join) = &root_vf.input else {
+            panic!("{join_type:?}: expected child of root visibility to be Join");
+        };
+
+        let (forced_plan, preserved_plan) = if forced_child == 1 {
+            (join.right.as_ref(), join.left.as_ref())
+        } else {
+            (join.left.as_ref(), join.right.as_ref())
+        };
+
+        // The forced child should be wrapped with VisibilityFilterNode.
+        let LogicalPlan::Extension(forced_ext) = forced_plan else {
+            panic!("{join_type:?}: expected forced child to be wrapped with VisibilityFilterNode");
+        };
+        let forced_vf = forced_ext
+            .node
+            .as_any()
+            .downcast_ref::<VisibilityFilterNode>()
+            .expect("forced child should be VisibilityFilterNode");
+        assert_eq!(
+            forced_vf.plan_pos_oids,
+            vec![(forced_pos, forced_oid)],
+            "{join_type:?}: forced child visibility should cover forced side"
+        );
+
+        // The preserved child should be the raw scan (no visibility wrapper).
+        assert!(
+            !matches!(preserved_plan, LogicalPlan::Extension(ext)
+                if ext.node.as_any().downcast_ref::<VisibilityFilterNode>().is_some()),
+            "{join_type:?}: preserved child should NOT be wrapped with VisibilityFilterNode"
+        );
 
         let second = rule.rewrite(first.data.clone(), &config)?;
-        assert!(!second.transformed);
+        assert!(
+            !second.transformed,
+            "{join_type:?}: second pass should be idempotent"
+        );
         assert_eq!(count_visibility_nodes(&second.data), 2);
         Ok(())
     }
 
     #[pg_test]
-    fn left_join_only_wraps_unverified_side() -> Result<()> {
-        let config = OptimizerContext::new();
+    fn left_join_forces_right_side_visibility_at_join() -> Result<()> {
+        assert_partial_barrier_join(datafusion::common::JoinType::Left, 1)
+    }
 
-        const POS_A: usize = 0;
-        const POS_B: usize = 1;
-        let oid_a = pg_sys::Oid::from(42);
-        let oid_b = pg_sys::Oid::from(43);
+    #[pg_test]
+    fn right_join_forces_left_side_visibility_at_join() -> Result<()> {
+        assert_partial_barrier_join(datafusion::common::JoinType::Right, 0)
+    }
 
-        let rule = VisibilityFilterOptimizerRule::new();
+    #[pg_test]
+    fn left_semi_join_defers_preserved_side() -> Result<()> {
+        assert_partial_barrier_join(datafusion::common::JoinType::LeftSemi, 1)
+    }
 
-        let left_leaf = make_ctid_plan(POS_A, oid_a, Some("a"))?;
-        let left = LogicalPlan::Extension(datafusion::logical_expr::Extension {
-            node: Arc::new(VisibilityFilterNode::new(
-                left_leaf,
-                vec![(POS_A, oid_a)],
-                vec!["a".to_string()],
-            )),
-        });
-        let right = make_ctid_plan(POS_B, oid_b, Some("b"))?;
+    #[pg_test]
+    fn left_anti_join_defers_preserved_side() -> Result<()> {
+        assert_partial_barrier_join(datafusion::common::JoinType::LeftAnti, 1)
+    }
 
-        let plan = LogicalPlanBuilder::from(left)
-            .join_on(
-                right,
-                datafusion::common::JoinType::Left,
-                vec![col(CtidColumn::new(POS_A).to_string())
-                    .eq(col(CtidColumn::new(POS_B).to_string()))],
-            )?
-            .build()?;
+    #[pg_test]
+    fn right_semi_join_defers_preserved_side() -> Result<()> {
+        assert_partial_barrier_join(datafusion::common::JoinType::RightSemi, 0)
+    }
 
-        let first = rule.rewrite(plan, &config)?;
-        assert!(first.transformed);
-        assert_eq!(count_visibility_nodes(&first.data), 2);
-
-        let LogicalPlan::Join(join) = &first.data else {
-            panic!("expected root to remain Join");
-        };
-        let LogicalPlan::Extension(left_ext) = join.left.as_ref() else {
-            panic!("expected left child to remain VisibilityFilterNode");
-        };
-        let left_vf = left_ext
-            .node
-            .as_any()
-            .downcast_ref::<VisibilityFilterNode>()
-            .expect("left child should be VisibilityFilterNode");
-        assert_eq!(left_vf.plan_pos_oids, vec![(POS_A, oid_a)]);
-
-        let LogicalPlan::Extension(right_ext) = join.right.as_ref() else {
-            panic!("expected right child to be wrapped with VisibilityFilterNode");
-        };
-        let right_vf = right_ext
-            .node
-            .as_any()
-            .downcast_ref::<VisibilityFilterNode>()
-            .expect("right child should be VisibilityFilterNode");
-        assert_eq!(right_vf.plan_pos_oids, vec![(POS_B, oid_b)]);
-
-        let second = rule.rewrite(first.data.clone(), &config)?;
-        assert!(!second.transformed);
-        assert_eq!(count_visibility_nodes(&second.data), 2);
-        Ok(())
+    #[pg_test]
+    fn right_anti_join_defers_preserved_side() -> Result<()> {
+        assert_partial_barrier_join(datafusion::common::JoinType::RightAnti, 0)
     }
 
     #[pg_test]

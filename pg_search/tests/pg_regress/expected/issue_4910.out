@@ -92,15 +92,15 @@ LIMIT 25;
                DataFusion Physical Plan: 
                  : ProjectionExec: expr=[contact_id@3 as col_1, company_id@1 as col_2, revenue_rank@2 as col_3, ctid_0@0 as ctid_0]
                  :   SortExec: TopK(fetch=25), expr=[revenue_rank@2 DESC NULLS LAST, contact_id@3 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, company_id@0)]
-                 :       HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(company_id@1, company_id@0)]
-                 :         VisibilityFilterExec: tables=[cccf]
+                 :     VisibilityFilterExec: tables=[cccf]
+                 :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, company_id@1)]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, query="all"
+                 :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, company_id@1)]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse":{"query_string":"speciality:salesforce","lenient":null,"conjunction_mode":null}}}}
                  :           CooperativeExec
                  :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"range":{"field":"contact_id","lower_bound":{"included":1},"upper_bound":null,"is_datetime":false}}}}
-                 :         CooperativeExec
-                 :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse":{"query_string":"speciality:salesforce","lenient":null,"conjunction_mode":null}}}}
-                 :       CooperativeExec
-                 :         PgSearchScan: segments=1, query="all"
 (20 rows)
 
 -- Result rows in parallel mode (verifies correctness, not just plan shape).
@@ -173,15 +173,15 @@ LIMIT 25;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[contact_id@3 as col_1, company_id@1 as col_2, revenue_rank@2 as col_3, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=25), expr=[revenue_rank@2 DESC NULLS LAST, contact_id@3 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, company_id@0)]
-           :       HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(company_id@1, company_id@0)]
-           :         VisibilityFilterExec: tables=[cccf]
+           :     VisibilityFilterExec: tables=[cccf]
+           :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, company_id@1)]
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, query="all"
+           :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, company_id@1)]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse":{"query_string":"speciality:salesforce","lenient":null,"conjunction_mode":null}}}}
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"range":{"field":"contact_id","lower_bound":{"included":1},"upper_bound":null,"is_datetime":false}}}}
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse":{"query_string":"speciality:salesforce","lenient":null,"conjunction_mode":null}}}}
-           :       CooperativeExec
-           :         PgSearchScan: segments=1, query="all"
 (18 rows)
 
 -- Native PG (JoinScan disabled) rows on the same data, parallel mode.

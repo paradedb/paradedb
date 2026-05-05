@@ -23,7 +23,6 @@ use crate::api::tokenizers::{
 use crate::api::{FieldName, HashMap};
 use crate::index::writer::index::IndexError;
 use crate::nodecast;
-use crate::postgres::build::is_bm25_index;
 use crate::postgres::composite::{
     get_composite_fields_for_index, is_composite_type, CompositeSlotValues,
 };
@@ -213,26 +212,6 @@ mod tests {
             let pg = unsafe { pg_sys::TransactionIdPrecedesOrEquals(pg_sys::TransactionId::from(xid1), pg_sys::TransactionId::from(xid2)) };
             prop_assert_eq!(us, pg);
         });
-    }
-}
-
-/// Finds and returns the `USING bm25` index on the specified relation with the
-/// highest OID, or [`None`] if there aren't any.
-pub fn locate_bm25_index(heaprelid: pg_sys::Oid) -> Option<PgSearchRelation> {
-    locate_bm25_index_from_heaprel(&PgSearchRelation::open(heaprelid))
-}
-
-/// Finds and returns the `USING bm25` index on the specified relation with the
-/// highest OID, or [`None`] if there aren't any.
-pub fn locate_bm25_index_from_heaprel(heaprel: &PgSearchRelation) -> Option<PgSearchRelation> {
-    unsafe {
-        let indices = heaprel.indices(pg_sys::AccessShareLock as _);
-
-        // Find all bm25 indexes and keep the one with highest OID
-        indices
-            .into_iter()
-            .filter(|index| pg_sys::get_index_isvalid(index.oid()) && is_bm25_index(index))
-            .max_by_key(|index| index.oid().to_u32())
     }
 }
 

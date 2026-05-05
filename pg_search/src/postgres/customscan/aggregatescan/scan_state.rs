@@ -72,22 +72,6 @@ pub struct DataFusionAggState {
     /// output RecordBatch. Needed because DataFusion deduplicates grouping
     /// expressions (e.g. metadata.brand).
     pub group_df_indices: Vec<usize>,
-    /// MPP-specific state. `Some` only when `paradedb.enable_mpp = on` and
-    /// the query qualifies (binary join + supported aggregate). On the
-    /// leader this carries the runtime mesh + outbound senders for the
-    /// leader-as-worker-0 producer subplan; on workers it carries the
-    /// outbound senders for this worker plus the deserialized fragment plan.
-    #[allow(dead_code)]
-    pub mpp: Option<MppExecState>,
-}
-
-/// Per-query MPP state. Distinct variants for leader vs worker because the
-/// two participate differently: the leader runs the consumer plan plus a
-/// producer subplan (as worker 0); workers run only the producer subplan.
-#[allow(dead_code)]
-pub enum MppExecState {
-    Leader(crate::postgres::customscan::mpp::glue::MppLeaderState),
-    Worker(crate::postgres::customscan::mpp::glue::MppWorkerState),
 }
 
 /// State for projecting wrapped aggregate expressions through Postgres' own

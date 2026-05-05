@@ -25,19 +25,14 @@
 //! that reads all inbound queues into a spillable local buffer — this decouples
 //! consumer-side backpressure from producer-side backpressure.
 
-pub mod customscan_glue;
-pub mod dsm_layout;
+pub mod dsm;
+pub mod exec;
+pub mod glue;
 pub mod mesh;
 pub mod partitioner;
-pub mod rpc_mesh;
+pub mod runtime;
 pub mod session;
-pub mod shape;
-pub mod shm_mq_producer;
-pub mod shm_mq_transport;
-pub mod stage;
 pub mod transport;
-pub mod walker;
-pub mod worker;
 
 use serde::{Deserialize, Serialize};
 

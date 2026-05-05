@@ -11,6 +11,10 @@ export DATABASE_URL="postgresql://postgres:antithesis-super-secret-password@para
 export PARADEDB_FORCE_PARALLEL=1
 export PARADEDB_QGEN_STATEMENT_TIMEOUT_MS="${PARADEDB_QGEN_STATEMENT_TIMEOUT_MS:-60000}"
 export PROPTEST_CASES="${PROPTEST_CASES:-64}"
+# Disable proptest's source-relative regression file persistence: the qgen
+# binary runs air-gapped from /home/app and can't resolve lib.rs/main.rs, which
+# otherwise spams a warning on every iteration.
+export PROPTEST_FAILURE_PERSISTENCE=off
 export RUST_BACKTRACE=1
 
 echo ""
@@ -24,5 +28,11 @@ while true; do
   iter=$((iter + 1))
   echo ""
   echo "=== qgen iteration ${iter} ==="
-  /home/app/qgen --nocapture
+  # Rewrite WARN to ERROR in the level slot of tracing-formatted lines so
+  # Antithesis picks them up as failed codepaths instead of silently logging
+  # them. Word-bounded so it only matches the level field and not arbitrary
+  # log payload text. `sed -u` keeps output line-buffered so we don't lose
+  # recent lines if qgen crashes; pipefail preserves qgen's exit status.
+  /home/app/qgen --nocapture 2>&1 \
+    | sed -uE 's/(^|[[:space:]])WARN($|[[:space:]])/\1ERROR\2/g'
 done

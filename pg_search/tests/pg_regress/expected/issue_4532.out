@@ -80,15 +80,15 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
-           :       VisibilityFilterExec: tables=[p]
+           :     VisibilityFilterExec: tables=[p]
+           :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo","lenient":null,"conjunction_mode":null}}}}
-           :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, id@0)]
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Engineering","lenient":null,"conjunction_mode":null}}}}
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, query="all"
+           :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, id@0)]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Engineering","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query="all"
 (18 rows)
 
 SELECT p.id, p.description
@@ -144,15 +144,15 @@ LIMIT 10;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
-           :       VisibilityFilterExec: tables=[p]
+           :     VisibilityFilterExec: tables=[p]
+           :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, company_id@1)], projection=[ctid_0@0, id@2]
+           :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, id@0)]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Marketing","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query="all"
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
-           :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, id@0)]
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Marketing","lenient":null,"conjunction_mode":null}}}}
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, query="all"
 (18 rows)
 
 SELECT p.id, p.description
@@ -216,18 +216,18 @@ LIMIT 10;
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
-           :       VisibilityFilterExec: tables=[p]
+           :     VisibilityFilterExec: tables=[p]
+           :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, company_id@1)], projection=[ctid_0@0, id@2]
+           :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, id@0)]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Marketing","lenient":null,"conjunction_mode":null}}}}
+           :           HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, id@0)]
+           :             CooperativeExec
+           :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Engineering","lenient":null,"conjunction_mode":null}}}}
+           :             CooperativeExec
+           :               PgSearchScan: segments=1, query="all"
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
-           :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(company_id@0, id@0)]
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Marketing","lenient":null,"conjunction_mode":null}}}}
-           :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(company_id@0, id@0)]
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Engineering","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, query="all"
 (21 rows)
 
 SELECT p.id, p.description
@@ -344,18 +344,18 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
          DataFusion Physical Plan: 
            : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, ctid_0@0 as ctid_0]
            :   SortExec: TopK(fetch=10), expr=[id@1 ASC NULLS LAST], preserve_partitioning=[false]
-           :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(company_id@1, id@0)], projection=[ctid_0@0, id@2]
-           :       VisibilityFilterExec: tables=[p]
+           :     VisibilityFilterExec: tables=[p]
+           :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(id@0, company_id@1)], projection=[ctid_0@0, id@2]
+           :         HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
+           :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, region_id@1)], projection=[id@1]
+           :             CooperativeExec
+           :               PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"America","lenient":null,"conjunction_mode":null}}}}
+           :             CooperativeExec
+           :               PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Engineering","lenient":null,"conjunction_mode":null}}}}
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
-           :       HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, company_id@0)]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, region_id@1)], projection=[id@1]
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"America","lenient":null,"conjunction_mode":null}}}}
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
-           :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Engineering","lenient":null,"conjunction_mode":null}}}}
 (21 rows)
 
 SELECT p.id, p.description

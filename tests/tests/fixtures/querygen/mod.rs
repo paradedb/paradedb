@@ -24,10 +24,10 @@ pub mod pagegen;
 pub mod wheregen;
 
 use std::fmt::{Debug, Write};
+use std::sync::OnceLock;
 
 use futures::executor::block_on;
 use proptest::prelude::*;
-use proptest_derive::Arbitrary;
 use sqlx::{Connection, PgConnection};
 
 use crate::fixtures::db::Query;
@@ -116,6 +116,14 @@ impl Column {
         self
     }
 
+    pub const fn bm25_json_field(mut self, config_json: &'static str) -> Self {
+        self.bm25_options = Some(BM25Options {
+            field_type: "json_fields",
+            config_json,
+        });
+        self
+    }
+
     /// Note: should use only the `random()` function to generate random data.
     pub const fn random_generator_sql(mut self, random_generator_sql: &'static str) -> Self {
         self.random_generator_sql = random_generator_sql;
@@ -196,6 +204,15 @@ pub fn generated_queries_setup(
         .collect::<Vec<_>>()
         .join(",\n");
 
+    let json_fields = columns_def
+        .iter()
+        .filter(|c| c.is_indexed && c.index_expression.is_none())
+        .filter_map(|c| c.bm25_options.as_ref())
+        .filter(|o| o.field_type == "json_fields")
+        .map(|o| o.config_json)
+        .collect::<Vec<_>>()
+        .join(",\n");
+
     // Find the first indexed numeric/date fast field for sort_by (Tantivy doesn't support Str).
     let sortable_types = [
         "INT",
@@ -261,7 +278,8 @@ CREATE TABLE {tname} (
 CREATE INDEX idx{tname} ON {tname} USING bm25 ({bm25_columns}) WITH (
     key_field = '{key_field}',
     text_fields = '{{ {text_fields} }}',
-    numeric_fields = '{{ {numeric_fields} }}'{sort_by_clause}
+    numeric_fields = '{{ {numeric_fields} }}',
+    json_fields = '{{ {json_fields} }}'{sort_by_clause}
 );
 
 INSERT into {tname} ({insert_columns}) VALUES ({sample_values});
@@ -270,7 +288,7 @@ INSERT into {tname} ({insert_columns}) SELECT {random_generators} FROM generate_
 
 {b_tree_indexes}
 
-ANALYZE;
+ANALYZE {tname};
 "#,
             b_tree_indexes = columns_def
                 .iter()
@@ -284,6 +302,14 @@ ANALYZE;
         );
 
         (&sql).execute(conn);
+        setup_sql.push_str(&sql);
+    }
+
+    // Delete a small fraction of each table to force the visibility map and heap resolution to be
+    // more interesting.
+    for (tname, _) in tables {
+        let sql = format!("DELETE FROM {tname} WHERE random() < 0.01;\n");
+        sql.as_str().execute(conn);
         setup_sql.push_str(&sql);
     }
 
@@ -324,7 +350,7 @@ pub fn arb_joins_and_wheres(
         })
 }
 
-#[derive(Copy, Clone, Debug, Arbitrary)]
+#[derive(Copy, Clone, Debug)]
 pub struct PgGucs {
     pub aggregate_custom_scan: bool,
     pub custom_scan: bool,
@@ -339,6 +365,60 @@ pub struct PgGucs {
     pub columnar_exec: bool,
     /// Enable sorted execution for ColumnarExecState.
     pub columnar_sort: bool,
+}
+
+/// When `PARADEDB_FORCE_PARALLEL=1` (or `=true`), the proptest `Arbitrary` impl pins
+/// `parallel_workers = true` and `PgGucs::set` additionally emits
+/// `SET debug_parallel_query = on` so Postgres picks a parallel plan even on
+/// the small property-test tables. Other GUCs continue to vary across cases.
+fn force_parallel() -> bool {
+    static V: OnceLock<bool> = OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("PARADEDB_FORCE_PARALLEL")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+    })
+}
+
+/// Server-side `statement_timeout` (ms) emitted by `PgGucs::set`, so a hung query
+/// surfaces as a failure instead of stalling the run. Override with
+/// `PARADEDB_QGEN_STATEMENT_TIMEOUT_MS`; defaults to 60000.
+fn statement_timeout_ms() -> u64 {
+    static V: OnceLock<u64> = OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("PARADEDB_QGEN_STATEMENT_TIMEOUT_MS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(60_000)
+    })
+}
+
+impl Arbitrary for PgGucs {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        any::<[bool; 10]>()
+            .prop_map(|b| {
+                let mut g = PgGucs {
+                    aggregate_custom_scan: b[0],
+                    custom_scan: b[1],
+                    custom_scan_without_operator: b[2],
+                    filter_pushdown: b[3],
+                    join_custom_scan: b[4],
+                    seqscan: b[5],
+                    indexscan: b[6],
+                    parallel_workers: b[7],
+                    columnar_exec: b[8],
+                    columnar_sort: b[9],
+                };
+                if force_parallel() {
+                    g.parallel_workers = true;
+                }
+                g
+            })
+            .boxed()
+    }
 }
 
 impl Default for PgGucs {
@@ -411,6 +491,10 @@ impl PgGucs {
             "SET paradedb.enable_columnar_sort TO {columnar_sort};"
         )
         .unwrap();
+        writeln!(gucs, "SET statement_timeout TO {};", statement_timeout_ms()).unwrap();
+        if force_parallel() {
+            writeln!(gucs, "SET debug_parallel_query TO on;").unwrap();
+        }
         gucs
     }
 }

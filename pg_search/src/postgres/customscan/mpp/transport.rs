@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+#![allow(dead_code)]
 //! Transport layer for MPP shuffle.
 //!
 //! Layout:
@@ -23,19 +24,20 @@
 //!   writes into and the DataFusion consumer reads from. It decouples
 //!   consumer-side backpressure from producer-side backpressure: the drain thread
 //!   always makes forward progress on the inbound shm_mqs, so a stalled consumer
-//!   cannot propagate backpressure to remote producers and cause the N×N cycle
-//!   that deadlocked the prior attempt.
+//!   cannot propagate backpressure to remote producers and cause an N×N
+//!   peer-stall cycle.
 //!
 //! The shm_mq-backed sender/receiver and drain thread spawn logic build on
 //! top of these primitives.
 
-#![allow(dead_code)]
-
 use std::collections::VecDeque;
-use std::sync::{Arc, Condvar, Mutex};
-use std::thread::JoinHandle;
+use std::future::poll_fn;
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::task::{Poll, Waker};
 #[cfg(test)]
-use std::time::Duration;
+use std::thread;
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::ipc::reader::StreamReader;
@@ -103,7 +105,7 @@ struct DrainBufferInner {
     /// DataFusion `poll_next` returns `Poll::Pending` without blocking the
     /// executor thread. `Option` so we don't allocate one if the buffer is
     /// only consumed synchronously via `pop_front`.
-    waker: Option<std::task::Waker>,
+    waker: Option<Waker>,
 }
 
 /// Yielded by [`DrainBuffer::pop_front`].
@@ -198,35 +200,61 @@ impl DrainBuffer {
             .cancelled
     }
 
-    /// Async-friendly variant of `pop_front`. Returns `DrainItem` when a
-    /// batch or EOF is immediately available; otherwise registers `waker`
-    /// to be woken on the next `push_batch` / `notify_source_done` / `cancel`
-    /// and returns `None`.
-    ///
-    /// Using this from a `Stream::poll_next` lets `DrainGatherStream` return
-    /// `Poll::Pending` instead of blocking the executor thread — critical
-    /// under peer-to-peer backpressure, where a blocking wait could deadlock
-    /// with this worker's own outbound pump.
-    ///
-    /// Why hand-rolled instead of `tokio::sync::mpsc`: the producer side is
-    /// a real OS thread (the drain thread) that blocks inside the `shm_mq`
-    /// FFI; it cannot be a Tokio task because `shm_mq_receive` has no async
-    /// readiness signal. Swapping `DrainBuffer` for `mpsc::unbounded_channel`
-    /// and calling `rx.poll_recv(cx)` on the consumer is plausible, but the
-    /// producer stays an OS thread regardless, and the small
-    /// `Mutex<Option<Waker>>` is the entire delta — not load-bearing for
-    /// correctness. Tracked as a post-merge follow-up.
-    pub fn poll_pop_front(&self, waker: &std::task::Waker) -> Option<DrainItem> {
+    /// Async-friendly variant of `pop_front`. Returns immediately with a
+    /// batch or EOF if available; otherwise registers `waker` (to be woken
+    /// on the next `push_batch` / `notify_source_done` / `cancel`) and
+    /// returns `None`. Lets `DrainGatherStream::poll_next` return
+    /// `Poll::Pending` instead of blocking the executor thread.
+    pub fn poll_pop_front(&self, waker: &Waker) -> Option<DrainItem> {
         let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
+        if let Some(item) = Self::try_pop_locked(&mut guard) {
+            return Some(item);
+        }
+        // Single-consumer invariant; switch to `Vec<Waker>` if ever lifted.
+        debug_assert!(
+            guard.waker.is_none() || guard.waker.as_ref().unwrap().will_wake(waker),
+            "DrainBuffer::poll_pop_front: second consumer registered a different waker — \
+             only one consumer is supported per buffer"
+        );
+        guard.waker = Some(waker.clone());
+        None
+    }
+
+    /// Await-able wrapper over [`poll_pop_front`]. Use only for thread-backed
+    /// drains; cooperative handles must use [`try_pop`](Self::try_pop) +
+    /// executor yield (otherwise the await suspends with no one to wake it).
+    pub async fn recv(self: &Arc<Self>) -> DrainItem {
+        let buf = Arc::clone(self);
+        poll_fn(move |cx| match buf.poll_pop_front(cx.waker()) {
+            Some(item) => Poll::Ready(item),
+            None => Poll::Pending,
+        })
+        .await
+    }
+
+    /// Non-blocking, non-waker variant of [`poll_pop_front`]. Returns the
+    /// front item or `DrainItem::Eof` if all sources have detached and
+    /// the queue is drained; returns `None` only when more data may yet
+    /// arrive. Cooperative consumers loop on `poll_drain_pass` + `try_pop`,
+    /// yielding to the executor between iterations.
+    pub fn try_pop(&self) -> Option<DrainItem> {
+        let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
+        Self::try_pop_locked(&mut guard)
+    }
+
+    /// Shared body of [`try_pop`] and [`poll_pop_front`]. Returns
+    /// `Some(Batch)` if the queue has data, `Some(Eof)` if all sources
+    /// have detached or the buffer is cancelled, and `None` otherwise.
+    /// Lets the two public entry points stay in lockstep on the
+    /// "buffered data wins over cancellation/EOF" invariant locked in
+    /// by `drain_buffer_drains_buffered_before_eof`.
+    fn try_pop_locked(guard: &mut MutexGuard<'_, DrainBufferInner>) -> Option<DrainItem> {
         if let Some(batch) = guard.queue.pop_front() {
             return Some(DrainItem::Batch(batch));
         }
         if guard.cancelled || guard.sources_done >= guard.num_sources {
             return Some(DrainItem::Eof);
         }
-        // Register (or replace) the waker. Only one consumer at a time is
-        // expected — DrainGatherStream — so simple replacement is fine.
-        guard.waker = Some(waker.clone());
         None
     }
 }
@@ -289,6 +317,19 @@ pub struct MppSender {
     /// behind a shared borrow during `process_batch`).
     scratch: std::cell::RefCell<Vec<u8>>,
 }
+
+// SAFETY: `MppSender` lives inside `ShuffleWiring`, which is owned by a
+// single `ShuffleExec` running on a single backend thread. The async
+// `send_batch_traced` future captures `&self` and contains a Tokio
+// `yield_now().await`; the compiler conservatively requires the future
+// to be `Send`, which forces `&MppSender: Send` and therefore
+// `MppSender: Sync`. At runtime the future is created and consumed on
+// the same thread (DataFusion's current-thread runtime on the backend),
+// so there is no actual cross-thread aliasing of the inner `RefCell` or
+// of the `Box<dyn BatchChannelSender>`. This mirrors the same
+// single-thread-by-construction contract that justifies
+// `unsafe impl Send for ShmMqSender` over in `mesh.rs`.
+unsafe impl Sync for MppSender {}
 
 impl MppSender {
     pub fn new(channel: Box<dyn BatchChannelSender>) -> Self {
@@ -358,7 +399,7 @@ impl MppSender {
         scratch: &mut Vec<u8>,
         stats: &mut SendBatchStats,
     ) -> Result<(), DataFusionError> {
-        let t_enc = std::time::Instant::now();
+        let t_enc = Instant::now();
         encode_batch_into(batch, scratch)?;
         stats.encode += t_enc.elapsed();
         let Some(drain) = self.cooperative_drain.as_ref() else {
@@ -367,7 +408,7 @@ impl MppSender {
             return self.channel.send_bytes(scratch);
         };
         let mut first_try = true;
-        let t_wait_start = std::time::Instant::now();
+        let t_wait_start = Instant::now();
         // Mental model: a current-thread Tokio runtime lives on the
         // backend thread (DataFusion needs one to drive `Stream`s).
         // This spin runs *inside* a Tokio task — specifically the body
@@ -413,7 +454,7 @@ impl MppSender {
             // neither gets to drain. Errors propagate so a peer
             // detaching mid-spin doesn't leave the sender looping
             // forever on a closed mesh.
-            let t_drain = std::time::Instant::now();
+            let t_drain = Instant::now();
             drain.poll_drain_pass()?;
             stats.coop_drain_in_spin += t_drain.elapsed();
             tokio::task::yield_now().await;
@@ -426,15 +467,15 @@ impl MppSender {
 #[derive(Default, Debug, Clone)]
 pub struct SendBatchStats {
     /// Cumulative time spent inside `encode_batch` (Arrow IPC serialization).
-    pub encode: std::time::Duration,
+    pub encode: Duration,
     /// Cumulative wall time in the send-retry spin after the first failed
     /// `try_send_bytes`. Zero if the first try succeeded.
-    pub send_wait: std::time::Duration,
+    pub send_wait: Duration,
     /// Cumulative time spent in `poll_drain_pass` while spinning on a
     /// full outbound. A subset of `send_wait`; the remainder is the
     /// `tokio::task::yield_now()` await + the (small) cost of
     /// `try_send_bytes` itself.
-    pub coop_drain_in_spin: std::time::Duration,
+    pub coop_drain_in_spin: Duration,
     /// Count of `try_send_bytes` calls that returned `Ok(false)` (full).
     pub spin_iters: u64,
 }
@@ -508,7 +549,7 @@ impl DrainConfig {
 /// done, the thread exits.
 #[cfg(test)]
 pub fn spawn_drain_thread(config: DrainConfig) -> JoinHandle<Result<(), DataFusionError>> {
-    std::thread::spawn(move || drain_loop(config))
+    thread::spawn(move || drain_loop(config))
 }
 
 /// RAII wrapper around a drain thread's `JoinHandle` and its `DrainBuffer`.
@@ -732,7 +773,7 @@ fn drain_loop(config: DrainConfig) -> Result<(), DataFusionError> {
             return Ok(());
         }
         if !got_any {
-            std::thread::sleep(idle_sleep);
+            thread::sleep(idle_sleep);
         }
     }
 }
@@ -847,10 +888,10 @@ mod tests {
         let buf = DrainBuffer::new(2);
         let producer = StdArc::clone(&buf);
         let handle = thread::spawn(move || {
-            thread::sleep(std::time::Duration::from_millis(20));
+            thread::sleep(Duration::from_millis(20));
             producer.push_batch(sample_batch(2));
             producer.notify_source_done();
-            thread::sleep(std::time::Duration::from_millis(20));
+            thread::sleep(Duration::from_millis(20));
             producer.notify_source_done();
         });
 
@@ -867,7 +908,7 @@ mod tests {
         let buf = DrainBuffer::new(1);
         let canceller = StdArc::clone(&buf);
         let handle = thread::spawn(move || {
-            thread::sleep(std::time::Duration::from_millis(20));
+            thread::sleep(Duration::from_millis(20));
             canceller.cancel();
         });
         assert!(matches!(buf.pop_front(), DrainItem::Eof));
@@ -948,11 +989,11 @@ mod tests {
 
         // Simulate consumer path error: drop the handle without calling
         // shutdown(). The drain thread must exit before drop returns.
-        let start = std::time::Instant::now();
+        let start = Instant::now();
         drop(handle);
         let elapsed = start.elapsed();
         assert!(
-            elapsed < std::time::Duration::from_secs(2),
+            elapsed < Duration::from_secs(2),
             "DrainHandle::drop took too long: {elapsed:?}"
         );
         // Consumer observes EOF because cancel was called.
@@ -961,11 +1002,11 @@ mod tests {
 
     #[test]
     fn drain_thread_drains_n2_mesh_100k_batches() {
-        // Milestone-1 gate: simulate the 2-participant mesh. Each of two
-        // producers pushes 50_000 small batches through a bounded channel;
-        // the drain thread interleaves and the consumer reads EOF exactly
-        // after receiving all 100_000 batches. Exercises backpressure
-        // (bounded capacity = 16) without deadlock.
+        // Simulates a 2-participant mesh under load. Each of two producers
+        // pushes 50_000 small batches through a bounded channel; the drain
+        // thread interleaves and the consumer reads EOF exactly after
+        // receiving all 100_000 batches. Exercises backpressure (bounded
+        // capacity = 16) without deadlock.
         const PER_SOURCE: usize = 50_000;
         let (tx0, rx0) = in_proc_channel(16);
         let (tx1, rx1) = in_proc_channel(16);
@@ -1086,7 +1127,7 @@ mod tests {
         let template = make_batch(batch_rows);
         // Encode once up front so we also report pure-encode throughput
         // separately. Real queries encode inside the hot path per batch.
-        let enc_start = std::time::Instant::now();
+        let enc_start = Instant::now();
         let mut enc_bytes = 0usize;
         for _ in 0..batches {
             enc_bytes += encode_batch(&template).expect("encode").len();
@@ -1107,7 +1148,7 @@ mod tests {
         let tx1_send = MppSender::new(Box::new(tx1));
 
         let per_source = batches / 2;
-        let round_trip_start = std::time::Instant::now();
+        let round_trip_start = Instant::now();
         let p0 = {
             let b = template.clone();
             thread::spawn(move || {

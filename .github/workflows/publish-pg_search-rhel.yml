@@ -283,7 +283,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.cargo/bin/cargo-pgrx
-          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
+          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}-rhel-${{ matrix.image }}
 
       - name: Install pgrx
         if: steps.cache-pgrx.outputs.cache-hit != 'true'
@@ -378,6 +378,19 @@ jobs:
           asset_path: ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
           asset_name: pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1PARADEDB.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm
           overwrite: true
+
+      - name: Push pg_search .rpm to Cloudsmith
+        env:
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+        run: |
+          sudo dnf install -y python3-pip
+          python3 -m venv /tmp/cloudsmith-venv
+          /tmp/cloudsmith-venv/bin/pip install --quiet cloudsmith-cli
+          RHEL_VERSION="${{ steps.version.outputs.os_version }}"
+          /tmp/cloudsmith-venv/bin/cloudsmith push rpm \
+            paradedb/paradedb/el/${RHEL_VERSION#el} \
+            ~/rpmbuild/RPMS/${{ matrix.arch }}/pg_search_${{ matrix.pg_version }}-${{ steps.version.outputs.tag_version }}-1.${{ steps.version.outputs.os_version }}.${{ matrix.arch }}.rpm \
+            --republish
 
       - name: Notify Slack on Failure
         if: failure()

@@ -246,7 +246,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.cargo/bin/cargo-pgrx
-          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
+          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}-debian-${{ matrix.image }}
 
       - name: Install pgrx
         if: steps.cache-pgrx.outputs.cache-hit != 'true'
@@ -328,6 +328,25 @@ jobs:
           asset_path: ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
           asset_name: postgresql-${{ matrix.pg_version }}-pg-search_${{ steps.version.outputs.tag_version }}-1PARADEDB-${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb
           overwrite: true
+
+      # Note: We install the Cloudsmith CLI directly via pip rather than using
+      # cloudsmith-io/action, which pulls in actions/setup-python@v5 with
+      # python-version: 3.x. That resolves to Python 3.14+, whose prebuilt
+      # tool-cache binary requires GLIBC_2.38 and fails to load inside the
+      # debian:12-slim container (glibc 2.36). We install into an isolated
+      # venv so pip never tries to upgrade Debian-managed packages such as
+      # urllib3 (which lack a RECORD file and can't be uninstalled by pip).
+      - name: Push pg_search .deb to Cloudsmith
+        env:
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+        run: |
+          DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pip python3-venv
+          python3 -m venv /tmp/cloudsmith-venv
+          /tmp/cloudsmith-venv/bin/pip install --quiet cloudsmith-cli
+          /tmp/cloudsmith-venv/bin/cloudsmith push deb \
+            paradedb/paradedb/debian/${{ steps.version.outputs.os_version }} \
+            ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb \
+            --republish
 
       - name: Notify Slack on Failure
         if: failure()

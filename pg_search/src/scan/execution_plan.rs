@@ -30,7 +30,7 @@
 
 use std::any::Any;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
@@ -163,6 +163,18 @@ pub struct PgSearchScanPlan {
     deferred_ctid_plan_position: Option<usize>,
     /// When true, a HashJoin InList was successfully pushed down to a TermSet query.
     dynamic_filter_pushdown: Arc<AtomicBool>,
+    /// Sort order preserved across `with_filter_pushdown` rebuilds so the
+    /// rebuilt plan keeps its equivalence properties.
+    sort_order: Option<SortByField>,
+    /// Captures the per-segment `TermSetStrategy` chosen by the tantivy planner
+    /// for the pushed-down dynamic filter (issue #4895). Last-segment-wins is
+    /// fine because `EXPLAIN ANALYZE` only asks "did any segment use it?".
+    /// Stored as `u8` so it can live behind an `AtomicU8`; round-tripped
+    /// through `tantivy::query::StrategyTag` at render time. A value of
+    /// `StrategyTag::None as u8` (= 0) means no dispatch happened, e.g. the
+    /// InList didn't reach the FastField path (K ≤ 1024 routes to
+    /// AutomatonWeight which doesn't write the sink).
+    dynamic_filter_strategy: Arc<AtomicU8>,
 }
 
 impl std::fmt::Debug for PgSearchScanPlan {
@@ -245,7 +257,74 @@ impl PgSearchScanPlan {
             indexrelid,
             deferred_ctid_plan_position,
             dynamic_filter_pushdown: Arc::new(AtomicBool::new(false)),
+            sort_order: sort_order.cloned(),
+            dynamic_filter_strategy: Arc::new(AtomicU8::new(0)),
         }
+    }
+
+    /// Produce a plan identical to `dyn_plan` but with `dynamic_filters` emptied.
+    ///
+    /// Used by MPP: the join's dynamic-filter Arc is pushed to the probe-side
+    /// scan by `FilterPushdown`, but MPP needs to apply it *after* the probe
+    /// shuffle (so local bounds are not applied to rows destined for peer
+    /// participants). We strip it from the scan and re-apply it via a
+    /// `FilterExec` above the post-shuffle output.
+    ///
+    /// Transfers scan state out of the original plan — the original becomes
+    /// a dead stub whose `execute` returns empty streams. Returns the plan
+    /// unchanged when there are no dynamic filters to strip.
+    ///
+    /// # Caller contract
+    ///
+    /// This is a primitive: it strips unconditionally and does not validate
+    /// that re-attaching the filter elsewhere is safe. It is correct only
+    /// when the caller is rebuilding the plan such that the stripped
+    /// filter will be reapplied above a `ShuffleExec` that crosses
+    /// participant boundaries.
+    ///
+    /// In particular, do *not* call this on a scan whose enclosing
+    /// `HashJoinExec` lives entirely on one participant (e.g., a join that
+    /// is itself below a shuffle): the dynamic filter is fully populated
+    /// locally there and dropping it loses a valuable optimization with no
+    /// correctness benefit.
+    #[allow(dead_code)] // walker (PR #4870) is the live caller
+    pub fn strip_dynamic_filters_from_dyn(
+        dyn_plan: Arc<dyn ExecutionPlan>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        let scan = match dyn_plan.as_any().downcast_ref::<PgSearchScanPlan>() {
+            Some(s) => s,
+            None => {
+                return Err(DataFusionError::Internal(
+                    "strip_dynamic_filters_from_dyn called on a non-PgSearchScanPlan ExecutionPlan"
+                        .into(),
+                ));
+            }
+        };
+
+        if scan.dynamic_filters.is_empty() {
+            return Ok(dyn_plan);
+        }
+
+        let taken = {
+            let mut guard = scan.states.lock().map_err(|e| {
+                DataFusionError::Internal(format!("Failed to lock PgSearchScanPlan state: {e}"))
+            })?;
+            std::mem::take(&mut *guard)
+        };
+        let states: Vec<ScanState> = taken.into_iter().flatten().map(|u| u.0).collect();
+
+        let schema = scan.properties.eq_properties.schema().clone();
+        let new_plan = PgSearchScanPlan::new(
+            states,
+            schema,
+            scan.query_for_display.clone(),
+            scan.sort_order.as_ref(),
+            scan.deferred_fields.clone(),
+            scan.ffhelper.clone(),
+            scan.indexrelid,
+            scan.deferred_ctid_plan_position,
+        );
+        Ok(Arc::new(new_plan))
     }
 
     pub fn has_deferred_fields(&self) -> bool {
@@ -297,6 +376,23 @@ fn build_equivalence_properties(
     eq_properties
 }
 
+/// Translate a `tantivy::query::StrategyTag` back into the human-readable
+/// strategy name surfaced in `EXPLAIN ANALYZE` output. The match is
+/// exhaustive on the enum so follow-ups A and B (filling in the
+/// posting-direct and bitset-from-postings dispatch arms) don't need to
+/// revisit this site — the compiler will flag any new variant.
+fn strategy_name(strategy: tantivy::query::StrategyTag) -> &'static str {
+    use tantivy::query::StrategyTag;
+    match strategy {
+        StrategyTag::None => "none",
+        StrategyTag::Gallop => "gallop",
+        StrategyTag::Linear => "linear",
+        StrategyTag::Bitset => "bitset_from_postings",
+        StrategyTag::Posting => "posting_direct",
+        StrategyTag::Hash => "hash_probe",
+    }
+}
+
 impl DisplayAs for PgSearchScanPlan {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
@@ -308,7 +404,19 @@ impl DisplayAs for PgSearchScanPlan {
             write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
         }
         if self.dynamic_filter_pushdown.load(Ordering::Relaxed) {
-            write!(f, ", dynamic_filter_pushdown=true")?;
+            // Render a single token. When the strategy framework engaged
+            // (K > 1024 reached FastFieldTermSetWeight and select_strategy
+            // wrote the sink), the value is the strategy name. Otherwise
+            // (K ≤ 1024 routed via AutomatonWeight, which doesn't write the
+            // sink) it falls back to "true".
+            let tag = self.dynamic_filter_strategy.load(Ordering::Relaxed);
+            let strategy = tantivy::query::StrategyTag::try_from(tag)
+                .unwrap_or(tantivy::query::StrategyTag::None);
+            if matches!(strategy, tantivy::query::StrategyTag::None) {
+                write!(f, ", dynamic_filter_pushdown=true")?;
+            } else {
+                write!(f, ", dynamic_filter_pushdown={}", strategy_name(strategy))?;
+            }
         }
         write!(f, ", query={}", self.query_for_display.explain_format())
     }
@@ -415,6 +523,7 @@ impl ExecutionPlan for PgSearchScanPlan {
 
         // Capture self-references for the async block
         let dynamic_filter_pushdown = self.dynamic_filter_pushdown.clone();
+        let dynamic_filter_strategy = self.dynamic_filter_strategy.clone();
 
         let stream_gen = async_stream::try_stream! {
             // Optimized Search Integration:
@@ -423,7 +532,11 @@ impl ExecutionPlan for PgSearchScanPlan {
             // AFTER the build side has completed and dynamic filters are published.
             let mut dynamic_filters = dynamic_filters.clone();
             if !dynamic_filters.is_empty()
-                && try_dynamic_filter_pushdown(&mut reader, &mut dynamic_filters)
+                && try_dynamic_filter_pushdown(
+                    &mut reader,
+                    &mut dynamic_filters,
+                    Some(dynamic_filter_strategy.clone()),
+                )
             {
                 dynamic_filter_pushdown.store(true, Ordering::Relaxed);
             }
@@ -572,6 +685,10 @@ impl ExecutionPlan for PgSearchScanPlan {
                 deferred_ctid_plan_position: self.deferred_ctid_plan_position,
                 dynamic_filter_pushdown: Arc::new(AtomicBool::new(
                     self.dynamic_filter_pushdown.load(Ordering::Relaxed),
+                )),
+                sort_order: self.sort_order.clone(),
+                dynamic_filter_strategy: Arc::new(AtomicU8::new(
+                    self.dynamic_filter_strategy.load(Ordering::Relaxed),
                 )),
             });
             Ok(

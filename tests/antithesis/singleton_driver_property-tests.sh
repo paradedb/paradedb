@@ -11,10 +11,6 @@ export DATABASE_URL="postgresql://postgres:antithesis-super-secret-password@para
 export PARADEDB_FORCE_PARALLEL=1
 export PARADEDB_QGEN_STATEMENT_TIMEOUT_MS="${PARADEDB_QGEN_STATEMENT_TIMEOUT_MS:-60000}"
 export PROPTEST_CASES="${PROPTEST_CASES:-64}"
-# Disable proptest's source-relative regression file persistence: the qgen
-# binary runs air-gapped from /home/app and can't resolve lib.rs/main.rs, which
-# otherwise spams a warning on every iteration.
-export PROPTEST_FAILURE_PERSISTENCE=off
 export RUST_BACKTRACE=1
 
 echo ""

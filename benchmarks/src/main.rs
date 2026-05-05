@@ -212,6 +212,14 @@ impl From<QueryResult> for JSONBenchmarkResult {
             format!("cold_query_ms={:.3}; query={}", res.results.cold, res.query);
         let range_str = format!("±{ci_half_width:.3} ms");
 
+        println!(
+            r"Query results: |
+            query: {},
+            mean: {mean:.3} ms,
+            confidence interval: ±{ci_half_width:.3} ms",
+            res.query
+        );
+
         Self {
             name: res.query_type,
             unit: "mean ms",

@@ -20,7 +20,10 @@ serde = { version = "1.0.228", features = ["derive"] }
 toml = "0.8"
 duckdb = { version = "1.10502.0", features = ["bundled"] }
 distrs = "0.2.3"
-rstest = "0.26.1"
+
+[dev-dependencies]
+approx = "0.5.1"
+rstest = "0.25.0"
 
 [lib]
 name = "paradedb"

@@ -38,14 +38,14 @@ impl Window {
 
     /// Returns the variance of the window contents as a percent of the mean
     /// Requires self to be mutable so that self.contents can be made contiguous
-    pub fn percent_variance(&mut self) -> Option<f64> {
+    pub fn variance_over_mean(&mut self) -> Option<f64> {
         if self.contents.is_empty() {
             None
         } else {
             self.contents.make_contiguous();
             let contents = self.contents.as_slices().0;
-            let pct_variance = (variance(contents) / mean(contents)) * 100.0;
-            Some(pct_variance)
+            let var_over_mean = variance(contents) / mean(contents);
+            Some(var_over_mean)
         }
     }
 
@@ -68,13 +68,13 @@ pub fn confidence_interval_half_width(data: &[f64], confidence_level: f64) -> f6
     assert!(confidence_level > 0.0);
     assert!(confidence_level < 1.0);
 
-    let reps = data.len() as f64;
+    let sample_count = data.len() as f64;
     let variance = variance(data);
 
     let half_alpha = (1.0 - confidence_level) / 2.0;
-    let t = distrs::StudentsT::ppf(1.0 - half_alpha, reps - 1.0);
+    let t = distrs::StudentsT::ppf(1.0 - half_alpha, sample_count - 1.0);
 
-    t * ((variance / reps).sqrt())
+    t * ((variance / sample_count).sqrt())
 }
 
 /// Returns the variance of the slice contents
@@ -82,15 +82,17 @@ fn variance(data: &[f64]) -> f64 {
     assert!(!data.is_empty());
 
     let mean: f64 = mean(data);
-    let reps = data.len() as f64;
+    let sample_count = data.len() as f64;
 
-    (1.0 / (reps - 1.0)) * (data.iter().map(|v| (v - mean).powi(2)).sum::<f64>())
+    (1.0 / (sample_count - 1.0)) * (data.iter().map(|v| (v - mean).powi(2)).sum::<f64>())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use rstest::*;
+
+    use approx::assert_relative_eq;
 
     // Mavro and lottery datasets, along with their expected variance and half-widths
     // are taken from NIST reference datasets
@@ -102,8 +104,8 @@ mod tests {
         2.00150, 2.00160, 2.00150, 2.00160, 2.00190, 2.00200, 2.00200, 2.00210, 2.00220, 2.00230,
         2.00240, 2.00250, 2.00270, 2.00260, 2.00260, 2.00260, 2.00270, 2.00260, 2.00250, 2.00240,
     ];
-    const VARIANCE_MAVRO: f64 = 1.8414693877553813e-07;
-    const HALF_WIDTH_95_MAVRO: f64 = 1.2195553624700746e-04;
+    const VARIANCE_MAVRO: f64 = 1.8414693877551e-07;
+    const HALF_WIDTH_95_MAVRO: f64 = 1.21955536247e-04;
 
     const DATA_LOTTERY: [f64; 218] = [
         162.0, 671.0, 933.0, 414.0, 788.0, 730.0, 817.0, 33.0, 536.0, 875.0, 670.0, 236.0, 473.0,
@@ -131,30 +133,30 @@ mod tests {
     #[case(&DATA_MAVRO, VARIANCE_MAVRO)]
     #[case(&DATA_LOTTERY, VARIANCE_LOTTERY)]
     fn test_variance(#[case] input: &[f64], #[case] expected: f64) {
-        assert_eq!(variance(input), expected);
+        assert_relative_eq!(variance(input), expected);
     }
 
     #[rstest]
     #[case(&DATA_MAVRO, HALF_WIDTH_95_MAVRO)]
     #[case(&DATA_LOTTERY, HALF_WIDTH_95_LOTTERY)]
     fn test_confidence_interval_half_width(#[case] input: &[f64], #[case] expected: f64) {
-        assert_eq!(confidence_interval_half_width(input, 0.95), expected);
+        assert_relative_eq!(confidence_interval_half_width(input, 0.95), expected);
     }
 
     // Inputs for case 2 & 3 are taken from actual benchmark samples. 2 is "warm"; 3 is "cold".
     // Case 1 is just hard-coded values to get a sense of expected values
     #[rstest]
-    #[case(&[1.9, 2.0, 2.1], 0.5000000000000009)]
-    #[case(&[7.642748, 7.543157000000001, 7.5808230000000005], 0.03332011622838335)]
-    #[case(&[13.000181000000001, 7.735271, 7.588471], 100.67008138703109)]
-    fn test_window_percent_variance(#[case] inputs: &[f64], #[case] expected: f64) {
+    #[case(&[1.9, 2.0, 2.1], 0.005000000000000009)]
+    #[case(&[7.642748, 7.543157000000001, 7.5808230000000005], 0.0003332011622838335)]
+    #[case(&[13.000181000000001, 7.735271, 7.588471], 1.0067008138703109)]
+    fn test_window_variance_over_mean(#[case] inputs: &[f64], #[case] expected: f64) {
         let mut window = Window::new(3);
 
-        assert_eq!(window.percent_variance(), None);
+        assert_eq!(window.variance_over_mean(), None);
         for i in inputs {
             window.push(*i);
         }
         assert!(window.is_full());
-        assert_eq!(window.percent_variance(), Some(expected));
+        assert_relative_eq!(window.variance_over_mean().unwrap(), expected);
     }
 }

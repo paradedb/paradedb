@@ -712,10 +712,11 @@ name = "benchmarks"
 version = "0.23.3"
 dependencies = [
  "anyhow",
+ "approx",
  "clap",
  "distrs",
  "duckdb",
- "rstest 0.26.1",
+ "rstest",
  "serde",
  "serde_json",
  "sqlx",
@@ -5397,7 +5398,7 @@ dependencies = [
  "prost",
  "rand 0.9.4",
  "regex",
- "rstest 0.25.0",
+ "rstest",
  "rustc-hash",
  "serde",
  "serde_cbor",
@@ -6796,19 +6797,8 @@ checksum = "6fc39292f8613e913f7df8fa892b8944ceb47c247b78e1b1ae2f09e019be789d"
 dependencies = [
  "futures-timer",
  "futures-util",
- "rstest_macros 0.25.0",
+ "rstest_macros",
  "rustc_version",
-]
-
-[[package]]
-name = "rstest"
-version = "0.26.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f5a3193c063baaa2a95a33f03035c8a72b83d97a54916055ba22d35ed3839d49"
-dependencies = [
- "futures-timer",
- "futures-util",
- "rstest_macros 0.26.1",
 ]
 
 [[package]]
@@ -6816,24 +6806,6 @@ name = "rstest_macros"
 version = "0.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f168d99749d307be9de54d23fd226628d99768225ef08f6ffb52e0182a27746"
-dependencies = [
- "cfg-if",
- "glob",
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "regex",
- "relative-path",
- "rustc_version",
- "syn 2.0.117",
- "unicode-ident",
-]
-
-[[package]]
-name = "rstest_macros"
-version = "0.26.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c845311f0ff7951c5506121a9ad75aec44d083c31583b2ea5a30bcb0b0abba0"
 dependencies = [
  "cfg-if",
  "glob",
@@ -8034,7 +8006,7 @@ dependencies = [
  "proptest",
  "proptest-derive",
  "rand 0.9.4",
- "rstest 0.25.0",
+ "rstest",
  "rustc-hash",
  "serde",
  "serde_json",
@@ -8192,7 +8164,7 @@ dependencies = [
  "lindera",
  "once_cell",
  "opencc-jieba-rs",
- "rstest 0.25.0",
+ "rstest",
  "serde",
  "serde_json",
  "strum",

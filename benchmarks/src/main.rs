@@ -887,8 +887,9 @@ async fn prewarm_indexes(
 /// This creates a fresh connection for each benchmark query and then reuses it across repeated
 /// runs of that query.
 ///
-/// The query will be ran repeatedly, warming it,until a 3-run window shows sub-2% variance, or
-/// it has been ran 10 times. At that point, sample_count samples will be taken.
+/// The query will be ran repeatedly, warming it,until a 3-run window shows a sub-0.1% ratio of
+/// variance over mean, or it has been ran 10 times. At that point, sample_count samples will
+/// be taken.
 ///
 /// Uses the simple query protocol (via `raw_sql`) to match `psql` behavior, which is
 /// necessary for compatibility with custom scan providers. Compound statements
@@ -913,7 +914,7 @@ async fn execute_query_multiple_times(
 
     // SELECT the times for the last query run, making sure we don't accidentally get the 'reset'
     // query
-    // NOTE: This assumes all measured queries being with 'SELECT'.
+    // NOTE: This assumes all measured queries begin with 'SELECT'.
     let stats_query = "SELECT max_exec_time, max_plan_time, rows FROM pg_stat_statements WHERE query LIKE 'SELECT%' AND query NOT LIKE '%pg_stat_statements%';";
     let stats_reset_query = "SELECT pg_stat_statements_reset();";
 
@@ -946,7 +947,10 @@ async fn execute_query_multiple_times(
                     results.num_results = rows as usize;
                     results.cold = time;
                 } else if (window.is_full()
-                    && window.percent_variance().filter(|v| *v <= 0.1).is_some())
+                    && window
+                        .variance_over_mean()
+                        .filter(|v| *v <= 0.001)
+                        .is_some())
                     || runs_completed >= 10
                 {
                     // only record once the query is sufficiently warm, or if we've already ran 10

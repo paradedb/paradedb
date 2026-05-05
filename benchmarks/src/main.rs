@@ -160,7 +160,8 @@ async fn run_benchmark_existing(args: ExistingArgs) -> anyhow::Result<()> {
             &common.dataset,
             &args.size,
             args.data_source.as_deref(),
-        )?;
+        )
+        .await?;
     }
     run_sql_benchmarks(common, &args.size).await
 }
@@ -586,7 +587,7 @@ fn generate_test_data(url: &str, dataset: &str, rows: u32) -> anyhow::Result<()>
     Ok(())
 }
 
-fn load_external_data(
+async fn load_external_data(
     url: &str,
     dataset: &str,
     size_label: &str,
@@ -640,57 +641,71 @@ fn load_external_data(
     std::fs::create_dir_all(&temp_dir)
         .with_context(|| format!("Failed to create temp directory '{temp_dir}'"))?;
 
-    let duckdb_conn =
-        utils::open_duckdb_conn().with_context(|| "Failed to open DuckDB connection")?;
+    let mut join_set = tokio::task::JoinSet::new();
 
     for table_name in config.all_table_names() {
-        let csv_source = format!("{source_path}/{table_name}");
-        let table_temp_dir = format!("{temp_dir}/{table_name}");
-        std::fs::create_dir_all(&table_temp_dir)
-            .with_context(|| format!("Failed to create temp directory '{table_temp_dir}'"))?;
+        let url = url.to_string();
+        let source_path = source_path.clone();
+        let temp_dir = temp_dir.clone();
+        let table_name = table_name.to_string();
 
-        // Download CSV files from source to local temp dir.
-        // We must use parallel=false because some datasets (stackoverflow for instance) contain a
-        // bunch of code or json that duckdbs parallel parser can't handle if one of its chunk
-        // boundaries ends up in one of the complicated-quote/line-break blocks common to those
-        // datasets
-        println!("Downloading CSVs for '{table_name}' from {csv_source}...");
-        let download_sql = format!(
-            "COPY (SELECT * FROM read_csv('{csv_source}/*.csv', header=true, parallel=false)) \
-             TO '{table_temp_dir}' (FORMAT CSV, HEADER true, PER_THREAD_OUTPUT true)"
-        );
-        duckdb_conn
-            .execute_batch(&download_sql)
-            .with_context(|| format!("Failed to download CSV for table '{table_name}'"))?;
+        join_set.spawn_blocking(move || {
+            let csv_source = format!("{source_path}/{table_name}");
+            let table_temp_dir = format!("{temp_dir}/{table_name}");
+            std::fs::create_dir_all(&table_temp_dir)
+                .with_context(|| format!("Failed to create temp directory '{table_temp_dir}'"))?;
 
-        // Load each local CSV file into PostgreSQL.
-        println!("Loading '{table_name}' into PostgreSQL...");
-        let local_csvs: Vec<_> = std::fs::read_dir(&table_temp_dir)
-            .with_context(|| format!("Failed to read temp directory '{table_temp_dir}'"))?
-            .filter_map(|entry| {
-                let path = entry.ok()?.path();
-                if path.extension().and_then(|s| s.to_str()) == Some("csv") {
-                    Some(path)
-                } else {
-                    None
+            let duckdb_conn =
+                utils::open_duckdb_conn().with_context(|| "Failed to open DuckDB connection")?;
+
+            // Download CSV files from source to local temp dir.
+            // We must use parallel=false because some datasets (stackoverflow for instance) contain a
+            // bunch of code or json that duckdbs parallel parser can't handle if one of its chunk
+            // boundaries ends up in one of the complicated-quote/line-break blocks common to those
+            // datasets
+            println!("Downloading CSVs for '{table_name}' from {csv_source}...");
+            let download_sql = format!(
+                "COPY (SELECT * FROM read_csv('{csv_source}/*.csv', header=true, parallel=false)) \
+                 TO '{table_temp_dir}' (FORMAT CSV, HEADER true, PER_THREAD_OUTPUT true)"
+            );
+            duckdb_conn
+                .execute_batch(&download_sql)
+                .with_context(|| format!("Failed to download CSV for table '{table_name}'"))?;
+
+            // Load each local CSV file into PostgreSQL.
+            println!("Loading '{table_name}' into PostgreSQL...");
+            let local_csvs: Vec<_> = std::fs::read_dir(&table_temp_dir)
+                .with_context(|| format!("Failed to read temp directory '{table_temp_dir}'"))?
+                .filter_map(|entry| {
+                    let path = entry.ok()?.path();
+                    if path.extension().and_then(|s| s.to_str()) == Some("csv") {
+                        Some(path)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            for csv_path in &local_csvs {
+                let csv_str = csv_path.to_string_lossy();
+                let copy_cmd = format!("\\copy \"{table_name}\" FROM '{csv_str}' CSV HEADER");
+                let status = Command::new("psql")
+                    .arg(&url)
+                    .arg("-c")
+                    .arg(&copy_cmd)
+                    .status()
+                    .with_context(|| "Failed to execute psql copy")?;
+                if !status.success() {
+                    bail!("Failed to load '{csv_str}' into table '{table_name}'");
                 }
-            })
-            .collect();
-
-        for csv_path in &local_csvs {
-            let csv_str = csv_path.to_string_lossy();
-            let copy_cmd = format!("\\copy \"{table_name}\" FROM '{csv_str}' CSV HEADER");
-            let status = Command::new("psql")
-                .arg(url)
-                .arg("-c")
-                .arg(&copy_cmd)
-                .status()
-                .with_context(|| "Failed to execute psql copy")?;
-            if !status.success() {
-                bail!("Failed to load '{csv_str}' into table '{table_name}'");
             }
-        }
-        println!("  Loaded {} file(s) into '{table_name}'.", local_csvs.len());
+            println!("  Loaded {} file(s) into '{table_name}'.", local_csvs.len());
+            Ok::<(), anyhow::Error>(())
+        });
+    }
+
+    while let Some(res) = join_set.join_next().await {
+        res??;
     }
 
     // Cleanup temp files.

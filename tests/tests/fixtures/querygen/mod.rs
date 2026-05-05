@@ -143,7 +143,7 @@ pub fn generated_queries_setup(
     tables: &[(&str, usize)],
     columns_def: &[Column],
 ) -> String {
-    "CREATE EXTENSION pg_search;".execute(conn);
+    "CREATE EXTENSION IF NOT EXISTS pg_search;".execute(conn);
     "SET log_error_verbosity TO VERBOSE;".execute(conn);
     "SET log_min_duration_statement TO 1000;".execute(conn);
 

@@ -50,16 +50,27 @@ jobs:
 
   test-pg_search:
     name: Test pg_search on PostgreSQL ${{ matrix.pg_version }} (${{ matrix.pg_impl }} - ${{ matrix.arch }})
-    runs-on: ${{ matrix.runner }}
+    # Compute-optimized c-family — Rust + Postgres tests are CPU-bound.
+    # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=${{ matrix.runner_family }}
+      - cpu=${{ matrix.cpu }}
+      - ram=${{ matrix.ram }}
+      - image=${{ matrix.runner_image }}
+      - extras=s3-cache
     if: ${{ !cancelled() }}
     needs: set-matrix
     strategy:
       fail-fast: false
       matrix:
-        # Base: system Postgres on regular runner for all versions
+        # Base: system Postgres on ARM Ubuntu 24.04 for all versions.
         pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
         pg_impl: [system]
-        runner: [ubicloud-standard-8-arm-ubuntu-2404]
+        cpu: [8]
+        ram: [16]
+        runner_family: [c7g+c8g]
+        runner_image: [ubuntu24-full-arm64]
         arch: [arm64]
         include:
           # pgrx compiles Postgres from source with --enable-cassert and --enable-debug,
@@ -70,12 +81,18 @@ jobs:
           # only. This run is the only way we get Postgres assertion coverage in CI.
           - pg_version: 18
             pg_impl: pgrx
-            runner: ubicloud-standard-8-arm-ubuntu-2404
+            cpu: 8
+            ram: 16
+            runner_family: c7g+c8g
+            runner_image: ubuntu24-full-arm64
             arch: arm64
           # Add AMD run for PG 18 (system Postgres)
           - pg_version: 18
             pg_impl: system
-            runner: ubicloud-standard-8-ubuntu-2404
+            cpu: 8
+            ram: 16
+            runner_family: c7a+c7i
+            runner_image: ubuntu24-full-x64
             arch: amd64
 
     steps:
@@ -225,8 +242,11 @@ jobs:
         working-directory: pg_search/
         run: cargo pgrx install --sudo --features block_tracker --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
+      # Coverage instrumentation runs on schedule + push-to-main, plus PG 18
+      # entries on PRs (so Codecov has fresh data per PR). Older-version PR
+      # entries run plain cargo test for ~30-40% wall-clock reduction.
       - name: Source LLVM coverage environment (pgrx)
-        if: matrix.pg_impl == 'pgrx'
+        if: matrix.pg_impl == 'pgrx' && (github.event_name != 'pull_request' || matrix.pg_version == 18)
         run: |
           source <(cargo llvm-cov show-env --export-prefix)
           cargo llvm-cov clean --workspace
@@ -261,7 +281,11 @@ jobs:
         run: |
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-          RUST_BACKTRACE=1 cargo llvm-cov --jobs $(nproc) --package tests --package tokenizers --lcov --output-path coverage-integration-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}.lcov
+          if [[ "${{ github.event_name }}" == "pull_request" && "${{ matrix.pg_version }}" != "18" ]]; then
+            RUST_BACKTRACE=1 cargo test --jobs $(nproc) --package tests --package tokenizers
+          else
+            RUST_BACKTRACE=1 cargo llvm-cov --jobs $(nproc) --package tests --package tokenizers --lcov --output-path coverage-integration-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}.lcov
+          fi
 
       - name: Run pg_search Unit Tests (system)
         if: matrix.pg_impl == 'system'
@@ -269,7 +293,11 @@ jobs:
         run: |
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
-          RUST_BACKTRACE=1 cargo llvm-cov --jobs $(nproc) --features pg${{ matrix.pg_version }} --no-default-features --lcov --output-path ../coverage-unit-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}.lcov
+          if [[ "${{ github.event_name }}" == "pull_request" && "${{ matrix.pg_version }}" != "18" ]]; then
+            RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features pg${{ matrix.pg_version }} --no-default-features
+          else
+            RUST_BACKTRACE=1 cargo llvm-cov --jobs $(nproc) --features pg${{ matrix.pg_version }} --no-default-features --lcov --output-path ../coverage-unit-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}.lcov
+          fi
 
       - name: Run pg_search Integration Tests (pgrx-managed)
         if: matrix.pg_impl == 'pgrx'
@@ -290,11 +318,19 @@ jobs:
         run: cargo pgrx stop pg${{ matrix.pg_version }}
 
       - name: Generate combined LCOV report (pgrx)
-        if: matrix.pg_impl == 'pgrx' && always()
+        if: matrix.pg_impl == 'pgrx' && (github.event_name != 'pull_request' || matrix.pg_version == 18) && always()
         run: cargo llvm-cov report --lcov --output-path coverage-combined-pgrx-${{ matrix.pg_version }}.lcov
 
+      # runs-on's extras=s3-cache proxies ACTIONS_RESULTS_URL to its local cache
+      # server (for s3-backed actions/cache), but actions/upload-artifact@v4+ uses
+      # the same env var and ends up POSTing artifacts to the cache proxy. Pin the
+      # env vars back to GitHub's canonical artifact endpoint just for this step
+      # so the upload bypasses the proxy.
       - name: Upload Coverage Artifact
-        if: always()
+        if: (github.event_name != 'pull_request' || matrix.pg_version == 18) && always()
+        env:
+          ACTIONS_RESULTS_URL: https://results-receiver.actions.githubusercontent.com/
+          ACTIONS_CACHE_SERVICE_V2: ""
         uses: actions/upload-artifact@v7
         with:
           name: coverage-${{ matrix.pg_version }}-${{ matrix.pg_impl }}-${{ matrix.arch }}

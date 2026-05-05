@@ -581,10 +581,8 @@ LIMIT 5;
                  : ProjectionExec: expr=[NULL as col_1, id@3 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1, ctid_2@2 as ctid_2, ctid_3@4 as ctid_3]
                  :   SortExec: TopK(fetch=5), expr=[id@3 ASC NULLS LAST], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[l4, l3, l1, l2]
-                 :       ProjectionExec: expr=[ctid_0@2 as ctid_0, ctid_1@3 as ctid_1, ctid_2@0 as ctid_2, id@1 as id, ctid_3@4 as ctid_3]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(l2_id@1, id@3)], projection=[ctid_2@0, id@2, ctid_0@3, ctid_1@4, ctid_3@5]
-                 :           CooperativeExec
-                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L1-A","lenient":null,"conjunction_mode":null}}}}
+                 :       ProjectionExec: expr=[ctid_0@0 as ctid_0, ctid_1@1 as ctid_1, ctid_2@3 as ctid_2, id@4 as id, ctid_3@2 as ctid_3]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@3, l2_id@1)], projection=[ctid_0@0, ctid_1@1, ctid_3@2, ctid_2@4, id@6]
                  :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, l3_id@1)], projection=[ctid_0@0, ctid_1@1, ctid_3@3, id@5]
                  :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, l4_id@2)], projection=[ctid_0@0, ctid_1@2, id@3]
                  :               CooperativeExec
@@ -592,7 +590,9 @@ LIMIT 5;
                  :               CooperativeExec
                  :                 PgSearchScan: segments=1, dynamic_filters=1, query="all"
                  :             CooperativeExec
-                 :               PgSearchScan: segments=1, dynamic_filters=2, query="all"
+                 :               PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"L1-A","lenient":null,"conjunction_mode":null}}}}
 (26 rows)
 
 SELECT l1.name, l4.name

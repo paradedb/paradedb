@@ -333,6 +333,25 @@ pub fn build_base_session(config: SessionConfig) -> SessionStateBuilder {
 ///   post-pass; SegmentedTopK does not apply to aggregate-on-join queries.
 pub fn create_datafusion_session_context(profile: SessionContextProfile) -> SessionContext {
     let mut config = SessionConfig::new().with_target_partitions(1);
+
+    // Configure dynamic filter pushdown thresholds from our GUCs
+    config
+        .options_mut()
+        .optimizer
+        .hash_join_inlist_pushdown_max_size =
+        crate::gucs::hash_join_inlist_pushdown_max_size() as usize;
+    // 0 is also DataFusion's kill switch: HashJoinExec rejects InList
+    // materialization when num_of_distinct_key() > max_distinct_values, and
+    // any non-empty build side has at least one distinct key. So setting
+    // the GUC to 0 disables the InList path on both sides of the boundary
+    // — paradedb's try_convert_in_list_to_query and DataFusion's hash-join
+    // pushdown agree on disable semantics.
+    config
+        .options_mut()
+        .optimizer
+        .hash_join_inlist_pushdown_max_distinct_values =
+        crate::gucs::hash_join_inlist_pushdown_max_distinct_values() as usize;
+
     if matches!(profile, SessionContextProfile::Join) {
         config
             .options_mut()
@@ -553,11 +572,11 @@ fn build_relnode_df<'a>(
                 let df = build_relnode_df(rctx, &filter.input).await?;
 
                 // Compute per-plan_position deferred visibility. A plan_position's
-                // ctid is "deferred" (packed DocAddress) if it flows only through
-                // inner joins from the leaf scan. Non-inner joins (semi, anti, etc.)
-                // trigger per-child visibility barriers that resolve ctids to real
-                // heap TIDs. In mixed trees like (A INNER B) INNER (C SEMI D),
-                // ctid_A and ctid_B are still packed while ctid_C is resolved.
+                // ctid is "deferred" (packed DocAddress) if it flows through inner
+                // joins or the preserved side of a left/right/semi/anti join from the leaf
+                // scan. Other non-inner joins (full, etc.) trigger per-child
+                // visibility barriers that resolve ctids to real heap TIDs, while
+                // left/right/semi/anti joins only force the null-supplying side.
                 let deferred_positions =
                     super::visibility_filter::deferred_plan_positions(&filter.input);
                 let sources = filter.input.sources();
@@ -1058,20 +1077,16 @@ fn build_source_df<'a>(
                     }
                     OrderByFeature::Score { .. } => {}
                     OrderByFeature::NullTest { inner, .. } => match inner.as_ref() {
-                        OrderByFeature::Field { name, rti } => {
-                            if source.contains_rti(*rti) {
-                                insert_field_name_required_early(
-                                    source,
-                                    name.as_ref(),
-                                    &mut required_early,
-                                );
-                            }
+                        OrderByFeature::Field { name, rti } if source.contains_rti(*rti) => {
+                            insert_field_name_required_early(
+                                source,
+                                name.as_ref(),
+                                &mut required_early,
+                            );
                         }
-                        OrderByFeature::Var { rti, attno, .. } => {
-                            if source.contains_rti(*rti) {
-                                if let Some(col_name) = source.column_name(*attno) {
-                                    required_early.insert(col_name);
-                                }
+                        OrderByFeature::Var { rti, attno, .. } if source.contains_rti(*rti) => {
+                            if let Some(col_name) = source.column_name(*attno) {
+                                required_early.insert(col_name);
                             }
                         }
                         _ => {}

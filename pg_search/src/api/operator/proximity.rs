@@ -38,7 +38,7 @@ fn rhs_prox(left: ProximityClause, right: ProximityClause) -> ProximityClause {
     match left {
         ProximityClause::Proximity {
             left,
-            distance,
+            distance: distance @ ProximityDistance::AnyOrder(_),
             right: original_right,
         } if matches!(original_right.as_ref(), ProximityClause::Uninitialized) => {
             ProximityClause::Proximity {
@@ -47,7 +47,7 @@ fn rhs_prox(left: ProximityClause, right: ProximityClause) -> ProximityClause {
                 right: Box::new(right),
             }
         }
-        _ => panic!("lhs of ## must be a ProximityClause with an uninitialized rhs"),
+        _ => panic!("left hand side of `##` must be a `<token-expression> ## <distance>`, see https://docs.paradedb.com/documentation/full-text/proximity"),
     }
 }
 
@@ -71,7 +71,7 @@ fn rhs_prox_in_order(left: ProximityClause, right: ProximityClause) -> Proximity
     match left {
         ProximityClause::Proximity {
             left,
-            distance,
+            distance: distance @ ProximityDistance::InOrder(_),
             right: original_right,
         } if matches!(original_right.as_ref(), ProximityClause::Uninitialized) => {
             ProximityClause::Proximity {
@@ -80,6 +80,6 @@ fn rhs_prox_in_order(left: ProximityClause, right: ProximityClause) -> Proximity
                 right: Box::new(right),
             }
         }
-        _ => panic!("lhs of ## must be a ProximityClause with an uninitialized rhs"),
+        _ => panic!("left hand side of `##>` must be a `<token-expression> ##> <distance>`, see https://docs.paradedb.com/documentation/full-text/proximity"),
     }
 }

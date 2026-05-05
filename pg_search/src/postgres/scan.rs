@@ -24,6 +24,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::MetaPage;
 use crate::postgres::{parallel, ParallelScanState, ScanStrategy};
 use crate::query::SearchQueryInput;
+
 use pgrx::pg_sys::IndexScanDesc;
 use pgrx::*;
 use tantivy::index::SegmentId;

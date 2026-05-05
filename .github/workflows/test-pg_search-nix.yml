@@ -37,11 +37,19 @@ jobs:
       PG_MAJOR_VERSION: "18"
 
     steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.PARADEDB_GITHUB_APP_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+
       - name: Checkout Git Repository
         uses: actions/checkout@v6
         with:
           ref: ${{ github.head_ref }}
-          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token || github.token }}
 
       - name: Install Determinate Nix
         uses: DeterminateSystems/determinate-nix-action@main
@@ -53,7 +61,7 @@ jobs:
       # Build only cargo deps to surface cargoHash mismatches quickly, without
       # compiling pg_search for every Postgres variant. If the hash is stale,
       # compute the correct one and push a fix commit to the PR branch.
-      # The push uses PARADEDB_BOT_GITHUB_TOKEN (a PAT) so that GitHub fires a
+      # The push uses a GitHub App token so that GitHub fires a
       # synchronize event, which re-triggers all CI workflows on the new HEAD.
       # Pushes made with the default GITHUB_TOKEN do not fire events.
       - name: Verify Nix Cargo Hash
@@ -76,8 +84,8 @@ jobs:
               exit 1
             fi
 
-            git config user.name "paradedb-bot"
-            git config user.email "developers@paradedb.com"
+            git config user.name "paradedb-app[bot]"
+            git config user.email "282009505+paradedb-app[bot]@users.noreply.github.com"
             git add nix/pg_search.nix
             git commit -m "fix: update nix cargoHash for changed Cargo.lock"
             git push

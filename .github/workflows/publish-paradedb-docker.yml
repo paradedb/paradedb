@@ -195,9 +195,21 @@ jobs:
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.PARADEDB_GITHUB_APP_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: |
+            django-paradedb
+            rails-paradedb
+            sqlalchemy-paradedb
+
       - name: Notify ORM Repos of New Release
         env:
-          GH_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           while IFS= read -r repo; do
             repo=$(echo "$repo" | xargs)

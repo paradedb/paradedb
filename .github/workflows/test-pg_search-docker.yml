@@ -70,14 +70,24 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v6
 
+      - name: Generate GitHub App Token
+        id: app-token
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.PARADEDB_GITHUB_APP_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+
       # This step is used to check if the PR author is a member of the org, since
       # access to GitHub Actions secrets is limited to org members.
       - name: Check if PR author is member of org
         id: org-check
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           echo "Checking if ${{ github.actor }} is a member of the org..."
           result=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: token ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}" \
+            -H "Authorization: Bearer $GH_TOKEN" \
             "https://api.github.com/orgs/paradedb/members/${{ github.actor }}") || result="000"
           if [ "$result" -eq 204 ]; then
             echo "is_member=true" >> $GITHUB_OUTPUT

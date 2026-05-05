@@ -91,6 +91,11 @@ jobs:
     name: Test pg_search via Antithesis (${{ matrix.workload }})
     needs: setup
     if: needs.setup.outputs.workloads != '[]'
+    # For pull_request events, github.sha is the synthetic refs/pull/<n>/merge SHA
+    # rather than the PR head — use the head SHA so image tags and the run
+    # description match commits visible in the PR's git history.
+    env:
+      COMMIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
     runs-on:
       # General-purpose m-family — Docker buildx is RAM-heavy.
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
@@ -121,7 +126,7 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ env.COMMIT_SHA }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -140,7 +145,7 @@ jobs:
         with:
           images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb
           tags: |
-            type=raw,value=${{ matrix.pg_version }}-${{ github.sha }}
+            type=raw,value=${{ matrix.pg_version }}-${{ env.COMMIT_SHA }}
             type=raw,value=antithesis-latest
 
       # Antithesis only supports x86_64 instruction set
@@ -161,13 +166,13 @@ jobs:
       - name: Patch ParadeDB K8s Manifest With Workload Image Tagged With Git SHA
         working-directory: docker/manifests/
         run: |
-          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ matrix.pg_version }}-${{ github.sha }}|" antithesis-paradedb.yaml
+          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ matrix.pg_version }}-${{ env.COMMIT_SHA }}|" antithesis-paradedb.yaml
           cat antithesis-paradedb.yaml
 
       - name: Patch Driver K8s Manifest With Driver Image Tagged With Git SHA
         working-directory: docker/manifests/
         run: |
-          sed -i "s|image: .*|image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/${{ matrix.workload }}:${{ github.sha }}|" antithesis-${{ matrix.workload }}.yaml
+          sed -i "s|image: .*|image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/${{ matrix.workload }}:${{ env.COMMIT_SHA }}|" antithesis-${{ matrix.workload }}.yaml
           cat antithesis-${{ matrix.workload }}.yaml
 
       - name: Extract Config Metadata
@@ -176,7 +181,7 @@ jobs:
         with:
           images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config-${{ matrix.workload }}
           tags: |
-            type=raw,value=${{ github.sha }}
+            type=raw,value=${{ env.COMMIT_SHA }}
             type=raw,value=antithesis-latest
 
       - name: Build and Push Config Docker Image to Antithesis Registry
@@ -195,7 +200,7 @@ jobs:
         with:
           images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/${{ matrix.workload }}
           tags: |
-            type=raw,value=${{ github.sha }}
+            type=raw,value=${{ env.COMMIT_SHA }}
             type=raw,value=antithesis-latest
 
       # Antithesis only supports x86_64 instruction set
@@ -221,9 +226,9 @@ jobs:
           username: ${{ vars.ANTITHESIS_USERNAME }}
           password: ${{ secrets.ANTITHESIS_PASSWORD }}
           github_token: ${{ secrets.ANTITHESIS_GITHUB_TOKEN }}
-          config_image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config-${{ matrix.workload }}:${{ github.sha }}
-          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ matrix.pg_version }}-${{ github.sha }}
-          description: "[${{ github.repository }}] ${{ matrix.workload }} CI for ${{ github.ref_name }} (commit ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }})"
+          config_image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config-${{ matrix.workload }}:${{ env.COMMIT_SHA }}
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ matrix.pg_version }}-${{ env.COMMIT_SHA }}
+          description: "[${{ github.repository }}] ${{ matrix.workload }} CI for ${{ github.ref_name }} (commit ${{ env.COMMIT_SHA }})"
           email_recipients: ${{ github.event.inputs.emails || 'developers@paradedb.com' }}
           additional_parameters: |-
             antithesis.duration=${{ github.event.inputs.duration || (github.event_name == 'pull_request' && '60') || '480' }}

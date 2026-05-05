@@ -622,15 +622,17 @@ async fn build_store(
             builder = builder.with_region(region);
 
             // Increase timeouts and retries for robustness with large files and concurrent loads.
-            // DuckDB used a 120s timeout; we'll use 600s here to accommodate large files.
+            // - Keep individual attempt timeout moderate (60s)
+            // - Use read_timeout to detect hung streams (30s)
+            // - Keep total retry timeout aligned with 5-minute SigV4 expiration (300s)
             builder = builder
-                .with_config("timeout".parse().unwrap(), "600s")
-                .with_config("connect_timeout".parse().unwrap(), "15s")
+                .with_config("timeout".parse().unwrap(), "60s")
+                .with_config("read_timeout".parse().unwrap(), "30s")
+                .with_config("connect_timeout".parse().unwrap(), "10s")
                 .with_config("pool_idle_timeout".parse().unwrap(), "60s")
                 .with_retry(object_store::RetryConfig {
                     max_retries: 10,
-                    // Total time spent retrying. Should be larger than individual request timeout.
-                    retry_timeout: std::time::Duration::from_secs(1200),
+                    retry_timeout: std::time::Duration::from_secs(300),
                     ..Default::default()
                 });
 

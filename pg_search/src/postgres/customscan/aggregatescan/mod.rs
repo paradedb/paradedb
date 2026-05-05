@@ -796,6 +796,35 @@ impl AggregateScan {
         df_state.mpp_n_partitions = 1;
     }
 
+    /// MPP leader exec helper: build a `SessionContext` that mirrors
+    /// `create_aggregate_session_context`'s rules + the fork's
+    /// `with_distributed_planner` + our `ShmMqWorkerTransport` wired to the
+    /// runtime mesh. The resulting context, when used to
+    /// `create_physical_plan` over the leader's logical plan, returns a
+    /// `DistributedExec` whose `NetworkShuffleExec`s pull batches from the
+    /// shm_mq mesh at execute time.
+    fn build_mpp_leader_session_context(
+        mesh: Arc<crate::postgres::customscan::mpp::runtime::MppMesh>,
+    ) -> datafusion::prelude::SessionContext {
+        let serial = create_aggregate_session_context();
+        let cfg = serial.copied_config();
+        let n_workers = mesh.n_workers as usize;
+
+        use datafusion::execution::SessionStateBuilder;
+        use datafusion_distributed::SessionStateBuilderExt;
+        let state_builder = SessionStateBuilder::new()
+            .with_default_features()
+            .with_config(cfg)
+            .with_distributed_worker_resolver(
+                crate::postgres::customscan::mpp::runtime::MppWorkerResolver::new(n_workers),
+            )
+            .with_distributed_worker_transport(
+                crate::postgres::customscan::mpp::runtime::ShmMqWorkerTransport::new(mesh),
+            )
+            .with_distributed_planner();
+        datafusion::prelude::SessionContext::new_with_state(state_builder.build())
+    }
+
     /// MPP worker exec: deserialize the logical plan from DSM, build the
     /// distributed physical plan (matching what the leader produced), find
     /// the worker fragment (the `input_stage.plan` of the bottom
@@ -1311,7 +1340,17 @@ impl AggregateScan {
                 .build()
                 .unwrap_or_else(|e| pgrx::error!("Failed to create tokio runtime: {}", e));
 
-            let ctx = create_aggregate_session_context();
+            // MPP leader: install the mesh + fork's distributed planner so
+            // `create_physical_plan` produces a `DistributedExec` whose
+            // `NetworkShuffleExec`s use our `ShmMqWorkerTransport` to read
+            // from worker queues at execute time. Otherwise: existing serial
+            // session context.
+            let ctx = match df_state.mpp.as_ref() {
+                Some(scan_state::MppExecState::Leader(leader)) => {
+                    Self::build_mpp_leader_session_context(Arc::clone(&leader.mesh))
+                }
+                _ => create_aggregate_session_context(),
+            };
 
             let custom_exprs = df_state.custom_exprs;
             let custom_scan_tlist = df_state.custom_scan_tlist;

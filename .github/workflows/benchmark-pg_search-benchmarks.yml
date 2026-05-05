@@ -284,7 +284,7 @@ jobs:
         run: |
           cargo pgrx stop pg${{ env.pg_version }}
           cargo pgrx start pg${{ env.pg_version }}
-          
+
       # Benchmark "stackoverflow" dataset at multiple scales (100K, 1M, 10M)
       - name: Benchmark "stackoverflow" Dataset (100K)
         if: >-

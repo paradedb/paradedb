@@ -19,6 +19,20 @@ tokio = { version = "1.52", features = ["full"] }
 serde = { version = "1.0.228", features = ["derive"] }
 toml = "0.8"
 duckdb = { version = "1.10502.0", features = ["bundled"] }
+object_store = { version = "0.13", default-features = false, features = [
+  "aws",
+  "http",
+  "fs",
+] }
+aws-config = { version = "1.5.15", default-features = false, features = [
+  "behavior-version-latest",
+  "rt-tokio",
+] }
+aws-credential-types = { version = "1.2.1", features = [
+  "hardcoded-credentials",
+] }
+url = "2.5"
+futures = "0.3"
 
 [lib]
 name = "paradedb"

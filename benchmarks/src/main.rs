@@ -17,6 +17,8 @@
 
 use anyhow::{bail, Context};
 use clap::{Parser, Subcommand};
+use futures::StreamExt;
+use object_store::{ObjectStore, ObjectStoreExt};
 use paradedb::median;
 use sqlx::{Connection, PgConnection, Row};
 use std::fs::File;
@@ -587,6 +589,88 @@ fn generate_test_data(url: &str, dataset: &str, rows: u32) -> anyhow::Result<()>
     Ok(())
 }
 
+async fn build_store(
+    source_url: &str,
+) -> anyhow::Result<(
+    std::sync::Arc<dyn object_store::ObjectStore>,
+    object_store::path::Path,
+)> {
+    let url = url::Url::parse(source_url)
+        .unwrap_or_else(|_| url::Url::from_file_path(source_url).unwrap());
+
+    match url.scheme() {
+        "s3" => {
+            let bucket = url.host_str().context("S3 URL must have a bucket host")?;
+            let mut builder = object_store::aws::AmazonS3Builder::new()
+                .with_bucket_name(bucket)
+                .with_virtual_hosted_style_request(true);
+
+            // Load AWS config from environment (includes profiles, env vars, etc.)
+            let sdk_config = aws_config::load_from_env().await;
+
+            // Use region from SDK config if available, otherwise default to us-east-1.
+            // Note: paradedb-benchmarks is in us-east-1. If the user's environment is set to
+            // another region (like us-east-2), S3 redirects will fail in object_store.
+            let region = if bucket == "paradedb-benchmarks" || bucket == "paradedb-ci-benchmarks" {
+                "us-east-1".to_string()
+            } else {
+                sdk_config
+                    .region()
+                    .map(|r| r.to_string())
+                    .unwrap_or_else(|| "us-east-1".to_string())
+            };
+            println!("  Using AWS region: {region}");
+            builder = builder.with_region(region);
+
+            // Increase timeouts and retries for robustness with large files and concurrent loads.
+            // DuckDB used a 120s timeout; we'll match that here.
+            builder = builder
+                .with_config("timeout".parse().unwrap(), "120s")
+                .with_config("connect_timeout".parse().unwrap(), "10s")
+                .with_retry(object_store::RetryConfig {
+                    max_retries: 10,
+                    retry_timeout: std::time::Duration::from_secs(300),
+                    ..Default::default()
+                });
+
+            // Use credentials from SDK config if available
+            if let Some(provider) = sdk_config.credentials_provider() {
+                use aws_credential_types::provider::ProvideCredentials;
+                if let Ok(creds) = provider.provide_credentials().await {
+                    builder = builder
+                        .with_access_key_id(creds.access_key_id())
+                        .with_secret_access_key(creds.secret_access_key());
+                    if let Some(token) = creds.session_token() {
+                        builder = builder.with_token(token);
+                    }
+                }
+            }
+
+            let store = builder.build()?;
+            Ok((
+                std::sync::Arc::new(store),
+                object_store::path::Path::from(url.path()),
+            ))
+        }
+        "http" | "https" => {
+            let store = object_store::http::HttpBuilder::new()
+                .with_url(source_url)
+                .build()?;
+            Ok((
+                std::sync::Arc::new(store),
+                object_store::path::Path::from(url.path()),
+            ))
+        }
+        _ => {
+            // Default to local filesystem
+            Ok((
+                std::sync::Arc::new(object_store::local::LocalFileSystem::new()),
+                object_store::path::Path::from(url.path()),
+            ))
+        }
+    }
+}
+
 async fn load_external_data(
     url: &str,
     dataset: &str,
@@ -600,13 +684,17 @@ async fn load_external_data(
 
     // Determine CSV data source path.
     let base_path = match data_source {
-        Some(path) => path,
-        None => config.s3_base_path.as_deref().with_context(|| {
-            format!(
-                "Dataset '{dataset}' has no S3 base path. Provide --data-source or set \
+        Some(path) => path.to_string(),
+        None => config
+            .s3_base_path
+            .as_deref()
+            .with_context(|| {
+                format!(
+                    "Dataset '{dataset}' has no S3 base path. Provide --data-source or set \
                  s3_base_path in datasets/{dataset}/config.toml"
-            )
-        })?,
+                )
+            })?
+            .to_string(),
     };
     let source_path = format!(
         "{}/sampled/{}/csv",
@@ -649,57 +737,78 @@ async fn load_external_data(
         let temp_dir = temp_dir.clone();
         let table_name = table_name.to_string();
 
-        join_set.spawn_blocking(move || {
+        join_set.spawn(async move {
             let csv_source = format!("{source_path}/{table_name}");
             let table_temp_dir = format!("{temp_dir}/{table_name}");
-            std::fs::create_dir_all(&table_temp_dir)
+            tokio::fs::create_dir_all(&table_temp_dir)
+                .await
                 .with_context(|| format!("Failed to create temp directory '{table_temp_dir}'"))?;
 
-            let duckdb_conn =
-                utils::open_duckdb_conn().with_context(|| "Failed to open DuckDB connection")?;
+            println!("Finding CSVs for '{table_name}' from {csv_source}...");
+            let (store, prefix) = build_store(&csv_source).await?;
+            let mut list_stream = store.list(Some(&prefix));
 
-            // Download CSV files from source to local temp dir.
-            // We must use parallel=false because some datasets (stackoverflow for instance) contain a
-            // bunch of code or json that duckdbs parallel parser can't handle if one of its chunk
-            // boundaries ends up in one of the complicated-quote/line-break blocks common to those
-            // datasets
-            println!("Downloading CSVs for '{table_name}' from {csv_source}...");
-            let download_sql = format!(
-                "COPY (SELECT * FROM read_csv('{csv_source}/*.csv', header=true, parallel=false)) \
-                 TO '{table_temp_dir}' (FORMAT CSV, HEADER true, PER_THREAD_OUTPUT true)"
-            );
-            duckdb_conn
-                .execute_batch(&download_sql)
-                .with_context(|| format!("Failed to download CSV for table '{table_name}'"))?;
-
-            // Load each local CSV file into PostgreSQL.
-            println!("Loading '{table_name}' into PostgreSQL...");
-            let local_csvs: Vec<_> = std::fs::read_dir(&table_temp_dir)
-                .with_context(|| format!("Failed to read temp directory '{table_temp_dir}'"))?
-                .filter_map(|entry| {
-                    let path = entry.ok()?.path();
-                    if path.extension().and_then(|s| s.to_str()) == Some("csv") {
-                        Some(path)
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
-            for csv_path in &local_csvs {
-                let csv_str = csv_path.to_string_lossy();
-                let copy_cmd = format!("\\copy \"{table_name}\" FROM '{csv_str}' CSV HEADER");
-                let status = Command::new("psql")
-                    .arg(&url)
-                    .arg("-c")
-                    .arg(&copy_cmd)
-                    .status()
-                    .with_context(|| "Failed to execute psql copy")?;
-                if !status.success() {
-                    bail!("Failed to load '{csv_str}' into table '{table_name}'");
+            let mut file_locations = Vec::new();
+            while let Some(meta) = list_stream.next().await.transpose()? {
+                if meta.location.as_ref().ends_with(".csv") {
+                    file_locations.push(meta.location);
                 }
             }
-            println!("  Loaded {} file(s) into '{table_name}'.", local_csvs.len());
+
+            if file_locations.is_empty() {
+                println!("  No CSV files found for '{table_name}'.");
+                return Ok::<(), anyhow::Error>(());
+            }
+
+            let mut download_tasks = tokio::task::JoinSet::new();
+
+            for location in file_locations {
+                let store_clone = std::sync::Arc::clone(&store);
+                let table_temp_dir = table_temp_dir.clone();
+                let table_name = table_name.clone();
+                let url = url.clone();
+
+                download_tasks.spawn(async move {
+                    let filename = location.parts().next_back().unwrap().as_ref().to_string();
+                    let local_path = format!("{table_temp_dir}/{filename}");
+
+                    // Download the file
+                    let mut file = tokio::fs::File::create(&local_path).await?;
+                    let mut stream = store_clone.get(&location).await?.into_stream();
+                    while let Some(chunk_res) = stream.next().await {
+                        let chunk = chunk_res?;
+                        tokio::io::AsyncWriteExt::write_all(&mut file, &chunk).await?;
+                    }
+                    // Flush and sync to be safe
+                    file.sync_all().await?;
+
+                    // Load into PostgreSQL
+                    println!("Loading '{filename}' into table '{table_name}'...");
+                    let copy_cmd =
+                        format!("\\copy \"{table_name}\" FROM '{local_path}' CSV HEADER");
+                    let status = tokio::process::Command::new("psql")
+                        .arg(&url)
+                        .arg("-c")
+                        .arg(&copy_cmd)
+                        .status()
+                        .await
+                        .with_context(|| "Failed to execute psql copy")?;
+
+                    if !status.success() {
+                        anyhow::bail!("Failed to load '{local_path}' into table '{table_name}'");
+                    }
+
+                    Ok::<(), anyhow::Error>(())
+                });
+            }
+
+            let mut loaded_files = 0;
+            while let Some(res) = download_tasks.join_next().await {
+                res??;
+                loaded_files += 1;
+            }
+
+            println!("  Loaded {loaded_files} file(s) into '{table_name}'.");
             Ok::<(), anyhow::Error>(())
         });
     }

@@ -17,9 +17,15 @@ ORDER BY
     COUNT(*) DESC
 LIMIT 10;
 
+<<<<<<< HEAD:benchmarks/datasets/docs/queries/pg_search/aggregate_topk_count.sql
 -- Tantivy TopK aggregate scan
 SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SELECT
     f.title,
+=======
+-- DataFusion aggregate scan
+SET work_mem TO '8GB'; SET paradedb.enable_aggregate_custom_scan TO on; SELECT
+    p.title,
+>>>>>>> aae60d675 (chore: Increase memory limit for `aggregate_topk_count.sql`. (#4992)):benchmarks/datasets/stackoverflow/queries/pg_search/aggregate_topk_count.sql
     COUNT(*)
 FROM files f
 WHERE

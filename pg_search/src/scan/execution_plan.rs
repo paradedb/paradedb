@@ -30,7 +30,7 @@
 
 use std::any::Any;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
@@ -166,6 +166,15 @@ pub struct PgSearchScanPlan {
     /// Sort order preserved across `with_filter_pushdown` rebuilds so the
     /// rebuilt plan keeps its equivalence properties.
     sort_order: Option<SortByField>,
+    /// Captures the per-segment `TermSetStrategy` chosen by the tantivy planner
+    /// for the pushed-down dynamic filter (issue #4895). Last-segment-wins is
+    /// fine because `EXPLAIN ANALYZE` only asks "did any segment use it?".
+    /// Stored as `u8` so it can live behind an `AtomicU8`; round-tripped
+    /// through `tantivy::query::StrategyTag` at render time. A value of
+    /// `StrategyTag::None as u8` (= 0) means no dispatch happened, e.g. the
+    /// InList didn't reach the FastField path (K ≤ 1024 routes to
+    /// AutomatonWeight which doesn't write the sink).
+    dynamic_filter_strategy: Arc<AtomicU8>,
 }
 
 impl std::fmt::Debug for PgSearchScanPlan {
@@ -249,6 +258,7 @@ impl PgSearchScanPlan {
             deferred_ctid_plan_position,
             dynamic_filter_pushdown: Arc::new(AtomicBool::new(false)),
             sort_order: sort_order.cloned(),
+            dynamic_filter_strategy: Arc::new(AtomicU8::new(0)),
         }
     }
 
@@ -366,6 +376,23 @@ fn build_equivalence_properties(
     eq_properties
 }
 
+/// Translate a `tantivy::query::StrategyTag` back into the human-readable
+/// strategy name surfaced in `EXPLAIN ANALYZE` output. The match is
+/// exhaustive on the enum so follow-ups A and B (filling in the
+/// posting-direct and bitset-from-postings dispatch arms) don't need to
+/// revisit this site — the compiler will flag any new variant.
+fn strategy_name(strategy: tantivy::query::StrategyTag) -> &'static str {
+    use tantivy::query::StrategyTag;
+    match strategy {
+        StrategyTag::None => "none",
+        StrategyTag::Gallop => "gallop",
+        StrategyTag::Linear => "linear",
+        StrategyTag::Bitset => "bitset_from_postings",
+        StrategyTag::Posting => "posting_direct",
+        StrategyTag::Hash => "hash_probe",
+    }
+}
+
 impl DisplayAs for PgSearchScanPlan {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
@@ -377,7 +404,19 @@ impl DisplayAs for PgSearchScanPlan {
             write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
         }
         if self.dynamic_filter_pushdown.load(Ordering::Relaxed) {
-            write!(f, ", dynamic_filter_pushdown=true")?;
+            // Render a single token. When the strategy framework engaged
+            // (K > 1024 reached FastFieldTermSetWeight and select_strategy
+            // wrote the sink), the value is the strategy name. Otherwise
+            // (K ≤ 1024 routed via AutomatonWeight, which doesn't write the
+            // sink) it falls back to "true".
+            let tag = self.dynamic_filter_strategy.load(Ordering::Relaxed);
+            let strategy = tantivy::query::StrategyTag::try_from(tag)
+                .unwrap_or(tantivy::query::StrategyTag::None);
+            if matches!(strategy, tantivy::query::StrategyTag::None) {
+                write!(f, ", dynamic_filter_pushdown=true")?;
+            } else {
+                write!(f, ", dynamic_filter_pushdown={}", strategy_name(strategy))?;
+            }
         }
         write!(f, ", query={}", self.query_for_display.explain_format())
     }
@@ -484,6 +523,7 @@ impl ExecutionPlan for PgSearchScanPlan {
 
         // Capture self-references for the async block
         let dynamic_filter_pushdown = self.dynamic_filter_pushdown.clone();
+        let dynamic_filter_strategy = self.dynamic_filter_strategy.clone();
 
         let stream_gen = async_stream::try_stream! {
             // Optimized Search Integration:
@@ -492,7 +532,11 @@ impl ExecutionPlan for PgSearchScanPlan {
             // AFTER the build side has completed and dynamic filters are published.
             let mut dynamic_filters = dynamic_filters.clone();
             if !dynamic_filters.is_empty()
-                && try_dynamic_filter_pushdown(&mut reader, &mut dynamic_filters)
+                && try_dynamic_filter_pushdown(
+                    &mut reader,
+                    &mut dynamic_filters,
+                    Some(dynamic_filter_strategy.clone()),
+                )
             {
                 dynamic_filter_pushdown.store(true, Ordering::Relaxed);
             }
@@ -643,6 +687,9 @@ impl ExecutionPlan for PgSearchScanPlan {
                     self.dynamic_filter_pushdown.load(Ordering::Relaxed),
                 )),
                 sort_order: self.sort_order.clone(),
+                dynamic_filter_strategy: Arc::new(AtomicU8::new(
+                    self.dynamic_filter_strategy.load(Ordering::Relaxed),
+                )),
             });
             Ok(
                 FilterPushdownPropagation::with_parent_pushdown_result(filters)

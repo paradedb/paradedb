@@ -47,13 +47,13 @@ jobs:
 
       - name: Checkout Git Repository
         uses: actions/checkout@v6
-        with:
-          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
 
       # We confirm that if the release type is beta, the version in Cargo.toml matches with "-rc.X", and that the
       # version provided matches the version in Cargo.toml. If the user forgot to increment the version, they will
       # need to do it in a PR, which will trigger the workflow test_pg_search-upgrade.yml, ensuring that the upgrade is tested.
       - name: Validate Cargo.toml Version Matches Release Type
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Checking for existing release..."
           if gh release view v${{ github.event.inputs.version }} > /dev/null 2>&1; then
@@ -125,7 +125,7 @@ jobs:
       - name: Determine if Release Should be Marked as Latest
         id: release_latest
         env:
-          GITHUB_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           current_tag_version="${{ github.event.inputs.version }}"
           latest_tag_version=$(gh release list --jq '.[] | select(.isLatest == true) | .name' --json=name,isLatest | sed 's/^v//')
@@ -146,17 +146,24 @@ jobs:
             echo "is_latest=false" >> $GITHUB_OUTPUT
           fi
 
-      # Create the tag ref ourselves, using the PARADEDB_BOT_GITHUB_TOKEN PAT, BEFORE
+      # Create the tag ref ourselves, using the GitHub App token, BEFORE
       # calling softprops/action-gh-release. Since v2.5.0, that action publishes releases
       # via a draft-first flow where the tag ref is created as a side effect of the
       # publish API call, which does not emit a cascading `push` event — so our downstream
       # `publish-*` workflows (triggered on `push: tags: v*`) never fire. Pushing the tag
-      # ref directly with the PAT here ensures the push event is attributed to the PAT and
+      # ref directly with the app token here ensures the push event is attributed to the app and
       # cascades to the downstream workflows. The subsequent release-creation step then
       # attaches the release to the already-existing tag.
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.PARADEDB_GITHUB_APP_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+
       - name: Create Tag
         env:
-          GH_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           sha=$(git rev-parse HEAD)
           echo "Creating tag v${{ github.event.inputs.version }} pointing at $sha"
@@ -176,7 +183,7 @@ jobs:
           make_latest: ${{ steps.release_latest.outputs.is_latest }}
           generate_release_notes: true
         env:
-          GITHUB_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Notify Slack on Failure
         if: failure()

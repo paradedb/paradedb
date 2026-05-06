@@ -225,7 +225,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.cargo/bin/cargo-pgrx
-          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
+          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}-ubuntu
 
       - name: Install pgrx
         if: steps.cache-pgrx.outputs.cache-hit != 'true'
@@ -285,7 +285,7 @@ jobs:
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
         env:
-          GH_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           RESPONSE=$(gh api \
             -H "Authorization: token $GH_TOKEN" \
@@ -299,11 +299,23 @@ jobs:
       - name: Upload pg_search .deb to GitHub Release
         uses: shogo82148/actions-upload-release-asset@v1
         with:
-          github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
           asset_path: ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
           asset_name: postgresql-${{ matrix.pg_version }}-pg-search_${{ steps.version.outputs.tag_version }}-1PARADEDB-${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb
           overwrite: true
+
+      - name: Push pg_search .deb to Cloudsmith
+        env:
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+        run: |
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y python3-pip python3-venv
+          python3 -m venv /tmp/cloudsmith-venv
+          /tmp/cloudsmith-venv/bin/pip install --quiet cloudsmith-cli
+          /tmp/cloudsmith-venv/bin/cloudsmith push deb \
+            paradedb/paradedb/ubuntu/${{ steps.version.outputs.os_version }} \
+            ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb \
+            --republish
 
       - name: Notify Slack on Failure
         if: failure()

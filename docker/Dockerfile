@@ -211,9 +211,14 @@ COPY --from=builder /tmp/target/release-with-debug/pg_search-pg${PG_VERSION_MAJO
 
 # Optionally install the Antithesis instrumentation library if this Docker build is intended for use with Antithesis
 RUN if [ "$ENABLE_ANTITHESIS_INSTRUMENTATION" = "true" ]; then \
+   apt-get update && \
+   apt-get install -y --no-install-recommends wget && \
    wget -qO /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so && \
+   apt-get purge -y wget && \
+   apt-get autoremove -y && \
+   rm -rf /var/lib/apt/lists/* && \
    mkdir /symbols && \
-   ln -s /usr/lib/postgresql/18/lib/pg_search.so /symbols/pg_search.so ; \
+   ln -s /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/pg_search.so /symbols/pg_search.so ; \
  fi
 
 # Reset the working directory to the root directory

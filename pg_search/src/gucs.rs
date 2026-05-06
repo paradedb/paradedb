@@ -169,14 +169,35 @@ static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(64 * 1024 * 1024
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
     GucSetting::<i32>::new(16 * 1024 * 1024);
 
-/// The maximum number of distinct values in an InList that can be pushed down to a TermSet Query.
+/// The maximum number of distinct values in an InList that can be pushed down
+/// to a TermSetQuery. Above this K, the predicate stays in PostgreSQL /
+/// DataFusion (HashExpr at the join, or PreFilter when the join feeds a
+/// dynamic filter).
 ///
-/// TODO: Adjust this as https://github.com/paradedb/paradedb/issues/4895 and followups land: if
-/// the TermSet scans the entire fast field column (without taking advantage of its shape to skip
-/// data), then creating a Query can be a pessimization, because the HashExpr that DataFusion uses
-/// is ~directly calculated from the pre-hashed values in the HashJoin's hash table.
+/// Bench-tuned: on a sorted-segment index, pushdown wins through K=14K
+/// (1.08×–9.27× over PreFilter at N=1M) and loses at K=20K (0.90×). 20,000
+/// is the upper edge of the crossover band — admits K=15K–19K (interpolated
+/// wins) at the cost of one boundary cell (K=20,000 exact: 11% slowdown).
+///
+/// The byte cap `hash_join_inlist_pushdown_max_size` provides the memory
+/// belt (~524K elements at 32 bytes/term); this cap is the perf-tuned upper
+/// bound. Set to 0 to disable pushdown entirely.
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: GucSetting<i32> =
-    GucSetting::<i32>::new(16_000);
+    GucSetting::<i32>::new(20_000);
+
+/// Kill-switch for galloping execution of `FastFieldTermSetQuery` on
+/// sorted segments. When `false`, the planner never returns the gallop
+/// strategy regardless of density, and pushed-down InList filters fall
+/// back to the legacy linear scan even for sorted segments.
+static TERM_SET_GALLOP_ENABLED: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Density gate for the gallop dispatch path. Gallop is selected when
+/// `K' / N` is below this threshold on a sorted segment, where `K'` is
+/// the number of distinct terms surviving min/max pruning and `N` is the
+/// segment size. Larger values admit gallop more aggressively; smaller
+/// values are more conservative. Default `1/100 = 0.01` matches
+/// `tantivy::query::TermSetStrategyConfig::default()`.
+static TERM_SET_GALLOP_MAX_DENSITY: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 100.0);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
@@ -452,8 +473,8 @@ pub fn init() {
 
     GucRegistry::define_int_guc(
         c"paradedb.hash_join_inlist_pushdown_max_distinct_values",
-        c"The maximum number of distinct values in an InList that can be pushed down to a TermSet Query.",
-        c"The maximum number of distinct values in an InList that can be pushed down to a TermSet Query.",
+        c"Maximum number of distinct values in an InList that can be pushed down to a TermSetQuery. Set to 0 to disable pushdown.",
+        c"Maximum number of distinct values in an InList that can be pushed down to a TermSetQuery; above this K the predicate stays in PostgreSQL. Set to 0 to disable pushdown entirely.",
         &HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES,
         0,
         i32::MAX,
@@ -461,6 +482,30 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    // TermSet strategy density thresholds (issue #4895). The kill-switch
+    // (paradedb.term_set_gallop_enabled) is the safety override if the
+    // gallop optimization regresses unexpectedly; the five density values
+    // tune the planner without recompiling. Each density is unitless and
+    // bounded to [0.0, 1.0] (a density above 1.0 would mean more matches
+    // than corpus rows, which is impossible).
+    GucRegistry::define_bool_guc(
+        c"paradedb.term_set_gallop_enabled",
+        c"Enable galloping execution of FastFieldTermSetQuery on sorted segments.",
+        c"When false, FastFieldTermSetQuery falls back to the legacy linear scan even on sorted segments. Acts as a kill-switch for the issue #4895 optimization.",
+        &TERM_SET_GALLOP_ENABLED,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_float_guc(
+        c"paradedb.term_set_gallop_max_density",
+        c"Gallop is selected when K' / N is below this density on a sorted segment.",
+        c"K' is the number of distinct terms surviving min/max pruning; N is the segment size. Larger values admit gallop more aggressively; smaller values are more conservative. Default 1/100 = 0.01 (matches tantivy::query::TermSetStrategyConfig::default()).",
+        &TERM_SET_GALLOP_MAX_DENSITY,
+        0.0,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
     GucRegistry::define_int_guc(
         c"paradedb.dynamic_filter_batch_size",
         c"Scanner batch size override for dynamic filter pushdown",
@@ -735,6 +780,14 @@ pub fn hash_join_inlist_pushdown_max_size() -> i32 {
 
 pub fn hash_join_inlist_pushdown_max_distinct_values() -> i32 {
     HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES.get()
+}
+
+pub fn term_set_gallop_enabled() -> bool {
+    TERM_SET_GALLOP_ENABLED.get()
+}
+
+pub fn term_set_gallop_max_density() -> f64 {
+    TERM_SET_GALLOP_MAX_DENSITY.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

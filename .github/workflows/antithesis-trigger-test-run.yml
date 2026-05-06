@@ -1,8 +1,9 @@
 # workflows/antithesis-trigger-test-run.yml
 #
 # Antithesis - Trigger Test Run
-# Build the current commits of pg_search and Stressgres as Docker images, push them to
-# Antithesis, and trigger an Antithesis test run.
+# Build the current commits of pg_search and the selected driver image(s) as
+# Docker images, push them to Antithesis, and trigger one Antithesis test run
+# per selected workload (stressgres and/or proptests).
 
 name: Antithesis - Trigger Test Run
 
@@ -16,6 +17,15 @@ on:
     types: [labeled]
   workflow_dispatch:
     inputs:
+      workload:
+        type: choice
+        required: false
+        default: all
+        description: Which workload(s) to run on Antithesis
+        options:
+          - all
+          - stressgres
+          - proptests
       duration:
         type: string
         required: false
@@ -32,35 +42,91 @@ on:
 # No concurrency group since we want to allow multiple test runs to run simultaneously
 
 jobs:
+  # Resolve which workload(s) to run based on the trigger:
+  # - schedule: all
+  # - workflow_dispatch: from `inputs.workload` (default all)
+  # - pull_request labeled: `antithesis` => all, `antithesis-stressgres` => stressgres,
+  #   `antithesis-proptests` => proptests, anything else => skip
+  setup:
+    name: Resolve Workloads
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'schedule' && github.repository == 'paradedb/paradedb-enterprise')
+      || github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'pull_request' && contains(fromJSON('["antithesis","antithesis-stressgres","antithesis-proptests"]'), github.event.label.name))
+    outputs:
+      workloads: ${{ steps.compute.outputs.workloads }}
+    steps:
+      - id: compute
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_WORKLOAD: ${{ github.event.inputs.workload }}
+          LABEL: ${{ github.event.label.name }}
+        run: |
+          set -euo pipefail
+          WORKLOADS='[]'
+          case "$EVENT" in
+            schedule)
+              WORKLOADS='["stressgres","proptests"]'
+              ;;
+            workflow_dispatch)
+              case "${INPUT_WORKLOAD:-all}" in
+                stressgres) WORKLOADS='["stressgres"]' ;;
+                proptests)  WORKLOADS='["proptests"]'  ;;
+                all|"")     WORKLOADS='["stressgres","proptests"]' ;;
+              esac
+              ;;
+            pull_request)
+              case "$LABEL" in
+                antithesis)            WORKLOADS='["stressgres","proptests"]' ;;
+                antithesis-stressgres) WORKLOADS='["stressgres"]' ;;
+                antithesis-proptests)  WORKLOADS='["proptests"]'  ;;
+              esac
+              ;;
+          esac
+          echo "workloads=$WORKLOADS" >> "$GITHUB_OUTPUT"
+          echo "Resolved workloads: $WORKLOADS"
+
   antithesis-trigger-test-run:
-    name: Test pg_search via Antithesis
+    name: Test pg_search via Antithesis (${{ matrix.workload }})
+    needs: setup
+    if: needs.setup.outputs.workloads != '[]'
+    # For pull_request events, github.sha is the synthetic refs/pull/<n>/merge SHA
+    # rather than the PR head — use the head SHA so image tags and the run
+    # description match commits visible in the PR's git history.
+    env:
+      COMMIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
     runs-on:
       # General-purpose m-family — Docker buildx is RAM-heavy.
       # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
       - runs-on=${{ github.run_id }}
       - family=m7a+m7i
-      - cpu=8
-      - ram=32
+      - cpu=16
+      - ram=64
       - image=ubuntu24-full-x64
+      - volume=80gb # default runner ships with 40GB — see https://runs-on.com/runners/linux/
       - extras=s3-cache
-    if: (github.event_name == 'schedule' && github.repository == 'paradedb/paradedb-enterprise') || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.label.name == 'antithesis')
     strategy:
+      fail-fast: false
       matrix:
         pg_version: [18]
+        workload: ${{ fromJSON(needs.setup.outputs.workloads) }}
 
     steps:
-      # The job can be triggered manually by attaching the `antithesis` label to a PR. This step
-      # removes the label once the job has started, so it can be applied again if needed.
+      # The job can be triggered manually by attaching the `antithesis`,
+      # `antithesis-stressgres`, or `antithesis-proptests` label to a PR. This
+      # step removes the triggering label once the job has started so it can be
+      # applied again if needed.
       - name: Maybe Remove Label
         uses: actions-ecosystem/action-remove-labels@v1
-        if: github.event_name == 'pull_request' && github.event.label.name == 'antithesis'
+        if: github.event_name == 'pull_request' && contains(fromJSON('["antithesis","antithesis-stressgres","antithesis-proptests"]'), github.event.label.name)
         with:
-          labels: antithesis
+          labels: ${{ github.event.label.name }}
 
       - name: Checkout Git Repository
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ env.COMMIT_SHA }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -79,7 +145,7 @@ jobs:
         with:
           images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb
           tags: |
-            type=raw,value=${{ matrix.pg_version }}-${{ github.sha }}
+            type=raw,value=${{ matrix.pg_version }}-${{ env.COMMIT_SHA }}
             type=raw,value=antithesis-latest
 
       # Antithesis only supports x86_64 instruction set
@@ -100,22 +166,22 @@ jobs:
       - name: Patch ParadeDB K8s Manifest With Workload Image Tagged With Git SHA
         working-directory: docker/manifests/
         run: |
-          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ matrix.pg_version }}-${{ github.sha }}|" antithesis-paradedb.yaml
+          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ matrix.pg_version }}-${{ env.COMMIT_SHA }}|" antithesis-paradedb.yaml
           cat antithesis-paradedb.yaml
 
-      - name: Patch Stressgres K8s Manifest With Stressgres Image Tagged With Git SHA
+      - name: Patch Driver K8s Manifest With Driver Image Tagged With Git SHA
         working-directory: docker/manifests/
         run: |
-          sed -i "s|image: .*|image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/stressgres:${{ github.sha }}|" antithesis-stressgres.yaml
-          cat antithesis-stressgres.yaml
+          sed -i "s|image: .*|image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/${{ matrix.workload }}:${{ env.COMMIT_SHA }}|" antithesis-${{ matrix.workload }}.yaml
+          cat antithesis-${{ matrix.workload }}.yaml
 
       - name: Extract Config Metadata
         id: extract-config-metadata
         uses: docker/metadata-action@v6
         with:
-          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config-${{ matrix.workload }}
           tags: |
-            type=raw,value=${{ github.sha }}
+            type=raw,value=${{ env.COMMIT_SHA }}
             type=raw,value=antithesis-latest
 
       - name: Build and Push Config Docker Image to Antithesis Registry
@@ -123,31 +189,31 @@ jobs:
         with:
           context: .
           platforms: linux/amd64
-          file: docker/Dockerfile.config
+          file: docker/Dockerfile.config.${{ matrix.workload }}
           push: true
           tags: ${{ steps.extract-config-metadata.outputs.tags }}
           labels: ${{ steps.extract-config-metadata.outputs.labels }}
 
-      - name: Extract Stressgres Metadata
-        id: extract-stressgres-metadata
+      - name: Extract Driver Metadata
+        id: extract-driver-metadata
         uses: docker/metadata-action@v6
         with:
-          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/stressgres
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/${{ matrix.workload }}
           tags: |
-            type=raw,value=${{ github.sha }}
+            type=raw,value=${{ env.COMMIT_SHA }}
             type=raw,value=antithesis-latest
 
       # Antithesis only supports x86_64 instruction set
       # https://antithesis.com/docs/getting_started/setup/?sid=6534.37&sterm=x86&marks=x86#containerize-your-software
-      - name: Build and Push Stressgres Docker Image to Antithesis Registry
+      - name: Build and Push Driver Docker Image to Antithesis Registry
         uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64
-          file: docker/Dockerfile.stressgres
+          file: docker/Dockerfile.${{ matrix.workload }}
           push: true
-          tags: ${{ steps.extract-stressgres-metadata.outputs.tags }}
-          labels: ${{ steps.extract-stressgres-metadata.outputs.labels }}
+          tags: ${{ steps.extract-driver-metadata.outputs.tags }}
+          labels: ${{ steps.extract-driver-metadata.outputs.labels }}
 
       # antithesis.duration is in minutes, 480 minutes = 8 hours
       # antithesis.is_ephemeral ensures runs triggered from PRs don't impact the history
@@ -160,14 +226,14 @@ jobs:
           username: ${{ vars.ANTITHESIS_USERNAME }}
           password: ${{ secrets.ANTITHESIS_PASSWORD }}
           github_token: ${{ secrets.ANTITHESIS_GITHUB_TOKEN }}
-          config_image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config:${{ github.sha }}
-          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ matrix.pg_version }}-${{ github.sha }}
-          description: "[${{ github.repository }}] CI for ${{ github.ref_name }} (commit ${{ github.sha }})"
+          config_image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config-${{ matrix.workload }}:${{ env.COMMIT_SHA }}
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ matrix.pg_version }}-${{ env.COMMIT_SHA }}
+          description: "[${{ github.repository }}] ${{ matrix.workload }} CI for ${{ github.ref_name }} (commit ${{ env.COMMIT_SHA }})"
           email_recipients: ${{ github.event.inputs.emails || 'developers@paradedb.com' }}
           additional_parameters: |-
             antithesis.duration=${{ github.event.inputs.duration || (github.event_name == 'pull_request' && '60') || '480' }}
             antithesis.is_ephemeral=${{ github.event_name == 'pull_request' }}
             antithesis.source=paradedb
-            custom.network_fault_exclusion_patterns=coredns,stressgres
-            custom.container_faults_stop_exclusion_patterns=coredns,stressgres,paradedb,cloudnative-pg
-            custom.container_faults_kill_exclusion_patterns=coredns,stressgres,paradedb,cloudnative-pg
+            custom.network_fault_exclusion_patterns=coredns,${{ matrix.workload }}
+            custom.container_faults_stop_exclusion_patterns=coredns,${{ matrix.workload }},paradedb,cloudnative-pg
+            custom.container_faults_kill_exclusion_patterns=coredns,${{ matrix.workload }},paradedb,cloudnative-pg

@@ -712,10 +712,16 @@ name = "benchmarks"
 version = "0.23.4"
 dependencies = [
  "anyhow",
+ "approx",
  "clap",
+ "distrs",
  "duckdb",
+<<<<<<< HEAD
  "futures",
  "pretty_assertions",
+=======
+ "rstest",
+>>>>>>> e99aceb6c (fix: Minimize benchmark variance (#4996))
  "serde",
  "serde_json",
  "sqlx",
@@ -2591,6 +2597,12 @@ dependencies = [
  "quote",
  "syn 2.0.117",
 ]
+
+[[package]]
+name = "distrs"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2906d3628a885aa49a23b88e71f63e51ae8df41cd76652287f0a6179a11833a9"
 
 [[package]]
 name = "dlib"

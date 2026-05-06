@@ -19,8 +19,17 @@ pretty_assertions = "1.4.1"
 tokio = { version = "1.48", features = ["full"] }
 serde = { version = "1.0.228", features = ["derive"] }
 toml = "0.8"
+<<<<<<< HEAD
 futures = "0.3.31"
 duckdb = { version = "1.10501.0", features = ["bundled"] }
+=======
+duckdb = { version = "1.10502.0", features = ["bundled"] }
+distrs = "0.2.3"
+
+[dev-dependencies]
+approx = "0.5.1"
+rstest = "0.25.0"
+>>>>>>> e99aceb6c (fix: Minimize benchmark variance (#4996))
 
 [lib]
 name = "paradedb"

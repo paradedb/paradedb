@@ -20,7 +20,7 @@ use crate::index::fast_fields_helper::{
 };
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::heap::VisibilityChecker;
-use arrow_array::builder::BooleanBuilder;
+use arrow_array::builder::{BooleanBuilder, UInt64Builder};
 use arrow_array::{Array, ArrayRef, BooleanArray, Float32Array, RecordBatch, UInt64Array};
 use arrow_schema::SchemaRef;
 use datafusion::arrow::compute;
@@ -39,7 +39,7 @@ const MAX_BATCH_SIZE: usize = 128_000;
 /// batch size, since we are not fetching string dictionaries during the scan phase.
 const DEFERRED_BATCH_SIZE: usize = 8_192;
 
-/// Compact `ids` and `scores` in-place based on a boolean mask.
+/// Compact `ids` and `memoized_columns` in-place based on a boolean mask.
 fn compact_with_mask(
     ids: &mut Vec<DocId>,
     memoized_columns: &mut [Option<ArrayRef>],
@@ -329,10 +329,10 @@ impl Scanner {
         // Batch lookup the ctids and visibility check them.
         // When defer_visibility is true, we skip visibility checking entirely —
         // VisibilityFilterExec will handle it in batch after the join.
-        // The `ctids` Vec here is used only for:
+        // The `ctids_builder` here is used only for:
         //   1. Visibility masking (compacting invisible rows out of `ids` and `memoized_columns`).
         //   2. The `WhichFastField::Ctid` Arrow output column.
-        let ctids: Vec<u64> = if self.defer_visibility {
+        let ctids_array: Option<ArrayRef> = if self.defer_visibility {
             // defer_visibility=true always uses DeferredCtid, never WhichFastField::Ctid.
             // A physical Ctid column in this path indicates a planning bug.
             debug_assert!(
@@ -342,8 +342,8 @@ impl Scanner {
                     .any(|f| matches!(f, WhichFastField::Ctid)),
                 "defer_visibility=true but WhichFastField::Ctid is present — planning bug"
             );
-            // No real ctid lookup needed — an empty vec is correct here.
-            vec![]
+            // No real ctid lookup needed.
+            None
         } else {
             self.maybe_ctids.resize(ids.len(), None);
             ffhelper
@@ -354,12 +354,12 @@ impl Scanner {
             self.visibility_results.resize(ids.len(), None);
             visibility.check_batch(&self.maybe_ctids, &mut self.visibility_results);
 
-            let mut ctids = Vec::with_capacity(ids.len());
+            let mut ctids_builder = UInt64Builder::with_capacity(ids.len());
             let mut visibility_mask_builder = BooleanBuilder::with_capacity(ids.len());
             for maybe_visible_ctid in self.visibility_results.drain(..) {
                 if let Some(visible_ctid) = maybe_visible_ctid {
                     visibility_mask_builder.append_value(true);
-                    ctids.push(visible_ctid);
+                    ctids_builder.append_value(visible_ctid);
                 } else {
                     visibility_mask_builder.append_value(false);
                 }
@@ -370,7 +370,7 @@ impl Scanner {
                 &mut memoized_columns,
                 &visibility_mask_builder.finish(),
             );
-            ctids
+            Some(Arc::new(ctids_builder.finish()) as ArrayRef)
         };
 
         // Pre-fetch any Named columns that weren't already fetched by pre-filters.
@@ -394,9 +394,7 @@ impl Scanner {
             .iter()
             .enumerate()
             .map(|(ff_index, which_ff)| match which_ff {
-                WhichFastField::Ctid => {
-                    Some(Arc::new(UInt64Array::from(ctids.clone())) as ArrayRef)
-                }
+                WhichFastField::Ctid => Some(ctids_array.clone().unwrap()),
                 WhichFastField::Score => Some(memoized_columns[ff_index].clone().unwrap()),
                 WhichFastField::TableOid => {
                     let mut builder = arrow_array::builder::UInt32Builder::with_capacity(ids.len());

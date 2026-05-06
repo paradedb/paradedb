@@ -79,6 +79,7 @@ fn ensure_column_fetched(
     segment_ord: SegmentOrdinal,
     ff_index: usize,
     ids: &[DocId],
+    scores: &[Score],
 ) {
     if memoized_columns[ff_index].is_some() {
         return;
@@ -92,10 +93,11 @@ fn ensure_column_fetched(
                     .fetch_values_or_ords_to_arrow(ids, *search_field_type),
             );
         }
-        WhichFastField::Ctid
-        | WhichFastField::Score
-        | WhichFastField::TableOid
-        | WhichFastField::Junk(_) => {}
+        WhichFastField::Score => {
+            memoized_columns[ff_index] =
+                Some(Arc::new(arrow_array::Float32Array::from(scores.to_vec())) as ArrayRef);
+        }
+        WhichFastField::Ctid | WhichFastField::TableOid | WhichFastField::Junk(_) => {}
         WhichFastField::DeferredCtid(alias) => {
             panic!(
                 "pre-filter referenced DeferredCtid column '{alias}' at index {ff_index} \
@@ -300,6 +302,7 @@ impl Scanner {
                         segment_ord,
                         ff_index,
                         &ids,
+                        &scores,
                     );
                 }
                 let mask = pre_filter
@@ -376,6 +379,7 @@ impl Scanner {
                     segment_ord,
                     ff_index,
                     &ids,
+                    &scores,
                 );
             }
         }

@@ -376,7 +376,89 @@ FROM (
     ) AS plan
 ) s;
 
-DROP TABLE issue_4906_ltree_partial CASCADE;
+-- 14. Partial qual extraction fallback with SubPlan + ltree `<@`.
+--
+--     This test covers the code path:
+--
+--       if quals.is_none() {
+--           extract each RestrictInfo individually;
+--           skip only SubPlan clauses;
+--           accept partial_quals if uses_our_operator OR uses_index_pushdown;
+--       }
+--
+--     The query contains no @@@ operator. The only index-backed predicate is
+--     `category <@ 'Top.Science'::ltree`, so this specifically verifies the
+--     `partial_state.uses_index_pushdown` branch.
+DROP TABLE IF EXISTS issue_4906_ltree_subplan_flags CASCADE;
+
+CREATE TABLE issue_4906_ltree_subplan_flags (
+    id BIGINT PRIMARY KEY,
+    keep BOOLEAN NOT NULL
+);
+
+INSERT INTO issue_4906_ltree_subplan_flags (id, keep)
+VALUES
+    (1, true),
+    (2, false),
+    (3, true),
+    (4, true),
+    (5, true),
+    (6, true),
+    (7, true),
+    (8, false),
+    (9, true),
+    (10, true),
+    (11, true);
+
+ANALYZE issue_4906_ltree_subplan_flags;
+
+SET enable_seqscan = off;
+SET enable_indexscan = off;
+SET enable_indexonlyscan = off;
+SET enable_bitmapscan = off;
+SET paradedb.enable_custom_scan = on;
+SET paradedb.enable_custom_scan_without_operator = off;
+SET paradedb.enable_filter_pushdown = on;
+
+-- 14a. Result correctness with a correlated scalar SubPlan.
+SELECT array_agg(p.id ORDER BY p.id) AS partial_qual_subplan_ids
+FROM issue_4906_ltree_partial p
+WHERE p.is_indexed
+  AND p.category <@ 'Top.Science'::ltree
+  AND COALESCE(
+        (
+            SELECT f.keep
+            FROM issue_4906_ltree_subplan_flags f
+            WHERE f.id = p.id
+        ),
+        false
+      );
+
+-- 14b. Plan assertion:
+--      the SubPlan should not prevent ParadeDB from using the extracted ltree
+--      pushdown qual. The ltree predicate is accepted via uses_index_pushdown,
+--      not via uses_our_operator.
+SELECT
+    plan LIKE '%Custom Scan (ParadeDB Base Scan)%' AS partial_qual_subplan_uses_paradedb_custom_scan,
+    plan LIKE '%Tantivy Query:%parse_with_field%' AS partial_qual_subplan_uses_parse_with_field,
+    plan LIKE '%"field":"category"%' AS partial_qual_subplan_uses_ltree_indexed_field,
+    plan LIKE '%"query_string":"Top.Science"%' AS partial_qual_subplan_uses_ltree_ancestor_literal
+FROM (
+    SELECT pg_temp.issue_4906_explain_text(
+        $$SELECT p.id, p.category
+            FROM issue_4906_ltree_partial p
+           WHERE p.is_indexed
+             AND p.category <@ 'Top.Science'::ltree
+             AND COALESCE(
+                   (
+                       SELECT f.keep
+                       FROM issue_4906_ltree_subplan_flags f
+                       WHERE f.id = p.id
+                   ),
+                   false
+                 )$$
+    ) AS plan
+) s;
 
 RESET enable_seqscan;
 RESET enable_indexscan;
@@ -386,3 +468,6 @@ RESET enable_bitmapscan;
 RESET paradedb.enable_custom_scan;
 RESET paradedb.enable_custom_scan_without_operator;
 RESET paradedb.enable_filter_pushdown;
+
+DROP TABLE issue_4906_ltree_subplan_flags CASCADE;
+DROP TABLE issue_4906_ltree_partial CASCADE;

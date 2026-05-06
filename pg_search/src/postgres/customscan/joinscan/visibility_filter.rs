@@ -921,6 +921,7 @@ impl ExecutionPlan for VisibilityFilterExec {
                 col_idx,
                 checker: visibility,
                 resolver,
+                deferred_ctid_state: DeferredCtidMaterializationState::default(),
                 ctid_input: Vec::new(),
                 visibility_results: Vec::new(),
             });
@@ -955,6 +956,14 @@ impl ExecutionPlan for VisibilityFilterExec {
 // Deferred ctid materialization
 // ---------------------------------------------------------------------------
 
+/// Reusable buffers for `materialize_deferred_ctid`, avoiding per-batch allocations.
+#[derive(Default)]
+struct DeferredCtidMaterializationState {
+    output: Vec<Option<u64>>,
+    segment_doc_ids: Vec<DocId>,
+    segment_ctids: Vec<Option<u64>>,
+}
+
 /// Resolves packed DocAddresses (UInt64) to real ctids via FFHelper.
 ///
 /// Each packed value encodes (segment_ord, doc_id). The FFHelper's ctid()
@@ -962,27 +971,34 @@ impl ExecutionPlan for VisibilityFilterExec {
 fn materialize_deferred_ctid(
     ffhelper: &FFHelper,
     doc_addr_array: &UInt64Array,
+    state: &mut DeferredCtidMaterializationState,
 ) -> Result<ArrayRef> {
     let num_rows = doc_addr_array.len();
     let packed_iter = (0..num_rows)
         .filter(|&i| !doc_addr_array.is_null(i))
         .map(|i| (i, doc_addr_array.value(i)));
 
-    let mut output: Vec<Option<u64>> = vec![None; num_rows];
+    state.output.clear();
+    state.output.resize(num_rows, None);
+
     let num_segments = ffhelper.num_segments();
     for_each_segment(num_segments, packed_iter, |seg_ord, rows| {
-        let doc_ids: Vec<DocId> = rows.iter().map(|(_, id)| *id).collect();
+        state.segment_doc_ids.clear();
+        state.segment_doc_ids.extend(rows.iter().map(|(_, id)| *id));
 
-        let mut ctids = vec![None; doc_ids.len()];
-        ffhelper.ctid(seg_ord).as_u64s(&doc_ids, &mut ctids);
+        state.segment_ctids.clear();
+        state.segment_ctids.resize(rows.len(), None);
+        ffhelper
+            .ctid(seg_ord)
+            .as_u64s(&state.segment_doc_ids, &mut state.segment_ctids);
 
-        for ((row_idx, _), value) in rows.into_iter().zip(ctids) {
-            output[row_idx] = value;
+        for ((row_idx, _), value) in rows.into_iter().zip(state.segment_ctids.iter()) {
+            state.output[row_idx] = *value;
         }
         Ok(())
     })?;
 
-    Ok(uint64_array_from_options(&output))
+    Ok(uint64_array_from_options(&state.output))
 }
 
 fn uint64_array_from_options(values: &[Option<u64>]) -> ArrayRef {
@@ -1003,6 +1019,7 @@ struct CtidCheckerEntry {
     /// Always present: `VisibilityCtidResolverRule` guarantees wiring, and
     /// `execute()` validates at runtime.
     resolver: Arc<FFHelper>,
+    deferred_ctid_state: DeferredCtidMaterializationState,
     ctid_input: Vec<Option<u64>>,
     visibility_results: Vec<Option<u64>>,
 }
@@ -1050,7 +1067,11 @@ fn filter_batch(
                 entry.col_idx
             ))
         })?;
-        let resolved = materialize_deferred_ctid(&entry.resolver, doc_addr_array)?;
+        let resolved = materialize_deferred_ctid(
+            &entry.resolver,
+            doc_addr_array,
+            &mut entry.deferred_ctid_state,
+        )?;
         columns[entry.col_idx] = resolved;
     }
 

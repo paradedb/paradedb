@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(dead_code)]
 //! N×K DSM layout for the coordinator/worker MPP architecture.
 //!
 //! Each MPP query allocates a single DSM region containing:

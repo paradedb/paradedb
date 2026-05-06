@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(dead_code)]
 //! Transport layer for MPP shuffle.
 //!
 //! Layout:
@@ -31,9 +30,8 @@
 //! top of these primitives.
 
 use std::collections::VecDeque;
-use std::future::poll_fn;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-use std::task::{Poll, Waker};
+use std::task::Waker;
 #[cfg(test)]
 use std::thread;
 use std::thread::JoinHandle;
@@ -200,39 +198,7 @@ impl DrainBuffer {
             .cancelled
     }
 
-    /// Async-friendly variant of `pop_front`. Returns immediately with a
-    /// batch or EOF if available; otherwise registers `waker` (to be woken
-    /// on the next `push_batch` / `notify_source_done` / `cancel`) and
-    /// returns `None`. Lets `DrainGatherStream::poll_next` return
-    /// `Poll::Pending` instead of blocking the executor thread.
-    pub fn poll_pop_front(&self, waker: &Waker) -> Option<DrainItem> {
-        let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
-        if let Some(item) = Self::try_pop_locked(&mut guard) {
-            return Some(item);
-        }
-        // Single-consumer invariant; switch to `Vec<Waker>` if ever lifted.
-        debug_assert!(
-            guard.waker.is_none() || guard.waker.as_ref().unwrap().will_wake(waker),
-            "DrainBuffer::poll_pop_front: second consumer registered a different waker — \
-             only one consumer is supported per buffer"
-        );
-        guard.waker = Some(waker.clone());
-        None
-    }
-
-    /// Await-able wrapper over [`poll_pop_front`]. Use only for thread-backed
-    /// drains; cooperative handles must use [`try_pop`](Self::try_pop) +
-    /// executor yield (otherwise the await suspends with no one to wake it).
-    pub async fn recv(self: &Arc<Self>) -> DrainItem {
-        let buf = Arc::clone(self);
-        poll_fn(move |cx| match buf.poll_pop_front(cx.waker()) {
-            Some(item) => Poll::Ready(item),
-            None => Poll::Pending,
-        })
-        .await
-    }
-
-    /// Non-blocking, non-waker variant of [`poll_pop_front`]. Returns the
+    /// Non-blocking, non-waker variant. Returns the
     /// front item or `DrainItem::Eof` if all sources have detached and
     /// the queue is drained; returns `None` only when more data may yet
     /// arrive. Cooperative consumers loop on `poll_drain_pass` + `try_pop`,
@@ -338,15 +304,6 @@ impl MppSender {
             cooperative_drain: None,
             scratch: std::cell::RefCell::new(Vec::new()),
         }
-    }
-
-    /// Attach a drain handle whose `poll_drain_pass` is called between
-    /// send retries when the channel is full. Required on production
-    /// shm_mq backends (see struct docs); tests without pressure can
-    /// omit it.
-    pub fn with_cooperative_drain(mut self, drain: Arc<DrainHandle>) -> Self {
-        self.cooperative_drain = Some(drain);
-        self
     }
 
     /// Test-only stats-less wrapper around [`Self::send_batch_traced`].
@@ -675,11 +632,6 @@ impl DrainHandle {
         Ok(())
     }
 
-    /// True if this handle drains cooperatively (no background thread).
-    pub fn is_cooperative(&self) -> bool {
-        self.coop_receivers.lock().unwrap().is_some()
-    }
-
     /// Access the shared buffer so consumers (typically `GatherExec`) can
     /// `pop_front` without holding the handle itself.
     pub fn buffer(&self) -> &Arc<DrainBuffer> {
@@ -688,8 +640,9 @@ impl DrainHandle {
 
     /// Cancel the drain explicitly and join the thread (thread-backed only).
     /// For cooperative handles, simply drops the receivers (signalling detach
-    /// to peer senders) and returns. Called by the consumer at natural
-    /// shutdown; the Drop impl handles panic paths.
+    /// to peer senders) and returns. Called by tests at natural shutdown; in
+    /// production the `Drop` impl handles cleanup on both happy and panic paths.
+    #[cfg(test)]
     pub fn shutdown(&self) -> Result<(), DataFusionError> {
         self.buffer.cancel();
         // Drop receivers (if any) so peer shm_mq senders observe detach.

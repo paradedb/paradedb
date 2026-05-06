@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(dead_code)]
 //! Low-level shm_mq primitives for the MPP mesh: `ShmMqSender`,
 //! `ShmMqReceiver`, and the alignment helpers used to size queue slots.
 //!

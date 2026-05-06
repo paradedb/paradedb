@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(dead_code)]
 //! High-level glue between PostgreSQL parallel-query callbacks and the
 //! coordinator/worker MPP architecture.
 //!
@@ -97,17 +96,16 @@ pub fn producer_worker_count() -> u32 {
 
 /// Returned to the leader from [`leader_setup`]. The customscan stashes this
 /// on its execution state and consults it during `exec_custom_scan`.
+///
+/// The leader is consumer-only in this iteration, so its outbound senders
+/// (worker-0 producer slot) and `MppParticipantConfig` are not held here —
+/// they are dropped inside `leader_setup` and will be re-introduced when
+/// leader-as-worker-0 is wired up.
 pub struct MppLeaderState {
     /// Runtime mesh handle. Install on the leader's `SessionContext` via
     /// `with_extension(Arc::clone(&mesh))` so `ShmMqWorkerTransport` can find
     /// it at execute time.
     pub mesh: Arc<MppMesh>,
-    /// Senders the leader uses to push its own (worker-0) producer rows.
-    /// `outbound_senders[p]` writes to `slot(0, p)`. The leader spawns a
-    /// Tokio task that runs the producer fragment and pushes batches
-    /// through these senders alongside the consumer-plan execution.
-    pub outbound_senders: Vec<MppSender>,
-    pub participant_config: MppParticipantConfig,
 }
 
 /// Body of `initialize_dsm_custom_scan`. Allocates the queue mesh, populates
@@ -155,14 +153,7 @@ pub unsafe fn leader_setup(
     // we'll route these into a Tokio-spawned producer subplan instead.)
     drop(attach.outbound_senders);
 
-    Ok(MppLeaderState {
-        mesh,
-        outbound_senders: Vec::new(),
-        participant_config: MppParticipantConfig {
-            participant_index: 0,
-            total_participants: n_workers,
-        },
-    })
+    Ok(MppLeaderState { mesh })
 }
 
 /// Returned to a worker from [`worker_setup`]. The customscan reads the plan

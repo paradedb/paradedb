@@ -76,7 +76,7 @@ ParadeDB integrates with the tools you already use, with more on the way.
 ### AI Agents
 
 - [Agent Skills](https://github.com/paradedb/agent-skills)
-- [MCP Integration](https://docs.paradedb.com/welcome/ai-agents)
+- [MCP Integration](https://docs.paradedb.com/documentation/getting-started/ai-agents)
 
 ### PaaS & Cloud Platforms
 

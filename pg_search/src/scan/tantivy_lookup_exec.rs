@@ -341,7 +341,10 @@ type OrdsBySegment = Vec<Vec<(usize, Option<TermOrdinal>)>>;
 
 /// Resolves State 0 (packed doc addresses) to term ordinals, grouped by segment.
 ///
-/// Returns the same shape as State 1: a vector where the segment ordinal is represented by the index,
+/// Union states: 0 = packed (segment_ord, doc_id), 1 = pre-resolved (segment_ord, term_ord),
+/// 2 = already-materialized string/bytes.
+///
+/// Returns the same shape as State 1: a vector indexed by segment ordinal,
 /// of `(row_index, Option<TermOrdinal>)` pair vectors.
 fn resolve_doc_addresses_to_term_ords(
     ffhelper: &FFHelper,
@@ -396,8 +399,8 @@ fn resolve_doc_addresses_to_term_ords(
     Ok(ords_by_seg)
 }
 
-/// Extracts State 1 (pre-resolved term ordinals) from the dense union's StructArray child,
-/// grouped by segment.
+/// Extracts State 1 — the union variant carrying pre-resolved (segment_ord, term_ord) pairs —
+/// from the dense union's StructArray child, grouped by segment.
 fn extract_term_ords(
     ffhelper: &FFHelper,
     union_array: &UnionArray,
@@ -549,6 +552,7 @@ fn materialize_deferred_column(
         &state_0_rows,
     )?;
     let preresolved_term_ords = extract_term_ords(ffhelper, union_array, offsets, &state_1_rows)?;
+    // Merge State 0 (now resolved to term ords) and State 1 into a single collection.
     for (seg_ord, rows) in preresolved_term_ords.into_iter().enumerate() {
         resolved_term_ords[seg_ord].extend(rows);
     }

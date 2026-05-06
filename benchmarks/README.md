@@ -47,7 +47,7 @@ cargo run -- --help
 - `--clear-caches` must be set to `false` if you're running on a non-Linux system. (It defaults to `true`).
 - `--skip-setup`: Including this skips data load and index creation. Useful for testing new queries locally.
 - `--runs`: How many warm samples to capture from each query. Defaults to 3.
-- `--vacuum`: Controls whether `VACUUM FULL ANALYZE` is ran before running the querys. Defaults to `true`.
+- `--vacuum`: Controls whether `VACUUM FULL ANALYZE` is ran before running the queries. Defaults to `true`.
 
 ## Datasets
 

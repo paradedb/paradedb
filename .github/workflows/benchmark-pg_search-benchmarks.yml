@@ -296,7 +296,6 @@ jobs:
           contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-stackoverflow"]'), github.event.label.name)
         uses: ./.github/actions/benchmark-queries
         with:
-          mode: existing
           dataset: stackoverflow
           size: 100k
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
@@ -312,7 +311,6 @@ jobs:
           contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-stackoverflow"]'), github.event.label.name)
         uses: ./.github/actions/benchmark-queries
         with:
-          mode: existing
           dataset: stackoverflow
           size: 1m
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
@@ -328,7 +326,6 @@ jobs:
           contains(fromJson('["benchmark", "benchmark-queries", "benchmark-queries-stackoverflow"]'), github.event.label.name)
         uses: ./.github/actions/benchmark-queries
         with:
-          mode: existing
           dataset: stackoverflow
           size: 20m
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}

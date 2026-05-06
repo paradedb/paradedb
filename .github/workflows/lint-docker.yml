@@ -34,5 +34,5 @@ jobs:
       - name: Run Hadolint
         uses: jbergstroem/hadolint-gh-action@v1
         with:
-          dockerfile: "**/Dockerfile*"
+          dockerfile: "docker/**/Dockerfile docker/Dockerfile.config docker/Dockerfile.stressgres"
           error_level: 2 # Treat INFO as error

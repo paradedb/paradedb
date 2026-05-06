@@ -41,7 +41,6 @@ runs:
         cargo run --release -- benchmark \
           --url "${POSTGRES_URL}" \
           --size ${{ inputs.size }} \
-          --type pg_search \
           --dataset ${{ inputs.dataset }} \
           --runs 10 \
           --output json \

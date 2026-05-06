@@ -222,28 +222,24 @@ WHERE category <@ 'Top.Science.Astronomy.Deep'::ltree;
 -- 11. Combined predicate:
 --     Make sure the ltree pushdown composes with an additional heap-side qual.
 --
---     Keep this as a result-semantics test. The ORDER BY is inside array_agg
---     only for deterministic regression output.
---
---     Use `(id + 0) >= 15` rather than `id >= 15` so that this predicate is
---     not directly usable as a primary-key B-tree Index Cond.
+--     `(id + 0) >= 15` is intentionally not a direct primary-key Index Cond.
+--     It should be evaluated as a heap-side filter after the ltree facet query
+--     has selected candidate rows from the ParadeDB index.
+SET paradedb.enable_filter_pushdown = on;
+
 SELECT array_agg(id ORDER BY id) AS combined_predicate_ids
 FROM issue_4906_ltree
 WHERE category <@ 'Top.Science'::ltree
   AND (id + 0) >= 15;
 
+
 -- 12. Plan for the combined predicate should still use ParadeDB Custom Scan
---     and still contain the ltree facet query.
+--     and still contain both:
+--       1. the ltree facet query lowered from `<@`;
+--       2. the additional heap-side filter.
 --
---     Important:
---     Do NOT include ORDER BY id in this plan assertion. The table has a
---     primary-key B-tree index on id, and PostgreSQL can choose that index
---     purely to satisfy ORDER BY id, even when the id predicate is not an
---     Index Cond.
---
---     Also disable ordinary PostgreSQL index scan path types here so the test
---     is about ParadeDB Custom Scan selection, not about competition with the
---     primary-key B-tree path.
+--     ParadeDB prints HeapFilter inside the serialized Tantivy Query as
+--     `"heap_filter"`, not as a separate `Heap Filter:` EXPLAIN line.
 SET enable_indexscan = off;
 SET enable_indexonlyscan = off;
 SET enable_bitmapscan = off;
@@ -252,7 +248,9 @@ SELECT
     plan LIKE '%Custom Scan (ParadeDB Base Scan)%' AS combined_uses_paradedb_custom_scan,
     plan LIKE '%Tantivy Query:%parse_with_field%' AS combined_uses_parse_with_field,
     plan LIKE '%"field":"category"%' AS combined_uses_ltree_indexed_field,
-    plan LIKE '%"query_string":"Top.Science"%' AS combined_uses_ltree_ancestor_literal
+    plan LIKE '%"query_string":"Top.Science"%' AS combined_uses_ltree_ancestor_literal,
+    plan LIKE '%"heap_filter"%' AS combined_uses_heap_filter,
+    plan LIKE '%(id + 0) >= 15%' AS combined_uses_expected_heap_filter_expr
 FROM (
     SELECT pg_temp.issue_4906_explain_text(
         $$SELECT id, category
@@ -262,12 +260,13 @@ FROM (
     ) AS plan
 ) s;
 
+RESET enable_seqscan;
 RESET enable_indexscan;
 RESET enable_indexonlyscan;
 RESET enable_bitmapscan;
 
-RESET enable_seqscan;
 RESET paradedb.enable_custom_scan;
 RESET paradedb.enable_custom_scan_without_operator;
+RESET paradedb.enable_filter_pushdown;
 
 DROP TABLE issue_4906_ltree CASCADE;

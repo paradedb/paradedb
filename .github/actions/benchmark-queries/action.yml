@@ -42,6 +42,7 @@ runs:
           --url "${POSTGRES_URL}" \
           --size ${{ inputs.size }} \
           --dataset ${{ inputs.dataset }} \
+          --data-source s3://paradedb-ci-benchmarks/datasets/${{ inputs.dataset }}/ \
           --runs 10 \
           --output json \
           --fail-on-error ${{ inputs.fail_on_error }}

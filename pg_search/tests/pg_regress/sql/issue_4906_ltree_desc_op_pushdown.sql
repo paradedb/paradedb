@@ -260,6 +260,124 @@ FROM (
     ) AS plan
 ) s;
 
+DROP TABLE issue_4906_ltree CASCADE;
+
+-- 13. Partial BM25 index + ltree `<@` pushdown.
+--
+--     This is a real PostgreSQL partial index test, not merely "partial qual
+--     extraction". The BM25 index only contains rows where `is_indexed` is true.
+--
+--     PostgreSQL may use a partial index only if the query WHERE clause implies
+--     the index predicate. Here the query explicitly contains `is_indexed`,
+--     so the partial BM25 index is safe to use.
+DROP TABLE IF EXISTS issue_4906_ltree_partial CASCADE;
+
+CREATE TABLE issue_4906_ltree_partial (
+    id BIGINT PRIMARY KEY,
+    category LTREE,
+    is_indexed BOOLEAN NOT NULL,
+    title TEXT NOT NULL
+);
+
+INSERT INTO issue_4906_ltree_partial (id, category, is_indexed, title)
+VALUES
+    (1,  'Top.Science'::ltree,                         true,  'indexed science root'),
+    (2,  'Top.Science.Biology'::ltree,                 true,  'indexed biology'),
+    (3,  'Top.Science.Astronomy'::ltree,               true,  'indexed astronomy'),
+    (4,  'Top.Science.Astronomy.Astrophysics'::ltree,  true,  'indexed astrophysics'),
+    (5,  'Top.ScienceX'::ltree,                        true,  'indexed string prefix trap'),
+    (6,  'Other.Top.Science'::ltree,                   true,  'indexed other branch trap'),
+    (7,  'Top.Science'::ltree,                         false, 'not indexed science root'),
+    (8,  'Top.Science.Biology'::ltree,                 false, 'not indexed biology'),
+    (9,  'Top.Science.Astronomy'::ltree,               false, 'not indexed astronomy'),
+    (10, 'Top.Sports'::ltree,                          true,  'indexed sports'),
+    (11, NULL,                                         true,  'indexed null category');
+
+CREATE INDEX issue_4906_ltree_partial_idx
+ON issue_4906_ltree_partial
+USING bm25 (id, category, title)
+WITH (key_field = 'id')
+WHERE is_indexed;
+
+ANALYZE issue_4906_ltree_partial;
+
+SET enable_seqscan = off;
+SET enable_indexscan = off;
+SET enable_indexonlyscan = off;
+SET enable_bitmapscan = off;
+SET paradedb.enable_custom_scan = on;
+SET paradedb.enable_custom_scan_without_operator = off;
+SET paradedb.enable_filter_pushdown = on;
+
+-- 13a. Query implies the partial-index predicate and should use the partial
+--      BM25 index. The original SQL contains no @@@ operator, so this also
+--      verifies that `uses_index_pushdown` is enough to allow BaseScan.
+SELECT
+    plan LIKE '%Custom Scan (ParadeDB Base Scan)%' AS partial_index_uses_paradedb_custom_scan,
+    plan LIKE '%Index: issue_4906_ltree_partial_idx%' AS partial_index_uses_expected_bm25_index,
+    plan LIKE '%Tantivy Query:%parse_with_field%' AS partial_index_uses_parse_with_field,
+    plan LIKE '%"field":"category"%' AS partial_index_uses_ltree_indexed_field,
+    plan LIKE '%"query_string":"Top.Science"%' AS partial_index_uses_ltree_ancestor_literal
+FROM (
+    SELECT pg_temp.issue_4906_explain_text(
+        $$SELECT id, category
+            FROM issue_4906_ltree_partial
+           WHERE is_indexed
+             AND category <@ 'Top.Science'::ltree$$
+    ) AS plan
+) s;
+
+-- 13b. Correctness: only rows inside the partial-index predicate are returned.
+--      Rows 7, 8, 9 match the ltree predicate but are not indexed because
+--      is_indexed = false; they must not appear.
+SELECT array_agg(id ORDER BY id) AS partial_index_descendant_ids
+FROM issue_4906_ltree_partial
+WHERE is_indexed
+  AND category <@ 'Top.Science'::ltree;
+
+-- 13c. Compare against native no-index ltree semantics plus the same partial
+--      predicate. This guards against accidentally turning `<@` into string
+--      prefix semantics.
+SELECT
+    (
+        SELECT array_agg(id ORDER BY id)
+        FROM issue_4906_ltree_partial
+        WHERE is_indexed
+          AND category <@ 'Top.Science'::ltree
+    ) = (
+        SELECT array_agg(id ORDER BY id)
+        FROM issue_4906_ltree_partial
+        WHERE is_indexed
+          AND category ^<@ 'Top.Science'::ltree
+    ) AS partial_index_matches_ltree_noindex_semantics;
+
+-- 13d. The query does NOT imply the partial-index predicate. It must not use
+--      the partial BM25 index, even though the ltree predicate itself is
+--      pushdown-capable.
+SELECT
+    plan NOT LIKE '%Custom Scan (ParadeDB Base Scan)%' AS partial_index_not_used_without_predicate
+FROM (
+    SELECT pg_temp.issue_4906_explain_text(
+        $$SELECT id, category
+            FROM issue_4906_ltree_partial
+           WHERE category <@ 'Top.Science'::ltree$$
+    ) AS plan
+) s;
+
+-- 13e. Contradictory predicate also must not use the partial BM25 index.
+SELECT
+    plan NOT LIKE '%Custom Scan (ParadeDB Base Scan)%' AS partial_index_not_used_for_contradictory_predicate
+FROM (
+    SELECT pg_temp.issue_4906_explain_text(
+        $$SELECT id, category
+            FROM issue_4906_ltree_partial
+           WHERE NOT is_indexed
+             AND category <@ 'Top.Science'::ltree$$
+    ) AS plan
+) s;
+
+DROP TABLE issue_4906_ltree_partial CASCADE;
+
 RESET enable_seqscan;
 RESET enable_indexscan;
 RESET enable_indexonlyscan;
@@ -268,5 +386,3 @@ RESET enable_bitmapscan;
 RESET paradedb.enable_custom_scan;
 RESET paradedb.enable_custom_scan_without_operator;
 RESET paradedb.enable_filter_pushdown;
-
-DROP TABLE issue_4906_ltree CASCADE;

@@ -274,7 +274,7 @@ impl BaseScan {
                 }
             }
             if !partial_quals.is_empty()
-                && (partial_state.uses_our_operator || partial_state.uses_index_pushdown)
+                && (partial_state.uses_our_operator || partial_state.uses_ltree_descendant_pushdown)
                 && all_skipped_are_subplans
             {
                 state = partial_state;
@@ -334,7 +334,7 @@ impl BaseScan {
         // 4. The query has window aggregates (pdb.agg()) that we must handle.
         let has_window_aggs = query_has_window_agg_functions(root);
         if state.uses_our_operator
-            || state.uses_index_pushdown
+            || state.uses_ltree_descendant_pushdown
             || gucs::enable_custom_scan_without_operator()
             || has_window_aggs
         {
@@ -348,7 +348,9 @@ impl BaseScan {
         state: &QualExtractState,
         quals: &mut Option<Qual>,
     ) -> Option<Qual> {
-        if state.uses_heap_expr && !(state.uses_our_operator || state.uses_index_pushdown) {
+        if state.uses_heap_expr
+            && !(state.uses_our_operator || state.uses_ltree_descendant_pushdown)
+        {
             return None;
         }
 

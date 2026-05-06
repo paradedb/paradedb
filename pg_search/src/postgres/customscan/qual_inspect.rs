@@ -583,18 +583,16 @@ pub struct QualExtractState {
     pub uses_our_operator: bool,
     pub uses_heap_expr: bool,
 
-    /// True when a plain PostgreSQL predicate was successfully converted into
-    /// an indexed ParadeDB/Tantivy predicate.
+    /// True when a plain PostgreSQL ltree descendant predicate was converted
+    /// into a ParadeDB/Tantivy facet query.
     ///
     /// Example:
     ///   path <@ 'Top.Science'::ltree
-    /// becomes:
-    ///   path @@@ facet(/Top/Science)
     ///
-    /// This is distinct from `uses_our_operator`: the original SQL did not
-    /// contain @@@, but the predicate is still index-backed and safe to use
-    /// as the base CustomScan qual.
-    pub uses_index_pushdown: bool,
+    /// This is intentionally narrower than "any index pushdown": it should not
+    /// enable operatorless Custom Scan for unrelated predicates like
+    /// `file_size > 500`.
+    pub uses_ltree_descendant_pushdown: bool,
 }
 
 /// Check if a clause contains node types that extract_quals cannot handle
@@ -1280,19 +1278,8 @@ unsafe fn try_pushdown(
         // is a plain PostgreSQL operator, but if it reaches this branch as
         // PushdownLtreeDescendant, it is backed by a real Tantivy facet query and
         // should be enough to allow BaseScan.
-        if matches!(
-            &pushdown_result,
-            Some(
-                Qual::PushdownExpr { .. }
-                    | Qual::PushdownVarEqTrue { .. }
-                    | Qual::PushdownVarEqFalse { .. }
-                    | Qual::PushdownVarIsTrue { .. }
-                    | Qual::PushdownVarIsFalse { .. }
-                    | Qual::PushdownIsNotNull { .. }
-                    | Qual::PushdownLtreeDescendant { .. }
-            )
-        ) {
-            state.uses_index_pushdown = true;
+        if matches!(&pushdown_result, Some(Qual::PushdownLtreeDescendant { .. })) {
+            state.uses_ltree_descendant_pushdown = true;
         }
 
         pushdown_result

@@ -22,8 +22,6 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
-        with:
-          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
 
       - name: Publish Docs to Mintlify
         run: |

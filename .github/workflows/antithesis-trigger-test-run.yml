@@ -41,6 +41,9 @@ on:
 
 # No concurrency group since we want to allow multiple test runs to run simultaneously
 
+env:
+  PG_VERSION: "18"
+
 jobs:
   # Resolve which workload(s) to run based on the trigger:
   # - schedule: all
@@ -109,7 +112,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pg_version: [18]
         workload: ${{ fromJSON(needs.setup.outputs.workloads) }}
 
     steps:
@@ -145,7 +147,7 @@ jobs:
         with:
           images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb
           tags: |
-            type=raw,value=${{ matrix.pg_version }}-${{ env.COMMIT_SHA }}
+            type=raw,value=${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}
             type=raw,value=antithesis-latest
 
       # Antithesis only supports x86_64 instruction set
@@ -155,7 +157,7 @@ jobs:
         with:
           context: .
           platforms: linux/amd64
-          file: docker/antithesis/${{ matrix.pg_version }}/Dockerfile
+          file: docker/antithesis/${{ env.PG_VERSION }}/Dockerfile
           push: true
           tags: ${{ steps.extract-workload-metadata.outputs.tags }}
           labels: ${{ steps.extract-workload-metadata.outputs.labels }}
@@ -163,7 +165,7 @@ jobs:
       - name: Patch ParadeDB K8s Manifest With Workload Image Tagged With Git SHA
         working-directory: docker/manifests/
         run: |
-          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ matrix.pg_version }}-${{ env.COMMIT_SHA }}|" antithesis-paradedb.yaml
+          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}|" antithesis-paradedb.yaml
           cat antithesis-paradedb.yaml
 
       - name: Patch Driver K8s Manifest With Driver Image Tagged With Git SHA
@@ -224,7 +226,7 @@ jobs:
           password: ${{ secrets.ANTITHESIS_PASSWORD }}
           github_token: ${{ secrets.ANTITHESIS_GITHUB_TOKEN }}
           config_image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config-${{ matrix.workload }}:${{ env.COMMIT_SHA }}
-          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ matrix.pg_version }}-${{ env.COMMIT_SHA }}
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}
           description: "[${{ github.repository }}] ${{ matrix.workload }} CI for ${{ github.ref_name }} (commit ${{ env.COMMIT_SHA }})"
           email_recipients: ${{ github.event.inputs.emails || 'developers@paradedb.com' }}
           additional_parameters: |-

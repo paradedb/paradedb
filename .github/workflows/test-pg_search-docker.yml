@@ -36,6 +36,9 @@ concurrency:
   group: test-pg_search-docker-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
+env:
+  PG_VERSION: "18"
+
 jobs:
   test-paradedb:
     name: Test ${{ matrix.flavor }} Docker Image (${{ matrix.arch }})
@@ -55,7 +58,6 @@ jobs:
         include:
           - arch: amd64
             flavor: paradedb
-            dockerfile: docker/paradedb/18/Dockerfile
             cpu: 16
             ram: 64
             runner_family: m7a+m7i
@@ -63,7 +65,6 @@ jobs:
             platform: linux/amd64
           - arch: arm64
             flavor: paradedb
-            dockerfile: docker/paradedb/18/Dockerfile
             cpu: 16
             ram: 64
             runner_family: m7g+m8g
@@ -71,7 +72,6 @@ jobs:
             platform: linux/arm64
           - arch: amd64
             flavor: official
-            dockerfile: docker/official/18/Dockerfile
             cpu: 8
             ram: 32
             runner_family: m7a+m7i
@@ -79,7 +79,6 @@ jobs:
             platform: linux/amd64
           - arch: arm64
             flavor: official
-            dockerfile: docker/official/18/Dockerfile
             cpu: 16
             ram: 64
             runner_family: m7g+m8g
@@ -106,7 +105,7 @@ jobs:
         run: |
           docker buildx build \
             --platform ${{ matrix.platform }} \
-            --file ${{ matrix.dockerfile }} \
+            --file docker/${{ matrix.flavor }}/${{ env.PG_VERSION }}/Dockerfile \
             --tag paradedb/paradedb:latest \
             --cache-from type=gha,scope=paradedb-docker-${{ matrix.flavor }}-${{ matrix.arch }} \
             --cache-to type=gha,mode=max,scope=paradedb-docker-${{ matrix.flavor }}-${{ matrix.arch }} \
@@ -114,7 +113,7 @@ jobs:
             .
 
       - name: Verify PGDG apt packages are available
-        run: docker run --rm paradedb/paradedb:latest bash -c 'apt-get update && apt-get install -y --no-install-recommends postgresql-18-partman'
+        run: docker run --rm paradedb/paradedb:latest bash -c 'apt-get update && apt-get install -y --no-install-recommends postgresql-${{ env.PG_VERSION }}-partman'
 
       # Start the ParadeDB Docker image using `docker run` to test the standalone Docker image.
       # We add a --tmpfs mount as a test of compatibility with the upstream `postgres` image.

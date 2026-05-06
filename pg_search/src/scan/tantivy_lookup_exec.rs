@@ -368,7 +368,7 @@ fn resolve_doc_addresses_to_term_ords(
         .iter()
         .map(|&row| (row, doc_address_child.value(offsets[row] as usize)));
 
-    for_each_segment(packed_iter, |seg_ord, rows| {
+    for_each_segment(ffhelper, packed_iter, |seg_ord, rows| {
         let ids: Vec<DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
         let mut term_ords: Vec<Option<TermOrdinal>> = vec![None; ids.len()];
 

@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::BTreeMap;
 use std::convert::identity;
 use std::sync::{Arc, OnceLock};
 
@@ -449,19 +448,24 @@ pub fn resolve_ctid(
 ///
 /// The `packed_iter` argument yields `(row_index, packed_doc_address)`
 pub fn for_each_segment<F>(
+    ffhelper: &FFHelper,
     packed_iter: impl Iterator<Item = (usize, u64)>,
     mut process: F,
 ) -> Result<()>
 where
     F: FnMut(SegmentOrdinal, Vec<(usize, DocId)>) -> Result<()>,
 {
-    let mut by_seg: BTreeMap<SegmentOrdinal, Vec<(usize, DocId)>> = BTreeMap::new();
+    let mut by_seg: Vec<Vec<(usize, DocId)>> = vec![Vec::new(); ffhelper.segment_caches.len()];
     for (row_idx, packed) in packed_iter {
         let (seg_ord, doc_id) = unpack_doc_address(packed);
-        by_seg.entry(seg_ord).or_default().push((row_idx, doc_id));
+        by_seg[seg_ord as usize].push((row_idx, doc_id));
     }
-    for (seg_ord, rows) in by_seg {
-        process(seg_ord, rows)?;
+    for (seg_ord, rows) in by_seg.into_iter().enumerate() {
+        if rows.is_empty() {
+            continue;
+        }
+
+        process(seg_ord as SegmentOrdinal, rows)?;
     }
     Ok(())
 }

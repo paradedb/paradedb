@@ -970,7 +970,7 @@ fn materialize_deferred_ctid(
 
     let mut output: Vec<Option<u64>> = vec![None; num_rows];
 
-    for_each_segment(packed_iter, |seg_ord, rows| {
+    for_each_segment(ffhelper, packed_iter, |seg_ord, rows| {
         let doc_ids: Vec<DocId> = rows.iter().map(|(_, id)| *id).collect();
 
         let mut ctids = vec![None; doc_ids.len()];

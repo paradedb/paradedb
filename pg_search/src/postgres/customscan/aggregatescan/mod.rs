@@ -1273,9 +1273,17 @@ impl AggregateScan {
         std::ptr::null_mut()
     }
 
-    /// Walk a DistributedExec-rooted plan and return the bottom
-    /// NetworkShuffleExec's input subtree (the worker fragment). Returns
-    /// `None` if no NetworkShuffleExec is reachable from the root.
+    /// Walk a DistributedExec-rooted plan and return the input subtree of
+    /// the **topmost** `NetworkShuffleExec` (the worker producer fragment).
+    /// Returns `None` if no `NetworkShuffleExec` is reachable from the root.
+    ///
+    /// Pre-order traversal returns on the first match, which is the
+    /// outermost shuffle — the one that straddles the worker→leader split.
+    /// Nested `NetworkShuffleExec`s inside the worker fragment (e.g. the
+    /// shuffles `HashJoinExec(Partitioned)` inserts on each side once the
+    /// build side crosses `hash_join_single_partition_threshold`) are
+    /// re-executed locally by `LocalExecWorkerTransport` at execute time,
+    /// so the worker only needs to find the outermost one.
     fn find_worker_fragment(
         plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>,
     ) -> Option<Arc<dyn datafusion::physical_plan::ExecutionPlan>> {

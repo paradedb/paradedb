@@ -15,52 +15,27 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(dead_code)]
 //! Leader/worker exec helpers for MPP.
 //!
-//! - [`install_distributed_planner`] — installs the fork's
-//!   `with_distributed_planner` + `with_distributed_worker_transport` +
-//!   `with_distributed_worker_resolver` on a `SessionStateBuilder` so the
-//!   leader's physical plan automatically gets `NetworkShuffleExec`s with
-//!   our `ShmMqWorkerTransport` wired in.
-//! - [`run_producer_fragment`] — worker (or leader-as-worker-0) push loop.
-//!   Runs the `n_partitions` output partitions of `plan` concurrently;
-//!   each batch yielded by partition `p` is encoded and pushed through
+//! - [`run_producer_fragment`] — PG-parallel-worker push loop. Runs the
+//!   `n_partitions` output partitions of `plan` concurrently; each batch
+//!   yielded by partition `p` is encoded and pushed through
 //!   `outbound_senders[p]`. Returns when every output stream is exhausted.
+//!   The leader is consumer-only in this iteration (see
+//!   [`crate::postgres::customscan::mpp::glue::producer_worker_count`]);
+//!   leader-as-worker-0 is a deferred follow-up.
 
 use std::sync::Arc;
 
 use datafusion::common::{DataFusionError, Result};
-use datafusion::execution::{SessionStateBuilder, TaskContext};
+use datafusion::execution::TaskContext;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
-use datafusion_distributed::{DistributedExt, SessionStateBuilderExt};
 use futures::stream::StreamExt;
 
-use crate::postgres::customscan::mpp::runtime::{MppMesh, MppWorkerResolver, ShmMqWorkerTransport};
 use crate::postgres::customscan::mpp::transport::{MppSender, SendBatchStats};
-
-/// Wire the fork's distributed planner + our `shm_mq` transport + the stub
-/// worker resolver onto `builder`. Call this on the leader's
-/// [`SessionStateBuilder`] *before* `with_distributed_planner` is meaningful
-/// (i.e. before any other query planner registration that should sit
-/// underneath it).
-pub fn install_distributed_planner(
-    builder: SessionStateBuilder,
-    mesh: Arc<MppMesh>,
-) -> SessionStateBuilder {
-    let n_workers = mesh.n_workers as usize;
-    builder
-        .with_distributed_worker_resolver(MppWorkerResolver::new(n_workers))
-        .with_distributed_worker_transport(ShmMqWorkerTransport::new(mesh))
-        .with_distributed_planner()
-}
 
 /// Run a producer fragment plan to exhaustion and push every output batch
 /// through the corresponding `outbound_senders[partition]`.
-///
-/// Used both on workers (the only thing they do; emit zero rows back to PG)
-/// and on the leader as worker 0 (spawned as a Tokio task alongside the
-/// leader's consumer plan execution).
 ///
 /// The output partition count of `plan` MUST equal `outbound_senders.len()`;
 /// this is checked before the first batch is pulled.

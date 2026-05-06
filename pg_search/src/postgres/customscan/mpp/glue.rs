@@ -37,24 +37,35 @@ use std::sync::Arc;
 
 use pgrx::pg_sys;
 
-use crate::postgres::customscan::mpp::dsm::{
-    compute_dsm_layout, leader_init, worker_attach, DsmLayout, MppDsmHeader,
-};
+use crate::postgres::customscan::mpp::dsm::{compute_dsm_layout, leader_init, worker_attach};
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 use crate::postgres::customscan::mpp::transport::{
     DrainBuffer, DrainHandle, MppReceiver, MppSender,
 };
 use crate::postgres::customscan::mpp::MppParticipantConfig;
 
-/// True iff `paradedb.enable_mpp = on` and `paradedb.mpp_worker_count >= 2`.
-/// Customscan path-builders gate parallel_workers on this.
+/// True iff `paradedb.enable_mpp = on` and `paradedb.mpp_worker_count >= 3`.
+/// Customscan path-builders gate `parallel_workers` on this.
+///
+/// We require `>= 3` (not `>= 2`) because the leader is consumer-only in
+/// this iteration: with `mpp_worker_count = 2`, [`producer_worker_count`]
+/// returns 1, so [`crate::postgres::customscan::aggregatescan`] would size
+/// the DSM mesh as `1 × mpp_n_partitions = 1` while
+/// `with_target_partitions(2)` (clamped at 2 by `n_workers.max(2)`) makes
+/// the planner build a 2-partition shuffle. The mesh would not have a
+/// queue for the second partition. Gating at `>= 3` ensures
+/// `producer_worker_count >= 2`, so the mesh shape and the planner's
+/// shuffle width match. (Lifting this to `>= 2` is safe once
+/// leader-as-worker-0 is wired up, or once `target_partitions` is dropped
+/// to `producer_worker_count`.)
 pub fn mpp_is_active() -> bool {
-    crate::gucs::enable_mpp() && crate::gucs::mpp_worker_count() >= 2
+    crate::gucs::enable_mpp() && crate::gucs::mpp_worker_count() >= 3
 }
 
-/// Producer count from the GUC, clamped at 2.
+/// Total participant count: leader + producers. Clamped at 3 so the mesh
+/// shape matches the planner's `target_partitions` (see [`mpp_is_active`]).
 pub fn mpp_worker_count() -> u32 {
-    crate::gucs::mpp_worker_count().max(2) as u32
+    crate::gucs::mpp_worker_count().max(3) as u32
 }
 
 /// Per-edge queue size from the GUC.
@@ -205,7 +216,3 @@ pub unsafe fn worker_setup(
         },
     })
 }
-
-// Silence "unused" warning if header isn't read elsewhere yet.
-const _: fn(&MppDsmHeader) = |_| {};
-const _: fn(&DsmLayout) = |_| {};

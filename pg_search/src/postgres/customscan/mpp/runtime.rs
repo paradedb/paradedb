@@ -89,7 +89,7 @@ impl WorkerTransport for ShmMqWorkerTransport {
         target_task: usize,
         _ctx: &Arc<TaskContext>,
         _metrics: &ExecutionPlanMetricsSet,
-    ) -> Result<Box<dyn WorkerConnection + Send + Sync>> {
+    ) -> Result<Box<dyn WorkerConnection>> {
         let worker = u32::try_from(target_task).map_err(|_| {
             DataFusionError::Internal(format!(
                 "ShmMqWorkerTransport: target_task={target_task} > u32::MAX"
@@ -198,7 +198,7 @@ impl WorkerTransport for LocalExecWorkerTransport {
         _target_task: usize,
         ctx: &Arc<TaskContext>,
         _metrics: &ExecutionPlanMetricsSet,
-    ) -> Result<Box<dyn WorkerConnection + Send + Sync>> {
+    ) -> Result<Box<dyn WorkerConnection>> {
         let plan = input_stage.plan().cloned().ok_or_else(|| {
             DataFusionError::Internal(
                 "LocalExecWorkerTransport: input_stage.plan is None — \

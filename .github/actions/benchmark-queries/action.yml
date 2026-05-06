@@ -6,8 +6,8 @@ inputs:
     description: "The benchmark dataset to run (e.g. logs, docs, stackoverflow)"
     required: true
   size:
-    description: "Size label for pre-sampled dataset, e.g. '100k', '1m' (required for 'existing' mode)"
-    required: false
+    description: "Size label for pre-sampled dataset, e.g. '100k', '1m', '20m'"
+    required: true
   ref:
     description: "Git ref or short SHA to report in benchmarks"
     required: true
@@ -38,7 +38,7 @@ runs:
         POSTGRES_URL="postgresql://localhost:288${{ env.pg_version }}/postgres"
 
         # Pre-sampled dataset loaded from S3.
-        cargo run --release -- benchmark existing \
+        cargo run --release -- benchmark \
           --url "${POSTGRES_URL}" \
           --size ${{ inputs.size }} \
           --type pg_search \

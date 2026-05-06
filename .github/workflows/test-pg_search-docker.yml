@@ -25,6 +25,7 @@ on:
     paths:
       - ".github/workflows/test-pg_search-docker.yml"
       - "docker/**"
+      - "!docker/manifests/**"
       - "!docker/Dockerfile.stressgres"
       - "pg_search/**"
       - "!pg_search/README.md"

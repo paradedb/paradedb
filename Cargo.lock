@@ -5725,7 +5725,6 @@ dependencies = [
 name = "pg_search"
 version = "0.23.5"
 dependencies = [
- "ahash 0.8.12",
  "anyhow",
  "arrow-array",
  "arrow-buffer",

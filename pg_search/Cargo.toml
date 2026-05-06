@@ -29,9 +29,6 @@ arrow-array = "58.1.0"
 arrow-buffer = "58.1.0"
 arrow-schema = "58.1.0"
 arrow-select = "58.1.0"
-# Match the version datafusion 53 and arrow use for ahash::RandomState, which
-# DataFusion's `create_hashes` helper requires as input.
-ahash = "0.8"
 bitpacking = "0.9.3"
 chrono = "0.4.44"
 time = "0.3.47"

@@ -15,7 +15,7 @@ RUN apt-get update && \
     curl -1sLf "https://dl.cloudsmith.io/public/paradedb/paradedb/config.deb.txt?distro=debian&codename=trixie&component=main" > /etc/apt/sources.list.d/paradedb-paradedb.list && \
     chmod 644 "${keyring_location}" /etc/apt/sources.list.d/paradedb-paradedb.list && \
     apt-get update && \
-    apt-get install -y --no-install-recommends postgresql-15-pg-search=0.0.0 && \
+    apt-get install -y --no-install-recommends postgresql-15-pg-search=0.23.4 && \
     rm -rf /var/lib/apt/lists/*
 
 # Install core extensions

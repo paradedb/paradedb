@@ -9,7 +9,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # %%ANTITHESIS_BEGIN%%
 # Install the locally built, Antithesis-instrumented pg_search package.
-COPY pg_search-0.0.0-trixie-amd64-pg@@PG_VERSION_MAJOR@@.deb /tmp/pg_search.deb
+COPY pg_search-@@PG_SEARCH_VERSION@@-trixie-amd64-pg@@PG_VERSION_MAJOR@@.deb /tmp/pg_search.deb
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl && \
     curl -fsSL -o /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so && \
@@ -28,7 +28,7 @@ RUN apt-get update && \
     curl -1sLf "https://dl.cloudsmith.io/public/paradedb/paradedb/config.deb.txt?distro=debian&codename=trixie&component=main" > /etc/apt/sources.list.d/paradedb-paradedb.list && \
     chmod 644 "${keyring_location}" /etc/apt/sources.list.d/paradedb-paradedb.list && \
     apt-get update && \
-    apt-get install -y --no-install-recommends postgresql-@@PG_VERSION_MAJOR@@-pg-search=0.0.0 && \
+    apt-get install -y --no-install-recommends postgresql-@@PG_VERSION_MAJOR@@-pg-search=@@PG_SEARCH_VERSION@@ && \
     rm -rf /var/lib/apt/lists/*
 # %%STANDARD_END%%
 # %%BARMAN_BEGIN%%

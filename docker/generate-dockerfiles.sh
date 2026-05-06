@@ -9,6 +9,13 @@
 # generated files are in sync with the template.
 set -euo pipefail
 
+if [[ $# -ne 1 ]]; then
+  echo "Error: PG_SEARCH_VERSION is required"
+  echo "Usage: $0 0.23.4"
+  exit 1
+fi
+
+PG_SEARCH_VERSION=$1
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 versions=(15 16 17 18)
 
@@ -20,6 +27,7 @@ render() {
   mkdir -p "$(dirname "$output")"
   awk \
     -v pg_version="$pg_version" \
+    -v pg_search_version="$PG_SEARCH_VERSION" \
   -v flavor="$flavor" '
       BEGIN { include = 1 }
       /^# %%ANTITHESIS_BEGIN%%$/ { include = flavor == "antithesis"; next }
@@ -29,6 +37,7 @@ render() {
       !include { next }
       {
         gsub(/@@PG_VERSION_MAJOR@@/, pg_version)
+        gsub(/@@PG_SEARCH_VERSION@@/, pg_search_version)
         print
       }
     ' "${script_dir}/Dockerfile.template" > "$output"

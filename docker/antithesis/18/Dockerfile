@@ -8,7 +8,7 @@ LABEL maintainer="ParadeDB - https://paradedb.com" \
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # Install the locally built, Antithesis-instrumented pg_search package.
-COPY pg_search-0.0.0-trixie-amd64-pg18.deb /tmp/pg_search.deb
+COPY pg_search-0.23.4-trixie-amd64-pg18.deb /tmp/pg_search.deb
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl && \
     curl -fsSL -o /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so && \

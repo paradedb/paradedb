@@ -10,14 +10,10 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 # %%ANTITHESIS_BEGIN%%
 # Install the locally built, Antithesis-instrumented pg_search package.
 COPY pg_search-@@PG_SEARCH_VERSION@@-trixie-amd64-pg@@PG_VERSION_MAJOR@@.deb /tmp/pg_search.deb
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates curl && \
-    curl -fsSL -o /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so && \
-    dpkg -i /tmp/pg_search.deb && \
+RUN dpkg -i /tmp/pg_search.deb && \
     rm /tmp/pg_search.deb && \
     mkdir /symbols && \
-    ln -s /usr/lib/postgresql/@@PG_VERSION_MAJOR@@/lib/pg_search.so /symbols/pg_search.so && \
-    rm -rf /var/lib/apt/lists/*
+    ln -s /usr/lib/postgresql/@@PG_VERSION_MAJOR@@/lib/pg_search.so /symbols/pg_search.so
 # %%ANTITHESIS_END%%
 # %%STANDARD_BEGIN%%
 # Install pg_search from Cloudsmith

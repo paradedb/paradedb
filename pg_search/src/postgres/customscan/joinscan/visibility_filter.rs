@@ -959,7 +959,7 @@ impl ExecutionPlan for VisibilityFilterExec {
 /// Reusable buffers for `materialize_deferred_ctid`, avoiding per-batch allocations.
 #[derive(Default)]
 struct DeferredCtidMaterializationState {
-    output: Vec<Option<u64>>,
+    resolved_ctids: Vec<Option<u64>>,
     segment_doc_ids: Vec<DocId>,
     segment_ctids: Vec<Option<u64>>,
 }
@@ -978,8 +978,8 @@ fn materialize_deferred_ctid(
         .filter(|&i| !doc_addr_array.is_null(i))
         .map(|i| (i, doc_addr_array.value(i)));
 
-    state.output.clear();
-    state.output.resize(num_rows, None);
+    state.resolved_ctids.clear();
+    state.resolved_ctids.resize(num_rows, None);
 
     let num_segments = ffhelper.num_segments();
     for_each_segment(num_segments, packed_iter, |seg_ord, rows| {
@@ -993,12 +993,12 @@ fn materialize_deferred_ctid(
             .as_u64s(&state.segment_doc_ids, &mut state.segment_ctids);
 
         for ((row_idx, _), value) in rows.into_iter().zip(state.segment_ctids.iter()) {
-            state.output[row_idx] = *value;
+            state.resolved_ctids[row_idx] = *value;
         }
         Ok(())
     })?;
 
-    Ok(uint64_array_from_options(&state.output))
+    Ok(uint64_array_from_options(&state.resolved_ctids))
 }
 
 fn uint64_array_from_options(values: &[Option<u64>]) -> ArrayRef {

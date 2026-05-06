@@ -120,6 +120,10 @@ impl FFHelper {
                 .value(doc_address.doc_id),
         )
     }
+
+    pub fn num_segments(&self) -> usize {
+        self.segment_caches.len()
+    }
 }
 
 /// A macro to fetch values for the given ids into an Arrow array.
@@ -448,14 +452,14 @@ pub fn resolve_ctid(
 ///
 /// The `packed_iter` argument yields `(row_index, packed_doc_address)`
 pub fn for_each_segment<F>(
-    ffhelper: &FFHelper,
+    num_segments: usize,
     packed_iter: impl Iterator<Item = (usize, u64)>,
     mut process: F,
 ) -> Result<()>
 where
     F: FnMut(SegmentOrdinal, Vec<(usize, DocId)>) -> Result<()>,
 {
-    let mut by_seg: Vec<Vec<(usize, DocId)>> = vec![Vec::new(); ffhelper.segment_caches.len()];
+    let mut by_seg: Vec<Vec<(usize, DocId)>> = vec![Vec::new(); num_segments];
     for (row_idx, packed) in packed_iter {
         let (seg_ord, doc_id) = unpack_doc_address(packed);
         by_seg[seg_ord as usize].push((row_idx, doc_id));

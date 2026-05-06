@@ -283,6 +283,11 @@ impl ExecutionPlan for TantivyLookupExec {
     }
 }
 
+enum DeferredColumnKind {
+    Text { ff_index: usize },
+    Bytes { ff_index: usize },
+}
+
 fn enrich_batch(
     batch: RecordBatch,
     decoders: &[DecoderInfo],
@@ -313,14 +318,19 @@ fn enrich_batch(
                 ))
             })?;
 
+        let ffcolumn = if decoder.is_bytes {
+            DeferredColumnKind::Bytes {
+                ff_index: decoder.canonical.ff_index,
+            }
+        } else {
+            DeferredColumnKind::Text {
+                ff_index: decoder.canonical.ff_index,
+            }
+        };
+
         // Replace the raw UnionArray with the decoded String/Binary array
-        output_columns[decoder.col_idx] = materialize_deferred_column(
-            ffhelper,
-            union_array,
-            decoder.canonical.ff_index,
-            decoder.is_bytes,
-            num_rows,
-        )?;
+        output_columns[decoder.col_idx] =
+            materialize_deferred_column(ffhelper, &ffcolumn, union_array, num_rows)?;
     }
 
     RecordBatch::try_new(schema.clone(), output_columns)
@@ -335,11 +345,10 @@ type OrdsBySegment = std::collections::BTreeMap<SegmentOrdinal, Vec<(usize, Opti
 /// `(row_index, Option<TermOrdinal>)` pairs.
 fn resolve_doc_addresses_to_term_ords(
     ffhelper: &FFHelper,
+    ffcolumn: &DeferredColumnKind,
     union_array: &UnionArray,
     offsets: &[i32],
     state_0_rows: &[usize],
-    ff_index: usize,
-    is_bytes: bool,
 ) -> Result<OrdsBySegment> {
     let mut ords_by_seg: OrdsBySegment = Default::default();
     if state_0_rows.is_empty() {
@@ -363,13 +372,18 @@ fn resolve_doc_addresses_to_term_ords(
         let ids: Vec<DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
         let mut term_ords: Vec<Option<TermOrdinal>> = vec![None; ids.len()];
 
-        if is_bytes {
-            if let FFType::Bytes(bytes_col) = ffhelper.column(seg_ord, ff_index) {
-                bytes_col.ords().first_vals(&ids, &mut term_ords);
+        match ffcolumn {
+            DeferredColumnKind::Bytes { ff_index } => {
+                if let FFType::Bytes(bytes_col) = ffhelper.column(seg_ord, *ff_index) {
+                    bytes_col.ords().first_vals(&ids, &mut term_ords);
+                }
             }
-        } else if let FFType::Text(str_col) = ffhelper.column(seg_ord, ff_index) {
-            str_col.ords().first_vals(&ids, &mut term_ords);
-        }
+            DeferredColumnKind::Text { ff_index } => {
+                if let FFType::Text(str_col) = ffhelper.column(seg_ord, *ff_index) {
+                    str_col.ords().first_vals(&ids, &mut term_ords);
+                }
+            }
+        };
 
         let entry = ords_by_seg.entry(seg_ord).or_default();
         for ((row_idx, _), ord) in rows.into_iter().zip(term_ords) {
@@ -438,9 +452,8 @@ fn extract_term_ords(
 /// in `segment_arrays` and `indices` for later interleaving.
 fn decode_term_ordinals(
     ffhelper: &FFHelper,
+    ffcolumn: &DeferredColumnKind,
     ords_by_seg: OrdsBySegment,
-    ff_index: usize,
-    is_bytes: bool,
     segment_arrays: &mut Vec<ArrayRef>,
     indices: &mut [(usize, usize)],
 ) -> Result<()> {
@@ -449,25 +462,30 @@ fn decode_term_ordinals(
         let ords_array = UInt64Array::from(ords);
 
         // Perform a bulk dictionary lookup for the entire segment.
-        let array = if is_bytes {
-            if let FFType::Bytes(bytes_col) = ffhelper.column(seg_ord, ff_index) {
-                ords_to_bytes_array(bytes_col.clone(), &ords_array)
-            } else {
-                return Err(DataFusionError::Execution(format!(
-                    "Expected Bytes column for index {}",
-                    ff_index
-                )));
+        let array: Result<ArrayRef> = match ffcolumn {
+            DeferredColumnKind::Bytes { ff_index } => {
+                if let FFType::Bytes(bytes_col) = ffhelper.column(seg_ord, *ff_index) {
+                    ords_to_bytes_array(bytes_col.clone(), &ords_array)
+                } else {
+                    Err(DataFusionError::Execution(format!(
+                        "Expected Bytes column for index {}",
+                        ff_index
+                    )))
+                }
             }
-        } else if let FFType::Text(str_col) = ffhelper.column(seg_ord, ff_index) {
-            ords_to_string_array(str_col.clone(), &ords_array)
-        } else {
-            return Err(DataFusionError::Execution(format!(
-                "Expected Text column for index {}",
-                ff_index
-            )));
-        }?;
+            DeferredColumnKind::Text { ff_index } => {
+                if let FFType::Text(str_col) = ffhelper.column(seg_ord, *ff_index) {
+                    ords_to_string_array(str_col.clone(), &ords_array)
+                } else {
+                    Err(DataFusionError::Execution(format!(
+                        "Expected Text column for index {}",
+                        ff_index
+                    )))
+                }
+            }
+        };
 
-        segment_arrays.push(array);
+        segment_arrays.push(array?);
         let array_idx = segment_arrays.len() - 1;
 
         // Map the sorted, segment-local results back to their original row indices
@@ -489,9 +507,8 @@ fn decode_term_ordinals(
 /// original input row order.
 fn materialize_deferred_column(
     ffhelper: &FFHelper,
+    ffcolumn: &DeferredColumnKind,
     union_array: &UnionArray,
-    ff_index: usize,
-    is_bytes: bool,
     num_rows: usize,
 ) -> Result<ArrayRef> {
     // Dense union: each child is compact (contains only its type's rows).
@@ -520,11 +537,10 @@ fn materialize_deferred_column(
     // ordinals) into a unified collection of term ordinals grouped by segment
     let mut resolved_term_ords = resolve_doc_addresses_to_term_ords(
         ffhelper,
+        ffcolumn,
         union_array,
         offsets,
         &state_0_rows,
-        ff_index,
-        is_bytes,
     )?;
     let preresolved_term_ords = extract_term_ords(union_array, offsets, &state_1_rows)?;
     for (seg_ord, rows) in preresolved_term_ords {
@@ -534,9 +550,8 @@ fn materialize_deferred_column(
     // Step 2. Dictionary-decode the term ordinals all into string/bytes arrays.
     decode_term_ordinals(
         ffhelper,
+        ffcolumn,
         resolved_term_ords,
-        ff_index,
-        is_bytes,
         &mut segment_arrays,
         &mut indices,
     )?;
@@ -554,7 +569,7 @@ fn materialize_deferred_column(
     if segment_arrays.is_empty() {
         // All rows were somehow unhandled — return a null array of the right type.
         return Ok(new_null_array(
-            &if is_bytes {
+            &if matches!(ffcolumn, DeferredColumnKind::Bytes { ff_index: _ }) {
                 DataType::BinaryView
             } else {
                 DataType::Utf8View

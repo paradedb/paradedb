@@ -1156,11 +1156,23 @@ unsafe fn opexpr(
             attempt_pushdown,
         ),
 
-        pg_sys::NodeTag::T_FuncExpr => {
-            // direct support for pdb.score() in the WHERE clause
-            let funcexpr = nodecast!(FuncExpr, T_FuncExpr, lhs)?;
-            if !score_funcoids().contains(&(*funcexpr).funcid) {
-                return node_opexpr(
+        pg_sys::NodeTag::T_FuncExpr | pg_sys::NodeTag::T_PlaceHolderVar => {
+            if crate::postgres::utils::unwrap_search_operator(lhs, &score_funcoids()).is_some() {
+                state.uses_our_operator = true;
+
+                if is_complex(rhs) {
+                    return None;
+                }
+
+                return Some(Qual::ScoreExpr {
+                    opoid: opexpr.opno(),
+                    value: rhs,
+                });
+            }
+
+            // Not a score function - fall through to node_opexpr for FuncExpr or pushdown
+            if (*lhs).type_ == pg_sys::NodeTag::T_FuncExpr {
+                node_opexpr(
                     context,
                     rti,
                     ri_type,
@@ -1171,51 +1183,20 @@ unsafe fn opexpr(
                     rhs,
                     convert_external_to_special_qual,
                     attempt_pushdown,
-                );
-            }
-
-            state.uses_our_operator = true;
-
-            if is_complex(rhs) {
-                return None;
-            }
-
-            Some(Qual::ScoreExpr {
-                opoid: opexpr.opno(),
-                value: rhs,
-            })
-        }
-        pg_sys::NodeTag::T_PlaceHolderVar => {
-            // PlaceHolderVar may wrap a score function when the query has joins or aggregates.
-            // We need to unwrap it to check if it's a score expression.
-            let phv = nodecast!(PlaceHolderVar, T_PlaceHolderVar, lhs)?;
-            let phexpr = (*phv).phexpr;
-            if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, phexpr) {
-                if score_funcoids().contains(&(*funcexpr).funcid) {
-                    state.uses_our_operator = true;
-
-                    if is_complex(rhs) {
-                        return None;
-                    }
-
-                    return Some(Qual::ScoreExpr {
-                        opoid: opexpr.opno(),
-                        value: rhs,
-                    });
-                }
-            }
-            // Not a score function - fall through to pushdown
-            if attempt_pushdown {
-                try_pushdown(
-                    context,
-                    rti,
-                    opexpr,
-                    indexrel,
-                    state,
-                    convert_external_to_special_qual,
                 )
             } else {
-                None
+                if attempt_pushdown {
+                    try_pushdown(
+                        context,
+                        rti,
+                        opexpr,
+                        indexrel,
+                        state,
+                        convert_external_to_special_qual,
+                    )
+                } else {
+                    None
+                }
             }
         }
         pg_sys::NodeTag::T_OpExpr => node_opexpr(

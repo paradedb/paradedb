@@ -1362,3 +1362,85 @@ pub unsafe fn add_vars_to_tlist(expr: *mut pg_sys::Node, tlist: &mut PgList<pg_s
         }
     }
 }
+
+/// Unwraps `PlaceHolderVar` nodes (if any) and checks if the underlying node is a `FuncExpr`
+/// whose OID is present in `funcoids`. Returns the `FuncExpr` if it matches.
+pub unsafe fn unwrap_search_operator(
+    node: *mut pg_sys::Node,
+    funcoids: &[pg_sys::Oid],
+) -> Option<*mut pg_sys::FuncExpr> {
+    if node.is_null() {
+        return None;
+    }
+
+    let mut check_node = node;
+    if (*check_node).type_ == pg_sys::NodeTag::T_PlaceHolderVar {
+        let phv = check_node as *mut pg_sys::PlaceHolderVar;
+        check_node = (*phv).phexpr as *mut pg_sys::Node;
+    }
+
+    if (*check_node).type_ == pg_sys::NodeTag::T_FuncExpr {
+        let funcexpr = check_node as *mut pg_sys::FuncExpr;
+        if funcoids.contains(&(*funcexpr).funcid) {
+            return Some(funcexpr);
+        }
+    }
+    None
+}
+
+/// Helper function to inspect the parent plan's requirements (`processed_tlist`
+/// and `pathkeys`) and add any missing search operator function calls (like `pdb.score(...)`)
+/// into the CustomScan's targetlist.
+///
+/// This ensures that if the CustomScan is expected to output a score (or similar),
+/// it is actually present in its `targetlist` so the `Result` node can simply
+/// project it, rather than Postgres natively trying to execute the dummy function.
+pub unsafe fn add_missing_search_operators_to_tlist(
+    root: *mut pg_sys::PlannerInfo,
+    best_path: *mut pg_sys::Path,
+    tlist: &mut PgList<pg_sys::TargetEntry>,
+    search_operator_funcoids: [pg_sys::Oid; 2],
+) {
+    let mut add_missing_func = |expr: *mut pg_sys::Node| {
+        if unwrap_search_operator(expr, &search_operator_funcoids).is_none() {
+            return;
+        }
+
+        let already_present = tlist
+            .iter_ptr()
+            .any(|te| pg_sys::equal((*te).expr.cast(), expr.cast()));
+
+        if !already_present {
+            let resno = tlist.len() as pg_sys::AttrNumber + 1;
+            let te = pg_sys::makeTargetEntry(
+                pg_sys::copyObjectImpl(expr.cast()).cast(),
+                resno,
+                std::ptr::null_mut(),
+                true, // resjunk
+            );
+            tlist.push(te);
+        }
+    };
+
+    // Look in processed_tlist
+    if !(*root).processed_tlist.is_null() {
+        let p_tlist = PgList::<pg_sys::TargetEntry>::from_pg((*root).processed_tlist);
+        for te in p_tlist.iter_ptr() {
+            add_missing_func((*te).expr.cast());
+        }
+    }
+
+    // Look in pathkeys
+    if !best_path.is_null() && !(*best_path).pathkeys.is_null() {
+        let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*best_path).pathkeys);
+        for pk in pathkeys.iter_ptr() {
+            let eclass = (*pk).pk_eclass;
+            if !eclass.is_null() {
+                let members = PgList::<pg_sys::EquivalenceMember>::from_pg((*eclass).ec_members);
+                for em in members.iter_ptr() {
+                    add_missing_func((*em).em_expr.cast());
+                }
+            }
+        }
+    }
+}

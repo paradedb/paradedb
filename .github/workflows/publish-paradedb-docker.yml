@@ -59,21 +59,27 @@ jobs:
             echo "matrix=${{ github.event.inputs.pg_version || '[15, 16, 17, 18]' }}" >> $GITHUB_OUTPUT
           fi
 
-  publish-paradedb-docker-image:
-    name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }}
+  generate-dockerfiles:
+    name: Generate Dockerfiles
     runs-on: ubuntu-latest
     needs: set-matrix
-    strategy:
-      matrix:
-        pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
-    env:
-      default_pg_version: 18
-
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      branch: ${{ steps.generated_branch.outputs.branch }}
     steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.PARADEDB_GITHUB_APP_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+
       - name: Checkout Git Repository
         uses: actions/checkout@v6
         with:
           ref: ${{ github.event.workflow_run.head_branch || github.ref }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Retrieve GitHub Release Version
         id: version
@@ -100,12 +106,49 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
+      - name: Generate Dockerfiles
+        run: docker/generate-dockerfiles.sh "${{ steps.version.outputs.version }}"
+
+      - name: Commit Generated Dockerfiles
+        id: generated_branch
+        run: |
+          BRANCH="update-dockerfiles/${{ steps.version.outputs.tag }}"
+          git checkout -B "$BRANCH"
+          git config user.name "paradedb-github-app[bot]"
+          git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"
+          git add docker
+          if git diff --cached --quiet; then
+            echo "No generated Dockerfile changes to commit."
+          else
+            git commit -m "Generate Dockerfiles for ${{ steps.version.outputs.tag }}"
+          fi
+          git push origin "$BRANCH"
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+
+  publish-paradedb-docker-image:
+    name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }}
+    runs-on: ubuntu-latest
+    needs:
+      - set-matrix
+      - generate-dockerfiles
+    strategy:
+      matrix:
+        pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
+    env:
+      default_pg_version: 18
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.generate-dockerfiles.outputs.branch }}
+
       - name: Determine if Release Should be Marked as Latest
         id: release_latest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          current_tag_version="${{ steps.version.outputs.version }}"
+          current_tag_version="${{ needs.generate-dockerfiles.outputs.version }}"
           latest_tag_version=$(gh release list --jq '.[] | select(.isLatest == true) | .name' --json=name,isLatest | sed 's/^v//')
           echo "Current latest release is $latest_tag_version"
           echo "Current version to be released is $current_tag_version"
@@ -146,13 +189,13 @@ jobs:
         with:
           images: paradedb/paradedb
           tags: |
-            type=raw,value=${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}
-            type=raw,value=${{ steps.version.outputs.tag }}-pg${{ matrix.pg_version }}
-            type=raw,value=${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}
-            type=raw,value=${{ steps.version.outputs.tag }},enable=${{ matrix.pg_version == env.default_pg_version }}
-            type=raw,value=${{ steps.version.outputs.version }},enable=${{ matrix.pg_version == env.default_pg_version }}
-            type=raw,value=latest-pg${{ matrix.pg_version }},enable=${{ steps.release_latest.outputs.is_latest == 'true' && !contains(steps.version.outputs.tag, '-rc.') }}
-            type=raw,value=latest,enable=${{ matrix.pg_version == env.default_pg_version && steps.release_latest.outputs.is_latest == 'true' && !contains(steps.version.outputs.tag, '-rc.') }}
+            type=raw,value=${{ matrix.pg_version }}-${{ needs.generate-dockerfiles.outputs.tag }}
+            type=raw,value=${{ needs.generate-dockerfiles.outputs.tag }}-pg${{ matrix.pg_version }}
+            type=raw,value=${{ needs.generate-dockerfiles.outputs.version }}-pg${{ matrix.pg_version }}
+            type=raw,value=${{ needs.generate-dockerfiles.outputs.tag }},enable=${{ matrix.pg_version == env.default_pg_version }}
+            type=raw,value=${{ needs.generate-dockerfiles.outputs.version }},enable=${{ matrix.pg_version == env.default_pg_version }}
+            type=raw,value=latest-pg${{ matrix.pg_version }},enable=${{ steps.release_latest.outputs.is_latest == 'true' && !contains(needs.generate-dockerfiles.outputs.tag, '-rc.') }}
+            type=raw,value=latest,enable=${{ matrix.pg_version == env.default_pg_version && steps.release_latest.outputs.is_latest == 'true' && !contains(needs.generate-dockerfiles.outputs.tag, '-rc.') }}
 
       - name: Login to Docker Hub
         uses: docker/login-action@v4

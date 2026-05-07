@@ -52,9 +52,9 @@ static ENABLE_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Allows the user to enable or disable the ColumnarExecState executor. Default is `true`.
 static ENABLE_COLUMNAR_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// Allows the user to enable or disable sorted execution for ColumnarExecState.
-/// When disabled, sorted paths will not be created even if the index has sort_by.
-static ENABLE_COLUMNAR_SORT: GucSetting<bool> = GucSetting::<bool>::new(true);
+/// When enabled, columnar scans use the index sort order if the query's ORDER BY matches the index's sort_by configuration.
+/// Defaults to false due to stability issues (see https://github.com/paradedb/paradedb/issues/4293).
+static ENABLE_COLUMNAR_SORT: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// In a Top K query, the limit is multiplied by this factor to determine the chunk size.
 static LIMIT_FETCH_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(1.0);
@@ -279,12 +279,12 @@ pub fn init() {
 
     GucRegistry::define_bool_guc(
         c"paradedb.enable_columnar_sort",
-        c"Enable sorted execution for ColumnarExecState",
-        c"Enable sorted execution for ColumnarExecState when the index has sort_by and the query ORDER BY matches the prefix. Disabling this forces unsorted execution.",
-                &ENABLE_COLUMNAR_SORT,
-                GucContext::Userset,
-                GucFlags::default(),
-            );
+        c"Enable sorted execution for columnar scans",
+        c"When enabled, columnar scans use the index sort order if the query's ORDER BY or join keys match the index's sort_by configuration. This also enables SortMergeJoin for joins on sorted index fields. Default is false.",
+        &ENABLE_COLUMNAR_SORT,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 
     GucRegistry::define_int_guc(
                 COLUMNAR_EXEC_COLUMN_THRESHOLD_NAME,        c"Threshold of fetched columns below which ColumnarExecState will be used.",

@@ -29,15 +29,15 @@ export RUST_BACKTRACE=1
 echo ""
 echo "Waiting for ParadeDB primary to be reachable..."
 for i in $(seq 1 120); do
-    if psql "$DATABASE_URL" -tAXc 'SELECT 1' >/dev/null 2>&1; then
-        echo "ParadeDB primary reachable after ${i}s."
-        break
-    fi
-    if [ "$i" -eq 120 ]; then
-        echo "ERROR: ParadeDB primary unreachable after 120s, exiting." >&2
-        exit 1
-    fi
-    sleep 1
+  if psql "$DATABASE_URL" -tAXc 'SELECT 1' >/dev/null 2>&1; then
+    echo "ParadeDB primary reachable after ${i}s."
+    break
+  fi
+  if [ "$i" -eq 120 ]; then
+    echo "ERROR: ParadeDB primary unreachable after 120s, exiting." >&2
+    exit 1
+  fi
+  sleep 1
 done
 
 echo ""

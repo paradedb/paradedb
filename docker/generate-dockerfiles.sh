@@ -17,6 +17,7 @@ fi
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 versions=(15 16 17 18)
+latest_version=${versions[${#versions[@]} - 1]}
 PG_SEARCH_VERSION="${1}"
 
 tmp_dir="$(mktemp -d)"
@@ -68,6 +69,8 @@ for pg_version in "${versions[@]}"; do
   pg_search_deb_arm64_sha256="$(fetch_checksum "$pg_version" arm64)"
 
   render paradedb "$pg_version" "$pg_search_deb_amd64_sha256" "$pg_search_deb_arm64_sha256"
-  render antithesis "$pg_version" "$pg_search_deb_amd64_sha256" "$pg_search_deb_arm64_sha256"
   render official "$pg_version" "$pg_search_deb_amd64_sha256" "$pg_search_deb_arm64_sha256"
+  if [[ $pg_version -eq $latest_version ]]; then
+    render antithesis "$pg_version" "$pg_search_deb_amd64_sha256" "$pg_search_deb_arm64_sha256"
+  fi
 done

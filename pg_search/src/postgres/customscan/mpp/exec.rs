@@ -24,6 +24,13 @@
 //!   The leader is consumer-only in this iteration (see
 //!   [`crate::postgres::customscan::mpp::glue::producer_worker_count`]);
 //!   leader-as-worker-0 is a deferred follow-up.
+//! - [`run_inner_producer_fragment`] — peer-mesh push loop for the post-
+//!   aggregate two-boundary plan (Track A/B). Runs every output partition
+//!   of `plan` concurrently and routes each batch with a partition-tagged
+//!   frame to the right peer-mesh outbound sender. Used in tandem with
+//!   `run_producer_fragment` running the OUTER (worker→leader) fragment;
+//!   both share the worker's current_thread Tokio runtime and interleave
+//!   on the cooperative drain.
 
 use std::sync::Arc;
 
@@ -80,6 +87,77 @@ pub async fn run_producer_fragment(
     }
     futures::future::try_join_all(futures).await?;
     // Drop senders so peers observe Detached on their next try_recv.
+    drop(senders);
+    Ok(())
+}
+
+/// Run the inner producer fragment for the peer-mesh post-aggregate shuffle.
+///
+/// The plan's `output_partitioning` is the *scaled* hash count (`n_consumers²`
+/// after the fork's `RepartitionExec` rewrite). Each output partition `j` is
+/// destined for consumer task `j / partitions_per_consumer`, which equals
+/// `j / n_consumers` (since the fork scales by `consumer_tc = n_consumers`).
+/// The batch is sent through `peer_outbound[consumer]` with the framed tag
+/// `j` so the consumer side's `DemuxDrainHandle` routes it to the right
+/// partition's sub-buffer.
+///
+/// `peer_outbound.len()` must equal `n_consumers`. The plan's output
+/// partition count must be `n_consumers² / 1` (= scaled), which we verify
+/// at entry.
+pub async fn run_inner_producer_fragment(
+    plan: Arc<dyn ExecutionPlan>,
+    peer_outbound: Vec<MppSender>,
+    n_consumers: usize,
+    ctx: Arc<TaskContext>,
+) -> Result<()> {
+    let n_partitions = plan.output_partitioning().partition_count();
+    if peer_outbound.len() != n_consumers {
+        return Err(DataFusionError::Internal(format!(
+            "run_inner_producer_fragment: expected {n_consumers} peer-outbound senders, got {}",
+            peer_outbound.len()
+        )));
+    }
+    if n_consumers == 0 || !n_partitions.is_multiple_of(n_consumers) {
+        return Err(DataFusionError::Internal(format!(
+            "run_inner_producer_fragment: plan has {n_partitions} output partitions, \
+             not divisible by {n_consumers} consumers"
+        )));
+    }
+    let partitions_per_consumer = n_partitions / n_consumers;
+
+    // Each consumer column of the peer mesh is one MppSender; multiple
+    // futures push through it concurrently, demuxing on the consumer side
+    // by the per-batch partition tag. Senders are `Arc<MppSender>` so each
+    // future holds a shared reference; concurrent calls to
+    // `send_batch_traced_framed` are scratch-buffer-safe (the inner
+    // `RefCell::replace` rotates buffers atomically) on a single-threaded
+    // Tokio runtime.
+    let senders: Vec<Arc<MppSender>> = peer_outbound.into_iter().map(Arc::new).collect();
+
+    let mut futures = Vec::with_capacity(n_partitions);
+    for partition in 0..n_partitions {
+        let consumer = partition / partitions_per_consumer;
+        let sender = Arc::clone(&senders[consumer]);
+        let plan = Arc::clone(&plan);
+        let ctx = Arc::clone(&ctx);
+        let tag = partition as u32;
+        futures.push(async move {
+            let mut stream = plan.execute(partition, ctx)?;
+            let mut stats = SendBatchStats::default();
+            while let Some(batch) = stream.next().await {
+                let batch = batch?;
+                if batch.num_rows() == 0 {
+                    continue;
+                }
+                sender
+                    .as_ref()
+                    .send_batch_traced_framed(tag, &batch, &mut stats)
+                    .await?;
+            }
+            Ok::<(), DataFusionError>(())
+        });
+    }
+    futures::future::try_join_all(futures).await?;
     drop(senders);
     Ok(())
 }

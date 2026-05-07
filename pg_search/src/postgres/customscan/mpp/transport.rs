@@ -75,6 +75,70 @@ pub fn decode_batch(bytes: &[u8]) -> Result<RecordBatch, DataFusionError> {
     Ok(batch)
 }
 
+/// Wire-format primitive: a single tagged framed batch on a `BatchChannel`.
+///
+/// Layout (little-endian):
+///
+/// ```text
+///   +--------- 12 bytes ---------+
+///   | u32 magic = MPP_FRAME_MAGIC |
+///   | u32 tag                     |
+///   | u32 ipc_len                 |
+///   +------- ipc_len bytes ------+
+///   | Arrow IPC stream           |
+///   +-----------------------------+
+/// ```
+///
+/// The `tag` is an arbitrary routing key the consumer demuxes against.
+/// First user is the peer-mesh post-aggregate shuffle, where `tag = partition_id`
+/// so each `NetworkShuffleExec.execute(p)` call gets the right partition's
+/// batches. Future users can carry any other u32 routing key (stage_id,
+/// query_id, …) over the same primitive without changing the wire format.
+pub const MPP_FRAME_MAGIC: u32 = 0x4D50_4646; // "MPPF"
+pub const FRAME_HEADER_BYTES: usize = 12;
+
+/// Frame `ipc_bytes` with `tag` into `buf`, ready for [`BatchChannelSender::send_bytes`].
+/// Buf is cleared first so the caller's already-allocated capacity is reused.
+///
+/// Public utility for callers that want framing without going through
+/// [`MppSender::send_batch_traced_framed`] (e.g. tests pushing raw bytes
+/// through an in-proc channel).
+#[allow(dead_code)] // exposed as a primitive; tests + external callers use it.
+pub fn frame_into(tag: u32, ipc_bytes: &[u8], buf: &mut Vec<u8>) {
+    buf.clear();
+    buf.reserve(ipc_bytes.len() + FRAME_HEADER_BYTES);
+    buf.extend_from_slice(&MPP_FRAME_MAGIC.to_le_bytes());
+    buf.extend_from_slice(&tag.to_le_bytes());
+    buf.extend_from_slice(&(ipc_bytes.len() as u32).to_le_bytes());
+    buf.extend_from_slice(ipc_bytes);
+}
+
+/// Parse a framed message produced by [`frame_into`]. Returns `(tag, ipc_bytes)`.
+pub fn parse_frame(bytes: &[u8]) -> Result<(u32, &[u8]), DataFusionError> {
+    if bytes.len() < FRAME_HEADER_BYTES {
+        return Err(DataFusionError::Execution(format!(
+            "mpp: framed message too short: {} bytes, expected at least {}",
+            bytes.len(),
+            FRAME_HEADER_BYTES
+        )));
+    }
+    let magic = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
+    if magic != MPP_FRAME_MAGIC {
+        return Err(DataFusionError::Execution(format!(
+            "mpp: framed message magic mismatch: got 0x{magic:08x}, expected 0x{MPP_FRAME_MAGIC:08x}"
+        )));
+    }
+    let tag = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+    let ipc_len = u32::from_le_bytes(bytes[8..12].try_into().unwrap()) as usize;
+    if bytes.len() != FRAME_HEADER_BYTES + ipc_len {
+        return Err(DataFusionError::Execution(format!(
+            "mpp: framed message length mismatch: ipc_len={ipc_len}, body_len={}",
+            bytes.len() - FRAME_HEADER_BYTES
+        )));
+    }
+    Ok((tag, &bytes[FRAME_HEADER_BYTES..]))
+}
+
 /// Local queue that sits between the drain thread and the DataFusion consumer.
 ///
 /// Push side: the drain thread appends fully-deserialized batches as they arrive
@@ -350,6 +414,56 @@ impl MppSender {
         result
     }
 
+    /// Tagged-frame variant of [`Self::send_batch_traced`]. Frames the
+    /// encoded batch with `[MAGIC][tag][ipc_len][ipc_bytes]` and pushes the
+    /// framed bytes through the underlying channel. The receiving end uses
+    /// [`MppReceiver::try_recv_framed`] + [`DemuxDrainHandle`] to route
+    /// batches to per-tag sub-buffers.
+    ///
+    /// First caller is the peer-mesh post-aggregate shuffle (tag =
+    /// partition_id), but the framing is generic over any u32 routing key.
+    pub async fn send_batch_traced_framed(
+        &self,
+        tag: u32,
+        batch: &RecordBatch,
+        stats: &mut SendBatchStats,
+    ) -> Result<(), DataFusionError> {
+        let mut scratch = self.scratch.replace(Vec::new());
+        let result = self
+            .send_framed_with_scratch(tag, batch, &mut scratch, stats)
+            .await;
+        self.scratch.replace(scratch);
+        result
+    }
+
+    async fn send_framed_with_scratch(
+        &self,
+        tag: u32,
+        batch: &RecordBatch,
+        scratch: &mut Vec<u8>,
+        stats: &mut SendBatchStats,
+    ) -> Result<(), DataFusionError> {
+        let t_enc = Instant::now();
+        // Reserve the 12-byte frame header at the start of `scratch` and
+        // write the IPC stream directly after, so we frame in one pass with
+        // no extra allocation. `ipc_len` is patched in afterwards now that
+        // the IPC encoder has finished.
+        scratch.clear();
+        scratch.extend_from_slice(&MPP_FRAME_MAGIC.to_le_bytes());
+        scratch.extend_from_slice(&tag.to_le_bytes());
+        scratch.extend_from_slice(&[0u8; 4]); // placeholder for ipc_len
+        let ipc_start = scratch.len();
+        {
+            let mut writer = StreamWriter::try_new(&mut *scratch, batch.schema_ref())?;
+            writer.write(batch)?;
+            writer.finish()?;
+        }
+        let ipc_len = (scratch.len() - ipc_start) as u32;
+        scratch[8..12].copy_from_slice(&ipc_len.to_le_bytes());
+        stats.encode += t_enc.elapsed();
+        self.send_scratch_via_channel(scratch, stats).await
+    }
+
     async fn send_with_scratch(
         &self,
         batch: &RecordBatch,
@@ -359,6 +473,17 @@ impl MppSender {
         let t_enc = Instant::now();
         encode_batch_into(batch, scratch)?;
         stats.encode += t_enc.elapsed();
+        self.send_scratch_via_channel(scratch, stats).await
+    }
+
+    /// Push the already-prepared `scratch` through the channel, with the
+    /// cooperative-drain spin reused by both the plain and the framed send
+    /// paths.
+    async fn send_scratch_via_channel(
+        &self,
+        scratch: &[u8],
+        stats: &mut SendBatchStats,
+    ) -> Result<(), DataFusionError> {
         let Some(drain) = self.cooperative_drain.as_ref() else {
             // No drain attached (unit tests, in-proc channels): fall
             // back to the blocking send path.
@@ -458,6 +583,33 @@ impl MppReceiver {
             RecvOutcome::Detached => RecvBatchOutcome::Detached,
         }
     }
+
+    /// Receive one tagged framed message produced by
+    /// [`MppSender::send_batch_traced_framed`]. Returns `(tag, batch)` when
+    /// a frame is available; `Empty` when nothing is queued; `Detached`
+    /// when the peer is gone; `Error` on a malformed frame.
+    pub fn try_recv_framed(&self) -> RecvFramedOutcome {
+        match self.channel.try_recv() {
+            RecvOutcome::Bytes(bytes) => match parse_frame(&bytes) {
+                Ok((tag, ipc_bytes)) => match decode_batch(ipc_bytes) {
+                    Ok(batch) => RecvFramedOutcome::Frame(tag, batch),
+                    Err(e) => RecvFramedOutcome::Error(e),
+                },
+                Err(e) => RecvFramedOutcome::Error(e),
+            },
+            RecvOutcome::Empty => RecvFramedOutcome::Empty,
+            RecvOutcome::Detached => RecvFramedOutcome::Detached,
+        }
+    }
+}
+
+/// Decoded result of an [`MppReceiver::try_recv_framed`].
+#[derive(Debug)]
+pub enum RecvFramedOutcome {
+    Frame(u32, RecordBatch),
+    Empty,
+    Detached,
+    Error(DataFusionError),
 }
 
 /// Decoded result of an [`MppReceiver::try_recv_batch`].
@@ -666,6 +818,88 @@ impl Drop for DrainHandle {
     }
 }
 
+/// Cooperative drain handle that demuxes tagged framed messages into
+/// per-tag sub-buffers.
+///
+/// Parallel to [`DrainHandle::cooperative`] but for channels carrying
+/// [`MppSender::send_batch_traced_framed`] frames. Each `poll_drain_pass`
+/// pulls one frame from each receiver, parses the [`parse_frame`] tag, and
+/// pushes the decoded `RecordBatch` into `buffers[tag as usize]`. When a
+/// receiver detaches, every sub-buffer's source-done counter is incremented
+/// (each receiver is a single source for *all* tags), so once every receiver
+/// has detached, every sub-buffer signals EOF.
+///
+/// First user is the peer-mesh post-aggregate shuffle in
+/// [`crate::postgres::customscan::mpp::runtime::ShmMqPeerWorkerTransport`].
+pub struct DemuxDrainHandle {
+    buffers: Vec<Arc<DrainBuffer>>,
+    coop_receivers: Mutex<Option<Vec<Option<MppReceiver>>>>,
+}
+
+impl DemuxDrainHandle {
+    /// Build a cooperative demux handle. Each sub-buffer is sized to expect
+    /// `receivers.len()` source detachments before signalling EOF (every
+    /// receiver may push frames for any tag).
+    pub fn cooperative(receivers: Vec<MppReceiver>, n_tags: u32) -> Self {
+        let n_sources = receivers.len() as u32;
+        let buffers: Vec<Arc<DrainBuffer>> =
+            (0..n_tags).map(|_| DrainBuffer::new(n_sources)).collect();
+        let wrapped = receivers.into_iter().map(Some).collect();
+        Self {
+            buffers,
+            coop_receivers: Mutex::new(Some(wrapped)),
+        }
+    }
+
+    /// Sub-buffer for tag `t`. Consumers (e.g.,
+    /// `ShmMqPeerWorkerConnection::stream_partition`) pop from this buffer
+    /// to receive only the frames addressed to the given tag.
+    pub fn buffer(&self, tag: u32) -> Option<&Arc<DrainBuffer>> {
+        self.buffers.get(tag as usize)
+    }
+
+    /// One pass of the cooperative drain. Pulls up to one frame per
+    /// receiver, parses the tag, and routes the batch to the corresponding
+    /// sub-buffer.
+    pub fn poll_drain_pass(&self) -> Result<(), DataFusionError> {
+        let mut guard = self.coop_receivers.lock().unwrap();
+        let Some(receivers) = guard.as_mut() else {
+            return Ok(());
+        };
+        for slot in receivers.iter_mut() {
+            let Some(recv) = slot.as_ref() else { continue };
+            match recv.try_recv_framed() {
+                RecvFramedOutcome::Frame(tag, batch) => {
+                    let Some(buf) = self.buffers.get(tag as usize) else {
+                        return Err(DataFusionError::Execution(format!(
+                            "mpp: framed message tag={tag} >= n_tags={}",
+                            self.buffers.len()
+                        )));
+                    };
+                    buf.push_batch(batch);
+                }
+                RecvFramedOutcome::Empty => {}
+                RecvFramedOutcome::Detached => {
+                    for buf in &self.buffers {
+                        buf.notify_source_done();
+                    }
+                    *slot = None;
+                }
+                RecvFramedOutcome::Error(e) => return Err(e),
+            }
+        }
+        Ok(())
+    }
+}
+
+impl std::fmt::Debug for DemuxDrainHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DemuxDrainHandle")
+            .field("n_tags", &self.buffers.len())
+            .finish()
+    }
+}
+
 #[cfg(test)]
 fn drain_loop(config: DrainConfig) -> Result<(), DataFusionError> {
     let DrainConfig {
@@ -793,6 +1027,96 @@ mod tests {
         // Equality across the whole batch
         for col in 0..orig.num_columns() {
             assert_eq!(orig.column(col).as_ref(), decoded.column(col).as_ref());
+        }
+    }
+
+    #[test]
+    fn frame_round_trips_tag_and_payload() {
+        let ipc = encode_batch(&sample_batch(11)).expect("encode");
+        let mut framed = Vec::new();
+        frame_into(7, &ipc, &mut framed);
+        let (tag, body) = parse_frame(&framed).expect("parse");
+        assert_eq!(tag, 7);
+        assert_eq!(body, ipc.as_slice());
+        let decoded = decode_batch(body).expect("decode");
+        assert_eq!(decoded.num_rows(), 11);
+    }
+
+    #[test]
+    fn parse_frame_rejects_wrong_magic() {
+        let mut bytes = vec![0u8; FRAME_HEADER_BYTES];
+        bytes[0..4].copy_from_slice(&0xDEAD_BEEFu32.to_le_bytes());
+        assert!(parse_frame(&bytes).is_err());
+    }
+
+    #[test]
+    fn parse_frame_rejects_short_body() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&MPP_FRAME_MAGIC.to_le_bytes());
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // tag
+        bytes.extend_from_slice(&100u32.to_le_bytes()); // claims 100 bytes
+        bytes.extend_from_slice(&[0u8; 10]); // but only 10
+        assert!(parse_frame(&bytes).is_err());
+    }
+
+    #[test]
+    fn demux_drain_handle_routes_by_tag() {
+        // Two senders push frames with different tags; drain handle
+        // demuxes into per-tag buffers.
+        let (s0, r0) = in_proc_channel(64);
+        let (s1, r1) = in_proc_channel(64);
+        let receivers = vec![
+            MppReceiver::new(Box::new(r0)),
+            MppReceiver::new(Box::new(r1)),
+        ];
+        let demux = DemuxDrainHandle::cooperative(receivers, 4);
+
+        // Build framed messages directly through the underlying channel.
+        let ipc_a = encode_batch(&sample_batch(2)).unwrap();
+        let ipc_b = encode_batch(&sample_batch(3)).unwrap();
+        let mut buf = Vec::new();
+        frame_into(0, &ipc_a, &mut buf);
+        s0.send_bytes(&buf).unwrap();
+        frame_into(2, &ipc_b, &mut buf);
+        s1.send_bytes(&buf).unwrap();
+
+        // Drain twice (one frame per receiver per pass).
+        demux.poll_drain_pass().unwrap();
+
+        match demux.buffer(0).unwrap().try_pop() {
+            Some(DrainItem::Batch(b)) => assert_eq!(b.num_rows(), 2),
+            other => panic!("tag 0: expected Batch, got {other:?}"),
+        }
+        match demux.buffer(2).unwrap().try_pop() {
+            Some(DrainItem::Batch(b)) => assert_eq!(b.num_rows(), 3),
+            other => panic!("tag 2: expected Batch, got {other:?}"),
+        }
+        // Untagged buffers stay empty.
+        assert!(demux.buffer(1).unwrap().try_pop().is_none());
+        assert!(demux.buffer(3).unwrap().try_pop().is_none());
+    }
+
+    #[test]
+    fn demux_drain_handle_signals_eof_after_all_detach() {
+        let (s0, r0) = in_proc_channel(8);
+        let (s1, r1) = in_proc_channel(8);
+        let receivers = vec![
+            MppReceiver::new(Box::new(r0)),
+            MppReceiver::new(Box::new(r1)),
+        ];
+        let demux = DemuxDrainHandle::cooperative(receivers, 2);
+
+        drop(s0);
+        drop(s1);
+        // Drain twice so each receiver's detach is observed.
+        demux.poll_drain_pass().unwrap();
+        demux.poll_drain_pass().unwrap();
+
+        for tag in 0..2 {
+            match demux.buffer(tag).unwrap().try_pop() {
+                Some(DrainItem::Eof) => {}
+                other => panic!("tag {tag}: expected Eof, got {other:?}"),
+            }
         }
     }
 

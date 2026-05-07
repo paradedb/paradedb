@@ -1089,7 +1089,9 @@ impl AggregateScan {
             .with_distributed_task_estimator(n_workers)
             .with_distributed_broadcast_joins(true)
             .expect("with_distributed_broadcast_joins")
-            .with_distributed_user_codec(PgSearchPhysicalCodecStub)
+            .with_distributed_in_process_peer_shuffle(crate::gucs::enable_mpp_postagg_shuffle())
+            .expect("with_distributed_in_process_peer_shuffle")
+            .with_distributed_user_codec(crate::scan::codec::PgSearchPhysicalCodecStub)
             .with_distributed_planner();
         datafusion::prelude::SessionContext::new_with_state(state_builder.build())
     }
@@ -1143,9 +1145,16 @@ impl AggregateScan {
         // its hash to mpp_n_partitions × mpp_n_partitions = 81 partitions.
         let n_workers = worker.participant_config.total_participants;
         let worker_idx_for_cache = worker.participant_config.participant_index;
-        let outbound_senders: Vec<MppSender> = match df_state.mpp.as_mut() {
-            Some(scan_state::MppExecState::Worker(w)) => std::mem::take(&mut w.outbound_senders),
-            _ => unreachable!(),
+        let outbound_senders: Vec<crate::postgres::customscan::mpp::transport::MppSender> =
+            match df_state.mpp.as_mut() {
+                Some(scan_state::MppExecState::Worker(w)) => {
+                    std::mem::take(&mut w.outbound_senders)
+                }
+                _ => unreachable!(),
+            };
+        let peer_mesh = match df_state.mpp.as_ref() {
+            Some(scan_state::MppExecState::Worker(w)) => w.peer_mesh.as_ref().map(Arc::clone),
+            _ => None,
         };
 
         let runtime = match tokio::runtime::Builder::new_current_thread()
@@ -1207,28 +1216,55 @@ impl AggregateScan {
         // `build_mpp_leader_session_context`); otherwise the worker re-plans
         // a different shape and `find_worker_fragment` returns None.
         let n_workers_us = n_workers as usize;
+        // Stamp DistributedTaskContext { task_index, task_count } so the fork's
+        // NetworkShuffleExec.execute computes per-task partition slices correctly.
+        // Without this, every worker reads off=0 and produces all N global
+        // partitions itself, so workers send duplicate data to the leader.
+        let task_ctx_ext = std::sync::Arc::new(datafusion_distributed::DistributedTaskContext {
+            task_index: worker_idx_for_cache as usize,
+            task_count: n_workers_us,
+        });
         let cfg = ctx
             .copied_config()
-            .with_target_partitions(n_workers_us.max(2));
+            .with_target_partitions(n_workers_us.max(2))
+            .with_extension(task_ctx_ext);
+        use datafusion::execution::SessionStateBuilder;
+        use datafusion_distributed::SessionStateBuilderExt;
         let state_builder = SessionStateBuilder::new()
             .with_default_features()
             .with_config(cfg)
-            .with_distributed_worker_resolver(MppWorkerResolver::new(n_workers_us))
-            // Workers may encounter nested network boundaries inside the
-            // producer fragment (e.g. a `NetworkBroadcastExec` on the build
-            // side of a `HashJoin`). Without a transport registered, the
-            // default `FlightWorkerTransport` would try to dial the empty
-            // URL and error out. The `LocalExecWorkerTransport` re-executes
-            // the boundary's input subtree locally — duplicates the build
-            // scan across workers, but for small index scans that's cheap
-            // and keeps the in-process design self-contained.
-            .with_distributed_worker_transport(LocalExecWorkerTransport)
+            .with_distributed_worker_resolver(
+                crate::postgres::customscan::mpp::runtime::MppWorkerResolver::new(n_workers_us),
+            )
+            // Workers may encounter two kinds of nested network boundaries
+            // inside the producer fragment:
+            //   1. `NetworkBroadcastExec` on the build side of a HashJoin —
+            //      input_stage.tasks.len() == 1, no peer mesh needed; the
+            //      composite routes to `LocalExecWorkerTransport` which
+            //      re-executes the build subtree locally.
+            //   2. `NetworkShuffleExec` for the post-agg peer mesh (Track B,
+            //      gated by `enable_mpp_postagg_shuffle`) — input_stage.tasks
+            //      .len() == n_workers > 1; the composite routes to
+            //      `ShmMqPeerWorkerTransport` which streams from the peer
+            //      mesh column for this worker.
+            // When the GUC is off, no peer mesh was reserved at DSM init
+            // time and `peer_mesh` is `None`; `tasks.len() > 1` paths then
+            // surface an internal error (currently unreachable because the
+            // fork only emits the inner peer-mesh boundary when the flag
+            // is on, and the build-side broadcast keeps tasks.len() == 1).
+            .with_distributed_worker_transport(
+                crate::postgres::customscan::mpp::runtime::CompositeWorkerTransport::new(
+                    peer_mesh.clone(),
+                ),
+            )
             .with_distributed_in_process_mode(true)
             .expect("with_distributed_in_process_mode")
             .with_distributed_task_estimator(n_workers_us)
             .with_distributed_broadcast_joins(true)
             .expect("with_distributed_broadcast_joins")
-            .with_distributed_user_codec(PgSearchPhysicalCodecStub)
+            .with_distributed_in_process_peer_shuffle(crate::gucs::enable_mpp_postagg_shuffle())
+            .expect("with_distributed_in_process_peer_shuffle")
+            .with_distributed_user_codec(crate::scan::codec::PgSearchPhysicalCodecStub)
             .with_distributed_planner();
         let session_state = state_builder.build();
         let session = datafusion::prelude::SessionContext::new_with_state(session_state);
@@ -1268,10 +1304,74 @@ impl AggregateScan {
             unsafe { pg_sys::work_mem as usize * 1024 },
             unsafe { pg_sys::hash_mem_multiplier },
         );
-        let result = runtime
-            .block_on(async { run_producer_fragment(fragment, outbound_senders, task_ctx).await });
+
+        // Two-boundary mode (Track A + Track B): spawn the inner peer-mesh
+        // producer fragment alongside the outer worker→leader fragment.
+        // The inner fragment pushes hash-partitioned partial-agg rows into
+        // peer_outbound (tagged by partition_id); the outer fragment runs
+        // FinalPartitioned by pulling from the peer mesh and pushes the
+        // final-aggregated rows into the leader-bound mesh.
+        //
+        // Detection: a two-boundary plan has 2+ NetworkShuffleExec nodes
+        // (the OUTER gather + the INNER peer-mesh) AND a registered peer
+        // mesh on the worker side. Single-boundary plans have exactly one
+        // NetworkShuffleExec and no peer mesh.
+        let inner_fragment =
+            if peer_mesh.is_some() && Self::count_network_shuffles(&physical_plan) >= 2 {
+                Self::find_inner_producer_fragment(&physical_plan)
+            } else {
+                None
+            };
+
+        let result = runtime.block_on(async {
+            match (inner_fragment, peer_mesh.as_ref()) {
+                (Some(inner), Some(mesh)) => {
+                    let peer_outbound = mesh.take_outbound().ok_or_else(|| {
+                        datafusion::common::DataFusionError::Internal(
+                            "mpp worker: peer mesh outbound senders already taken".into(),
+                        )
+                    })?;
+                    let n_consumers = mesh.n_workers as usize;
+                    let inner_task_ctx = build_task_context(
+                        &session,
+                        &inner,
+                        unsafe { pg_sys::work_mem as usize * 1024 },
+                        unsafe { pg_sys::hash_mem_multiplier },
+                    );
+                    // Run both fragments concurrently on the worker's
+                    // current_thread Tokio runtime. The cooperative drains
+                    // interleave correctly: when the outer fragment awaits
+                    // peer-mesh data, the runtime polls the inner fragment
+                    // which pushes a batch, which then unblocks the outer
+                    // fragment's pull.
+                    let inner_fut =
+                        crate::postgres::customscan::mpp::exec::run_inner_producer_fragment(
+                            inner,
+                            peer_outbound,
+                            n_consumers,
+                            inner_task_ctx,
+                        );
+                    let outer_fut = crate::postgres::customscan::mpp::exec::run_producer_fragment(
+                        fragment,
+                        outbound_senders,
+                        task_ctx,
+                    );
+                    let (inner_res, outer_res) = futures::join!(inner_fut, outer_fut);
+                    inner_res?;
+                    outer_res
+                }
+                _ => {
+                    crate::postgres::customscan::mpp::exec::run_producer_fragment(
+                        fragment,
+                        outbound_senders,
+                        task_ctx,
+                    )
+                    .await
+                }
+            }
+        });
         if let Err(e) = result {
-            pgrx::error!("mpp worker: run_producer_fragment failed: {e}");
+            pgrx::error!("mpp worker: producer fragment(s) failed: {e}");
         }
         std::ptr::null_mut()
     }
@@ -1282,12 +1382,9 @@ impl AggregateScan {
     ///
     /// Pre-order traversal returns on the first match, which is the
     /// outermost shuffle — the one that straddles the worker→leader split.
-    /// Nested `NetworkShuffleExec`s inside the worker fragment (e.g. the
-    /// shuffles `HashJoinExec(Partitioned)` inserts on each side once the
-    /// build side crosses `hash_join_single_partition_threshold`) are
-    /// re-executed locally by `LocalExecWorkerTransport` at execute time,
-    /// so the worker only needs to find the outermost one.
-    fn find_worker_fragment(plan: &Arc<dyn ExecutionPlan>) -> Option<Arc<dyn ExecutionPlan>> {
+    fn find_worker_fragment(
+        plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+    ) -> Option<Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
         if plan.name() == "NetworkShuffleExec" {
             return plan.children().first().map(|c| Arc::clone(c));
         }
@@ -1297,6 +1394,46 @@ impl AggregateScan {
             }
         }
         None
+    }
+
+    /// Walk a DistributedExec-rooted plan and return the input subtree of
+    /// the **bottommost** `NetworkShuffleExec` (the inner peer-mesh
+    /// producer fragment for two-boundary plans).
+    ///
+    /// In single-boundary mode (one shuffle) this returns the same subtree
+    /// as `find_worker_fragment`. In two-boundary mode (Track A's gather +
+    /// peer-mesh shuffle) this returns the input of the inner shuffle —
+    /// `RepartitionExec(Hash, N²) → AggregateExec(Partial) → ...` — which
+    /// is the data each worker pushes to the peer mesh.
+    fn find_inner_producer_fragment(
+        plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+    ) -> Option<Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
+        // Recurse first so the deepest `NetworkShuffleExec` wins (post-order).
+        for child in plan.children() {
+            if let Some(found) = Self::find_inner_producer_fragment(child) {
+                return Some(found);
+            }
+        }
+        if plan.name() == "NetworkShuffleExec" {
+            return plan.children().first().map(|c| Arc::clone(c));
+        }
+        None
+    }
+
+    /// Identifier for the boundary kinds currently emitted by the fork's
+    /// `_distribute_plan`. Used to disambiguate single-boundary vs
+    /// two-boundary plans when deciding whether to spawn the inner
+    /// peer-mesh producer fragment.
+    fn count_network_shuffles(plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>) -> usize {
+        let mut count = if plan.name() == "NetworkShuffleExec" {
+            1
+        } else {
+            0
+        };
+        for child in plan.children() {
+            count += Self::count_network_shuffles(child);
+        }
+        count
     }
 
     /// Existing single-table Tantivy aggregate path.

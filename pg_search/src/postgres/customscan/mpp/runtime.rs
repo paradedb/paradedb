@@ -45,7 +45,8 @@ use datafusion_distributed::{
 };
 use url::Url;
 
-use crate::postgres::customscan::mpp::transport::{DrainHandle, DrainItem};
+use crate::postgres::customscan::mpp::mesh::MppPeerMesh;
+use crate::postgres::customscan::mpp::transport::{DemuxDrainHandle, DrainHandle, DrainItem};
 
 /// Runtime handle the customscan populates at DSM-init time.
 pub struct MppMesh {
@@ -231,5 +232,154 @@ impl WorkerConnection for LocalExecWorkerConnection {
         // the WorkerPartitionStream alias drops the schema bound, so the
         // existing pinned box satisfies it directly.
         Ok(stream)
+    }
+}
+
+/// Worker-side [`WorkerTransport`] that resolves a peer-mesh
+/// `NetworkShuffleExec(consumer_tc=N, input_tc=N)` boundary.
+///
+/// `open(input_stage, target_partitions, target_task=producer_idx, ...)`
+/// returns a [`ShmMqPeerWorkerConnection`] that streams from the peer-mesh
+/// queue at column = this worker's idx, row = `target_task`. The data IN
+/// that queue must be pushed by `target_task` running its inner producer
+/// fragment concurrently — see `exec_mpp_worker`.
+///
+/// Each `(producer, consumer)` peer-mesh edge carries N partitions
+/// multiplexed (one frame per partition tagged with `partition_id`). The
+/// connection's `stream_partition(p)` returns the demuxed sub-buffer for
+/// partition `p`, so DataFusion's scheduler calling
+/// `stream_partition(off..off+pcount)` per consumer task gets one stream
+/// per global partition.
+pub struct ShmMqPeerWorkerTransport {
+    peer_mesh: Arc<MppPeerMesh>,
+}
+
+impl ShmMqPeerWorkerTransport {
+    pub fn new(peer_mesh: Arc<MppPeerMesh>) -> Self {
+        Self { peer_mesh }
+    }
+}
+
+impl WorkerTransport for ShmMqPeerWorkerTransport {
+    fn open(
+        &self,
+        _input_stage: &Stage,
+        _target_partitions: Range<usize>,
+        target_task: usize,
+        _ctx: &Arc<TaskContext>,
+        _metrics: &ExecutionPlanMetricsSet,
+    ) -> Result<Box<dyn WorkerConnection>> {
+        let producer = u32::try_from(target_task).map_err(|_| {
+            DataFusionError::Internal(format!(
+                "ShmMqPeerWorkerTransport: target_task={target_task} > u32::MAX"
+            ))
+        })?;
+        let drain = self
+            .peer_mesh
+            .drain_for_producer(producer)
+            .ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "ShmMqPeerWorkerTransport: no drain for producer={producer} \
+                     (n_workers={})",
+                    self.peer_mesh.n_workers
+                ))
+            })?
+            .clone();
+        Ok(Box::new(ShmMqPeerWorkerConnection { drain }))
+    }
+}
+
+struct ShmMqPeerWorkerConnection {
+    drain: Arc<DemuxDrainHandle>,
+}
+
+impl WorkerConnection for ShmMqPeerWorkerConnection {
+    fn stream_partition(&self, partition: usize) -> Result<WorkerPartitionStream> {
+        let tag = u32::try_from(partition).map_err(|_| {
+            DataFusionError::Internal(format!(
+                "ShmMqPeerWorkerConnection: partition={partition} > u32::MAX"
+            ))
+        })?;
+        let drain = Arc::clone(&self.drain);
+        // Each call to stream_partition(p) returns the per-tag sub-buffer's
+        // stream. DataFusion's NetworkShuffleExec calls this once per
+        // consumer-side partition, so each partition gets a fresh stream
+        // backed by its own demux buffer.
+        let buffer = drain
+            .buffer(tag)
+            .ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "ShmMqPeerWorkerConnection: no demux sub-buffer for tag={tag}"
+                ))
+            })?
+            .clone();
+        let stream = async_stream::stream! {
+            loop {
+                // Drain pass populates *all* sub-buffers for this producer
+                // — we share the cooperative drain across every partition
+                // stream, so any one stream's poll moves the others
+                // forward.
+                if let Err(e) = drain.poll_drain_pass() {
+                    yield Err(e);
+                    return;
+                }
+                match buffer.try_pop() {
+                    Some(DrainItem::Batch(batch)) => yield Ok(batch),
+                    Some(DrainItem::Eof) => break,
+                    None => tokio::task::yield_now().await,
+                }
+            }
+        };
+        Ok(Box::pin(stream))
+    }
+}
+
+/// Composite worker-side [`WorkerTransport`] that routes by the input
+/// stage's producer-task count:
+///
+/// - `tasks.len() > 1` → peer-mesh shuffle (Track B), routed to
+///   [`ShmMqPeerWorkerTransport`] when a peer mesh is registered, else falls
+///   back to [`LocalExecWorkerTransport`] (the latter would crash for
+///   N>1 — see commit 5f89185 of the fork — so this fallback is only safe
+///   when no two-boundary plan is in flight).
+/// - `tasks.len() == 1` → broadcast (build-side `NetworkBroadcastExec`),
+///   routed to [`LocalExecWorkerTransport`] which re-executes the input
+///   subplan locally.
+///
+/// Track A's planner change always emits `tasks.len() = N` for the inner
+/// peer-mesh shuffle, so the heuristic discriminates cleanly between the
+/// two boundary kinds we surface in workers.
+pub struct CompositeWorkerTransport {
+    peer: Option<ShmMqPeerWorkerTransport>,
+}
+
+impl CompositeWorkerTransport {
+    pub fn new(peer_mesh: Option<Arc<MppPeerMesh>>) -> Self {
+        Self {
+            peer: peer_mesh.map(ShmMqPeerWorkerTransport::new),
+        }
+    }
+}
+
+impl WorkerTransport for CompositeWorkerTransport {
+    fn open(
+        &self,
+        input_stage: &Stage,
+        target_partitions: Range<usize>,
+        target_task: usize,
+        ctx: &Arc<TaskContext>,
+        metrics: &ExecutionPlanMetricsSet,
+    ) -> Result<Box<dyn WorkerConnection>> {
+        if input_stage.tasks.len() > 1 {
+            if let Some(peer) = &self.peer {
+                return peer.open(input_stage, target_partitions, target_task, ctx, metrics);
+            }
+            return Err(DataFusionError::Internal(format!(
+                "CompositeWorkerTransport: input_stage tasks.len()={} requires a peer mesh, \
+                 but enable_mpp_postagg_shuffle is off",
+                input_stage.tasks.len()
+            )));
+        }
+        LocalExecWorkerTransport.open(input_stage, target_partitions, target_task, ctx, metrics)
     }
 }

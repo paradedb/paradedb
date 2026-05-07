@@ -165,14 +165,22 @@ static MPP_WORKER_COUNT: GucSetting<i32> = GucSetting::<i32>::new(4);
 /// likely a per-query DSM cap than a raw per-edge byte count.
 static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(64 * 1024 * 1024);
 
-/// Per-source-per-worker build-side cache slot size (bytes). The build-side
-/// all-gather reserves N slots of this size in DSM; total cache reservation
-/// is `n_cache_sources × n_workers × mpp_cache_per_slot`. Sized so a 1.25M-row
-/// build side encoded in Arrow IPC (~400 MB total at our 25M bench, accounting
-/// for Utf8View widening + schema overhead) fits split across N workers with
-/// headroom for the worst single-worker slice. A future heuristic should
-/// derive this from index stats per query.
-static MPP_CACHE_PER_SLOT: GucSetting<i32> = GucSetting::<i32>::new(256 * 1024 * 1024);
+/// Per-edge shm_mq queue size for the peer mesh (Track B). Sized smaller than
+/// `mpp_queue_size` because peer-mesh traffic per edge is the *partial-agg*
+/// output for one consumer's hash bucket — typically 1–10 MiB at the 25M
+/// bench, well below the 64 MiB worst-case post-agg burst on the leader-bound
+/// mesh. Total peer-mesh DSM is `n_workers² × mpp_peer_queue_bytes`: at N=8
+/// with 16 MiB that is 1 GiB per query.
+static MPP_PEER_QUEUE_BYTES: GucSetting<i32> = GucSetting::<i32>::new(16 * 1024 * 1024);
+
+/// Gate the post-aggregate peer-mesh shuffle (Track A + Track B). When off,
+/// the planner and runtime keep the single-boundary worker→leader gather and
+/// run `AggregateExec(FinalPartitioned)` single-threaded on the leader. When
+/// on, the planner emits a two-boundary plan: workers exchange partial-agg
+/// rows over the peer mesh, run `FinalPartitioned` in parallel, and the
+/// outer Coalesce becomes a pure gather. Default off; flip on once the
+/// peer-mesh transport is verified end-to-end.
+static ENABLE_MPP_POSTAGG_SHUFFLE: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// The maximum size of an InList that can be pushed down to a TermSet Query.
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
@@ -591,18 +599,31 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
-        c"paradedb.mpp_cache_per_slot",
-        c"Per-source-per-worker build-side cache slot size",
-        c"Sets the per-source-per-worker build-side all-gather cache slot size, in \
-          bytes. Total cache reservation per query is \
-          `n_cache_sources × n_workers × mpp_cache_per_slot`. The default 256 MiB is \
-          sized for a 1.25M-row build side encoded in Arrow IPC (~400 MB total at the \
-          25M bench scale) split across N workers; raise it for larger build sides.",
-        &MPP_CACHE_PER_SLOT,
-        1024 * 1024,
-        i32::MAX,
+        c"paradedb.mpp_peer_queue_bytes",
+        c"Per-edge shm_mq queue size for the MPP peer mesh (Track B)",
+        c"When `enable_mpp_postagg_shuffle = on`, each MPP query allocates an \
+          n_workers × n_workers peer mesh on top of the leader-bound queues. \
+          This GUC sizes one peer-mesh edge. Total peer-mesh DSM is \
+          `n_workers² × mpp_peer_queue_bytes`; at N=8 with the 16MB default \
+          that is 1GB. Lower it on memory-constrained boxes.",
+        &MPP_PEER_QUEUE_BYTES,
+        64 * 1024,
+        1024 * 1024 * 1024,
         GucContext::Userset,
         GucFlags::UNIT_BYTE,
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_mpp_postagg_shuffle",
+        c"Enable the MPP post-aggregate peer-mesh shuffle (Track A + Track B)",
+        c"When on, the planner emits a two-boundary plan for aggregate-on-join \
+          MPP queries: workers exchange partial-agg rows over the peer mesh, \
+          run AggregateExec(FinalPartitioned) in parallel, and the leader's \
+          Coalesce is a pure gather. When off, the leader runs FinalPartitioned \
+          single-threaded — the current 1.47× plateau. Default off.",
+        &ENABLE_MPP_POSTAGG_SHUFFLE,
+        GucContext::Userset,
+        GucFlags::default(),
     );
 }
 
@@ -798,8 +819,12 @@ pub fn mpp_queue_size() -> usize {
     MPP_QUEUE_SIZE.get() as usize
 }
 
-pub fn mpp_cache_per_slot() -> usize {
-    MPP_CACHE_PER_SLOT.get() as usize
+pub fn mpp_peer_queue_bytes() -> usize {
+    MPP_PEER_QUEUE_BYTES.get() as usize
+}
+
+pub fn enable_mpp_postagg_shuffle() -> bool {
+    ENABLE_MPP_POSTAGG_SHUFFLE.get()
 }
 
 pub fn hash_join_inlist_pushdown_max_size() -> i32 {

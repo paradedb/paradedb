@@ -22,14 +22,18 @@
 //! [`super::dsm`](crate::postgres::customscan::mpp::dsm); this module owns
 //! only the per-slot FFI wrappers.
 
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 use pgrx::pg_sys;
 
 use crate::mpp_log;
 use crate::parallel_worker::mqueue::{
     MessageQueueReceiver, MessageQueueRecvError, MessageQueueSendError, MessageQueueSender,
 };
+use crate::postgres::customscan::mpp::dsm::WorkerPeerAttach;
 use crate::postgres::customscan::mpp::transport::{
-    BatchChannelReceiver, BatchChannelSender, RecvOutcome,
+    BatchChannelReceiver, BatchChannelSender, DemuxDrainHandle, MppReceiver, MppSender, RecvOutcome,
 };
 use datafusion::common::DataFusionError;
 
@@ -171,6 +175,99 @@ impl BatchChannelReceiver for ShmMqReceiver {
                 RecvOutcome::Detached
             }
         }
+    }
+}
+
+/// Per-worker handle to the peer mesh (Track B).
+///
+/// Each worker is both a producer (its row of the N×N grid) and a consumer
+/// (its column). The leader is not part of the peer mesh.
+///
+/// Inbound demux drains: one [`DemuxDrainHandle`] per producer worker.
+/// Each drain reads tagged framed messages from the `(producer, this_worker)`
+/// shm_mq queue and routes by `tag = partition_id` into per-partition
+/// sub-buffers. `n_partitions` is the number of distinct partitions a
+/// producer can address — for the post-aggregate peer-mesh shuffle this
+/// is the *global* partition count (`n_workers²` after the fork's
+/// `RepartitionExec` scaling) so every consumer task K can demux its
+/// partitions `N*K..(K+1)*N - 1`.
+///
+/// The `outbound` senders are held inside a `Mutex<Option<...>>` so the
+/// inner producer fragment can take ownership exactly once via
+/// [`Self::take_outbound`] before it begins pushing.
+pub struct MppPeerMesh {
+    pub n_workers: u32,
+    pub self_idx: u32,
+    pub n_partitions: u32,
+    outbound: Mutex<Option<Vec<MppSender>>>,
+    /// Inbound demux drain handles, one per producer worker. Cloned out at
+    /// transport `open()` time so a peer-mesh shuffle can stream from
+    /// each peer independently and demux by partition tag.
+    inbound_drains: Vec<Arc<DemuxDrainHandle>>,
+}
+
+impl std::fmt::Debug for MppPeerMesh {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MppPeerMesh")
+            .field("n_workers", &self.n_workers)
+            .field("self_idx", &self.self_idx)
+            .field("n_partitions", &self.n_partitions)
+            .field("outbound_taken", &self.outbound.lock().is_none())
+            .field("inbound_drains", &self.inbound_drains.len())
+            .finish()
+    }
+}
+
+impl MppPeerMesh {
+    /// Build from `worker_peer_attach`'s output. Wraps each shm_mq receiver
+    /// in a cooperative [`DemuxDrainHandle`] sized to `n_partitions` tag
+    /// buckets — the producer side will frame each batch with `tag =
+    /// partition_id` and the consumer demuxes accordingly.
+    pub fn from_worker_attach(
+        self_idx: u32,
+        n_workers: u32,
+        n_partitions: u32,
+        attach: WorkerPeerAttach,
+    ) -> Self {
+        let outbound: Vec<MppSender> = attach
+            .peer_outbound
+            .into_iter()
+            .map(|s| MppSender::new(Box::new(s)))
+            .collect();
+        let inbound_drains: Vec<Arc<DemuxDrainHandle>> = attach
+            .peer_inbound
+            .into_iter()
+            .map(|r| {
+                let mpp_recv = MppReceiver::new(Box::new(r));
+                Arc::new(DemuxDrainHandle::cooperative(vec![mpp_recv], n_partitions))
+            })
+            .collect();
+        debug_assert_eq!(outbound.len(), n_workers as usize);
+        debug_assert_eq!(inbound_drains.len(), n_workers as usize);
+        Self {
+            n_workers,
+            self_idx,
+            n_partitions,
+            outbound: Mutex::new(Some(outbound)),
+            inbound_drains,
+        }
+    }
+
+    /// Take ownership of the outbound senders. Returns `None` if already
+    /// taken. The inner producer fragment calls this exactly once before it
+    /// begins pushing.
+    pub fn take_outbound(&self) -> Option<Vec<MppSender>> {
+        self.outbound.lock().take()
+    }
+
+    /// Demux drain handle for the queue from `producer` to this worker.
+    /// Indexed by producer worker idx; each handle exposes per-tag
+    /// sub-buffers via [`DemuxDrainHandle::buffer`].
+    pub fn drain_for_producer(&self, producer: u32) -> Option<&Arc<DemuxDrainHandle>> {
+        if producer >= self.n_workers {
+            return None;
+        }
+        self.inbound_drains.get(producer as usize)
     }
 }
 

@@ -54,7 +54,17 @@ use crate::postgres::customscan::mpp::mesh::{
 };
 
 pub const MPP_DSM_MAGIC: u32 = 0x4D50_5052; // "MPPR" (RPC variant)
-pub const MPP_DSM_HEADER_VERSION: u32 = 1;
+/// Bumped 2 → 3 with the peer-mesh extension (Track B). Old workers attach
+/// to a v2 region by `MPP_DSM_HEADER_VERSION` mismatch and bail before
+/// reading the new fields.
+pub const MPP_DSM_HEADER_VERSION: u32 = 3;
+
+/// Hard cap on per-source-per-worker cache slot size. Sized for our 25 M
+/// bench: a 1.25 M-row build side encoded in Arrow IPC is ~400 MB total
+/// (Utf8View widening, schema overhead) — split across N workers, each
+/// slot needs ~400/N MB. 256 MiB caps at the worst single-worker slice.
+/// A future heuristic should derive this from index stats per query.
+pub const MPP_CACHE_PER_SLOT: usize = 256 * 1024 * 1024;
 
 /// Absolute cap on DSM region size. 16 GiB is two orders of magnitude beyond
 /// any realistic workload; the cap fails early on a pathologically oversized
@@ -63,8 +73,9 @@ pub const MPP_DSM_MAX_BYTES: usize = 16 * 1024 * 1024 * 1024;
 
 /// C-repr header at offset 0 of the DSM region.
 ///
-/// Field ordering: four `u32`s (16 bytes), four `u64`s (32 bytes). 48 bytes
-/// total with no internal padding on every supported target.
+/// Layout sections (bottom to top): plan bytes → leader-bound queues
+/// (n_workers × n_partitions slots) → build-side cache → peer mesh
+/// (n_workers × n_workers slots). Each section is MAXALIGN-padded.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct MppDsmHeader {
@@ -82,6 +93,12 @@ pub struct MppDsmHeader {
     pub cache_completion_offset: u64,
     pub cache_lengths_offset: u64,
     pub cache_data_offset: u64,
+    /// Per-edge byte size for peer-mesh slots. 0 means no peer mesh.
+    pub peer_queue_bytes: u64,
+    /// Byte offset (relative to DSM base) of the peer-mesh queue grid.
+    /// `peer_slot(producer, consumer) = peer_mesh_offset + (producer*n_workers + consumer) * peer_queue_bytes`.
+    /// Valid only when `peer_queue_bytes > 0`.
+    pub peer_mesh_offset: u64,
     pub region_total: u64,
 }
 
@@ -102,6 +119,8 @@ impl MppDsmHeader {
             cache_completion_offset: layout.cache_completion_offset as u64,
             cache_lengths_offset: layout.cache_lengths_offset as u64,
             cache_data_offset: layout.cache_data_offset as u64,
+            peer_queue_bytes: layout.peer_queue_bytes as u64,
+            peer_mesh_offset: layout.peer_mesh_offset as u64,
             region_total: layout.region_total as u64,
         }
     }
@@ -148,6 +167,17 @@ impl MppDsmHeader {
         let slot = (source as u64) * (self.n_workers as u64) + (worker as u64);
         self.cache_data_offset + slot * self.cache_per_slot
     }
+
+    /// Byte offset of the peer-mesh queue slot at `(producer, consumer)`.
+    /// Valid only when `peer_queue_bytes > 0`. Both indices are 0-based
+    /// worker indices (the leader is not part of the peer mesh).
+    pub fn peer_slot_offset(&self, producer: u32, consumer: u32) -> u64 {
+        debug_assert!(self.peer_queue_bytes > 0);
+        debug_assert!(producer < self.n_workers);
+        debug_assert!(consumer < self.n_workers);
+        let slot = (producer as u64) * (self.n_workers as u64) + (consumer as u64);
+        self.peer_mesh_offset + slot * self.peer_queue_bytes
+    }
 }
 
 /// Pure-math layout for [`compute_dsm_layout`].
@@ -158,12 +188,14 @@ pub struct DsmLayout {
     pub n_cache_sources: u32,
     pub queue_bytes: usize,
     pub cache_per_slot: usize,
+    pub peer_queue_bytes: usize,
     pub plan_offset: usize,
     pub plan_len: usize,
     pub queues_offset: usize,
     pub cache_completion_offset: usize,
     pub cache_lengths_offset: usize,
     pub cache_data_offset: usize,
+    pub peer_mesh_offset: usize,
     pub region_total: usize,
 }
 
@@ -173,6 +205,11 @@ pub struct DsmLayout {
 /// build-side cache slots for. `cache_per_slot` is the bytes reserved for
 /// each (source, worker) pair (worst-case per-worker IPC payload). Pass 0
 /// for both if no cache is needed.
+///
+/// `peer_queue_bytes` reserves a peer-mesh queue grid sized
+/// `n_workers × n_workers × peer_queue_bytes` after the cache. Pass 0 to
+/// skip; only callers that need cross-worker shuffles (Track B post-agg
+/// peer mesh) request this.
 pub fn compute_dsm_layout(
     n_workers: u32,
     n_partitions: u32,
@@ -180,6 +217,7 @@ pub fn compute_dsm_layout(
     plan_len: usize,
     n_cache_sources: u32,
     cache_per_slot: usize,
+    peer_queue_bytes: usize,
 ) -> Result<DsmLayout, &'static str> {
     if n_workers == 0 {
         return Err("mpp: n_workers must be > 0");
@@ -238,8 +276,34 @@ pub fn compute_dsm_layout(
         .checked_mul(n_workers as usize)
         .and_then(|x| x.checked_mul(cache_per_slot))
         .ok_or("mpp: cache data size overflow")?;
-    let region_total = cache_data_offset
+    let cache_data_end = cache_data_offset
         .checked_add(cache_data_size)
+        .ok_or("mpp: cache data end overflow")?;
+
+    // Peer-mesh queue grid: n_workers × n_workers × peer_queue_bytes.
+    // Sits after the build-side cache. Skipped (offset=cache_data_end,
+    // size=0) when peer_queue_bytes == 0.
+    let peer_queue_bytes_aligned = if peer_queue_bytes == 0 {
+        0
+    } else {
+        let aligned = aligned_queue_bytes(peer_queue_bytes);
+        if aligned == 0 {
+            return Err("mpp: peer_queue_bytes too small after alignment");
+        }
+        aligned
+    };
+    let peer_mesh_offset =
+        align_up_maxalign_checked(cache_data_end).ok_or("mpp: peer mesh alignment overflow")?;
+    let peer_mesh_size = if peer_queue_bytes_aligned == 0 {
+        0
+    } else {
+        (n_workers as usize)
+            .checked_mul(n_workers as usize)
+            .and_then(|x| x.checked_mul(peer_queue_bytes_aligned))
+            .ok_or("mpp: peer mesh size overflow")?
+    };
+    let region_total = peer_mesh_offset
+        .checked_add(peer_mesh_size)
         .ok_or("mpp: region total overflow")?;
     if region_total > MPP_DSM_MAX_BYTES {
         return Err("mpp: DSM region exceeds MPP_DSM_MAX_BYTES");
@@ -250,12 +314,14 @@ pub fn compute_dsm_layout(
         n_cache_sources,
         queue_bytes,
         cache_per_slot,
+        peer_queue_bytes: peer_queue_bytes_aligned,
         plan_offset,
         plan_len,
         queues_offset,
         cache_completion_offset,
         cache_lengths_offset,
         cache_data_offset,
+        peer_mesh_offset,
         region_total,
     })
 }
@@ -396,11 +462,23 @@ pub struct LeaderAttach {
     pub inbound_receivers: Vec<ShmMqReceiver>,
 }
 
-/// Worker-side return: just the senders. Workers don't consume; everything
-/// flows toward the leader.
+/// Worker-side return for the leader-bound queue mesh.
 pub struct WorkerAttach {
     /// `outbound_senders[p]` writes to `slot(this_worker, p)`.
     pub outbound_senders: Vec<ShmMqSender>,
+}
+
+/// Worker-side return for the peer-mesh queue grid (Track B).
+///
+/// Each worker is both a producer (its row of the grid) and a consumer
+/// (its column of the grid). Senders are indexed by `consumer_idx`, receivers
+/// by `producer_idx`. Self-edges (producer == consumer == this_worker) are
+/// included so the topology is symmetric.
+pub struct WorkerPeerAttach {
+    /// `peer_outbound[c]` writes to `peer_slot(this_worker, c)`.
+    pub peer_outbound: Vec<ShmMqSender>,
+    /// `peer_inbound[p]` reads from `peer_slot(p, this_worker)`.
+    pub peer_inbound: Vec<ShmMqReceiver>,
 }
 
 /// Initialize the DSM region as the leader. Writes the header, copies plan
@@ -460,6 +538,21 @@ pub unsafe fn leader_init(
             let mq_addr = unsafe { base.add(layout.queues_offset + off * layout.queue_bytes) };
             let mq = unsafe { pg_sys::shm_mq_create(mq_addr.cast(), layout.queue_bytes) };
             inbound_receivers.push(unsafe { ShmMqReceiver::attach_existing(seg, mq) });
+        }
+    }
+
+    // Peer-mesh queues. The leader is not a peer (not part of the N×N
+    // grid); it just `shm_mq_create`s every slot so workers can attach as
+    // producer (their row) and consumer (their column). Skipped when no
+    // peer mesh was reserved.
+    if layout.peer_queue_bytes > 0 {
+        for prod in 0..layout.n_workers {
+            for cons in 0..layout.n_workers {
+                let slot = (prod as usize) * (layout.n_workers as usize) + (cons as usize);
+                let mq_addr =
+                    unsafe { base.add(layout.peer_mesh_offset + slot * layout.peer_queue_bytes) };
+                unsafe { pg_sys::shm_mq_create(mq_addr.cast(), layout.peer_queue_bytes) };
+            }
         }
     }
 
@@ -524,46 +617,113 @@ pub unsafe fn worker_attach(
     Ok((header, plan_bytes, WorkerAttach { outbound_senders }))
 }
 
+/// Attach this worker to the peer-mesh queue grid as both producer
+/// (its row) and consumer (its column). Skipped (returns `Ok(None)`)
+/// when the region has no peer mesh reserved.
+///
+/// # Safety
+/// - `coordinate` must be the DSM region pointer the leader initialized.
+/// - `header` must be the validated header read from that region.
+/// - `seg` may be NULL — `shm_mq_attach` handles NULL by skipping its
+///   on-detach callback (cleanup falls back to process exit).
+pub unsafe fn worker_peer_attach(
+    coordinate: *mut c_void,
+    header: &MppDsmHeader,
+    worker_index: u32,
+    seg: *mut pg_sys::dsm_segment,
+) -> Result<Option<WorkerPeerAttach>, String> {
+    if header.peer_queue_bytes == 0 {
+        return Ok(None);
+    }
+    if coordinate.is_null() {
+        return Err("mpp: worker_peer_attach given null coordinate".into());
+    }
+    if worker_index >= header.n_workers {
+        return Err(format!(
+            "mpp: worker_peer_attach: worker_index={worker_index} >= n_workers={}",
+            header.n_workers
+        ));
+    }
+    let base = coordinate as *mut u8;
+    let n = header.n_workers;
+
+    // Attach as PRODUCER (this row): one sender per consumer column.
+    let mut peer_outbound = Vec::with_capacity(n as usize);
+    for c in 0..n {
+        let off = header.peer_slot_offset(worker_index, c) as usize;
+        let mq_addr = unsafe { base.add(off) };
+        let mq = mq_addr.cast::<pg_sys::shm_mq>();
+        peer_outbound.push(unsafe { ShmMqSender::attach(seg, mq) });
+    }
+
+    // Attach as CONSUMER (this column): one receiver per producer row.
+    let mut peer_inbound = Vec::with_capacity(n as usize);
+    for p in 0..n {
+        let off = header.peer_slot_offset(p, worker_index) as usize;
+        let mq_addr = unsafe { base.add(off) };
+        let mq = mq_addr.cast::<pg_sys::shm_mq>();
+        peer_inbound.push(unsafe { ShmMqReceiver::attach_existing(seg, mq) });
+    }
+
+    Ok(Some(WorkerPeerAttach {
+        peer_outbound,
+        peer_inbound,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn compute_dsm_layout_works() {
-        let l = compute_dsm_layout(4, 1, 64 * 1024, 1024, 0, 0).unwrap();
+        let l = compute_dsm_layout(4, 1, 64 * 1024, 1024, 0, 0, 0).unwrap();
         assert_eq!(l.n_workers, 4);
         assert_eq!(l.n_partitions, 1);
         // No cache reserved → cache regions all sit at queues_end (after MAXALIGN).
         let aligned = aligned_queue_bytes(64 * 1024);
         let queues_size = 4 * aligned;
         assert!(l.region_total >= l.queues_offset + queues_size);
+        // No peer mesh reserved.
+        assert_eq!(l.peer_queue_bytes, 0);
     }
 
     #[test]
     fn compute_dsm_layout_with_cache() {
-        let l = compute_dsm_layout(4, 1, 64 * 1024, 1024, 2, 1024 * 1024).unwrap();
+        let l = compute_dsm_layout(4, 1, 64 * 1024, 1024, 2, 1024 * 1024, 0).unwrap();
         let cache_data_size = 2 * 4 * 1024 * 1024; // 2 sources × 4 workers × 1 MiB
-        assert_eq!(l.region_total, l.cache_data_offset + cache_data_size);
+                                                   // peer_mesh_offset == cache_data_end after MAXALIGN; with peer=0 region_total == peer_mesh_offset.
+        assert_eq!(l.region_total, l.peer_mesh_offset);
+        assert!(l.peer_mesh_offset >= l.cache_data_offset + cache_data_size);
+    }
+
+    #[test]
+    fn compute_dsm_layout_with_peer_mesh() {
+        let l = compute_dsm_layout(4, 1, 64 * 1024, 1024, 0, 0, 1024 * 1024).unwrap();
+        let aligned_peer = aligned_queue_bytes(1024 * 1024);
+        let peer_mesh_size = 4 * 4 * aligned_peer;
+        assert_eq!(l.peer_queue_bytes, aligned_peer);
+        assert_eq!(l.region_total, l.peer_mesh_offset + peer_mesh_size);
     }
 
     #[test]
     fn compute_dsm_layout_rejects_zero_workers() {
-        assert!(compute_dsm_layout(0, 1, 64 * 1024, 0, 0, 0).is_err());
+        assert!(compute_dsm_layout(0, 1, 64 * 1024, 0, 0, 0, 0).is_err());
     }
 
     #[test]
     fn compute_dsm_layout_rejects_zero_partitions() {
-        assert!(compute_dsm_layout(2, 0, 64 * 1024, 0, 0, 0).is_err());
+        assert!(compute_dsm_layout(2, 0, 64 * 1024, 0, 0, 0, 0).is_err());
     }
 
     #[test]
     fn compute_dsm_layout_rejects_oversize() {
-        assert!(compute_dsm_layout(u32::MAX, u32::MAX, 64 * 1024, 0, 0, 0).is_err());
+        assert!(compute_dsm_layout(u32::MAX, u32::MAX, 64 * 1024, 0, 0, 0, 0).is_err());
     }
 
     #[test]
     fn header_slot_offset_is_row_major() {
-        let l = compute_dsm_layout(3, 4, 64 * 1024, 0, 0, 0).unwrap();
+        let l = compute_dsm_layout(3, 4, 64 * 1024, 0, 0, 0, 0).unwrap();
         let h = MppDsmHeader::from_layout(&l);
         let aligned = h.queue_bytes;
         assert_eq!(h.slot_offset(0, 0), h.queues_offset);
@@ -574,7 +734,7 @@ mod tests {
 
     #[test]
     fn header_cache_offsets() {
-        let l = compute_dsm_layout(3, 1, 64 * 1024, 0, 2, 1024).unwrap();
+        let l = compute_dsm_layout(3, 1, 64 * 1024, 0, 2, 1024, 0).unwrap();
         let h = MppDsmHeader::from_layout(&l);
         // (source=0, worker=0) is the first slot.
         assert_eq!(h.cache_data_slot_offset(0, 0), h.cache_data_offset);
@@ -588,16 +748,36 @@ mod tests {
     }
 
     #[test]
+    fn header_peer_slot_offset_is_row_major() {
+        let l = compute_dsm_layout(3, 1, 64 * 1024, 0, 0, 0, 64 * 1024).unwrap();
+        let h = MppDsmHeader::from_layout(&l);
+        let aligned = h.peer_queue_bytes;
+        assert_eq!(h.peer_slot_offset(0, 0), h.peer_mesh_offset);
+        assert_eq!(h.peer_slot_offset(0, 1), h.peer_mesh_offset + aligned);
+        // (1, 0): row 1, col 0 — n_workers slots in.
+        assert_eq!(h.peer_slot_offset(1, 0), h.peer_mesh_offset + 3 * aligned);
+        // (2, 2): last slot.
+        assert_eq!(h.peer_slot_offset(2, 2), h.peer_mesh_offset + 8 * aligned);
+    }
+
+    #[test]
     fn header_validate_accepts_self() {
-        let l = compute_dsm_layout(2, 2, 64 * 1024, 0, 0, 0).unwrap();
+        let l = compute_dsm_layout(2, 2, 64 * 1024, 0, 0, 0, 0).unwrap();
         let h = MppDsmHeader::from_layout(&l);
         assert!(h.validate(l.region_total as u64).is_ok());
     }
 
     #[test]
     fn header_validate_rejects_size_mismatch() {
-        let l = compute_dsm_layout(2, 2, 64 * 1024, 0, 0, 0).unwrap();
+        let l = compute_dsm_layout(2, 2, 64 * 1024, 0, 0, 0, 0).unwrap();
         let h = MppDsmHeader::from_layout(&l);
         assert!(h.validate(l.region_total as u64 + 1).is_err());
+    }
+
+    #[test]
+    fn header_validate_accepts_with_peer_mesh() {
+        let l = compute_dsm_layout(3, 1, 64 * 1024, 0, 0, 0, 64 * 1024).unwrap();
+        let h = MppDsmHeader::from_layout(&l);
+        assert!(h.validate(l.region_total as u64).is_ok());
     }
 }

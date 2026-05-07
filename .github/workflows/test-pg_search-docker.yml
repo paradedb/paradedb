@@ -70,54 +70,6 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v6
 
-      - name: Generate GitHub App Token
-        id: app-token
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ vars.PARADEDB_GITHUB_APP_ID }}
-          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-
-      # This step is used to check if the PR author is a member of the org, since
-      # access to GitHub Actions secrets is limited to org members.
-      - name: Check if PR author is member of org
-        id: org-check
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          echo "Checking if ${{ github.actor }} is a member of the org..."
-          result=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            "https://api.github.com/orgs/paradedb/members/${{ github.actor }}") || result="000"
-          if [ "$result" -eq 204 ]; then
-            echo "is_member=true" >> $GITHUB_OUTPUT
-            echo "PR author is a member of the org"
-          else
-            echo "is_member=false" >> $GITHUB_OUTPUT
-            echo "PR author is not a member of the org"
-          fi
-
-      # To avoid spamming PRs with the Docker Scout comparison, we only run
-      # it if the PR modifies the Dockerfile or its related scripts
-      - name: Detect Dockerfile Changes
-        id: dockerfilter
-        uses: dorny/paths-filter@v4
-        with:
-          filters: |
-            docker:
-              - 'docker/**'
-
-      # We only login to Docker Hub if the PR author is a member of the org and there
-      # are changes to the docker/ directory, since access to GitHub Actions secrets
-      # is limited to org members and we only want to compare upcoming release Docker
-      # images via Docker Scout when there are changes to the Dockerfile or its related scripts.
-      - name: Login to Docker Hub
-        if: steps.org-check.outputs.is_member == 'true' && steps.dockerfilter.outputs.docker == 'true'
-        uses: docker/login-action@v4
-        with:
-          username: ${{ vars.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -208,15 +160,3 @@ jobs:
         run: |
           docker run --name temp-inspect-paradedb --entrypoint /bin/bash paradedb/paradedb:latest -c "ls -la /var/lib/postgresql"
           docker rm temp-inspect-paradedb
-
-      - name: Compare the ParadeDB Docker Image to the ParadeDB Docker Image in Docker Hub via Docker Scout
-        if: steps.org-check.outputs.is_member == 'true' && steps.dockerfilter.outputs.docker == 'true'
-        uses: docker/scout-action@v1
-        with:
-          command: compare
-          image: paradedb/paradedb:latest # Local ParadeDB Docker Image
-          to-env: production # Docker Hub ParadeDB Docker Image
-          organization: paradedb
-          ignore-unchanged: true
-          only-severities: critical,high
-          github-token: ${{ secrets.GITHUB_TOKEN }}

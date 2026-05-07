@@ -94,9 +94,9 @@ jobs:
     name: Build Antithesis pg_search .deb
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=c7a+c7i
-      - cpu=8
-      - ram=16
+      - family=m7a+m7i
+      - cpu=16
+      - ram=64
       - image=ubuntu24-full-x64
       - extras=s3-cache
     container:

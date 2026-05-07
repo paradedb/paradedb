@@ -425,7 +425,7 @@ impl CustomScan for AggregateScan {
                             a.agg_kind.to_string()
                         } else {
                             let fields: Vec<&str> =
-                                a.field_refs.iter().map(|(_, _, n)| n.as_str()).collect();
+                                a.field_refs.iter().map(|r| r.field_name.as_str()).collect();
                             format!("{}({})", a.agg_kind, fields.join(", "))
                         }
                     })
@@ -744,7 +744,7 @@ impl AggregateScan {
                 .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Extract aggregate target list (GROUP BY + aggregates)
-        let targetlist = unsafe { extract_aggregate_targetlist(builder.args(), &sources) }
+        let targetlist = unsafe { extract_aggregate_targetlist(builder.args(), &sources, &plan) }
             .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Reject plans with any join node that has no equi-keys (CROSS JOIN).
@@ -781,6 +781,9 @@ impl AggregateScan {
                     &datafusion_build::FilterExprBuildContext {
                         targetlist: Some(&targetlist),
                         sources: None,
+                        // HAVING produces AggRef/GroupRef, never ColumnRef,
+                        // so plan_resolution isn't consulted.
+                        plan_resolution: None,
                     },
                 )
             } else {

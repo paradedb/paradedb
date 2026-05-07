@@ -108,7 +108,11 @@ pub async fn build_join_aggregate_plan(
             std::collections::hash_map::Entry::Vacant(v) => {
                 let df_idx = group_exprs.len();
                 v.insert(df_idx);
-                group_exprs.push(make_rti_col(plan, gc.rti, &gc.field_name));
+                group_exprs.push(make_plan_position_col(
+                    plan,
+                    gc.plan_position,
+                    &gc.field_name,
+                ));
                 df_idx
             }
             std::collections::hash_map::Entry::Occupied(o) => *o.get(),
@@ -435,9 +439,13 @@ impl FilterExpr {
                 }
             }
             FilterExpr::GroupRef(field_name) => Some(datafusion::prelude::col(field_name.as_str())),
-            FilterExpr::ColumnRef { rti, field_name } => {
+            FilterExpr::ColumnRef {
+                plan_position,
+                field_name,
+                ..
+            } => {
                 let plan = ctx.plan?;
-                Some(make_rti_col(plan, *rti, field_name))
+                Some(make_plan_position_col(plan, *plan_position, field_name))
             }
             FilterExpr::LitInt(v) => Some(lit(*v)),
             FilterExpr::LitFloat(v) => Some(lit(*v)),
@@ -573,16 +581,12 @@ async fn build_source_df(
     }
 }
 
-/// Build a DataFusion column expression for a `(rti, field_name)` reference
-/// against the given plan tree.
-///
-/// Thin wrapper around the shared [`make_source_col`] that walks the plan to
-/// find the source claiming `rti` first. Use this instead of resolving the
-/// source manually at every aggregate-on-join call site.
-fn make_rti_col(plan: &RelNode, rti: pgrx::pg_sys::Index, field_name: &str) -> Expr {
+/// Build a DataFusion column expression for a targetlist ref by its
+/// previously-resolved `plan_position`.
+fn make_plan_position_col(plan: &RelNode, plan_position: usize, field_name: &str) -> Expr {
     let source = plan
-        .source_for_rti_in_subtree(rti)
-        .unwrap_or_else(|| panic!("make_rti_col: RTI {rti} not found in plan sources"));
+        .source_at_plan_position(plan_position)
+        .unwrap_or_else(|| panic!("no source at plan_position {plan_position}"));
     make_source_col(source, field_name)
 }
 
@@ -620,10 +624,10 @@ fn with_filter(expr: Expr, filter: Expr) -> Expr {
 
 /// Build a DataFusion column expression for an aggregate's first field reference.
 fn agg_field_col(agg: &JoinAggregateEntry, plan: &RelNode) -> Result<Expr> {
-    let (rti, _attno, ref field_name) = agg.field_refs.first().ok_or_else(|| {
+    let r = agg.field_refs.first().ok_or_else(|| {
         DataFusionError::Internal("non-COUNT(*) aggregate must have a field reference".to_string())
     })?;
-    Ok(make_rti_col(plan, *rti, field_name))
+    Ok(make_plan_position_col(plan, r.plan_position, &r.field_name))
 }
 
 /// Convert aggregate ORDER BY entries to DataFusion `Sort` expressions.
@@ -632,7 +636,7 @@ fn agg_order_by_exprs(order_by: &[AggOrderByEntry], plan: &RelNode) -> Vec<Sort>
         .iter()
         .map(|entry| {
             Sort::new(
-                make_rti_col(plan, entry.rti, &entry.field_name),
+                make_plan_position_col(plan, entry.plan_position, &entry.field_name),
                 entry.direction.is_asc(),
                 entry.direction.is_nulls_first(),
             )
@@ -645,6 +649,6 @@ fn agg_order_by_exprs(order_by: &[AggOrderByEntry], plan: &RelNode) -> Vec<Sort>
 fn agg_field_cols(agg: &JoinAggregateEntry, plan: &RelNode) -> Result<Vec<Expr>> {
     agg.field_refs
         .iter()
-        .map(|(rti, _attno, field_name)| Ok(make_rti_col(plan, *rti, field_name)))
+        .map(|r| Ok(make_plan_position_col(plan, r.plan_position, &r.field_name)))
         .collect()
 }

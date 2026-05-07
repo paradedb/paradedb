@@ -844,6 +844,56 @@ impl RelNode {
         self.sources().into_iter().find(|s| s.contains_rti(rti))
     }
 
+    /// Locate the unique output-visible source identified by
+    /// `(root_id, rti, attno)`. `root_id` disambiguates rtis that alias
+    /// across sub-PlannerInfos (e.g. SubPlans lifted by
+    /// `wrap_with_semi_anti`). Restricted to output-visible sources because
+    /// callers (targetlist refs, group/aggregate columns) only see sources
+    /// that survive join pruning. Use at construction time to capture
+    /// `plan_position`; use [`Self::source_at_plan_position`] at execution.
+    pub fn source_with(
+        &self,
+        root_id: PlannerRootId,
+        rti: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+    ) -> Option<&JoinSource> {
+        let mut matches = self
+            .output_sources()
+            .into_iter()
+            .filter(|s| s.root_id == Some(root_id) && s.contains_rti(rti) && s.has_attno(attno));
+        let first = matches.next()?;
+        debug_assert!(
+            matches.next().is_none(),
+            "source_with: multiple output sources matched (root_id={root_id:?}, rti={rti}, attno={attno})"
+        );
+        Some(first)
+    }
+
+    /// Convenience: resolve `(root_id, rti, attno)` to the unique
+    /// output-visible source's `plan_position`. Use at construction time
+    /// to capture an opaque, misuse-resistant identity that survives
+    /// serialization. JoinScan and AggregateScan both go through this.
+    pub fn plan_position(
+        &self,
+        root_id: PlannerRootId,
+        rti: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+    ) -> Option<usize> {
+        self.source_with(root_id, rti, attno)
+            .map(|s| s.plan_position)
+    }
+
+    /// Look up a source by its previously-resolved `plan_position`. Use at
+    /// execution time when the targetlist already carries plan_position
+    /// captured during construction. Walks all sources (not just
+    /// output-visible) because plan_position is unique across the tree
+    /// regardless of join-type pruning.
+    pub fn source_at_plan_position(&self, plan_position: usize) -> Option<&JoinSource> {
+        self.sources()
+            .into_iter()
+            .find(|s| s.plan_position == plan_position)
+    }
+
     /// Recursively collects all base join sources from this tree.
     pub fn sources(&self) -> Vec<&JoinSource> {
         let mut result = Vec::new();
@@ -1352,26 +1402,16 @@ impl JoinCSClause {
         }
     }
 
-    /// Resolve an output Var to a unique source index using output-visible sources.
+    /// Resolve an output Var to a unique source index using output-visible
+    /// sources. Thin delegate to [`RelNode::plan_position`] so JoinScan and
+    /// AggregateScan share a single resolution implementation.
     pub fn plan_position(
         &self,
         root_id: PlannerRootId,
         rti: pg_sys::Index,
         attno: pg_sys::AttrNumber,
     ) -> Option<usize> {
-        let mut matches = self
-            .plan
-            .output_sources()
-            .into_iter()
-            .filter(|s| s.root_id == Some(root_id) && s.contains_rti(rti) && s.has_attno(attno))
-            .map(|s| s.plan_position);
-
-        let first = matches.next()?;
-        debug_assert!(
-            matches.next().is_none(),
-            "plan_position: multiple output sources matched rti={rti}, attno={attno}"
-        );
-        Some(first)
+        self.plan.plan_position(root_id, rti, attno)
     }
 
     pub fn source_for_var(

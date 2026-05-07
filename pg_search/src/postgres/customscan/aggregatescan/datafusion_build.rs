@@ -750,6 +750,18 @@ pub unsafe fn has_non_equi_join_quals(
 pub struct FilterExprBuildContext<'a> {
     pub targetlist: Option<&'a super::join_targetlist::JoinAggregateTargetList>,
     pub sources: Option<&'a [JoinAggSource]>,
+    /// FILTER plan-resolution: present iff this is a FILTER context. Bundles
+    /// the `RelNode` tree and `outer_root_id` because they always vary
+    /// together — `T_Var` resolution to `ColumnRef { plan_position, ... }`
+    /// needs both, or neither (HAVING produces AggRef/GroupRef instead).
+    pub plan_resolution: Option<FilterPlanResolution<'a>>,
+}
+
+/// Bundled inputs for resolving a FILTER `T_Var` to its unique
+/// `plan_position` against the just-built `RelNode` tree.
+pub struct FilterPlanResolution<'a> {
+    pub plan: &'a crate::postgres::customscan::joinscan::build::RelNode,
+    pub outer_root_id: crate::postgres::customscan::joinscan::build::PlannerRootId,
 }
 
 impl FilterExpr {
@@ -758,7 +770,8 @@ impl FilterExpr {
     /// Used for both HAVING quals and per-aggregate `FILTER (WHERE ...)` clauses.
     /// The [`FilterExprBuildContext`] determines how leaf nodes are resolved:
     /// - HAVING passes `targetlist` so `T_Aggref` → `AggRef` and `T_Var` → `GroupRef`
-    /// - FILTER passes `sources` so `T_Var` → `ColumnRef`
+    /// - FILTER passes `sources` plus `plan_resolution` so `T_Var` → `ColumnRef`
+    ///   with a resolved `plan_position`
     ///
     /// Interior nodes (`T_OpExpr`, `T_BoolExpr`, `T_NullTest`, `T_RelabelType`,
     /// `T_Const`, `T_List`) behave identically in both contexts.
@@ -810,7 +823,7 @@ impl FilterExpr {
                             return Some(Self::AggRef(idx));
                         }
                         // Non-star: confirm the argument column matches.
-                        if let Some((_, _, ref _field_name)) = agg.field_refs.first() {
+                        if !agg.field_refs.is_empty() {
                             let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
                             if let Some(first_arg) = args.get_ptr(0) {
                                 if let Some(var) = crate::postgres::var::find_one_var(
@@ -818,8 +831,8 @@ impl FilterExpr {
                                 ) {
                                     let rti = (*var).varno as pg_sys::Index;
                                     let attno = (*var).varattno;
-                                    if let Some((agg_rti, agg_attno, _)) = agg.field_refs.first() {
-                                        if rti == *agg_rti && attno == *agg_attno {
+                                    if let Some(r) = agg.field_refs.first() {
+                                        if rti == r.rti && attno == r.attno {
                                             return Some(Self::AggRef(idx));
                                         }
                                     }
@@ -845,7 +858,17 @@ impl FilterExpr {
                 if let Some(sources) = ctx.sources {
                     let source = sources.iter().find(|s| s.rti == rti)?;
                     let field_name = fieldname_from_var(source.relid, var, attno)?.into_inner();
-                    return Some(Self::ColumnRef { rti, field_name });
+                    let resolution = ctx.plan_resolution.as_ref()?;
+                    let plan_position =
+                        resolution
+                            .plan
+                            .plan_position(resolution.outer_root_id, rti, attno)?;
+                    return Some(Self::ColumnRef {
+                        plan_position,
+                        rti,
+                        attno,
+                        field_name,
+                    });
                 }
 
                 // HAVING context: resolve to GroupRef via targetlist.
@@ -1053,12 +1076,10 @@ pub unsafe fn populate_required_fields(
         // but Tantivy stores the sub-field with a dotted name, so we look it
         // up by name as a backup before declaring failure.
         for gc in &targetlist.group_columns {
-            // Match on (rti, heaprelid). rti alone false-positives on
-            // SubPlan-derived sources lifted by `wrap_with_semi_anti`,
-            // which run under their own sub-PlannerInfo where rti=1 can
-            // alias the outer scan's rti=1. Pairing with heaprelid filters
-            // those out cleanly.
-            if !source.contains_rti(gc.rti) || source.scan_info.heaprelid != gc.heaprelid {
+            // Match by plan_position — the targetlist already carries it
+            // resolved at extraction, so this is a single equality check
+            // and immune to rti-aliasing across sub-PlannerInfos.
+            if source.plan_position != gc.plan_position {
                 continue;
             }
 
@@ -1093,11 +1114,13 @@ pub unsafe fn populate_required_fields(
             }
         }
 
-        // Aggregate arguments.
+        // Aggregate arguments — match by plan_position.
         for agg in &targetlist.aggregates {
-            for (rti, attno, field_name) in &agg.field_refs {
-                if source.contains_rti(*rti) {
-                    require_fast_field(source, &tupdesc, indexrel, *attno, || {
+            for r in &agg.field_refs {
+                if source.plan_position == r.plan_position {
+                    let attno = r.attno;
+                    let field_name = &r.field_name;
+                    require_fast_field(source, &tupdesc, indexrel, attno, || {
                         format!("aggregate argument '{}' (attno={attno})", field_name)
                     })?;
                 }
@@ -1108,7 +1131,7 @@ pub unsafe fn populate_required_fields(
         // needs col2 as a fast field).
         for agg in &targetlist.aggregates {
             for ob in &agg.order_by {
-                if source.contains_rti(ob.rti) {
+                if source.plan_position == ob.plan_position {
                     require_fast_field(source, &tupdesc, indexrel, ob.attno, || {
                         format!("aggregate ORDER BY column '{}'", ob.field_name)
                     })?;
@@ -1122,8 +1145,8 @@ pub unsafe fn populate_required_fields(
             let Some(ref filter) = agg.filter else {
                 continue;
             };
-            for (rti, field_name) in collect_filter_column_refs(filter) {
-                if !source.contains_rti(rti) {
+            for (plan_position, field_name) in collect_filter_column_refs(filter) {
+                if source.plan_position != plan_position {
                     continue;
                 }
                 if let Some(attno) = get_attno_by_name(field_name, &tupdesc) {
@@ -1280,12 +1303,16 @@ unsafe fn collect_cross_table_search_quals(
     }
 }
 
-/// Collect all `(rti, field_name)` column references from an [`FilterExpr`] tree.
-fn collect_filter_column_refs(expr: &FilterExpr) -> Vec<(pg_sys::Index, &str)> {
+/// Collect all `(plan_position, field_name)` column references from an [`FilterExpr`] tree.
+fn collect_filter_column_refs(expr: &FilterExpr) -> Vec<(usize, &str)> {
     let mut refs = Vec::new();
     match expr {
-        FilterExpr::ColumnRef { rti, field_name } => {
-            refs.push((*rti, field_name.as_str()));
+        FilterExpr::ColumnRef {
+            plan_position,
+            field_name,
+            ..
+        } => {
+            refs.push((*plan_position, field_name.as_str()));
         }
         FilterExpr::BinOp { left, right, .. } => {
             refs.extend(collect_filter_column_refs(left));

@@ -1172,14 +1172,11 @@ impl AggregateScan {
                 }
                 _ => unreachable!(),
             };
-        // For now (with the fork's `!has_shuffle_ancestor` guard) the planner
-        // emits at most one nested cross-worker shuffle, so peer_meshes is
-        // either empty or has length 1. Take the first as the active peer
-        // mesh; G2 will swap this scalar for a stage-id-keyed map.
-        let peer_mesh = match df_state.mpp.as_ref() {
-            Some(scan_state::MppExecState::Worker(w)) => w.peer_meshes.first().map(Arc::clone),
-            _ => None,
-        };
+        let peer_meshes: Vec<Arc<crate::postgres::customscan::mpp::mesh::MppPeerMesh>> =
+            match df_state.mpp.as_ref() {
+                Some(scan_state::MppExecState::Worker(w)) => w.peer_meshes.clone(),
+                _ => Vec::new(),
+            };
 
         let runtime = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -1252,6 +1249,10 @@ impl AggregateScan {
             .copied_config()
             .with_target_partitions(n_workers_us.max(2))
             .with_extension(task_ctx_ext);
+        // Shared stage→peer-mesh routing map for the worker's
+        // `CompositeWorkerTransport`. Empty until populated below.
+        let shared_routes =
+            crate::postgres::customscan::mpp::runtime::CompositeWorkerTransport::empty_routes();
         use datafusion::execution::SessionStateBuilder;
         use datafusion_distributed::SessionStateBuilderExt;
         let state_builder = SessionStateBuilder::new()
@@ -1271,14 +1272,15 @@ impl AggregateScan {
             //      .len() == n_workers > 1; the composite routes to
             //      `ShmMqPeerWorkerTransport` which streams from the peer
             //      mesh column for this worker.
-            // When the GUC is off, no peer mesh was reserved at DSM init
-            // time and `peer_mesh` is `None`; `tasks.len() > 1` paths then
-            // surface an internal error (currently unreachable because the
-            // fork only emits the inner peer-mesh boundary when the flag
-            // is on, and the build-side broadcast keeps tasks.len() == 1).
+            // When the GUC is off (or the planner emits no nested
+            // cross-worker shuffles) the shared map stays empty and every
+            // `NetworkShuffleExec` falls through to `LocalExecWorkerTransport`.
+            // The map is populated below, AFTER the physical plan is built,
+            // by walking the worker fragment for nested `NetworkShuffleExec`
+            // stage IDs and zipping with the worker's `peer_meshes` Vec.
             .with_distributed_worker_transport(
                 crate::postgres::customscan::mpp::runtime::CompositeWorkerTransport::new(
-                    peer_mesh.clone(),
+                    Arc::clone(&shared_routes),
                 ),
             )
             .with_distributed_in_process_mode(true)
@@ -1322,6 +1324,26 @@ impl AggregateScan {
                 return std::ptr::null_mut();
             }
         };
+
+        // Populate the shared stage→peer-mesh routing map now that the
+        // physical plan is in hand. Walk the worker fragment for nested
+        // `NetworkShuffleExec` stage IDs (deterministic across leader and
+        // worker), zip with the leader's allocated `peer_meshes` Vec.
+        // Mismatch is a hard error since it indicates the leader and
+        // worker disagree on plan shape.
+        let inner_stage_ids =
+            crate::postgres::customscan::mpp::runtime::collect_inner_shuffle_stage_ids(&fragment);
+        match crate::postgres::customscan::mpp::runtime::build_stage_to_mesh_map(
+            &inner_stage_ids,
+            &peer_meshes,
+        ) {
+            Ok(map) => {
+                *shared_routes.write() = map;
+            }
+            Err(e) => {
+                pgrx::error!("mpp worker: failed to build stage→mesh routing: {e}");
+            }
+        }
         let task_ctx = build_task_context(
             &session,
             &fragment,
@@ -1336,19 +1358,18 @@ impl AggregateScan {
         // FinalPartitioned by pulling from the peer mesh and pushes the
         // final-aggregated rows into the leader-bound mesh.
         //
-        // Detection: a two-boundary plan has 2+ NetworkShuffleExec nodes
-        // (the OUTER gather + the INNER peer-mesh) AND a registered peer
-        // mesh on the worker side. Single-boundary plans have exactly one
-        // NetworkShuffleExec and no peer mesh.
+        // For now (with the fork's `!has_shuffle_ancestor` guard) at most
+        // one peer-mesh shuffle is in play. G3 will replace this with K
+        // concurrent inner-fragment runners.
         let inner_fragment =
-            if peer_mesh.is_some() && Self::count_network_shuffles(&physical_plan) >= 2 {
+            if !peer_meshes.is_empty() && Self::count_network_shuffles(&physical_plan) >= 2 {
                 Self::find_inner_producer_fragment(&physical_plan)
             } else {
                 None
             };
 
         let result = runtime.block_on(async {
-            match (inner_fragment, peer_mesh.as_ref()) {
+            match (inner_fragment, peer_meshes.first()) {
                 (Some(inner), Some(mesh)) => {
                     let peer_outbound = mesh.take_outbound().ok_or_else(|| {
                         datafusion::common::DataFusionError::Internal(

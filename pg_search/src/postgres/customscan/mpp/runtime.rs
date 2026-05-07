@@ -32,16 +32,19 @@
 //!   capacity; we don't have URLs (everything is in-process), so any
 //!   address satisfies the API.
 
+use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
+
+use parking_lot::RwLock;
 
 use async_trait::async_trait;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::{
-    OnMetadataCallback, Stage, WorkerConnection, WorkerPartitionStream, WorkerResolver,
-    WorkerTransport,
+    NetworkBoundary, NetworkShuffleExec, Stage, WorkerConnection, WorkerPartitionStream,
+    WorkerResolver, WorkerTransport,
 };
 use url::Url;
 
@@ -267,7 +270,6 @@ impl WorkerTransport for ShmMqPeerWorkerTransport {
         _target_partitions: Range<usize>,
         target_task: usize,
         _ctx: &Arc<TaskContext>,
-        _metrics: &ExecutionPlanMetricsSet,
     ) -> Result<Box<dyn WorkerConnection>> {
         let producer = u32::try_from(target_task).map_err(|_| {
             DataFusionError::Internal(format!(
@@ -334,30 +336,44 @@ impl WorkerConnection for ShmMqPeerWorkerConnection {
     }
 }
 
+/// Shared, mutable routing map from `Stage` ID to peer mesh. The leader
+/// builds the physical plan first (which assigns stage IDs) and only then
+/// can it know which `stage.num()` corresponds to which DSM-allocated peer
+/// mesh — so the map is populated *after* the worker session is built but
+/// before plan execution. `CompositeWorkerTransport` holds an `Arc` over
+/// this map; `exec_mpp_worker` holds a second `Arc` for the post-planning
+/// write.
+pub type SharedStageMeshMap = Arc<RwLock<HashMap<usize, Arc<MppPeerMesh>>>>;
+
 /// Composite worker-side [`WorkerTransport`] that routes by the input
-/// stage's producer-task count:
+/// stage's `num` (its `Stage` ID). Each cross-worker shuffle stage is
+/// associated with one peer mesh (allocated in DSM); broadcast stages
+/// (or any stage without a registered mesh) fall through to
+/// [`LocalExecWorkerTransport`] which re-executes the input subplan
+/// locally.
 ///
-/// - `tasks.len() > 1` → peer-mesh shuffle (Track B), routed to
-///   [`ShmMqPeerWorkerTransport`] when a peer mesh is registered, else falls
-///   back to [`LocalExecWorkerTransport`] (the latter would crash for
-///   N>1 — see commit 5f89185 of the fork — so this fallback is only safe
-///   when no two-boundary plan is in flight).
-/// - `tasks.len() == 1` → broadcast (build-side `NetworkBroadcastExec`),
-///   routed to [`LocalExecWorkerTransport`] which re-executes the input
-///   subplan locally.
-///
-/// Track A's planner change always emits `tasks.len() = N` for the inner
-/// peer-mesh shuffle, so the heuristic discriminates cleanly between the
-/// two boundary kinds we surface in workers.
+/// The routing map is built at worker start by walking the worker fragment
+/// (the input subtree of the OUTER `NetworkShuffleExec`) and zipping each
+/// nested `NetworkShuffleExec`'s `stage.num()` with the corresponding
+/// `MppPeerMesh` from `MppWorkerState::peer_meshes`. Both leader and worker
+/// re-plan from the same logical plan deterministically, so the stage-num
+/// ordering matches what the leader allocated in DSM.
 pub struct CompositeWorkerTransport {
-    peer: Option<ShmMqPeerWorkerTransport>,
+    routes: SharedStageMeshMap,
 }
 
 impl CompositeWorkerTransport {
-    pub fn new(peer_mesh: Option<Arc<MppPeerMesh>>) -> Self {
-        Self {
-            peer: peer_mesh.map(ShmMqPeerWorkerTransport::new),
-        }
+    /// Build the composite transport over a shared routing map. The map
+    /// can be empty at construction time and populated later via the
+    /// `Arc<RwLock<...>>` held by the caller — `open()` reads under a
+    /// shared lock per call.
+    pub fn new(routes: SharedStageMeshMap) -> Self {
+        Self { routes }
+    }
+
+    /// Convenience: an empty shared routing map.
+    pub fn empty_routes() -> SharedStageMeshMap {
+        Arc::new(RwLock::new(HashMap::new()))
     }
 }
 
@@ -368,18 +384,62 @@ impl WorkerTransport for CompositeWorkerTransport {
         target_partitions: Range<usize>,
         target_task: usize,
         ctx: &Arc<TaskContext>,
-        metrics: &ExecutionPlanMetricsSet,
     ) -> Result<Box<dyn WorkerConnection>> {
-        if input_stage.tasks.len() > 1 {
-            if let Some(peer) = &self.peer {
-                return peer.open(input_stage, target_partitions, target_task, ctx, metrics);
-            }
-            return Err(DataFusionError::Internal(format!(
-                "CompositeWorkerTransport: input_stage tasks.len()={} requires a peer mesh, \
-                 but enable_mpp_postagg_shuffle is off",
-                input_stage.tasks.len()
-            )));
+        let routes = self.routes.read();
+        if let Some(mesh) = routes.get(&input_stage.num()) {
+            let peer = ShmMqPeerWorkerTransport::new(Arc::clone(mesh));
+            // Drop the read guard before doing async work below.
+            drop(routes);
+            return peer.open(input_stage, target_partitions, target_task, ctx);
         }
-        LocalExecWorkerTransport.open(input_stage, target_partitions, target_task, ctx, metrics)
+        drop(routes);
+        // No peer mesh registered for this stage: must be a broadcast or a
+        // deeper-nested shuffle that's still elided by the planner. Fall
+        // through to LocalExec which re-executes the input subplan locally.
+        LocalExecWorkerTransport.open(input_stage, target_partitions, target_task, ctx)
     }
+}
+
+/// Walk a worker fragment plan (the input subtree of the OUTER
+/// `NetworkShuffleExec`) and collect the `stage.num()` of every nested
+/// `NetworkShuffleExec`, in pre-order DFS. The order is deterministic
+/// across leader and worker because both re-plan from the same logical
+/// plan — used to zip stage numbers with the leader's allocated peer
+/// meshes.
+pub fn collect_inner_shuffle_stage_ids(plan: &Arc<dyn ExecutionPlan>) -> Vec<usize> {
+    let mut out = Vec::new();
+    collect_inner_shuffle_stage_ids_inner(plan, &mut out);
+    out
+}
+
+fn collect_inner_shuffle_stage_ids_inner(plan: &Arc<dyn ExecutionPlan>, out: &mut Vec<usize>) {
+    if let Some(nse) = plan.as_any().downcast_ref::<NetworkShuffleExec>() {
+        out.push(nse.input_stage().num());
+    }
+    for child in plan.children() {
+        collect_inner_shuffle_stage_ids_inner(child, out);
+    }
+}
+
+/// Build a `HashMap<stage_num, MppPeerMesh>` by zipping the stage IDs
+/// produced by [`collect_inner_shuffle_stage_ids`] with the worker's
+/// `peer_meshes` Vec (in the order the leader allocated them in DSM).
+/// If the lengths disagree this returns an error, since a mismatch
+/// indicates the leader and worker disagreed on plan shape.
+pub fn build_stage_to_mesh_map(
+    stage_ids: &[usize],
+    peer_meshes: &[Arc<MppPeerMesh>],
+) -> Result<HashMap<usize, Arc<MppPeerMesh>>, DataFusionError> {
+    if stage_ids.len() != peer_meshes.len() {
+        return Err(DataFusionError::Internal(format!(
+            "mpp: leader allocated {} peer meshes but worker plan has {} cross-worker shuffles",
+            peer_meshes.len(),
+            stage_ids.len()
+        )));
+    }
+    Ok(stage_ids
+        .iter()
+        .zip(peer_meshes.iter())
+        .map(|(stage, mesh)| (*stage, Arc::clone(mesh)))
+        .collect())
 }

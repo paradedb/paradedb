@@ -146,7 +146,14 @@ pub enum JoinType {
     Full,
     Right,
     Semi,
-    Anti,
+    /// Anti join. `null_aware` carries the SQL `NOT IN` three-valued-logic
+    /// requirement to DataFusion's `LogicalPlan::Join.null_aware`. The flag
+    /// lives on the variant rather than as a separate field so the type
+    /// system rejects `(Inner, null_aware: true)` at compile time instead
+    /// of relying on a runtime guard.
+    Anti {
+        null_aware: bool,
+    },
     /// LeftMark join: returns all left rows with an additional boolean "mark" column
     /// indicating whether a right-side match exists. Used to decorrelate
     /// `EXISTS` / `IN` subqueries inside disjunctive predicates such as
@@ -169,7 +176,7 @@ impl fmt::Display for JoinType {
             JoinType::Full => "Full",
             JoinType::Right => "Right",
             JoinType::Semi => "Semi",
-            JoinType::Anti => "Anti",
+            JoinType::Anti { .. } => "Anti",
             JoinType::LeftMark => "LeftMark",
             JoinType::RightMark => "RightMark",
             JoinType::RightSemi => "RightSemi",
@@ -191,7 +198,11 @@ impl TryFrom<pg_sys::JoinType::Type> for JoinType {
             pg_sys::JoinType::JOIN_FULL => Ok(JoinType::Full),
             pg_sys::JoinType::JOIN_RIGHT => Ok(JoinType::Right),
             pg_sys::JoinType::JOIN_SEMI => Ok(JoinType::Semi),
-            pg_sys::JoinType::JOIN_ANTI => Ok(JoinType::Anti),
+            // PG only pulls up to JOIN_ANTI when the inner is non-nullable,
+            // so three-valued logic doesn't apply at this entry point. The
+            // null-aware case is constructed in `wrap_with_semi_anti` for
+            // un-pulled-up `NOT IN`.
+            pg_sys::JoinType::JOIN_ANTI => Ok(JoinType::Anti { null_aware: false }),
             #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
             pg_sys::JoinType::JOIN_RIGHT_ANTI => Ok(JoinType::RightAnti),
             #[cfg(feature = "pg18")]
@@ -789,7 +800,10 @@ impl RelNode {
             RelNode::Join(j) => {
                 matches!(
                     j.join_type,
-                    JoinType::Semi | JoinType::Anti | JoinType::LeftMark | JoinType::RightMark
+                    JoinType::Semi
+                        | JoinType::Anti { .. }
+                        | JoinType::LeftMark
+                        | JoinType::RightMark
                 ) || j.left.has_semi_or_anti()
                     || j.right.has_semi_or_anti()
             }
@@ -805,7 +819,7 @@ impl RelNode {
                     j.join_type,
                     JoinType::Inner
                         | JoinType::Semi
-                        | JoinType::Anti
+                        | JoinType::Anti { .. }
                         | JoinType::LeftMark
                         | JoinType::RightMark
                 ) {
@@ -886,7 +900,7 @@ impl RelNode {
         match self {
             RelNode::Scan(s) => acc.push(&**s),
             RelNode::Join(j) => match j.join_type {
-                JoinType::Semi | JoinType::Anti | JoinType::LeftMark => {
+                JoinType::Semi | JoinType::Anti { .. } | JoinType::LeftMark => {
                     j.left.collect_output_sources(acc);
                 }
                 JoinType::RightSemi | JoinType::RightAnti | JoinType::RightMark => {

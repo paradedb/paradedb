@@ -104,6 +104,12 @@ impl std::fmt::Display for AggKind {
 pub struct JoinGroupColumn {
     /// Range table index of the table this column belongs to.
     pub rti: pg_sys::Index,
+    /// Heap OID of the table this column belongs to. Recorded so the
+    /// fast-field check in `populate_required_fields` can disambiguate
+    /// when a SubPlan-derived source under `wrap_with_semi_anti` carries
+    /// the same `rti` value as the outer scan (rti is only unique within
+    /// a single PlannerInfo; sub-PlannerInfos can collide).
+    pub heaprelid: pg_sys::Oid,
     /// Attribute number within that table.
     pub attno: pg_sys::AttrNumber,
     /// Resolved field name (from the BM25 index schema).
@@ -254,6 +260,7 @@ pub unsafe fn extract_aggregate_targetlist(
             let attno = (*var).varattno;
 
             let source = find_source_by_rti(sources, rti, "GROUP BY column")?;
+            let heaprelid = source.relid;
 
             let field_name = source.column_name(attno).ok_or_else(|| {
                 format!(
@@ -264,6 +271,7 @@ pub unsafe fn extract_aggregate_targetlist(
 
             group_columns.push(JoinGroupColumn {
                 rti,
+                heaprelid,
                 attno,
                 field_name,
                 output_index: idx,
@@ -279,19 +287,23 @@ pub unsafe fn extract_aggregate_targetlist(
             let attno = (*var).varattno;
             let field_name = field_name.into_inner();
 
-            // Validate that the RTI is in our known sources. Unlike the T_Var
-            // branch above, we don't need the source itself — `find_one_var_and_fieldname`
-            // already resolved the Tantivy field name — but we want a clear error
-            // if the expression references a table that isn't part of the join.
-            if !sources.iter().any(|s| s.rti == rti) {
-                return Err(format!(
-                    "GROUP BY expression references table at RTI {} which is not in the join",
-                    rti
-                ));
-            }
+            // Validate that the RTI is in our known sources, and capture
+            // the source's heaprelid so the fast-field check can disambiguate
+            // when SubPlan-derived sources alias rti from sub-PlannerInfos.
+            let heaprelid = sources
+                .iter()
+                .find(|s| s.rti == rti)
+                .map(|s| s.relid)
+                .ok_or_else(|| {
+                    format!(
+                        "GROUP BY expression references table at RTI {} which is not in the join",
+                        rti
+                    )
+                })?;
 
             group_columns.push(JoinGroupColumn {
                 rti,
+                heaprelid,
                 attno,
                 field_name,
                 output_index: idx,

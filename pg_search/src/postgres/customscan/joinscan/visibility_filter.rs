@@ -309,7 +309,7 @@ pub fn deferred_plan_positions(node: &RelNode) -> crate::api::HashSet<usize> {
                 }
                 JoinType::Left => collect(&join.left, acc),
                 JoinType::Semi => collect(&join.left, acc),
-                JoinType::Anti => collect(&join.left, acc),
+                JoinType::Anti { .. } => collect(&join.left, acc),
                 JoinType::Right => collect(&join.right, acc),
                 JoinType::RightSemi => collect(&join.right, acc),
                 JoinType::RightAnti => collect(&join.right, acc),

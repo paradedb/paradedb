@@ -15,9 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use datafusion::common::{Column, JoinType, Result, TableReference};
+use datafusion::common::{Column, JoinType, NullEquality, Result, TableReference};
 use datafusion::error::DataFusionError;
-use datafusion::logical_expr::{col, lit, BinaryExpr, Expr, Operator};
+use datafusion::logical_expr::{col, lit, BinaryExpr, Expr, LogicalPlanBuilder, Operator};
 use datafusion::prelude::DataFrame;
 use pgrx::pg_sys;
 
@@ -409,37 +409,22 @@ pub fn make_col(relation: &str, name: &str) -> Expr {
     ))
 }
 
-/// Allow-list of `JoinNode::join_type` variants accepted by [`build_join_df`].
-///
-/// JoinScan supports the full set; AggregateScan only the four equi-join
-/// variants. The variant choice is exposed at the call site so the policy
-/// difference is grep-able.
-#[derive(Copy, Clone, Debug)]
-pub enum JoinTypeAllowList {
-    /// JoinScan: Inner, Left, Right, Full, Semi, Anti, LeftMark, RightMark,
-    /// RightSemi, RightAnti.
-    All,
-    /// AggregateScan: Inner, Left, Right, Full only.
-    EquiOnly,
-}
-
 /// Lower a `JoinNode` over already-built left/right `DataFrame`s.
 ///
 /// Builds equi-join keys with [`build_equi_join_exprs`], maps the
-/// [`super::build::JoinType`] into DataFusion's `JoinType` (subject to
-/// `allowed_join_types`), and dispatches to `join_on` (when there are
-/// equi keys) or `join` (cross join). Caller is responsible for any
-/// post-join filter handling — `JoinNode::filter` is not consulted here.
+/// [`super::build::JoinType`] into DataFusion's `JoinType`, and dispatches
+/// to `join_on` (when there are equi keys) or `join` (cross join). Caller
+/// is responsible for any post-join filter handling - `JoinNode::filter`
+/// is not consulted here.
 ///
-/// Returns `Err(NotImplemented)` if the join type is outside the allow-list.
-pub fn build_join_df(
-    left: DataFrame,
-    right: DataFrame,
-    join: &JoinNode,
-    allowed_join_types: JoinTypeAllowList,
-) -> Result<DataFrame> {
+/// Returns `Err(NotImplemented)` if the join type is unsupported.
+pub fn build_join_df(left: DataFrame, right: DataFrame, join: &JoinNode) -> Result<DataFrame> {
     let on = build_equi_join_exprs(join)?;
-    let df_join_type = map_join_type(join.join_type, allowed_join_types)?;
+    let df_join_type = map_join_type(join.join_type)?;
+
+    if matches!(join.join_type, PgJoinType::Anti { null_aware: true }) {
+        return build_null_aware_anti_join(left, right, &on, df_join_type);
+    }
 
     if on.is_empty() {
         left.join(right, df_join_type, &[], &[], None)
@@ -448,33 +433,68 @@ pub fn build_join_df(
     }
 }
 
-/// Map a [`super::build::JoinType`] to DataFusion's `JoinType`, honoring the
-/// allow-list policy.
-fn map_join_type(jt: PgJoinType, allowed_join_types: JoinTypeAllowList) -> Result<JoinType> {
-    Ok(match (jt, allowed_join_types) {
-        (PgJoinType::Inner, _) => JoinType::Inner,
-        (PgJoinType::Left, _) => JoinType::Left,
-        (PgJoinType::Right, _) => JoinType::Right,
-        (PgJoinType::Full, _) => JoinType::Full,
-        (PgJoinType::Semi, JoinTypeAllowList::All) => JoinType::LeftSemi,
-        (PgJoinType::Anti, JoinTypeAllowList::All) => JoinType::LeftAnti,
-        (PgJoinType::LeftMark, JoinTypeAllowList::All) => JoinType::LeftMark,
-        (PgJoinType::RightMark, JoinTypeAllowList::All) => JoinType::RightMark,
-        (PgJoinType::RightSemi, JoinTypeAllowList::All) => JoinType::RightSemi,
-        (PgJoinType::RightAnti, JoinTypeAllowList::All) => JoinType::RightAnti,
-        (jt, JoinTypeAllowList::EquiOnly) => {
-            return Err(DataFusionError::NotImplemented(format!(
-                "Aggregate-on-join does not support {} JOIN",
-                jt
-            )));
-        }
-        (jt, JoinTypeAllowList::All) => {
-            return Err(DataFusionError::NotImplemented(format!(
-                "{} JOIN is not supported in JoinScan execution",
-                jt
-            )));
-        }
-    })
+/// Construct a `LeftAnti` join with DataFusion's `null_aware=true` flag set,
+/// so SQL `NOT IN` three-valued NULL semantics are preserved (any NULL in the
+/// inner key column -> exclude all outer rows). DataFusion's HashJoinExec
+/// requires single-column equi-key + LeftAnti for null-aware mode; we validate
+/// both here. The single equi predicate is passed as a join filter (mirroring
+/// the optimizer's `decorrelate_predicate_subquery` lowering); the physical
+/// planner extracts it into the on-keys list.
+fn build_null_aware_anti_join(
+    left: DataFrame,
+    right: DataFrame,
+    on: &[Expr],
+    df_join_type: JoinType,
+) -> Result<DataFrame> {
+    // The (df_join_type == LeftAnti) invariant is enforced structurally by
+    // `JoinType::Anti { null_aware: true }` only being lowered by `map_join_type`
+    // to `JoinType::LeftAnti`. The single-key invariant is still a runtime
+    // check because `equi_keys.len() == 1` is only enforced by
+    // `wrap_with_semi_anti`'s lift-time guard, not by the type system.
+    debug_assert_eq!(df_join_type, JoinType::LeftAnti);
+    if on.len() != 1 {
+        return Err(DataFusionError::NotImplemented(format!(
+            "null_aware NOT IN supports a single equi-key only, got {}",
+            on.len()
+        )));
+    }
+    let filter = Some(on[0].clone());
+
+    let (session_state, left_plan) = left.into_parts();
+    let right_plan = right.into_unoptimized_plan();
+    let plan = LogicalPlanBuilder::from(left_plan)
+        .join_detailed_with_options(
+            right_plan,
+            df_join_type,
+            (Vec::<Column>::new(), Vec::<Column>::new()),
+            filter,
+            NullEquality::NullEqualsNothing,
+            true,
+        )?
+        .build()?;
+    Ok(DataFrame::new(session_state, plan))
+}
+
+/// Map a [`super::build::JoinType`] to DataFusion's `JoinType`. Returns
+/// `Err(NotImplemented)` for variants the translator does not lower -
+/// today only `UniqueOuter` / `UniqueInner`, which are Postgres-side
+/// optimizer artifacts that should never reach the DataFusion executor.
+fn map_join_type(jt: PgJoinType) -> Result<JoinType> {
+    match jt {
+        PgJoinType::Inner => Ok(JoinType::Inner),
+        PgJoinType::Left => Ok(JoinType::Left),
+        PgJoinType::Right => Ok(JoinType::Right),
+        PgJoinType::Full => Ok(JoinType::Full),
+        PgJoinType::Semi => Ok(JoinType::LeftSemi),
+        PgJoinType::Anti { .. } => Ok(JoinType::LeftAnti),
+        PgJoinType::LeftMark => Ok(JoinType::LeftMark),
+        PgJoinType::RightMark => Ok(JoinType::RightMark),
+        PgJoinType::RightSemi => Ok(JoinType::RightSemi),
+        PgJoinType::RightAnti => Ok(JoinType::RightAnti),
+        PgJoinType::UniqueOuter | PgJoinType::UniqueInner => Err(DataFusionError::NotImplemented(
+            format!("{jt} JOIN is not supported in DataFusion execution"),
+        )),
+    }
 }
 
 /// Like [`build_join_df`], but translates [`JoinNode::filter`] and attaches it
@@ -499,9 +519,8 @@ pub fn build_join_df_with_filter(
     join: &JoinNode,
     sources: &[&JoinSource],
     output_columns: &[OutputColumnInfo],
-    allowed_join_types: JoinTypeAllowList,
 ) -> Result<DataFrame> {
-    let df_join_type = map_join_type(join.join_type, allowed_join_types)?;
+    let df_join_type = map_join_type(join.join_type)?;
 
     let filter_expr = match &join.filter {
         Some(JoinLevelExpr::PgExpression { pg_node_string, .. }) => unsafe {
@@ -514,7 +533,7 @@ pub fn build_join_df_with_filter(
             )));
         }
         None => {
-            return build_join_df(left, right, join, allowed_join_types);
+            return build_join_df(left, right, join);
         }
     };
 

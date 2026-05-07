@@ -33,6 +33,9 @@ use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, JoinNode, JoinSource, JoinSourceCandidate, JoinType,
     MultiTablePredicateInfo, PlannerRootId, RelNode,
 };
+use crate::postgres::customscan::joinscan::planning::{
+    classify_base_restrictinfo, wrap_with_semi_anti, ClassifiedBaseRestrictInfo,
+};
 use crate::postgres::customscan::pullup::{
     get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name,
 };
@@ -328,6 +331,12 @@ unsafe fn build_relnode_from_node(
     } else if tag == pg_sys::NodeTag::T_JoinExpr {
         let join_expr = node as *mut pg_sys::JoinExpr;
         build_join_node(root, join_expr, sources)
+    } else if tag == pg_sys::NodeTag::T_FromExpr {
+        // Sublink pull-up (`IN (SELECT ...)` / `NOT IN (...)` / `EXISTS`)
+        // can produce a JoinExpr whose larg or rarg is a FromExpr - recurse
+        // into it the same way the top-level jointree is handled.
+        let from = node as *mut pg_sys::FromExpr;
+        build_relnode_from_fromexpr(root, from, sources)
     } else {
         Err(format!("unexpected node type {:?} in join tree", tag))
     }
@@ -373,51 +382,84 @@ unsafe fn build_scan_node(
         candidate = candidate.with_alias(alias.clone());
     }
 
-    // Extract search predicates from baserestrictinfo if the planner has them
+    // The agg-on-join path runs aggregation entirely inside DataFusion with
+    // no row-level Postgres filter step, so any baserestrictinfo entry that
+    // can't be lowered into the search query or lifted into a Semi/Anti
+    // join must force a decline - silently dropping it would yield wrong
+    // row counts. OR-nested SubPlans are declined upfront because LeftMark
+    // + post-filter lowering isn't wired in this path yet.
     let rel_array = (*root).simple_rel_array;
+    let mut classified = ClassifiedBaseRestrictInfo::empty();
     if !rel_array.is_null() && (rti as isize) < (*root).simple_rel_array_size as isize {
         let rel = *rel_array.offset(rti as isize);
         if !rel.is_null() {
-            let baserestrictinfo = PgList::<pg_sys::RestrictInfo>::from_pg((*rel).baserestrictinfo);
+            classified = classify_base_restrictinfo(root, (*rel).baserestrictinfo);
+        }
+    }
 
-            if !baserestrictinfo.is_empty() {
-                let context = PlannerContext::from_planner(root);
-                for ri in baserestrictinfo.iter_ptr() {
-                    let mut state = QualExtractState::default();
-                    if let Some(qual) = extract_quals(
-                        &context,
-                        rti,
-                        ri.cast(),
-                        RestrictInfoType::BaseRelation,
-                        bm25_index,
-                        false,
-                        &mut state,
-                        true,
-                    ) {
-                        let query = SearchQueryInput::from(&qual);
-                        let current_query = candidate.query.take();
-                        let new_query = match current_query {
-                            Some(existing) => SearchQueryInput::Boolean {
-                                must: vec![existing, query],
-                                should: vec![],
-                                must_not: vec![],
-                            },
-                            None => query,
-                        };
-                        candidate = candidate.with_query(new_query);
-                        if state.uses_our_operator {
-                            candidate = candidate.with_search_predicate();
-                        }
-                    }
-                }
-            }
+    if !classified.or_subplans.is_empty() {
+        return Err(format!(
+            "RTI {} ({}) has OR-nested SubPlan(s) in baserestrictinfo (e.g. \
+             `col IS NULL OR col IN (SELECT ...)`); the aggregate-on-join path \
+             does not yet support LeftMark + post-filter lowering",
+            rti,
+            source.alias.as_deref().unwrap_or("unknown"),
+        ));
+    }
+
+    if !classified.search_ri.is_empty() {
+        let context = PlannerContext::from_planner(root);
+        let mut state = QualExtractState::default();
+        let qual = extract_quals(
+            &context,
+            rti,
+            classified.search_ri.as_ptr().cast(),
+            RestrictInfoType::BaseRelation,
+            bm25_index,
+            false,
+            &mut state,
+            true,
+        )
+        .ok_or_else(|| {
+            format!(
+                "RTI {} ({}) has a baserestrictinfo entry that cannot be \
+                 pushed into the search query; aggregate pushdown would \
+                 silently drop it",
+                rti,
+                source.alias.as_deref().unwrap_or("unknown"),
+            )
+        })?;
+        let query = SearchQueryInput::from(&qual);
+        candidate = candidate.with_query(query);
+        if state.uses_our_operator {
+            candidate = candidate.with_search_predicate();
         }
     }
 
     candidate.estimate_rows();
 
     let join_source = JoinSource::try_from(candidate).map_err(|e| e.to_string())?;
-    Ok(RelNode::Scan(Box::new(join_source)))
+    let current_node = RelNode::Scan(Box::new(join_source));
+
+    // The `all_keys` accumulator is discarded here - `populate_required_fields`
+    // recovers the same set via `RelNode::join_key_projections()`. On Err
+    // from `wrap_with_semi_anti` we decline pushdown so PG handles the
+    // SubPlan via `nodeSubplan.c` rather than silently dropping it.
+    let mut all_keys: Vec<JoinKeyPair> = Vec::new();
+    let current_node =
+        wrap_with_semi_anti(current_node, classified.top_level_subplans, &mut all_keys).map_err(
+            |reason| {
+                format!(
+                    "RTI {} ({}): aggregate pushdown declined because a SubPlan \
+                     could not be lifted into a Semi/Anti join; PG will handle \
+                     it. Reason: {reason}",
+                    rti,
+                    source.alias.as_deref().unwrap_or("unknown"),
+                )
+            },
+        )?;
+
+    Ok(current_node)
 }
 
 /// Build a `RelNode::Join` from a `JoinExpr` parse node.
@@ -435,9 +477,25 @@ unsafe fn build_join_node(
     let left = outer;
     let right = inner;
 
-    // Support INNER, LEFT/RIGHT, and FULL OUTER JOINs
+    // Semi / Anti / RightSemi / RightAnti are unconditionally safe for
+    // aggregate pushdown: they never project the non-preserved side, so
+    // aggregate inputs always come from a preserved side.
+    //
+    // Inner / Left / Right / Full are accepted as-is from the previous
+    // allow-list. They are not unconditionally safe - an aggregate that
+    // reads from the non-preserved side of a Left/Right/Full join can
+    // see NULL-extended rows and inflate counts. Tightening this needs a
+    // projection-shape gate; until then, those join types ride on the
+    // pre-existing behavior.
     match join_type {
-        JoinType::Inner | JoinType::Left | JoinType::Right | JoinType::Full => {}
+        JoinType::Inner
+        | JoinType::Left
+        | JoinType::Right
+        | JoinType::Full
+        | JoinType::Semi
+        | JoinType::Anti { .. }
+        | JoinType::RightSemi
+        | JoinType::RightAnti => {}
         _ => {
             return Err(format!(
                 "aggregate-on-join does not support {} JOIN",
@@ -955,7 +1013,12 @@ pub unsafe fn populate_required_fields(
     targetlist: &super::join_targetlist::JoinAggregateTargetList,
     multi_table_clauses: &[*mut pg_sys::Expr],
 ) -> Result<(), String> {
-    let join_keys = plan.join_keys();
+    // `(plan_position, attno)` rather than `(rti, attno)`: rti is only
+    // unique within a single PlannerInfo, and SubPlan-derived sources
+    // run under their own sub-PlannerInfo. They can share an rti with
+    // the outer scan, so an `(rti, attno)` lookup matches the wrong
+    // source. plan_position is unique per `RelNode::Scan` in the tree.
+    let join_key_projections = plan.join_key_projections();
     let mut sources = plan.sources_mut();
 
     // Collect Var references from multi-table predicate clauses so their
@@ -990,7 +1053,12 @@ pub unsafe fn populate_required_fields(
         // but Tantivy stores the sub-field with a dotted name, so we look it
         // up by name as a backup before declaring failure.
         for gc in &targetlist.group_columns {
-            if !source.contains_rti(gc.rti) {
+            // Match on (rti, heaprelid). rti alone false-positives on
+            // SubPlan-derived sources lifted by `wrap_with_semi_anti`,
+            // which run under their own sub-PlannerInfo where rti=1 can
+            // alias the outer scan's rti=1. Pairing with heaprelid filters
+            // those out cleanly.
+            if !source.contains_rti(gc.rti) || source.scan_info.heaprelid != gc.heaprelid {
                 continue;
             }
 
@@ -1068,16 +1136,11 @@ pub unsafe fn populate_required_fields(
 
         // Join keys — MUST be resolvable; otherwise PgSearchTableProvider
         // would have no data columns and produce empty RecordBatches.
-        for jk in &join_keys {
-            for &(rti, attno) in &[
-                (jk.outer_rti, jk.outer_attno),
-                (jk.inner_rti, jk.inner_attno),
-            ] {
-                if source.contains_rti(rti) {
-                    require_fast_field(source, &tupdesc, indexrel, attno, || {
-                        format!("join key (attno={attno})")
-                    })?;
-                }
+        for &(plan_position, attno) in &join_key_projections {
+            if source.plan_position == plan_position {
+                require_fast_field(source, &tupdesc, indexrel, attno, || {
+                    format!("join key (plan_position={plan_position}, attno={attno})")
+                })?;
             }
         }
 

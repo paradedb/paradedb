@@ -32,7 +32,7 @@ use crate::postgres::customscan::aggregatescan::join_targetlist::{
 use crate::postgres::customscan::aggregatescan::privdat::{CompareOp, DataFusionTopK, FilterExpr};
 use crate::postgres::customscan::datafusion::translator::{
     apply_join_level_filter, build_join_df, make_col, make_source_col, ColumnMapper,
-    JoinTypeAllowList, PredicateTranslator,
+    PredicateTranslator,
 };
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, JoinSource, RelNode, RelationAlias,
@@ -79,6 +79,8 @@ pub async fn build_join_aggregate_plan(
     custom_scan_tlist: *mut pg_sys::List,
     having_filter: Option<&FilterExpr>,
     ctx: &SessionContext,
+    expr_context: Option<*mut pg_sys::ExprContext>,
+    planstate: Option<*mut pg_sys::PlanState>,
 ) -> Result<(datafusion::logical_expr::LogicalPlan, Vec<usize>)> {
     // Step 1: Build the join DataFrame from the RelNode tree
     let df = build_relnode_df(
@@ -87,6 +89,8 @@ pub async fn build_join_aggregate_plan(
         join_level_predicates,
         custom_exprs,
         custom_scan_tlist,
+        expr_context,
+        planstate,
     )
     .await?;
 
@@ -246,18 +250,22 @@ pub async fn build_join_aggregate_plan(
 /// - Does NOT handle LIMIT, ORDER BY, DISTINCT, or output projection
 ///   (those are handled by the aggregate layer above)
 /// - Is single-threaded (no partitioning logic)
+#[allow(clippy::too_many_arguments)]
 fn build_relnode_df<'a>(
     ctx: &'a SessionContext,
     node: &'a RelNode,
     join_level_predicates: &'a [JoinLevelSearchPredicate],
     custom_exprs: *mut pg_sys::List,
     custom_scan_tlist: *mut pg_sys::List,
+    expr_context: Option<*mut pg_sys::ExprContext>,
+    planstate: Option<*mut pg_sys::PlanState>,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         match node {
             RelNode::Scan(source) => {
                 let plan_position = source.plan_position;
-                let df = build_source_df(ctx, source, plan_position).await?;
+                let df =
+                    build_source_df(ctx, source, plan_position, expr_context, planstate).await?;
                 let alias =
                     RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
                 Ok(df.alias(&alias)?)
@@ -269,6 +277,8 @@ fn build_relnode_df<'a>(
                     join_level_predicates,
                     custom_exprs,
                     custom_scan_tlist,
+                    expr_context,
+                    planstate,
                 )
                 .await?;
                 let right_df = build_relnode_df(
@@ -277,10 +287,12 @@ fn build_relnode_df<'a>(
                     join_level_predicates,
                     custom_exprs,
                     custom_scan_tlist,
+                    expr_context,
+                    planstate,
                 )
                 .await?;
 
-                build_join_df(left_df, right_df, join, JoinTypeAllowList::EquiOnly)
+                build_join_df(left_df, right_df, join)
             }
             RelNode::Filter(filter) => {
                 let df = build_relnode_df(
@@ -289,6 +301,8 @@ fn build_relnode_df<'a>(
                     join_level_predicates,
                     custom_exprs,
                     custom_scan_tlist,
+                    expr_context,
+                    planstate,
                 )
                 .await?;
 
@@ -490,6 +504,8 @@ async fn build_source_df(
     ctx: &SessionContext,
     source: &JoinSource,
     plan_position: usize,
+    expr_context: Option<*mut pg_sys::ExprContext>,
+    planstate: Option<*mut pg_sys::PlanState>,
 ) -> Result<DataFrame> {
     let mut scan_info = source.scan_info.clone();
 
@@ -526,7 +542,16 @@ async fn build_source_df(
         fields.push(WhichFastField::Ctid);
     }
 
-    let provider = PgSearchTableProvider::new(scan_info, fields, false);
+    let mut provider = PgSearchTableProvider::new(scan_info, fields, false);
+    // HeapFilter queries (e.g. `=` on a column indexed via a
+    // `pdb.literal(...)` cast) compile to runtime Postgres expressions
+    // that can only be evaluated with a live ExprContext + PlanState.
+    // The provider's `scan()` reaches for them via
+    // `init_postgres_expressions` / `solve_postgres_expressions` only
+    // when needed, so threading them through here is what makes the
+    // agg-on-join path match JoinScan and Base Scan.
+    provider.set_expr_context(expr_context);
+    provider.set_planstate(planstate);
     let df = register_source_table(ctx, alias.as_str(), provider).await?;
 
     // Select all fields from the provider schema using their qualified names.

@@ -203,6 +203,24 @@ jobs:
             type=raw,value=${{ env.COMMIT_SHA }}
             type=raw,value=antithesis-latest
 
+      # The hardcoded `--runtime 100000` (100s) in the Stressgres singletons
+      # consumed only ~3% of a 1-hour PR campaign and ~0.4% of an 8-hour
+      # nightly. Size the runtime to the campaign budget so each suite drives
+      # the cluster for the bulk of the run, giving fault injection a much
+      # larger window to overlap with workload activity.
+      - name: Patch Stressgres Singletons With Runtime Sized to Campaign Duration
+        if: matrix.workload == 'stressgres'
+        env:
+          DURATION_MIN: ${{ github.event.inputs.duration || (github.event_name == 'pull_request' && '60') || '480' }}
+        run: |
+          set -euo pipefail
+          # Use ~85% of the campaign budget, leaving headroom for the suite's
+          # cluster-init sleep, TOML rewrite, teardown, and final reporting.
+          RUNTIME_MS=$(( DURATION_MIN * 60 * 1000 * 85 / 100 ))
+          echo "Setting Stressgres --runtime to ${RUNTIME_MS} ms (~$(( RUNTIME_MS / 60000 )) min) for ${DURATION_MIN}-min campaign"
+          sed -i -E "s|--runtime [0-9]+|--runtime ${RUNTIME_MS}|g" stressgres/suites/antithesis/singleton_driver_*.sh
+          grep -H -- '--runtime' stressgres/suites/antithesis/singleton_driver_*.sh
+
       # Antithesis only supports x86_64 instruction set
       # https://antithesis.com/docs/getting_started/setup/?sid=6534.37&sterm=x86&marks=x86#containerize-your-software
       - name: Build and Push Driver Docker Image to Antithesis Registry

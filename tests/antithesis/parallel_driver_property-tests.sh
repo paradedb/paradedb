@@ -5,11 +5,14 @@
 # statement_timeout enforced (see PARADEDB_FORCE_PARALLEL and
 # PARADEDB_QGEN_STATEMENT_TIMEOUT_MS in tests/tests/fixtures/querygen/mod.rs).
 #
-# The `anytime_` prefix tells the Antithesis composer to re-roll this
-# command across the campaign, so each invocation explores a fresh proptest
-# seed under a fresh fault-injection trajectory. Keep PROPTEST_CASES low so
-# each invocation finishes in ~1-2 minutes — that lets the composer
-# interleave plenty of fault injection between runs.
+# The `parallel_driver_` prefix tells the Antithesis composer to re-roll
+# this command across the campaign (and to allow multiple concurrent copies
+# under fault injection), so each invocation explores a fresh proptest seed
+# under a fresh fault-injection trajectory. Each qgen invocation creates
+# its own ephemeral test database (see tests/tests/fixtures/db.rs), so
+# concurrent copies don't share schema. Keep PROPTEST_CASES low so each
+# invocation finishes in ~1-2 minutes — that lets the composer interleave
+# plenty of fault injection between runs.
 
 set -Eeuo pipefail
 

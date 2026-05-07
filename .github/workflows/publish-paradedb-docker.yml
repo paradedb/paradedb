@@ -146,6 +146,7 @@ jobs:
         id: generated_branch
         run: |
           BRANCH="update-dockerfiles/${{ steps.version.outputs.tag }}"
+          git fetch origin "$BRANCH:refs/remotes/origin/$BRANCH" || true
           git checkout -B "$BRANCH"
           git config user.name "paradedb-github-app[bot]"
           git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"
@@ -157,7 +158,7 @@ jobs:
             git commit -m "Generate Dockerfiles for ${{ steps.version.outputs.tag }}"
             HAS_CHANGES=true
           fi
-          git push origin "$BRANCH"
+          git push --force-with-lease origin "$BRANCH"
           echo "branch=$BRANCH" >> $GITHUB_OUTPUT
           echo "has_changes=$HAS_CHANGES" >> $GITHUB_OUTPUT
 

@@ -26,8 +26,13 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v6
 
+      - name: Find Dockerfiles
+        id: dockerfiles
+        run: |
+          echo "files=$(find docker -type f -name 'Dockerfile*' ! -path 'docker/Dockerfile.template' -print | sort | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+
       - name: Run Hadolint
         uses: jbergstroem/hadolint-gh-action@v1
         with:
-          dockerfile: "docker/**/Dockerfile docker/Dockerfile.config docker/Dockerfile.stressgres"
+          dockerfile: ${{ steps.dockerfiles.outputs.files }}
           error_level: 2 # Treat INFO as error

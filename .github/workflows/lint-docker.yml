@@ -28,8 +28,7 @@ jobs:
 
       - name: Find Dockerfiles
         id: dockerfiles
-        run: |
-          echo "files=$(find docker -type f -name 'Dockerfile*' ! -path 'docker/Dockerfile.template' -print | sort | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+        run: echo "files=$(find docker -type f -name 'Dockerfile*' ! -path 'docker/Dockerfile.template' -print | sort | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
 
       - name: Run Hadolint
         uses: jbergstroem/hadolint-gh-action@v1

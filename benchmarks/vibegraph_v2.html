@@ -292,10 +292,11 @@ function buildTooltipHtml(chart, dataIndex) {
         const val = ds.original[oi];
         if (val == null) continue;
         const color = ds.borderColor || '#888';
+        const range = ds.ranges?.[oi];
 
         html += '<div class="tt-row"><div class="tt-row-main">';
         html += `<span class="tt-name"><span class="tt-dot" style="background:${color}"></span>${esc(ds.label)}</span>`;
-        html += `<span class="tt-val">${val.toFixed(3)}</span></div>`;
+        html += `<span class="tt-val">${val.toFixed(3)}${range ? ` (${esc(range)})` : ''}</span></div>`;
 
         const orig = ds.original;
         const unit = 'ms';
@@ -373,10 +374,11 @@ function externalTooltipHandler(context) {
         const ds = pt.dataset;
         const val = ds.original[idx + ws];
         const color = ds.borderColor || '#888';
+        const range = ds.ranges?.[idx + ws];
 
         html += '<div class="tt-row"><div class="tt-row-main">';
         html += `<span class="tt-name"><span class="tt-dot" style="background:${color}"></span>${esc(ds.label)}</span>`;
-        html += `<span class="tt-val">${val != null ? val.toFixed(3) : '–'}</span></div>`;
+        html += `<span class="tt-val">${val != null ? val.toFixed(3) + (range ? ` (${esc(range)})` : '') : '–'}</span></div>`;
 
         const orig = ds.original;
         const oi = idx + ws;
@@ -465,7 +467,7 @@ function renderCharts(rawData) {
             name: b.name, unit: b.unit,
             timestamp: new Date(hashInfo[ent.commit.id.slice(0, 7)]?.timestamp || ent.commit.timestamp).getTime(),
             run: ent.date, short: ent.commit.id.slice(0, 7),
-            value: b.value, extra: b.extra || '',
+            value: b.value, extra: b.extra || '', range: b.range || '',
             author: ent.commit.author?.username || ent.commit.author?.name || '',
             commitMsg: (ent.commit.message || '').split('\n')[0],
             commitUrl: ent.commit.url || '', tool: ent.tool || '',
@@ -493,18 +495,19 @@ function renderCharts(rawData) {
             const tool = group[0]?.tool || '';
             const smallerIsBetter = tool.toLowerCase().includes('smaller');
 
-            const seriesMap = {}, extraMap = {};
+            const seriesMap = {}, extraMap = {}, rangeMap = {};
             for (const d of group) {
                 const idx = runs.findIndex(r => r.timestamp === d.timestamp && r.run === d.run && r.short === d.short);
                 (seriesMap[d.name] = seriesMap[d.name] || Array(runs.length).fill(null))[idx] = d.value;
                 (extraMap[d.name] = extraMap[d.name] || Array(runs.length).fill(null))[idx] = d.extra;
+                (rangeMap[d.name] = rangeMap[d.name] || Array(runs.length).fill(null))[idx] = d.range;
             }
 
             let ci = 0;
             const datasets = Object.entries(seriesMap).map(([name, data]) => {
                 const c = COLORS[ci++ % COLORS.length];
                 return {
-                    label: name, data: data.slice(), original: data.slice(), extras: extraMap[name].slice(),
+                    label: name, data: data.slice(), original: data.slice(), extras: extraMap[name].slice(), ranges: rangeMap[name].slice(),
                     borderColor: c, backgroundColor: c + '18', fill: false, tension: 0.35, borderWidth: 2,
                     pointStyle: 'circle', pointRadius: 3, pointHoverRadius: 5,
                     pointBorderColor: data.map((v, i, arr) => {

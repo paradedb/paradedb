@@ -421,6 +421,34 @@ fn collect_inner_shuffle_stage_ids_inner(plan: &Arc<dyn ExecutionPlan>, out: &mu
     }
 }
 
+/// Sibling of [`collect_inner_shuffle_stage_ids`]. Walks the plan in the
+/// same pre-order DFS and returns each nested `NetworkShuffleExec`'s
+/// `children()[0]` — the producer subtree the worker must run to feed
+/// that peer-mesh stage. The returned Vec is in the same order as
+/// [`collect_inner_shuffle_stage_ids`] and `peer_meshes`, so both can be
+/// zipped to spawn K concurrent inner-fragment runners.
+pub fn collect_inner_producer_fragments(
+    plan: &Arc<dyn ExecutionPlan>,
+) -> Vec<Arc<dyn ExecutionPlan>> {
+    let mut out = Vec::new();
+    collect_inner_producer_fragments_inner(plan, &mut out);
+    out
+}
+
+fn collect_inner_producer_fragments_inner(
+    plan: &Arc<dyn ExecutionPlan>,
+    out: &mut Vec<Arc<dyn ExecutionPlan>>,
+) {
+    if plan.as_any().downcast_ref::<NetworkShuffleExec>().is_some() {
+        if let Some(child) = plan.children().first() {
+            out.push(Arc::clone(child));
+        }
+    }
+    for child in plan.children() {
+        collect_inner_producer_fragments_inner(child, out);
+    }
+}
+
 /// Build a `HashMap<stage_num, MppPeerMesh>` by zipping the stage IDs
 /// produced by [`collect_inner_shuffle_stage_ids`] with the worker's
 /// `peer_meshes` Vec (in the order the leader allocated them in DSM).

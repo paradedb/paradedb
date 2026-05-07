@@ -28,9 +28,19 @@ on:
       - "!docker/manifests/**"
       - "!docker/Dockerfile.stressgres"
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "The ref to test."
+        required: false
+        default: ""
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
 
 concurrency:
-  group: test-pg_search-docker-${{ github.head_ref || github.ref }}
+  group: test-pg_search-docker-${{ github.head_ref || inputs.ref || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -51,24 +61,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        flavor:
+          - paradedb
+          - official
+        arch:
+          - amd64
+          - arm64
         include:
           - arch: amd64
-            flavor: paradedb
             runner_family: m7a+m7i
             runner_image: ubuntu24-full-x64
             platform: linux/amd64
           - arch: arm64
-            flavor: paradedb
-            runner_family: m7g+m8g
-            runner_image: ubuntu24-full-arm64
-            platform: linux/arm64
-          - arch: amd64
-            flavor: official
-            runner_family: m7a+m7i
-            runner_image: ubuntu24-full-x64
-            platform: linux/amd64
-          - arch: arm64
-            flavor: official
             runner_family: m7g+m8g
             runner_image: ubuntu24-full-arm64
             platform: linux/arm64
@@ -76,6 +80,8 @@ jobs:
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4

@@ -125,12 +125,23 @@ jobs:
           git push origin "$BRANCH"
           echo "branch=$BRANCH" >> $GITHUB_OUTPUT
 
+  test-generated-dockerfiles:
+    name: Test Generated Dockerfiles
+    needs:
+      - set-matrix
+      - generate-dockerfiles
+    uses: ./.github/workflows/test-pg_search-docker.yml
+    with:
+      ref: ${{ needs.generate-dockerfiles.outputs.branch }}
+    secrets: inherit
+
   publish-paradedb-docker-image:
     name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }}
     runs-on: ubuntu-latest
     needs:
       - set-matrix
       - generate-dockerfiles
+      - test-generated-dockerfiles
     strategy:
       matrix:
         pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}

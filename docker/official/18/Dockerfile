@@ -7,15 +7,19 @@ LABEL maintainer="ParadeDB - https://paradedb.com" \
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
-# Install pg_search from Cloudsmith
+# Install pg_search from GitHub Releases
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends apt-transport-https ca-certificates curl debian-archive-keyring debian-keyring gnupg \
-    && keyring_location=/usr/share/keyrings/paradedb-paradedb-archive-keyring.gpg && \
-    curl -1sLf "https://dl.cloudsmith.io/public/paradedb/paradedb/gpg.B82501FB00B5422B.key" | gpg --dearmor -o "${keyring_location}" && \
-    curl -1sLf "https://dl.cloudsmith.io/public/paradedb/paradedb/config.deb.txt?distro=debian&codename=trixie&component=main" > /etc/apt/sources.list.d/paradedb-paradedb.list && \
-    chmod 644 "${keyring_location}" /etc/apt/sources.list.d/paradedb-paradedb.list && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends postgresql-18-pg-search=0.23.4 && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
+    arch="$(dpkg --print-architecture)" && \
+    case "$arch" in \
+        amd64) checksum="6b042d61d156ca5fdcb1c417e291d90bffe3026848890be30bf6e578146b4676" ;; \
+        arm64) checksum="5ad13a80b76c46590914e0c366bd8deaf807d5b352f5ad489876ec836d06d3d1" ;; \
+        *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac && \
+    curl -fsSL -o /tmp/pg_search.deb "https://github.com/paradedb/paradedb/releases/download/v0.23.4/postgresql-18-pg-search_0.23.4-1PARADEDB-trixie_${arch}.deb" && \
+    echo "${checksum}  /tmp/pg_search.deb" | sha256sum -c - && \
+    apt-get install -y --no-install-recommends /tmp/pg_search.deb && \
+    rm /tmp/pg_search.deb && \
     rm -rf /var/lib/apt/lists/*
 
 # Install core extensions

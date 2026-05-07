@@ -15,19 +15,37 @@ if [[ $# -ne 1 ]]; then
   exit 1
 fi
 
-PG_SEARCH_VERSION=$1
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 versions=(15 16 17 18)
+PG_SEARCH_VERSION="${1}"
+
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_dir"' EXIT
+
+fetch_checksum() {
+  local pg_version="$1"
+  local arch="$2"
+  local release_asset_name="postgresql-${pg_version}-pg-search_${PG_SEARCH_VERSION}-1PARADEDB-trixie_${arch}.deb"
+  local deb="${tmp_dir}/${release_asset_name}"
+
+  echo "Fetching ${release_asset_name}" >&2
+  curl -fsSL -o "$deb" "https://github.com/paradedb/paradedb/releases/download/v${PG_SEARCH_VERSION}/${release_asset_name}" || return 1
+  sha256sum "$deb" | awk '{ print $1 }'
+}
 
 render() {
   local flavor="$1"
   local pg_version="$2"
+  local pg_search_deb_amd64_sha256="$3"
+  local pg_search_deb_arm64_sha256="$4"
   local output="${script_dir}/${flavor}/${pg_version}/Dockerfile"
 
   mkdir -p "$(dirname "$output")"
   awk \
     -v pg_version="$pg_version" \
     -v pg_search_version="$PG_SEARCH_VERSION" \
+    -v pg_search_deb_amd64_sha256="$pg_search_deb_amd64_sha256" \
+    -v pg_search_deb_arm64_sha256="$pg_search_deb_arm64_sha256" \
   -v flavor="$flavor" '
       BEGIN { include = 1 }
       /^# %%ANTITHESIS_BEGIN%%$/ { include = flavor == "antithesis"; next }
@@ -38,13 +56,18 @@ render() {
       {
         gsub(/@@PG_VERSION_MAJOR@@/, pg_version)
         gsub(/@@PG_SEARCH_VERSION@@/, pg_search_version)
+        gsub(/@@PG_SEARCH_DEB_AMD64_SHA256@@/, pg_search_deb_amd64_sha256)
+        gsub(/@@PG_SEARCH_DEB_ARM64_SHA256@@/, pg_search_deb_arm64_sha256)
         print
       }
     ' "${script_dir}/Dockerfile.template" > "$output"
 }
 
 for pg_version in "${versions[@]}"; do
-  render paradedb "$pg_version"
-  render antithesis "$pg_version"
-  render official "$pg_version"
+  pg_search_deb_amd64_sha256="$(fetch_checksum "$pg_version" amd64)"
+  pg_search_deb_arm64_sha256="$(fetch_checksum "$pg_version" arm64)"
+
+  render paradedb "$pg_version" "$pg_search_deb_amd64_sha256" "$pg_search_deb_arm64_sha256"
+  render antithesis "$pg_version" "$pg_search_deb_amd64_sha256" "$pg_search_deb_arm64_sha256"
+  render official "$pg_version" "$pg_search_deb_amd64_sha256" "$pg_search_deb_arm64_sha256"
 done

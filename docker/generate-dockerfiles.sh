@@ -5,8 +5,8 @@
 # Postgres version we support. Our normal Dockerfile includes Barman cloud which is specific to our deployment approach
 # and thus cannot be included in the official images. We also have a version of the file for use in Antithesis.
 #
-# To make a change, update the template, rerun the script, and commit the generated Dockerfiles. CI validates that the
-# generated files are in sync with the template.
+# To make a change, update the template, rerun the script, and commit the generated Dockerfiles.
+
 set -euo pipefail
 
 if [[ $# -ne 1 ]]; then

@@ -5,7 +5,10 @@
 # Postgres version we support. Our normal Dockerfile includes Barman cloud which is specific to our deployment approach
 # and thus cannot be included in the official images. We also have a version of the file for use in Antithesis.
 #
-# To make a change, update the template, rerun the script, and commit the generated Dockerfiles.
+# This script downloads the .debs for the specified version from GitHub Releases in order to compute checksusm and embed
+# them in the Dockerfiles.
+#
+# To make a change, update the template, rerun the script with the desired version, and commit the generated Dockerfiles.
 
 set -euo pipefail
 

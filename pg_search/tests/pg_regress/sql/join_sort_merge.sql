@@ -10,8 +10,7 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 
 -- Make sure the GUC is enabled
 SET paradedb.enable_join_custom_scan = on;
-
-
+SET paradedb.enable_columnar_sort = on;
 
 -- =============================================================================
 -- TEST 1: Join on sorted keys (Both sides sorted on join key)

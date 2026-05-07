@@ -37,6 +37,7 @@ permissions:
   contents: write
   id-token: write
   attestations: write
+  pull-requests: write
 
 jobs:
   set-matrix:
@@ -66,7 +67,10 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
+      release_branch: ${{ steps.version.outputs.release_branch }}
+      is_latest: ${{ steps.release_latest.outputs.is_latest }}
       branch: ${{ steps.generated_branch.outputs.branch }}
+      has_changes: ${{ steps.generated_branch.outputs.has_changes }}
     steps:
       - name: Generate GitHub App Token
         id: app-token
@@ -102,9 +106,38 @@ jobs:
             VERSION=${{ github.event.inputs.version }}
             TAG=v${{ github.event.inputs.version }}
           fi
+          RELEASE_VERSION=${VERSION%%-*}
+          IFS=. read -r MAJOR MINOR _ <<< "$RELEASE_VERSION"
+          RELEASE_BRANCH="$MAJOR.$MINOR.x"
           echo "GitHub Tag Version: $VERSION"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "release_branch=$RELEASE_BRANCH" >> $GITHUB_OUTPUT
+
+      - name: Determine if Release Should be Marked as Latest
+        id: release_latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          current_tag_version="${{ steps.version.outputs.version }}"
+          latest_tag_version=$(gh release list --jq '.[] | select(.isLatest == true) | .name' --json=name,isLatest | sed 's/^v//')
+          echo "Current latest release is $latest_tag_version"
+          echo "Current version to be released is $current_tag_version"
+
+          echo ""
+          echo "Install semver CLI via npm to compare versions..."
+          npm install semver
+
+          echo ""
+          echo "Comparing versions to determine if we need to mark this release as latest..."
+          echo "We should mark as latest if the current version of the tag triggering this workflow is equal to the latest tag found in GitHub Releases."
+          if npx semver -r ">=$latest_tag_version" "$current_tag_version"; then
+            echo "is_latest=true"
+            echo "is_latest=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_latest=false"
+            echo "is_latest=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Generate Dockerfiles
         run: docker/generate-dockerfiles.sh "${{ steps.version.outputs.version }}"
@@ -119,11 +152,14 @@ jobs:
           git add docker
           if git diff --cached --quiet; then
             echo "No generated Dockerfile changes to commit."
+            HAS_CHANGES=false
           else
             git commit -m "Generate Dockerfiles for ${{ steps.version.outputs.tag }}"
+            HAS_CHANGES=true
           fi
           git push origin "$BRANCH"
           echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          echo "has_changes=$HAS_CHANGES" >> $GITHUB_OUTPUT
 
   test-generated-dockerfiles:
     name: Test Generated Dockerfiles
@@ -154,31 +190,6 @@ jobs:
         with:
           ref: ${{ needs.generate-dockerfiles.outputs.branch }}
 
-      - name: Determine if Release Should be Marked as Latest
-        id: release_latest
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          current_tag_version="${{ needs.generate-dockerfiles.outputs.version }}"
-          latest_tag_version=$(gh release list --jq '.[] | select(.isLatest == true) | .name' --json=name,isLatest | sed 's/^v//')
-          echo "Current latest release is $latest_tag_version"
-          echo "Current version to be released is $current_tag_version"
-
-          echo ""
-          echo "Install semver CLI via npm to compare versions..."
-          npm install semver
-
-          echo ""
-          echo "Comparing versions to determine if we need to mark this release as latest..."
-          echo "We should mark as latest if the current version of the tag triggering this workflow is equal to the latest tag found in GitHub Releases."
-          if npx semver -r ">=$latest_tag_version" "$current_tag_version"; then
-            echo "is_latest=true"
-            echo "is_latest=true" >> $GITHUB_OUTPUT
-          else
-            echo "is_latest=false"
-            echo "is_latest=false" >> $GITHUB_OUTPUT
-          fi
-
       # Official releases need a single universal image so that the same tag (e.g. `paradedb:latest`)
       # works on both amd64 and arm64 hosts — pulling clients pick the right manifest entry for their
       # arch. That requires producing both arches under one tag, which means cross-compiling at least
@@ -205,8 +216,8 @@ jobs:
             type=raw,value=${{ needs.generate-dockerfiles.outputs.version }}-pg${{ matrix.pg_version }}
             type=raw,value=${{ needs.generate-dockerfiles.outputs.tag }},enable=${{ matrix.pg_version == env.default_pg_version }}
             type=raw,value=${{ needs.generate-dockerfiles.outputs.version }},enable=${{ matrix.pg_version == env.default_pg_version }}
-            type=raw,value=latest-pg${{ matrix.pg_version }},enable=${{ steps.release_latest.outputs.is_latest == 'true' && !contains(needs.generate-dockerfiles.outputs.tag, '-rc.') }}
-            type=raw,value=latest,enable=${{ matrix.pg_version == env.default_pg_version && steps.release_latest.outputs.is_latest == 'true' && !contains(needs.generate-dockerfiles.outputs.tag, '-rc.') }}
+            type=raw,value=latest-pg${{ matrix.pg_version }},enable=${{ needs.generate-dockerfiles.outputs.is_latest == 'true' && !contains(needs.generate-dockerfiles.outputs.tag, '-rc.') }}
+            type=raw,value=latest,enable=${{ matrix.pg_version == env.default_pg_version && needs.generate-dockerfiles.outputs.is_latest == 'true' && !contains(needs.generate-dockerfiles.outputs.tag, '-rc.') }}
 
       - name: Login to Docker Hub
         uses: docker/login-action@v4
@@ -234,6 +245,66 @@ jobs:
           subject-name: index.docker.io/paradedb/paradedb
           subject-digest: ${{ steps.build-push.outputs.digest }}
           push-to-registry: true
+
+  open-dockerfile-prs:
+    name: Open Dockerfile Update PRs
+    runs-on: ubuntu-latest
+    needs:
+      - generate-dockerfiles
+      - publish-paradedb-docker-image
+    if: ${{ needs.generate-dockerfiles.outputs.has_changes == 'true' }}
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.PARADEDB_GITHUB_APP_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+
+      - name: Checkout Git Repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.generate-dockerfiles.outputs.branch }}
+          fetch-depth: 2
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Open Release Branch PR
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          BRANCH="${{ needs.generate-dockerfiles.outputs.branch }}"
+          BASE="${{ needs.generate-dockerfiles.outputs.release_branch }}"
+
+          PR=$(gh pr list --head "$BRANCH" --base "$BASE" --state open --json number --jq '.[0].number // ""')
+          if [ -n "$PR" ]; then
+            echo "Release branch PR already exists: #$PR"
+          else
+            gh pr create --base "$BASE" --head "$BRANCH" --title "Generate Dockerfiles for ${{ needs.generate-dockerfiles.outputs.tag }}" --body "Updates generated Dockerfiles for ${{ needs.generate-dockerfiles.outputs.tag }} after the Docker images were published."
+          fi
+
+      - name: Open Main PR
+        if: ${{ needs.generate-dockerfiles.outputs.is_latest == 'true' }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          TAG="${{ needs.generate-dockerfiles.outputs.tag }}"
+          BRANCH="update-dockerfiles/${TAG}-main"
+          COMMIT_SHA=$(git rev-parse HEAD)
+
+          git config user.name "paradedb-github-app[bot]"
+          git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"
+          git fetch origin main:refs/remotes/origin/main
+          git checkout -B "$BRANCH" origin/main
+          git cherry-pick --no-commit "$COMMIT_SHA"
+          git commit -m "Generate Dockerfiles for $TAG"
+          git push --force-with-lease origin "$BRANCH"
+
+          PR=$(gh pr list --head "$BRANCH" --base main --state open --json number --jq '.[0].number // ""')
+          if [ -n "$PR" ]; then
+            echo "Main PR already exists: #$PR"
+          else
+            gh pr create --base main --head "$BRANCH" --title "Generate Dockerfiles for $TAG" --body "Updates generated Dockerfiles for $TAG after the Docker images were published."
+          fi
 
   notify-orm-repos:
     name: Notify ORM Repos of New Release

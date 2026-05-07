@@ -89,6 +89,12 @@ pub struct DataFusionAggState {
     /// `mpp_plan_bytes`; used to size the DSM mesh.
     #[allow(dead_code)]
     pub mpp_n_partitions: u32,
+    /// Number of nested cross-worker `NetworkShuffleExec` stages in the
+    /// physical plan, computed in `stash_mpp_plan_bytes`. Determines how
+    /// many peer meshes to allocate in DSM at `estimate_dsm_size` time.
+    /// 0 when `enable_mpp_postagg_shuffle` is off.
+    #[allow(dead_code)]
+    pub mpp_n_peer_meshes: u32,
 }
 
 /// Per-query MPP state. Distinct variants for leader vs worker because the

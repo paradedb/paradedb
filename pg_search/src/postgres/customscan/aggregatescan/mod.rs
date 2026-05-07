@@ -393,6 +393,7 @@ impl CustomScan for AggregateScan {
                     mpp: None,
                     mpp_plan_bytes: None,
                     mpp_n_partitions: 1,
+                    mpp_n_peer_meshes: 0,
                 });
                 builder.build()
             }
@@ -638,6 +639,79 @@ fn mpp_align(n: usize) -> usize {
     n.next_multiple_of(a)
 }
 
+/// Build a stub physical plan from `logical` using the same fork knobs the
+/// real leader uses, then count nested cross-worker `NetworkShuffleExec`
+/// stages — i.e., total `NetworkShuffleExec` minus the OUTER (gather).
+/// Returns 0 on any planning failure so the MPP path falls back gracefully.
+///
+/// Used by `stash_mpp_plan_bytes` to size the DSM peer-mesh array (K) before
+/// the leader allocates DSM. The plan is built once per query and discarded;
+/// the leader rebuilds it for execution after `leader_setup` completes.
+fn count_peer_mesh_shuffles(
+    runtime: &tokio::runtime::Runtime,
+    logical: &datafusion::logical_expr::LogicalPlan,
+    n_workers: u32,
+) -> u32 {
+    use datafusion::execution::SessionStateBuilder;
+    use datafusion_distributed::SessionStateBuilderExt;
+    let n_workers_us = n_workers as usize;
+    let serial = create_aggregate_session_context();
+    let cfg = serial
+        .copied_config()
+        .with_target_partitions(n_workers_us.max(2));
+    let state_builder = SessionStateBuilder::new()
+        .with_default_features()
+        .with_config(cfg)
+        .with_distributed_worker_resolver(
+            crate::postgres::customscan::mpp::runtime::MppWorkerResolver::new(n_workers_us),
+        )
+        // The fork's `is_in_process()` predicate gates peer-shuffle emission
+        // on a registered `WorkerTransport`. Use the bare LocalExec stub —
+        // the plan is built and discarded for counting only, never executed,
+        // so `LocalExecWorkerTransport.open()` is never invoked.
+        .with_distributed_worker_transport(
+            crate::postgres::customscan::mpp::runtime::LocalExecWorkerTransport,
+        )
+        .with_distributed_task_estimator(n_workers_us)
+        .with_distributed_broadcast_joins(true)
+        .ok();
+    let Some(state_builder) = state_builder else {
+        return 0;
+    };
+    let state_builder = match state_builder.with_distributed_in_process_peer_shuffle(true) {
+        Ok(b) => b,
+        Err(_) => return 0,
+    };
+    let state_builder = state_builder
+        .with_distributed_user_codec(crate::scan::codec::PgSearchPhysicalCodecStub)
+        .with_distributed_planner();
+    let state = state_builder.build();
+    let session = datafusion::prelude::SessionContext::new_with_state(state);
+
+    let physical =
+        match runtime.block_on(async { session.state().create_physical_plan(logical).await }) {
+            Ok(p) => p,
+            Err(_) => return 0,
+        };
+    let total = count_network_shuffles_in(&physical);
+    // Subtract 1 for the OUTER (gather) shuffle, which uses the leader-bound
+    // mesh, not a peer mesh. If the planner didn't emit any (K=0), the
+    // saturating_sub keeps us safe.
+    total.saturating_sub(1)
+}
+
+fn count_network_shuffles_in(plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>) -> u32 {
+    let mut count = if plan.name() == "NetworkShuffleExec" {
+        1
+    } else {
+        0
+    };
+    for child in plan.children() {
+        count += count_network_shuffles_in(child);
+    }
+    count
+}
+
 fn mpp_agg_pscan_offset() -> usize {
     mpp_align(MPP_AGG_DSM_HEADER_SIZE)
 }
@@ -684,15 +758,16 @@ impl ParallelQueryCapable for AggregateScan {
             .source_manifests
             .len()
             .saturating_sub(1) as u32;
-        // K peer meshes: 1 when post-agg shuffle is on (the post-aggregate
-        // peer mesh), 0 otherwise. The runtime substrate is K-aware (Vec<MppPeerMesh>);
-        // the planner side currently emits at most 1 nested cross-worker shuffle
-        // (the `!has_shuffle_ancestor` guard in fork's `_distribute_plan`).
-        let n_peer_meshes: u32 = if crate::gucs::enable_mpp_postagg_shuffle() {
-            1
-        } else {
-            0
-        };
+        // K peer meshes: counted in `stash_mpp_plan_bytes` by walking a stub
+        // physical plan. Equals (total NetworkShuffleExecs - 1) since the
+        // OUTER (gather) uses the leader-bound mesh. 0 when the post-agg
+        // shuffle GUC is off.
+        let n_peer_meshes: u32 = state
+            .custom_state()
+            .datafusion_state
+            .as_ref()
+            .map(|d| d.mpp_n_peer_meshes)
+            .unwrap_or(0);
         let mpp_size = match crate::postgres::customscan::mpp::glue::estimate_dsm_size(
             plan_bytes_len,
             n_partitions,
@@ -780,11 +855,12 @@ impl ParallelQueryCapable for AggregateScan {
             .source_manifests
             .len()
             .saturating_sub(1) as u32;
-        let n_peer_meshes: u32 = if crate::gucs::enable_mpp_postagg_shuffle() {
-            1
-        } else {
-            0
-        };
+        let n_peer_meshes: u32 = state
+            .custom_state()
+            .datafusion_state
+            .as_ref()
+            .map(|d| d.mpp_n_peer_meshes)
+            .unwrap_or(0);
         let leader = match unsafe {
             leader_setup(
                 mpp_coordinate,
@@ -1070,6 +1146,19 @@ impl AggregateScan {
         // n_workers (matching `build_mpp_leader_session_context`).
         let n_workers = producer_worker_count();
         df_state.mpp_n_partitions = n_workers.max(1);
+
+        // K-aware peer-mesh sizing: if the post-agg peer-shuffle GUC is on,
+        // build a stub physical plan to count how many cross-worker
+        // `NetworkShuffleExec` stages the planner emits. The OUTER (gather)
+        // is always present and uses the leader-bound mesh; every other
+        // `NetworkShuffleExec` becomes a peer-mesh stage. Once the fork's
+        // `!has_shuffle_ancestor` guard is dropped, this count climbs
+        // beyond 1 for plans like aggregate-on-(HashJoinExec(Partitioned)).
+        df_state.mpp_n_peer_meshes = if crate::gucs::enable_mpp_postagg_shuffle() {
+            count_peer_mesh_shuffles(&runtime, &logical, n_workers)
+        } else {
+            0
+        };
     }
 
     /// MPP leader exec helper: build a `SessionContext` that mirrors

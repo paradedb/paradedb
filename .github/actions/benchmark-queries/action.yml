@@ -62,13 +62,13 @@ runs:
     # we sleep for a random number of seconds to hopefully avoid conflicting with other concurrent
     # benchmark-action publish actions running in other jobs
     - name: Sleep before publish
-      if: github.ref == 'ref/heads/main'
+      if: github.ref == 'refs/heads/main'
       shell: bash
       run: echo $(( 1 + RANDOM % ( 61 - 1 + 1 ) ))
 
     - name: Publish Benchmark Metrics
       uses: benchmark-action/github-action-benchmark@v1
-      if: github.ref == 'ref/heads/main'
+      if: github.ref == 'refs/heads/main'
       with:
         name: "pg_search '${{ inputs.dataset }}' (${{ env.ROWS_LABEL }} rows)"
         ref: ${{ inputs.ref }}
@@ -85,7 +85,7 @@ runs:
         comment-always: ${{ github.event_name == 'pull_request' }}
 
     - name: Upload Benchmark Results to Slack (push only)
-      if: github.ref == 'ref/heads/main'
+      if: github.ref == 'refs/heads/main'
       uses: slackapi/slack-github-action@v3
       with:
         method: chat.postMessage

@@ -8,7 +8,8 @@ LABEL maintainer="ParadeDB - https://paradedb.com" \
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # Install the locally built, Antithesis-instrumented pg_search package.
-COPY pg_search-0.23.4-trixie-amd64-pg18.deb /tmp/pg_search.deb
+ARG COMMIT_SHA
+COPY pg_search-antithesis-trixie-amd64-pg18-${COMMIT_SHA}.deb /tmp/pg_search.deb
 RUN dpkg -i /tmp/pg_search.deb && \
     rm /tmp/pg_search.deb && \
     mkdir /symbols && \

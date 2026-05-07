@@ -105,6 +105,8 @@ jobs:
       (github.event_name == 'schedule' && github.repository == 'paradedb/paradedb-enterprise')
       || github.event_name == 'workflow_dispatch'
       || (github.event_name == 'pull_request' && contains(fromJSON('["antithesis","antithesis-stressgres","antithesis-proptests"]'), github.event.label.name))
+    env:
+      COMMIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
     steps:
       - name: Install Dependencies
@@ -185,7 +187,7 @@ jobs:
           # Create installable package
           mkdir archive
           cp `find target/release-with-debug -type f -name "pg_search*"` archive
-          package_dir=pg_search-0.0.0-${{ steps.version.outputs.os_version }}-amd64-pg${{ env.PG_VERSION }}
+          package_dir=pg_search-antithesis-${{ steps.version.outputs.os_version }}-amd64-pg${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}
 
           mkdir -p ${package_dir}/usr/lib/postgresql/${{ env.PG_VERSION }}/lib
           mkdir -p ${package_dir}/usr/share/postgresql/${{ env.PG_VERSION }}/extension
@@ -216,8 +218,8 @@ jobs:
           ACTIONS_CACHE_SERVICE_V2: ""
         uses: actions/upload-artifact@v7
         with:
-          name: pg-search-antithesis-deb
-          path: pg_search-0.0.0-${{ steps.version.outputs.os_version }}-amd64-pg${{ env.PG_VERSION }}.deb
+          name: pg-search-antithesis-deb-${{ env.COMMIT_SHA }}
+          path: pg_search-antithesis-${{ steps.version.outputs.os_version }}-amd64-pg${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}.deb
           retention-days: 1
 
   antithesis-trigger-test-run:
@@ -271,7 +273,7 @@ jobs:
           ACTIONS_CACHE_SERVICE_V2: ""
         uses: actions/download-artifact@v8
         with:
-          name: pg-search-antithesis-deb
+          name: pg-search-antithesis-deb-${{ env.COMMIT_SHA }}
           path: .
 
       - name: Log Into Antithesis Registry
@@ -302,6 +304,8 @@ jobs:
           push: true
           tags: ${{ steps.extract-workload-metadata.outputs.tags }}
           labels: ${{ steps.extract-workload-metadata.outputs.labels }}
+          build-args: |
+            COMMIT_SHA=${{ env.COMMIT_SHA }}
 
       - name: Patch ParadeDB K8s Manifest With Workload Image Tagged With Git SHA
         working-directory: docker/manifests/

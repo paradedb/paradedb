@@ -5,11 +5,11 @@
 # statement_timeout enforced (see PARADEDB_FORCE_PARALLEL and
 # PARADEDB_QGEN_STATEMENT_TIMEOUT_MS in tests/tests/fixtures/querygen/mod.rs).
 #
-# This is intentionally NOT a singleton_driver_* command. The composer
-# re-rolls it across the campaign so each invocation explores a fresh
-# proptest seed under a fresh fault-injection trajectory. Keep
-# PROPTEST_CASES low so each invocation finishes in ~1-2 minutes — that
-# lets the composer interleave plenty of fault injection between runs.
+# The `anytime_` prefix tells the Antithesis composer to re-roll this
+# command across the campaign, so each invocation explores a fresh proptest
+# seed under a fresh fault-injection trajectory. Keep PROPTEST_CASES low so
+# each invocation finishes in ~1-2 minutes — that lets the composer
+# interleave plenty of fault injection between runs.
 
 set -Eeuo pipefail
 

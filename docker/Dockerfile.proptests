@@ -4,8 +4,9 @@
 #
 # This image pre-builds the `qgen` property test binary and bundles it with
 # the Antithesis driver script. The binary is invoked against the in-cluster
-# ParadeDB primary by the driver script (see tests/antithesis/property-tests.sh),
-# which the Antithesis composer re-rolls across the campaign.
+# ParadeDB primary by the driver script (see
+# tests/antithesis/anytime_property-tests.sh), which the Antithesis composer
+# re-rolls across the campaign.
 
 FROM rust:1.95-slim
 

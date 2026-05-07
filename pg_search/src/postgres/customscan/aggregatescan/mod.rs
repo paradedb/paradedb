@@ -753,11 +753,18 @@ impl ParallelQueryCapable for AggregateScan {
         let mpp_offset = mpp_align(mpp_agg_pscan_offset() + pscan_size);
 
         // Number of non-partitioning sources gets a build-cache slot per worker.
-        let n_cache_sources = state
-            .custom_state()
-            .source_manifests
-            .len()
-            .saturating_sub(1) as u32;
+        // Skipped in peer-shuffle mode: the non-partitioning source is sliced
+        // per worker via `slice_segment_ids_round_robin`, so the all-gather
+        // is unused.
+        let n_cache_sources = if crate::gucs::enable_mpp_postagg_shuffle() {
+            0
+        } else {
+            state
+                .custom_state()
+                .source_manifests
+                .len()
+                .saturating_sub(1) as u32
+        };
         // K peer meshes: counted in `stash_mpp_plan_bytes` by walking a stub
         // physical plan. Equals (total NetworkShuffleExecs - 1) since the
         // OUTER (gather) uses the leader-bound mesh. 0 when the post-agg
@@ -855,6 +862,12 @@ impl ParallelQueryCapable for AggregateScan {
             .source_manifests
             .len()
             .saturating_sub(1) as u32;
+        // Match the gating in `estimate_dsm_custom_scan`.
+        let n_cache_sources = if crate::gucs::enable_mpp_postagg_shuffle() {
+            0
+        } else {
+            n_cache_sources
+        };
         let n_peer_meshes: u32 = state
             .custom_state()
             .datafusion_state
@@ -1286,8 +1299,28 @@ impl AggregateScan {
         // (workers will then claim individual segments via `checkout_segment`
         // inside their `PgSearchTableProvider`). For non-partitioning sources,
         // use the segment IDs the leader snapshotted into shared memory.
-        let mut index_segment_ids: Vec<HashSet<tantivy::index::SegmentId>> =
-            vec![HashSet::default(); plan_sources_count];
+        // In peer-shuffle mode, the build-cache all-gather (which replicates
+        // the non-partitioning source data to every worker) becomes a hard
+        // correctness bug: every worker independently runs
+        // `RepartitionExec(Hash([id]))` on its full copy of the build, so
+        // every producer emits the SAME data into the peer mesh and consumers
+        // see N copies of every row. Slice the non-partitioning segment IDs
+        // round-robin per worker so each scans only its 1/N slice — same
+        // model the partitioning source already uses.
+        let peer_shuffle_on = crate::gucs::enable_mpp_postagg_shuffle();
+        let non_partitioning_segments: Vec<crate::api::HashSet<tantivy::index::SegmentId>> =
+            if peer_shuffle_on {
+                non_partitioning_segments
+                    .iter()
+                    .map(|ids| {
+                        Self::slice_segment_ids_round_robin(ids, worker_idx_for_cache, n_workers)
+                    })
+                    .collect()
+            } else {
+                non_partitioning_segments
+            };
+        let mut index_segment_ids: Vec<crate::api::HashSet<tantivy::index::SegmentId>> =
+            vec![crate::api::HashSet::default(); plan_sources_count];
         if let Some(ps) = parallel_state {
             let mut np_counter = 0usize;
             for (i, slot) in index_segment_ids.iter_mut().enumerate() {
@@ -1300,9 +1333,16 @@ impl AggregateScan {
             }
         }
 
-        let mpp_build_cache = match df_state.mpp.as_ref() {
-            Some(scan_state::MppExecState::Worker(w)) => w.build_cache.as_ref().map(Arc::clone),
-            _ => None,
+        // Skip the build-cache in peer-shuffle mode (each worker has its own
+        // 1/N slice of the non-partitioning source thanks to the slicing
+        // above; there's nothing to all-gather).
+        let mpp_build_cache = if peer_shuffle_on {
+            None
+        } else {
+            match df_state.mpp.as_ref() {
+                Some(scan_state::MppExecState::Worker(w)) => w.build_cache.as_ref().map(Arc::clone),
+                _ => None,
+            }
         };
         let logical = match deserialize_logical_plan_with_runtime(
             &plan_bytes,
@@ -1535,6 +1575,37 @@ impl AggregateScan {
             }
         }
         None
+    }
+
+    /// Slice a non-partitioning source's canonical segment IDs round-robin
+    /// across workers. `worker_idx` keeps every Nth segment (sorted by uuid
+    /// for determinism) starting at `worker_idx`. Used in peer-shuffle mode
+    /// so each worker scans only its 1/N slice of an otherwise-replicated
+    /// source — the build-cache all-gather is bypassed.
+    ///
+    /// Falls back to the full set when `n_segments < n_workers`: at that
+    /// scale, slicing would leave most workers with zero segments and any
+    /// `HashJoinExec(CollectLeft)` consumer that locally re-executes its
+    /// build subtree (via `LocalExecWorkerTransport`) would observe an
+    /// empty build → empty join → empty result. Replicating the full set
+    /// at small scale is correct (and N× is negligible when the source is
+    /// tiny anyway).
+    fn slice_segment_ids_round_robin(
+        ids: &crate::api::HashSet<tantivy::index::SegmentId>,
+        worker_idx: u32,
+        n_workers: u32,
+    ) -> crate::api::HashSet<tantivy::index::SegmentId> {
+        if n_workers <= 1 || (ids.len() as u32) < n_workers {
+            return ids.clone();
+        }
+        let mut sorted: Vec<tantivy::index::SegmentId> = ids.iter().copied().collect();
+        sorted.sort_by_key(|id| id.uuid_string());
+        sorted
+            .into_iter()
+            .enumerate()
+            .filter(|(i, _)| (*i as u32) % n_workers == worker_idx)
+            .map(|(_, id)| id)
+            .collect()
     }
 
     /// Existing single-table Tantivy aggregate path.

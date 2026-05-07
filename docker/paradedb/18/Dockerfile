@@ -2,7 +2,7 @@
 FROM postgres:18-trixie AS paradedb
 
 LABEL maintainer="ParadeDB - https://paradedb.com" \
-    org.opencontainers.image.description="ParadeDB - The Transactional Elasticsearch Alternative Built on Postgres" \
+    org.opencontainers.image.description="Simple, Elastic-quality search for Postgres" \
     org.opencontainers.image.source="https://github.com/paradedb/paradedb"
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]

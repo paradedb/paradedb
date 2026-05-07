@@ -3,9 +3,9 @@
 # - Minimum 2 CPU cores for compilation
 #
 # This image pre-builds the `qgen` property test binary and bundles it with
-# Antithesis singleton driver scripts. The binary is invoked in a loop against
-# the in-cluster ParadeDB primary by the driver script (see
-# tests/antithesis/singleton_driver_property-tests.sh).
+# the Antithesis driver script. The binary is invoked against the in-cluster
+# ParadeDB primary by the driver script (see tests/antithesis/property-tests.sh),
+# which the Antithesis composer re-rolls across the campaign.
 
 FROM rust:1.95-slim
 

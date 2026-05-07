@@ -101,6 +101,7 @@ pub fn estimate_dsm_size(
     plan_bytes_len: usize,
     n_partitions: u32,
     n_cache_sources: u32,
+    n_peer_meshes: u32,
 ) -> Result<usize, String> {
     let layout = compute_dsm_layout(
         producer_worker_count(),
@@ -110,6 +111,7 @@ pub fn estimate_dsm_size(
         n_cache_sources,
         MPP_CACHE_PER_SLOT,
         mpp_peer_queue_bytes(),
+        n_peer_meshes,
     )
     .map_err(|e| format!("mpp: estimate_dsm_size: {e}"))?;
     Ok(layout.region_total)
@@ -151,6 +153,7 @@ pub unsafe fn leader_setup(
     n_partitions: u32,
     plan_bytes: Vec<u8>,
     n_cache_sources: u32,
+    n_peer_meshes: u32,
 ) -> Result<MppLeaderState, String> {
     let n_workers = producer_worker_count();
     let layout = compute_dsm_layout(
@@ -161,6 +164,7 @@ pub unsafe fn leader_setup(
         n_cache_sources,
         MPP_CACHE_PER_SLOT,
         mpp_peer_queue_bytes(),
+        n_peer_meshes,
     )
     .map_err(|e| format!("mpp: leader_setup compute layout: {e}"))?;
 
@@ -211,9 +215,11 @@ pub struct MppWorkerState {
     /// Build-side all-gather cache. The worker writes its 1/N slice for each
     /// non-partitioning source, then reads back peer slices after the barrier.
     pub build_cache: Option<Arc<MppBuildCache>>,
-    /// Peer-mesh handle for the inner cross-worker shuffle (Track B). `None`
-    /// when `enable_mpp_postagg_shuffle = off` and no peer mesh was reserved.
-    pub peer_mesh: Option<Arc<MppPeerMesh>>,
+    /// Peer-mesh handles, one per nested cross-worker shuffle stage (Track B).
+    /// Empty when `enable_mpp_postagg_shuffle = off` or the planner emitted
+    /// no nested cross-worker shuffles. Indexed in the same order as the
+    /// peer meshes in DSM (see [`crate::postgres::customscan::mpp::dsm`]).
+    pub peer_meshes: Vec<Arc<MppPeerMesh>>,
 }
 
 /// Body of `initialize_worker_custom_scan`. Reads the header, attaches as
@@ -254,21 +260,24 @@ pub unsafe fn worker_setup(
         None
     };
 
-    // Peer-mesh demux tag space = global partition count of the inner
+    // Peer-mesh demux tag space = global partition count of each inner
     // shuffle. Fork's `_distribute_plan` scales the inner `RepartitionExec`
-    // by `consumer_tc = n_workers`, so the producer emits `n_workers²`
+    // by `consumer_tc = n_workers`, so each producer emits `n_workers²`
     // distinct partition_ids and each `(producer, consumer)` peer-mesh
     // edge multiplexes `n_workers` of them.
     let peer_partitions = header.n_workers.saturating_mul(header.n_workers);
-    let peer_mesh =
-        unsafe { worker_peer_attach(coordinate, &header, worker_index, seg) }?.map(|attach| {
+    let peer_attaches = unsafe { worker_peer_attach(coordinate, &header, worker_index, seg) }?;
+    let peer_meshes: Vec<Arc<MppPeerMesh>> = peer_attaches
+        .into_iter()
+        .map(|attach| {
             Arc::new(MppPeerMesh::from_worker_attach(
                 worker_index,
                 header.n_workers,
                 peer_partitions,
                 attach,
             ))
-        });
+        })
+        .collect();
 
     Ok(MppWorkerState {
         outbound_senders,
@@ -278,6 +287,6 @@ pub unsafe fn worker_setup(
             total_participants: header.n_workers,
         },
         build_cache,
-        peer_mesh,
+        peer_meshes,
     })
 }

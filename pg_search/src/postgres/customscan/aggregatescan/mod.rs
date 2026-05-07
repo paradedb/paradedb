@@ -684,7 +684,21 @@ impl ParallelQueryCapable for AggregateScan {
             .source_manifests
             .len()
             .saturating_sub(1) as u32;
-        let mpp_size = match estimate_dsm_size(plan_bytes_len, n_partitions, n_cache_sources) {
+        // K peer meshes: 1 when post-agg shuffle is on (the post-aggregate
+        // peer mesh), 0 otherwise. The runtime substrate is K-aware (Vec<MppPeerMesh>);
+        // the planner side currently emits at most 1 nested cross-worker shuffle
+        // (the `!has_shuffle_ancestor` guard in fork's `_distribute_plan`).
+        let n_peer_meshes: u32 = if crate::gucs::enable_mpp_postagg_shuffle() {
+            1
+        } else {
+            0
+        };
+        let mpp_size = match crate::postgres::customscan::mpp::glue::estimate_dsm_size(
+            plan_bytes_len,
+            n_partitions,
+            n_cache_sources,
+            n_peer_meshes,
+        ) {
             Ok(sz) => sz,
             Err(e) => {
                 pgrx::warning!("mpp: estimate_dsm failed: {e}; falling back to serial");
@@ -766,6 +780,11 @@ impl ParallelQueryCapable for AggregateScan {
             .source_manifests
             .len()
             .saturating_sub(1) as u32;
+        let n_peer_meshes: u32 = if crate::gucs::enable_mpp_postagg_shuffle() {
+            1
+        } else {
+            0
+        };
         let leader = match unsafe {
             leader_setup(
                 mpp_coordinate,
@@ -773,6 +792,7 @@ impl ParallelQueryCapable for AggregateScan {
                 n_partitions,
                 plan_bytes,
                 n_cache_sources,
+                n_peer_meshes,
             )
         } {
             Ok(l) => l,
@@ -1152,8 +1172,12 @@ impl AggregateScan {
                 }
                 _ => unreachable!(),
             };
+        // For now (with the fork's `!has_shuffle_ancestor` guard) the planner
+        // emits at most one nested cross-worker shuffle, so peer_meshes is
+        // either empty or has length 1. Take the first as the active peer
+        // mesh; G2 will swap this scalar for a stage-id-keyed map.
         let peer_mesh = match df_state.mpp.as_ref() {
-            Some(scan_state::MppExecState::Worker(w)) => w.peer_mesh.as_ref().map(Arc::clone),
+            Some(scan_state::MppExecState::Worker(w)) => w.peer_meshes.first().map(Arc::clone),
             _ => None,
         };
 

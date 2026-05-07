@@ -64,6 +64,10 @@ impl<'ctx, 'op, 'idx> LTreeContext<'ctx, 'op, 'idx> {
 }
 
 pub struct LTreeOperator<'ctx, 'op, 'idx> {
+    #[expect(
+        dead_code,
+        reason = "will be used by the upcoming ltree @> pushdown dispatch"
+    )]
     pub kind: LtreeOperatorKind,
     pub ctx: LTreeContext<'ctx, 'op, 'idx>,
 }

@@ -1239,6 +1239,12 @@ impl AggregateScan {
             Ok(p) => p,
             Err(e) => pgrx::error!("mpp worker: create_physical_plan failed: {e}"),
         };
+        if crate::gucs::mpp_debug() && worker_idx_for_cache == 0 {
+            let dumped = datafusion::physical_plan::displayable(physical_plan.as_ref())
+                .indent(true)
+                .to_string();
+            pgrx::warning!("mpp worker[0] physical plan:\n{dumped}");
+        }
         // Find the bottom NetworkShuffleExec; its input_stage.plan (==
         // children()[0]) is the worker fragment. If the DF-D fork's planner
         // didn't insert one (some plan shapes don't benefit from a network

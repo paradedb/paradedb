@@ -665,9 +665,16 @@ impl crate::postgres::customscan::dsm::ParallelQueryCapable for AggregateScan {
         );
         let mpp_offset = mpp_align(mpp_agg_pscan_offset() + pscan_size);
 
+        // Number of non-partitioning sources gets a build-cache slot per worker.
+        let n_cache_sources = state
+            .custom_state()
+            .source_manifests
+            .len()
+            .saturating_sub(1) as u32;
         let mpp_size = match crate::postgres::customscan::mpp::glue::estimate_dsm_size(
             plan_bytes_len,
             n_partitions,
+            n_cache_sources,
         ) {
             Ok(sz) => sz,
             Err(e) => {
@@ -751,12 +758,18 @@ impl crate::postgres::customscan::dsm::ParallelQueryCapable for AggregateScan {
         // Init the MPP region.
         let mpp_coordinate =
             unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut std::os::raw::c_void };
+        let n_cache_sources = state
+            .custom_state()
+            .source_manifests
+            .len()
+            .saturating_sub(1) as u32;
         let leader = match unsafe {
             crate::postgres::customscan::mpp::glue::leader_setup(
                 mpp_coordinate,
                 seg,
                 n_partitions,
                 plan_bytes,
+                n_cache_sources,
             )
         } {
             Ok(l) => l,
@@ -1139,6 +1152,7 @@ impl AggregateScan {
         // n_workers misconfigured the planner so NetworkShuffleExec scaled
         // its hash to mpp_n_partitions × mpp_n_partitions = 81 partitions.
         let n_workers = worker.participant_config.total_participants;
+        let worker_idx_for_cache = worker.participant_config.participant_index;
         let outbound_senders: Vec<crate::postgres::customscan::mpp::transport::MppSender> =
             match df_state.mpp.as_mut() {
                 Some(scan_state::MppExecState::Worker(w)) => {
@@ -1180,6 +1194,10 @@ impl AggregateScan {
             }
         }
 
+        let mpp_build_cache = match df_state.mpp.as_ref() {
+            Some(scan_state::MppExecState::Worker(w)) => w.build_cache.as_ref().map(Arc::clone),
+            _ => None,
+        };
         let logical = match crate::scan::codec::deserialize_logical_plan_with_runtime(
             &plan_bytes,
             &ctx.task_ctx(),
@@ -1188,6 +1206,8 @@ impl AggregateScan {
             None, // planstate: same
             non_partitioning_segments,
             index_segment_ids,
+            mpp_build_cache,
+            worker_idx_for_cache,
         ) {
             Ok(lp) => lp,
             Err(e) => pgrx::error!("mpp worker: deserialize_logical_plan failed: {e}"),

@@ -36,7 +36,9 @@ use std::sync::Arc;
 
 use pgrx::pg_sys;
 
-use crate::postgres::customscan::mpp::dsm::{compute_dsm_layout, leader_init, worker_attach};
+use crate::postgres::customscan::mpp::dsm::{
+    compute_dsm_layout, leader_init, worker_attach, MppBuildCache, MPP_CACHE_PER_SLOT,
+};
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 use crate::postgres::customscan::mpp::transport::{
     DrainBuffer, DrainHandle, MppReceiver, MppSender,
@@ -73,15 +75,24 @@ pub fn mpp_queue_size() -> usize {
 }
 
 /// Body of `estimate_dsm_custom_scan`. Returns total DSM bytes the leader
-/// will need for plan + N×K queue mesh. `N` is the *worker* count
-/// (`mpp_worker_count - 1`); the leader is a consumer-only participant
+/// will need for plan + N×K queue mesh + build-side cache. `N` is the *worker*
+/// count (`mpp_worker_count - 1`); the leader is a consumer-only participant
 /// in this iteration, so its slot is omitted from the mesh.
-pub fn estimate_dsm_size(plan_bytes_len: usize, n_partitions: u32) -> Result<usize, String> {
+///
+/// `n_cache_sources` is the number of non-partitioning sources the build-side
+/// all-gather cache should reserve slots for; pass 0 to skip caching.
+pub fn estimate_dsm_size(
+    plan_bytes_len: usize,
+    n_partitions: u32,
+    n_cache_sources: u32,
+) -> Result<usize, String> {
     let layout = compute_dsm_layout(
         producer_worker_count(),
         n_partitions,
         mpp_queue_size(),
         plan_bytes_len,
+        n_cache_sources,
+        MPP_CACHE_PER_SLOT,
     )
     .map_err(|e| format!("mpp: estimate_dsm_size: {e}"))?;
     Ok(layout.region_total)
@@ -106,6 +117,11 @@ pub struct MppLeaderState {
     /// `with_extension(Arc::clone(&mesh))` so `ShmMqWorkerTransport` can find
     /// it at execute time.
     pub mesh: Arc<MppMesh>,
+    /// Build-side all-gather cache. The leader doesn't write or read it
+    /// (consumer-only) but holds the handle so it isn't dropped while
+    /// workers are still consuming.
+    #[allow(dead_code)]
+    pub build_cache: Option<Arc<MppBuildCache>>,
 }
 
 /// Body of `initialize_dsm_custom_scan`. Allocates the queue mesh, populates
@@ -122,10 +138,18 @@ pub unsafe fn leader_setup(
     seg: *mut pg_sys::dsm_segment,
     n_partitions: u32,
     plan_bytes: Vec<u8>,
+    n_cache_sources: u32,
 ) -> Result<MppLeaderState, String> {
     let n_workers = producer_worker_count();
-    let layout = compute_dsm_layout(n_workers, n_partitions, mpp_queue_size(), plan_bytes.len())
-        .map_err(|e| format!("mpp: leader_setup compute layout: {e}"))?;
+    let layout = compute_dsm_layout(
+        n_workers,
+        n_partitions,
+        mpp_queue_size(),
+        plan_bytes.len(),
+        n_cache_sources,
+        MPP_CACHE_PER_SLOT,
+    )
+    .map_err(|e| format!("mpp: leader_setup compute layout: {e}"))?;
 
     let attach = unsafe { leader_init(coordinate, seg, &layout, &plan_bytes) }?;
 
@@ -153,7 +177,17 @@ pub unsafe fn leader_setup(
     // we'll route these into a Tokio-spawned producer subplan instead.)
     drop(attach.outbound_senders);
 
-    Ok(MppLeaderState { mesh })
+    let build_cache = if n_cache_sources > 0 {
+        Some(Arc::new(unsafe {
+            use crate::postgres::customscan::mpp::dsm::MppDsmHeader;
+            let header = std::ptr::read(coordinate as *const MppDsmHeader);
+            MppBuildCache::from_header(coordinate as *mut u8, &header)
+        }))
+    } else {
+        None
+    };
+
+    Ok(MppLeaderState { mesh, build_cache })
 }
 
 /// Returned to a worker from [`worker_setup`]. The customscan reads the plan
@@ -166,6 +200,9 @@ pub struct MppWorkerState {
     /// the `PgSearchExtensionCodec` to get an `Arc<dyn ExecutionPlan>`.
     pub plan_bytes: Vec<u8>,
     pub participant_config: MppParticipantConfig,
+    /// Build-side all-gather cache. The worker writes its 1/N slice for each
+    /// non-partitioning source, then reads back peer slices after the barrier.
+    pub build_cache: Option<Arc<MppBuildCache>>,
 }
 
 /// Body of `initialize_worker_custom_scan`. Reads the header, attaches as
@@ -198,6 +235,14 @@ pub unsafe fn worker_setup(
         .map(|s| MppSender::new(Box::new(s)))
         .collect();
 
+    let build_cache = if header.n_cache_sources > 0 {
+        Some(Arc::new(unsafe {
+            MppBuildCache::from_header(coordinate as *mut u8, &header)
+        }))
+    } else {
+        None
+    };
+
     Ok(MppWorkerState {
         outbound_senders,
         plan_bytes,
@@ -205,5 +250,6 @@ pub unsafe fn worker_setup(
             participant_index: worker_index,
             total_participants: header.n_workers,
         },
+        build_cache,
     })
 }

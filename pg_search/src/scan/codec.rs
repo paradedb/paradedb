@@ -47,6 +47,13 @@ struct PgSearchExtensionCodec {
     non_partitioning_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
     /// Canonical segment ID sets for all join sources, indexed by plan_position.
     index_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
+    /// MPP build-side all-gather cache. When set, non-partitioning
+    /// `PgSearchTableProvider`s scan only their `mpp_worker_idx`-th 1/N slice
+    /// of segments, write the slice to DSM, wait for peers, then read back the
+    /// gathered build side as Arrow batches. See `mpp/dsm.rs::MppBuildCache`.
+    mpp_build_cache: Option<std::sync::Arc<crate::postgres::customscan::mpp::dsm::MppBuildCache>>,
+    /// 0-based index of this participant among MPP producer workers.
+    mpp_worker_idx: u32,
 }
 
 unsafe impl Send for PgSearchExtensionCodec {}
@@ -232,6 +239,18 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
                     .expect("missing canonical segment IDs for non-partitioning source");
                 provider.set_canonical_segment_ids(ids);
             }
+            // If an MPP build-side cache is registered, configure the provider
+            // to do its all-gather over `np_idx` and worker `mpp_worker_idx`.
+            // The provider's scan() will scan only its 1/N slice of the
+            // segments above, write to DSM, wait for the barrier, then read
+            // back the gathered batches and stream them via `MemoryExec`.
+            if let Some(cache) = &self.mpp_build_cache {
+                provider.set_mpp_build_cache(
+                    std::sync::Arc::clone(cache),
+                    np_idx as u32,
+                    self.mpp_worker_idx,
+                );
+            }
         }
         provider.set_expr_context(self.expr_context);
         provider.set_planstate(self.planstate);
@@ -379,6 +398,7 @@ pub fn deserialize_logical_plan(
 
 /// Deserializes a DataFusion `LogicalPlan` using a codec populated with the
 /// runtime state required by execution.
+#[allow(clippy::too_many_arguments)]
 pub fn deserialize_logical_plan_with_runtime(
     bytes: &[u8],
     ctx: &datafusion::execution::TaskContext,
@@ -387,6 +407,8 @@ pub fn deserialize_logical_plan_with_runtime(
     planstate: Option<*mut pgrx::pg_sys::PlanState>,
     non_partitioning_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
     index_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
+    mpp_build_cache: Option<std::sync::Arc<crate::postgres::customscan::mpp::dsm::MppBuildCache>>,
+    mpp_worker_idx: u32,
 ) -> Result<LogicalPlan> {
     let codec = PgSearchExtensionCodec {
         parallel_state,
@@ -394,6 +416,8 @@ pub fn deserialize_logical_plan_with_runtime(
         planstate,
         non_partitioning_segment_ids,
         index_segment_ids,
+        mpp_build_cache,
+        mpp_worker_idx,
     };
     datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(bytes, ctx, &codec)
 }

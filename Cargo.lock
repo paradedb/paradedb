@@ -5738,6 +5738,7 @@ dependencies = [
  "bytes",
  "chrono",
  "datafusion",
+ "datafusion-datasource",
  "datafusion-distributed",
  "datafusion-proto",
  "decimal-bytes",

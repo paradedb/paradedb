@@ -1226,6 +1226,11 @@ impl AggregateScan {
     /// to the leader's shm_mq queues. Workers emit zero rows back to PG;
     /// returning `null_mut()` signals end-of-stream.
     fn exec_mpp_worker(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
+        // Mark this OS thread as the PG backend thread so the cooperative
+        // drain spin's `pgrx::check_for_interrupts!()` is gated to it
+        // (compute futures running on the multi-thread Tokio runtime skip
+        // the check).
+        crate::postgres::customscan::mpp::transport::mark_backend_thread();
         // Pull worker-thread inputs from the outer state before we borrow
         // df_state mutably. parallel_state and non_partitioning_segments
         // are required to pin each worker's PgSearchTableProvider to the
@@ -1280,6 +1285,13 @@ impl AggregateScan {
                 _ => Vec::new(),
             };
 
+        // Single-threaded Tokio runtime is the current safe default —
+        // pgrx 0.18 auto-wraps every `pg_sys::*` FFI call with
+        // `check_active_thread` and panics if FFI is called from any
+        // thread other than the original backend thread. Switching to a
+        // multi-thread runtime requires either (a) raw `extern "C"`
+        // bindings to bypass `pg_guard` for the shm_mq fast path, or
+        // (b) a backend-thread FFI relay. Both are tracked under G7-MT.
         let runtime = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()

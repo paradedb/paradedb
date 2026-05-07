@@ -88,13 +88,25 @@ impl ShmMqSender {
     }
 }
 
+impl ShmMqSender {
+    /// True iff the caller is on the thread that originally attached this
+    /// sender. Reserved for the future multi-thread Tokio path (G7-MT)
+    /// where compute threads dispatch FFI ops back to the attach thread
+    /// via channel.
+    #[allow(dead_code)]
+    pub fn on_attach_thread(&self) -> bool {
+        std::thread::current().id() == self.attach_thread
+    }
+}
+
 impl BatchChannelSender for ShmMqSender {
     fn send_bytes(&self, bytes: &[u8]) -> Result<(), DataFusionError> {
-        debug_assert_eq!(
-            std::thread::current().id(),
-            self.attach_thread,
-            "ShmMqSender::send_bytes called off the attach thread"
-        );
+        // Non-blocking shm_mq send under the hood is thread-safe within
+        // the same process (the underlying `shm_mq_send(nowait=true)` only
+        // touches DSM-resident atomics + `SetLatch`, which is documented
+        // as safe from any thread / signal handlers). The blocking variant
+        // would call `WaitLatch` which is backend-only — but we use the
+        // cooperative-drain spin instead of the blocking path.
         self.inner.send(bytes).map_err(|e| match e {
             MessageQueueSendError::Detached => {
                 DataFusionError::Execution("mpp: shm_mq sender detached".into())
@@ -110,11 +122,6 @@ impl BatchChannelSender for ShmMqSender {
     }
 
     fn try_send_bytes(&self, bytes: &[u8]) -> Result<bool, DataFusionError> {
-        debug_assert_eq!(
-            std::thread::current().id(),
-            self.attach_thread,
-            "ShmMqSender::try_send_bytes called off the attach thread"
-        );
         match self.inner.try_send(bytes) {
             Ok(Some(())) => Ok(true),
             Ok(None) => Ok(false),

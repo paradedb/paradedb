@@ -51,11 +51,16 @@ pub struct MppParticipantConfig {
 /// Emit a runtime trace when `paradedb.mpp_debug` is on.
 ///
 /// Routed through `pgrx::warning!` so the line appears in the Postgres server log
-/// (and in CI benchmark logs). No-op when the GUC is off.
+/// (and in CI benchmark logs). No-op when the GUC is off OR when called from
+/// a non-backend thread (a future multi-thread Tokio runtime — see G7-MT plan
+/// in report.md). The `is_on_backend_thread()` gate is a no-op today but
+/// prepares the macro for safe use from compute threads.
 #[macro_export]
 macro_rules! mpp_log {
     ($($arg:tt)*) => {
-        if $crate::gucs::mpp_debug() {
+        if $crate::postgres::customscan::mpp::transport::is_on_backend_thread()
+            && $crate::gucs::mpp_debug()
+        {
             pgrx::warning!($($arg)*);
         }
     };

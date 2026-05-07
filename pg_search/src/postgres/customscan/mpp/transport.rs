@@ -37,6 +37,26 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+thread_local! {
+    /// True iff this thread is the PG backend thread — set explicitly by
+    /// `mark_backend_thread()` on entry to the customscan path. Compute
+    /// futures spawned onto a multi-thread Tokio runtime see `false` and
+    /// skip pgrx FFI that touches process-global state (e.g.
+    /// `CHECK_FOR_INTERRUPTS`).
+    static IS_BACKEND_THREAD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Mark the current thread as the PG backend thread. Call once on entry
+/// to the customscan path before spawning Tokio compute futures.
+pub fn mark_backend_thread() {
+    IS_BACKEND_THREAD.with(|c| c.set(true));
+}
+
+/// True iff `mark_backend_thread()` was called on the current thread.
+pub fn is_on_backend_thread() -> bool {
+    IS_BACKEND_THREAD.with(|c| c.get())
+}
+
 use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::ipc::reader::StreamReader;
 use datafusion::arrow::ipc::writer::StreamWriter;
@@ -512,16 +532,19 @@ impl MppSender {
         // making forward progress during this yield instead of
         // starving.
         loop {
-            // `pgrx::check_for_interrupts!()` pulls in PG symbols
-            // (`ProcessInterrupts`, `PG_exception_stack`,
-            // `CopyErrorData`, …) that aren't linked into the crate's
-            // `--tests` / llvm-cov build. This fn is reached from
-            // `#[cfg(test)]` code in this file and `shuffle.rs`, so
-            // gate the check out of test builds; `InProc` channels
-            // used in tests never block, so the send side of the loop
-            // returns on the first iteration anyway.
+            // `pgrx::check_for_interrupts!()` reads process-global
+            // `InterruptPending` / `PG_exception_stack` etc. and is only
+            // safe on the backend thread. Today the runtime is single-
+            // threaded so this branch is always hit; the gate prepares
+            // the macro for safe use from compute threads once G7-MT
+            // (multi-thread Tokio + FFI relay) lands.
+            //
+            // (Test builds also skip it because pgrx symbols aren't linked
+            // into `--tests` / llvm-cov.)
             #[cfg(not(test))]
-            pgrx::check_for_interrupts!();
+            if is_on_backend_thread() {
+                pgrx::check_for_interrupts!();
+            }
             if self.channel.try_send_bytes(scratch)? {
                 if !first_try {
                     stats.send_wait += t_wait_start.elapsed();

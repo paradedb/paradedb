@@ -214,12 +214,13 @@ jobs:
           DURATION_MIN: ${{ github.event.inputs.duration || (github.event_name == 'pull_request' && '60') || '480' }}
         run: |
           set -euo pipefail
-          # Use 50% of the campaign budget. At 85% Antithesis reported
-          # "Test composer command with non-zero weight was not started/finished"
-          # for every singleton — the campaign ended before the composer
-          # could schedule them. 50% gives the scheduler ample headroom; we
-          # can dial it back up once we confirm the suites finish reliably.
-          RUNTIME_MS=$(( DURATION_MIN * 60 * 1000 * 50 / 100 ))
+          # Use 20% of the campaign budget. Earlier revisions at 85% and 50%
+          # both produced "Test composer command with non-zero weight was not
+          # started/finished" for every singleton — the campaign ended before
+          # the composer could schedule them. 20% gives the scheduler ample
+          # headroom; we can dial it back up once we confirm the suites
+          # finish reliably.
+          RUNTIME_MS=$(( DURATION_MIN * 60 * 1000 * 20 / 100 ))
           echo "Setting Stressgres --runtime to ${RUNTIME_MS} ms (~$(( RUNTIME_MS / 60000 )) min) for ${DURATION_MIN}-min campaign"
           sed -i -E "s|--runtime [0-9]+|--runtime ${RUNTIME_MS}|g" stressgres/suites/antithesis/singleton_driver_*.sh
           grep -H -- '--runtime' stressgres/suites/antithesis/singleton_driver_*.sh

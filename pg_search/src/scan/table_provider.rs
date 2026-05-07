@@ -797,6 +797,8 @@ impl PgSearchTableProvider {
                 .collect()
         };
 
+        let t_start = std::time::Instant::now();
+
         // Run the inner scan over the worker's 1/N slice.
         let sub_plan = self
             .scan_inner(Some(my_slice), state, projection, filters, limit)
@@ -810,17 +812,26 @@ impl PgSearchTableProvider {
                 my_batches.push(b?);
             }
         }
+        let t_scan = t_start.elapsed();
+        let my_rows: usize = my_batches.iter().map(|b| b.num_rows()).sum();
 
         // Encode my batches as a single Arrow IPC stream.
+        let t_encode_start = std::time::Instant::now();
         let my_bytes = encode_batches_ipc(&my_batches)?;
+        let t_encode = t_encode_start.elapsed();
+        let my_bytes_len = my_bytes.len();
         cache
             .write_slice(source_idx, worker_idx, &my_bytes)
             .map_err(DataFusionError::Internal)?;
+        let t_write = t_encode_start.elapsed() - t_encode;
 
         // Wait until every peer has signalled completion.
+        let t_barrier_start = std::time::Instant::now();
         cache.wait_complete(source_idx);
+        let t_barrier = t_barrier_start.elapsed();
 
         // Read peer slices, decode, concatenate.
+        let t_read_start = std::time::Instant::now();
         let mut all_batches: Vec<datafusion::arrow::array::RecordBatch> =
             Vec::with_capacity(my_batches.len() * (n_workers as usize));
         for w in 0..n_workers {
@@ -835,6 +846,31 @@ impl PgSearchTableProvider {
             let peer_batches = decode_batches_ipc(&bytes)?;
             all_batches.extend(peer_batches);
         }
+        let t_read = t_read_start.elapsed();
+        let all_rows: usize = all_batches.iter().map(|b| b.num_rows()).sum();
+        crate::mpp_log!(
+            "mpp build all-gather: heap_oid={} index_oid={} is_parallel={} canonical_segs={} \
+             source={} worker={}/{} my_rows={} my_bytes={} all_rows={} \
+             scan_ms={:.1} encode_ms={:.1} write_ms={:.1} barrier_ms={:.1} read_ms={:.1}",
+            self.scan_info.heaprelid,
+            self.scan_info.indexrelid,
+            self.is_parallel,
+            self.canonical_segment_ids
+                .as_ref()
+                .map(|s| s.len())
+                .unwrap_or(0),
+            source_idx,
+            worker_idx,
+            n_workers,
+            my_rows,
+            my_bytes_len,
+            all_rows,
+            t_scan.as_secs_f64() * 1000.0,
+            t_encode.as_secs_f64() * 1000.0,
+            t_write.as_secs_f64() * 1000.0,
+            t_barrier.as_secs_f64() * 1000.0,
+            t_read.as_secs_f64() * 1000.0,
+        );
 
         let arc = Arc::new(all_batches);
         // OnceLock: only the first writer wins; others reuse.

@@ -963,18 +963,20 @@ impl AggregateScan {
     }
 
     /// Pick the partitioning source — the one whose segment list workers
-    /// claim from. Pick the largest source by segment count. (JoinScan
-    /// derives this from `partitioning_source_index()` on its join clause;
-    /// AggregateScan doesn't carry the same metadata, so use a size
-    /// heuristic. For two-table joins this is almost always the larger
-    /// fact table, which is the right call for parallel slicing.)
+    /// claim from. Largest by total live doc count, falling back to
+    /// segment count, then position. (Earlier this was just
+    /// `max_by_key(segment_count)`, which under ties returns the *last*
+    /// element — for a 2-table JOIN with both indexes at 10 segments,
+    /// that put the smaller table on the partitioning side and forced
+    /// the all-gather to cache the larger one. Doc count breaks the tie
+    /// in the right direction.)
     fn partitioning_source_idx(state: &CustomScanStateWrapper<Self>) -> usize {
         state
             .custom_state()
             .source_manifests
             .iter()
             .enumerate()
-            .max_by_key(|(_, m)| m.segment_count())
+            .max_by_key(|(_, m)| (m.total_doc_count(), m.segment_count()))
             .map(|(i, _)| i)
             .unwrap_or(0)
     }

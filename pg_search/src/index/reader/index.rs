@@ -1436,6 +1436,18 @@ impl SearchIndexManifest {
     pub fn segment_count(&self) -> usize {
         self.searcher.segment_readers().len()
     }
+
+    /// Total live document count across all visible segments. Used by MPP
+    /// to pick the partitioning source — the source whose row count makes
+    /// it most worth slicing N ways. Tantivy's `max_doc - num_deleted` per
+    /// segment, summed.
+    pub fn total_doc_count(&self) -> u64 {
+        self.searcher
+            .segment_readers()
+            .iter()
+            .map(|r| (r.max_doc() as u64).saturating_sub(r.num_deleted_docs() as u64))
+            .sum()
+    }
 }
 
 pub(super) fn enable_scoring(need_scores: bool, searcher: &Searcher) -> EnableScoring<'_> {

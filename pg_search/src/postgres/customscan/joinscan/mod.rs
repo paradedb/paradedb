@@ -36,7 +36,7 @@
 //! resides in fast fields, and that the result set size is small enough (via LIMIT)
 //! that the random heap access cost doesn't outweigh the join benefit.
 //!
-//! 1. **GUC enabled**: `paradedb.enable_join_custom_scan = on` (default: on)
+//! 1. **GUC enabled**: `paradedb.enable_join_custom_scan = on` (default: off)
 //!
 //! 2. **Join type**: INNER, SEMI, and ANTI joins are supported
 //!    - LEFT, RIGHT, and FULL joins are planned for future work

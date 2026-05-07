@@ -90,7 +90,7 @@ jobs:
 
       - name: Upload Schema to GitHub Release
         env:
-          GH_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload v${{ steps.version.outputs.version }} pg_search.schema.sql --clobber
 
       - name: Notify Slack on Failure

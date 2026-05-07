@@ -391,6 +391,7 @@ fn columnar_sorted_scan(
     }
 
     "SET paradedb.enable_columnar_exec TO true;".execute(&mut conn);
+    "SET paradedb.enable_columnar_sort TO true;".execute(&mut conn);
     "SET paradedb.columnar_exec_column_threshold = 10;".execute(&mut conn);
 
     let sort_by = format!(

@@ -111,7 +111,11 @@ struct ShmMqWorkerConnection {
 }
 
 impl WorkerConnection for ShmMqWorkerConnection {
-    fn stream_partition(&self, partition: usize) -> Result<WorkerPartitionStream> {
+    fn stream_partition(
+        &self,
+        partition: usize,
+        _on_metadata: datafusion_distributed::OnMetadataCallback,
+    ) -> Result<WorkerPartitionStream> {
         let partition_u32 = u32::try_from(partition).map_err(|_| {
             DataFusionError::Internal(format!(
                 "ShmMqWorkerConnection: partition={partition} > u32::MAX"
@@ -215,7 +219,11 @@ struct LocalExecWorkerConnection {
 }
 
 impl WorkerConnection for LocalExecWorkerConnection {
-    fn stream_partition(&self, partition: usize) -> Result<WorkerPartitionStream> {
+    fn stream_partition(
+        &self,
+        partition: usize,
+        _on_metadata: datafusion_distributed::OnMetadataCallback,
+    ) -> Result<WorkerPartitionStream> {
         let stream = self.plan.execute(partition, Arc::clone(&self.ctx))?;
         // SendableRecordBatchStream is already `Pin<Box<dyn Stream<Item = Result<RecordBatch>> + Send>>`;
         // the WorkerPartitionStream alias drops the schema bound, so the

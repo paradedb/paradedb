@@ -3,15 +3,8 @@
 # Test pg_search (Docker)
 # Test building and running the ParadeDB Docker Image.
 #
-# Note: unlike `publish-paradedb-docker.yml`, this workflow cannot use Depot to
-# accelerate the build. Depot requires the `DEPOT_PROJECT` / `DEPOT_TOKEN` repo
-# secrets, which GitHub does not expose to PRs from forks — so any Depot-based
-# step would fail on community-contributor PRs. That's fine here because, unlike
-# the publish workflow, we don't need to produce a single universal image — we
-# only need to smoke-test that the image builds and runs on each arch. So we
-# skip cross-compilation entirely: the matrix below builds amd64 and arm64 in
-# parallel, each natively on a runner of its own arch via `docker buildx build`,
-# which works without secrets.
+# This workflow smoke-tests that the image builds and runs on each arch. It
+# builds amd64 and arm64 in parallel, each natively on a runner of its own arch.
 
 name: Test pg_search (Docker)
 
@@ -87,10 +80,9 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       # Each matrix entry builds its own arch natively (via a runner on that arch) so `--load`
-      # works and the `docker run` smoke tests below exercise the image natively — no emulation,
-      # no cross-arch shenanigans. We tag the image `latest` to match the tag used by the smoke
-      # tests, and skip pushing since this is just a test build. Building directly (rather than
-      # via Depot) avoids requiring repo secrets, which would block community-contributor PRs.
+      # works and the `docker run` smoke tests below exercise the image natively. We tag the
+      # image `latest` to match the tag used by the smoke tests, and skip pushing since this
+      # is just a test build.
       #
       # The BuildKit `type=gha` cache is transparently backed by runs-on's S3 cache (via the
       # `extras=s3-cache` runner label above), so it works without configuring a separate

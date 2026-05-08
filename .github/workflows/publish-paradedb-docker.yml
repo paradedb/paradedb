@@ -191,15 +191,8 @@ jobs:
         with:
           ref: ${{ needs.generate-dockerfiles.outputs.branch }}
 
-      # Official releases need a single universal image so that the same tag (e.g. `paradedb:latest`)
-      # works on both amd64 and arm64 hosts — pulling clients pick the right manifest entry for their
-      # arch. That requires producing both arches under one tag, which means cross-compiling at least
-      # one of them. Cross-compilation via `docker buildx` (under QEMU emulation) is prohibitively
-      # slow for a build this size, so we offload to Depot, which provides native builders on both
-      # arches and stitches them into a single multi-arch manifest. (We could eventually replace this
-      # with Docker Build Cloud once it supports multiple concurrent builders.)
-      - name: Configure Depot CLI
-        uses: depot/setup-action@v1
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -228,7 +221,7 @@ jobs:
 
       - name: Build and Push Docker Image to Docker Hub
         id: build-push
-        uses: depot/build-push-action@v1
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -236,8 +229,6 @@ jobs:
           push: true
           sbom: true
           provenance: mode=max
-          project: ${{ secrets.DEPOT_PROJECT }}
-          token: ${{ secrets.DEPOT_TOKEN }}
           tags: ${{ steps.meta.outputs.tags }}
 
       - name: Sign and Attest Build Provenance
@@ -280,7 +271,7 @@ jobs:
           if [ -n "$PR" ]; then
             echo "Release branch PR already exists: #$PR"
           else
-            gh pr create --base "$BASE" --head "$BRANCH" --title "Generate Dockerfiles for ${{ needs.generate-dockerfiles.outputs.tag }}" --body "Updates generated Dockerfiles for ${{ needs.generate-dockerfiles.outputs.tag }} after the Docker images were published."
+            gh pr create --base "$BASE" --head "$BRANCH" --title "chore: Generate Dockerfiles for ${{ needs.generate-dockerfiles.outputs.tag }}" --body "Updates generated Dockerfiles for ${{ needs.generate-dockerfiles.outputs.tag }} after the Docker images were published."
           fi
 
       - name: Open Main PR
@@ -304,7 +295,7 @@ jobs:
           if [ -n "$PR" ]; then
             echo "Main PR already exists: #$PR"
           else
-            gh pr create --base main --head "$BRANCH" --title "Generate Dockerfiles for $TAG" --body "Updates generated Dockerfiles for $TAG after the Docker images were published."
+            gh pr create --base main --head "$BRANCH" --title "chore: Generate Dockerfiles for $TAG" --body "Updates generated Dockerfiles for $TAG after the Docker images were published."
           fi
 
   notify-orm-repos:

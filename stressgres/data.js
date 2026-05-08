@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778278243280,
+  "lastUpdate": 1778278895627,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2908,6 +2908,60 @@ window.BENCHMARK_DATA = {
             "value": 17.079864218279255,
             "unit": "median tps",
             "extra": "avg tps: 16.99631405208253, max tps: 20.037490144059536, count: 55504"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c5464b3e24db03ac3cb8bab3f1a344c417055c5b",
+          "message": "chore: Refactor is_array branch in row_to_search_document (#5045)\n\n## What\nRefactor this block to separate the array conversion and then adding the\nelements of that array to the document into distinct steps.\n\n## Why\nIt's cleaner",
+          "timestamp": "2026-05-08T15:16:13-06:00",
+          "tree_id": "f8f52e91215e0a49ed69cefc3d821224ee7ddf3e",
+          "url": "https://github.com/paradedb/paradedb/commit/c5464b3e24db03ac3cb8bab3f1a344c417055c5b"
+        },
+        "date": 1778278858064,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 30.980567636637577,
+            "unit": "median tps",
+            "extra": "avg tps: 30.802549422291563, max tps: 32.88324860009915, count: 55608"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 132.4623196416569,
+            "unit": "median tps",
+            "extra": "avg tps: 176.5200680662528, max tps: 3099.4226758298705, count: 55608"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 591.5071667077164,
+            "unit": "median tps",
+            "extra": "avg tps: 583.7191177402277, max tps: 819.1851756620993, count: 55608"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 162.0359103425473,
+            "unit": "median tps",
+            "extra": "avg tps: 146.06656419550652, max tps: 1242.953552311231, count: 111216"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 16.014343736400477,
+            "unit": "median tps",
+            "extra": "avg tps: 16.009662340838688, max tps: 21.398165781326473, count: 55608"
           }
         ]
       }

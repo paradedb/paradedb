@@ -79,7 +79,7 @@ jobs:
               repo,
               workflow_id: wf,
               ref: 'main',
-              inputs: { commit: sha, fail_on_error: 'false', force_use_of_from_main: 'true'}
+              inputs: { commit: sha, fail_on_error: 'false', force_use_of_benchmarks_from_main: 'true'}
             });
             core.info(`queued ${wf} for ${sha}`);
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778277511045,
+  "lastUpdate": 1778278204766,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1990,6 +1990,54 @@ window.BENCHMARK_DATA = {
             "value": 5.595694663094926,
             "unit": "median tps",
             "extra": "avg tps: 5.578274074355892, max tps: 6.608855985318849, count: 56276"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c5464b3e24db03ac3cb8bab3f1a344c417055c5b",
+          "message": "chore: Refactor is_array branch in row_to_search_document (#5045)\n\n## What\nRefactor this block to separate the array conversion and then adding the\nelements of that array to the document into distinct steps.\n\n## Why\nIt's cleaner",
+          "timestamp": "2026-05-08T15:16:13-06:00",
+          "tree_id": "f8f52e91215e0a49ed69cefc3d821224ee7ddf3e",
+          "url": "https://github.com/paradedb/paradedb/commit/c5464b3e24db03ac3cb8bab3f1a344c417055c5b"
+        },
+        "date": 1778278168315,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1104.2007050471018,
+            "unit": "median tps",
+            "extra": "avg tps: 1107.4149508768173, max tps: 1153.9193411173896, count: 56109"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1234.2659113043585,
+            "unit": "median tps",
+            "extra": "avg tps: 1232.6918855667345, max tps: 1278.5001615653127, count: 56109"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1131.2263968461682,
+            "unit": "median tps",
+            "extra": "avg tps: 1035.973834253223, max tps: 1523.6557583482863, count: 56109"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.294029514586228,
+            "unit": "median tps",
+            "extra": "avg tps: 5.353475948286726, max tps: 6.690312267046811, count: 56109"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778267657394,
+  "lastUpdate": 1778267695312,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1396,6 +1396,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.95896885441734, max segment_count: 131.0, count: 57761"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lockerman@paradedb.com",
+            "name": "JLockerman",
+            "username": "JLockerman"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9a827ea3a0452e482e852785e743deb2f4630222",
+          "message": "fix: Issues with text casts and memory layout for tokenizer types (#4900)\n\n# Ticket(s) Closed\n\n- fixes https://github.com/paradedb/paradedb/issues/5033\n\n## What\n\nChanges the tokenizer and alias types to function as regular SQL types\n(writable to disk, reallocatable in memory contexts etc).\n\n## Why\n\nWhen used incorrectly (eg. within a non-optimized function call) the\nprevious versions would access freed memory.\n\n## How\n\nThe tokenizer format is changed from `(header, magic_num, Oid, padding\nDatum)` to `(header, magic_num, metadata, padding, Oid, data_bytes)`\nwhere the `data_bytes` are the bytes from the original value (the\n`Datum` for by-value types, and the bytes pointed-at by the `Datum` for\nby-ref types). This lets us create a new `Datum` for that type (pointing\nat the inner bytes if needed).\n\nNOTE: Since the old version of the type was storing `Datum`s directly,\nany values stored to disk with the old code is broken unless they were\nin text format (the others store dangling pointers). In the updated\nversion such values will be output as meaningless text instead.\n\n## Tests\n\n- in\n`pg_search/tests/pg_regress/sql/tokenizer-types-inline-tokenization.sql`\n\n---------\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-05-08T14:32:32-04:00",
+          "tree_id": "9cf77ffd18186494bb164cc15f9f703749357d03",
+          "url": "https://github.com/paradedb/paradedb/commit/9a827ea3a0452e482e852785e743deb2f4630222"
+        },
+        "date": 1778267658953,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.95453969873176, max cpu: 42.857143, count: 57241"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 235.07082342911986, max mem: 236.66015625, count: 57241"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.417028400660744, max cpu: 33.333336, count: 57241"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 177.25,
+            "unit": "median mem",
+            "extra": "avg mem: 177.15841839492234, max mem: 177.8671875, count: 57241"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34572,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33796.012176586715, max block_count: 36298.0, count: 57241"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.69427508254573, max segment_count: 129.0, count: 57241"
           }
         ]
       }

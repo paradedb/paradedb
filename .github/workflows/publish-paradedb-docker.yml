@@ -271,7 +271,7 @@ jobs:
           if [ -n "$PR" ]; then
             echo "Release branch PR already exists: #$PR"
           else
-            gh pr create --base "$BASE" --head "$BRANCH" --title "Generate Dockerfiles for ${{ needs.generate-dockerfiles.outputs.tag }}" --body "Updates generated Dockerfiles for ${{ needs.generate-dockerfiles.outputs.tag }} after the Docker images were published."
+            gh pr create --base "$BASE" --head "$BRANCH" --title "chore: Generate Dockerfiles for ${{ needs.generate-dockerfiles.outputs.tag }}" --body "Updates generated Dockerfiles for ${{ needs.generate-dockerfiles.outputs.tag }} after the Docker images were published."
           fi
 
       - name: Open Main PR
@@ -295,7 +295,7 @@ jobs:
           if [ -n "$PR" ]; then
             echo "Main PR already exists: #$PR"
           else
-            gh pr create --base main --head "$BRANCH" --title "Generate Dockerfiles for $TAG" --body "Updates generated Dockerfiles for $TAG after the Docker images were published."
+            gh pr create --base main --head "$BRANCH" --title "chore: Generate Dockerfiles for $TAG" --body "Updates generated Dockerfiles for $TAG after the Docker images were published."
           fi
 
   notify-orm-repos:

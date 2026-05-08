@@ -16,3 +16,19 @@ SELECT 'this is a test. fn foo(arg: String) -> impl Foo<''a> { return 42; }'::pd
 SELECT ARRAY['this is a test.', 'foo bar baz']::pdb.whitespace::text[];
 
 SELECT '"foo"'::jsonb::pdb.whitespace::text[];
+SELECT '"foo"'::jsonb::pdb.whitespace::text;
+SELECT ARRAY['foo bar', 'baz', ' qux']::pdb.whitespace::text[];
+SELECT ARRAY['foo bar', 'baz', ' qux']::pdb.whitespace::text;
+
+
+-- Expression realloc function. Causes Postgres to reallocate the returned value
+CREATE FUNCTION realloc (anyelement) RETURNS anyelement
+AS 'SELECT $1 FROM random();'
+LANGUAGE SQL VOLATILE;
+
+SELECT realloc('foo'::pdb.whitespace)::text[];
+SELECT realloc('foo'::pdb.whitespace)::text;
+SELECT realloc('"foo"'::jsonb::pdb.whitespace)::text[];
+SELECT realloc('"foo"'::jsonb::pdb.whitespace)::text;
+SELECT realloc(ARRAY['foo bar', 'baz', ' qux']::pdb.whitespace)::text[];
+SELECT realloc(ARRAY['foo bar', 'baz', ' qux']::pdb.whitespace)::text;

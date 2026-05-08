@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778266815967,
+  "lastUpdate": 1778266940344,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -274,6 +274,78 @@ window.BENCHMARK_DATA = {
             "value": 132.73487386892947,
             "unit": "median tps",
             "extra": "avg tps: 173.85248264530202, max tps: 389.5233936435495, count: 55176"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lockerman@paradedb.com",
+            "name": "JLockerman",
+            "username": "JLockerman"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9a827ea3a0452e482e852785e743deb2f4630222",
+          "message": "fix: Issues with text casts and memory layout for tokenizer types (#4900)\n\n# Ticket(s) Closed\n\n- fixes https://github.com/paradedb/paradedb/issues/5033\n\n## What\n\nChanges the tokenizer and alias types to function as regular SQL types\n(writable to disk, reallocatable in memory contexts etc).\n\n## Why\n\nWhen used incorrectly (eg. within a non-optimized function call) the\nprevious versions would access freed memory.\n\n## How\n\nThe tokenizer format is changed from `(header, magic_num, Oid, padding\nDatum)` to `(header, magic_num, metadata, padding, Oid, data_bytes)`\nwhere the `data_bytes` are the bytes from the original value (the\n`Datum` for by-value types, and the bytes pointed-at by the `Datum` for\nby-ref types). This lets us create a new `Datum` for that type (pointing\nat the inner bytes if needed).\n\nNOTE: Since the old version of the type was storing `Datum`s directly,\nany values stored to disk with the old code is broken unless they were\nin text format (the others store dangling pointers). In the updated\nversion such values will be output as meaningless text instead.\n\n## Tests\n\n- in\n`pg_search/tests/pg_regress/sql/tokenizer-types-inline-tokenization.sql`\n\n---------\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-05-08T14:32:32-04:00",
+          "tree_id": "9cf77ffd18186494bb164cc15f9f703749357d03",
+          "url": "https://github.com/paradedb/paradedb/commit/9a827ea3a0452e482e852785e743deb2f4630222"
+        },
+        "date": 1778266900807,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 133.41655513726474,
+            "unit": "median tps",
+            "extra": "avg tps: 133.02022440266626, max tps: 139.72623880497363, count: 55180"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 500.6837660823121,
+            "unit": "median tps",
+            "extra": "avg tps: 496.55275793827235, max tps: 604.2419311271138, count: 55180"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3255.5352136142005,
+            "unit": "median tps",
+            "extra": "avg tps: 3243.725249721801, max tps: 3269.173651708627, count: 55180"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 432.2600057519913,
+            "unit": "median tps",
+            "extra": "avg tps: 429.9304950025729, max tps: 573.8180042475922, count: 55180"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2978.6831580916514,
+            "unit": "median tps",
+            "extra": "avg tps: 2972.5726179973954, max tps: 3014.763784814213, count: 110360"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 500.17195731929496,
+            "unit": "median tps",
+            "extra": "avg tps: 496.452438461649, max tps: 611.6167084868247, count: 55180"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1969.0311450225408,
+            "unit": "median tps",
+            "extra": "avg tps: 1966.203541263929, max tps: 1991.3861945059707, count: 55180"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 72.40809791751174,
+            "unit": "median tps",
+            "extra": "avg tps: 100.34893044469456, max tps: 304.25746162085517, count: 55180"
           }
         ]
       }

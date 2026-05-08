@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778268107650,
+  "lastUpdate": 1778268390081,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1642,6 +1642,54 @@ window.BENCHMARK_DATA = {
             "value": 5.310445813093201,
             "unit": "median tps",
             "extra": "avg tps: 5.35545347113524, max tps: 7.617161696864752, count: 56051"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lockerman@paradedb.com",
+            "name": "JLockerman",
+            "username": "JLockerman"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9a827ea3a0452e482e852785e743deb2f4630222",
+          "message": "fix: Issues with text casts and memory layout for tokenizer types (#4900)\n\n# Ticket(s) Closed\n\n- fixes https://github.com/paradedb/paradedb/issues/5033\n\n## What\n\nChanges the tokenizer and alias types to function as regular SQL types\n(writable to disk, reallocatable in memory contexts etc).\n\n## Why\n\nWhen used incorrectly (eg. within a non-optimized function call) the\nprevious versions would access freed memory.\n\n## How\n\nThe tokenizer format is changed from `(header, magic_num, Oid, padding\nDatum)` to `(header, magic_num, metadata, padding, Oid, data_bytes)`\nwhere the `data_bytes` are the bytes from the original value (the\n`Datum` for by-value types, and the bytes pointed-at by the `Datum` for\nby-ref types). This lets us create a new `Datum` for that type (pointing\nat the inner bytes if needed).\n\nNOTE: Since the old version of the type was storing `Datum`s directly,\nany values stored to disk with the old code is broken unless they were\nin text format (the others store dangling pointers). In the updated\nversion such values will be output as meaningless text instead.\n\n## Tests\n\n- in\n`pg_search/tests/pg_regress/sql/tokenizer-types-inline-tokenization.sql`\n\n---------\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-05-08T14:32:32-04:00",
+          "tree_id": "9cf77ffd18186494bb164cc15f9f703749357d03",
+          "url": "https://github.com/paradedb/paradedb/commit/9a827ea3a0452e482e852785e743deb2f4630222"
+        },
+        "date": 1778268353406,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1131.979648907775,
+            "unit": "median tps",
+            "extra": "avg tps: 1130.8868772624676, max tps: 1183.9216770259645, count: 56276"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1238.488050880942,
+            "unit": "median tps",
+            "extra": "avg tps: 1235.249798977946, max tps: 1265.2186235801046, count: 56276"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1899.3142369235095,
+            "unit": "median tps",
+            "extra": "avg tps: 1857.649696140123, max tps: 2039.720718483873, count: 56276"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.595694663094926,
+            "unit": "median tps",
+            "extra": "avg tps: 5.578274074355892, max tps: 6.608855985318849, count: 56276"
           }
         ]
       }

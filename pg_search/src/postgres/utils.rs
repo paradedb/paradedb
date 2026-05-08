@@ -764,12 +764,9 @@ pub unsafe fn row_to_search_document<'a>(
             continue;
         }
 
-        // For pdb.alias/tokenizer types, unwrap the datum first before any processing
-        // The DatumWithType structure wraps the actual datum for all alias types
-        let actual_datum = if type_is_alias(pg_type.value())
-            || (type_is_tokenizer(pg_type.value()) && DatumWithType::is_wrapped(datum))
-        {
-            unsafe { DatumWithType::extract_datum(datum) }
+        // For pdb.alias/tokenizer types, get the underlying type if it's not a text type.
+        let actual_datum = if type_is_alias(pg_type.value()) || type_is_tokenizer(pg_type.value()) {
+            unsafe { DatumWithType::get_underlying_type(datum).0 }
         } else {
             datum
         };
@@ -993,6 +990,65 @@ pub fn extract_numeric_precision_scale(typmod: i32) -> (u16, Option<i16>) {
     let scale = (stored_scale ^ 1024) - 1024;
 
     (precision, Some(scale))
+}
+
+// Backport of `store_att_byval()` that works on pg15
+// Writes a datum `arg_newdatum` into memory pointed to by `arg_t`
+// SAFETY: `arg_t` must point at writable memory of sufficient size to store the
+//         Postgres value represented by `arg_newdatum`.
+//         `arg_newdatum` must be a valid postgres value with the specified attlen.
+pub unsafe fn store_att_byval(
+    arg_t: *mut std::ffi::c_void,
+    arg_newdatum: pg_sys::Datum,
+    arg_attlen: std::ffi::c_int,
+) {
+    #[cfg(not(feature = "pg15"))]
+    unsafe {
+        pg_sys::store_att_byval(arg_t, arg_newdatum, arg_attlen)
+    }
+
+    #[cfg(feature = "pg15")]
+    unsafe {
+        match arg_attlen {
+            1 => arg_t.cast::<i8>().write(arg_newdatum.value() as i8),
+            2 => arg_t.cast::<i16>().write(arg_newdatum.value() as i16),
+            4 => arg_t.cast::<i32>().write(arg_newdatum.value() as i32),
+            8 => arg_t.cast::<i64>().write(arg_newdatum.value() as i64),
+            _ => unreachable!(),
+        }
+    }
+}
+
+// Backport of `fetch_att_byval()` that works on pg15
+// Returns a Datum representation of the Postgres value stored in `arg_t`
+// SAFETY: The value stored in `arg_t` must be a valid Postgres value with
+//         the specified by-val and att-len.
+//         If the type is not by-val the provided pointer must live as long as
+//         the Datum.
+pub unsafe fn fetch_att(
+    arg_t: *const ::core::ffi::c_void,
+    arg_attbyval: bool,
+    arg_attlen: ::core::ffi::c_int,
+) -> pg_sys::Datum {
+    #[cfg(not(feature = "pg15"))]
+    unsafe {
+        pg_sys::fetch_att(arg_t, arg_attbyval, arg_attlen)
+    }
+
+    #[cfg(feature = "pg15")]
+    if arg_attbyval {
+        unsafe {
+            match arg_attlen {
+                1 => pg_sys::Datum::from(arg_t.cast::<i8>().read()),
+                2 => pg_sys::Datum::from(arg_t.cast::<i16>().read()),
+                4 => pg_sys::Datum::from(arg_t.cast::<i32>().read()),
+                8 => pg_sys::Datum::from(arg_t.cast::<i64>().read()),
+                _ => unreachable!(),
+            }
+        }
+    } else {
+        pg_sys::Datum::from(arg_t)
+    }
 }
 
 type IsArray = bool;

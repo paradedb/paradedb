@@ -1,0 +1,92 @@
+# Note: Debian Trixie = Debian 13
+FROM postgres:@@PG_VERSION_MAJOR@@-trixie AS paradedb
+
+LABEL maintainer="ParadeDB - https://paradedb.com" \
+    org.opencontainers.image.description="Simple, Elastic-quality search for Postgres" \
+    org.opencontainers.image.source="https://github.com/paradedb/paradedb"
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
+
+# %%ANTITHESIS_BEGIN%%
+# Install the locally built, Antithesis-instrumented pg_search package.
+ARG COMMIT_SHA
+COPY pg_search-antithesis-trixie-amd64-pg@@PG_VERSION_MAJOR@@-${COMMIT_SHA}.deb /tmp/pg_search.deb
+RUN dpkg -i /tmp/pg_search.deb && \
+    rm /tmp/pg_search.deb && \
+    mkdir /symbols && \
+    ln -s /usr/lib/postgresql/@@PG_VERSION_MAJOR@@/lib/pg_search.so /symbols/pg_search.so
+# %%ANTITHESIS_END%%
+# %%STANDARD_BEGIN%%
+# Install pg_search from GitHub Releases
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
+    arch="$(dpkg --print-architecture)" && \
+    case "$arch" in \
+        amd64) checksum="@@PG_SEARCH_DEB_AMD64_SHA256@@" ;; \
+        arm64) checksum="@@PG_SEARCH_DEB_ARM64_SHA256@@" ;; \
+        *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac && \
+    curl -fsSL -o /tmp/pg_search.deb "https://github.com/paradedb/paradedb/releases/download/v@@PG_SEARCH_VERSION@@/postgresql-@@PG_VERSION_MAJOR@@-pg-search_@@PG_SEARCH_VERSION@@-1PARADEDB-trixie_${arch}.deb" && \
+    echo "${checksum}  /tmp/pg_search.deb" | sha256sum -c - && \
+    apt-get install -y --no-install-recommends /tmp/pg_search.deb && \
+    rm /tmp/pg_search.deb && \
+    rm -rf /var/lib/apt/lists/*
+# %%STANDARD_END%%
+# %%BARMAN_BEGIN%%
+
+# Install Barman Cloud and its dependencies for Azure, Google, and AWS via `pip`, and clean up after the installation to
+# minimize the size of the image. These are required for enabling Postgres backups in our CloudNativePG deployments.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends libpq5 python3-pip python3-dev python3-psycopg2 && \
+    rm /usr/lib/python*/EXTERNALLY-MANAGED && \
+    pip3 install --no-cache-dir 'setuptools==82.0.1' 'barman[cloud,azure,snappy,google]==3.18.0' && \
+    apt-get remove -y python3-dev python3-pip --purge && \
+    apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/* && \
+    find /usr/lib | grep -E "(/__pycache__$|\.pyc$|\.pyo$)" | xargs rm -rf && \
+    find /usr/local | grep -E "(/__pycache__$|\.pyc$|\.pyo$)" | xargs rm -rf && \
+    find /var/cache -type f -exec truncate --size 0 {} \; && \
+    find /var/log -type f -exec truncate --size 0 {} \;
+# %%BARMAN_END%%
+
+# Install core extensions
+# Use the PGDG archive so these pinned extension versions remain available after newer
+# versions replace them in the live Debian and PGDG apt repositories.
+ENV POSTGIS_VERSION_MAJOR=3
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && echo "deb [ signed-by=/usr/local/share/keyrings/postgres.gpg.asc ] https://apt-archive.postgresql.org/pub/repos/apt trixie-pgdg-archive main" > /etc/apt/sources.list.d/pgdg-archive.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+    postgresql-@@PG_VERSION_MAJOR@@-pgvector=0.8.1-2.pgdg13+1 \
+    postgresql-@@PG_VERSION_MAJOR@@-cron=1.6.7-2.pgdg13+1 \
+    postgresql-@@PG_VERSION_MAJOR@@-pg-ivm=1.13-1.pgdg13+1 \
+    postgresql-@@PG_VERSION_MAJOR@@-postgis-$POSTGIS_VERSION_MAJOR \
+    postgresql-@@PG_VERSION_MAJOR@@-postgis-$POSTGIS_VERSION_MAJOR-scripts \
+    && rm /etc/apt/sources.list.d/pgdg-archive.list \
+    && rm -rf /var/lib/apt/lists/* && \
+    update-ca-certificates
+
+# The postgresql.conf.sample file is used as a template for the postgresql.conf file, which
+# does not exist until the first time the container is started. By adding our settings to the
+# postgresql.conf.sample file, we ensure that our settings are applied onto the postgresql.conf file.
+#
+# The `postgres` database is the default database that exists in every Postgres installation. The pg_cron
+# extension requires a database to store its metadata tables. By using `postgres`, we ensure that it has a
+# stable, always-available database for its operations, no matter what other databases are created or deleted.
+RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_search,pg_cron,pg_stat_statements'/" /usr/share/postgresql/postgresql.conf.sample && \
+    grep "shared_preload_libraries = 'pg_search,pg_cron,pg_stat_statements'" /usr/share/postgresql/postgresql.conf.sample && \
+    echo "cron.database_name = 'postgres'" >> /usr/share/postgresql/postgresql.conf.sample && \
+    echo "pg_stat_statements.track = 'top'" >> /usr/share/postgresql/postgresql.conf.sample
+
+# Reset the working directory to the root directory
+WORKDIR /
+
+# Copy ParadeDB bootstrap script to install extensions and configure postgresql.conf
+COPY ./docker/bootstrap.sh /docker-entrypoint-initdb.d/10_bootstrap_paradedb.sh
+
+# The upstream `postgres` Docker image comes with its own `entrypoint.sh` script which
+# starts as `root` and then switches to the `postgres` user after running chown and chmod
+# on the PostgreSQL data directory. To maintain compatibility with the upstream image and
+# ensure that the `postgres` user has the correct permissions on the data directory, we let
+# the upstream `entrypoint.sh` script run as the entrypoint and don't specify a custom user.

@@ -91,7 +91,7 @@ jobs:
         run: |
           docker buildx build \
             --platform ${{ matrix.platform }} \
-            --file docker/${{ matrix.flavor }}/${{ env.PG_VERSION }}/Dockerfile \
+            --file docker/Dockerfile.${{ matrix.flavor }}-${{ env.PG_VERSION }} \
             --tag paradedb/paradedb:latest \
             --cache-from type=gha,scope=paradedb-docker-${{ matrix.flavor }}-${{ matrix.arch }} \
             --cache-to type=gha,mode=max,scope=paradedb-docker-${{ matrix.flavor }}-${{ matrix.arch }} \

@@ -300,7 +300,7 @@ jobs:
         with:
           context: .
           platforms: linux/amd64
-          file: docker/antithesis/${{ env.PG_VERSION }}/Dockerfile
+          file: docker/Dockerfile.antithesis-${{ env.PG_VERSION }}
           push: true
           tags: ${{ steps.extract-workload-metadata.outputs.tags }}
           labels: ${{ steps.extract-workload-metadata.outputs.labels }}

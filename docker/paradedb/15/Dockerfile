@@ -70,7 +70,7 @@ RUN sed -i "s/^#shared_preload_libraries = ''/shared_preload_libraries = 'pg_sea
 WORKDIR /
 
 # Copy ParadeDB bootstrap script to install extensions and configure postgresql.conf
-COPY ./docker/bootstrap.sh /docker-entrypoint-initdb.d/10_bootstrap_paradedb.sh
+COPY ./bootstrap.sh /docker-entrypoint-initdb.d/10_bootstrap_paradedb.sh
 
 # The upstream `postgres` Docker image comes with its own `entrypoint.sh` script which
 # starts as `root` and then switches to the `postgres` user after running chown and chmod

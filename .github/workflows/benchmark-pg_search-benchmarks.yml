@@ -115,7 +115,7 @@ jobs:
 
       - name: Fetch the Latest Composite Actions
         if: >-
-          inputs.force_use_of_benchmarks_on_main || (
+          inputs.force_use_of_benchmarks_from_main || (
             github.event_name != 'workflow_dispatch' &&
             !contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
           )
@@ -129,7 +129,7 @@ jobs:
 
       - name: Copy latest actions into place
         if: >-
-          inputs.force_use_of_benchmarks_on_main || (
+          inputs.force_use_of_benchmarks_from_main || (
             github.event_name != 'workflow_dispatch' &&
             !contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
           )
@@ -137,7 +137,7 @@ jobs:
 
       - name: Cleanup temporary checkout
         if: >-
-          inputs.force_use_of_benchmarks_on_main || (
+          inputs.force_use_of_benchmarks_from_main || (
             github.event_name != 'workflow_dispatch' &&
             !contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
           )

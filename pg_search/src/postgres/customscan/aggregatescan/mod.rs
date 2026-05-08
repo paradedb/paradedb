@@ -665,20 +665,23 @@ fn count_peer_mesh_shuffles(
         .with_distributed_worker_resolver(
             crate::postgres::customscan::mpp::runtime::MppWorkerResolver::new(n_workers_us),
         )
-        // The fork's `is_in_process()` predicate gates peer-shuffle emission
-        // on a registered `WorkerTransport`. Use the bare LocalExec stub —
-        // the plan is built and discarded for counting only, never executed,
-        // so `LocalExecWorkerTransport.open()` is never invoked.
+        // Peer-shuffle emission requires in-process mode. The bare LocalExec
+        // stub is registered so the planner has a transport to dispatch
+        // through, but the plan here is built and discarded for counting
+        // only, never executed.
         .with_distributed_worker_transport(
             crate::postgres::customscan::mpp::runtime::LocalExecWorkerTransport,
-        )
-        .with_distributed_task_estimator(n_workers_us)
-        .with_distributed_broadcast_joins(true)
-        .ok();
-    let Some(state_builder) = state_builder else {
-        return 0;
+        );
+    let state_builder = match state_builder.with_distributed_in_process_mode(true) {
+        Ok(b) => b,
+        Err(_) => return 0,
     };
-    let state_builder = match state_builder.with_distributed_in_process_peer_shuffle(true) {
+    let state_builder = state_builder.with_distributed_task_estimator(n_workers_us);
+    let state_builder = match state_builder.with_distributed_broadcast_joins(true) {
+        Ok(b) => b,
+        Err(_) => return 0,
+    };
+    let state_builder = match state_builder.with_distributed_emit_peer_shuffles(true) {
         Ok(b) => b,
         Err(_) => return 0,
     };
@@ -1211,8 +1214,8 @@ impl AggregateScan {
             .with_distributed_task_estimator(n_workers)
             .with_distributed_broadcast_joins(true)
             .expect("with_distributed_broadcast_joins")
-            .with_distributed_in_process_peer_shuffle(crate::gucs::enable_mpp_postagg_shuffle())
-            .expect("with_distributed_in_process_peer_shuffle")
+            .with_distributed_emit_peer_shuffles(crate::gucs::enable_mpp_postagg_shuffle())
+            .expect("with_distributed_emit_peer_shuffles")
             .with_distributed_user_codec(crate::scan::codec::PgSearchPhysicalCodecStub)
             .with_distributed_planner();
         datafusion::prelude::SessionContext::new_with_state(state_builder.build())
@@ -1429,8 +1432,8 @@ impl AggregateScan {
             .with_distributed_task_estimator(n_workers_us)
             .with_distributed_broadcast_joins(true)
             .expect("with_distributed_broadcast_joins")
-            .with_distributed_in_process_peer_shuffle(crate::gucs::enable_mpp_postagg_shuffle())
-            .expect("with_distributed_in_process_peer_shuffle")
+            .with_distributed_emit_peer_shuffles(crate::gucs::enable_mpp_postagg_shuffle())
+            .expect("with_distributed_emit_peer_shuffles")
             .with_distributed_user_codec(crate::scan::codec::PgSearchPhysicalCodecStub)
             .with_distributed_planner();
         let session_state = state_builder.build();

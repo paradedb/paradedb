@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778278934458,
+  "lastUpdate": 1778279590164,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3838,6 +3838,54 @@ window.BENCHMARK_DATA = {
             "value": 274.5903706197721,
             "unit": "median tps",
             "extra": "avg tps: 270.9752045552992, max tps: 613.4888101323179, count: 107836"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c5464b3e24db03ac3cb8bab3f1a344c417055c5b",
+          "message": "chore: Refactor is_array branch in row_to_search_document (#5045)\n\n## What\nRefactor this block to separate the array conversion and then adding the\nelements of that array to the document into distinct steps.\n\n## Why\nIt's cleaner",
+          "timestamp": "2026-05-08T15:16:13-06:00",
+          "tree_id": "f8f52e91215e0a49ed69cefc3d821224ee7ddf3e",
+          "url": "https://github.com/paradedb/paradedb/commit/c5464b3e24db03ac3cb8bab3f1a344c417055c5b"
+        },
+        "date": 1778279551412,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 582.068861870001,
+            "unit": "median tps",
+            "extra": "avg tps: 581.8584964037633, max tps: 758.0233112743135, count: 53801"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 616.314388642602,
+            "unit": "median tps",
+            "extra": "avg tps: 615.6137569212067, max tps: 882.6154933264559, count: 53801"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 95.7026400664321,
+            "unit": "median tps",
+            "extra": "avg tps: 95.63408090230313, max tps: 103.57221555381143, count: 53801"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 296.72716076040183,
+            "unit": "median tps",
+            "extra": "avg tps: 271.8659600345024, max tps: 635.9504828005134, count: 107602"
           }
         ]
       }

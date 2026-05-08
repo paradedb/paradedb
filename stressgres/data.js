@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778269809894,
+  "lastUpdate": 1778276756628,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -346,6 +346,78 @@ window.BENCHMARK_DATA = {
             "value": 72.40809791751174,
             "unit": "median tps",
             "extra": "avg tps: 100.34893044469456, max tps: 304.25746162085517, count: 55180"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c5464b3e24db03ac3cb8bab3f1a344c417055c5b",
+          "message": "chore: Refactor is_array branch in row_to_search_document (#5045)\n\n## What\nRefactor this block to separate the array conversion and then adding the\nelements of that array to the document into distinct steps.\n\n## Why\nIt's cleaner",
+          "timestamp": "2026-05-08T15:16:13-06:00",
+          "tree_id": "f8f52e91215e0a49ed69cefc3d821224ee7ddf3e",
+          "url": "https://github.com/paradedb/paradedb/commit/c5464b3e24db03ac3cb8bab3f1a344c417055c5b"
+        },
+        "date": 1778276720398,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 129.46361032140305,
+            "unit": "median tps",
+            "extra": "avg tps: 129.6304212369127, max tps: 145.1790517063132, count: 55060"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 485.7165339982324,
+            "unit": "median tps",
+            "extra": "avg tps: 485.92342313993174, max tps: 586.1380737947835, count: 55060"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3187.146411172689,
+            "unit": "median tps",
+            "extra": "avg tps: 3177.531457303003, max tps: 3205.4678583491896, count: 55060"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 420.5480282954408,
+            "unit": "median tps",
+            "extra": "avg tps: 419.7012328960215, max tps: 513.7489933730661, count: 55060"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2996.975584284241,
+            "unit": "median tps",
+            "extra": "avg tps: 3029.558369638343, max tps: 3130.6847490919067, count: 110120"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 488.28635762421993,
+            "unit": "median tps",
+            "extra": "avg tps: 489.19963565671827, max tps: 622.5922110947315, count: 55060"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1978.7236552945715,
+            "unit": "median tps",
+            "extra": "avg tps: 1972.1136780942632, max tps: 1992.2280487197522, count: 55060"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 72.53586596339115,
+            "unit": "median tps",
+            "extra": "avg tps: 85.76626134238369, max tps: 317.97044973422436, count: 55060"
           }
         ]
       }

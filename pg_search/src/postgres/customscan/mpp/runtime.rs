@@ -296,7 +296,11 @@ struct ShmMqPeerWorkerConnection {
 }
 
 impl WorkerConnection for ShmMqPeerWorkerConnection {
-    fn stream_partition(&self, partition: usize) -> Result<WorkerPartitionStream> {
+    fn stream_partition(
+        &self,
+        partition: usize,
+        _on_metadata: datafusion_distributed::OnMetadataCallback,
+    ) -> Result<WorkerPartitionStream> {
         let tag = u32::try_from(partition).map_err(|_| {
             DataFusionError::Internal(format!(
                 "ShmMqPeerWorkerConnection: partition={partition} > u32::MAX"

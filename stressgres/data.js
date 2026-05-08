@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778264856004,
+  "lastUpdate": 1778265040083,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -134,6 +134,76 @@ window.BENCHMARK_DATA = {
             "value": 47.574328903972116,
             "unit": "median tps",
             "extra": "avg tps: 45.60380958140924, max tps: 180.48977705902738, count: 55240"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot",
+            "email": "developers@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "c07921a78f3d24cbb0251b31a1150a7db600af5a",
+          "message": "chore: Prepare 0.23.4. (#4997)\n\n# Description\nBackport of #4994 to `0.23.x`.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-06T00:08:47Z",
+          "url": "https://github.com/paradedb/paradedb/commit/c07921a78f3d24cbb0251b31a1150a7db600af5a"
+        },
+        "date": 1778265000675,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 131.5152309296288,
+            "unit": "median tps",
+            "extra": "avg tps: 131.39283791408823, max tps: 144.12808049313955, count: 55064"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 480.49816682925507,
+            "unit": "median tps",
+            "extra": "avg tps: 480.87560393631657, max tps: 602.2349944368542, count: 55064"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3334.579992780429,
+            "unit": "median tps",
+            "extra": "avg tps: 3316.4504064554453, max tps: 3343.0166272752895, count: 55064"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 425.95851394384323,
+            "unit": "median tps",
+            "extra": "avg tps: 425.7857098752654, max tps: 588.3344803894586, count: 55064"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3043.7689057108482,
+            "unit": "median tps",
+            "extra": "avg tps: 3049.1213012130947, max tps: 3112.202122182038, count: 110128"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 491.906387866289,
+            "unit": "median tps",
+            "extra": "avg tps: 493.77680618256886, max tps: 624.7935625269996, count: 55064"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2074.333171113102,
+            "unit": "median tps",
+            "extra": "avg tps: 2067.97026280735, max tps: 2086.8569902636254, count: 55064"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 44.005912621184926,
+            "unit": "median tps",
+            "extra": "avg tps: 46.706407894632314, max tps: 282.09206243712873, count: 55064"
           }
         ]
       }

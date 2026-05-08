@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778276797608,
+  "lastUpdate": 1778277473277,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1366,6 +1366,42 @@ window.BENCHMARK_DATA = {
             "value": 5.483911828830073,
             "unit": "median tps",
             "extra": "avg tps: 4.917001170005764, max tps: 6.1740980972730535, count: 57241"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c5464b3e24db03ac3cb8bab3f1a344c417055c5b",
+          "message": "chore: Refactor is_array branch in row_to_search_document (#5045)\n\n## What\nRefactor this block to separate the array conversion and then adding the\nelements of that array to the document into distinct steps.\n\n## Why\nIt's cleaner",
+          "timestamp": "2026-05-08T15:16:13-06:00",
+          "tree_id": "f8f52e91215e0a49ed69cefc3d821224ee7ddf3e",
+          "url": "https://github.com/paradedb/paradedb/commit/c5464b3e24db03ac3cb8bab3f1a344c417055c5b"
+        },
+        "date": 1778277437003,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.57750625634313,
+            "unit": "median tps",
+            "extra": "avg tps: 6.479428874458487, max tps: 9.838173578521856, count: 57765"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.624266082575761,
+            "unit": "median tps",
+            "extra": "avg tps: 5.039313199624603, max tps: 6.318468538763891, count: 57765"
           }
         ]
       }

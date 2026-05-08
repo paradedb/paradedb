@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778264669698,
+  "lastUpdate": 1778264735837,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -64,6 +64,76 @@ window.BENCHMARK_DATA = {
             "value": 94.36971552254222,
             "unit": "median tps",
             "extra": "avg tps: 95.96977092566719, max tps: 853.6232465511487, count: 55529"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0b5f5714895d3226ae9025f04f5867cf6e63215d",
+          "message": "chore: Upgrade to 0.22.6 (#4694)\n\n## Summary\n- Bump version from 0.22.5 to 0.22.6\n- Add changelog entry for 0.22.6\n- Update version references in docs\n\n## Changes since 0.22.5\n- feat: Support expressions in JoinScan DISTINCT target lists (#4682)\n- fix: JoinScan `DISTINCT` planning for deferred keys (#4670)\n- fix: JoinScan pushdown with outer-only `ORDER BY` pathkeys (#4680)\n- fix: `pdb.score()` with `SELECT` subquery in `WHERE` clause (#4653)\n- fix: Handle `IN (SELECT ...) OR IS NULL` via LeftMark JoinScan (#4651)\n- fix: Score filter for joins and cases without other quals (#4650)\n- fix: Handle pruned columns in nested semi/anti join keys (#4668)\n- fix: Handle aliased indexed expressions in search resolution and top-k\norder by (#4671)\n- fix: Lower x86_64 target-cpu from x86-64-v3 to x86-64-v2 (#4673)\n- fix: Prevent DSM buffer overflow in PG18 parallel index scans (#4683)\n- fix: `PlaceHolderVar found where not expected` error (#4689)\n- fix: Restore `pdb.agg(jsonb)` if accidentally removed by an upgrade\nscript (#4688)\n\n## Test plan\n- [ ] CI passes on 0.22.x\n\n---------\n\nCo-authored-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>",
+          "timestamp": "2026-04-08T18:52:29Z",
+          "url": "https://github.com/paradedb/paradedb/commit/0b5f5714895d3226ae9025f04f5867cf6e63215d"
+        },
+        "date": 1778264660427,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 130.64620327425928,
+            "unit": "median tps",
+            "extra": "avg tps: 130.5537807524007, max tps: 151.66131702434936, count: 55240"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 455.69339720439126,
+            "unit": "median tps",
+            "extra": "avg tps: 453.47753139623177, max tps: 560.6790196714235, count: 55240"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 2903.686482163258,
+            "unit": "median tps",
+            "extra": "avg tps: 2897.056677565254, max tps: 3038.044097083484, count: 55240"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 407.6685137589609,
+            "unit": "median tps",
+            "extra": "avg tps: 406.7680221010021, max tps: 624.3667880158206, count: 55240"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3013.330659465104,
+            "unit": "median tps",
+            "extra": "avg tps: 3003.057001642128, max tps: 3035.2340605570903, count: 110480"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 457.5955468873864,
+            "unit": "median tps",
+            "extra": "avg tps: 455.87021032317995, max tps: 581.3998276440211, count: 55240"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1835.5105830943826,
+            "unit": "median tps",
+            "extra": "avg tps: 1819.7744701894508, max tps: 1840.1007474585967, count: 55240"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 47.574328903972116,
+            "unit": "median tps",
+            "extra": "avg tps: 45.60380958140924, max tps: 180.48977705902738, count: 55240"
           }
         ]
       }

@@ -38,7 +38,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
-use datafusion::physical_expr_common::metrics::ExecutionPlanMetricsSet;
 use datafusion_distributed::{
     Stage, WorkerConnection, WorkerPartitionStream, WorkerResolver, WorkerTransport,
 };
@@ -87,7 +86,6 @@ impl WorkerTransport for ShmMqWorkerTransport {
         _target_partitions: Range<usize>,
         target_task: usize,
         _ctx: &Arc<TaskContext>,
-        _metrics: &ExecutionPlanMetricsSet,
     ) -> Result<Box<dyn WorkerConnection>> {
         let worker = u32::try_from(target_task).map_err(|_| {
             DataFusionError::Internal(format!(
@@ -196,7 +194,6 @@ impl WorkerTransport for LocalExecWorkerTransport {
         _target_partitions: Range<usize>,
         _target_task: usize,
         ctx: &Arc<TaskContext>,
-        _metrics: &ExecutionPlanMetricsSet,
     ) -> Result<Box<dyn WorkerConnection>> {
         let plan = input_stage.plan().cloned().ok_or_else(|| {
             DataFusionError::Internal(

@@ -1098,6 +1098,8 @@ impl AggregateScan {
             .with_distributed_worker_transport(
                 crate::postgres::customscan::mpp::runtime::ShmMqWorkerTransport::new(mesh),
             )
+            .with_distributed_in_process_mode(true)
+            .expect("with_distributed_in_process_mode")
             .with_distributed_task_estimator(n_workers)
             .with_distributed_broadcast_joins(true)
             .expect("with_distributed_broadcast_joins")
@@ -1244,6 +1246,8 @@ impl AggregateScan {
             .with_distributed_worker_transport(
                 crate::postgres::customscan::mpp::runtime::LocalExecWorkerTransport,
             )
+            .with_distributed_in_process_mode(true)
+            .expect("with_distributed_in_process_mode")
             .with_distributed_task_estimator(n_workers_us)
             .with_distributed_broadcast_joins(true)
             .expect("with_distributed_broadcast_joins")

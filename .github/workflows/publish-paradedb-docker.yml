@@ -223,7 +223,7 @@ jobs:
         id: build-push
         uses: docker/build-push-action@v7
         with:
-          context: .
+          context: docker
           platforms: linux/amd64,linux/arm64
           file: docker/paradedb/${{ matrix.pg_version }}/Dockerfile
           push: true

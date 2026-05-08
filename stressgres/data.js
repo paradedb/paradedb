@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778268390081,
+  "lastUpdate": 1778268428192,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2092,6 +2092,108 @@ window.BENCHMARK_DATA = {
             "value": 164.4375,
             "unit": "median mem",
             "extra": "avg mem: 182.7609780044067, max mem: 222.77734375, count: 56051"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "lockerman@paradedb.com",
+            "name": "JLockerman",
+            "username": "JLockerman"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9a827ea3a0452e482e852785e743deb2f4630222",
+          "message": "fix: Issues with text casts and memory layout for tokenizer types (#4900)\n\n# Ticket(s) Closed\n\n- fixes https://github.com/paradedb/paradedb/issues/5033\n\n## What\n\nChanges the tokenizer and alias types to function as regular SQL types\n(writable to disk, reallocatable in memory contexts etc).\n\n## Why\n\nWhen used incorrectly (eg. within a non-optimized function call) the\nprevious versions would access freed memory.\n\n## How\n\nThe tokenizer format is changed from `(header, magic_num, Oid, padding\nDatum)` to `(header, magic_num, metadata, padding, Oid, data_bytes)`\nwhere the `data_bytes` are the bytes from the original value (the\n`Datum` for by-value types, and the bytes pointed-at by the `Datum` for\nby-ref types). This lets us create a new `Datum` for that type (pointing\nat the inner bytes if needed).\n\nNOTE: Since the old version of the type was storing `Datum`s directly,\nany values stored to disk with the old code is broken unless they were\nin text format (the others store dangling pointers). In the updated\nversion such values will be output as meaningless text instead.\n\n## Tests\n\n- in\n`pg_search/tests/pg_regress/sql/tokenizer-types-inline-tokenization.sql`\n\n---------\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-05-08T14:32:32-04:00",
+          "tree_id": "9cf77ffd18186494bb164cc15f9f703749357d03",
+          "url": "https://github.com/paradedb/paradedb/commit/9a827ea3a0452e482e852785e743deb2f4630222"
+        },
+        "date": 1778268391672,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07276636576871136, max background_merging: 2.0, count: 56276"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.860341993882093, max cpu: 9.667674, count: 56276"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 28.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 28.864540667869075, max mem: 28.93359375, count: 56276"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.027205657596049, max cpu: 23.66864, count: 56276"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 184.171875,
+            "unit": "median mem",
+            "extra": "avg mem: 182.45338140925972, max mem: 184.34765625, count: 56276"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51431,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51295.68624280333, max block_count: 51431.0, count: 56276"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.47519368825076, max segment_count: 56.0, count: 56276"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7195914093543445, max cpu: 27.934044, count: 56276"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 160.15234375,
+            "unit": "median mem",
+            "extra": "avg mem: 141.2139116808231, max mem: 169.65625, count: 56276"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.786772623304549, max cpu: 27.906979, count: 56276"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 186.125,
+            "unit": "median mem",
+            "extra": "avg mem: 181.9123938962657, max mem: 190.18359375, count: 56276"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.506365,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.879563884989647, max cpu: 33.20158, count: 56276"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 163.6640625,
+            "unit": "median mem",
+            "extra": "avg mem: 182.22712876603703, max mem: 222.140625, count: 56276"
           }
         ]
       }

@@ -38,6 +38,6 @@ jobs:
 
       - name: Verify Generated Dockerfiles Are In Sync With Template
         run: |
-          version="$(sed -nE 's|.*releases/download/v([^/]+)/postgresql-[0-9]+-pg-search_.*|\1|p' docker/paradedb/18/Dockerfile | head -n1)"
+          version="$(sed -nE 's|.*releases/download/v([^/]+)/postgresql-[0-9]+-pg-search_.*|\1|p' docker/Dockerfile.paradedb-18 | head -n1)"
           docker/generate-dockerfiles.sh "$version"
           git diff --exit-code -- docker

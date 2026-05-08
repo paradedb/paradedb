@@ -42,9 +42,8 @@ render() {
   local pg_version="$2"
   local pg_search_deb_amd64_sha256="$3"
   local pg_search_deb_arm64_sha256="$4"
-  local output="${script_dir}/${flavor}/${pg_version}/Dockerfile"
+  local output="${script_dir}/Dockerfile.$flavor-$pg_version"
 
-  mkdir -p "$(dirname "$output")"
   awk \
     -v pg_version="$pg_version" \
     -v pg_search_version="$PG_SEARCH_VERSION" \

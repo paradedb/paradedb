@@ -772,45 +772,24 @@ pub unsafe fn row_to_search_document<'a>(
         };
 
         if *is_array {
-            // Check for NUMERIC array field types that need special handling
-            match search_field.field_type() {
+            let converted_array = match search_field.field_type() {
                 SearchFieldType::Numeric64(_, scale) => {
-                    for value in TantivyValue::try_from_numeric_array_i64(actual_datum, scale)
-                        .unwrap_or_else(|e| {
-                            panic!("could not parse field `{}`: {e}", search_field.field_name())
-                        })
-                    {
-                        document.add_field_value(search_field.field(), &OwnedValue::from(value));
-                    }
+                    TantivyValue::try_from_numeric_array_i64(actual_datum, scale)
                 }
                 SearchFieldType::NumericBytes(..) => {
-                    for value in TantivyValue::try_from_numeric_array_bytes(actual_datum)
-                        .unwrap_or_else(|e| {
-                            panic!("could not parse field `{}`: {e}", search_field.field_name())
-                        })
-                    {
-                        document.add_field_value(search_field.field(), &OwnedValue::from(value));
-                    }
+                    TantivyValue::try_from_numeric_array_bytes(actual_datum)
                 }
                 // Legacy pre-v0.22.0 indexes stored NUMERIC arrays as F64 in the tantivy schema.
                 SearchFieldType::F64(oid) if oid == pg_sys::NUMERICOID => {
-                    for value in TantivyValue::try_from_numeric_array_f64(actual_datum)
-                        .unwrap_or_else(|e| {
-                            panic!("could not parse field `{}`: {e}", search_field.field_name())
-                        })
-                    {
-                        document.add_field_value(search_field.field(), &OwnedValue::from(value));
-                    }
+                    TantivyValue::try_from_numeric_array_f64(actual_datum)
                 }
-                _ => {
-                    for value in TantivyValue::try_from_datum_array(actual_datum, *base_oid)
-                        .unwrap_or_else(|e| {
-                            panic!("could not parse field `{}`: {e}", search_field.field_name())
-                        })
-                    {
-                        document.add_field_value(search_field.field(), &OwnedValue::from(value));
-                    }
-                }
+                _ => TantivyValue::try_from_datum_array(actual_datum, *base_oid),
+            }
+            .unwrap_or_else(|e| {
+                panic!("could not parse field `{}`: {e}", search_field.field_name())
+            });
+            for value in converted_array {
+                document.add_field_value(search_field.field(), &OwnedValue::from(value));
             }
         } else if *is_json {
             for value in

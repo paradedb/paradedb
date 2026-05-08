@@ -28,6 +28,12 @@ jobs:
   detect-changes:
     name: Detect Changes
     runs-on: ubuntu-latest
+    # `pull-requests: read` is needed by dorny/paths-filter to list changed
+    # files on PR events. Org-level defaults grant it today, but pin it
+    # explicitly so this gate doesn't break silently if defaults tighten.
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       should_run: ${{ github.event_name != 'pull_request' || steps.filter.outputs.relevant == 'true' }}
     steps:
@@ -49,6 +55,10 @@ jobs:
   set-matrix:
     name: Define the PostgreSQL Version Matrix
     runs-on: ubuntu-latest
+    # detect-changes is listed explicitly (not transitively) so we can read its
+    # outputs on the skip path. If detect-changes itself fails, should_run is
+    # empty (≠ 'true'), this job is skipped, and the report-results gate sees
+    # the failure and reports red — auto-merge stays blocked.
     needs: detect-changes
     if: ${{ !cancelled() && needs.detect-changes.outputs.should_run == 'true' }}
     outputs:
@@ -395,6 +405,8 @@ jobs:
   report-results:
     name: Report Results
     if: always()
+    # When adding a new job to this workflow, also add it to this needs:
+    # list — otherwise the gate silently passes when that job fails.
     needs: [detect-changes, set-matrix, test-pg_search, upload-coverage]
     runs-on: ubuntu-latest
     steps:

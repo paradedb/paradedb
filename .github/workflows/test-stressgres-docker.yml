@@ -23,6 +23,12 @@ jobs:
   detect-changes:
     name: Detect Changes
     runs-on: ubuntu-latest
+    # `pull-requests: read` is needed by dorny/paths-filter to list changed
+    # files on PR events. Org-level defaults grant it today, but pin it
+    # explicitly so this gate doesn't break silently if defaults tighten.
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       should_run: ${{ github.event_name != 'pull_request' || steps.filter.outputs.relevant == 'true' }}
     steps:
@@ -94,6 +100,8 @@ jobs:
   report-results:
     name: Report Results
     if: always()
+    # When adding a new job to this workflow, also add it to this needs:
+    # list — otherwise the gate silently passes when that job fails.
     needs: [detect-changes, test-stressgres-docker]
     runs-on: ubuntu-latest
     steps:

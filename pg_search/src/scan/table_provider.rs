@@ -17,11 +17,17 @@
 
 use std::any::Any;
 use std::fmt::Debug;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
+use datafusion::arrow::array::RecordBatch;
+use datafusion::arrow::datatypes::Schema as ArrowSchema;
+use datafusion::arrow::ipc::reader::StreamReader;
+use datafusion::arrow::ipc::writer::StreamWriter;
 use datafusion::catalog::{Session, TableProvider};
+use datafusion::common::stats::{ColumnStatistics, Precision};
 use datafusion::common::{DataFusionError, Result, Statistics};
 use datafusion::logical_expr::{Expr, TableProviderFilterPushDown, TableType};
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
@@ -44,8 +50,6 @@ use crate::scan::filter_pushdown::{combine_with_and, FilterAnalyzer};
 use crate::scan::info::{RowEstimate, ScanInfo};
 use crate::scan::late_materialization::DeferredField;
 use crate::scan::Scanner;
-
-use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct VisibilitySourceMetadata {
@@ -77,9 +81,9 @@ pub struct PgSearchTableProvider {
     scan_info: ScanInfo,
     fields: Vec<WhichFastField>,
     #[serde(skip)]
-    schema: std::sync::OnceLock<SchemaRef>,
+    schema: OnceLock<SchemaRef>,
     #[serde(skip)]
-    late_materialization_schema: std::sync::OnceLock<SchemaRef>,
+    late_materialization_schema: OnceLock<SchemaRef>,
     is_parallel: bool,
     /// Parallel state is skipped during serialization because it's a raw pointer
     /// to shared memory that is only valid in the current process. It is
@@ -148,7 +152,7 @@ pub struct PgSearchTableProvider {
     /// Lazy cache of the gathered build-side batches. Populated on the first
     /// `scan()` call when `mpp_build_cache` is set; subsequent scans reuse.
     #[serde(skip)]
-    mpp_gathered_batches: std::sync::OnceLock<Arc<Vec<datafusion::arrow::array::RecordBatch>>>,
+    mpp_gathered_batches: OnceLock<Arc<Vec<RecordBatch>>>,
 }
 
 mod atomic_bool_serde {
@@ -179,8 +183,8 @@ impl PgSearchTableProvider {
         Self {
             scan_info,
             fields,
-            schema: std::sync::OnceLock::new(),
-            late_materialization_schema: std::sync::OnceLock::new(),
+            schema: OnceLock::new(),
+            late_materialization_schema: OnceLock::new(),
             is_parallel,
             parallel_state: None,
             expr_context: None,
@@ -192,7 +196,7 @@ impl PgSearchTableProvider {
             mpp_build_cache: None,
             mpp_source_idx: 0,
             mpp_worker_idx: 0,
-            mpp_gathered_batches: std::sync::OnceLock::new(),
+            mpp_gathered_batches: OnceLock::new(),
         }
     }
 
@@ -695,8 +699,6 @@ impl TableProvider for PgSearchTableProvider {
     }
 
     fn statistics(&self) -> Option<Statistics> {
-        use datafusion::common::stats::{ColumnStatistics, Precision};
-
         let num_rows = match self.scan_info.estimate {
             RowEstimate::Known(n) => Precision::Inexact(n as usize),
             RowEstimate::Unknown => Precision::Absent,
@@ -807,7 +809,7 @@ impl PgSearchTableProvider {
             .await?;
         let task_ctx = state.task_ctx();
         let n_partitions = sub_plan.output_partitioning().partition_count();
-        let mut my_batches: Vec<datafusion::arrow::array::RecordBatch> = Vec::new();
+        let mut my_batches: Vec<RecordBatch> = Vec::new();
         for p in 0..n_partitions {
             let mut stream = sub_plan.execute(p, Arc::clone(&task_ctx))?;
             while let Some(b) = futures::StreamExt::next(&mut stream).await {
@@ -834,7 +836,7 @@ impl PgSearchTableProvider {
 
         // Read peer slices, decode, concatenate.
         let t_read_start = std::time::Instant::now();
-        let mut all_batches: Vec<datafusion::arrow::array::RecordBatch> =
+        let mut all_batches: Vec<RecordBatch> =
             Vec::with_capacity(my_batches.len() * (n_workers as usize));
         for w in 0..n_workers {
             let bytes = if w == worker_idx {
@@ -1025,14 +1027,13 @@ impl PgSearchTableProvider {
 }
 
 /// Encode a slice of `RecordBatch`es as a single Arrow IPC stream blob.
-fn encode_batches_ipc(batches: &[datafusion::arrow::array::RecordBatch]) -> Result<Vec<u8>> {
-    use datafusion::arrow::ipc::writer::StreamWriter;
+fn encode_batches_ipc(batches: &[RecordBatch]) -> Result<Vec<u8>> {
     let mut buf = Vec::with_capacity(64 * 1024);
     let schema: SchemaRef = if let Some(b) = batches.first() {
         b.schema()
     } else {
         // Empty input: produce an empty IPC stream with a placeholder schema.
-        Arc::new(datafusion::arrow::datatypes::Schema::empty())
+        Arc::new(ArrowSchema::empty())
     };
     {
         let mut writer = StreamWriter::try_new(&mut buf, &schema)
@@ -1050,8 +1051,7 @@ fn encode_batches_ipc(batches: &[datafusion::arrow::array::RecordBatch]) -> Resu
 }
 
 /// Decode an Arrow IPC stream blob into its `RecordBatch`es.
-fn decode_batches_ipc(bytes: &[u8]) -> Result<Vec<datafusion::arrow::array::RecordBatch>> {
-    use datafusion::arrow::ipc::reader::StreamReader;
+fn decode_batches_ipc(bytes: &[u8]) -> Result<Vec<RecordBatch>> {
     let cursor = std::io::Cursor::new(bytes);
     let reader = StreamReader::try_new(cursor, None)
         .map_err(|e| DataFusionError::Internal(format!("ipc reader init: {e}")))?;
@@ -1066,9 +1066,7 @@ fn decode_batches_ipc(bytes: &[u8]) -> Result<Vec<datafusion::arrow::array::Reco
 /// schema and projection. Used by the MPP build-side all-gather to expose the
 /// gathered build side to the rest of the plan without going back through
 /// Tantivy.
-fn memory_exec_for_cached(
-    batches: Arc<Vec<datafusion::arrow::array::RecordBatch>>,
-) -> Result<Arc<dyn ExecutionPlan>> {
+fn memory_exec_for_cached(batches: Arc<Vec<RecordBatch>>) -> Result<Arc<dyn ExecutionPlan>> {
     use datafusion_datasource::memory::MemorySourceConfig;
     // The cached batches were produced by `scan_inner` with the caller's
     // projection already applied — re-projecting at MemorySourceConfig level
@@ -1077,8 +1075,8 @@ fn memory_exec_for_cached(
     let schema: SchemaRef = batches
         .first()
         .map(|b| b.schema())
-        .unwrap_or_else(|| Arc::new(datafusion::arrow::datatypes::Schema::empty()));
-    let partitions: Vec<Vec<datafusion::arrow::array::RecordBatch>> = vec![(*batches).clone()];
+        .unwrap_or_else(|| Arc::new(ArrowSchema::empty()));
+    let partitions: Vec<Vec<RecordBatch>> = vec![(*batches).clone()];
     let exec = MemorySourceConfig::try_new_exec(&partitions, schema, None)?;
     Ok(exec as Arc<dyn ExecutionPlan>)
 }

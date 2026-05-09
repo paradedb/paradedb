@@ -19,13 +19,15 @@ use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
 use datafusion::catalog::TableProvider;
-use datafusion::common::TableReference;
-use datafusion::common::{DataFusionError, Result};
+use datafusion::common::{DFSchemaRef, DataFusionError, Result, TableReference};
 use datafusion::execution::TaskContext;
 use datafusion::functions_aggregate as dfa;
 use datafusion::logical_expr::{AggregateUDF, Extension, LogicalPlan, ScalarUDF};
+use datafusion::physical_plan::ExecutionPlan;
 use datafusion_proto::logical_plan::LogicalExtensionCodec;
-use pgrx::pg_sys::{ExprContext, PlanState};
+use datafusion_proto::physical_plan::PhysicalExtensionCodec;
+use datafusion_proto::protobuf::DfSchema;
+use pgrx::pg_sys::{ExprContext, Oid, PlanState};
 use tantivy::index::SegmentId;
 
 use crate::api::HashSet;
@@ -33,6 +35,7 @@ use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterNo
 use crate::postgres::customscan::mpp::dsm::MppBuildCache;
 use crate::postgres::customscan::pg_expr_udf::{PgExprUdf, PG_EXPR_UDF_PREFIX};
 use crate::postgres::ParallelScanState;
+use crate::scan::late_materialization::{DeferredField, LateMaterializeNode};
 use crate::scan::search_predicate_udf::SearchPredicateUDF;
 use crate::scan::table_provider::PgSearchTableProvider;
 
@@ -102,13 +105,12 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
             })?;
             offset += schema_len;
 
-            let df_schema_proto: datafusion_proto::protobuf::DfSchema =
-                prost::Message::decode(schema_bytes).map_err(|e| {
-                    DataFusionError::Internal(format!("Failed to decode schema: {}", e))
-                })?;
+            let df_schema_proto: DfSchema = prost::Message::decode(schema_bytes).map_err(|e| {
+                DataFusionError::Internal(format!("Failed to decode schema: {}", e))
+            })?;
 
-            let output_schema: datafusion::common::DFSchemaRef =
-                std::sync::Arc::new((&df_schema_proto).try_into().map_err(|e| {
+            let output_schema: DFSchemaRef =
+                Arc::new((&df_schema_proto).try_into().map_err(|e| {
                     DataFusionError::Internal(format!("Failed to parse schema: {}", e))
                 })?);
 
@@ -124,20 +126,19 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
                         "truncated buffer: incomplete deferred fields data".into(),
                     )
                 })?;
-            let deferred_fields: Vec<crate::scan::late_materialization::DeferredField> =
-                serde_json::from_slice(deferred_fields_bytes).map_err(|e| {
+            let deferred_fields: Vec<DeferredField> = serde_json::from_slice(deferred_fields_bytes)
+                .map_err(|e| {
                     DataFusionError::Internal(format!(
                         "Failed to deserialize deferred fields: {}",
                         e
                     ))
                 })?;
 
-            let node =
-                std::sync::Arc::new(crate::scan::late_materialization::LateMaterializeNode {
-                    input: input_plan,
-                    output_schema,
-                    deferred_fields,
-                });
+            let node = Arc::new(LateMaterializeNode {
+                input: input_plan,
+                output_schema,
+                deferred_fields,
+            });
 
             return Ok(Extension { node });
         }
@@ -156,7 +157,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
             let payload = buf.get(5..5 + payload_len).ok_or_else(|| {
                 DataFusionError::Internal("truncated buffer: incomplete visibility payload".into())
             })?;
-            let (plan_pos_oids, table_names): (Vec<(usize, pgrx::pg_sys::Oid)>, Vec<String>) =
+            let (plan_pos_oids, table_names): (Vec<(usize, Oid)>, Vec<String>) =
                 serde_json::from_slice(payload).map_err(|e| {
                     DataFusionError::Internal(format!(
                         "Failed to deserialize visibility payload: {e}"
@@ -178,12 +179,8 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
     }
 
     fn try_encode(&self, node: &Extension, buf: &mut Vec<u8>) -> Result<()> {
-        if let Some(mat_node) =
-            node.node
-                .as_any()
-                .downcast_ref::<crate::scan::late_materialization::LateMaterializeNode>()
-        {
-            let schema_proto: datafusion_proto::protobuf::DfSchema =
+        if let Some(mat_node) = node.node.as_any().downcast_ref::<LateMaterializeNode>() {
+            let schema_proto: DfSchema =
                 mat_node.output_schema.as_ref().try_into().map_err(|e| {
                     DataFusionError::Internal(format!("Failed to convert schema: {}", e))
                 })?;
@@ -203,7 +200,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         }
 
         if let Some(vis_node) = node.node.as_any().downcast_ref::<VisibilityFilterNode>() {
-            let payload: (&[(usize, pgrx::pg_sys::Oid)], &[String]) =
+            let payload: (&[(usize, Oid)], &[String]) =
                 (&vis_node.plan_pos_oids, &vis_node.table_names);
             let bytes = serde_json::to_vec(&payload).map_err(|e| {
                 DataFusionError::Internal(format!(
@@ -250,11 +247,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
             // segments above, write to DSM, wait for the barrier, then read
             // back the gathered batches and stream them via `MemoryExec`.
             if let Some(cache) = &self.mpp_build_cache {
-                provider.set_mpp_build_cache(
-                    std::sync::Arc::clone(cache),
-                    np_idx as u32,
-                    self.mpp_worker_idx,
-                );
+                provider.set_mpp_build_cache(Arc::clone(cache), np_idx as u32, self.mpp_worker_idx);
             }
         }
         provider.set_expr_context(self.expr_context);
@@ -296,11 +289,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         }
     }
 
-    fn try_encode_udaf(
-        &self,
-        node: &datafusion::logical_expr::AggregateUDF,
-        buf: &mut Vec<u8>,
-    ) -> Result<()> {
+    fn try_encode_udaf(&self, node: &AggregateUDF, buf: &mut Vec<u8>) -> Result<()> {
         // Built-in aggregates are looked up by name on decode, no state to serialize
         buf.extend_from_slice(node.name().as_bytes());
         Ok(())
@@ -424,13 +413,13 @@ pub fn deserialize_logical_plan_with_runtime(
 #[derive(Debug)]
 pub struct PgSearchPhysicalCodecStub;
 
-impl datafusion_proto::physical_plan::PhysicalExtensionCodec for PgSearchPhysicalCodecStub {
+impl PhysicalExtensionCodec for PgSearchPhysicalCodecStub {
     fn try_decode(
         &self,
         _buf: &[u8],
-        _inputs: &[Arc<dyn datafusion::physical_plan::ExecutionPlan>],
+        _inputs: &[Arc<dyn ExecutionPlan>],
         _ctx: &TaskContext,
-    ) -> Result<Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
+    ) -> Result<Arc<dyn ExecutionPlan>> {
         Err(DataFusionError::Internal(
             "PgSearchPhysicalCodecStub::try_decode invoked; \
              workers re-plan from the logical plan in DSM and should never \
@@ -439,11 +428,7 @@ impl datafusion_proto::physical_plan::PhysicalExtensionCodec for PgSearchPhysica
         ))
     }
 
-    fn try_encode(
-        &self,
-        node: Arc<dyn datafusion::physical_plan::ExecutionPlan>,
-        _buf: &mut Vec<u8>,
-    ) -> Result<()> {
+    fn try_encode(&self, node: Arc<dyn ExecutionPlan>, _buf: &mut Vec<u8>) -> Result<()> {
         // Recognize every custom physical exec we might emit. Encode to empty
         // bytes; the encoded plan is shipped to a stub URL that no real worker
         // listens on, so the bytes themselves are never observed.

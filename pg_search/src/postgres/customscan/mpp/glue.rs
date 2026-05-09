@@ -42,7 +42,7 @@ use crate::gucs::{
     mpp_worker_count as gucs_mpp_worker_count,
 };
 use crate::postgres::customscan::mpp::dsm::{
-    compute_dsm_layout, leader_init, worker_attach, worker_peer_attach, MppBuildCache, MppDsmHeader,
+    compute_dsm_layout, leader_init, worker_attach, worker_peer_attach, MppBuildCache,
 };
 use crate::postgres::customscan::mpp::mesh::MppPeerMesh;
 use crate::postgres::customscan::mpp::runtime::MppMesh;

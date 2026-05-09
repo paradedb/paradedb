@@ -22,12 +22,17 @@ use datafusion::catalog::TableProvider;
 use datafusion::common::TableReference;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
-use datafusion::logical_expr::{Extension, LogicalPlan, ScalarUDF};
+use datafusion::functions_aggregate as dfa;
+use datafusion::logical_expr::{AggregateUDF, Extension, LogicalPlan, ScalarUDF};
 use datafusion_proto::logical_plan::LogicalExtensionCodec;
+use pgrx::pg_sys::{ExprContext, PlanState};
 use tantivy::index::SegmentId;
 
+use crate::api::HashSet;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterNode;
+use crate::postgres::customscan::mpp::dsm::MppBuildCache;
 use crate::postgres::customscan::pg_expr_udf::{PgExprUdf, PG_EXPR_UDF_PREFIX};
+use crate::postgres::ParallelScanState;
 use crate::scan::search_predicate_udf::SearchPredicateUDF;
 use crate::scan::table_provider::PgSearchTableProvider;
 
@@ -37,21 +42,21 @@ use crate::scan::table_provider::PgSearchTableProvider;
 #[derive(Debug, Default)]
 struct PgSearchExtensionCodec {
     /// Shared state for parallel scans, containing the list of segments to be processed.
-    parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+    parallel_state: Option<*mut ParallelScanState>,
     /// Postgres expression context, needed for heap filtering and runtime parameters.
-    expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
+    expr_context: Option<*mut ExprContext>,
     /// Executor planstate, needed to initialize runtime Postgres expressions in source queries.
-    planstate: Option<*mut pgrx::pg_sys::PlanState>,
+    planstate: Option<*mut PlanState>,
     /// Canonical segment ID sets for non-partitioning sources, indexed by position in the
     /// non-partitioning source list.
-    non_partitioning_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
+    non_partitioning_segment_ids: Vec<HashSet<SegmentId>>,
     /// Canonical segment ID sets for all join sources, indexed by plan_position.
-    index_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
+    index_segment_ids: Vec<HashSet<SegmentId>>,
     /// MPP build-side all-gather cache. When set, non-partitioning
     /// `PgSearchTableProvider`s scan only their `mpp_worker_idx`-th 1/N slice
     /// of segments, write the slice to DSM, wait for peers, then read back the
     /// gathered build side as Arrow batches. See `mpp/dsm.rs::MppBuildCache`.
-    mpp_build_cache: Option<std::sync::Arc<crate::postgres::customscan::mpp::dsm::MppBuildCache>>,
+    mpp_build_cache: Option<Arc<MppBuildCache>>,
     /// 0-based index of this participant among MPP producer workers.
     mpp_worker_idx: u32,
 }
@@ -64,7 +69,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         &self,
         buf: &[u8],
         inputs: &[LogicalPlan],
-        _ctx: &datafusion::execution::context::TaskContext,
+        _ctx: &TaskContext,
     ) -> Result<Extension> {
         if buf.is_empty() {
             return Err(DataFusionError::Internal(
@@ -278,12 +283,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         Ok(())
     }
 
-    fn try_decode_udaf(
-        &self,
-        name: &str,
-        _buf: &[u8],
-    ) -> Result<Arc<datafusion::logical_expr::AggregateUDF>> {
-        use datafusion::functions_aggregate as dfa;
+    fn try_decode_udaf(&self, name: &str, _buf: &[u8]) -> Result<Arc<AggregateUDF>> {
         match name {
             "min" => Ok(dfa::min_max::min_udaf()),
             "max" => Ok(dfa::min_max::max_udaf()),
@@ -383,12 +383,11 @@ pub fn serialize_logical_plan(plan: &LogicalPlan) -> Result<bytes::Bytes> {
     )
 }
 
-/// Deserializes a DataFusion `LogicalPlan` from bytes using the `PgSearchExtensionCodec`.
-#[allow(dead_code)]
-pub fn deserialize_logical_plan(
-    bytes: &[u8],
-    ctx: &datafusion::execution::TaskContext,
-) -> Result<LogicalPlan> {
+/// Deserializes a DataFusion `LogicalPlan` from bytes using the
+/// `PgSearchExtensionCodec`. Only used by the codec round-trip test in
+/// `visibility_filter.rs`; non-test builds use the runtime variant below.
+#[cfg(any(test, feature = "pg_test"))]
+pub fn deserialize_logical_plan(bytes: &[u8], ctx: &TaskContext) -> Result<LogicalPlan> {
     datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(
         bytes,
         ctx,
@@ -401,13 +400,13 @@ pub fn deserialize_logical_plan(
 #[allow(clippy::too_many_arguments)]
 pub fn deserialize_logical_plan_with_runtime(
     bytes: &[u8],
-    ctx: &datafusion::execution::TaskContext,
-    parallel_state: Option<*mut crate::postgres::ParallelScanState>,
-    expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
-    planstate: Option<*mut pgrx::pg_sys::PlanState>,
-    non_partitioning_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
-    index_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
-    mpp_build_cache: Option<std::sync::Arc<crate::postgres::customscan::mpp::dsm::MppBuildCache>>,
+    ctx: &TaskContext,
+    parallel_state: Option<*mut ParallelScanState>,
+    expr_context: Option<*mut ExprContext>,
+    planstate: Option<*mut PlanState>,
+    non_partitioning_segment_ids: Vec<HashSet<SegmentId>>,
+    index_segment_ids: Vec<HashSet<SegmentId>>,
+    mpp_build_cache: Option<Arc<MppBuildCache>>,
     mpp_worker_idx: u32,
 ) -> Result<LogicalPlan> {
     let codec = PgSearchExtensionCodec {

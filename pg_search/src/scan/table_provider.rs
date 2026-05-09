@@ -29,9 +29,11 @@ use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 use tantivy::index::SegmentId;
 
+use crate::api::HashSet;
 use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::customscan::mpp::dsm::MppBuildCache;
 use crate::postgres::customscan::parallel::{checkout_segment, list_segment_ids};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
@@ -105,7 +107,7 @@ pub struct PgSearchTableProvider {
     /// `MvccSatisfies::Snapshot`. Injected by the execution codec based on
     /// `non_partitioning_index`; `None` for the partitioning source and serial scans.
     #[serde(skip)]
-    canonical_segment_ids: Option<crate::api::HashSet<SegmentId>>,
+    canonical_segment_ids: Option<HashSet<SegmentId>>,
     /// The visibility strategy for this source.
     ///
     /// `Deferred { plan_position }` means the scan emits packed DocAddresses in its
@@ -136,7 +138,7 @@ pub struct PgSearchTableProvider {
     /// path: scan the worker's 1/N slice of segments, write to DSM, wait for
     /// peers, read back, return a `MemoryExec` over the gathered batches.
     #[serde(skip)]
-    mpp_build_cache: Option<Arc<crate::postgres::customscan::mpp::dsm::MppBuildCache>>,
+    mpp_build_cache: Option<Arc<MppBuildCache>>,
     /// Cache slot identifier (`source_idx` within the non-partitioning sources).
     #[serde(skip)]
     mpp_source_idx: u32,
@@ -198,7 +200,7 @@ impl PgSearchTableProvider {
     /// the MPP build-side all-gather. See `mpp/dsm.rs::MppBuildCache`.
     pub(crate) fn set_mpp_build_cache(
         &mut self,
-        cache: Arc<crate::postgres::customscan::mpp::dsm::MppBuildCache>,
+        cache: Arc<MppBuildCache>,
         source_idx: u32,
         worker_idx: u32,
     ) {
@@ -235,7 +237,7 @@ impl PgSearchTableProvider {
     }
 
     /// Inject the canonical segment IDs for this replicated-parallel provider.
-    pub(crate) fn set_canonical_segment_ids(&mut self, ids: crate::api::HashSet<SegmentId>) {
+    pub(crate) fn set_canonical_segment_ids(&mut self, ids: HashSet<SegmentId>) {
         self.canonical_segment_ids = Some(ids);
     }
 
@@ -246,7 +248,7 @@ impl PgSearchTableProvider {
     pub(crate) fn set_planstate(&mut self, planstate: Option<*mut pg_sys::PlanState>) {
         self.planstate = planstate;
     }
-    fn enable_deferred_columns(&mut self, required_early_columns: &crate::api::HashSet<String>) {
+    fn enable_deferred_columns(&mut self, required_early_columns: &HashSet<String>) {
         for wff in self.fields.iter_mut() {
             if let WhichFastField::Named(name, field_type) = wff {
                 let is_string_or_bytes = matches!(
@@ -291,7 +293,7 @@ impl PgSearchTableProvider {
     /// - ctid resolution for JoinScan deferred visibility
     pub fn configure_deferred_outputs(
         &mut self,
-        required_early_columns: &crate::api::HashSet<String>,
+        required_early_columns: &HashSet<String>,
         visibility_mode: VisibilityMode,
     ) {
         self.enable_deferred_columns(required_early_columns);
@@ -784,7 +786,7 @@ impl PgSearchTableProvider {
         // Slice canonical_segment_ids deterministically (sorted by uuid_string,
         // round-robin by worker_idx).
         let full = self.canonical_segment_ids.clone().unwrap_or_default();
-        let my_slice: crate::api::HashSet<SegmentId> = if n_workers <= 1 {
+        let my_slice: HashSet<SegmentId> = if n_workers <= 1 {
             full.clone()
         } else {
             let mut sorted: Vec<SegmentId> = full.iter().copied().collect();
@@ -884,7 +886,7 @@ impl PgSearchTableProvider {
 
     async fn scan_inner(
         &self,
-        canonical_override: Option<crate::api::HashSet<SegmentId>>,
+        canonical_override: Option<HashSet<SegmentId>>,
         _state: &dyn Session,
         projection: Option<&Vec<usize>>,
         filters: &[Expr],

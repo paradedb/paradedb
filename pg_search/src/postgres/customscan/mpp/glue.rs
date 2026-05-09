@@ -41,7 +41,7 @@ use crate::gucs::{
     mpp_worker_count as gucs_mpp_worker_count,
 };
 use crate::postgres::customscan::mpp::dsm::{
-    compute_dsm_layout, leader_init, worker_attach, MppBuildCache, MppDsmHeader,
+    compute_dsm_layout, leader_init, worker_attach, MppBuildCache,
 };
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 use crate::postgres::customscan::mpp::transport::{
@@ -121,11 +121,6 @@ pub struct MppLeaderState {
     /// `with_extension(Arc::clone(&mesh))` so `ShmMqWorkerTransport` can find
     /// it at execute time.
     pub mesh: Arc<MppMesh>,
-    /// Build-side all-gather cache. The leader doesn't write or read it
-    /// (consumer-only) but holds the handle so it isn't dropped while
-    /// workers are still consuming.
-    #[allow(dead_code)]
-    pub build_cache: Option<Arc<MppBuildCache>>,
 }
 
 /// Body of `initialize_dsm_custom_scan`. Allocates the queue mesh, populates
@@ -181,16 +176,12 @@ pub unsafe fn leader_setup(
     // we'll route these into a Tokio-spawned producer subplan instead.)
     drop(attach.outbound_senders);
 
-    let build_cache = if n_cache_sources > 0 {
-        Some(Arc::new(unsafe {
-            let header = std::ptr::read(coordinate as *const MppDsmHeader);
-            MppBuildCache::from_header(coordinate as *mut u8, &header)
-        }))
-    } else {
-        None
-    };
+    // The leader doesn't read or write the build-side cache — workers attach
+    // to it via DSM offset, and Postgres owns the DSM segment's lifetime.
+    // `n_cache_sources` is sized into the layout for the worker side.
+    let _ = n_cache_sources;
 
-    Ok(MppLeaderState { mesh, build_cache })
+    Ok(MppLeaderState { mesh })
 }
 
 /// Returned to a worker from [`worker_setup`]. The customscan reads the plan

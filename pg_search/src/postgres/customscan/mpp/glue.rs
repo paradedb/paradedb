@@ -37,13 +37,12 @@ use std::sync::Arc;
 use pgrx::pg_sys;
 
 use crate::gucs::{
-    enable_mpp, enable_mpp_postagg_shuffle as gucs_enable_mpp_postagg_shuffle,
+    enable_mpp, enable_mpp_postagg_shuffle as gucs_enable_mpp_postagg_shuffle, mpp_cache_per_slot,
     mpp_peer_queue_bytes as gucs_mpp_peer_queue_bytes, mpp_queue_size as gucs_mpp_queue_size,
     mpp_worker_count as gucs_mpp_worker_count,
 };
 use crate::postgres::customscan::mpp::dsm::{
-    compute_dsm_layout, leader_init, worker_attach, worker_peer_attach, MppBuildCache,
-    MppDsmHeader, MPP_CACHE_PER_SLOT,
+    compute_dsm_layout, leader_init, worker_attach, worker_peer_attach, MppBuildCache, MppDsmHeader,
 };
 use crate::postgres::customscan::mpp::mesh::MppPeerMesh;
 use crate::postgres::customscan::mpp::runtime::MppMesh;
@@ -110,7 +109,7 @@ pub fn estimate_dsm_size(
         mpp_queue_size(),
         plan_bytes_len,
         n_cache_sources,
-        MPP_CACHE_PER_SLOT,
+        mpp_cache_per_slot(),
         mpp_peer_queue_bytes(),
         n_peer_meshes,
     )
@@ -163,7 +162,7 @@ pub unsafe fn leader_setup(
         mpp_queue_size(),
         plan_bytes.len(),
         n_cache_sources,
-        MPP_CACHE_PER_SLOT,
+        mpp_cache_per_slot(),
         mpp_peer_queue_bytes(),
         n_peer_meshes,
     )

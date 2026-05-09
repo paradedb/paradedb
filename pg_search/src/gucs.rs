@@ -173,6 +173,15 @@ static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(64 * 1024 * 1024
 /// with 16 MiB that is 1 GiB per query.
 static MPP_PEER_QUEUE_BYTES: GucSetting<i32> = GucSetting::<i32>::new(16 * 1024 * 1024);
 
+/// Per-source-per-worker build-side cache slot size (bytes). The build-side
+/// all-gather reserves N slots of this size in DSM; total cache reservation
+/// is `n_cache_sources × n_workers × mpp_cache_per_slot`. Sized so a 1.25M-row
+/// build side encoded in Arrow IPC (~400 MB total at our 25M bench, accounting
+/// for Utf8View widening + schema overhead) fits split across N workers with
+/// headroom for the worst single-worker slice. A future heuristic should
+/// derive this from index stats per query.
+static MPP_CACHE_PER_SLOT: GucSetting<i32> = GucSetting::<i32>::new(256 * 1024 * 1024);
+
 /// Gate the post-aggregate peer-mesh shuffle (Track A + Track B). When off,
 /// the planner and runtime keep the single-boundary worker→leader gather and
 /// run `AggregateExec(FinalPartitioned)` single-threaded on the leader. When
@@ -613,6 +622,21 @@ pub fn init() {
         GucFlags::UNIT_BYTE,
     );
 
+    GucRegistry::define_int_guc(
+        c"paradedb.mpp_cache_per_slot",
+        c"Per-source-per-worker build-side cache slot size",
+        c"Sets the per-source-per-worker build-side all-gather cache slot size, in \
+          bytes. Total cache reservation per query is \
+          `n_cache_sources × n_workers × mpp_cache_per_slot`. The default 256 MiB is \
+          sized for a 1.25M-row build side encoded in Arrow IPC (~400 MB total at the \
+          25M bench scale) split across N workers; raise it for larger build sides.",
+        &MPP_CACHE_PER_SLOT,
+        1024 * 1024,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::UNIT_BYTE,
+    );
+
     GucRegistry::define_bool_guc(
         c"paradedb.enable_mpp_postagg_shuffle",
         c"Enable the MPP post-aggregate peer-mesh shuffle (Track A + Track B)",
@@ -821,6 +845,10 @@ pub fn mpp_queue_size() -> usize {
 
 pub fn mpp_peer_queue_bytes() -> usize {
     MPP_PEER_QUEUE_BYTES.get() as usize
+}
+
+pub fn mpp_cache_per_slot() -> usize {
+    MPP_CACHE_PER_SLOT.get() as usize
 }
 
 pub fn enable_mpp_postagg_shuffle() -> bool {

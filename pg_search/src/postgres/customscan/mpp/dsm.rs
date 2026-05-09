@@ -54,18 +54,10 @@ use crate::postgres::customscan::mpp::mesh::{
 };
 
 pub const MPP_DSM_MAGIC: u32 = 0x4D50_5052; // "MPPR" (RPC variant)
-/// Bumped 3 → 4: peer-mesh region is now an array of K independent meshes
-/// (one per nested cross-worker shuffle stage), each sized N×N×peer_queue_bytes.
-/// Old workers attach to a v3 region by `MPP_DSM_HEADER_VERSION` mismatch and
-/// bail before reading the new `n_peer_meshes` field.
-pub const MPP_DSM_HEADER_VERSION: u32 = 4;
-
-/// Hard cap on per-source-per-worker cache slot size. Sized for our 25 M
-/// bench: a 1.25 M-row build side encoded in Arrow IPC is ~400 MB total
-/// (Utf8View widening, schema overhead) — split across N workers, each
-/// slot needs ~400/N MB. 256 MiB caps at the worst single-worker slice.
-/// A future heuristic should derive this from index stats per query.
-pub const MPP_CACHE_PER_SLOT: usize = 256 * 1024 * 1024;
+/// Bumped 1 → 2: header gains an `n_peer_meshes` field and a peer-mesh
+/// region (array of K independent meshes, one per nested cross-worker
+/// shuffle stage, each sized N×N×peer_queue_bytes).
+pub const MPP_DSM_HEADER_VERSION: u32 = 2;
 
 /// Absolute cap on DSM region size. 16 GiB is two orders of magnitude beyond
 /// any realistic workload; the cap fails early on a pathologically oversized

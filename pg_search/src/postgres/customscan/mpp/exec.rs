@@ -94,9 +94,9 @@ pub async fn run_producer_fragment(
 /// Run the inner producer fragment for the peer-mesh post-aggregate shuffle.
 ///
 /// The plan's `output_partitioning` is the *scaled* hash count (`n_consumers²`
-/// after the fork's `RepartitionExec` rewrite). Each output partition `j` is
+/// after the DF-D fork's `RepartitionExec` rewrite). Each output partition `j` is
 /// destined for consumer task `j / partitions_per_consumer`, which equals
-/// `j / n_consumers` (since the fork scales by `consumer_tc = n_consumers`).
+/// `j / n_consumers` (since the DF-D fork scales by `consumer_tc = n_consumers`).
 /// The batch is sent through `peer_outbound[consumer]` with the framed tag
 /// `j` so the consumer side's `DemuxDrainHandle` routes it to the right
 /// partition's sub-buffer.

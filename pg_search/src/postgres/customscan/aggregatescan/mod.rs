@@ -642,7 +642,7 @@ fn mpp_align(n: usize) -> usize {
     n.next_multiple_of(a)
 }
 
-/// Build a stub physical plan from `logical` using the same fork knobs the
+/// Build a stub physical plan from `logical` using the same DF-D fork knobs the
 /// real leader uses, then count nested cross-worker `NetworkShuffleExec`
 /// stages — i.e., total `NetworkShuffleExec` minus the OUTER (gather).
 /// Returns 0 on any planning failure so the MPP path falls back gracefully.
@@ -1160,7 +1160,7 @@ impl AggregateScan {
         // build a stub physical plan to count how many cross-worker
         // `NetworkShuffleExec` stages the planner emits. The OUTER (gather)
         // is always present and uses the leader-bound mesh; every other
-        // `NetworkShuffleExec` becomes a peer-mesh stage. Once the fork's
+        // `NetworkShuffleExec` becomes a peer-mesh stage. Once the DF-D fork's
         // `!has_shuffle_ancestor` guard is dropped, this count climbs
         // beyond 1 for plans like aggregate-on-(HashJoinExec(Partitioned)).
         df_state.mpp_n_peer_meshes = if gucs::enable_mpp_postagg_shuffle() {
@@ -1370,7 +1370,7 @@ impl AggregateScan {
         // `build_mpp_leader_session_context`); otherwise the worker re-plans
         // a different shape and `find_worker_fragment` returns None.
         let n_workers_us = n_workers as usize;
-        // Stamp DistributedTaskContext { task_index, task_count } so the fork's
+        // Stamp DistributedTaskContext { task_index, task_count } so the DF-D fork's
         // NetworkShuffleExec.execute computes per-task partition slices correctly.
         // Without this, every worker reads off=0 and produces all N global
         // partitions itself, so workers send duplicate data to the leader.

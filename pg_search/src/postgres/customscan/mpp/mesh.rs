@@ -195,7 +195,7 @@ impl BatchChannelReceiver for ShmMqReceiver {
 /// shm_mq queue and routes by `tag = partition_id` into per-partition
 /// sub-buffers. `n_partitions` is the number of distinct partitions a
 /// producer can address — for the post-aggregate peer-mesh shuffle this
-/// is the *global* partition count (`n_workers²` after the fork's
+/// is the *global* partition count (`n_workers²` after the DF-D fork's
 /// `RepartitionExec` scaling) so every consumer task K can demux its
 /// partitions `N*K..(K+1)*N - 1`.
 ///

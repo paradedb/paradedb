@@ -43,7 +43,7 @@ use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::{DistributedExt, DistributedTaskContext, SessionStateBuilderExt};
 
 use crate::postgres::customscan::mpp::dsm::MppDsmHeader;
-use crate::postgres::customscan::mpp::exec::run_inner_producer_fragment;
+use crate::postgres::customscan::mpp::exec::{run_inner_producer_fragment, run_producer_fragment};
 use crate::postgres::customscan::mpp::glue::{
     estimate_dsm_size, leader_setup, mpp_is_active, mpp_worker_count, producer_worker_count,
     worker_setup,
@@ -683,7 +683,7 @@ fn count_peer_mesh_shuffles(
         Err(_) => return 0,
     };
     let state_builder = state_builder
-        .with_distributed_user_codec(crate::scan::codec::PgSearchPhysicalCodecStub)
+        .with_distributed_user_codec(PgSearchPhysicalCodecStub)
         .with_distributed_planner();
     let state = state_builder.build();
     let session = datafusion::prelude::SessionContext::new_with_state(state);
@@ -756,7 +756,7 @@ impl ParallelQueryCapable for AggregateScan {
         // Skipped in peer-shuffle mode: the non-partitioning source is sliced
         // per worker via `slice_segment_ids_round_robin`, so the all-gather
         // is unused.
-        let n_cache_sources = if crate::gucs::enable_mpp_postagg_shuffle() {
+        let n_cache_sources = if gucs::enable_mpp_postagg_shuffle() {
             0
         } else {
             state
@@ -859,7 +859,7 @@ impl ParallelQueryCapable for AggregateScan {
             .len()
             .saturating_sub(1) as u32;
         // Match the gating in `estimate_dsm_custom_scan`.
-        let n_cache_sources = if crate::gucs::enable_mpp_postagg_shuffle() {
+        let n_cache_sources = if gucs::enable_mpp_postagg_shuffle() {
             0
         } else {
             n_cache_sources
@@ -1163,7 +1163,7 @@ impl AggregateScan {
         // `NetworkShuffleExec` becomes a peer-mesh stage. Once the fork's
         // `!has_shuffle_ancestor` guard is dropped, this count climbs
         // beyond 1 for plans like aggregate-on-(HashJoinExec(Partitioned)).
-        df_state.mpp_n_peer_meshes = if crate::gucs::enable_mpp_postagg_shuffle() {
+        df_state.mpp_n_peer_meshes = if gucs::enable_mpp_postagg_shuffle() {
             count_peer_mesh_shuffles(&runtime, &logical, n_workers)
         } else {
             0
@@ -1207,9 +1207,9 @@ impl AggregateScan {
             .with_distributed_task_estimator(n_workers)
             .with_distributed_broadcast_joins(true)
             .expect("with_distributed_broadcast_joins")
-            .with_distributed_emit_peer_shuffles(crate::gucs::enable_mpp_postagg_shuffle())
+            .with_distributed_emit_peer_shuffles(gucs::enable_mpp_postagg_shuffle())
             .expect("with_distributed_emit_peer_shuffles")
-            .with_distributed_user_codec(crate::scan::codec::PgSearchPhysicalCodecStub)
+            .with_distributed_user_codec(PgSearchPhysicalCodecStub)
             .with_distributed_planner();
         datafusion::prelude::SessionContext::new_with_state(state_builder.build())
     }
@@ -1311,20 +1311,20 @@ impl AggregateScan {
         // see N copies of every row. Slice the non-partitioning segment IDs
         // round-robin per worker so each scans only its 1/N slice — same
         // model the partitioning source already uses.
-        let peer_shuffle_on = crate::gucs::enable_mpp_postagg_shuffle();
-        let non_partitioning_segments: Vec<crate::api::HashSet<tantivy::index::SegmentId>> =
-            if peer_shuffle_on {
-                non_partitioning_segments
-                    .iter()
-                    .map(|ids| {
-                        Self::slice_segment_ids_round_robin(ids, worker_idx_for_cache, n_workers)
-                    })
-                    .collect()
-            } else {
-                non_partitioning_segments
-            };
-        let mut index_segment_ids: Vec<crate::api::HashSet<tantivy::index::SegmentId>> =
-            vec![crate::api::HashSet::default(); plan_sources_count];
+        let peer_shuffle_on = gucs::enable_mpp_postagg_shuffle();
+        let non_partitioning_segments: Vec<HashSet<tantivy::index::SegmentId>> = if peer_shuffle_on
+        {
+            non_partitioning_segments
+                .iter()
+                .map(|ids| {
+                    Self::slice_segment_ids_round_robin(ids, worker_idx_for_cache, n_workers)
+                })
+                .collect()
+        } else {
+            non_partitioning_segments
+        };
+        let mut index_segment_ids: Vec<HashSet<tantivy::index::SegmentId>> =
+            vec![HashSet::default(); plan_sources_count];
         if let Some(ps) = parallel_state {
             let mut np_counter = 0usize;
             for (i, slot) in index_segment_ids.iter_mut().enumerate() {
@@ -1414,9 +1414,9 @@ impl AggregateScan {
             .with_distributed_task_estimator(n_workers_us)
             .with_distributed_broadcast_joins(true)
             .expect("with_distributed_broadcast_joins")
-            .with_distributed_emit_peer_shuffles(crate::gucs::enable_mpp_postagg_shuffle())
+            .with_distributed_emit_peer_shuffles(gucs::enable_mpp_postagg_shuffle())
             .expect("with_distributed_emit_peer_shuffles")
-            .with_distributed_user_codec(crate::scan::codec::PgSearchPhysicalCodecStub)
+            .with_distributed_user_codec(PgSearchPhysicalCodecStub)
             .with_distributed_planner();
         let session_state = state_builder.build();
         let session = datafusion::prelude::SessionContext::new_with_state(session_state);
@@ -1427,7 +1427,7 @@ impl AggregateScan {
             Ok(p) => p,
             Err(e) => pgrx::error!("mpp worker: create_physical_plan failed: {e}"),
         };
-        if crate::gucs::mpp_debug() && worker_idx_for_cache == 0 {
+        if gucs::mpp_debug() && worker_idx_for_cache == 0 {
             let dumped = datafusion::physical_plan::displayable(physical_plan.as_ref())
                 .indent(true)
                 .to_string();
@@ -1532,13 +1532,11 @@ impl AggregateScan {
                     inner_task_ctx,
                 )));
             }
-            futures_vec.push(Box::pin(
-                crate::postgres::customscan::mpp::exec::run_producer_fragment(
-                    fragment,
-                    outbound_senders,
-                    task_ctx,
-                ),
-            ));
+            futures_vec.push(Box::pin(run_producer_fragment(
+                fragment,
+                outbound_senders,
+                task_ctx,
+            )));
             futures::future::try_join_all(futures_vec).await.map(|_| ())
         });
         if let Err(e) = result {
@@ -1579,10 +1577,10 @@ impl AggregateScan {
     /// at small scale is correct (and N× is negligible when the source is
     /// tiny anyway).
     fn slice_segment_ids_round_robin(
-        ids: &crate::api::HashSet<tantivy::index::SegmentId>,
+        ids: &HashSet<tantivy::index::SegmentId>,
         worker_idx: u32,
         n_workers: u32,
-    ) -> crate::api::HashSet<tantivy::index::SegmentId> {
+    ) -> HashSet<tantivy::index::SegmentId> {
         if n_workers <= 1 || (ids.len() as u32) < n_workers {
             return ids.clone();
         }

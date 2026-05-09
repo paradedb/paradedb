@@ -37,7 +37,8 @@ use std::sync::Arc;
 use pgrx::pg_sys;
 
 use crate::gucs::{
-    enable_mpp, mpp_cache_per_slot, mpp_queue_size as gucs_mpp_queue_size,
+    enable_mpp, enable_mpp_postagg_shuffle as gucs_enable_mpp_postagg_shuffle,
+    mpp_peer_queue_bytes as gucs_mpp_peer_queue_bytes, mpp_queue_size as gucs_mpp_queue_size,
     mpp_worker_count as gucs_mpp_worker_count,
 };
 use crate::postgres::customscan::mpp::dsm::{
@@ -83,8 +84,8 @@ pub fn mpp_queue_size() -> usize {
 /// Per-edge peer-mesh queue size, or 0 when `enable_mpp_postagg_shuffle = off`
 /// (peer mesh skipped entirely, no DSM reserved for it).
 pub fn mpp_peer_queue_bytes() -> usize {
-    if crate::gucs::enable_mpp_postagg_shuffle() {
-        crate::gucs::mpp_peer_queue_bytes()
+    if gucs_enable_mpp_postagg_shuffle() {
+        gucs_mpp_peer_queue_bytes()
     } else {
         0
     }

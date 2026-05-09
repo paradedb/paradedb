@@ -36,9 +36,10 @@
 //!
 //! - `n_workers` is the number of producer-side participants (== leader-as-
 //!   worker-0 + parallel workers). Leader is index 0.
-//! - `n_partitions` is the consumer-side partition count for the cut. Scalar-
-//!   agg final-gather has K=1; group-by-agg post-aggregate has K=N. The DSM
-//!   region today carries one cut; multi-cut MPP is a follow-up.
+//! - `n_partitions` is the consumer-side partition count for the network
+//!   boundary. The fork's planner emits exactly one boundary per query
+//!   under this PR's config (`in_process_mode=on`, peer-shuffles off);
+//!   K-cut layouts come with the multi-peer-mesh follow-up.
 //! - Self-edges (worker i writing to its own consumer partition feed) are
 //!   included on purpose — every queue is shm_mq even when producer and
 //!   consumer live in the same process. Keeps the topology symmetric.
@@ -53,7 +54,7 @@ use crate::postgres::customscan::mpp::mesh::{
 };
 
 pub const MPP_DSM_MAGIC: u32 = 0x4D50_5052; // "MPPR" (RPC variant)
-pub const MPP_DSM_HEADER_VERSION: u32 = 2;
+pub const MPP_DSM_HEADER_VERSION: u32 = 1;
 
 /// Hard cap on per-source-per-worker cache slot size. Sized for our 25 M
 /// bench: a 1.25 M-row build side encoded in Arrow IPC is ~400 MB total

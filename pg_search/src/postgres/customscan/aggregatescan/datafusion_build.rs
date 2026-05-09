@@ -39,7 +39,9 @@ use crate::postgres::customscan::joinscan::planning::{
 use crate::postgres::customscan::pullup::{
     get_attno_by_name, resolve_fast_field, resolve_fast_field_by_name,
 };
-use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
+use crate::postgres::customscan::qual_inspect::{
+    try_extract_pushdown_qual, PlannerContext, QualExtractState,
+};
 use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::utils::{expr_collect_rtis, expr_collect_vars, expr_contains_any_operator};
@@ -453,7 +455,7 @@ unsafe fn build_scan_node(
     if !classified.search_ri.is_empty() {
         let context = PlannerContext::from_planner(root);
         let mut state = QualExtractState::default();
-        let qual = extract_quals(
+        let qual = try_extract_pushdown_qual(
             &context,
             rti,
             classified.search_ri.as_ptr().cast(),

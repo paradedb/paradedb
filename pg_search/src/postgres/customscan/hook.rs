@@ -26,7 +26,9 @@ use crate::postgres::customscan::builders::custom_path::{
     CustomPathBuilder, Flags, RestrictInfoType,
 };
 use crate::postgres::customscan::orderby::validate_topk_compatibility;
-use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
+use crate::postgres::customscan::qual_inspect::{
+    try_extract_pushdown_qual, PlannerContext, QualExtractState,
+};
 use crate::postgres::customscan::{
     CreateUpperPathsHookArgs, CustomScan, JoinPathlistHookArgs, RelPathlistHookArgs,
 };
@@ -442,7 +444,7 @@ pub unsafe fn try_extract_quals_from_query(
         let mut state = QualExtractState::default();
         let context = PlannerContext::from_query(parse);
 
-        let quals = extract_quals(
+        let quals = try_extract_pushdown_qual(
             &context,
             rti,
             quals_node,

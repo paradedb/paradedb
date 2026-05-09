@@ -21,7 +21,7 @@ use crate::postgres::customscan::aggregatescan::{
 use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::builders::custom_path::{restrict_info, RestrictInfoType};
 use crate::postgres::customscan::qual_inspect::{
-    contains_exec_param, extract_quals, PlannerContext, QualExtractState,
+    contains_exec_param, try_extract_pushdown_qual, PlannerContext, QualExtractState,
 };
 use crate::postgres::customscan::CustomScan;
 use crate::postgres::utils::filter_implied_predicates;
@@ -107,7 +107,7 @@ impl CustomScanClause<AggregateScan> for SearchQueryClause {
             unsafe { filter_implied_predicates(index.rd_indpred, &restrict_info) };
 
         let quals = match unsafe {
-            extract_quals(
+            try_extract_pushdown_qual(
                 &PlannerContext::from_planner(args.root),
                 heap_rti,
                 filtered_restrict_info.as_ptr().cast(),

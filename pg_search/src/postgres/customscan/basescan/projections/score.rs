@@ -17,8 +17,9 @@
 
 use crate::nodecast;
 use crate::postgres::customscan::score_funcoids;
-use pgrx::pg_sys::expression_tree_walker;
+use pgrx::pg_sys::{expression_tree_walker, Query};
 use pgrx::{extension_sql, pg_extern, pg_guard, pg_sys, AnyElement, PgList};
+use std::ptr;
 use std::ptr::addr_of_mut;
 
 #[pgrx::pg_schema]
@@ -57,36 +58,41 @@ extension_sql!(
     requires = [paradedb_score_from_relation, placeholder_support]
 );
 
+struct ScoreWalkerContext {
+    score_funcoids: [pg_sys::Oid; 2],
+    rti: pg_sys::Index,
+}
+
+#[pg_guard]
+unsafe extern "C-unwind" fn score_expression_walker(
+    node: *mut pg_sys::Node,
+    data: *mut core::ffi::c_void,
+) -> bool {
+    if node.is_null() {
+        return false;
+    }
+
+    if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
+        let data = data.cast::<ScoreWalkerContext>();
+        if (*data).score_funcoids.contains(&(*funcexpr).funcid) {
+            let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
+            assert!(args.len() == 1, "score function must have 1 argument");
+            if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
+                if (*var).varno as i32 == (*data).rti as i32 {
+                    return true;
+                }
+            }
+        }
+    }
+
+    expression_tree_walker(node, Some(score_expression_walker), data)
+}
+
 pub unsafe fn uses_scores(
     node: *mut pg_sys::Node,
     score_funcoids: [pg_sys::Oid; 2],
     rti: pg_sys::Index,
 ) -> bool {
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        data: *mut core::ffi::c_void,
-    ) -> bool {
-        if node.is_null() {
-            return false;
-        }
-
-        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
-            let data = data.cast::<Data>();
-            if (*data).score_funcoids.contains(&(*funcexpr).funcid) {
-                let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-                assert!(args.len() == 1, "score function must have 1 argument");
-                if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
-                    if (*var).varno as i32 == (*data).rti as i32 {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        expression_tree_walker(node, Some(walker), data)
-    }
-
     struct Data {
         score_funcoids: [pg_sys::Oid; 2],
         rti: pg_sys::Index,
@@ -97,14 +103,14 @@ pub unsafe fn uses_scores(
         rti,
     };
 
-    walker(node, addr_of_mut!(data).cast())
+    score_expression_walker(node, addr_of_mut!(data).cast())
 }
 
 pub unsafe fn is_score_func(node: *mut pg_sys::Node, rti: pg_sys::Index) -> bool {
     if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
         if score_funcoids().contains(&(*funcexpr).funcid) {
             let args = PgList::<pg_sys::Node>::from_pg((*funcexpr).args);
-            assert!(args.len() == 1, "score function must have 1 argument");
+            assert_eq!(args.len(), 1, "score function must have 1 argument");
             if let Some(var) = nodecast!(Var, T_Var, args.get_ptr(0).unwrap()) {
                 if (*var).varno as i32 == rti as i32 {
                     return true;
@@ -114,4 +120,34 @@ pub unsafe fn is_score_func(node: *mut pg_sys::Node, rti: pg_sys::Index) -> bool
     }
 
     false
+}
+
+pub unsafe fn uses_scores_in_query(
+    query: *mut pg_sys::Query,
+    score_funcoids: [pg_sys::Oid; 2],
+    rti: pg_sys::Index,
+) -> bool {
+    {
+        // Check that not only we have pointer to Query,
+        // but it's really a valid struct
+        let node = nodecast!(Query, T_Query, query);
+        if let None = node {
+            return false;
+        }
+    }
+
+    let mut context = ScoreWalkerContext {
+        score_funcoids,
+        rti,
+    };
+
+    const SCORE_WALK_FLAGS: i32 =
+        pg_sys::QTW_IGNORE_RT_SUBQUERIES as i32 | pg_sys::QTW_IGNORE_CTE_SUBQUERIES as i32;
+
+    pg_sys::query_tree_walker(
+        query,
+        Some(score_expression_walker),
+        (&raw mut context).cast(),
+        SCORE_WALK_FLAGS,
+    )
 }

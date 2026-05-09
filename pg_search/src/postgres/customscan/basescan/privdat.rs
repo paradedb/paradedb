@@ -57,6 +57,7 @@ pub struct PrivateData {
     // Whether this path was chosen as a sorted path (declares pathkeys for index's sort_by field).
     // When true, the execution should use the sorted merge path for segment scanning.
     use_sorted_path: bool,
+    has_residual: bool,
 }
 
 mod var_attname_lookup_serializer {
@@ -233,6 +234,14 @@ impl PrivateData {
 
     pub fn set_use_sorted_path(&mut self, use_sorted: bool) {
         self.use_sorted_path = use_sorted;
+    }
+
+    pub fn has_residual(&self) -> bool {
+        self.has_residual
+    }
+
+    pub fn set_residual(&mut self, residual: bool) {
+        self.has_residual = residual;
     }
 }
 

@@ -39,7 +39,9 @@ use crate::postgres::customscan::opexpr::lookup_operator;
 use crate::postgres::customscan::pullup::{
     field_type_for_pullup, get_attno_by_name, resolve_fast_field,
 };
-use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
+use crate::postgres::customscan::qual_inspect::{
+    try_extract_pushdown_qual, PlannerContext, QualExtractState,
+};
 use crate::postgres::customscan::range_table::bms_iter;
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::CustomScan;
@@ -237,7 +239,7 @@ pub(super) unsafe fn collect_join_sources_base_rel(
             let mut state = QualExtractState::default();
             // Extract search-capable predicates all at once. This is required
             // for score filters, which must wrap the rest of the search query.
-            if let Some(qual) = extract_quals(
+            if let Some(qual) = try_extract_pushdown_qual(
                 &context,
                 rti,
                 classified.search_ri.as_ptr().cast(),

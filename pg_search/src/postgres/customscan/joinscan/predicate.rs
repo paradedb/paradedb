@@ -33,7 +33,9 @@ use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::explain::format_expr_for_explain;
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::pullup::resolve_fast_field;
-use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
+use crate::postgres::customscan::qual_inspect::{
+    try_extract_pushdown_qual, PlannerContext, QualExtractState,
+};
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::rel_get_bm25_index;
@@ -327,7 +329,7 @@ pub unsafe fn extract_single_table_predicate(
     let context = PlannerContext::from_planner(root);
     let mut state = QualExtractState::default();
 
-    let qual = extract_quals(
+    let qual = try_extract_pushdown_qual(
         &context,
         rti,
         ri_list.as_ptr().cast(),

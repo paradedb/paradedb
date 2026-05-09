@@ -23,7 +23,9 @@ use crate::customscan::builders::custom_path::RestrictInfoType;
 use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
 use crate::postgres::customscan::opexpr::UnwrapFromExpr;
-use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
+use crate::postgres::customscan::qual_inspect::{
+    try_extract_pushdown_qual, PlannerContext, QualExtractState,
+};
 use crate::postgres::types::{ConstNode, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
 use crate::postgres::PgSearchRelation;
@@ -133,7 +135,7 @@ impl AggregateType {
             None
         } else {
             let context = PlannerContext::from_planner(root);
-            extract_quals(
+            try_extract_pushdown_qual(
                 &context,
                 heap_rti,
                 (*aggref).aggfilter as *mut pg_sys::Node,

@@ -33,6 +33,83 @@ use pgrx::{pg_guard, pg_sys, FromDatum, IntoDatum, PgList};
 use std::ops::Bound;
 use tantivy::schema::OwnedValue;
 
+pub struct ExtractInfo {
+    has_match: bool,
+    // Have we found any residual conditions,
+    // which should be handled by
+    // standard PostgreSQL evaluator
+    residual: bool,
+    state: QualExtractState,
+    pushdown: Option<Qual>,
+}
+
+impl ExtractInfo {
+    pub fn new(pushdown: Option<Qual>, has_residual: bool, state: QualExtractState) -> ExtractInfo {
+        ExtractInfo {
+            has_match: false,
+            residual: false,
+            pushdown,
+            state,
+        }
+    }
+
+    pub fn found_pushdown(&self) -> bool {
+        self.pushdown.is_some()
+    }
+
+    pub fn get_pushdown(&self) -> Option<Qual> {
+        self.pushdown.clone()
+    }
+
+    pub fn has_match(&self) -> bool {
+        self.has_match
+    }
+
+    // Mark that we have found some RestrictInfo conditions
+    // which should be executed by PostgreSQL standard evaluator
+    pub fn set_residual_found(&mut self) {
+        self.residual = true;
+    }
+
+    // Add residual condition for PostgreSQL standard evaluator
+    // pub fn add_residual(&mut self, residual: usize) {
+    //     self.residual.push(residual);
+    // }
+
+    pub fn add_qual(&mut self, qual: Qual) {
+        self.pushdown = Some(qual);
+    }
+
+    pub fn try_heap_expr_optimization(&mut self) {
+        if self.state.uses_heap_expr && !self.state.uses_our_operator {
+            return;
+        }
+
+        // Apply HeapExpr optimization to the base relation quals
+        let mut heap_expr_qual = self.pushdown.clone();
+        if let Some(ref mut q) = heap_expr_qual {
+            unsafe {
+                optimize_quals_with_heap_expr(q);
+            }
+        }
+
+        self.pushdown = heap_expr_qual;
+    }
+
+    pub fn try_heap_expr_optimization_() {}
+}
+
+impl Default for ExtractInfo {
+    fn default() -> Self {
+        Self {
+            has_match: false,
+            residual: false,
+            pushdown: None,
+            state: QualExtractState::default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Qual {
     All,
@@ -561,6 +638,16 @@ pub struct QualExtractState {
     pub uses_heap_expr: bool,
 }
 
+impl QualExtractState {
+    pub fn merge(&mut self, other: &QualExtractState) -> Self {
+        Self {
+            uses_our_operator: self.uses_our_operator || other.uses_our_operator,
+            uses_tantivy_to_query: self.uses_tantivy_to_query || other.uses_tantivy_to_query,
+            uses_heap_expr: self.uses_heap_expr || other.uses_heap_expr,
+        }
+    }
+}
+
 /// Check if a clause contains node types that extract_quals cannot handle
 /// (e.g., SubPlan from RLS policies) and thus needs plan.qual evaluation.
 pub unsafe fn is_subplan(node: *mut pg_sys::Node, root: *mut pg_sys::PlannerInfo) -> bool {
@@ -614,8 +701,29 @@ pub unsafe fn is_subplan(node: *mut pg_sys::Node, root: *mut pg_sys::PlannerInfo
     walker(node, std::ptr::null_mut())
 }
 
+pub enum ClauseExtraction {
+    /// Expression fully represented as ParadeDB/Tantivy-side Qual.
+    Pushdown(Qual),
+
+    /// Expression cannot be represented as Tantivy query, but can be safely
+    /// evaluated later by PostgreSQL as plan.qual.
+    Residual,
+
+    /// Expression cannot be partially extracted safely in this context.
+    Unsupported(UnsupportedReason),
+}
+
+pub enum UnsupportedReason {
+    UnsafeBooleanContext,
+    NoSearchPredicate,
+    UnsupportedParadeDbPredicate,
+    ExternalReference,
+    JoinLevelMismatch,
+    DisabledPushdown,
+}
+
 #[allow(clippy::too_many_arguments)]
-pub unsafe fn extract_quals(
+pub unsafe fn try_extract_pushdown_qual(
     context: &PlannerContext,
     rti: pg_sys::Index,
     node: *mut pg_sys::Node,
@@ -676,7 +784,7 @@ pub unsafe fn extract_quals(
             } else {
                 (*ri).clause
             };
-            extract_quals(
+            try_extract_pushdown_qual(
                 context,
                 rti,
                 clause.cast(),
@@ -883,7 +991,7 @@ unsafe fn list(
     let args = PgList::<pg_sys::Node>::from_pg(list);
     let mut quals = Vec::new();
     for child in args.iter_ptr() {
-        quals.push(extract_quals(
+        quals.push(try_extract_pushdown_qual(
             context,
             rti,
             child,
@@ -1460,7 +1568,7 @@ pub unsafe fn extract_join_predicates(
         {
             let mut qual_extract_state = QualExtractState::default();
             // Extract search predicates from the simplified expression
-            if let Some(qual) = extract_quals(
+            if let Some(qual) = try_extract_pushdown_qual(
                 context,
                 current_rti,
                 simplified_node.cast(),

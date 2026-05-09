@@ -78,7 +78,9 @@ use crate::postgres::customscan::aggregatescan::aggregate_type::{
 };
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
-use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
+use crate::postgres::customscan::qual_inspect::{
+    try_extract_pushdown_qual, PlannerContext, QualExtractState,
+};
 use crate::postgres::var::{fieldname_from_var, VarContext};
 use crate::postgres::PgSearchRelation;
 use crate::query::{PostgresExpression, SearchQueryInput};
@@ -588,7 +590,7 @@ pub unsafe fn resolve_window_aggregate_filters_at_plan_time(
                     if !filter_node.is_null() {
                         // Use the same logic as aggregatescan to convert the filter
                         let mut filter_qual_state = QualExtractState::default();
-                        if let Some(qual) = extract_quals(
+                        if let Some(qual) = try_extract_pushdown_qual(
                             &PlannerContext::from_planner(root),
                             heap_rti,
                             filter_node,

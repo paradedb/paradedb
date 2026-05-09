@@ -222,7 +222,7 @@ jobs:
         with:
           test_file: single-server.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_ID }}
+          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
@@ -233,7 +233,7 @@ jobs:
         with:
           test_file: bulk-updates.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_ID }}
+          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
@@ -244,7 +244,7 @@ jobs:
         with:
           test_file: wide-table.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_ID }}
+          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
@@ -255,7 +255,7 @@ jobs:
         with:
           test_file: background-merge.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_ID }}
+          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
@@ -266,7 +266,7 @@ jobs:
         with:
           test_file: logical-replication.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_ID }}
+          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}

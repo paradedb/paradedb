@@ -609,7 +609,7 @@ impl CustomScan for AggregateScan {
 /// stashed on the customscan state by `begin_custom_scan` so estimate +
 /// initialize see the same bytes; without that we'd have to re-build the
 /// plan twice. The serialization itself happens via the
-/// `PgSearchExtensionCodec` and the fork's `DistributedCodec` so
+/// `PgSearchExtensionCodec` and the DF-D fork's `DistributedCodec` so
 /// `NetworkShuffleExec` round-trips through the worker side.
 /// DSM layout used by AggregateScan in MPP mode:
 ///
@@ -1043,7 +1043,7 @@ impl AggregateScan {
         };
         df_state.mpp_plan_bytes = Some(bytes.to_vec());
         // Each producer writes `target_partitions` partitions per worker.
-        // The fork's `_distribute_plan` is patched so that in in-process
+        // The DF-D fork's `_distribute_plan` is patched so that in in-process
         // mode (custom WorkerTransport registered) it clamps the Shuffle's
         // consumer_task_count to 1, which disables `NetworkShuffleExec`'s
         // per-task hash scaling. So producer output = target_partitions =
@@ -1053,7 +1053,7 @@ impl AggregateScan {
     }
 
     /// MPP leader exec helper: build a `SessionContext` that mirrors
-    /// `create_aggregate_session_context`'s rules + the fork's
+    /// `create_aggregate_session_context`'s rules + the DF-D fork's
     /// `with_distributed_planner` + our `ShmMqWorkerTransport` wired to the
     /// runtime mesh. The resulting context, when used to
     /// `create_physical_plan` over the leader's logical plan, returns a
@@ -1070,7 +1070,7 @@ impl AggregateScan {
         //   3. distributed_broadcast_joins(true) — CollectLeft HashJoins
         //      otherwise cap their stage's task_count to Maximum(1) and
         //      propagate that cap upward, eliding shuffles above the join.
-        //   4. distributed_user_codec — the fork's prepare_plan unconditionally
+        //   4. distributed_user_codec — the DF-D fork's prepare_plan unconditionally
         //      encodes worker subplans for gRPC shipment; without a codec for
         //      our custom physical execs, encoding errors before execution.
         //      In our model the encoded bytes are never observed (workers
@@ -1200,7 +1200,7 @@ impl AggregateScan {
             Err(e) => pgrx::error!("mpp worker: deserialize_logical_plan failed: {e}"),
         };
 
-        // Build state with the fork's distributed planner so create_physical_plan
+        // Build state with the DF-D fork's distributed planner so create_physical_plan
         // produces a DistributedExec wrapping NetworkShuffleExec. The
         // target_partitions, task-estimator, broadcast-joins and codec
         // overrides must mirror the leader (see
@@ -1240,7 +1240,7 @@ impl AggregateScan {
             Err(e) => pgrx::error!("mpp worker: create_physical_plan failed: {e}"),
         };
         // Find the bottom NetworkShuffleExec; its input_stage.plan (==
-        // children()[0]) is the worker fragment. If the fork's planner
+        // children()[0]) is the worker fragment. If the DF-D fork's planner
         // didn't insert one (some plan shapes don't benefit from a network
         // shuffle, or PartialReduce isn't enabled), the worker has no
         // fragment to run — emit zero rows and let the leader produce
@@ -1691,7 +1691,7 @@ impl AggregateScan {
                 .build()
                 .unwrap_or_else(|e| pgrx::error!("Failed to create tokio runtime: {}", e));
 
-            // MPP leader: install the mesh + fork's distributed planner so
+            // MPP leader: install the mesh + DF-D fork's distributed planner so
             // `create_physical_plan` produces a `DistributedExec` whose
             // `NetworkShuffleExec`s use our `ShmMqWorkerTransport` to read
             // from worker queues at execute time. Otherwise: existing serial

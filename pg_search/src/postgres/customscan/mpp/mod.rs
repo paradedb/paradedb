@@ -37,7 +37,7 @@ use serde::{Deserialize, Serialize};
 /// Describes this participant's position in an MPP query. Held by
 /// [`glue::MppLeaderState`] / [`glue::MppWorkerState`] so the AggregateScan
 /// worker path can size the in-process planner via `total_participants`.
-/// The fork's `WorkerResolver` derives task identity from its own indexing,
+/// The DF-D fork's `WorkerResolver` derives task identity from its own indexing,
 /// so this is a diagnostic / sizing hand-off — not a `SessionConfig`
 /// extension.
 #[derive(Clone, Debug, Serialize, Deserialize)]

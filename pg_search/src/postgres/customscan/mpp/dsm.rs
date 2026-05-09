@@ -37,7 +37,7 @@
 //! - `n_workers` is the number of producer-side participants (== leader-as-
 //!   worker-0 + parallel workers). Leader is index 0.
 //! - `n_partitions` is the consumer-side partition count for the network
-//!   boundary. The fork's planner emits exactly one boundary per query
+//!   boundary. The DF-D fork's planner emits exactly one boundary per query
 //!   under this PR's config (`in_process_mode=on`, peer-shuffles off);
 //!   K-cut layouts come with the multi-peer-mesh follow-up.
 //! - Self-edges (worker i writing to its own consumer partition feed) are

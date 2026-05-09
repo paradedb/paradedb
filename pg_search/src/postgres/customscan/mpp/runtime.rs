@@ -22,13 +22,13 @@
 //!   carrying one [`crate::postgres::customscan::mpp::transport::DrainHandle`]
 //!   per producer worker for each consumer partition. Installed on the
 //!   leader's `SessionConfig` extensions before plan execution.
-//! - [`ShmMqWorkerTransport`] — implements the fork's [`WorkerTransport`]
+//! - [`ShmMqWorkerTransport`] — implements the DF-D fork's [`WorkerTransport`]
 //!   trait, consulted by `NetworkShuffleExec`/`NetworkCoalesceExec`/
 //!   `NetworkBroadcastExec` at execute time. `open(target_task=worker)`
 //!   returns a [`ShmMqWorkerConnection`] that yields one stream per
 //!   consumer partition from the corresponding [`DrainHandle`].
 //! - [`MppWorkerResolver`] — stub [`WorkerResolver`] returning N dummy
-//!   URLs. The fork's planner reads `get_urls().len()` to decide cluster
+//!   URLs. The DF-D fork's planner reads `get_urls().len()` to decide cluster
 //!   capacity; we don't have URLs (everything is in-process), so any
 //!   address satisfies the API.
 
@@ -70,7 +70,7 @@ impl MppMesh {
     }
 }
 
-/// Implements the fork's [`WorkerTransport`] over the leader's [`MppMesh`].
+/// Implements the DF-D fork's [`WorkerTransport`] over the leader's [`MppMesh`].
 pub struct ShmMqWorkerTransport {
     mesh: Arc<MppMesh>,
 }
@@ -152,7 +152,7 @@ impl WorkerConnection for ShmMqWorkerConnection {
     }
 }
 
-/// Stub [`WorkerResolver`] for the fork's distributed planner. Workers in
+/// Stub [`WorkerResolver`] for the DF-D fork's distributed planner. Workers in
 /// our embedded model are PG parallel workers in the same backend tree, not
 /// URL-addressed nodes; the planner only consults `get_urls().len()` for
 /// task-count sizing, so any URL satisfies it.
@@ -179,7 +179,7 @@ impl WorkerResolver for MppWorkerResolver {
 /// (such as a `NetworkBroadcastExec` on the build side of a `HashJoin`) by
 /// executing the boundary's `input_stage.plan` locally on the worker.
 ///
-/// In the fork's gRPC distributed model, every worker would pull the
+/// In the DF-D fork's gRPC distributed model, every worker would pull the
 /// broadcast data from a designated source via a Flight stream. In our
 /// in-process model the producer fragment that workers run already contains
 /// these network boundary nodes (the worker re-plans from the same logical
@@ -189,7 +189,7 @@ impl WorkerResolver for MppWorkerResolver {
 /// `n_workers` producers is preferable to wiring a second mesh.
 ///
 /// The worker's session must keep `input_stage.plan = Some(...)` (i.e. the
-/// fork's `prepare_plan` is *not* invoked on the worker side because we
+/// DF-D fork's `prepare_plan` is *not* invoked on the worker side because we
 /// drop into `find_worker_fragment` below the leader's `DistributedExec`).
 pub struct LocalExecWorkerTransport;
 

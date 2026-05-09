@@ -19,7 +19,7 @@
 //! coordinator/worker MPP architecture.
 //!
 //! Customscan code calls into this module from four hooks; everything else
-//! (DSM math, shm_mq FFI, fork's `WorkerTransport` plumbing) is hidden
+//! (DSM math, shm_mq FFI, DF-D fork's `WorkerTransport` plumbing) is hidden
 //! behind the API:
 //!
 //! - [`mpp_is_active`] — gate for the customscan path-builder.

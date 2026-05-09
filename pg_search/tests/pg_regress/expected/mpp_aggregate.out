@@ -1,16 +1,5 @@
 -- =====================================================================
 -- End-to-end MPP exercise on AggregateScan.
---
--- Drives the full integration:
---   path-builder  →  begin_custom_scan (logical plan serialize)
---                 →  estimate_dsm + initialize_dsm (mesh allocate)
---                 →  initialize_worker (each worker attaches)
---                 →  worker exec_custom_scan (push to shm_mq)
---                 →  leader exec_custom_scan (consume via NetworkShuffleExec)
---
--- Two passes per query: first `EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)`
--- so the plan structure is recorded in expected output, then the query
--- itself for the actual result rows.
 -- =====================================================================
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;

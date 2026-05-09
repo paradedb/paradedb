@@ -58,12 +58,15 @@ use crate::api::SortDirection;
 use crate::gucs;
 
 use crate::aggregate::{NULL_SENTINEL_MAX, NULL_SENTINEL_MIN};
+use crate::api::HashSet;
 use crate::customscan::aggregatescan::build::AggregateCSClause;
+use crate::index::mvcc::MvccSatisfies;
+use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::aggregatescan::datafusion_build::{
     all_have_bm25_index, collect_join_agg_sources, extract_join_tree_from_parse, has_any_bm25_index,
 };
 use crate::postgres::customscan::aggregatescan::datafusion_exec::{
-    build_join_aggregate_plan, create_aggregate_session_context,
+    build_join_aggregate_plan, create_aggregate_session_context, MppPlanContext,
 };
 use crate::postgres::customscan::aggregatescan::datafusion_project::project_aggregate_row_to_slot;
 use crate::postgres::customscan::aggregatescan::exec::{
@@ -80,9 +83,19 @@ use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
+use crate::postgres::customscan::dsm::{
+    estimate_dsm_custom_scan, initialize_dsm_custom_scan, initialize_worker_custom_scan,
+    reinitialize_dsm_custom_scan, ParallelQueryCapable,
+};
+use crate::postgres::customscan::exec::{
+    begin_custom_scan, end_custom_scan, exec_custom_scan, explain_custom_scan, rescan_custom_scan,
+    shutdown_custom_scan,
+};
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::hook::query_has_paradedb_agg;
 use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, build_task_context};
 use crate::postgres::customscan::limit_offset::LimitOffset;
+use crate::postgres::customscan::parallel::list_segment_ids;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{range_table, CreateUpperPathsHookArgs, CustomScan};
@@ -90,6 +103,10 @@ use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::{is_datetime_type, TantivyValue};
 use crate::postgres::utils::{add_vars_to_tlist, is_unnest_func, make_text_const};
 use crate::postgres::PgSearchRelation;
+use crate::postgres::{ParallelScanArgs, ParallelScanState};
+use crate::scan::codec::{
+    deserialize_logical_plan_with_runtime, serialize_logical_plan, PgSearchPhysicalCodecStub,
+};
 use chrono::{DateTime as ChronoDateTime, Utc};
 use futures::StreamExt;
 use pgrx::{pg_sys, PgList, PgMemoryContexts, PgTupleDesc};
@@ -154,36 +171,25 @@ impl CustomScan for AggregateScan {
     fn exec_methods() -> pg_sys::CustomExecMethods {
         pg_sys::CustomExecMethods {
             CustomName: Self::NAME.as_ptr(),
-            BeginCustomScan: Some(crate::postgres::customscan::exec::begin_custom_scan::<Self>),
-            ExecCustomScan: Some(crate::postgres::customscan::exec::exec_custom_scan::<Self>),
-            EndCustomScan: Some(crate::postgres::customscan::exec::end_custom_scan::<Self>),
-            ReScanCustomScan: Some(crate::postgres::customscan::exec::rescan_custom_scan::<Self>),
+            BeginCustomScan: Some(begin_custom_scan::<Self>),
+            ExecCustomScan: Some(exec_custom_scan::<Self>),
+            EndCustomScan: Some(end_custom_scan::<Self>),
+            ReScanCustomScan: Some(rescan_custom_scan::<Self>),
             MarkPosCustomScan: None,
             RestrPosCustomScan: None,
-            EstimateDSMCustomScan: Some(
-                crate::postgres::customscan::dsm::estimate_dsm_custom_scan::<Self>,
-            ),
-            InitializeDSMCustomScan: Some(
-                crate::postgres::customscan::dsm::initialize_dsm_custom_scan::<Self>,
-            ),
-            ReInitializeDSMCustomScan: Some(
-                crate::postgres::customscan::dsm::reinitialize_dsm_custom_scan::<Self>,
-            ),
-            InitializeWorkerCustomScan: Some(
-                crate::postgres::customscan::dsm::initialize_worker_custom_scan::<Self>,
-            ),
-            ShutdownCustomScan: Some(
-                crate::postgres::customscan::exec::shutdown_custom_scan::<Self>,
-            ),
-            ExplainCustomScan: Some(crate::postgres::customscan::exec::explain_custom_scan::<Self>),
+            EstimateDSMCustomScan: Some(estimate_dsm_custom_scan::<Self>),
+            InitializeDSMCustomScan: Some(initialize_dsm_custom_scan::<Self>),
+            ReInitializeDSMCustomScan: Some(reinitialize_dsm_custom_scan::<Self>),
+            InitializeWorkerCustomScan: Some(initialize_worker_custom_scan::<Self>),
+            ShutdownCustomScan: Some(shutdown_custom_scan::<Self>),
+            ExplainCustomScan: Some(explain_custom_scan::<Self>),
         }
     }
 
     fn create_custom_path(builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
         let has_paradedb_agg = unsafe {
             let parse = builder.args().root().parse;
-            !parse.is_null()
-                && crate::postgres::customscan::hook::query_has_paradedb_agg(parse, true)
+            !parse.is_null() && query_has_paradedb_agg(parse, true)
         };
 
         let input_rel = builder.args().input_rel();
@@ -646,7 +652,7 @@ unsafe fn mpp_agg_write_header(coordinate: *mut std::os::raw::c_void, header: Mp
     }
 }
 
-impl crate::postgres::customscan::dsm::ParallelQueryCapable for AggregateScan {
+impl ParallelQueryCapable for AggregateScan {
     fn estimate_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
         _pcxt: *mut pg_sys::ParallelContext,
@@ -669,12 +675,7 @@ impl crate::postgres::customscan::dsm::ParallelQueryCapable for AggregateScan {
             .map(|m| m.segment_count())
             .collect();
         let partitioning_idx = Self::partitioning_source_idx(state);
-        let pscan_size = crate::postgres::ParallelScanState::size_of(
-            &all_nsegments,
-            partitioning_idx,
-            &[],
-            false,
-        );
+        let pscan_size = ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false);
         let mpp_offset = mpp_align(mpp_agg_pscan_offset() + pscan_size);
 
         // Number of non-partitioning sources gets a build-cache slot per worker.
@@ -717,12 +718,7 @@ impl crate::postgres::customscan::dsm::ParallelQueryCapable for AggregateScan {
             .iter()
             .map(|m| m.segment_count())
             .collect();
-        let pscan_size = crate::postgres::ParallelScanState::size_of(
-            &all_nsegments,
-            partitioning_idx,
-            &[],
-            false,
-        );
+        let pscan_size = ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false);
         let pscan_offset = mpp_agg_pscan_offset();
         let mpp_offset = mpp_align(pscan_offset + pscan_size);
 
@@ -740,9 +736,8 @@ impl crate::postgres::customscan::dsm::ParallelQueryCapable for AggregateScan {
         };
 
         // Init the ParallelScanState at `pscan_offset`.
-        let pscan_state = unsafe {
-            (coordinate as *mut u8).add(pscan_offset) as *mut crate::postgres::ParallelScanState
-        };
+        let pscan_state =
+            unsafe { (coordinate as *mut u8).add(pscan_offset) as *mut ParallelScanState };
         assert!(!pscan_state.is_null(), "MPP DSM coordinate is null");
         unsafe {
             let all_sources: Vec<&[tantivy::SegmentReader]> = state
@@ -751,7 +746,7 @@ impl crate::postgres::customscan::dsm::ParallelQueryCapable for AggregateScan {
                 .iter()
                 .map(|m| m.segment_readers())
                 .collect();
-            (*pscan_state).create_and_populate(crate::postgres::ParallelScanArgs {
+            (*pscan_state).create_and_populate(ParallelScanArgs {
                 all_sources,
                 partitioning_source_idx: partitioning_idx,
                 query: vec![],
@@ -801,9 +796,8 @@ impl crate::postgres::customscan::dsm::ParallelQueryCapable for AggregateScan {
     ) {
         // Reset the ParallelScanState header so a re-execution re-claims segments.
         let pscan_offset = mpp_agg_pscan_offset();
-        let pscan_state = unsafe {
-            (coordinate as *mut u8).add(pscan_offset) as *mut crate::postgres::ParallelScanState
-        };
+        let pscan_state =
+            unsafe { (coordinate as *mut u8).add(pscan_offset) as *mut ParallelScanState };
         if !pscan_state.is_null() {
             unsafe { (*pscan_state).reset() };
         }
@@ -828,9 +822,8 @@ impl crate::postgres::customscan::dsm::ParallelQueryCapable for AggregateScan {
 
         // Attach to the ParallelScanState and wait for the leader to
         // populate it before reading the canonical segment list.
-        let pscan_state = unsafe {
-            (coordinate as *mut u8).add(pscan_offset) as *mut crate::postgres::ParallelScanState
-        };
+        let pscan_state =
+            unsafe { (coordinate as *mut u8).add(pscan_offset) as *mut ParallelScanState };
         assert!(!pscan_state.is_null(), "MPP DSM coordinate is null");
         unsafe { (*pscan_state).wait_for_initialization() };
         let non_partitioning_segments = unsafe { (*pscan_state).non_partitioning_segment_ids() };
@@ -946,17 +939,13 @@ impl AggregateScan {
         let Some(df_state) = state.custom_state().datafusion_state.as_ref() else {
             return;
         };
-        let manifests: Vec<crate::index::reader::index::SearchIndexManifest> = df_state
+        let manifests: Vec<SearchIndexManifest> = df_state
             .plan
             .sources()
             .iter()
             .map(|source| {
-                let rel = crate::postgres::rel::PgSearchRelation::open(source.scan_info.indexrelid);
-                crate::index::reader::index::SearchIndexManifest::capture(
-                    &rel,
-                    crate::index::mvcc::MvccSatisfies::Snapshot,
-                )
-                .unwrap_or_else(|e| {
+                let rel = PgSearchRelation::open(source.scan_info.indexrelid);
+                SearchIndexManifest::capture(&rel, MvccSatisfies::Snapshot).unwrap_or_else(|e| {
                     panic!(
                         "Failed to capture source manifest for indexrelid {}: {e}",
                         source.scan_info.indexrelid
@@ -1000,7 +989,7 @@ impl AggregateScan {
         // into the serialized plan; workers re-derive them via the codec.
         Self::ensure_source_manifests(state);
         let partitioning_idx = Self::partitioning_source_idx(state);
-        let mpp_ctx = crate::postgres::customscan::aggregatescan::datafusion_exec::MppPlanContext {
+        let mpp_ctx = MppPlanContext {
             partitioning_plan_position: partitioning_idx,
         };
         state.custom_state_mut().mpp_partitioning_source_idx = Some(partitioning_idx);
@@ -1045,7 +1034,7 @@ impl AggregateScan {
                 return;
             }
         };
-        let bytes = match crate::scan::codec::serialize_logical_plan(&logical) {
+        let bytes = match serialize_logical_plan(&logical) {
             Ok(b) => b,
             Err(e) => {
                 pgrx::warning!("mpp: serialize_logical_plan failed: {e}; skipping MPP");
@@ -1100,7 +1089,7 @@ impl AggregateScan {
             .with_distributed_task_estimator(n_workers)
             .with_distributed_broadcast_joins(true)
             .expect("with_distributed_broadcast_joins")
-            .with_distributed_user_codec(crate::scan::codec::PgSearchPhysicalCodecStub)
+            .with_distributed_user_codec(PgSearchPhysicalCodecStub)
             .with_distributed_planner();
         datafusion::prelude::SessionContext::new_with_state(state_builder.build())
     }
@@ -1178,13 +1167,13 @@ impl AggregateScan {
         // (workers will then claim individual segments via `checkout_segment`
         // inside their `PgSearchTableProvider`). For non-partitioning sources,
         // use the segment IDs the leader snapshotted into shared memory.
-        let mut index_segment_ids: Vec<crate::api::HashSet<tantivy::index::SegmentId>> =
-            vec![crate::api::HashSet::default(); plan_sources_count];
+        let mut index_segment_ids: Vec<HashSet<tantivy::index::SegmentId>> =
+            vec![HashSet::default(); plan_sources_count];
         if let Some(ps) = parallel_state {
             let mut np_counter = 0usize;
             for (i, slot) in index_segment_ids.iter_mut().enumerate() {
                 if i == partitioning_source_idx {
-                    *slot = unsafe { crate::postgres::customscan::parallel::list_segment_ids(ps) };
+                    *slot = unsafe { list_segment_ids(ps) };
                 } else if let Some(ids) = non_partitioning_segments.get(np_counter) {
                     *slot = ids.clone();
                     np_counter += 1;
@@ -1196,7 +1185,7 @@ impl AggregateScan {
             Some(scan_state::MppExecState::Worker(w)) => w.build_cache.as_ref().map(Arc::clone),
             _ => None,
         };
-        let logical = match crate::scan::codec::deserialize_logical_plan_with_runtime(
+        let logical = match deserialize_logical_plan_with_runtime(
             &plan_bytes,
             &ctx.task_ctx(),
             parallel_state,
@@ -1239,7 +1228,7 @@ impl AggregateScan {
             .with_distributed_task_estimator(n_workers_us)
             .with_distributed_broadcast_joins(true)
             .expect("with_distributed_broadcast_joins")
-            .with_distributed_user_codec(crate::scan::codec::PgSearchPhysicalCodecStub)
+            .with_distributed_user_codec(PgSearchPhysicalCodecStub)
             .with_distributed_planner();
         let session_state = state_builder.build();
         let session = datafusion::prelude::SessionContext::new_with_state(session_state);

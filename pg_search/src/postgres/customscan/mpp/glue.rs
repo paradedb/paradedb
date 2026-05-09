@@ -36,6 +36,9 @@ use std::sync::Arc;
 
 use pgrx::pg_sys;
 
+use crate::gucs::{
+    enable_mpp, mpp_queue_size as gucs_mpp_queue_size, mpp_worker_count as gucs_mpp_worker_count,
+};
 use crate::postgres::customscan::mpp::dsm::{
     compute_dsm_layout, leader_init, worker_attach, MppBuildCache, MppDsmHeader, MPP_CACHE_PER_SLOT,
 };
@@ -60,18 +63,18 @@ use crate::postgres::customscan::mpp::MppParticipantConfig;
 /// leader-as-worker-0 is wired up, or once `target_partitions` is dropped
 /// to `producer_worker_count`.)
 pub fn mpp_is_active() -> bool {
-    crate::gucs::enable_mpp() && crate::gucs::mpp_worker_count() >= 3
+    enable_mpp() && gucs_mpp_worker_count() >= 3
 }
 
 /// Total participant count: leader + producers. Clamped at 3 so the mesh
 /// shape matches the planner's `target_partitions` (see [`mpp_is_active`]).
 pub fn mpp_worker_count() -> u32 {
-    crate::gucs::mpp_worker_count().max(3) as u32
+    gucs_mpp_worker_count().max(3) as u32
 }
 
 /// Per-edge queue size from the GUC.
 pub fn mpp_queue_size() -> usize {
-    crate::gucs::mpp_queue_size()
+    gucs_mpp_queue_size()
 }
 
 /// Body of `estimate_dsm_custom_scan`. Returns total DSM bytes the leader

@@ -103,7 +103,11 @@ pub async fn build_join_aggregate_plan(
     let mut group_df_indices = Vec::with_capacity(targetlist.group_columns.len());
 
     for gc in &targetlist.group_columns {
-        let entry = field_to_df_idx.entry((gc.rti, gc.field_name.clone()));
+        // Dedup key by (plan_position, field_name): plan_position is the
+        // unique source identity; field_name distinguishes columns within
+        // a source. Keying by rti would collapse rti-aliased sources from
+        // sub-PlannerInfos into one DataFusion column.
+        let entry = field_to_df_idx.entry((gc.plan_position, gc.field_name.clone()));
         let df_idx = match entry {
             std::collections::hash_map::Entry::Vacant(v) => {
                 let df_idx = group_exprs.len();
@@ -322,7 +326,11 @@ fn build_relnode_df<'a>(
                 // and the ctid field is named "ctid" (from WhichFastField::Ctid)
                 // in the table provider schema. After aliasing, it's accessible
                 // as `<alias>.ctid`.
-                let sources = filter.input.sources();
+                // The filter is evaluated after the input node has applied any
+                // Semi/Anti pruning.  Only output-visible sources are addressable
+                // in the DataFusion schema here; lifted SubPlan inner sources may
+                // reuse outer RTIs but are not projected.
+                let sources = filter.input.output_sources();
                 let ctid_map: crate::api::HashMap<pg_sys::Index, Expr> = sources
                     .iter()
                     .map(|s| (s.plan_position as pg_sys::Index, make_source_col(s, "ctid")))

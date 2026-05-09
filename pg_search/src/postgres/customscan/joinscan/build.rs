@@ -138,6 +138,11 @@ impl From<*mut pg_sys::PlannerInfo> for PlannerRootId {
 ///
 /// Note: Currently only Inner join is supported, but other variants are
 /// defined for future extensibility and to match PostgreSQL's JoinType enum.
+///
+/// The serde JSON shape of this enum (in particular, struct variant `Anti`)
+/// is **intra-process only** - it flows leader -> worker via `custom_private`
+/// within a single backend, never crosses a process or version boundary.
+/// Changing the shape is safe as long as no cross-process persistence is added.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
 pub enum JoinType {
     #[default]
@@ -159,7 +164,7 @@ pub enum JoinType {
     /// `EXISTS` / `IN` subqueries inside disjunctive predicates such as
     /// `col IS NULL OR col IN (SELECT ...)`.
     LeftMark,
-    /// RightMark join: mirror of LeftMark — returns all right rows with a
+    /// RightMark join: mirror of LeftMark - returns all right rows with a
     /// boolean "mark" column indicating whether a left-side match exists.
     RightMark,
     RightSemi,
@@ -402,11 +407,11 @@ impl JoinSourceCandidate {
 
     /// Calculate and store the estimated number of rows matching the query.
     ///
-    /// This uses `MvccSatisfies::LargestSegment` to efficiently estimate the count
-    /// without opening all segments.
-    ///
-    /// If the source does not have a BM25 index, this is a no-op.
-    /// If estimation fails (e.g. IO error), this method will panic.
+    /// Uses `MvccSatisfies::LargestSegment` for cheap estimation. When the
+    /// query has heap filters or `PostgresExpression`s (which need executor
+    /// state we don't have at planning time), falls back to `total_docs` as
+    /// an upper bound - looser estimate but avoids evaluating Param-bearing
+    /// expressions during planning (would segfault on unbound PARAM_EXEC).
     pub fn estimate_rows(&mut self) {
         if !self.has_bm25_index() {
             return;
@@ -419,8 +424,8 @@ impl JoinSourceCandidate {
         let heap_rel = PgSearchRelation::open(heaprelid);
         let mut query = self.query.clone().unwrap_or(SearchQueryInput::All);
         let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
-        let has_pg_exprs = query.has_postgres_expressions();
-        if has_pg_exprs {
+
+        if query.has_postgres_expressions() || query.has_heap_filters() {
             let reader = SearchIndexReader::empty(&index_rel, MvccSatisfies::LargestSegment)
                 .expect("Failed to open index reader for estimation");
             self.segment_count = Some(reader.total_segment_count());
@@ -986,7 +991,7 @@ impl RelNode {
 
     /// Recursively collect every `(rti, attno)` referenced by a join-level
     /// filter (`JoinNode.filter`). Used by `build_source_df` to keep the
-    /// referenced columns out of the deferred-output promotion — the filter
+    /// referenced columns out of the deferred-output promotion - the filter
     /// is evaluated before the join emits rows, so the columns must be
     /// materialized in the per-source scan.
     pub fn filter_input_vars(&self) -> Vec<(pg_sys::Index, pg_sys::AttrNumber)> {
@@ -1064,7 +1069,7 @@ impl RelNode {
     ///
     /// **Why AggregateScan needs this but JoinScan does not:**
     /// JoinScan hooks into `join_pathlist`, which PostgreSQL calls bottom-up
-    /// for each join pair — so equi-keys arrive pre-distributed across join
+    /// for each join pair - so equi-keys arrive pre-distributed across join
     /// levels by the planner itself. AggregateScan hooks into
     /// `UPPERREL_GROUP_AGG` (post-join), where it must reconstruct the join
     /// tree from the parse tree. For implicit joins (`FROM a, b, c WHERE ...`)
@@ -1086,7 +1091,7 @@ impl RelNode {
                 let inner_in_left = join_node.left.contains_rti(key.inner_rti);
                 let inner_in_right = join_node.right.contains_rti(key.inner_rti);
 
-                // Key spans the two sides of this join — place it here
+                // Key spans the two sides of this join - place it here
                 if (outer_in_left && inner_in_right) || (outer_in_right && inner_in_left) {
                     let dup = join_node.equi_keys.iter().any(|k| {
                         (k.outer_rti == key.outer_rti
@@ -1104,12 +1109,12 @@ impl RelNode {
                     return true;
                 }
 
-                // Both RTIs in left subtree — recurse left
+                // Both RTIs in left subtree - recurse left
                 if outer_in_left && inner_in_left {
                     return join_node.left.inject_single_equi_key(key);
                 }
 
-                // Both RTIs in right subtree — recurse right
+                // Both RTIs in right subtree - recurse right
                 if outer_in_right && inner_in_right {
                     return join_node.right.inject_single_equi_key(key);
                 }

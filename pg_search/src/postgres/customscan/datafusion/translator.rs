@@ -433,13 +433,14 @@ pub fn build_join_df(left: DataFrame, right: DataFrame, join: &JoinNode) -> Resu
     }
 }
 
-/// Construct a `LeftAnti` join with DataFusion's `null_aware=true` flag set,
-/// so SQL `NOT IN` three-valued NULL semantics are preserved (any NULL in the
-/// inner key column -> exclude all outer rows). DataFusion's HashJoinExec
-/// requires single-column equi-key + LeftAnti for null-aware mode; we validate
-/// both here. The single equi predicate is passed as a join filter (mirroring
-/// the optimizer's `decorrelate_predicate_subquery` lowering); the physical
-/// planner extracts it into the on-keys list.
+/// Construct a `LeftAnti` join with `null_aware=true` so SQL `NOT IN`
+/// three-valued NULL semantics are preserved. DataFusion's null-aware mode
+/// requires single-column equi-key + LeftAnti; we pass the single equi
+/// predicate as a join filter and rely on `ExtractEquijoinPredicate`
+/// (`datafusion-optimizer/src/extract_equijoin_predicate.rs`) to pull it
+/// into the on-keys list at logical-plan-build time. The unit test
+/// `null_aware_anti_lifts_to_hash_join_with_null_equals_nothing` guards
+/// against regressions in that pipeline.
 fn build_null_aware_anti_join(
     left: DataFrame,
     right: DataFrame,
@@ -684,5 +685,79 @@ impl<'a> ColumnMapper for CombinedMapper<'a> {
         let mapped_attno = source.map_var(rti, attno)?;
         let col_name = source.column_name(mapped_attno)?;
         Some(make_col(&alias, &col_name))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_null_aware_anti_join;
+    use datafusion::arrow::array::Int64Array;
+    use datafusion::arrow::datatypes::{DataType, Field, Schema};
+    use datafusion::arrow::record_batch::RecordBatch;
+    use datafusion::common::{JoinType, NullEquality};
+    use datafusion::datasource::MemTable;
+    use datafusion::logical_expr::col;
+    use datafusion::physical_plan::joins::HashJoinExec;
+    use datafusion::physical_plan::ExecutionPlan;
+    use datafusion::prelude::SessionContext;
+    use std::sync::Arc;
+
+    /// First `HashJoinExec`'s `(null_equality, join_type)`, or `None`.
+    fn find_hash_join_attrs(plan: &dyn ExecutionPlan) -> Option<(NullEquality, JoinType)> {
+        if let Some(hj) = plan.as_any().downcast_ref::<HashJoinExec>() {
+            return Some((hj.null_equality(), *hj.join_type()));
+        }
+        plan.children()
+            .iter()
+            .find_map(|child| find_hash_join_attrs(child.as_ref()))
+    }
+
+    /// Register a single-column `Int64` table named `name` with column `id`
+    /// holding `rows` (nullable).
+    fn register_int_table(ctx: &SessionContext, name: &str, rows: Vec<Option<i64>>) {
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, true)]));
+        let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(Int64Array::from(rows))])
+            .expect("build batch");
+        ctx.register_table(
+            name,
+            Arc::new(MemTable::try_new(schema, vec![vec![batch]]).expect("memtable")),
+        )
+        .expect("register");
+    }
+
+    /// Empty-on-keys + filter must lower to `HashJoinExec` with
+    /// `NullEqualsNothing` (via the `ExtractEquijoinPredicate` rule). A DF
+    /// bump that breaks that pipeline would silently degrade us to
+    /// `NestedLoopJoinExec`; this test catches that.
+    #[tokio::test]
+    async fn null_aware_anti_lifts_to_hash_join_with_null_equals_nothing() {
+        let ctx = SessionContext::new();
+        register_int_table(&ctx, "l", vec![Some(1), Some(2), Some(3)]);
+        register_int_table(&ctx, "r", vec![Some(2), None, Some(4)]);
+
+        let left = ctx.table("l").await.expect("table l");
+        let right = ctx.table("r").await.expect("table r");
+
+        let on = vec![col("l.id").eq(col("r.id"))];
+
+        let result = build_null_aware_anti_join(left, right, &on, JoinType::LeftAnti)
+            .expect("build_null_aware_anti_join");
+        let physical = result
+            .create_physical_plan()
+            .await
+            .expect("create_physical_plan");
+
+        let (null_equality, join_type) = find_hash_join_attrs(physical.as_ref())
+            .expect("expected HashJoinExec in physical plan; got NestedLoopJoin or other");
+        assert_eq!(
+            null_equality,
+            NullEquality::NullEqualsNothing,
+            "HashJoinExec must use NullEqualsNothing for SQL NOT IN three-valued semantics"
+        );
+        assert_eq!(
+            join_type,
+            JoinType::LeftAnti,
+            "join type must remain LeftAnti after physical planning"
+        );
     }
 }

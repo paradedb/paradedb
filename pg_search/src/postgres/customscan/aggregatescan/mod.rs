@@ -772,18 +772,25 @@ impl AggregateScan {
         // redundant Sort above us, which is correct (just wasteful on K rows).
         let topk = unsafe { detect_join_aggregate_topk(builder.args(), &targetlist) };
 
-        // Extract HAVING clause if present
+        // Extract HAVING clause if present.
+        //
+        // HAVING produces `AggRef`/`GroupRef`, never `ColumnRef`, so the
+        // FILTER `T_Var` arm is unreachable from here. But the HAVING
+        // matchers need the plan tree anyway to recover a source's rti
+        // from `plan_position` when matching parse-tree Vars to extracted
+        // targetlist refs (Moe #5 dropped rti from the targetlist refs
+        // themselves; the plan is the system of record now).
+        let outer_root_id =
+            crate::postgres::customscan::joinscan::build::PlannerRootId::from(builder.args().root);
         let having_filter = unsafe {
             let parse = builder.args().root().parse;
             if !parse.is_null() && !(*parse).havingQual.is_null() {
                 privdat::FilterExpr::from_pg_node(
                     (*parse).havingQual,
-                    &datafusion_build::FilterExprBuildContext {
-                        targetlist: Some(&targetlist),
-                        sources: None,
-                        // HAVING produces AggRef/GroupRef, never ColumnRef,
-                        // so plan_resolution isn't consulted.
-                        plan_resolution: None,
+                    &datafusion_build::FilterExprBuildContext::Having {
+                        targetlist: &targetlist,
+                        plan: &plan,
+                        outer_root_id,
                     },
                 )
             } else {

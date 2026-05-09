@@ -22,7 +22,7 @@
 //! column and aggregate argument belongs to. This is the join-aware counterpart
 //! of [`super::targetlist::TargetList`] (which assumes a single base relation).
 
-use super::datafusion_build::{FilterExprBuildContext, FilterPlanResolution, JoinAggSource};
+use super::datafusion_build::{FilterExprBuildContext, JoinAggSource};
 use super::privdat::FilterExpr;
 use crate::api::SortDirection;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
@@ -73,7 +73,7 @@ pub enum AggKind {
     BoolAnd,
     BoolOr,
     ArrayAgg,
-    /// STRING_AGG(col, separator) — stores the separator string.
+    /// STRING_AGG(col, separator) - stores the separator string.
     StringAgg(String),
 }
 
@@ -101,43 +101,35 @@ impl std::fmt::Display for AggKind {
 
 /// A GROUP BY column reference in a join aggregate query.
 ///
-/// Execution identity is `plan_position`, resolved once at extraction
-/// against the just-built `RelNode` tree. `rti` / `attno` are kept for
-/// diagnostics and for the heap-side fast-field projection in
-/// `populate_required_fields`.
+/// `plan_position` is the unique DataFusion-facing source identity (used
+/// for execution-time column binding). `attno` is load-bearing for
+/// fast-field projection in `populate_required_fields`. `rti` is not
+/// stored - recoverable via `source_at_plan_position(plan_position).rti`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct JoinGroupColumn {
     pub plan_position: usize,
-    pub rti: pg_sys::Index,
     pub attno: pg_sys::AttrNumber,
-    /// Resolved field name (from the BM25 index schema).
     pub field_name: String,
     /// Position in the output tuple (index into `output_rel.reltarget.exprs`).
     pub output_index: usize,
 }
 
-/// A single column reference inside an aggregate's argument list. Execution
-/// identity is `plan_position`; `rti`/`attno` are kept for diagnostics and
-/// for `populate_required_fields`'s fast-field projection.
+/// Aggregate-argument column reference. Same identity model as
+/// [`JoinGroupColumn`].
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct JoinAggColRef {
     pub plan_position: usize,
-    pub rti: pg_sys::Index,
     pub attno: pg_sys::AttrNumber,
     pub field_name: String,
 }
 
-/// A single ORDER BY entry within an aggregate (e.g., the `ORDER BY col2` in
-/// `STRING_AGG(col, ',' ORDER BY col2)`).
-///
-/// Execution identity is `plan_position`, resolved at extraction against
-/// the `RelNode` tree.
+/// Aggregate ORDER BY entry (e.g. `STRING_AGG(col, ',' ORDER BY col2)`).
+/// Same identity model as [`JoinGroupColumn`].
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AggOrderByEntry {
     pub plan_position: usize,
-    /// Table RTI for the ORDER BY column.
-    pub rti: pg_sys::Index,
     /// 1-based attribute number in the source relation's tuple descriptor.
+    /// Load-bearing for fast-field projection.
     pub attno: pg_sys::AttrNumber,
     /// Resolved field name (from the BM25 index schema).
     pub field_name: String,
@@ -305,7 +297,6 @@ pub unsafe fn extract_aggregate_targetlist(
 
             group_columns.push(JoinGroupColumn {
                 plan_position,
-                rti,
                 attno,
                 field_name,
                 output_index: idx,
@@ -335,7 +326,6 @@ pub unsafe fn extract_aggregate_targetlist(
 
             group_columns.push(JoinGroupColumn {
                 plan_position,
-                rti,
                 attno,
                 field_name,
                 output_index: idx,
@@ -351,13 +341,10 @@ pub unsafe fn extract_aggregate_targetlist(
             } else {
                 FilterExpr::from_pg_node(
                     (*aggref).aggfilter as *mut pg_sys::Node,
-                    &FilterExprBuildContext {
-                        targetlist: None,
-                        sources: Some(sources),
-                        plan_resolution: Some(FilterPlanResolution {
-                            plan,
-                            outer_root_id,
-                        }),
+                    &FilterExprBuildContext::Filter {
+                        sources,
+                        plan,
+                        outer_root_id,
                     },
                 )
             };
@@ -367,7 +354,7 @@ pub unsafe fn extract_aggregate_targetlist(
             let pdb_agg_mvcc_oid = crate::api::agg_with_solve_mvcc_funcoid().to_u32();
             if aggfnoid == pdb_agg_oid || aggfnoid == pdb_agg_mvcc_oid {
                 return Err(
-                    "pdb.agg() is not supported on joins — use standard SQL aggregates (COUNT, SUM, AVG, MIN, MAX)".into()
+                    "pdb.agg() is not supported on joins - use standard SQL aggregates (COUNT, SUM, AVG, MIN, MAX)".into()
                 );
             }
 
@@ -385,7 +372,7 @@ pub unsafe fn extract_aggregate_targetlist(
                 extract_aggref_field_refs(aggref, sources, is_string_agg, plan, outer_root_id)?;
             let order_by = extract_aggref_order_by(aggref, sources, plan, outer_root_id)?;
             // Use the actual Postgres result type from the Aggref node,
-            // not a guessed type — this avoids segfaults from type mismatches
+            // not a guessed type - this avoids segfaults from type mismatches
             let result_type_oid = (*aggref).aggtype;
 
             aggregates.push(JoinAggregateEntry {
@@ -475,7 +462,7 @@ unsafe fn extract_aggref_field_refs(
         let expr = (*arg_ptr).expr;
 
         // The argument must be a bare Var (possibly wrapped in RelabelType).
-        // Reject complex expressions like COALESCE(score, 0) — find_one_var
+        // Reject complex expressions like COALESCE(score, 0) - find_one_var
         // would strip the wrapper, causing DataFusion to compute e.g. SUM(score)
         // instead of the intended SUM(COALESCE(score, 0)).
         let var = unwrap_to_var(expr as *mut pg_sys::Node).ok_or(
@@ -506,7 +493,6 @@ unsafe fn extract_aggref_field_refs(
 
         refs.push(JoinAggColRef {
             plan_position,
-            rti,
             attno,
             field_name,
         });
@@ -589,7 +575,6 @@ unsafe fn extract_aggref_order_by(
 
         entries.push(AggOrderByEntry {
             plan_position,
-            rti,
             attno,
             field_name,
             direction,

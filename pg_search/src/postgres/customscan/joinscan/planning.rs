@@ -375,21 +375,42 @@ pub unsafe fn wrap_with_semi_anti(
     for (subplan, is_anti, inner_root) in top_level_subplans {
         let plan_id = (*subplan).plan_id;
 
+        // Decline correlated SubPlans (`parParam` non-empty). HashJoinExec
+        // builds the inner side once with no per-outer-row state, so the
+        // inner's correlation reference would fail to bind. PG's
+        // `nodeSubplan` executes correlated SubPlans correctly per outer
+        // row; declining here lets PG handle them.
+        //
+        // See also `qual_inspect::contains_correlated_param` for the
+        // expression-tree-walk variant of correlation detection used
+        // elsewhere in the codebase.
+        let par_param_len = PgList::<i32>::from_pg((*subplan).parParam).len();
+        if par_param_len > 0 {
+            pgrx::debug1!(
+                "agg-on-join: declining correlated SubPlan plan_id={} (parParam={})",
+                plan_id,
+                par_param_len
+            );
+            return Err("correlated subquery cannot be lifted into the aggregate scan".into());
+        }
+
         // Find the final rel for the inner subquery.
         let inner_rel = find_final_rel(inner_root);
         if inner_rel.is_null() {
-            return Err(format!(
-                "SubPlan plan_id={plan_id}: inner subquery has no final RelOptInfo \
-                 (find_final_rel returned NULL)"
-            ));
+            pgrx::debug1!(
+                "agg-on-join: SubPlan plan_id={plan_id} declined; \
+                 find_final_rel returned NULL"
+            );
+            return Err("subquery cannot be pushed into the aggregate scan".into());
         }
 
         let Some((inner_node, inner_keys)) = collect_join_sources(inner_root, inner_rel) else {
-            return Err(format!(
-                "SubPlan plan_id={plan_id}: could not collect join sources for inner \
-                 subquery (e.g. inner relation lacks a BM25 index, contains volatile \
-                 functions, or has un-pushdownable predicates)"
-            ));
+            pgrx::debug1!(
+                "agg-on-join: SubPlan plan_id={plan_id} declined; \
+                 inner relation cannot be pushed (no BM25 index, volatile, \
+                 or un-pushdownable predicates)"
+            );
+            return Err("subquery cannot be pushed into the aggregate scan".into());
         };
 
         // Recursively collect join sources for the inner subquery
@@ -398,50 +419,38 @@ pub unsafe fn wrap_with_semi_anti(
         let equi_keys =
             extract_equi_keys_from_subplan(subplan, inner_root, &current_node, &inner_node);
 
-        // For `NOT IN`, set `null_aware=true` so DataFusion's HashJoinExec
-        // honors SQL three-valued logic: `x NOT IN (... NULL ...)` is
-        // UNKNOWN for every outer row, so WHERE excludes the row. Plain
-        // `LeftAnti` ignores inner NULLs (== `NOT EXISTS`), which gives
-        // wrong answers when the inner key column has NULLs.
-        //
-        // DataFusion's null-aware mode requires a single-column equi-key,
-        // so multi-column `NOT IN` can't be lifted here and is left for
-        // PG's `ExecHashSubPlan` to handle.
-        if is_anti && equi_keys.len() != 1 {
-            return Err(format!(
-                "SubPlan plan_id={plan_id}: NOT IN with {} equi-keys cannot be lifted; \
-                 DataFusion's null-aware Anti join requires a single-column equi-key",
-                equi_keys.len(),
-            ));
-        }
-
-        // `IN`-side counterpart: a `Semi` with empty on-keys is a
-        // cross-product semi (emit every outer row if the inner is non-
-        // empty). Right answer for un-correlated `EXISTS` (testexpr null),
-        // wrong answer for any IN whose testexpr we couldn't decode into
-        // a single equi-key - multi-column IN, or a testexpr shape
-        // `extract_equi_keys_from_subplan` doesn't recognize.
-        let testexpr = (*subplan).testexpr;
-        if !is_anti && equi_keys.is_empty() && !testexpr.is_null() {
-            return Err(format!(
-                "SubPlan plan_id={plan_id}: IN/EXISTS testexpr present but no \
-                 equi-keys could be extracted (e.g. multi-column IN, or a \
-                 testexpr shape `extract_equi_keys_from_subplan` does not \
-                 decode); a Semi cross-product would emit wrong rows",
-            ));
-        }
+        // `is_in_shaped` distinguishes IN-family sublinks (carry a per-row
+        // comparison like `x = y`) from EXISTS-family sublinks (no
+        // comparison; just "is the inner empty?"). With `is_anti`, this
+        // identifies all four sublink shapes:
+        //   (true,  true)  NOT IN     -> Anti{null_aware:true}, single equi-key only
+        //   (true,  false) NOT EXISTS -> Anti{null_aware:false} (no 3-valued logic)
+        //   (false, true)  IN         -> Semi, equi-keys decoded from testexpr
+        //   (false, false) EXISTS     -> Semi (cross-product when inner non-empty)
+        let is_in_shaped = !(*subplan).testexpr.is_null();
+        let join_type = match (is_anti, is_in_shaped) {
+            (true, true) if equi_keys.len() != 1 => {
+                pgrx::debug1!(
+                    "agg-on-join: declining NOT IN lift (plan_id={}, equi_keys={})",
+                    plan_id,
+                    equi_keys.len()
+                );
+                return Err("multi-column NOT IN cannot be pushed into the aggregate scan".into());
+            }
+            (true, true) => JoinType::Anti { null_aware: true },
+            (true, false) => JoinType::Anti { null_aware: false },
+            (false, true) if equi_keys.is_empty() => {
+                pgrx::debug1!(
+                    "agg-on-join: declining IN lift (plan_id={}); testexpr undecodable",
+                    plan_id
+                );
+                return Err("IN subquery cannot be pushed into the aggregate scan".into());
+            }
+            _ => JoinType::Semi,
+        };
 
         let join_node = JoinNode {
-            // `null_aware = is_anti`: NOT IN needs three-valued logic;
-            // IN doesn't. The flag lives on the `Anti` variant so the
-            // type system rejects setting it on any other join.
-            join_type: if is_anti {
-                JoinType::Anti {
-                    null_aware: is_anti,
-                }
-            } else {
-                JoinType::Semi
-            },
+            join_type,
             left: current_node,
             right: inner_node,
             equi_keys: equi_keys.clone(),

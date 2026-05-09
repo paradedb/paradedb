@@ -260,14 +260,11 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 --              setup where the NULL is missing and Test 6 "passes" with
 --              zero rows for the wrong reason.
 --
---         Not asserted here: the underlying DataFusion physical plan
---         shape (HashJoinExec with `null_equality=NullEqualsNothing`).
---         AggregateScan's EXPLAIN doesn't render the physical plan
---         tree the way JoinScan's does - surfacing it in EXPLAIN
---         (or asserting it via a Rust test on `build_physical_plan`)
---         would catch a future regression where HashJoinExec degrades
---         to NestedLoopJoin without changing the result. Tracked as a
---         follow-up.
+--         The underlying physical-plan shape (HashJoinExec with
+--         `null_equality=NullEqualsNothing`) is asserted by the Rust unit
+--         test `null_aware_anti_lifts_to_hash_join_with_null_equals_nothing`
+--         in `customscan/datafusion/translator.rs`, which guards against
+--         a future DataFusion bump silently degrading to NestedLoopJoin.
 -- =====================================================================
 CREATE TABLE asa_excl_outer (
     id    bigint PRIMARY KEY,
@@ -351,6 +348,270 @@ WHERE id IN     (SELECT id FROM asa_excl_include)
   AND label @@@ 'Senior'
 GROUP BY label
 ORDER BY doc_count DESC, label;
+
+-- =====================================================================
+-- Test 7: Adversarial shapes - correlated SubPlans that PG keeps as
+--         SubPlans (volatile correlation, set-op inner, etc.) must
+--         decline cleanly with a one-sentence WARNING and produce the
+--         same result as `enable_aggregate_custom_scan=off`. Without
+--         the `parParam` correlation guard in `wrap_with_semi_anti`
+--         these segfault during planning.
+-- =====================================================================
+CREATE TABLE asa_adv_left (
+    id    bigint PRIMARY KEY,
+    fk    bigint,
+    label text NOT NULL
+);
+CREATE TABLE asa_adv_right (
+    id    bigint PRIMARY KEY,
+    body  text
+);
+CREATE TABLE asa_adv_third (
+    id    bigint PRIMARY KEY
+);
+INSERT INTO asa_adv_left (id, fk, label) VALUES
+    (1, 1, 'A'),
+    (2, 2, 'A'),
+    (3, NULL, 'B'),
+    (4, 4, 'B');
+INSERT INTO asa_adv_right (id, body) VALUES
+    (1, 'doc one'),
+    (2, 'doc two'),
+    (3, 'doc three'),
+    (4, 'doc four');
+INSERT INTO asa_adv_third VALUES (1), (3);
+CREATE INDEX asa_adv_left_idx ON asa_adv_left
+USING bm25 (id, fk, label) WITH (
+    key_field = id,
+    text_fields = '{"label": {"fast": true, "tokenizer": {"type": "raw"}}}',
+    numeric_fields = '{"fk": {"fast": true}}'
+);
+CREATE INDEX asa_adv_right_idx ON asa_adv_right
+USING bm25 (id, body) WITH (
+    key_field = id,
+    text_fields = '{"body": {"fast": true}}'
+);
+-- BM25 index on the third table so the IN sublink in 7c reaches the
+-- agg-on-join lift logic instead of declining earlier on "no BM25 index".
+CREATE INDEX asa_adv_third_idx ON asa_adv_third
+USING bm25 (id) WITH (key_field = id);
+
+-- 7a: NOT EXISTS with volatile correlation (`random()*0` blocks pull-up).
+--     SubPlan stays correlated; `parParam` guard declines.
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT l.label, COUNT(*) AS c
+FROM asa_adv_left l JOIN asa_adv_right r ON r.id = l.id
+WHERE NOT EXISTS (SELECT 1 FROM asa_adv_third z
+                  WHERE z.id = l.fk + (random()*0)::bigint)
+  AND r.body @@@ 'doc'
+GROUP BY l.label ORDER BY l.label;
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT l.label, COUNT(*) AS c
+FROM asa_adv_left l JOIN asa_adv_right r ON r.id = l.id
+WHERE NOT EXISTS (SELECT 1 FROM asa_adv_third z
+                  WHERE z.id = l.fk + (random()*0)::bigint)
+  AND r.body @@@ 'doc'
+GROUP BY l.label ORDER BY l.label;
+
+-- 7b: NOT EXISTS with UNION ALL inner (set-op blocks pull-up).
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT l.label, COUNT(*) AS c
+FROM asa_adv_left l JOIN asa_adv_right r ON r.id = l.id
+WHERE NOT EXISTS (
+    SELECT 1 FROM asa_adv_third WHERE id = l.fk
+    UNION ALL
+    SELECT 1 FROM asa_adv_third WHERE id = l.fk + 100
+)
+  AND r.body @@@ 'doc'
+GROUP BY l.label ORDER BY l.label;
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT l.label, COUNT(*) AS c
+FROM asa_adv_left l JOIN asa_adv_right r ON r.id = l.id
+WHERE NOT EXISTS (
+    SELECT 1 FROM asa_adv_third WHERE id = l.fk
+    UNION ALL
+    SELECT 1 FROM asa_adv_third WHERE id = l.fk + 100
+)
+  AND r.body @@@ 'doc'
+GROUP BY l.label ORDER BY l.label;
+
+-- 7c: IN pulled up to a Semi join with a residual cross-table predicate.
+--     The residual references the non-preserved Semi side, so `output_rtis()`
+--     in `build_search_filter` rejects it and we fall back cleanly. Different
+--     decline path from 7a/7b (cross-table predicate, not parParam).
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT l.label, COUNT(*) AS c
+FROM asa_adv_left l JOIN asa_adv_right r ON r.id = l.id
+WHERE l.fk IN (
+    SELECT z.id FROM asa_adv_third z
+    WHERE z.id = l.id + (random()*0)::bigint
+)
+  AND r.body @@@ 'doc'
+GROUP BY l.label ORDER BY l.label;
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT l.label, COUNT(*) AS c
+FROM asa_adv_left l JOIN asa_adv_right r ON r.id = l.id
+WHERE l.fk IN (
+    SELECT z.id FROM asa_adv_third z
+    WHERE z.id = l.id + (random()*0)::bigint
+)
+  AND r.body @@@ 'doc'
+GROUP BY l.label ORDER BY l.label;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+DROP TABLE asa_adv_left;
+DROP TABLE asa_adv_right;
+DROP TABLE asa_adv_third;
+
+-- =====================================================================
+-- Test 8: NOT IN with a multi-table inner SubPlan, plus a cross-table
+--         outer predicate. Exercises the agg-on-join lift on a shape
+--         where (a) the inner subquery is itself a 2-table BM25 join,
+--         (b) outer also has 2 tables joined, and (c) a residual
+--         predicate `b.val > a.threshold` references outer columns
+--         across both outer relations. RTI namespaces collide across
+--         the outer and inner PlannerInfos; the lift must bind every
+--         column to the right source.
+-- =====================================================================
+CREATE TABLE asa_rti_outer_a (id int PRIMARY KEY, body text, threshold int);
+CREATE TABLE asa_rti_outer_b (id int PRIMARY KEY, a_id int, val int);
+CREATE TABLE asa_rti_inner_x (id int PRIMARY KEY, aid int, y_id int);
+CREATE TABLE asa_rti_inner_y (id int PRIMARY KEY, body text, val int);
+
+INSERT INTO asa_rti_outer_a VALUES (1, 'outermatch', 50), (2, 'outermatch', 50), (3, 'other', 50);
+INSERT INTO asa_rti_outer_b VALUES (1, 1, 60), (2, 2, 10), (3, 3, 70);
+INSERT INTO asa_rti_inner_x VALUES (1, 1, 1), (2, 2, 2);
+INSERT INTO asa_rti_inner_y VALUES (1, 'match', 1), (2, 'block', 100);
+
+CREATE INDEX asa_rti_outer_a_idx ON asa_rti_outer_a USING bm25 (id, body, threshold)
+WITH (key_field='id', text_fields='{"body":{}}', numeric_fields='{"threshold":{"fast":true}}');
+CREATE INDEX asa_rti_outer_b_idx ON asa_rti_outer_b USING bm25 (id, a_id, val)
+WITH (key_field='id', numeric_fields='{"a_id":{"fast":true}, "val":{"fast":true}}');
+CREATE INDEX asa_rti_inner_x_idx ON asa_rti_inner_x USING bm25 (id, aid, y_id)
+WITH (key_field='id', numeric_fields='{"aid":{"fast":true}, "y_id":{"fast":true}}');
+CREATE INDEX asa_rti_inner_y_idx ON asa_rti_inner_y USING bm25 (id, body, val)
+WITH (key_field='id', text_fields='{"body":{}}', numeric_fields='{"val":{"fast":true}}');
+
+ANALYZE asa_rti_outer_a; ANALYZE asa_rti_outer_b;
+ANALYZE asa_rti_inner_x; ANALYZE asa_rti_inner_y;
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT COUNT(*), SUM(b.val)
+FROM asa_rti_outer_a a JOIN asa_rti_outer_b b ON a.id = b.a_id
+WHERE a.id NOT IN (
+        SELECT x.aid FROM asa_rti_inner_x x JOIN asa_rti_inner_y y ON x.y_id = y.id
+        WHERE y.body @@@ 'block'
+    )
+  AND a.body @@@ 'outermatch'
+  AND b.val > a.threshold;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT COUNT(*), SUM(b.val)
+FROM asa_rti_outer_a a JOIN asa_rti_outer_b b ON a.id = b.a_id
+WHERE a.id NOT IN (
+        SELECT x.aid FROM asa_rti_inner_x x JOIN asa_rti_inner_y y ON x.y_id = y.id
+        WHERE y.body @@@ 'block'
+    )
+  AND a.body @@@ 'outermatch'
+  AND b.val > a.threshold;
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT COUNT(*), SUM(b.val)
+FROM asa_rti_outer_a a JOIN asa_rti_outer_b b ON a.id = b.a_id
+WHERE a.id NOT IN (
+        SELECT x.aid FROM asa_rti_inner_x x JOIN asa_rti_inner_y y ON x.y_id = y.id
+        WHERE y.body @@@ 'block'
+    )
+  AND a.body @@@ 'outermatch'
+  AND b.val > a.threshold;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+DROP TABLE asa_rti_outer_a, asa_rti_outer_b, asa_rti_inner_x, asa_rti_inner_y;
+
+-- =====================================================================
+-- Test 9: nested SubPlan - a SubPlan whose inner subquery itself contains
+--         another SubPlan (`NOT IN` inside `IN`). The outer-most lift
+--         must decline cleanly without crashing on the inner SubPlan's
+--         own PlannerInfo. Asserts on/off parity.
+-- =====================================================================
+CREATE TABLE asa_n9_outer (id bigint PRIMARY KEY, label text NOT NULL);
+CREATE TABLE asa_n9_mid (id bigint PRIMARY KEY);
+CREATE TABLE asa_n9_inner (id bigint PRIMARY KEY);
+
+INSERT INTO asa_n9_outer VALUES (1, 'A'), (2, 'A'), (3, 'B'), (4, 'B');
+INSERT INTO asa_n9_mid VALUES (1), (2), (3);
+INSERT INTO asa_n9_inner VALUES (2);
+
+CREATE INDEX asa_n9_outer_idx ON asa_n9_outer USING bm25 (id, label)
+WITH (key_field='id', text_fields='{"label":{"fast":true, "tokenizer":{"type":"raw"}}}');
+CREATE INDEX asa_n9_mid_idx ON asa_n9_mid USING bm25 (id) WITH (key_field='id');
+CREATE INDEX asa_n9_inner_idx ON asa_n9_inner USING bm25 (id) WITH (key_field='id');
+
+ANALYZE asa_n9_outer; ANALYZE asa_n9_mid; ANALYZE asa_n9_inner;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT label, COUNT(*) AS c FROM asa_n9_outer
+WHERE id IN (
+    SELECT m.id FROM asa_n9_mid m
+    WHERE m.id NOT IN (SELECT i.id FROM asa_n9_inner i)
+)
+  AND label @@@ 'A'
+GROUP BY label ORDER BY label;
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT label, COUNT(*) AS c FROM asa_n9_outer
+WHERE id IN (
+    SELECT m.id FROM asa_n9_mid m
+    WHERE m.id NOT IN (SELECT i.id FROM asa_n9_inner i)
+)
+  AND label @@@ 'A'
+GROUP BY label ORDER BY label;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+DROP TABLE asa_n9_outer; DROP TABLE asa_n9_mid; DROP TABLE asa_n9_inner;
+
+-- =====================================================================
+-- Test 10: multi-level Semi/Anti chain on the same outer - `id IN (...)`
+--         AND `id NOT IN (...)` AND `id NOT IN (...)`. Each SubPlan must
+--         either lift independently or decline cleanly; the agg-on-join
+--         path must not silently drop any of them. On/off parity asserts
+--         no predicate is dropped.
+-- =====================================================================
+CREATE TABLE asa_n10_outer (id bigint PRIMARY KEY, label text NOT NULL);
+CREATE TABLE asa_n10_in1 (id bigint PRIMARY KEY);
+CREATE TABLE asa_n10_in2 (id bigint PRIMARY KEY);
+CREATE TABLE asa_n10_in3 (id bigint PRIMARY KEY);
+
+INSERT INTO asa_n10_outer VALUES (1, 'A'), (2, 'A'), (3, 'A'), (4, 'B'), (5, 'B');
+INSERT INTO asa_n10_in1 VALUES (1), (2), (3), (4), (5);
+INSERT INTO asa_n10_in2 VALUES (4);
+INSERT INTO asa_n10_in3 VALUES (5);
+
+CREATE INDEX asa_n10_outer_idx ON asa_n10_outer USING bm25 (id, label)
+WITH (key_field='id', text_fields='{"label":{"fast":true, "tokenizer":{"type":"raw"}}}');
+CREATE INDEX asa_n10_in1_idx ON asa_n10_in1 USING bm25 (id) WITH (key_field='id');
+CREATE INDEX asa_n10_in2_idx ON asa_n10_in2 USING bm25 (id) WITH (key_field='id');
+CREATE INDEX asa_n10_in3_idx ON asa_n10_in3 USING bm25 (id) WITH (key_field='id');
+
+ANALYZE asa_n10_outer; ANALYZE asa_n10_in1;
+ANALYZE asa_n10_in2; ANALYZE asa_n10_in3;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SELECT label, COUNT(*) AS c FROM asa_n10_outer
+WHERE id IN (SELECT id FROM asa_n10_in1)
+  AND id NOT IN (SELECT id FROM asa_n10_in2)
+  AND id NOT IN (SELECT id FROM asa_n10_in3)
+  AND label @@@ 'A'
+GROUP BY label ORDER BY label;
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT label, COUNT(*) AS c FROM asa_n10_outer
+WHERE id IN (SELECT id FROM asa_n10_in1)
+  AND id NOT IN (SELECT id FROM asa_n10_in2)
+  AND id NOT IN (SELECT id FROM asa_n10_in3)
+  AND label @@@ 'A'
+GROUP BY label ORDER BY label;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+DROP TABLE asa_n10_outer; DROP TABLE asa_n10_in1;
+DROP TABLE asa_n10_in2; DROP TABLE asa_n10_in3;
 
 -- =====================================================================
 -- Cleanup

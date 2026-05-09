@@ -638,18 +638,6 @@ impl DrainHandle {
         &self.buffer
     }
 
-    /// Cancel the drain explicitly and join the thread (thread-backed only).
-    /// For cooperative handles, simply drops the receivers (signalling detach
-    /// to peer senders) and returns. Called by tests at natural shutdown; in
-    /// production the `Drop` impl handles cleanup on both happy and panic paths.
-    #[cfg(test)]
-    pub fn shutdown(&self) -> Result<(), DataFusionError> {
-        self.buffer.cancel();
-        // Drop receivers (if any) so peer shm_mq senders observe detach.
-        let _ = self.coop_receivers.lock().unwrap().take();
-        self.join_inner()
-    }
-
     fn join_inner(&self) -> Result<(), DataFusionError> {
         let join_opt = self.join.lock().unwrap().take();
         if let Some(join) = join_opt {
@@ -926,7 +914,9 @@ mod tests {
                                 // Pop the one batch
         assert!(matches!(buffer.pop_front(), DrainItem::Batch(_)));
         assert!(matches!(buffer.pop_front(), DrainItem::Eof));
-        handle.shutdown().unwrap();
+        // Drop drives production teardown (cancel + join). Test passes if
+        // this returns without hanging.
+        std::mem::drop(handle);
     }
 
     #[test]

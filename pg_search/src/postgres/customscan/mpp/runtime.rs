@@ -43,8 +43,8 @@ use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::{
-    NetworkBoundary, NetworkShuffleExec, Stage, WorkerConnection, WorkerPartitionStream,
-    WorkerResolver, WorkerTransport,
+    NetworkBoundary, NetworkShuffleExec, OnMetadataCallback, Stage, WorkerConnection,
+    WorkerPartitionStream, WorkerResolver, WorkerTransport,
 };
 use url::Url;
 
@@ -299,7 +299,7 @@ impl WorkerConnection for ShmMqPeerWorkerConnection {
     fn stream_partition(
         &self,
         partition: usize,
-        _on_metadata: datafusion_distributed::OnMetadataCallback,
+        _on_metadata: OnMetadataCallback,
     ) -> Result<WorkerPartitionStream> {
         let tag = u32::try_from(partition).map_err(|_| {
             DataFusionError::Internal(format!(

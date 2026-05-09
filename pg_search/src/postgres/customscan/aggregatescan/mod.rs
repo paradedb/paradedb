@@ -40,18 +40,21 @@ use std::sync::Arc;
 
 use datafusion::execution::SessionStateBuilder;
 use datafusion::physical_plan::ExecutionPlan;
-use datafusion_distributed::{DistributedExt, SessionStateBuilderExt};
+use datafusion_distributed::{DistributedExt, DistributedTaskContext, SessionStateBuilderExt};
 
 use crate::postgres::customscan::mpp::dsm::MppDsmHeader;
-use crate::postgres::customscan::mpp::exec::run_producer_fragment;
+use crate::postgres::customscan::mpp::exec::run_inner_producer_fragment;
 use crate::postgres::customscan::mpp::glue::{
     estimate_dsm_size, leader_setup, mpp_is_active, mpp_worker_count, producer_worker_count,
     worker_setup,
 };
+use crate::postgres::customscan::mpp::mesh::MppPeerMesh;
 use crate::postgres::customscan::mpp::runtime::{
-    LocalExecWorkerTransport, MppMesh, MppWorkerResolver, ShmMqWorkerTransport,
+    build_stage_to_mesh_map, collect_inner_producer_fragments, collect_inner_shuffle_stage_ids,
+    CompositeWorkerTransport, LocalExecWorkerTransport, MppMesh, MppWorkerResolver,
+    ShmMqWorkerTransport,
 };
-use crate::postgres::customscan::mpp::transport::MppSender;
+use crate::postgres::customscan::mpp::transport::{mark_backend_thread, MppSender};
 
 use crate::api::agg_funcoid;
 use crate::api::SortDirection;
@@ -652,8 +655,6 @@ fn count_peer_mesh_shuffles(
     logical: &datafusion::logical_expr::LogicalPlan,
     n_workers: u32,
 ) -> u32 {
-    use datafusion::execution::SessionStateBuilder;
-    use datafusion_distributed::SessionStateBuilderExt;
     let n_workers_us = n_workers as usize;
     let serial = create_aggregate_session_context();
     let cfg = serial
@@ -662,16 +663,12 @@ fn count_peer_mesh_shuffles(
     let state_builder = SessionStateBuilder::new()
         .with_default_features()
         .with_config(cfg)
-        .with_distributed_worker_resolver(
-            crate::postgres::customscan::mpp::runtime::MppWorkerResolver::new(n_workers_us),
-        )
+        .with_distributed_worker_resolver(MppWorkerResolver::new(n_workers_us))
         // Peer-shuffle emission requires in-process mode. The bare LocalExec
         // stub is registered so the planner has a transport to dispatch
         // through, but the plan here is built and discarded for counting
         // only, never executed.
-        .with_distributed_worker_transport(
-            crate::postgres::customscan::mpp::runtime::LocalExecWorkerTransport,
-        );
+        .with_distributed_worker_transport(LocalExecWorkerTransport);
     let state_builder = match state_builder.with_distributed_in_process_mode(true) {
         Ok(b) => b,
         Err(_) => return 0,
@@ -703,7 +700,7 @@ fn count_peer_mesh_shuffles(
     total.saturating_sub(1)
 }
 
-fn count_network_shuffles_in(plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>) -> u32 {
+fn count_network_shuffles_in(plan: &Arc<dyn ExecutionPlan>) -> u32 {
     let mut count = if plan.name() == "NetworkShuffleExec" {
         1
     } else {
@@ -778,18 +775,14 @@ impl ParallelQueryCapable for AggregateScan {
             .as_ref()
             .map(|d| d.mpp_n_peer_meshes)
             .unwrap_or(0);
-        let mpp_size = match crate::postgres::customscan::mpp::glue::estimate_dsm_size(
-            plan_bytes_len,
-            n_partitions,
-            n_cache_sources,
-            n_peer_meshes,
-        ) {
-            Ok(sz) => sz,
-            Err(e) => {
-                pgrx::warning!("mpp: estimate_dsm failed: {e}; falling back to serial");
-                return 0;
-            }
-        };
+        let mpp_size =
+            match estimate_dsm_size(plan_bytes_len, n_partitions, n_cache_sources, n_peer_meshes) {
+                Ok(sz) => sz,
+                Err(e) => {
+                    pgrx::warning!("mpp: estimate_dsm failed: {e}; falling back to serial");
+                    return 0;
+                }
+            };
 
         (mpp_offset + mpp_size) as pg_sys::Size
     }
@@ -1233,7 +1226,7 @@ impl AggregateScan {
         // drain spin's `pgrx::check_for_interrupts!()` is gated to it
         // (compute futures running on the multi-thread Tokio runtime skip
         // the check).
-        crate::postgres::customscan::mpp::transport::mark_backend_thread();
+        mark_backend_thread();
         // Pull worker-thread inputs from the outer state before we borrow
         // df_state mutably. parallel_state and non_partitioning_segments
         // are required to pin each worker's PgSearchTableProvider to the
@@ -1275,18 +1268,14 @@ impl AggregateScan {
         // its hash to mpp_n_partitions × mpp_n_partitions = 81 partitions.
         let n_workers = worker.participant_config.total_participants;
         let worker_idx_for_cache = worker.participant_config.participant_index;
-        let outbound_senders: Vec<crate::postgres::customscan::mpp::transport::MppSender> =
-            match df_state.mpp.as_mut() {
-                Some(scan_state::MppExecState::Worker(w)) => {
-                    std::mem::take(&mut w.outbound_senders)
-                }
-                _ => unreachable!(),
-            };
-        let peer_meshes: Vec<Arc<crate::postgres::customscan::mpp::mesh::MppPeerMesh>> =
-            match df_state.mpp.as_ref() {
-                Some(scan_state::MppExecState::Worker(w)) => w.peer_meshes.clone(),
-                _ => Vec::new(),
-            };
+        let outbound_senders: Vec<MppSender> = match df_state.mpp.as_mut() {
+            Some(scan_state::MppExecState::Worker(w)) => std::mem::take(&mut w.outbound_senders),
+            _ => unreachable!(),
+        };
+        let peer_meshes: Vec<Arc<MppPeerMesh>> = match df_state.mpp.as_ref() {
+            Some(scan_state::MppExecState::Worker(w)) => w.peer_meshes.clone(),
+            _ => Vec::new(),
+        };
 
         // Single-threaded Tokio runtime is the current safe default —
         // pgrx 0.18 auto-wraps every `pg_sys::*` FFI call with
@@ -1385,7 +1374,7 @@ impl AggregateScan {
         // NetworkShuffleExec.execute computes per-task partition slices correctly.
         // Without this, every worker reads off=0 and produces all N global
         // partitions itself, so workers send duplicate data to the leader.
-        let task_ctx_ext = std::sync::Arc::new(datafusion_distributed::DistributedTaskContext {
+        let task_ctx_ext = std::sync::Arc::new(DistributedTaskContext {
             task_index: worker_idx_for_cache as usize,
             task_count: n_workers_us,
         });
@@ -1395,16 +1384,11 @@ impl AggregateScan {
             .with_extension(task_ctx_ext);
         // Shared stage→peer-mesh routing map for the worker's
         // `CompositeWorkerTransport`. Empty until populated below.
-        let shared_routes =
-            crate::postgres::customscan::mpp::runtime::CompositeWorkerTransport::empty_routes();
-        use datafusion::execution::SessionStateBuilder;
-        use datafusion_distributed::SessionStateBuilderExt;
+        let shared_routes = CompositeWorkerTransport::empty_routes();
         let state_builder = SessionStateBuilder::new()
             .with_default_features()
             .with_config(cfg)
-            .with_distributed_worker_resolver(
-                crate::postgres::customscan::mpp::runtime::MppWorkerResolver::new(n_workers_us),
-            )
+            .with_distributed_worker_resolver(MppWorkerResolver::new(n_workers_us))
             // Workers may encounter two kinds of nested network boundaries
             // inside the producer fragment:
             //   1. `NetworkBroadcastExec` on the build side of a HashJoin —
@@ -1422,11 +1406,9 @@ impl AggregateScan {
             // The map is populated below, AFTER the physical plan is built,
             // by walking the worker fragment for nested `NetworkShuffleExec`
             // stage IDs and zipping with the worker's `peer_meshes` Vec.
-            .with_distributed_worker_transport(
-                crate::postgres::customscan::mpp::runtime::CompositeWorkerTransport::new(
-                    Arc::clone(&shared_routes),
-                ),
-            )
+            .with_distributed_worker_transport(CompositeWorkerTransport::new(Arc::clone(
+                &shared_routes,
+            )))
             .with_distributed_in_process_mode(true)
             .expect("with_distributed_in_process_mode")
             .with_distributed_task_estimator(n_workers_us)
@@ -1475,12 +1457,8 @@ impl AggregateScan {
         // worker), zip with the leader's allocated `peer_meshes` Vec.
         // Mismatch is a hard error since it indicates the leader and
         // worker disagree on plan shape.
-        let inner_stage_ids =
-            crate::postgres::customscan::mpp::runtime::collect_inner_shuffle_stage_ids(&fragment);
-        match crate::postgres::customscan::mpp::runtime::build_stage_to_mesh_map(
-            &inner_stage_ids,
-            &peer_meshes,
-        ) {
+        let inner_stage_ids = collect_inner_shuffle_stage_ids(&fragment);
+        match build_stage_to_mesh_map(&inner_stage_ids, &peer_meshes) {
             Ok(map) => {
                 *shared_routes.write() = map;
             }
@@ -1511,8 +1489,7 @@ impl AggregateScan {
         // same pre-order DFS that `collect_inner_shuffle_stage_ids` uses
         // to build the routing map; the lengths must match (already
         // validated by `build_stage_to_mesh_map`).
-        let inner_fragments =
-            crate::postgres::customscan::mpp::runtime::collect_inner_producer_fragments(&fragment);
+        let inner_fragments = collect_inner_producer_fragments(&fragment);
         if inner_fragments.len() != peer_meshes.len() {
             pgrx::error!(
                 "mpp worker: inner-fragment count ({}) != peer-mesh count ({})",
@@ -1548,14 +1525,12 @@ impl AggregateScan {
                     unsafe { pg_sys::work_mem as usize * 1024 },
                     unsafe { pg_sys::hash_mem_multiplier },
                 );
-                futures_vec.push(Box::pin(
-                    crate::postgres::customscan::mpp::exec::run_inner_producer_fragment(
-                        inner,
-                        peer_outbound,
-                        n_consumers,
-                        inner_task_ctx,
-                    ),
-                ));
+                futures_vec.push(Box::pin(run_inner_producer_fragment(
+                    inner,
+                    peer_outbound,
+                    n_consumers,
+                    inner_task_ctx,
+                )));
             }
             futures_vec.push(Box::pin(
                 crate::postgres::customscan::mpp::exec::run_producer_fragment(
@@ -1578,9 +1553,7 @@ impl AggregateScan {
     ///
     /// Pre-order traversal returns on the first match, which is the
     /// outermost shuffle — the one that straddles the worker→leader split.
-    fn find_worker_fragment(
-        plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>,
-    ) -> Option<Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
+    fn find_worker_fragment(plan: &Arc<dyn ExecutionPlan>) -> Option<Arc<dyn ExecutionPlan>> {
         if plan.name() == "NetworkShuffleExec" {
             return plan.children().first().map(|c| Arc::clone(c));
         }

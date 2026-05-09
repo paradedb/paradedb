@@ -42,7 +42,7 @@ use crate::gucs::{
 };
 use crate::postgres::customscan::mpp::dsm::{
     compute_dsm_layout, leader_init, worker_attach, worker_peer_attach, MppBuildCache,
-    MPP_CACHE_PER_SLOT,
+    MppDsmHeader, MPP_CACHE_PER_SLOT,
 };
 use crate::postgres::customscan::mpp::mesh::MppPeerMesh;
 use crate::postgres::customscan::mpp::runtime::MppMesh;

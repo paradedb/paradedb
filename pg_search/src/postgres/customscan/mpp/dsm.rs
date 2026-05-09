@@ -56,13 +56,6 @@ use crate::postgres::customscan::mpp::mesh::{
 pub const MPP_DSM_MAGIC: u32 = 0x4D50_5052; // "MPPR" (RPC variant)
 pub const MPP_DSM_HEADER_VERSION: u32 = 1;
 
-/// Hard cap on per-source-per-worker cache slot size. Sized for our 25 M
-/// bench: a 1.25 M-row build side encoded in Arrow IPC is ~400 MB total
-/// (Utf8View widening, schema overhead) — split across N workers, each
-/// slot needs ~400/N MB. 256 MiB caps at the worst single-worker slice.
-/// A future heuristic should derive this from index stats per query.
-pub const MPP_CACHE_PER_SLOT: usize = 256 * 1024 * 1024;
-
 /// Absolute cap on DSM region size. 16 GiB is two orders of magnitude beyond
 /// any realistic workload; the cap fails early on a pathologically oversized
 /// request rather than asking PG for ~`usize::MAX` bytes.

@@ -37,10 +37,11 @@ use std::sync::Arc;
 use pgrx::pg_sys;
 
 use crate::gucs::{
-    enable_mpp, mpp_queue_size as gucs_mpp_queue_size, mpp_worker_count as gucs_mpp_worker_count,
+    enable_mpp, mpp_cache_per_slot, mpp_queue_size as gucs_mpp_queue_size,
+    mpp_worker_count as gucs_mpp_worker_count,
 };
 use crate::postgres::customscan::mpp::dsm::{
-    compute_dsm_layout, leader_init, worker_attach, MppBuildCache, MppDsmHeader, MPP_CACHE_PER_SLOT,
+    compute_dsm_layout, leader_init, worker_attach, MppBuildCache, MppDsmHeader,
 };
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 use crate::postgres::customscan::mpp::transport::{
@@ -95,7 +96,7 @@ pub fn estimate_dsm_size(
         mpp_queue_size(),
         plan_bytes_len,
         n_cache_sources,
-        MPP_CACHE_PER_SLOT,
+        mpp_cache_per_slot(),
     )
     .map_err(|e| format!("mpp: estimate_dsm_size: {e}"))?;
     Ok(layout.region_total)
@@ -150,7 +151,7 @@ pub unsafe fn leader_setup(
         mpp_queue_size(),
         plan_bytes.len(),
         n_cache_sources,
-        MPP_CACHE_PER_SLOT,
+        mpp_cache_per_slot(),
     )
     .map_err(|e| format!("mpp: leader_setup compute layout: {e}"))?;
 

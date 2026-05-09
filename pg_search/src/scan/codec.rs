@@ -383,18 +383,6 @@ pub fn serialize_logical_plan(plan: &LogicalPlan) -> Result<bytes::Bytes> {
     )
 }
 
-/// Deserializes a DataFusion `LogicalPlan` from bytes using the
-/// `PgSearchExtensionCodec`. Only used by the codec round-trip test in
-/// `visibility_filter.rs`; non-test builds use the runtime variant below.
-#[cfg(any(test, feature = "pg_test"))]
-pub fn deserialize_logical_plan(bytes: &[u8], ctx: &TaskContext) -> Result<LogicalPlan> {
-    datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(
-        bytes,
-        ctx,
-        &PgSearchExtensionCodec::default(),
-    )
-}
-
 /// Deserializes a DataFusion `LogicalPlan` using a codec populated with the
 /// runtime state required by execution.
 #[allow(clippy::too_many_arguments)]

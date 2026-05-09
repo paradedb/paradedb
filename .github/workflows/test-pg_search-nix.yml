@@ -42,7 +42,7 @@ jobs:
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
         uses: actions/create-github-app-token@v3
         with:
-          client-id: ${{ vars.PARADEDB_GITHUB_APP_ID }}
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
 
       - name: Checkout Git Repository

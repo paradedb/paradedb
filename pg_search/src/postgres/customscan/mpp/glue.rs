@@ -37,7 +37,7 @@ use std::sync::Arc;
 use pgrx::pg_sys;
 
 use crate::postgres::customscan::mpp::dsm::{
-    compute_dsm_layout, leader_init, worker_attach, MppBuildCache, MPP_CACHE_PER_SLOT,
+    compute_dsm_layout, leader_init, worker_attach, MppBuildCache, MppDsmHeader, MPP_CACHE_PER_SLOT,
 };
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 use crate::postgres::customscan::mpp::transport::{
@@ -179,7 +179,6 @@ pub unsafe fn leader_setup(
 
     let build_cache = if n_cache_sources > 0 {
         Some(Arc::new(unsafe {
-            use crate::postgres::customscan::mpp::dsm::MppDsmHeader;
             let header = std::ptr::read(coordinate as *const MppDsmHeader);
             MppBuildCache::from_header(coordinate as *mut u8, &header)
         }))

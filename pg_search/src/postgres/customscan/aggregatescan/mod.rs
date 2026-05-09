@@ -38,7 +38,20 @@ pub use targetlist::TargetListEntry;
 
 use std::sync::Arc;
 
-use datafusion_distributed::DistributedExt;
+use datafusion::execution::SessionStateBuilder;
+use datafusion::physical_plan::ExecutionPlan;
+use datafusion_distributed::{DistributedExt, SessionStateBuilderExt};
+
+use crate::postgres::customscan::mpp::dsm::MppDsmHeader;
+use crate::postgres::customscan::mpp::exec::run_producer_fragment;
+use crate::postgres::customscan::mpp::glue::{
+    estimate_dsm_size, leader_setup, mpp_is_active, mpp_worker_count, producer_worker_count,
+    worker_setup,
+};
+use crate::postgres::customscan::mpp::runtime::{
+    LocalExecWorkerTransport, MppMesh, MppWorkerResolver, ShmMqWorkerTransport,
+};
+use crate::postgres::customscan::mpp::transport::MppSender;
 
 use crate::api::agg_funcoid;
 use crate::api::SortDirection;
@@ -78,6 +91,7 @@ use crate::postgres::types::{is_datetime_type, TantivyValue};
 use crate::postgres::utils::{add_vars_to_tlist, is_unnest_func, make_text_const};
 use crate::postgres::PgSearchRelation;
 use chrono::{DateTime as ChronoDateTime, Utc};
+use futures::StreamExt;
 use pgrx::{pg_sys, PgList, PgMemoryContexts, PgTupleDesc};
 use std::ffi::CStr;
 use tantivy::schema::OwnedValue;
@@ -501,9 +515,7 @@ impl CustomScan for AggregateScan {
             // this branch (`ParallelWorkerNumber == -1` in the leader
             // backend); workers read the bytes back from DSM in
             // initialize_worker_custom_scan.
-            if crate::postgres::customscan::mpp::glue::mpp_is_active()
-                && unsafe { pg_sys::ParallelWorkerNumber } == -1
-            {
+            if mpp_is_active() && unsafe { pg_sys::ParallelWorkerNumber } == -1 {
                 Self::stash_mpp_plan_bytes(state);
             }
             return;
@@ -671,11 +683,7 @@ impl crate::postgres::customscan::dsm::ParallelQueryCapable for AggregateScan {
             .source_manifests
             .len()
             .saturating_sub(1) as u32;
-        let mpp_size = match crate::postgres::customscan::mpp::glue::estimate_dsm_size(
-            plan_bytes_len,
-            n_partitions,
-            n_cache_sources,
-        ) {
+        let mpp_size = match estimate_dsm_size(plan_bytes_len, n_partitions, n_cache_sources) {
             Ok(sz) => sz,
             Err(e) => {
                 pgrx::warning!("mpp: estimate_dsm failed: {e}; falling back to serial");
@@ -764,7 +772,7 @@ impl crate::postgres::customscan::dsm::ParallelQueryCapable for AggregateScan {
             .len()
             .saturating_sub(1) as u32;
         let leader = match unsafe {
-            crate::postgres::customscan::mpp::glue::leader_setup(
+            leader_setup(
                 mpp_coordinate,
                 seg,
                 n_partitions,
@@ -832,13 +840,10 @@ impl crate::postgres::customscan::dsm::ParallelQueryCapable for AggregateScan {
         // Attach to the MPP region.
         let mpp_coordinate =
             unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut std::os::raw::c_void };
-        let region_total = unsafe {
-            (*mpp_coordinate.cast::<crate::postgres::customscan::mpp::dsm::MppDsmHeader>())
-                .region_total
-        };
+        let region_total = unsafe { (*mpp_coordinate.cast::<MppDsmHeader>()).region_total };
         let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
         let worker = match unsafe {
-            crate::postgres::customscan::mpp::glue::worker_setup(
+            worker_setup(
                 mpp_coordinate,
                 region_total,
                 worker_number,
@@ -1054,7 +1059,7 @@ impl AggregateScan {
         // consumer_task_count to 1, which disables `NetworkShuffleExec`'s
         // per-task hash scaling. So producer output = target_partitions =
         // n_workers (matching `build_mpp_leader_session_context`).
-        let n_workers = crate::postgres::customscan::mpp::glue::producer_worker_count();
+        let n_workers = producer_worker_count();
         df_state.mpp_n_partitions = n_workers.max(1);
     }
 
@@ -1065,9 +1070,7 @@ impl AggregateScan {
     /// `create_physical_plan` over the leader's logical plan, returns a
     /// `DistributedExec` whose `NetworkShuffleExec`s pull batches from the
     /// shm_mq mesh at execute time.
-    fn build_mpp_leader_session_context(
-        mesh: Arc<crate::postgres::customscan::mpp::runtime::MppMesh>,
-    ) -> datafusion::prelude::SessionContext {
+    fn build_mpp_leader_session_context(mesh: Arc<MppMesh>) -> datafusion::prelude::SessionContext {
         let serial = create_aggregate_session_context();
         let n_workers = mesh.n_workers as usize;
         // Four-knob unlock for actually inserting NetworkShuffleExec/etc.:
@@ -1087,17 +1090,11 @@ impl AggregateScan {
             .copied_config()
             .with_target_partitions(n_workers.max(2));
 
-        use datafusion::execution::SessionStateBuilder;
-        use datafusion_distributed::SessionStateBuilderExt;
         let state_builder = SessionStateBuilder::new()
             .with_default_features()
             .with_config(cfg)
-            .with_distributed_worker_resolver(
-                crate::postgres::customscan::mpp::runtime::MppWorkerResolver::new(n_workers),
-            )
-            .with_distributed_worker_transport(
-                crate::postgres::customscan::mpp::runtime::ShmMqWorkerTransport::new(mesh),
-            )
+            .with_distributed_worker_resolver(MppWorkerResolver::new(n_workers))
+            .with_distributed_worker_transport(ShmMqWorkerTransport::new(mesh))
             .with_distributed_in_process_mode(true)
             .expect("with_distributed_in_process_mode")
             .with_distributed_task_estimator(n_workers)
@@ -1157,13 +1154,10 @@ impl AggregateScan {
         // its hash to mpp_n_partitions × mpp_n_partitions = 81 partitions.
         let n_workers = worker.participant_config.total_participants;
         let worker_idx_for_cache = worker.participant_config.participant_index;
-        let outbound_senders: Vec<crate::postgres::customscan::mpp::transport::MppSender> =
-            match df_state.mpp.as_mut() {
-                Some(scan_state::MppExecState::Worker(w)) => {
-                    std::mem::take(&mut w.outbound_senders)
-                }
-                _ => unreachable!(),
-            };
+        let outbound_senders: Vec<MppSender> = match df_state.mpp.as_mut() {
+            Some(scan_state::MppExecState::Worker(w)) => std::mem::take(&mut w.outbound_senders),
+            _ => unreachable!(),
+        };
 
         let runtime = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -1227,14 +1221,10 @@ impl AggregateScan {
         let cfg = ctx
             .copied_config()
             .with_target_partitions(n_workers_us.max(2));
-        use datafusion::execution::SessionStateBuilder;
-        use datafusion_distributed::SessionStateBuilderExt;
         let state_builder = SessionStateBuilder::new()
             .with_default_features()
             .with_config(cfg)
-            .with_distributed_worker_resolver(
-                crate::postgres::customscan::mpp::runtime::MppWorkerResolver::new(n_workers_us),
-            )
+            .with_distributed_worker_resolver(MppWorkerResolver::new(n_workers_us))
             // Workers may encounter nested network boundaries inside the
             // producer fragment (e.g. a `NetworkBroadcastExec` on the build
             // side of a `HashJoin`). Without a transport registered, the
@@ -1243,9 +1233,7 @@ impl AggregateScan {
             // the boundary's input subtree locally — duplicates the build
             // scan across workers, but for small index scans that's cheap
             // and keeps the in-process design self-contained.
-            .with_distributed_worker_transport(
-                crate::postgres::customscan::mpp::runtime::LocalExecWorkerTransport,
-            )
+            .with_distributed_worker_transport(LocalExecWorkerTransport)
             .with_distributed_in_process_mode(true)
             .expect("with_distributed_in_process_mode")
             .with_distributed_task_estimator(n_workers_us)
@@ -1285,14 +1273,8 @@ impl AggregateScan {
             unsafe { pg_sys::work_mem as usize * 1024 },
             unsafe { pg_sys::hash_mem_multiplier },
         );
-        let result = runtime.block_on(async {
-            crate::postgres::customscan::mpp::exec::run_producer_fragment(
-                fragment,
-                outbound_senders,
-                task_ctx,
-            )
-            .await
-        });
+        let result = runtime
+            .block_on(async { run_producer_fragment(fragment, outbound_senders, task_ctx).await });
         if let Err(e) = result {
             pgrx::error!("mpp worker: run_producer_fragment failed: {e}");
         }
@@ -1310,9 +1292,7 @@ impl AggregateScan {
     /// build side crosses `hash_join_single_partition_threshold`) are
     /// re-executed locally by `LocalExecWorkerTransport` at execute time,
     /// so the worker only needs to find the outermost one.
-    fn find_worker_fragment(
-        plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>,
-    ) -> Option<Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
+    fn find_worker_fragment(plan: &Arc<dyn ExecutionPlan>) -> Option<Arc<dyn ExecutionPlan>> {
         if plan.name() == "NetworkShuffleExec" {
             return plan.children().first().map(|c| Arc::clone(c));
         }
@@ -1489,8 +1469,8 @@ impl AggregateScan {
         // parallel flags at build time, and setting them after produces a
         // `Single Copy: true` Gather where the customscan never actually
         // runs in multiple workers.
-        let builder = if crate::postgres::customscan::mpp::glue::mpp_is_active() {
-            let n_workers = crate::postgres::customscan::mpp::glue::mpp_worker_count();
+        let builder = if mpp_is_active() {
+            let n_workers = mpp_worker_count();
             let workers_to_launch = (n_workers.saturating_sub(1) as usize).max(1);
             builder.set_parallel(workers_to_launch)
         } else {
@@ -1807,10 +1787,7 @@ impl AggregateScan {
             let runtime = df_state.runtime.as_ref().unwrap();
             let stream = df_state.stream.as_mut().unwrap();
 
-            let next = runtime.block_on(async {
-                use futures::StreamExt;
-                stream.next().await
-            });
+            let next = runtime.block_on(async { stream.next().await });
 
             match next {
                 Some(Ok(batch)) => {

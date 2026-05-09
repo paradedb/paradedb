@@ -38,8 +38,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
+use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::{
-    Stage, WorkerConnection, WorkerPartitionStream, WorkerResolver, WorkerTransport,
+    OnMetadataCallback, Stage, WorkerConnection, WorkerPartitionStream, WorkerResolver,
+    WorkerTransport,
 };
 use url::Url;
 
@@ -114,7 +116,7 @@ impl WorkerConnection for ShmMqWorkerConnection {
     fn stream_partition(
         &self,
         partition: usize,
-        _on_metadata: datafusion_distributed::OnMetadataCallback,
+        _on_metadata: OnMetadataCallback,
     ) -> Result<WorkerPartitionStream> {
         let partition_u32 = u32::try_from(partition).map_err(|_| {
             DataFusionError::Internal(format!(
@@ -214,7 +216,7 @@ impl WorkerTransport for LocalExecWorkerTransport {
 }
 
 struct LocalExecWorkerConnection {
-    plan: Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+    plan: Arc<dyn ExecutionPlan>,
     ctx: Arc<TaskContext>,
 }
 
@@ -222,7 +224,7 @@ impl WorkerConnection for LocalExecWorkerConnection {
     fn stream_partition(
         &self,
         partition: usize,
-        _on_metadata: datafusion_distributed::OnMetadataCallback,
+        _on_metadata: OnMetadataCallback,
     ) -> Result<WorkerPartitionStream> {
         let stream = self.plan.execute(partition, Arc::clone(&self.ctx))?;
         // SendableRecordBatchStream is already `Pin<Box<dyn Stream<Item = Result<RecordBatch>> + Send>>`;

@@ -68,6 +68,10 @@ impl ExtractInfo {
         self.pushdown.clone()
     }
 
+    pub fn get_residual(&self) -> Vec<RestrictInfoID> {
+        self.residual.clone()
+    }
+
     pub fn has_match(&self) -> bool {
         self.pushdown.is_some() && self.state.uses_our_operator
     }

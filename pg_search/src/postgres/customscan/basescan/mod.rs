@@ -865,6 +865,11 @@ impl CustomScan for BaseScan {
             // states. Should consider having a separate builder for PrivateData.
             let mut custom_private = PrivateData::default();
 
+            // Store all residual filter clauses (RestrictInfo)
+            // which we have to pass to PostgreSQL evaluator
+            let residual = extract_info.get_residual();
+            custom_private.set_residual(residual);
+
             let segment_count = {
                 let directory = MvccSatisfies::LargestSegment.directory(&bm25_index);
                 let segment_count = directory.total_segment_count(); // return value only valid after the index has been opened
@@ -1259,24 +1264,42 @@ impl CustomScan for BaseScan {
             // PostgreSQL's ExecInitCustomScan will call ExecInitQual on plan.qual,
             // which properly initializes SubPlans. We then evaluate these in exec_custom_scan.
             let clauses = PgList::<pg_sys::Node>::from_pg(builder.args().clauses);
-            let mut subplan_quals = PgList::<pg_sys::Node>::new();
+            let mut residual_quals = PgList::<pg_sys::Node>::new();
+            let residual = builder.custom_private().residual();
+            // let mut subplan_quals = PgList::<pg_sys::Node>::new();
             for clause in clauses.iter_ptr() {
-                if is_subplan(clause, builder.args().root) {
-                    // strip RestrictInfo wrapper, plan.qual needs bare expressions
-                    let bare_clause = if (*clause).type_ == pg_sys::NodeTag::T_RestrictInfo {
-                        let ri = clause as *mut pg_sys::RestrictInfo;
-                        (*ri).clause.cast()
-                    } else {
-                        clause
-                    };
-                    subplan_quals.push(bare_clause);
+                if clause.is_null() {
+                    continue;
                 }
+
+                if (*clause).type_ != pg_sys::NodeTag::T_RestrictInfo {
+                    continue;
+                }
+
+                let ri = clause as *mut pg_sys::RestrictInfo;
+                let clause_id = (*ri).rinfo_serial;
+                if residual.contains(&clause_id) {
+                    // We have found residual conditions
+
+                    residual_quals.push((*ri).clause.cast());
+                }
+
+                // if is_subplan(clause, builder.args().root) {
+                //     // strip RestrictInfo wrapper, plan.qual needs bare expressions
+                //     let bare_clause = if (*clause).type_ == pg_sys::NodeTag::T_RestrictInfo {
+                //         let ri = clause as *mut pg_sys::RestrictInfo;
+                //         (*ri).clause.cast()
+                //     } else {
+                //         clause
+                //     };
+                //     subplan_quals.push(bare_clause);
+                // }
             }
 
             // SubPlan quals require per-tuple heap access for ExecQual, which would
             // negate the benefit of columnar. Fall back to Normal so we don't pay for both
             // batch processing AND per-tuple heap fetches.
-            if !subplan_quals.is_empty()
+            if !residual_quals.is_empty()
                 && matches!(
                     builder.custom_private().exec_method_type(),
                     ExecMethodType::Columnar { .. }
@@ -1288,8 +1311,8 @@ impl CustomScan for BaseScan {
             }
 
             let mut scan = builder.build();
-            if !subplan_quals.is_empty() {
-                scan.scan.plan.qual = subplan_quals.into_pg();
+            if !residual_quals.is_empty() {
+                scan.scan.plan.qual = residual_quals.into_pg();
             }
             scan
         }

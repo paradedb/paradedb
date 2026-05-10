@@ -23,6 +23,7 @@ use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::query::SearchQueryInput;
 
+use crate::postgres::customscan::qual_inspect::RestrictInfoID;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::{pg_sys, PgList};
 use serde::{Deserialize, Serialize};
@@ -57,7 +58,7 @@ pub struct PrivateData {
     // Whether this path was chosen as a sorted path (declares pathkeys for index's sort_by field).
     // When true, the execution should use the sorted merge path for segment scanning.
     use_sorted_path: bool,
-    has_residual: bool,
+    residual: Vec<RestrictInfoID>,
 }
 
 mod var_attname_lookup_serializer {
@@ -236,12 +237,8 @@ impl PrivateData {
         self.use_sorted_path = use_sorted;
     }
 
-    pub fn has_residual(&self) -> bool {
-        self.has_residual
-    }
-
-    pub fn set_residual(&mut self, residual: bool) {
-        self.has_residual = residual;
+    pub fn set_residual(&mut self, residual: Vec<RestrictInfoID>) {
+        self.residual = residual;
     }
 }
 
@@ -324,5 +321,13 @@ impl PrivateData {
 
     pub fn use_sorted_path(&self) -> bool {
         self.use_sorted_path
+    }
+
+    pub fn residual(&self) -> &[RestrictInfoID] {
+        &self.residual
+    }
+
+    pub fn has_residual(&self) -> bool {
+        !self.residual.is_empty()
     }
 }

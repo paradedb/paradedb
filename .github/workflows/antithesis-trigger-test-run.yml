@@ -41,6 +41,9 @@ on:
 
 # No concurrency group since we want to allow multiple test runs to run simultaneously
 
+env:
+  PG_VERSION: "18"
+
 jobs:
   # Resolve which workload(s) to run based on the trigger:
   # - schedule: all
@@ -87,9 +90,143 @@ jobs:
           echo "workloads=$WORKLOADS" >> "$GITHUB_OUTPUT"
           echo "Resolved workloads: $WORKLOADS"
 
+  build-antithesis-pg_search-deb:
+    name: Build Antithesis pg_search .deb
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7a+m7i
+      - cpu=16
+      - ram=64
+      - image=ubuntu24-full-x64
+      - extras=s3-cache
+    container:
+      image: debian:13-slim
+    if: |
+      (github.event_name == 'schedule' && github.repository == 'paradedb/paradedb-enterprise')
+      || github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'pull_request' && contains(fromJSON('["antithesis","antithesis-stressgres","antithesis-proptests"]'), github.event.label.name))
+    env:
+      COMMIT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+    steps:
+      - name: Install Dependencies
+        run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget git ca-certificates curl gnupg gpg lsb-release pkg-config libssl-dev
+
+      - name: Checkout Git Repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false # Disable cache on publish workflows
+          rustflags: "" # Use .cargo/config.toml target-cpu flags
+
+      - name: Retrieve OS Version
+        id: version
+        run: |
+          OS_VERSION="$(lsb_release -cs)"
+          echo "OS Version: $OS_VERSION"
+          echo "os_version=$OS_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Install & Configure Supported PostgreSQL Version
+        run: |
+          # Create keyrings dir (works on Debian/Ubuntu)
+          sudo install -d -m 0755 /usr/share/keyrings
+
+          # Download PostgreSQL signing key & add PostgreSQL APT repository with signed-by
+          wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /usr/share/keyrings/postgresql.asc > /dev/null
+          sudo sh -c 'echo "deb [signed-by=/usr/share/keyrings/postgresql.asc] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+
+          # Install PostgreSQL + build tooling
+          DEBIAN_FRONTEND=noninteractive sudo apt-get update
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y postgresql-${{ env.PG_VERSION }} postgresql-server-dev-${{ env.PG_VERSION }} debhelper devscripts dput gnupg binutils
+
+          # Add Postgres bin dir to PATH for subsequent steps
+          echo "/usr/lib/postgresql/${{ env.PG_VERSION }}/bin" >> "$GITHUB_PATH"
+
+      - name: Extract pgrx Version
+        id: pgrx
+        run: echo version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml) >> $GITHUB_OUTPUT
+
+      - name: Cache pgrx binary
+        id: cache-pgrx
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/cargo-pgrx
+          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install pgrx
+        if: steps.cache-pgrx.outputs.cache-hit != 'true'
+        run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+
+      - name: Initialize pgrx environment
+        working-directory: pg_search/
+        run: |
+          PG_CONFIG_PATH="/usr/lib/postgresql/${{ env.PG_VERSION }}/bin/pg_config"
+          cargo pgrx init --pg${{ env.PG_VERSION }}=$PG_CONFIG_PATH
+
+      - name: Package pg_search Extension with pgrx
+        working-directory: pg_search/
+        run: |
+          sudo curl -fsSL -o /usr/lib/libvoidstar.so https://antithesis.com/assets/instrumentation/libvoidstar.so
+          PG_CONFIG_PATH="/usr/lib/postgresql/${{ env.PG_VERSION }}/bin/pg_config"
+          RUSTFLAGS="-Ccodegen-units=1 -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Clink-args=-Wl,--build-id -lvoidstar" \
+            cargo pgrx package --profile=release-with-debug --pg-config "$PG_CONFIG_PATH"
+
+      - name: Split pg_search Debug Symbols
+        run: |
+          LIB_PATH="target/release-with-debug/pg_search-pg${{ env.PG_VERSION }}/usr/lib/postgresql/${{ env.PG_VERSION }}/lib/pg_search.so"
+          objcopy --only-keep-debug "${LIB_PATH}" "${LIB_PATH}.dbg"
+          objcopy --strip-debug "${LIB_PATH}"
+          objcopy --add-gnu-debuglink="${LIB_PATH}.dbg" "${LIB_PATH}"
+
+      - name: Create .deb Package
+        run: |
+          # Create installable package
+          mkdir archive
+          cp `find target/release-with-debug -type f -name "pg_search*"` archive
+          package_dir=pg_search-antithesis-${{ steps.version.outputs.os_version }}-amd64-pg${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}
+
+          mkdir -p ${package_dir}/usr/lib/postgresql/${{ env.PG_VERSION }}/lib
+          mkdir -p ${package_dir}/usr/share/postgresql/${{ env.PG_VERSION }}/extension
+          cp archive/*.so* ${package_dir}/usr/lib/postgresql/${{ env.PG_VERSION }}/lib
+          cp archive/*.control ${package_dir}/usr/share/postgresql/${{ env.PG_VERSION }}/extension
+          cp archive/*.sql ${package_dir}/usr/share/postgresql/${{ env.PG_VERSION }}/extension
+
+          # Create control file (package name cannot have underscore)
+          mkdir -p ${package_dir}/DEBIAN
+          CONTROL_FILE="${package_dir}/DEBIAN/control"
+          echo 'Package: postgresql-${{ env.PG_VERSION }}-pg-search' >> $CONTROL_FILE
+          echo 'Version: 0.0.0' >> $CONTROL_FILE
+          echo 'Section: database' >> $CONTROL_FILE
+          echo 'Priority: optional' >> $CONTROL_FILE
+          echo 'Architecture: amd64' >> $CONTROL_FILE
+          echo 'Depends: postgresql-${{ env.PG_VERSION }}' >> $CONTROL_FILE
+          echo 'Maintainer: ParadeDB <support@paradedb.com>' >> $CONTROL_FILE
+          echo 'Description: Postgres for Search and Analytics' >> $CONTROL_FILE
+
+          # Create .deb package
+          sudo chown -R root:root ${package_dir}
+          sudo chmod -R 755 ${package_dir}
+          sudo dpkg-deb -Zxz --build --root-owner-group ${package_dir}
+
+      - name: Upload pg_search .deb
+        env:
+          ACTIONS_RESULTS_URL: https://results-receiver.actions.githubusercontent.com/
+          ACTIONS_CACHE_SERVICE_V2: ""
+        uses: actions/upload-artifact@v7
+        with:
+          name: pg-search-antithesis-deb-${{ env.COMMIT_SHA }}
+          path: pg_search-antithesis-${{ steps.version.outputs.os_version }}-amd64-pg${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}.deb
+          retention-days: 1
+
   antithesis-trigger-test-run:
     name: Test pg_search via Antithesis (${{ matrix.workload }})
-    needs: setup
+    needs:
+      - setup
+      - build-antithesis-pg_search-deb
     if: needs.setup.outputs.workloads != '[]'
     # For pull_request events, github.sha is the synthetic refs/pull/<n>/merge SHA
     # rather than the PR head — use the head SHA so image tags and the run
@@ -109,7 +246,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pg_version: [18]
         workload: ${{ fromJSON(needs.setup.outputs.workloads) }}
 
     steps:
@@ -131,6 +267,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      - name: Download Antithesis pg_search .deb
+        env:
+          ACTIONS_RESULTS_URL: https://results-receiver.actions.githubusercontent.com/
+          ACTIONS_CACHE_SERVICE_V2: ""
+        uses: actions/download-artifact@v8
+        with:
+          name: pg-search-antithesis-deb-${{ env.COMMIT_SHA }}
+          path: .
+
       - name: Log Into Antithesis Registry
         uses: docker/login-action@v4
         with:
@@ -145,7 +290,7 @@ jobs:
         with:
           images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb
           tags: |
-            type=raw,value=${{ matrix.pg_version }}-${{ env.COMMIT_SHA }}
+            type=raw,value=${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}
             type=raw,value=antithesis-latest
 
       # Antithesis only supports x86_64 instruction set
@@ -154,19 +299,18 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          build-args: |
-            PG_VERSION_MAJOR=${{ matrix.pg_version }}
-            ENABLE_ANTITHESIS_INSTRUMENTATION=true
           platforms: linux/amd64
-          file: docker/Dockerfile
+          file: docker/Dockerfile.antithesis-${{ env.PG_VERSION }}
           push: true
           tags: ${{ steps.extract-workload-metadata.outputs.tags }}
           labels: ${{ steps.extract-workload-metadata.outputs.labels }}
+          build-args: |
+            COMMIT_SHA=${{ env.COMMIT_SHA }}
 
       - name: Patch ParadeDB K8s Manifest With Workload Image Tagged With Git SHA
         working-directory: docker/manifests/
         run: |
-          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ matrix.pg_version }}-${{ env.COMMIT_SHA }}|" antithesis-paradedb.yaml
+          sed -i "s|imageName: .*|imageName: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}|" antithesis-paradedb.yaml
           cat antithesis-paradedb.yaml
 
       - name: Patch Driver K8s Manifest With Driver Image Tagged With Git SHA
@@ -227,7 +371,7 @@ jobs:
           password: ${{ secrets.ANTITHESIS_PASSWORD }}
           github_token: ${{ secrets.ANTITHESIS_GITHUB_TOKEN }}
           config_image: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb-config-${{ matrix.workload }}:${{ env.COMMIT_SHA }}
-          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ matrix.pg_version }}-${{ env.COMMIT_SHA }}
+          images: us-central1-docker.pkg.dev/molten-verve-216720/paradedb-repository/paradedb:${{ env.PG_VERSION }}-${{ env.COMMIT_SHA }}
           description: "[${{ github.repository }}] ${{ matrix.workload }} CI for ${{ github.ref_name }} (commit ${{ env.COMMIT_SHA }})"
           email_recipients: ${{ github.event.inputs.emails || 'developers@paradedb.com' }}
           additional_parameters: |-

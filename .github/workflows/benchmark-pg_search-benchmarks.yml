@@ -27,6 +27,11 @@ on:
         required: false
         type: boolean
         default: true
+      use_benchmarks_from_ref:
+        description: "Whether to use actions and benchmark code from the specified commit. By default, the stuff from main will be used."
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   actions: write
@@ -108,10 +113,10 @@ jobs:
           echo "short_commit=$short_commit" >> $GITHUB_OUTPUT
           echo "Deriving short commit: $short_commit"
 
+      # always fetch the actions from main, unless we've explicitly overridden that, or triggered this via label (like you would on a PR)
       - name: Fetch the Latest Composite Actions
         if: >-
-          github.event_name != 'workflow_dispatch' &&
-          !contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
         uses: actions/checkout@v6
         with:
           repository: ${{ github.repository }}
@@ -122,21 +127,18 @@ jobs:
 
       - name: Copy latest actions into place
         if: >-
-          github.event_name != 'workflow_dispatch' &&
-          !contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
         run: cp -rv actions-temp/.github/actions .github/
 
       - name: Cleanup temporary checkout
         if: >-
-          github.event_name != 'workflow_dispatch' &&
-          !contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
         run: rm -rf actions-temp
 
-      # only fetch the latest from main when, essentially, we're merging to main.  otherwise, use whatever we checked out in the ref we're benchmarking
+      # always fetch the code from main, unless we've explicitly overridden that, or triggered this via label (like you would on a PR)
       - name: Fetch latest benchmark code, suites
         if: >-
-          github.event_name != 'workflow_dispatch' &&
-          !contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
+          !inputs.use_benchmarks_from_ref && !contains(fromJson('["benchmark", "benchmark-queries"]'), github.event.label.name)
         uses: ./.github/actions/benchmarks-from-main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}

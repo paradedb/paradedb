@@ -39,7 +39,7 @@ async fn test_simultaneous_commits_with_bm25(database: Db) -> Result<()> {
     let mut conn1 = database.connection().await;
 
     // Create table once using any of the connections.
-    r#"CREATE EXTENSION pg_search;
+    r#"CREATE EXTENSION IF NOT EXISTS pg_search;
 
     CREATE TABLE concurrent_items (
       id SERIAL PRIMARY KEY,
@@ -108,7 +108,7 @@ async fn test_statement_level_locking(database: Db) -> Result<()> {
     let mut conn = database.connection().await;
 
     // Create tables and indexes
-    r#"CREATE EXTENSION pg_search;
+    r#"CREATE EXTENSION IF NOT EXISTS pg_search;
     CREATE TABLE index_a (
       id SERIAL PRIMARY KEY,
       content TEXT

@@ -41,7 +41,7 @@ fn hybrid_deprecated(mut conn: PgConnection) {
         json_fields = '{"metadata": {}}'
     );
 
-    CREATE EXTENSION vector;
+    CREATE EXTENSION IF NOT EXISTS vector;
     ALTER TABLE mock_items ADD COLUMN embedding vector(3);
 
     UPDATE mock_items m
@@ -84,7 +84,7 @@ fn hybrid_deprecated(mut conn: PgConnection) {
 fn reciprocal_rank_fusion(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     r#"
-    CREATE EXTENSION vector;
+    CREATE EXTENSION IF NOT EXISTS vector;
     ALTER TABLE paradedb.bm25_search ADD COLUMN embedding vector(3);
 
     UPDATE paradedb.bm25_search m

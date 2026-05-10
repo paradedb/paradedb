@@ -3,15 +3,8 @@
 # Test pg_search (Docker)
 # Test building and running the ParadeDB Docker Image.
 #
-# Note: unlike `publish-paradedb-docker.yml`, this workflow cannot use Depot to
-# accelerate the build. Depot requires the `DEPOT_PROJECT` / `DEPOT_TOKEN` repo
-# secrets, which GitHub does not expose to PRs from forks — so any Depot-based
-# step would fail on community-contributor PRs. That's fine here because, unlike
-# the publish workflow, we don't need to produce a single universal image — we
-# only need to smoke-test that the image builds and runs on each arch. So we
-# skip cross-compilation entirely: the matrix below builds amd64 and arm64 in
-# parallel, each natively on a runner of its own arch via `docker buildx build`,
-# which works without secrets.
+# This workflow smoke-tests that the image builds and runs on each arch. It
+# builds amd64 and arm64 in parallel, each natively on a runner of its own arch.
 
 name: Test pg_search (Docker)
 
@@ -25,42 +18,54 @@ on:
     paths:
       - ".github/workflows/test-pg_search-docker.yml"
       - "docker/**"
+      - "!docker/manifests/**"
       - "!docker/Dockerfile.stressgres"
-      - "pg_search/**"
-      - "!pg_search/README.md"
-      - "tokenizers/**"
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "The ref to test."
+        required: false
+        default: ""
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
 
 concurrency:
-  group: test-pg_search-docker-${{ github.head_ref || github.ref }}
+  group: test-pg_search-docker-${{ github.head_ref || inputs.ref || github.ref }}
   cancel-in-progress: true
+
+env:
+  PG_VERSION: "18"
 
 jobs:
   test-paradedb:
-    name: Test ParadeDB Docker Image (${{ matrix.arch }})
-    # General-purpose m-family — Docker buildx is RAM-heavy.
+    name: Test ${{ matrix.flavor }} Docker Image (${{ matrix.arch }})
     # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=${{ matrix.runner_family }}
-      - cpu=${{ matrix.cpu }}
-      - ram=${{ matrix.ram }}
+      - cpu=4
+      - ram=16
       - image=${{ matrix.runner_image }}
       - volume=80gb # default runner ships with 40GB — see https://runs-on.com/runners/linux/
       - extras=s3-cache
     strategy:
       fail-fast: false
       matrix:
+        flavor:
+          - paradedb
+          - official
+        arch:
+          - amd64
+          - arm64
         include:
           - arch: amd64
-            cpu: 8
-            ram: 32
             runner_family: m7a+m7i
             runner_image: ubuntu24-full-x64
             platform: linux/amd64
           - arch: arm64
-            cpu: 16
-            ram: 64
             runner_family: m7g+m8g
             runner_image: ubuntu24-full-arm64
             platform: linux/arm64
@@ -68,53 +73,16 @@ jobs:
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v6
-
-      # This step is used to check if the PR author is a member of the org, since
-      # access to GitHub Actions secrets is limited to org members.
-      - name: Check if PR author is member of org
-        id: org-check
-        run: |
-          echo "Checking if ${{ github.actor }} is a member of the org..."
-          result=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: token ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}" \
-            "https://api.github.com/orgs/paradedb/members/${{ github.actor }}") || result="000"
-          if [ "$result" -eq 204 ]; then
-            echo "is_member=true" >> $GITHUB_OUTPUT
-            echo "PR author is a member of the org"
-          else
-            echo "is_member=false" >> $GITHUB_OUTPUT
-            echo "PR author is not a member of the org"
-          fi
-
-      # To avoid spamming PRs with the Docker Scout comparison, we only run
-      # it if the PR modifies the Dockerfile or its related scripts
-      - name: Detect Dockerfile Changes
-        id: dockerfilter
-        uses: dorny/paths-filter@v4
         with:
-          filters: |
-            docker:
-              - 'docker/**'
-
-      # We only login to Docker Hub if the PR author is a member of the org and there
-      # are changes to the docker/ directory, since access to GitHub Actions secrets
-      # is limited to org members and we only want to compare upcoming release Docker
-      # images via Docker Scout when there are changes to the Dockerfile or its related scripts.
-      - name: Login to Docker Hub
-        if: steps.org-check.outputs.is_member == 'true' && steps.dockerfilter.outputs.docker == 'true'
-        uses: docker/login-action@v4
-        with:
-          username: ${{ vars.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
       # Each matrix entry builds its own arch natively (via a runner on that arch) so `--load`
-      # works and the `docker run` smoke tests below exercise the image natively — no emulation,
-      # no cross-arch shenanigans. We tag the image `latest` to match the tag used by the smoke
-      # tests, and skip pushing since this is just a test build. Building directly (rather than
-      # via Depot) avoids requiring repo secrets, which would block community-contributor PRs.
+      # works and the `docker run` smoke tests below exercise the image natively. We tag the
+      # image `latest` to match the tag used by the smoke tests, and skip pushing since this
+      # is just a test build.
       #
       # The BuildKit `type=gha` cache is transparently backed by runs-on's S3 cache (via the
       # `extras=s3-cache` runner label above), so it works without configuring a separate
@@ -123,15 +91,15 @@ jobs:
         run: |
           docker buildx build \
             --platform ${{ matrix.platform }} \
-            --file docker/Dockerfile \
+            --file docker/Dockerfile.${{ matrix.flavor }}-${{ env.PG_VERSION }} \
             --tag paradedb/paradedb:latest \
-            --cache-from type=gha,scope=paradedb-docker-${{ matrix.arch }} \
-            --cache-to type=gha,mode=max,scope=paradedb-docker-${{ matrix.arch }} \
+            --cache-from type=gha,scope=paradedb-docker-${{ matrix.flavor }}-${{ matrix.arch }} \
+            --cache-to type=gha,mode=max,scope=paradedb-docker-${{ matrix.flavor }}-${{ matrix.arch }} \
             --load \
-            .
+            docker
 
       - name: Verify PGDG apt packages are available
-        run: docker run --rm paradedb/paradedb:latest bash -c 'apt-get update && apt-get install -y --no-install-recommends postgresql-${PG_VERSION_MAJOR}-partman'
+        run: docker run --rm paradedb/paradedb:latest bash -c 'apt-get update && apt-get install -y --no-install-recommends postgresql-${{ env.PG_VERSION }}-partman'
 
       # Start the ParadeDB Docker image using `docker run` to test the standalone Docker image.
       # We add a --tmpfs mount as a test of compatibility with the upstream `postgres` image.
@@ -187,6 +155,7 @@ jobs:
           docker exec paradedb psql -U myuser -d mydatabase -c "SELECT extname, extversion FROM pg_extension ORDER BY extname;"
 
       - name: Verify barman-cloud is functional
+        if: matrix.flavor == 'paradedb'
         run: docker exec paradedb barman-cloud-wal-archive --help
 
       # Useful for debugging discrepancies between local and remote ParadeDB Docker images
@@ -197,15 +166,3 @@ jobs:
         run: |
           docker run --name temp-inspect-paradedb --entrypoint /bin/bash paradedb/paradedb:latest -c "ls -la /var/lib/postgresql"
           docker rm temp-inspect-paradedb
-
-      - name: Compare the ParadeDB Docker Image to the ParadeDB Docker Image in Docker Hub via Docker Scout
-        if: steps.org-check.outputs.is_member == 'true' && steps.dockerfilter.outputs.docker == 'true'
-        uses: docker/scout-action@v1
-        with:
-          command: compare
-          image: paradedb/paradedb:latest # Local ParadeDB Docker Image
-          to-env: production # Docker Hub ParadeDB Docker Image
-          organization: paradedb
-          ignore-unchanged: true
-          only-severities: critical,high
-          github-token: ${{ secrets.GITHUB_TOKEN }}

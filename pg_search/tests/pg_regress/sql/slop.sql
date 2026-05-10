@@ -34,7 +34,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
 
 
 -- test for JIEBA tokenizer
-CREATE TABLE IF NOT EXISTS content_segment_text (
+DROP TABLE IF EXISTS content_segment_text;
+CREATE TABLE content_segment_text (
 id VARCHAR, -- 唯一标识（fileid_chunkid）
 routing_id VARCHAR NOT NULL, -- 对应 ES 的 routing
 chunk_id INT NOT NULL, -- 文档内容块的 ID

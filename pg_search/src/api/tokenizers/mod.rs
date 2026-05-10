@@ -555,7 +555,6 @@ where
         .to_tantivy_tokenizer()
         .expect("failed to convert tokenizer to tantivy tokenizer");
 
-    let wrapper_datum = to_tokenize.as_datum();
     let mut tokens = Vec::new();
     let mut tokenize = |s: &str| {
         let mut stream = analyzer.token_stream(s);
@@ -568,23 +567,28 @@ where
 
     // Check if this is a wrapped DatumWithType using magic number verification
     // For text literals, PostgreSQL might pass them directly without wrapping
-    // due to LIKE = text in the type definition
-    // TODO is the LIKE doing anything useful if conversion is effectively mandatory?
-    if !DatumWithType::is_wrapped(wrapper_datum) {
-        // Not wrapped, it's raw text (or null)
-        let varlena = wrapper_datum.cast_mut_ptr::<pg_sys::varlena>();
-        let detoasted = pg_sys::pg_detoast_datum(varlena);
+    // due to the binary casts
+    let wrapper_datum = to_tokenize.as_datum();
+    let (underlying, typ) = DatumWithType::get_underlying_type(wrapper_datum);
+    let typoid = match typ {
+        Some(typoid) => typoid,
+        None => {
+            // Not wrapped, it's raw text (or null)
+            let varlena = wrapper_datum.cast_mut_ptr::<pg_sys::varlena>();
+            let s = convert_varlena_to_str_memoized(varlena);
+            tokenize(s);
+            return tokens;
+        }
+    };
 
-        let s = convert_varlena_to_str_memoized(detoasted);
-        tokenize(s);
-        return tokens;
-    }
-
-    let typoid = DatumWithType::extract_typoid(wrapper_datum);
-    let original_datum = DatumWithType::extract_datum(wrapper_datum);
     match typoid {
+        pg_sys::TEXTOID => {
+            let detoasted = pg_sys::pg_detoast_datum(underlying.cast_mut_ptr::<pg_sys::varlena>());
+            let s = convert_varlena_to_str_memoized(detoasted);
+            tokenize(s)
+        }
         pg_sys::TEXTARRAYOID | pg_sys::VARCHARARRAYOID => {
-            let strings = <Vec<String> as pgrx::FromDatum>::from_datum(original_datum, false)
+            let strings = <Vec<String> as pgrx::FromDatum>::from_datum(underlying, false)
                 .expect("must have data");
             for s in strings {
                 tokenize(&s)
@@ -742,7 +746,8 @@ datum_wrapper_for!(
     Vec<pgrx::datum::Timestamp>,
     Vec<pgrx::datum::TimestampWithTimeZone>,
     Vec<pgrx::datum::TimeWithTimeZone>,
-    Vec<pgrx::datum::AnyNumeric>
+    Vec<pgrx::datum::AnyNumeric>,
+    pgrx::PgBox<pg_sys::bytea>
 );
 
 pub trait SqlNameMarker {

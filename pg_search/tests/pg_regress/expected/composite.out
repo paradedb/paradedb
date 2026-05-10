@@ -1395,6 +1395,86 @@ SELECT COUNT(*) AS default_no_stem FROM stemmer_test WHERE id @@@ pdb.parse('con
 (1 row)
 
 ------------------------------------------------------------
+-- TEST: Non-TEXT tokenizer casts in composite ROW (#5033)
+-- Pre-fix, the wrapper used by `text[]::pdb.tokenizer(...)` casts was
+-- short-form-packed by heap_form_tuple inside ROW(...)::composite, and
+-- recognition failed -> ERROR: cache lookup failed for type 0.
+------------------------------------------------------------
+-- text[] field with typmod
+CREATE TYPE arr_search AS (b pdb.literal_normalized('fieldnorms=false'));
+CREATE TABLE arr_test (id int PRIMARY KEY, b text[]);
+CREATE INDEX arr_idx ON arr_test USING bm25 (
+    id,
+    (ROW((b)::pdb.literal_normalized('fieldnorms=false'))::arr_search)
+) WITH (key_field='id');
+INSERT INTO arr_test VALUES (1, ARRAY['x']), (2, ARRAY['y','z']);
+SELECT id FROM arr_test WHERE id @@@ 'b:x' ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+SELECT id FROM arr_test WHERE id @@@ 'b:y' ORDER BY id;
+ id 
+----
+  2
+(1 row)
+
+SELECT id FROM arr_test WHERE id @@@ 'b:nope';
+ id 
+----
+(0 rows)
+
+-- Implicit cast (no explicit cast in ROW; PG inserts it from composite type)
+CREATE TYPE arr_search_imp AS (b pdb.literal_normalized('fieldnorms=false'));
+CREATE TABLE arr_test_imp (id int PRIMARY KEY, b text[]);
+CREATE INDEX arr_idx_imp ON arr_test_imp USING bm25 (
+    id, (ROW(b)::arr_search_imp)
+) WITH (key_field='id');
+INSERT INTO arr_test_imp VALUES (1, ARRAY['hello']);
+SELECT id FROM arr_test_imp WHERE id @@@ 'b:hello';
+ id 
+----
+  1
+(1 row)
+
+-- Multi-field composite mixing text, text[], and bigint casts
+CREATE TYPE multi_search AS (
+    txt pdb.simple,
+    arr pdb.literal_normalized('fieldnorms=false'),
+    n   bigint
+);
+CREATE TABLE multi_test (id int PRIMARY KEY, txt text, arr text[], n int);
+CREATE INDEX multi_idx ON multi_test USING bm25 (
+    id,
+    (ROW(
+        (txt)::pdb.simple,
+        (arr)::pdb.literal_normalized('fieldnorms=false'),
+        (n)::bigint
+    )::multi_search)
+) WITH (key_field='id');
+INSERT INTO multi_test VALUES
+    (1, 'hello world', ARRAY['action','adventure'], 10),
+    (2, 'foo bar',     ARRAY['comedy'],             20);
+SELECT id FROM multi_test WHERE id @@@ 'txt:hello'  ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+SELECT id FROM multi_test WHERE id @@@ 'arr:action' ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+SELECT id FROM multi_test WHERE id @@@ 'arr:comedy' ORDER BY id;
+ id 
+----
+  2
+(1 row)
+
+------------------------------------------------------------
 -- SMOKE TESTS: Comprehensive feature coverage
 ------------------------------------------------------------
 -- Create composite type for smoke tests (using pdb tokenizer types)

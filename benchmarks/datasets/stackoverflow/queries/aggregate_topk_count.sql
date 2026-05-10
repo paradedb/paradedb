@@ -20,8 +20,8 @@ ORDER BY
     COUNT(*) DESC
 LIMIT 10;
 
--- Tantivy TopK aggregate scan
-SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SELECT
+-- DataFusion aggregate scan
+SET work_mem TO '8GB'; SET paradedb.enable_aggregate_custom_scan TO on; SELECT
     p.title,
     COUNT(*)
 FROM stackoverflow_posts p

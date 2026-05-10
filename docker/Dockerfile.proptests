@@ -1,0 +1,64 @@
+# RESOURCE RECOMMENDATIONS:
+# - Minimum 4GB memory limit for compilation
+# - Minimum 2 CPU cores for compilation
+#
+# This image pre-builds the `qgen` property test binary and bundles it with
+# Antithesis singleton driver scripts. The binary is invoked in a loop against
+# the in-cluster ParadeDB primary by the driver script (see
+# tests/antithesis/singleton_driver_property-tests.sh).
+
+FROM rust:1.95-slim
+
+# Required for the piped RUN below (hadolint DL4006).
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# Install build and runtime dependencies. `jq` is used during build to extract
+# the test binary path from cargo's JSON output.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    pkg-config \
+    libpq-dev \
+    libssl-dev \
+    ca-certificates \
+    postgresql-client \
+    libpq5 \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app user
+RUN useradd --create-home --shell /bin/bash app
+
+# Set working directory
+WORKDIR /home/app
+
+# Copy the entire paradedb/paradedb source code (the `tests` crate sits in a
+# Cargo workspace, so the whole tree must be present even though only `tests`
+# is built).
+COPY --chown=app:app . .
+
+# Configure Antithesis test singletons.
+RUN mkdir -p /opt/antithesis/test/v1/quickstart
+COPY tests/antithesis/ /opt/antithesis/test/v1/quickstart/
+RUN chmod +x /opt/antithesis/test/v1/quickstart/*.sh
+
+USER app
+
+ENV RUST_LOG=info
+ENV PGCLIENTENCODING=UTF8
+
+# Prefetch deps and build the qgen test binary while we have Internet. This
+# Docker image will run in an air-gapped environment in Antithesis, so the
+# binary must already exist on disk. The `--message-format=json` output lets
+# us pick out the unhashed test executable path and copy it to a stable
+# location.
+RUN cargo fetch --manifest-path /home/app/Cargo.toml && \
+    cargo test --offline --release --no-run \
+        --manifest-path /home/app/Cargo.toml \
+        -p tests --test qgen \
+        --message-format=json > /tmp/build.json && \
+    QGEN_BIN=$(jq -r 'select(.profile.test == true and .target.name == "qgen") | .executable' /tmp/build.json | tail -n 1) && \
+    test -x "$QGEN_BIN" && \
+    cp "$QGEN_BIN" /home/app/qgen && \
+    rm /tmp/build.json
+
+CMD ["sleep", "infinity"]

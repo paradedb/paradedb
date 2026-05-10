@@ -12,8 +12,11 @@ inputs:
   ref:
     description: "Git ref or short SHA to report in benchmarks"
     required: true
-  github_token:
-    description: "GitHub token to authenticate with"
+  github_app_id:
+    description: "GitHub App ID to authenticate with"
+    required: true
+  github_app_private_key:
+    description: "GitHub App private key to authenticate with"
     required: true
   slack_oauth_token:
     description: "Slack OAuth token to authenticate with"
@@ -97,6 +100,13 @@ runs:
         with open(f"pg_search_tps.json", "w")  as o: json.dump(tps, o)
         with open(f"pg_search_other.json", "w") as o: json.dump(other, o)
 
+    - name: Generate GitHub App Token
+      id: app-token
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ inputs.github_app_id }}
+        private-key: ${{ inputs.github_app_private_key }}
+
     # Necessary to avoid "destination path is not empty" error
     - name: Cleanup Previous Benchmark Publish Working Directory
       shell: bash
@@ -115,7 +125,7 @@ runs:
         ref: ${{ inputs.ref }}
         tool: customBiggerIsBetter
         output-file-path: pg_search_tps.json
-        github-token: ${{ inputs.github_token }}
+        github-token: ${{ steps.app-token.outputs.token }}
         gh-repository: github.com/${{ github.repository }}
         gh-pages-branch: gh-pages
         auto-push: ${{ github.event_name != 'pull_request' }}
@@ -143,7 +153,7 @@ runs:
         ref: ${{ inputs.ref }}
         tool: customSmallerIsBetter
         output-file-path: pg_search_other.json
-        github-token: ${{ inputs.github_token }}
+        github-token: ${{ steps.app-token.outputs.token }}
         gh-repository: github.com/${{ github.repository }}
         gh-pages-branch: gh-pages
         auto-push: ${{ github.event_name != 'pull_request' }}

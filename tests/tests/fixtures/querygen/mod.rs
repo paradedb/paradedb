@@ -143,7 +143,7 @@ pub fn generated_queries_setup(
     tables: &[(&str, usize)],
     columns_def: &[Column],
 ) -> String {
-    "CREATE EXTENSION pg_search;".execute(conn);
+    "CREATE EXTENSION IF NOT EXISTS pg_search;".execute(conn);
     "SET log_error_verbosity TO VERBOSE;".execute(conn);
     "SET log_min_duration_statement TO 1000;".execute(conn);
 
@@ -360,6 +360,10 @@ pub struct PgGucs {
     pub seqscan: bool,
     pub indexscan: bool,
     pub parallel_workers: bool,
+    /// Toggles Postgres' `parallel_leader_participation` GUC. When `false`,
+    /// only background workers emit tuples — useful for shaking out parallel
+    /// scans whose leader/worker partitioning is incorrect (e.g. issue #5024).
+    pub parallel_leader_participation: bool,
     /// Enable columnar execution (ColumnarExecState).
     /// When enabled with a sorted index, uses SortPreservingMergeExec for sorted output.
     pub columnar_exec: bool,
@@ -398,7 +402,7 @@ impl Arbitrary for PgGucs {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        any::<[bool; 10]>()
+        any::<[bool; 11]>()
             .prop_map(|b| {
                 let mut g = PgGucs {
                     aggregate_custom_scan: b[0],
@@ -411,6 +415,7 @@ impl Arbitrary for PgGucs {
                     parallel_workers: b[7],
                     columnar_exec: b[8],
                     columnar_sort: b[9],
+                    parallel_leader_participation: b[10],
                 };
                 if force_parallel() {
                     g.parallel_workers = true;
@@ -432,6 +437,7 @@ impl Default for PgGucs {
             seqscan: true,
             indexscan: true,
             parallel_workers: true,
+            parallel_leader_participation: true,
             columnar_exec: false,
             columnar_sort: true,
         }
@@ -449,6 +455,7 @@ impl PgGucs {
             seqscan,
             indexscan,
             parallel_workers,
+            parallel_leader_participation,
             columnar_exec,
             columnar_sort,
         } = self;
@@ -480,6 +487,11 @@ impl PgGucs {
         writeln!(gucs, "SET enable_seqscan TO {seqscan};").unwrap();
         writeln!(gucs, "SET enable_indexscan TO {indexscan};").unwrap();
         writeln!(gucs, "SET max_parallel_workers TO {max_parallel_workers};").unwrap();
+        writeln!(
+            gucs,
+            "SET parallel_leader_participation TO {parallel_leader_participation};"
+        )
+        .unwrap();
         writeln!(gucs, "SET paradedb.add_doc_count_to_aggs TO true;").unwrap();
         writeln!(
             gucs,

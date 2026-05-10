@@ -141,8 +141,8 @@ fn try_inject_at_sort(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionP
 ///   - If the column name appears **more than once** (self-join with duplicate
 ///     field names), fall back to `col.index()` directly. DataFusion already
 ///     assigned the correct physical index when it built the SortExec.
-///   - If the name is not found at all, fall back to `col.index()` (single-table
-///     pre-join path).
+///   - If the name is not found at all, emit a warning and fall back to
+///     `col.index()` as a last resort.
 fn resolve_physical_index(col: &Column, schema: &datafusion::arrow::datatypes::SchemaRef) -> usize {
     let col_name = col.name();
     let logical_idx = col.index();
@@ -156,7 +156,15 @@ fn resolve_physical_index(col: &Column, schema: &datafusion::arrow::datatypes::S
 
     let physical_idx = match matches.len() {
         0 => {
-            // Name not found — trust the logical index (single-table path).
+            // Name not found — fall back to the logical index.
+            // This should not normally happen; a missing name suggests a
+            // plan-construction bug where the SortExec column does not exist
+            // in the lookup child schema.
+            pgrx::warning!(
+                "SegmentedTopK: column '{}' not found in input schema; using logical index {} as fallback",
+                col_name,
+                logical_idx
+            );
             logical_idx
         }
         1 => {
@@ -166,6 +174,11 @@ fn resolve_physical_index(col: &Column, schema: &datafusion::arrow::datatypes::S
         _ => {
             // Duplicate names (self-join) — DataFusion already set col.index()
             // to the correct physical position when building the SortExec.
+            // TODO: this relies on a DataFusion invariant that col.index() is
+            // correct for the duplicate-name case. It breaks for 3-way self-joins
+            // or intermediate Projections that reorder same-name groups.
+            // Proper fix: thread explicit column lineage similar to trace_column
+            // in late_materialization.rs. Tracked in issue #5093.
             logical_idx
         }
     };

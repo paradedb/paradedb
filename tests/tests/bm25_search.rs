@@ -446,7 +446,7 @@ fn hybrid_with_single_result(mut conn: PgConnection) {
         json_fields='{"metadata": {}}'
     );
 
-    CREATE EXTENSION vector;
+    CREATE EXTENSION IF NOT EXISTS vector;
     ALTER TABLE mock_items ADD COLUMN embedding vector(3);
 
     UPDATE mock_items m
@@ -751,7 +751,7 @@ fn bm25_partial_index_hybrid(mut conn: PgConnection) {
       table_name => 'mock_items'
     );
 
-    CREATE EXTENSION vector;
+    CREATE EXTENSION IF NOT EXISTS vector;
     ALTER TABLE mock_items ADD COLUMN embedding vector(3);
 
     UPDATE mock_items m

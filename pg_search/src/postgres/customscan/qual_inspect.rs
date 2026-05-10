@@ -29,25 +29,26 @@ use crate::query::heap_field_filter::HeapFieldFilter;
 use crate::query::pdb_query::pdb;
 use crate::query::SearchQueryInput;
 use pg_sys::BoolExprType;
+use pgrx::pg_sys::RestrictInfo;
 use pgrx::{pg_guard, pg_sys, FromDatum, IntoDatum, PgList};
 use std::ops::Bound;
 use tantivy::schema::OwnedValue;
 
+pub type RestrictInfoID = ::core::ffi::c_int;
+
 pub struct ExtractInfo {
-    has_match: bool,
     // Have we found any residual conditions,
     // which should be handled by
     // standard PostgreSQL evaluator
-    residual: bool,
+    residual: Vec<RestrictInfoID>,
     state: QualExtractState,
     pushdown: Option<Qual>,
 }
 
 impl ExtractInfo {
-    pub fn new(pushdown: Option<Qual>, has_residual: bool, state: QualExtractState) -> ExtractInfo {
+    pub fn new(pushdown: Option<Qual>, state: QualExtractState) -> ExtractInfo {
         ExtractInfo {
-            has_match: false,
-            residual: false,
+            residual: vec![],
             pushdown,
             state,
         }
@@ -57,27 +58,31 @@ impl ExtractInfo {
         self.pushdown.is_some()
     }
 
+    // We have found some RestrictInfo conditions
+    // which should be executed by PostgreSQL standard evaluator
+    pub fn found_residual(&self) -> bool {
+        !self.residual.is_empty()
+    }
+
     pub fn get_pushdown(&self) -> Option<Qual> {
         self.pushdown.clone()
     }
 
     pub fn has_match(&self) -> bool {
-        self.has_match
+        self.pushdown.is_some() && self.state.uses_our_operator
     }
 
-    // Mark that we have found some RestrictInfo conditions
-    // which should be executed by PostgreSQL standard evaluator
-    pub fn set_residual_found(&mut self) {
-        self.residual = true;
+    pub fn add_pushdown(&mut self, pushdown: Option<Qual>) {
+        self.pushdown = pushdown;
     }
 
-    // Add residual condition for PostgreSQL standard evaluator
-    // pub fn add_residual(&mut self, residual: usize) {
-    //     self.residual.push(residual);
-    // }
+    pub fn add_residual(&mut self, r_info: *mut RestrictInfo) {
+        let id = unsafe { (*r_info).rinfo_serial };
+        self.residual.push(id);
+    }
 
-    pub fn add_qual(&mut self, qual: Qual) {
-        self.pushdown = Some(qual);
+    pub fn add_state(&mut self, state: QualExtractState) {
+        self.state = state;
     }
 
     pub fn try_heap_expr_optimization(&mut self) {
@@ -102,8 +107,7 @@ impl ExtractInfo {
 impl Default for ExtractInfo {
     fn default() -> Self {
         Self {
-            has_match: false,
-            residual: false,
+            residual: vec![],
             pushdown: None,
             state: QualExtractState::default(),
         }
@@ -639,12 +643,10 @@ pub struct QualExtractState {
 }
 
 impl QualExtractState {
-    pub fn merge(&mut self, other: &QualExtractState) -> Self {
-        Self {
-            uses_our_operator: self.uses_our_operator || other.uses_our_operator,
-            uses_tantivy_to_query: self.uses_tantivy_to_query || other.uses_tantivy_to_query,
-            uses_heap_expr: self.uses_heap_expr || other.uses_heap_expr,
-        }
+    pub fn merge(&mut self, other: &QualExtractState) {
+        self.uses_our_operator |= other.uses_our_operator;
+        self.uses_tantivy_to_query |= other.uses_tantivy_to_query;
+        self.uses_heap_expr |= other.uses_heap_expr;
     }
 }
 

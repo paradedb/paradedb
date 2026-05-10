@@ -86,7 +86,10 @@ use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use pgrx::pg_sys::{expression_tree_walker, Query};
-use pgrx::{pg_guard, pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts};
+use pgrx::{
+    ereport, pg_guard, pg_sys, FromDatum, IntoDatum, PgList, PgLogLevel, PgMemoryContexts,
+    PgSqlErrorCode,
+};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::Index;
 
@@ -228,6 +231,7 @@ impl BaseScan {
         attempt_pushdown: bool,
     ) -> ExtractInfo {
         let mut local_state = QualExtractState::default();
+        let mut extract_info = ExtractInfo::default();
 
         let mut quals = try_extract_pushdown_qual(
             &context,
@@ -241,9 +245,11 @@ impl BaseScan {
             attempt_pushdown,
         );
 
-        let has_residual: bool = false;
         let quals = Self::handle_heap_expr_optimization(&local_state, &mut quals);
-        ExtractInfo::new(quals, has_residual, local_state)
+        extract_info.add_pushdown(quals);
+        extract_info.add_state(local_state);
+
+        extract_info
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -260,6 +266,7 @@ impl BaseScan {
     ) -> ExtractInfo {
         let mut pushdown: Vec<Qual> = Vec::new();
         let mut has_residual = false;
+        let mut extract_info = ExtractInfo::default();
 
         let mut final_state = QualExtractState::default();
 
@@ -283,7 +290,7 @@ impl BaseScan {
                     final_state.merge(&local_state);
                 }
                 None => {
-                    has_residual = true;
+                    extract_info.add_residual(ri);
                 }
             }
         }
@@ -294,7 +301,12 @@ impl BaseScan {
             _ => Some(Qual::And(pushdown)),
         };
 
-        ExtractInfo::new(final_pushdown, has_residual, final_state)
+        extract_info.add_pushdown(final_pushdown);
+        extract_info.add_state(final_state);
+
+        extract_info
+
+        // ExtractInfo::new(final_pushdown, has_residual, final_state)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -352,7 +364,7 @@ impl BaseScan {
             Some(qual) => {
                 // All conditions are ParadeDB-specific,
                 // we can handle filtering completely ourselves
-                ExtractInfo::new(Some(qual), false, state)
+                ExtractInfo::new(Some(qual), state)
             }
         };
 
@@ -765,6 +777,17 @@ impl CustomScan for BaseScan {
                 is_select,
             );
 
+            // We have score() function, which can be handled by Custom Plan,
+            // but didn't find ParadeDB operator - this is error,
+            // don't silently fail, show error explicitly
+            if has_score_func && !extract_info.has_match() {
+                ereport!(
+                    PgLogLevel::ERROR,
+                    PgSqlErrorCode::ERRCODE_INVALID_NAME,
+                    "score() function should be used only with ParadeDB operator"
+                );
+            }
+
             let quals = extract_info.get_pushdown();
 
             // If we have window aggregates but no quals, we must still create the custom path
@@ -793,11 +816,6 @@ impl CustomScan for BaseScan {
                 // - Either there's no WHERE clause (nothing to filter), OR
                 // - filter_pushdown is enabled, meaning HeapExpr was created during qual extraction
                 //   and will be evaluated by PostgreSQL's executor after we return results
-                Qual::All
-            } else if has_score_func {
-                if !extract_info.has_match() {
-                    return None;
-                }
                 Qual::All
             } else {
                 // No quals and no window aggregates - we can't help

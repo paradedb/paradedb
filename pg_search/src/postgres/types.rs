@@ -974,7 +974,7 @@ impl TantivyValue {
             .ok_or(TantivyValueError::DatumDeref)?;
         let (v_h, v_m, v_s, v_ms) = val.to_utc().to_hms_micro();
         Ok(TantivyValue(datetime_components_to_tantivy_date(
-            None,
+            Some((val.year(), val.month(), val.day())),
             (v_h, v_m, v_s, v_ms),
         )?))
     }

@@ -68,8 +68,9 @@ FROM products
 WHERE name @@@ 'Apple' OR description @@@ 'smartphone'
 ORDER BY score DESC;
 
--- Test Case 1.5: Test if All query works at all
--- This should return all documents with score 0
+-- Test Case 1.5: score without a ParadeDB search predicate
+-- Plain PostgreSQL predicates, including non-indexed predicates, do not define
+-- a BM25 scoring context. This should fail with a specific score diagnostic.
 SELECT 
     id,
     name,
@@ -475,8 +476,9 @@ WHERE description @@@ 'running'
   AND price > 1000.00  -- Should filter out all running items
 ORDER BY score DESC;
 
--- Test Case 13: Edge case - no search predicates, only non-indexed
--- Tests heap filtering when there are no indexed predicates
+-- Test Case 13: score without a ParadeDB search predicate
+-- Plain PostgreSQL filters can be planned by PostgreSQL, but they do not
+-- provide a BM25 scoring context for pdb.score().
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT 
     id,
@@ -669,18 +671,22 @@ ORDER BY score DESC;
 -- Now test with GUC disabled
 SET paradedb.enable_filter_pushdown = false;
 
--- This should fall back to standard PostgreSQL execution (no custom scan)
--- Disabled for now, as the output has a changing OID
--- EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
--- SELECT 
---     id,
---     name,
---     category_name,
---     pdb.score(id) as score
--- FROM products 
--- WHERE description @@@ 'Apple'
---   AND category_name = 'Electronics'
--- ORDER BY score DESC;
+-- With filter pushdown disabled, the non-indexed predicate should not be
+-- pushed into the Tantivy query as a HeapExpr/heap_filter.
+--
+-- The ParadeDB search predicate still requires a Custom Scan because the query
+-- uses pdb.score(id), but category_name = 'Electronics' must be preserved as a
+-- PostgreSQL residual Filter.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT
+    id,
+    name,
+    category_name,
+    pdb.score(id) as score
+FROM products
+WHERE description @@@ 'Apple'
+  AND category_name = 'Electronics'
+ORDER BY score DESC;
 
 SELECT 
     id,

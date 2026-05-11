@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778526863985,
+  "lastUpdate": 1778526915700,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1696,6 +1696,112 @@ window.BENCHMARK_DATA = {
             "value": 172.66796875,
             "unit": "median mem",
             "extra": "avg mem: 170.09818752975335, max mem: 173.17578125, count: 55666"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b09f4be12951cd04a36e9bbb0dc8c405645ae09b",
+          "message": "ci: Migrate create-github-app-token to client-id (#5050)\n\n## Summary\n- The `actions/create-github-app-token` action deprecated `app-id` in\nfavor of `client-id` (warning: `Input 'app-id' has been deprecated with\nmessage: Use 'client-id' instead.`)\n- Replaces `app-id:` with `client-id:` across all workflows and the\n`benchmark-stressgres` composite action\n- Switches from `vars.PARADEDB_GITHUB_APP_ID` (numeric App ID) to\n`vars.PARADEDB_GITHUB_APP_CLIENT_ID` (the App's Client ID, e.g.\n`Iv23li...`)\n\n## Notes\n- Client ID is a public identifier, so `vars.*` is appropriate; the\nPrivate Key remains in `secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY`\n- `vars.PARADEDB_GITHUB_APP_CLIENT_ID` has been added to repo variables\n- The old `vars.PARADEDB_GITHUB_APP_ID` is no longer referenced and can\nbe deleted after merge\n\n## Test plan\n- [ ] Verify cherry-pick, publish-github-release,\npublish-paradedb-docker, test-pg_search-nix, and\nbenchmark-pg_search-stressgres workflows successfully mint a token on\nnext run\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-09T18:11:33Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b09f4be12951cd04a36e9bbb0dc8c405645ae09b"
+        },
+        "date": 1778526865774,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.640776,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.429082889184905, max cpu: 42.22874, count: 55811"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 175.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 158.67743456991005, max mem: 179.0390625, count: 55811"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.7239261003105275, max cpu: 28.180038, count: 55811"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 120.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 118.91228746629248, max mem: 120.234375, count: 55811"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.184803580036954, max cpu: 18.640776, count: 55811"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 174.6875,
+            "unit": "median mem",
+            "extra": "avg mem: 145.91514070646915, max mem: 179.9140625, count: 55811"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16765,
+            "unit": "median block_count",
+            "extra": "avg block_count: 17059.832058196414, max block_count: 31945.0, count: 55811"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.4529820943789105, max cpu: 4.678363, count: 55811"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 111.28125,
+            "unit": "median mem",
+            "extra": "avg mem: 95.90906453532905, max mem: 137.35546875, count: 55811"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 24,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.40909498127609, max segment_count: 36.0, count: 55811"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.29332,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.430435662523818, max cpu: 28.374382, count: 111622"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 181.359375,
+            "unit": "median mem",
+            "extra": "avg mem: 163.33898811390227, max mem: 183.58984375, count: 111622"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 9.375,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.101200270126961, max cpu: 23.414635, count: 55811"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 173.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 170.77610533485782, max mem: 174.109375, count: 55811"
           }
         ]
       }

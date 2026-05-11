@@ -157,7 +157,6 @@ impl CustomScanClause<AggregateScan> for TargetList {
         self.groupby.add_to_custom_path(builder)
     }
 
-    //
     fn from_pg(
         args: &Self::Args,
         heap_rti: pg_sys::Index,

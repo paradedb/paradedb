@@ -25,7 +25,10 @@ use crate::customscan::aggregatescan::build::{
 use crate::postgres::customscan::aggregatescan::{AggregateScan, AggregateType};
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::{is_datetime_type, TantivyValue};
+use crate::schema::{SearchField, SearchFieldType};
+use pgrx::pg_sys::Oid;
 use pgrx::{check_for_interrupts, pg_sys, IntoDatum, JsonB};
 
 use tantivy::aggregation::agg_result::{
@@ -165,6 +168,14 @@ impl From<MetricResult> for AggregateResult {
     }
 }
 
+fn lookup_search_field_from_indexrelid(indexrelid: Oid, field_name: &str) -> SearchField {
+    let index = PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
+    let schema = index.schema().expect("could not get index schema");
+    schema
+        .search_field(field_name)
+        .expect("schema should have field")
+}
+
 /// Convert an AggregateResult to a PostgreSQL Datum
 /// This is the shared logic for converting both Custom (JSON) and Metric aggregates
 ///
@@ -194,16 +205,48 @@ pub fn aggregate_result_to_datum(
                 });
                 JsonB(json_value).into_datum()
             } else if is_datetime_type(expected_typoid) {
-                // For date/time types, Tantivy stores DateTime values in fast fields as nanoseconds
-                // since UNIX epoch. The f64 value from MIN/MAX aggregates represents this nanosecond
-                // timestamp. We need to convert it back to a DateTime before converting to the
-                // expected PostgreSQL type.
-                metric.value.and_then(|value| unsafe {
-                    let datetime = tantivy::DateTime::from_timestamp_nanos(value as i64);
-                    TantivyValue(OwnedValue::Date(datetime))
-                        .try_into_datum(expected_typoid.into())
-                        .unwrap()
-                })
+                // If doing this lookup per-result-row is too expensive, we need to modify
+                // AggregateType to hold the necessary information
+                let field_name = agg_type
+                    .field_name()
+                    .expect("metric agg should have a field name");
+                let search_field =
+                    lookup_search_field_from_indexrelid(agg_type.indexrelid(), &field_name);
+
+                match search_field.field_type() {
+                    SearchFieldType::I64(oid)
+                        if oid == pg_sys::TIMESTAMPOID || oid == pg_sys::TIMESTAMPTZOID =>
+                    {
+                        // For timestamp/timestamptz values, we store them as the raw i64 which
+                        // represents microseconds before/after the postgres epoch. The f64 value
+                        // from MIN/MAX aggregates represents that timestamp, so we just need to
+                        // do the conversion back.
+                        metric.value.and_then(|value| {
+                            if oid == pg_sys::TIMESTAMPOID {
+                                pgrx::datum::Timestamp::try_from(value as i64)
+                                    .expect("invalid raw i64 timestamp value")
+                                    .into_datum()
+                            } else {
+                                // oid must be TIMESTAMPTZOID then
+                                pgrx::datum::TimestampWithTimeZone::try_from(value as i64)
+                                    .expect("invalid raw i64 timestamptz value")
+                                    .into_datum()
+                            }
+                        })
+                    }
+                    _ => {
+                        // For legacy timestamp/timestamptz and all other date/time types, Tantivy stores DateTime
+                        // values in fast fields as nanoseconds since UNIX epoch. The f64 value from MIN/MAX aggregates
+                        // represents this nanosecond timestamp. We need to convert it back to a DateTime before
+                        // converting to the expected PostgreSQL type.
+                        metric.value.and_then(|value| unsafe {
+                            let datetime = tantivy::DateTime::from_timestamp_nanos(value as i64);
+                            TantivyValue(OwnedValue::Date(datetime))
+                                .try_into_datum(expected_typoid.into())
+                                .unwrap()
+                        })
+                    }
+                }
             } else {
                 metric.value.and_then(|value| unsafe {
                     TantivyValue(OwnedValue::F64(value))

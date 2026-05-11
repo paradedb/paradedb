@@ -956,7 +956,20 @@ impl TantivyValue {
         Ok(TantivyValue(OwnedValue::Date(tantivy_date)))
     }
 
-    pub unsafe fn try_from_timetamptz_date(datum: Datum) -> Result<Self, TantivyValueError> {
+    pub unsafe fn try_from_timestamp_array_date(
+        datum: Datum,
+    ) -> Result<Vec<Self>, TantivyValueError> {
+        let array: pgrx::Array<Datum> =
+            pgrx::Array::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;
+
+        array
+            .into_iter()
+            .flatten()
+            .map(|element_datum| Self::try_from_timestamp_date(element_datum))
+            .collect()
+    }
+
+    pub unsafe fn try_from_timestamptz_date(datum: Datum) -> Result<Self, TantivyValueError> {
         let val = pgrx::datum::TimestampWithTimeZone::from_datum(datum, false)
             .ok_or(TantivyValueError::DatumDeref)?;
         let (v_h, v_m, v_s, v_ms) = val.to_utc().to_hms_micro();
@@ -964,6 +977,19 @@ impl TantivyValue {
             None,
             (v_h, v_m, v_s, v_ms),
         )?))
+    }
+
+    pub unsafe fn try_from_timestamptz_array_date(
+        datum: Datum,
+    ) -> Result<Vec<Self>, TantivyValueError> {
+        let array: pgrx::Array<Datum> =
+            pgrx::Array::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;
+
+        array
+            .into_iter()
+            .flatten()
+            .map(|element_datum| Self::try_from_timestamptz_date(element_datum))
+            .collect()
     }
 }
 

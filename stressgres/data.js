@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778526379588,
+  "lastUpdate": 1778526431003,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1378,6 +1378,114 @@ window.BENCHMARK_DATA = {
             "value": 15.37836316983882,
             "unit": "median tps",
             "extra": "avg tps: 15.342457182507506, max tps: 19.47480274069678, count: 55534"
+          }
+        ]
+      }
+    ],
+    "pg_search background-merge.toml Performance - Other Metrics": [
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0b5f5714895d3226ae9025f04f5867cf6e63215d",
+          "message": "chore: Upgrade to 0.22.6 (#4694)\n\n## Summary\n- Bump version from 0.22.5 to 0.22.6\n- Add changelog entry for 0.22.6\n- Update version references in docs\n\n## Changes since 0.22.5\n- feat: Support expressions in JoinScan DISTINCT target lists (#4682)\n- fix: JoinScan `DISTINCT` planning for deferred keys (#4670)\n- fix: JoinScan pushdown with outer-only `ORDER BY` pathkeys (#4680)\n- fix: `pdb.score()` with `SELECT` subquery in `WHERE` clause (#4653)\n- fix: Handle `IN (SELECT ...) OR IS NULL` via LeftMark JoinScan (#4651)\n- fix: Score filter for joins and cases without other quals (#4650)\n- fix: Handle pruned columns in nested semi/anti join keys (#4668)\n- fix: Handle aliased indexed expressions in search resolution and top-k\norder by (#4671)\n- fix: Lower x86_64 target-cpu from x86-64-v3 to x86-64-v2 (#4673)\n- fix: Prevent DSM buffer overflow in PG18 parallel index scans (#4683)\n- fix: `PlaceHolderVar found where not expected` error (#4689)\n- fix: Restore `pdb.agg(jsonb)` if accidentally removed by an upgrade\nscript (#4688)\n\n## Test plan\n- [ ] CI passes on 0.22.x\n\n---------\n\nCo-authored-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>",
+          "timestamp": "2026-04-08T18:52:29Z",
+          "url": "https://github.com/paradedb/paradedb/commit/0b5f5714895d3226ae9025f04f5867cf6e63215d"
+        },
+        "date": 1778526381444,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.622696,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.68408650696802, max cpu: 46.966736, count: 55534"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 173.89453125,
+            "unit": "median mem",
+            "extra": "avg mem: 157.27299407795223, max mem: 176.9296875, count: 55534"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.684576293282276, max cpu: 28.09756, count: 55534"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 119.80078125,
+            "unit": "median mem",
+            "extra": "avg mem: 118.59181614810296, max mem: 119.86328125, count: 55534"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.225817924740211, max cpu: 18.658894, count: 55534"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 167.1328125,
+            "unit": "median mem",
+            "extra": "avg mem: 141.30508034773743, max mem: 175.65625, count: 55534"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16568,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16793.973907876258, max block_count: 31441.0, count: 55534"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.280215944697428, max cpu: 4.669261, count: 55534"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 108.6953125,
+            "unit": "median mem",
+            "extra": "avg mem: 95.44924252484964, max mem: 136.9296875, count: 55534"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.70081391579933, max segment_count: 36.0, count: 55534"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.266409,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.319064600361308, max cpu: 32.495163, count: 111068"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 177.25390625,
+            "unit": "median mem",
+            "extra": "avg mem: 159.6744916754263, max mem: 180.9375, count: 111068"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.913043,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.679215238596106, max cpu: 28.263002, count: 55534"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 171.296875,
+            "unit": "median mem",
+            "extra": "avg mem: 168.32178611863904, max mem: 172.05859375, count: 55534"
           }
         ]
       }

@@ -938,6 +938,33 @@ impl TantivyValue {
             })
             .collect()
     }
+
+    #[allow(static_mut_refs)]
+    pub unsafe fn try_from_timestamp_date(datum: Datum) -> Result<Self, TantivyValueError> {
+        use crate::postgres::datetime::micros_to_tantivy_datetime;
+        static mut EPOCH_TS: Option<pg_sys::Timestamp> = None;
+        let epoch_ts = unsafe { EPOCH_TS.get_or_insert_with(|| pg_sys::SetEpochTimestamp()) };
+
+        // Valid micros range maps into `MIN_SAFE_TANTIVY_NANOS` to `MAX_SAFE_TANTIVY_NANOS`
+        let val = pgrx::datum::Timestamp::from_datum(datum, false)
+            .ok_or(TantivyValueError::DatumDeref)?;
+        let micros = val.into_inner().checked_sub(*epoch_ts).ok_or(
+            TantivyValueError::DateTimeConversionError(DateTimeConversionError::OutOfRange),
+        )?;
+        let tantivy_date = micros_to_tantivy_datetime(micros)?;
+
+        Ok(TantivyValue(OwnedValue::Date(tantivy_date)))
+    }
+
+    pub unsafe fn try_from_timetamptz_date(datum: Datum) -> Result<Self, TantivyValueError> {
+        let val = pgrx::datum::TimestampWithTimeZone::from_datum(datum, false)
+            .ok_or(TantivyValueError::DatumDeref)?;
+        let (v_h, v_m, v_s, v_ms) = val.to_utc().to_hms_micro();
+        Ok(TantivyValue(datetime_components_to_tantivy_date(
+            None,
+            (v_h, v_m, v_s, v_ms),
+        )?))
+    }
 }
 
 impl TryFrom<TantivyValue> for pgrx::AnyNumeric {
@@ -1134,18 +1161,8 @@ impl TryFrom<TantivyValue> for pgrx::datum::Time {
 impl TryFrom<pgrx::datum::Timestamp> for TantivyValue {
     type Error = TantivyValueError;
 
-    #[allow(static_mut_refs)]
     fn try_from(val: pgrx::datum::Timestamp) -> Result<Self, Self::Error> {
-        use crate::postgres::datetime::micros_to_tantivy_datetime;
-        static mut EPOCH_TS: Option<pg_sys::Timestamp> = None;
-        let epoch_ts = unsafe { EPOCH_TS.get_or_insert_with(|| pg_sys::SetEpochTimestamp()) };
-        // Valid micros range maps into `MIN_SAFE_TANTIVY_NANOS` to `MAX_SAFE_TANTIVY_NANOS`
-        let micros = val.into_inner().checked_sub(*epoch_ts).ok_or(
-            TantivyValueError::DateTimeConversionError(DateTimeConversionError::OutOfRange),
-        )?;
-        let tantivy_date = micros_to_tantivy_datetime(micros)?;
-
-        Ok(TantivyValue(OwnedValue::Date(tantivy_date)))
+        Ok(TantivyValue(OwnedValue::I64(val.into_inner())))
     }
 }
 
@@ -1209,12 +1226,7 @@ impl TryFrom<pgrx::datum::TimestampWithTimeZone> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::datum::TimestampWithTimeZone) -> Result<Self, Self::Error> {
-        let val = val.to_utc();
-        let (v_h, v_m, v_s, v_ms) = val.to_hms_micro();
-        Ok(TantivyValue(datetime_components_to_tantivy_date(
-            Some((val.year(), val.month(), val.day())),
-            (v_h, v_m, v_s, v_ms),
-        )?))
+        Ok(TantivyValue(OwnedValue::I64(val.into_inner())))
     }
 }
 

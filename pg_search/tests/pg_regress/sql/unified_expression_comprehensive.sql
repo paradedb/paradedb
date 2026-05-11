@@ -456,7 +456,8 @@ WHERE description @@@ 'running'
 ORDER BY score DESC;
 
 -- Test Case 13: Edge case - no search predicates, only non-indexed
--- Tests heap filtering when there are no indexed predicates
+-- but pdb.score(id) requires Custom Scan
+-- Should fail with clear and explicit error description
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT 
     id,

@@ -786,8 +786,13 @@ impl CustomScan for BaseScan {
             if has_score_func && !has_match {
                 ereport!(
                     PgLogLevel::ERROR,
-                    PgSqlErrorCode::ERRCODE_INVALID_NAME,
-                    "score() function should be used only with ParadeDB operator"
+                    PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
+                    "ParadeDB score functions require a ParadeDB search predicate",
+                    concat!(
+                        "The query references a ParadeDB score function, ",
+                        "but no supported ParadeDB search operator was found. ",
+                        "Plain PostgreSQL predicates do not define a BM25 scoring context."
+                    )
                 );
             }
 

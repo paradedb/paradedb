@@ -611,6 +611,33 @@ pub unsafe fn is_subplan(node: *mut pg_sys::Node, root: *mut pg_sys::PlannerInfo
         }
     }
 
+    // Handle PARAM_EXEC nodes nested inside an OR BoolExpr.
+    // e.g. `(SELECT true) OR id < 4` — PostgreSQL makes the subquery an InitPlan
+    // and leaves a PARAM_EXEC inside the OR args. The walker above only catches
+    // T_SubPlan/T_AlternativeSubPlan, not bare PARAM_EXEC nodes, so we check here.
+    if !inner.is_null() && (*inner).type_ == pg_sys::NodeTag::T_BoolExpr && !root.is_null() {
+        let bexpr = inner as *mut pg_sys::BoolExpr;
+        if (*bexpr).boolop == pg_sys::BoolExprType::OR_EXPR {
+            let args = PgList::<pg_sys::Node>::from_pg((*bexpr).args);
+            let has_init_plan_param = args.iter_ptr().any(|arg| {
+                if !arg.is_null() && (*arg).type_ == pg_sys::NodeTag::T_Param {
+                    let param = arg as *mut pg_sys::Param;
+                    (*param).paramkind == pg_sys::ParamKind::PARAM_EXEC
+                        && PgList::<pg_sys::SubPlan>::from_pg((*root).init_plans)
+                            .iter_ptr()
+                            .any(|subplan| {
+                                pg_sys::list_member_int((*subplan).setParam, (*param).paramid)
+                            })
+                } else {
+                    false
+                }
+            });
+            if has_init_plan_param {
+                return true;
+            }
+        }
+    }
+
     walker(node, std::ptr::null_mut())
 }
 

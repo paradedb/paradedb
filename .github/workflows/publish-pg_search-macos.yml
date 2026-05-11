@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The version to set for the pg_search release. This publishes the latest commit of the chosen branch and uploads it to the pre-existing GitHub Release of the provided version."
+        description: "The version to set for the pg_search release (e.g. 0.22.0). This publishes the latest commit of the chosen branch and uploads it to the pre-existing GitHub Release of the provided version."
         required: true
         default: ""
 
@@ -95,7 +95,6 @@ jobs:
           fi
           echo "GitHub Tag Version: $VERSION"
           echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
-          echo "commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
           OS_VERSION=$(sw_vers -productVersion)
           case $OS_VERSION in
@@ -123,6 +122,7 @@ jobs:
           key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
 
       - name: Install pgrx
+        if: steps.cache-pgrx.outputs.cache-hit != 'true'
         run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
 
       - name: Initialize pgrx environment
@@ -137,9 +137,6 @@ jobs:
           PG_CONFIG_PATH="/opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/bin/pg_config"
           export PATH="/opt/homebrew/bin:$PATH"
           cargo pgrx package --pg-config $PG_CONFIG_PATH
-        env:
-          COMMIT_SHA: ${{ steps.version.outputs.commit_sha }}
-          PARADEDB_VERSION: ${{ steps.version.outputs.tag_version }}
 
       - name: Create .pkg Package
         run: |
@@ -204,7 +201,7 @@ jobs:
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
         env:
-          GH_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           RESPONSE=$(gh api \
             -H "Authorization: token $GH_TOKEN" \
@@ -218,7 +215,7 @@ jobs:
       - name: Upload pg_search .pkg to GitHub Release
         uses: shogo82148/actions-upload-release-asset@v1
         with:
-          github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
           asset_path: ./pg_search@${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg
           asset_name: pg_search@${{ matrix.pg_version }}--${{ steps.version.outputs.tag_version }}.arm64_${{ steps.version.outputs.os_version }}.pkg

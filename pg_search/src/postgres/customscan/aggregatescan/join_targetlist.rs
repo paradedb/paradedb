@@ -22,9 +22,11 @@
 //! column and aggregate argument belongs to. This is the join-aware counterpart
 //! of [`super::targetlist::TargetList`] (which assumes a single base relation).
 
-use super::datafusion_build::JoinAggSource;
+use super::datafusion_build::{FilterExprBuildContext, JoinAggSource};
+use super::privdat::FilterExpr;
+use crate::api::SortDirection;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
-use crate::postgres::var::{fieldname_from_var, find_one_aggref};
+use crate::postgres::var::{find_one_aggref, find_one_var_and_fieldname, VarContext};
 use pgrx::pg_sys;
 use pgrx::pg_sys::{
     F_AVG_FLOAT4, F_AVG_FLOAT8, F_AVG_INT2, F_AVG_INT4, F_AVG_INT8, F_AVG_NUMERIC, F_COUNT_,
@@ -35,6 +37,22 @@ use pgrx::pg_sys::{
     F_SUM_INT2, F_SUM_INT4, F_SUM_INT8, F_SUM_NUMERIC,
 };
 use pgrx::PgList;
+
+/// Look up a join source by RTI, returning a uniform error message that
+/// names the calling context (e.g. "GROUP BY column", "aggregate argument").
+///
+/// The three sites that called `sources.iter().find(|s| s.rti == rti)` with
+/// nearly-identical `ok_or_else(...)` formatters now share this helper so the
+/// error wording stays consistent across the file.
+fn find_source_by_rti<'a>(
+    sources: &'a [JoinAggSource],
+    rti: pg_sys::Index,
+    context_label: &str,
+) -> Result<&'a JoinAggSource, String> {
+    sources.iter().find(|s| s.rti == rti).ok_or_else(|| {
+        format!("{context_label} references table at RTI {rti} which is not in the join")
+    })
+}
 
 /// Simplified aggregate classification for the DataFusion backend.
 /// Unlike [`AggregateType`] (Tantivy-oriented), this enum is lightweight and maps
@@ -131,6 +149,10 @@ pub struct JoinAggregateEntry {
     /// Empty for aggregates without internal ordering.
     #[serde(default)]
     pub order_by: Vec<AggOrderByEntry>,
+    /// Per-aggregate FILTER clause (e.g., `COUNT(*) FILTER (WHERE price > 100)`).
+    /// `None` when the aggregate has no FILTER.
+    #[serde(default)]
+    pub filter: Option<FilterExpr>,
 }
 
 /// The complete aggregate target list for a join aggregate query.
@@ -231,21 +253,42 @@ pub unsafe fn extract_aggregate_targetlist(
             let rti = (*var).varno as pg_sys::Index;
             let attno = (*var).varattno;
 
-            let source = sources.iter().find(|s| s.rti == rti).ok_or_else(|| {
+            let source = find_source_by_rti(sources, rti, "GROUP BY column")?;
+
+            let field_name = source.column_name(attno).ok_or_else(|| {
                 format!(
-                    "GROUP BY column references table at RTI {} which is not in the join",
-                    rti
+                    "could not resolve field name for GROUP BY column (RTI={}, attno={})",
+                    rti, attno
                 )
             })?;
 
-            let field_name = fieldname_from_var(source.relid, var, attno)
-                .ok_or_else(|| {
-                    format!(
-                        "could not resolve field name for column (RTI={}, attno={})",
-                        rti, attno
-                    )
-                })?
-                .into_inner();
+            group_columns.push(JoinGroupColumn {
+                rti,
+                attno,
+                field_name,
+                output_index: idx,
+            });
+        } else if let Some((var, field_name)) = find_one_var_and_fieldname(
+            VarContext::from_planner(args.root),
+            expr as *mut pg_sys::Node,
+        ) {
+            // GROUP BY on a complex expression (e.g., metadata->>'category').
+            // The resolver extracts the underlying Var and resolves the Tantivy
+            // field name (e.g., "metadata.category") from JSON operators.
+            let rti = (*var).varno as pg_sys::Index;
+            let attno = (*var).varattno;
+            let field_name = field_name.into_inner();
+
+            // Validate that the RTI is in our known sources. Unlike the T_Var
+            // branch above, we don't need the source itself — `find_one_var_and_fieldname`
+            // already resolved the Tantivy field name — but we want a clear error
+            // if the expression references a table that isn't part of the join.
+            if !sources.iter().any(|s| s.rti == rti) {
+                return Err(format!(
+                    "GROUP BY expression references table at RTI {} which is not in the join",
+                    rti
+                ));
+            }
 
             group_columns.push(JoinGroupColumn {
                 rti,
@@ -258,14 +301,18 @@ pub unsafe fn extract_aggregate_targetlist(
             let aggfnoid = (*aggref).aggfnoid.to_u32();
             let has_distinct = !(*aggref).aggdistinct.is_null();
 
-            // Reject FILTER (WHERE ...) clauses on aggregates — DataFusion
-            // doesn't propagate per-aggregate filter predicates and would
-            // silently produce wrong results if we didn't fall back.
-            if !(*aggref).aggfilter.is_null() {
-                return Err(
-                    "FILTER clauses on aggregates are not supported for aggregate-on-join".into(),
-                );
-            }
+            // Extract per-aggregate FILTER clause if present.
+            let filter = if (*aggref).aggfilter.is_null() {
+                None
+            } else {
+                FilterExpr::from_pg_node(
+                    (*aggref).aggfilter as *mut pg_sys::Node,
+                    &FilterExprBuildContext {
+                        targetlist: None,
+                        sources: Some(sources),
+                    },
+                )
+            };
 
             // Reject pdb.agg()
             let pdb_agg_oid = crate::api::agg_funcoid().to_u32();
@@ -298,6 +345,7 @@ pub unsafe fn extract_aggregate_targetlist(
                 field_refs,
                 output_index: idx,
                 result_type_oid,
+                filter,
                 distinct: has_distinct,
                 order_by,
             });
@@ -387,21 +435,14 @@ unsafe fn extract_aggref_field_refs(
         let rti = (*var).varno as pg_sys::Index;
         let attno = (*var).varattno;
 
-        let source = sources.iter().find(|s| s.rti == rti).ok_or_else(|| {
+        let source = find_source_by_rti(sources, rti, "aggregate argument")?;
+
+        let field_name = source.column_name(attno).ok_or_else(|| {
             format!(
-                "aggregate argument references table at RTI {} which is not in the join",
-                rti
+                "could not resolve field name for aggregate argument (RTI={}, attno={})",
+                rti, attno
             )
         })?;
-
-        let field_name = fieldname_from_var(source.relid, var, attno)
-            .ok_or_else(|| {
-                format!(
-                    "could not resolve field name for aggregate argument (RTI={}, attno={})",
-                    rti, attno
-                )
-            })?
-            .into_inner();
 
         refs.push((rti, attno, field_name));
     }
@@ -452,32 +493,23 @@ unsafe fn extract_aggref_order_by(
         let rti = (*var).varno as pg_sys::Index;
         let attno = (*var).varattno;
 
-        let source = sources.iter().find(|s| s.rti == rti).ok_or_else(|| {
+        let source = find_source_by_rti(sources, rti, "aggregate ORDER BY")?;
+
+        let field_name = source.column_name(attno).ok_or_else(|| {
             format!(
-                "aggregate ORDER BY references table at RTI {} which is not in the join",
-                rti
+                "could not resolve field name for aggregate ORDER BY (RTI={}, attno={})",
+                rti, attno
             )
         })?;
 
-        let field_name = fieldname_from_var(source.relid, var, attno)
-            .ok_or_else(|| {
-                format!(
-                    "could not resolve field name for aggregate ORDER BY (RTI={}, attno={})",
-                    rti, attno
-                )
-            })?
-            .into_inner();
-
-        let direction = crate::api::SortDirection::from_sort_op(
-            (*clause_ptr).sortop,
-            (*clause_ptr).nulls_first,
-        )
-        .ok_or_else(|| {
-            format!(
-                "could not determine sort direction for aggregate ORDER BY (sortop={})",
-                (*clause_ptr).sortop.to_u32()
-            )
-        })?;
+        let direction =
+            SortDirection::from_sort_op((*clause_ptr).sortop, (*clause_ptr).nulls_first)
+                .ok_or_else(|| {
+                    format!(
+                        "could not determine sort direction for aggregate ORDER BY (sortop={})",
+                        (*clause_ptr).sortop.to_u32()
+                    )
+                })?;
 
         entries.push(AggOrderByEntry {
             rti,

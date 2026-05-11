@@ -1,8 +1,9 @@
 -- Create tables for the Stack Overflow dataset.
 
+DROP TABLE IF EXISTS stackoverflow_posts CASCADE;
+DROP TABLE IF EXISTS badges CASCADE;
 DROP TABLE IF EXISTS comments CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
-DROP TABLE IF EXISTS stackoverflow_posts CASCADE;
 
 CREATE TABLE stackoverflow_posts (
     id INTEGER PRIMARY KEY,
@@ -25,6 +26,15 @@ CREATE TABLE stackoverflow_posts (
     score INTEGER,
     tags VARCHAR,
     view_count INTEGER
+);
+
+CREATE TABLE badges (
+    id INTEGER PRIMARY KEY,
+    name VARCHAR,
+    date TIMESTAMP,
+    user_id INTEGER,
+    class INTEGER,
+    tag_based BOOLEAN
 );
 
 CREATE TABLE comments (

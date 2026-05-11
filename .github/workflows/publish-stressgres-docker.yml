@@ -16,17 +16,21 @@ concurrency:
 jobs:
   publish-stressgres-docker:
     name: Publish Stressgres Docker Image to Docker Hub
-    runs-on: ubicloud-standard-8
+    runs-on:
+      # General-purpose m-family — Docker buildx is RAM-heavy.
+      # See https://runs-on.com/configuration/job-labels/ — runs in us-east-1.
+      - runs-on=${{ github.run_id }}
+      - family=m7a+m7i
+      - cpu=8
+      - ram=32
+      - image=ubuntu24-full-x64
 
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v6
 
-      # Cross-compilation is incredibly slow, so we use an external service called Depot to
-      # speed up container builds for universal images. We could eventually replace this with
-      # Docker Build Cloud once they add support for multiple concurrent builders.
-      - name: Configure Depot CLI
-        uses: depot/setup-action@v1
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -46,7 +50,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
       - name: Build and Push Docker Image to Docker Hub
-        uses: depot/build-push-action@v1
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -54,6 +58,4 @@ jobs:
           push: true
           sbom: true
           provenance: mode=max
-          project: ${{ secrets.DEPOT_PROJECT }}
-          token: ${{ secrets.DEPOT_TOKEN }}
           tags: ${{ steps.meta.outputs.tags }}

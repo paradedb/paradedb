@@ -420,6 +420,7 @@ impl JoinSourceCandidate {
         // `expr_context` only lives until the end of this function,
         // which is fine because it is only used to get estimates
         let expr_context = ExprContextGuard::new();
+        let needs_tokenizer_manager = query.needs_tokenizer();
         let reader = SearchIndexReader::open_with_context(
             &index_rel,
             query,
@@ -427,6 +428,7 @@ impl JoinSourceCandidate {
             MvccSatisfies::LargestSegment,
             NonNull::new(expr_context.as_ptr()),
             None,
+            needs_tokenizer_manager,
         )
         .expect("Failed to open index reader for estimation");
 
@@ -618,6 +620,27 @@ pub enum JoinLevelExpr {
         /// Attribute number of the outer column tested for IS NULL.
         null_test_attno: pgrx::pg_sys::AttrNumber,
     },
+    /// A PostgreSQL expression serialized via `nodeToString`, evaluated as a
+    /// join filter.
+    ///
+    /// During planning the raw `pg_sys::Expr` is validated for DataFusion
+    /// translatability via `PredicateTranslator::translate` and serialized with
+    /// `nodeToString`. At execution time `stringToNode` rehydrates the tree,
+    /// which `PredicateTranslator` then translates to a DataFusion `Expr`
+    /// (Var nodes resolve via `CombinedMapper` against the join's sources).
+    ///
+    /// `input_vars` describes each Var dependency (RTI, attno, plus the type
+    /// metadata captured at planning time so execution avoids catalog
+    /// lookups). The projection pass uses `(rti, attno)` to register the
+    /// required columns; the type metadata is also serialized through
+    /// `JoinCSClause` and available to any future consumer. Used for
+    /// Semi/Anti join filters because the MultiTablePredicate / custom_exprs
+    /// pipeline would fail in setrefs: Semi/Anti prunes the inner relation
+    /// from the scan tlist, leaving inner-side Vars unresolvable.
+    PgExpression {
+        pg_node_string: String,
+        input_vars: Vec<InputVarInfo>,
+    },
 }
 
 /// A node in the intermediate relational plan tree.
@@ -653,6 +676,11 @@ pub struct JoinNode {
     pub equi_keys: Vec<JoinKeyPair>,
     /// Any remaining non-equi join conditions.
     pub filter: Option<JoinLevelExpr>,
+    /// The `plan_id` of the PostgreSQL SubPlan that this join was extracted
+    /// from, if any.  Set for Semi/Anti/LeftMark joins created by
+    /// `wrap_with_semi_anti` and `wrap_with_mark_filter`; `None` for joins
+    /// that come from the normal join-hook path or path reconstruction.
+    pub subplan_id: Option<i32>,
 }
 
 /// A filter node in the relational plan tree.
@@ -884,11 +912,82 @@ impl RelNode {
         match self {
             RelNode::Scan(_) => {}
             RelNode::Join(j) => {
-                acc.extend(j.equi_keys.clone());
+                acc.extend(j.equi_keys.iter().cloned());
                 j.left.collect_join_keys(acc);
                 j.right.collect_join_keys(acc);
             }
             RelNode::Filter(f) => f.input.collect_join_keys(acc),
+        }
+    }
+
+    /// Recursively collect every `(rti, attno)` referenced by a join-level
+    /// filter (`JoinNode.filter`). Used by `build_source_df` to keep the
+    /// referenced columns out of the deferred-output promotion — the filter
+    /// is evaluated before the join emits rows, so the columns must be
+    /// materialized in the per-source scan.
+    pub fn filter_input_vars(&self) -> Vec<(pg_sys::Index, pg_sys::AttrNumber)> {
+        let mut result = Vec::new();
+        self.collect_filter_input_vars(&mut result);
+        result
+    }
+
+    fn collect_filter_input_vars(&self, acc: &mut Vec<(pg_sys::Index, pg_sys::AttrNumber)>) {
+        match self {
+            RelNode::Scan(_) => {}
+            RelNode::Join(j) => {
+                if let Some(JoinLevelExpr::PgExpression { input_vars, .. }) = &j.filter {
+                    acc.extend(input_vars.iter().map(|v| (v.rti, v.attno)));
+                }
+                j.left.collect_filter_input_vars(acc);
+                j.right.collect_filter_input_vars(acc);
+            }
+            RelNode::Filter(f) => f.input.collect_filter_input_vars(acc),
+        }
+    }
+
+    /// Resolve every equi-join key in this tree structurally against the
+    /// specific join node that owns it, and return `(plan_position, attno)`
+    /// pairs identifying the exact sources that must project each key column.
+    ///
+    /// A flat lookup keyed on `(rti, attno)` can pick the wrong source when a
+    /// SubPlan's inner relation shares an RTI value with an outer relation
+    /// (inner queries have their own RTI numbering). By resolving each key
+    /// against its owning `JoinNode`'s own `left`/`right` subtrees with the
+    /// same logic used at execution time (`JoinKeyPair::resolve_against`),
+    /// we bind each key to the correct `JoinSource` unambiguously.
+    pub fn join_key_projections(&self) -> Vec<(usize, pg_sys::AttrNumber)> {
+        let mut result = Vec::new();
+        self.collect_join_key_projections(&mut result);
+        result
+    }
+
+    fn collect_join_key_projections(&self, acc: &mut Vec<(usize, pg_sys::AttrNumber)>) {
+        match self {
+            RelNode::Scan(_) => {}
+            RelNode::Join(j) => {
+                for jk in &j.equi_keys {
+                    if let Some(((left_src, left_att), (right_src, right_att))) =
+                        jk.resolve_against(&j.left, &j.right)
+                    {
+                        acc.push((left_src.plan_position, left_att));
+                        acc.push((right_src.plan_position, right_att));
+                    }
+                }
+                if let Some(JoinLevelExpr::PgExpression { input_vars, .. }) = &j.filter {
+                    for v in input_vars {
+                        if let Some(source) = j
+                            .left
+                            .source_for_rti_in_subtree(v.rti)
+                            .or_else(|| j.right.source_for_rti_in_subtree(v.rti))
+                        {
+                            acc.push((source.plan_position, v.attno));
+                        }
+                    }
+                }
+                j.left.collect_join_key_projections(acc);
+                j.right.collect_join_key_projections(acc);
+            }
+            RelNode::Filter(f) => f.input.collect_join_key_projections(acc),
         }
     }
 
@@ -1098,8 +1197,10 @@ impl Default for RelNode {
 pub struct JoinCSClause {
     /// The root of the relational execution tree.
     pub plan: RelNode,
-    /// The LIMIT and OFFSET value from the query, if any.
-    pub limit_offset: LimitOffset,
+    /// The LIMIT and OFFSET value from the query, if any. Held in
+    /// `LimitOffset` form so parameterized values are resolved at execution
+    /// time rather than dropped at planning time.
+    pub limit_offset: Option<LimitOffset>,
     /// Join-level search predicates (Tantivy queries to execute).
     pub join_level_predicates: Vec<JoinLevelSearchPredicate>,
     /// Heap conditions (PostgreSQL expressions referencing both sides).
@@ -1118,7 +1219,7 @@ impl JoinCSClause {
     pub fn new(plan: RelNode) -> Self {
         let mut clause = Self {
             plan,
-            limit_offset: Default::default(),
+            limit_offset: None,
             join_level_predicates: Vec::new(),
             multi_table_predicates: Vec::new(),
             order_by: Vec::new(),
@@ -1132,13 +1233,8 @@ impl JoinCSClause {
         clause
     }
 
-    pub fn with_limit(mut self, limit: Option<u32>) -> Self {
-        self.limit_offset.limit = limit;
-        self
-    }
-
-    pub fn with_offset(mut self, offset: Option<u32>) -> Self {
-        self.limit_offset.offset = offset;
+    pub fn with_limit_offset(mut self, lo: Option<LimitOffset>) -> Self {
+        self.limit_offset = lo;
         self
     }
 

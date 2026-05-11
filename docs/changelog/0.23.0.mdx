@@ -1,0 +1,42 @@
+---
+title: 0.23.0
+noindex: true
+---
+
+## New Features 🎉
+
+- Aggregate-on-JOIN support: a full pipeline for running aggregates over join results, including:
+  - 3+ table join support and `DISTINCT` aggregates in AggregateScan.
+  - `LEFT`/`RIGHT`/`FULL JOIN` and `COUNT(DISTINCT)`.
+  - `HAVING` clause and per-aggregate `FILTER` clause.
+  - `ORDER BY` within `STRING_AGG` and `ARRAY_AGG`.
+  - JSON sub-field `GROUP BY` in the DataFusion aggregate path.
+  - Date/Timestamp projection and `STDDEV`/`VARIANCE` aggregates.
+  - Extended aggregate TopK detection to `GROUP BY` column and `MIN`/`MAX` ordering.
+  - TopK optimization for aggregate queries via Tantivy and DataFusion.
+- New `edge_ngram` tokenizer for search-as-you-type use cases.
+- Support for `IS NULL`/`IS NOT NULL` predicates in Top-K JoinScan.
+- Per-field tunable BM25 `k1` and `b` parameters via typmod.
+- Explicit control of prefix behavior for fuzzy queries.
+- `keep_whitespace` option for Lindera tokenizers.
+- Support for the `citext` Postgres type.
+
+## Performance Improvements 🚀
+
+- Lazily set up tokenizers, avoiding unnecessary initialization overhead.
+- Conditionally enable scoring in row estimation for faster planning.
+- Cache `anyelement_search_opoids` to reduce repeated catalog lookups.
+- Cache `score`/`snippet` function OIDs.
+- Cache `segment_id` to `segment_ordinal` mapping during `SearchIndexReader` construction.
+
+## Stability Improvements 💪
+
+- Suppress LIMIT pushdown when non-pushable post-filters are present.
+- Fix Top K for prepared statements.
+- Recognize identity expressions (e.g. `id + 0`) in JoinScan `ORDER BY` matching.
+- Re-add meaningful term filter.
+- Fix boolean comparison edge cases.
+- Allow unaliased, tokenized index fields to be selected by name when the same column is indexed multiple times.
+- Support `varchar`, `text[]`, and `citext` parameters in operators with generic plans.
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.23.0).

@@ -15,9 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use anyhow::{bail, Context};
 use clap::{Parser, Subcommand};
-use paradedb::median;
-use paradedb::micro_benchmarks::benchmark_columnar;
+use paradedb::{confidence_interval_half_width, mean, Window};
 use sqlx::{Connection, PgConnection, Row};
 use std::fs::File;
 use std::io::Write;
@@ -40,43 +40,29 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Run benchmarks against a ParadeDB instance.
-    Benchmark {
-        #[command(subcommand)]
-        mode: BenchmarkMode,
-    },
+    Benchmark(BenchmarkArgs),
     /// Convert parquet datasets in S3 to CSV format using DuckDB.
     Convert(convert::ConvertArgs),
     /// Sample a CSV dataset to a target row count, preserving table relationships.
     Sample(sample::SampleArgs),
 }
 
-#[derive(Subcommand)]
-enum BenchmarkMode {
-    /// Run benchmarks with synthetically generated data.
-    Generated(GeneratedArgs),
-    /// Run benchmarks with a pre-existing dataset loaded from CSV files.
-    Existing(ExistingArgs),
-}
-
 #[derive(Parser)]
-struct CommonBenchmarkArgs {
-    #[arg(long, value_parser = ["pg_search"], default_value = "pg_search")]
-    r#type: String,
-
+struct BenchmarkArgs {
     /// Postgres URL.
     #[arg(long)]
     url: String,
 
     /// Dataset to use.
-    #[arg(long, default_value = "single")]
+    #[arg(long, default_value = "stackoverflow")]
     dataset: String,
 
     /// Whether to pre-warm the dataset using `pg_prewarm`.
-    #[arg(long, default_value = "true")]
+    #[arg(long, default_value_t = true, num_args = 1)]
     prewarm: bool,
 
     /// Whether to run `VACUUM ANALYZE` before executing queries.
-    #[arg(long, default_value = "true")]
+    #[arg(long, default_value_t = true, num_args = 1)]
     vacuum: bool,
 
     /// Skip data setup and index creation. Assumes tables and indexes already exist.
@@ -91,18 +77,6 @@ struct CommonBenchmarkArgs {
     #[arg(long, value_parser = ["md", "csv", "json"], default_value = "md")]
     output: String,
 
-    #[arg(long, value_parser = ["fastfields", "sql"], default_value = "sql")]
-    benchmark: String,
-
-    #[arg(long, default_value = "2")]
-    warmups: usize,
-
-    #[arg(long, default_value = "5")]
-    iterations: usize,
-
-    #[arg(long, default_value = "100000")]
-    batch_size: usize,
-
     /// Whether to fail on query errors. Set to false for backfills against older versions
     /// that may not support all query syntax.
     #[arg(long, default_value_t = true, num_args = 1)]
@@ -111,29 +85,13 @@ struct CommonBenchmarkArgs {
     /// Whether to clear the OS page cache and Postgres buffer cache before each query.
     #[arg(long, default_value_t = true, num_args = 1)]
     clear_caches: bool,
-}
-
-#[derive(Parser)]
-struct GeneratedArgs {
-    #[command(flatten)]
-    common: CommonBenchmarkArgs,
-
-    /// Number of rows to insert (in the largest generated table for the dataset).
-    #[arg(long, default_value = "10000000")]
-    rows: u32,
-}
-
-#[derive(Parser)]
-struct ExistingArgs {
-    #[command(flatten)]
-    common: CommonBenchmarkArgs,
 
     /// Size label for the pre-sampled dataset (e.g. "10k", "100k", "1m").
     #[arg(long)]
     size: String,
 
-    /// Path to external CSV data source (S3 or local). Each table should be a subdirectory
-    /// containing CSV files. Overrides s3_base_path in config.toml.
+    /// Base path to external CSV data source (S3 or local). Overrides s3_base_path in
+    /// config.toml. CSVs are loaded from `{data_source}/sampled/{size}/csv/{table}/`.
     #[arg(long)]
     data_source: Option<String>,
 }
@@ -142,74 +100,38 @@ struct ExistingArgs {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Benchmark { mode } => run_benchmark(mode).await,
-        Commands::Convert(args) => convert::run_convert(args)?,
-        Commands::Sample(args) => sample::run_sample(args)?,
-    }
-    Ok(())
-}
-
-async fn run_benchmark(mode: BenchmarkMode) {
-    match mode {
-        BenchmarkMode::Generated(args) => run_benchmark_generated(args).await,
-        BenchmarkMode::Existing(args) => run_benchmark_existing(args).await,
+        Commands::Benchmark(args) => run_benchmark(args).await,
+        Commands::Convert(args) => convert::run_convert(args),
+        Commands::Sample(args) => sample::run_sample(args),
     }
 }
 
-async fn run_benchmark_generated(args: GeneratedArgs) {
-    let common = &args.common;
-    if common.benchmark == "fastfields" {
-        let mut conn = PgConnection::connect(&common.url).await.unwrap();
-        let res = benchmark_columnar(
-            &mut conn,
-            common.skip_setup,
-            common.runs,
-            common.warmups,
-            args.rows as usize,
-            common.batch_size,
-        )
-        .await;
-        println!("Columnar Benchmark Completed: {res:?}");
-    } else if common.benchmark == "sql" {
-        if !common.skip_setup {
-            generate_test_data(&common.url, &common.dataset, args.rows);
-        }
-        let rows_display = args.rows.to_string();
-        run_sql_benchmarks(common, &rows_display).await;
-    } else {
-        eprintln!("Invalid benchmark type");
-        std::process::exit(1);
+async fn run_benchmark(args: BenchmarkArgs) -> anyhow::Result<()> {
+    if !args.skip_setup {
+        load_external_data(
+            &args.url,
+            &args.dataset,
+            &args.size,
+            args.data_source.as_deref(),
+        )?;
     }
+    run_sql_benchmarks(&args).await
 }
 
-async fn run_benchmark_existing(args: ExistingArgs) {
-    let common = &args.common;
-    if common.benchmark == "fastfields" {
-        eprintln!("Fastfields benchmark is not supported with existing datasets");
-        std::process::exit(1);
-    } else if common.benchmark == "sql" {
-        if !common.skip_setup {
-            load_external_data(
-                &common.url,
-                &common.dataset,
-                &args.size,
-                args.data_source.as_deref(),
-            );
-        }
-        run_sql_benchmarks(common, &args.size).await;
-    } else {
-        eprintln!("Invalid benchmark type");
-        std::process::exit(1);
-    }
-}
-
-async fn run_sql_benchmarks(args: &CommonBenchmarkArgs, rows_display: &str) {
+async fn run_sql_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<()> {
     match args.output.as_str() {
-        "md" => generate_markdown_output(args, rows_display).await,
-        "csv" => generate_csv_output(args, rows_display).await,
-        "json" => generate_json_output(args, rows_display).await,
+        "md" => generate_markdown_output(args).await,
+        "csv" => generate_csv_output(args).await,
+        "json" => generate_json_output(args).await,
         _ => unreachable!("Clap ensures only md, csv, or json are valid"),
     }
+}
+
+#[derive(Default)]
+pub struct QueryRunResults {
+    pub cold: f64,
+    pub samples: Vec<f64>,
+    pub num_results: usize,
 }
 
 struct IndexCreationResult {
@@ -222,8 +144,7 @@ struct IndexCreationResult {
 struct QueryResult {
     query_type: String,
     query: String,
-    runtimes_ms: Vec<f64>,
-    num_results: usize,
+    results: QueryRunResults,
 }
 
 #[derive(serde::Serialize)]
@@ -231,32 +152,42 @@ struct JSONBenchmarkResult {
     name: String,
     unit: &'static str,
     value: f64,
+    range: String,
     extra: String,
 }
 
 impl From<QueryResult> for JSONBenchmarkResult {
     fn from(res: QueryResult) -> Self {
-        let median = median(res.runtimes_ms.iter());
-        let cold_query_extra = res
-            .runtimes_ms
-            .first()
-            .map(|ms| format!("cold_query_ms={ms:.3}; query={}", res.query))
-            .unwrap_or_else(|| format!("cold_query_ms=NA; query={}", res.query));
+        let mean = mean(&res.results.samples);
+        let ci_half_width = confidence_interval_half_width(&res.results.samples, 0.95);
+
+        let cold_query_extra =
+            format!("cold_query_ms={:.3}; query={}", res.results.cold, res.query);
+        let range_str = format!("±{ci_half_width:.3} ms");
+
+        println!(
+            r"Query results: |
+            query: {},
+            mean: {mean:.3} ms,
+            confidence interval: ±{ci_half_width:.3} ms",
+            res.query
+        );
 
         Self {
             name: res.query_type,
-            unit: "median ms",
-            value: median,
+            unit: "mean ms",
+            value: mean,
+            range: range_str,
             extra: cold_query_extra,
         }
     }
 }
 
-async fn process_index_creation(args: &CommonBenchmarkArgs) -> Vec<IndexCreationResult> {
+async fn process_index_creation(args: &BenchmarkArgs) -> anyhow::Result<Vec<IndexCreationResult>> {
     let mut conn = PgConnection::connect(&args.url)
         .await
-        .expect("Failed to connect to database");
-    let index_sql = format!("datasets/{}/create_index/{}.sql", args.dataset, args.r#type);
+        .with_context(|| "Failed to connect to database")?;
+    let index_sql = format!("datasets/{}/create_index.sql", args.dataset);
     let mut results = Vec::new();
 
     for statement in queries(Path::new(&index_sql)) {
@@ -266,7 +197,7 @@ async fn process_index_creation(args: &CommonBenchmarkArgs) -> Vec<IndexCreation
         sqlx::query(&statement)
             .execute(&mut conn)
             .await
-            .expect("Failed to execute index creation SQL");
+            .with_context(|| "Failed to execute index creation SQL")?;
         let duration_min_ms = start.elapsed().as_secs_f64() / 60.0;
 
         let index_name = extract_index_name(&statement).to_owned();
@@ -276,7 +207,7 @@ async fn process_index_creation(args: &CommonBenchmarkArgs) -> Vec<IndexCreation
         ))
         .fetch_one(&mut conn)
         .await
-        .expect("Failed to get index size");
+        .with_context(|| "Failed to get index size")?;
         let index_size: i64 = row.get(0);
 
         let row = sqlx::query(&format!(
@@ -284,7 +215,7 @@ async fn process_index_creation(args: &CommonBenchmarkArgs) -> Vec<IndexCreation
         ))
         .fetch_one(&mut conn)
         .await
-        .expect("Failed to get segment count");
+        .with_context(|| "Failed to get segment count")?;
         let segment_count: i64 = row.get(0);
 
         results.push(IndexCreationResult {
@@ -295,23 +226,40 @@ async fn process_index_creation(args: &CommonBenchmarkArgs) -> Vec<IndexCreation
         });
     }
 
-    results
+    Ok(results)
 }
 
-async fn run_benchmarks(args: &CommonBenchmarkArgs) -> Vec<QueryResult> {
+async fn process_after_create_index_sql(args: &BenchmarkArgs) -> anyhow::Result<()> {
+    let after_create_index_sql = format!("datasets/{}/after_create_index.sql", args.dataset);
+    if Path::new(&after_create_index_sql).exists() {
+        let status = Command::new("psql")
+            .arg(&args.url)
+            .arg("-f")
+            .arg(&after_create_index_sql)
+            .status()
+            .with_context(|| "Failed to execute after_create_index.sql")?;
+        if !status.success() {
+            bail!("Failed to create tables from {after_create_index_sql}");
+        }
+    }
+    Ok(())
+}
+
+async fn run_benchmarks(args: &BenchmarkArgs) -> anyhow::Result<Vec<QueryResult>> {
     let mut utility_conn = PgConnection::connect(&args.url)
         .await
-        .expect("Failed to connect to database");
+        .with_context(|| "Failed to connect to database")?;
 
+    println!("vacuuming...");
     if args.vacuum {
-        sqlx::query("VACUUM ANALYZE")
+        sqlx::query("VACUUM FULL ANALYZE")
             .execute(&mut utility_conn)
             .await
-            .expect("Failed to vacuum");
+            .with_context(|| "Failed to vacuum")?;
     }
 
     if args.prewarm {
-        prewarm_indexes(&mut utility_conn, &args.dataset, &args.r#type).await;
+        prewarm_indexes(&mut utility_conn, &args.dataset).await?;
     }
 
     if let Err(err) = ensure_pg_buffercache_extension(&mut utility_conn).await {
@@ -319,20 +267,21 @@ async fn run_benchmarks(args: &CommonBenchmarkArgs) -> Vec<QueryResult> {
     }
 
     // Locate all query paths, and sort them for stability in the output.
-    let queries_dir = format!("datasets/{}/queries/{}", args.dataset, args.r#type);
-    let mut query_paths = std::fs::read_dir(queries_dir)
-        .expect("Failed to read queries directory")
-        .flat_map(|entry| {
-            let entry = entry.expect("Failed to read directory entry");
+    let queries_dir = format!("datasets/{}/queries", args.dataset);
+    let query_paths: anyhow::Result<Vec<Option<_>>> = std::fs::read_dir(queries_dir)
+        .with_context(|| "Failed to read queries directory")?
+        .map(|entry| {
+            let entry = entry.with_context(|| "Failed to read directory entry")?;
             let path = entry.path();
 
             if path.extension().and_then(|s| s.to_str()) != Some("sql") {
                 // Not a query file.
-                return None;
+                return Ok(None);
             }
-            Some(path)
+            Ok(Some(path))
         })
-        .collect::<Vec<_>>();
+        .collect();
+    let mut query_paths: Vec<_> = query_paths?.into_iter().flatten().collect();
     query_paths.sort_unstable();
 
     let mut results = Vec::new();
@@ -343,6 +292,12 @@ async fn run_benchmarks(args: &CommonBenchmarkArgs) -> Vec<QueryResult> {
                     panic!("Failed to clear caches before query: {err}");
                 }
             }
+
+            sqlx::raw_sql("CHECKPOINT;")
+                .execute(&mut utility_conn)
+                .await
+                .with_context(|| "Failed to execute checkpoint.")?;
+
             println!("Query Type: {query_type}\nQuery: {query}");
             let result = execute_query_multiple_times(
                 &args.url,
@@ -351,15 +306,17 @@ async fn run_benchmarks(args: &CommonBenchmarkArgs) -> Vec<QueryResult> {
                 args.runs,
                 args.fail_on_error,
             )
-            .await;
+            .await?;
             match result {
-                Some((runtimes_ms, num_results)) => {
-                    println!("Results: {runtimes_ms:?} | Rows Returned: {num_results}\n");
+                Some(query_results) => {
+                    println!(
+                        "Results: [cold: {:?} ] {:?} | Rows Returned: {}\n",
+                        query_results.cold, query_results.samples, query_results.num_results
+                    );
                     results.push(QueryResult {
                         query_type,
                         query,
-                        runtimes_ms,
-                        num_results,
+                        results: query_results,
                     });
                 }
                 None => {
@@ -369,68 +326,71 @@ async fn run_benchmarks(args: &CommonBenchmarkArgs) -> Vec<QueryResult> {
         }
     }
 
-    results
+    Ok(results)
 }
 
-async fn generate_markdown_output(args: &CommonBenchmarkArgs, rows_display: &str) {
-    let output_file = format!("results_{}.md", args.r#type);
-    let mut file = File::create(&output_file).expect("Failed to create output file");
+async fn generate_markdown_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
+    let output_file = "results_pg_search.md";
+    let mut file = File::create(output_file).with_context(|| "Failed to create output file")?;
 
-    write_benchmark_header(&mut file);
-    write_test_info(&mut file, args, rows_display).await;
-    write_postgres_settings(&mut file, &args.url).await;
+    write_benchmark_header(&mut file)?;
+    write_test_info(&mut file, args).await?;
+    write_postgres_settings(&mut file, &args.url).await?;
     if !args.skip_setup {
-        process_index_creation_md(&mut file, args).await;
+        process_index_creation_md(&mut file, args).await?;
+        process_after_create_index_sql(args).await?;
     }
-    run_benchmarks_md(&mut file, args).await;
+    run_benchmarks_md(&mut file, args).await?;
+    Ok(())
 }
 
-async fn generate_csv_output(args: &CommonBenchmarkArgs, rows_display: &str) {
-    write_test_info_csv(args, rows_display).await;
-    write_postgres_settings_csv(&args.url, &args.r#type).await;
+async fn generate_csv_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
+    write_test_info_csv(args).await?;
+    write_postgres_settings_csv(&args.url).await?;
     if !args.skip_setup {
-        process_index_creation_csv(args).await;
+        process_index_creation_csv(args).await?;
+        process_after_create_index_sql(args).await?;
     }
-    run_benchmarks_csv(args).await;
+    run_benchmarks_csv(args).await?;
+    Ok(())
 }
 
-async fn generate_json_output(args: &CommonBenchmarkArgs, _rows_display: &str) {
+async fn generate_json_output(args: &BenchmarkArgs) -> anyhow::Result<()> {
     if !args.skip_setup {
-        process_index_creation_json(args).await;
+        process_index_creation_json(args).await?;
+        process_after_create_index_sql(args).await?;
     }
-    run_benchmarks_json(args).await;
+    run_benchmarks_json(args).await?;
+    Ok(())
 }
 
-async fn write_test_info_csv(args: &CommonBenchmarkArgs, rows_display: &str) {
-    let filename = format!("results_{}_test_info.csv", args.r#type);
-    let mut file = File::create(&filename).expect("Failed to create test info CSV");
+async fn write_test_info_csv(args: &BenchmarkArgs) -> anyhow::Result<()> {
+    let filename = "results_pg_search_test_info.csv";
+    let mut file = File::create(filename).with_context(|| "Failed to create test info CSV")?;
 
     writeln!(file, "Key,Value").unwrap();
-    writeln!(file, "Dataset Size,{rows_display}").unwrap();
-    writeln!(file, "Test Type,{}", args.r#type).unwrap();
-    writeln!(file, "Prewarm,{}", args.prewarm).unwrap();
-    writeln!(file, "Vacuum,{}", args.vacuum).unwrap();
+    writeln!(file, "Dataset Size,{}", args.size)?;
+    writeln!(file, "Prewarm,{}", args.prewarm)?;
+    writeln!(file, "Vacuum,{}", args.vacuum)?;
 
-    if args.r#type == "pg_search" {
-        let mut conn = PgConnection::connect(&args.url)
-            .await
-            .expect("Failed to connect to database for version info");
-        let row = sqlx::query("SELECT version, githash, build_mode FROM paradedb.version_info()")
-            .fetch_one(&mut conn)
-            .await
-            .expect("Failed to fetch paradedb.version_info()");
-        let version: String = row.get(0);
-        let githash: String = row.get(1);
-        let build_mode: String = row.get(2);
-        writeln!(file, "pg_search Version,{version}").unwrap();
-        writeln!(file, "pg_search Git Hash,{githash}").unwrap();
-        writeln!(file, "pg_search Build Mode,{build_mode}").unwrap();
-    }
+    let mut conn = PgConnection::connect(&args.url)
+        .await
+        .with_context(|| "Failed to connect to database for version info")?;
+    let row = sqlx::query("SELECT version, build_mode FROM paradedb.version_info()")
+        .fetch_one(&mut conn)
+        .await
+        .with_context(|| "Failed to fetch paradedb.version_info()")?;
+    let version: String = row.get(0);
+    let build_mode: String = row.get(1);
+    writeln!(file, "pg_search Version,{version}")?;
+    writeln!(file, "pg_search Build Mode,{build_mode}")?;
+    Ok(())
 }
 
-async fn write_postgres_settings_csv(url: &str, test_type: &str) {
-    let filename = format!("results_{test_type}_postgres_settings.csv");
-    let mut file = File::create(&filename).expect("Failed to create postgres settings CSV");
+async fn write_postgres_settings_csv(url: &str) -> anyhow::Result<()> {
+    let filename = "results_pg_search_postgres_settings.csv";
+    let mut file =
+        File::create(filename).with_context(|| "Failed to create postgres settings CSV")?;
 
     writeln!(file, "Setting,Value").unwrap();
 
@@ -445,28 +405,28 @@ async fn write_postgres_settings_csv(url: &str, test_type: &str) {
 
     let mut conn = PgConnection::connect(url)
         .await
-        .expect("Failed to connect to database");
+        .with_context(|| "Failed to connect to database")?;
     for setting in settings {
         let row = sqlx::query(&format!("SHOW {setting}"))
             .fetch_one(&mut conn)
             .await
-            .expect("Failed to get postgres setting");
+            .with_context(|| "Failed to get postgres setting")?;
         let value: String = row.get(0);
-        writeln!(file, "{setting},{value}").unwrap();
+        writeln!(file, "{setting},{value}")?;
     }
+    Ok(())
 }
 
-async fn process_index_creation_csv(args: &CommonBenchmarkArgs) {
-    let filename = format!("results_{}_index_creation.csv", args.r#type);
-    let mut file = File::create(&filename).expect("Failed to create index creation CSV");
+async fn process_index_creation_csv(args: &BenchmarkArgs) -> anyhow::Result<()> {
+    let filename = "results_pg_search_index_creation.csv";
+    let mut file = File::create(filename).with_context(|| "Failed to create index creation CSV")?;
 
     writeln!(
         file,
         "Index Name,Duration (min),Index Size (MB),Segment Count"
-    )
-    .unwrap();
+    )?;
 
-    for result in process_index_creation(args).await {
+    for result in process_index_creation(args).await? {
         let IndexCreationResult {
             duration_min_ms,
             index_name,
@@ -476,14 +436,15 @@ async fn process_index_creation_csv(args: &CommonBenchmarkArgs) {
         writeln!(
             file,
             "{index_name},{duration_min_ms:.2},{index_size},{segment_count}"
-        )
-        .unwrap();
+        )?;
     }
+    Ok(())
 }
 
-async fn run_benchmarks_csv(args: &CommonBenchmarkArgs) {
-    let filename = format!("results_{}_benchmark_results.csv", args.r#type);
-    let mut file = File::create(&filename).expect("Failed to create benchmark results CSV");
+async fn run_benchmarks_csv(args: &BenchmarkArgs) -> anyhow::Result<()> {
+    let filename = "results_{}_benchmark_results.csv";
+    let mut file =
+        File::create(filename).with_context(|| "Failed to create benchmark results CSV")?;
 
     // Write header
     let mut header = String::from("Query Type");
@@ -491,63 +452,59 @@ async fn run_benchmarks_csv(args: &CommonBenchmarkArgs) {
         header.push_str(&format!(",Run {i} (ms)"));
     }
     header.push_str(",Rows Returned,Query");
-    writeln!(file, "{header}").unwrap();
+    writeln!(file, "{header}")?;
 
-    for result in run_benchmarks(args).await {
+    for result in run_benchmarks(args).await? {
         let QueryResult {
             query_type,
             query,
-            runtimes_ms,
-            num_results,
+            results,
         } = result;
 
         let mut result_line = query_type;
-        for &runtime_ms in &runtimes_ms {
+        for &runtime_ms in &results.samples {
             result_line.push_str(&format!(",{runtime_ms:.0}"));
         }
         result_line.push_str(&format!(
             ",{},\"{}\"",
-            num_results,
+            results.num_results,
             query.replace("\"", "\"\"")
         ));
-        writeln!(file, "{result_line}").unwrap();
+        writeln!(file, "{result_line}")?;
     }
+    Ok(())
 }
 
-fn write_benchmark_header(file: &mut File) {
-    writeln!(file, "# Benchmark Results").unwrap();
+fn write_benchmark_header(file: &mut File) -> anyhow::Result<()> {
+    Ok(writeln!(file, "# Benchmark Results")?)
 }
 
-async fn write_test_info(file: &mut File, args: &CommonBenchmarkArgs, rows_display: &str) {
-    writeln!(file, "\n## Test Info").unwrap();
-    writeln!(file, "| Key         | Value       |").unwrap();
-    writeln!(file, "|-------------|-------------|").unwrap();
-    writeln!(file, "| Dataset Size | {rows_display} |").unwrap();
-    writeln!(file, "| Test Type   | {} |", args.r#type).unwrap();
-    writeln!(file, "| Prewarm     | {} |", args.prewarm).unwrap();
-    writeln!(file, "| Vacuum      | {} |", args.vacuum).unwrap();
+async fn write_test_info(file: &mut File, args: &BenchmarkArgs) -> anyhow::Result<()> {
+    writeln!(file, "\n## Test Info")?;
+    writeln!(file, "| Key         | Value       |")?;
+    writeln!(file, "|-------------|-------------|")?;
+    writeln!(file, "| Dataset Size | {} |", args.size)?;
+    writeln!(file, "| Prewarm     | {} |", args.prewarm)?;
+    writeln!(file, "| Vacuum      | {} |", args.vacuum)?;
 
-    if args.r#type == "pg_search" {
-        let mut conn = PgConnection::connect(&args.url)
-            .await
-            .expect("Failed to connect to database for version info");
-        let row = sqlx::query("SELECT version, githash, build_mode FROM paradedb.version_info()")
-            .fetch_one(&mut conn)
-            .await
-            .expect("Failed to fetch paradedb.version_info()");
-        let version: String = row.get(0);
-        let githash: String = row.get(1);
-        let build_mode: String = row.get(2);
-        writeln!(file, "| pg_search Version | {version} |").unwrap();
-        writeln!(file, "| pg_search Git Hash | {githash} |").unwrap();
-        writeln!(file, "| pg_search Build Mode | {build_mode} |").unwrap();
-    }
+    let mut conn = PgConnection::connect(&args.url)
+        .await
+        .with_context(|| "Failed to connect to database for version info")?;
+    let row = sqlx::query("SELECT version, build_mode FROM paradedb.version_info()")
+        .fetch_one(&mut conn)
+        .await
+        .with_context(|| "Failed to fetch paradedb.version_info()")?;
+    let version: String = row.get(0);
+    let build_mode: String = row.get(1);
+    writeln!(file, "| pg_search Version | {version} |")?;
+    writeln!(file, "| pg_search Build Mode | {build_mode} |")?;
+    Ok(())
 }
 
-async fn write_postgres_settings(file: &mut File, url: &str) {
-    writeln!(file, "\n## Postgres Settings").unwrap();
-    writeln!(file, "| Setting                        | Value |").unwrap();
-    writeln!(file, "|--------------------------------|-------|").unwrap();
+async fn write_postgres_settings(file: &mut File, url: &str) -> anyhow::Result<()> {
+    writeln!(file, "\n## Postgres Settings")?;
+    writeln!(file, "| Setting                        | Value |")?;
+    writeln!(file, "|--------------------------------|-------|")?;
 
     let settings = vec![
         "maintenance_work_mem",
@@ -559,127 +516,99 @@ async fn write_postgres_settings(file: &mut File, url: &str) {
 
     let mut conn = PgConnection::connect(url)
         .await
-        .expect("Failed to connect to database");
+        .with_context(|| "Failed to connect to database")?;
     for setting in settings {
         let row = sqlx::query(&format!("SHOW {setting}"))
             .fetch_one(&mut conn)
             .await
-            .expect("Failed to get postgres setting");
+            .with_context(|| "Failed to get postgres setting")?;
         let value: String = row.get(0);
-        writeln!(file, "| {setting} | {value} |").unwrap();
+        writeln!(file, "| {setting} | {value} |")?;
     }
+    Ok(())
 }
 
-fn generate_test_data(url: &str, dataset: &str, rows: u32) {
-    let status = Command::new("psql")
-        .arg(url)
-        .arg("-v")
-        .arg(format!("rows={rows}"))
-        .arg("-f")
-        .arg(format!("datasets/{dataset}/generate.sql"))
-        .status()
-        .expect("Failed to create table");
-
-    if !status.success() {
-        eprintln!("Failed to create table");
-        std::process::exit(1);
-    }
-}
-
-fn load_external_data(url: &str, dataset: &str, size_label: &str, data_source: Option<&str>) {
+fn load_external_data(
+    url: &str,
+    dataset: &str,
+    size_label: &str,
+    data_source: Option<&str>,
+) -> anyhow::Result<()> {
     // Read dataset config for table names and S3 path.
     let config_path = format!("datasets/{dataset}/config.toml");
-    let config = config::load_dataset_config(&config_path).unwrap_or_else(|e| {
-        eprintln!("Failed to load config '{config_path}': {e}");
-        std::process::exit(1);
-    });
+    let (config, _) = config::load_dataset_config(&config_path)
+        .with_context(|| format!("Failed to load config '{config_path}'"))?;
 
     // Determine CSV data source path.
-    let source_path = match data_source {
-        Some(path) => path.trim_end_matches('/').to_string(),
-        None => {
-            let s3_base = config.s3_base_path.as_deref().unwrap_or_else(|| {
-                eprintln!(
-                    "Dataset '{dataset}' has no S3 base path. Provide --data-source or set \
-                     s3_base_path in datasets/{dataset}/config.toml"
-                );
-                std::process::exit(1);
-            });
+    let base_path = match data_source {
+        Some(path) => path,
+        None => config.s3_base_path.as_deref().with_context(|| {
             format!(
-                "{}/sampled/{}/csv",
-                s3_base.trim_end_matches('/'),
-                size_label
+                "Dataset '{dataset}' has no S3 base path. Provide --data-source or set \
+                 s3_base_path in datasets/{dataset}/config.toml"
             )
-        }
+        })?,
     };
+    let source_path = format!(
+        "{}/sampled/{}/csv",
+        base_path.trim_end_matches('/'),
+        size_label
+    );
     println!("Data source: {source_path}");
 
     // Create tables via DDL.
     let create_tables_sql = format!("datasets/{dataset}/create_tables.sql");
     if !Path::new(&create_tables_sql).exists() {
-        eprintln!(
+        bail!(
             "Dataset '{dataset}' requires create_tables.sql but none found at {create_tables_sql}"
         );
-        std::process::exit(1);
     }
     let status = Command::new("psql")
         .arg(url)
         .arg("-f")
         .arg(&create_tables_sql)
         .status()
-        .expect("Failed to execute create_tables.sql");
+        .with_context(|| "Failed to execute create_tables.sql")?;
     if !status.success() {
-        eprintln!("Failed to create tables from {create_tables_sql}");
-        std::process::exit(1);
+        bail!("Failed to create tables from {create_tables_sql}");
     }
 
     // Download CSV data from source and load into PostgreSQL.
     let temp_dir = format!("/tmp/benchmark_data/{dataset}");
     if Path::new(&temp_dir).exists() {
-        std::fs::remove_dir_all(&temp_dir).unwrap_or_else(|e| {
-            eprintln!("Failed to clean temp directory '{temp_dir}': {e}");
-            std::process::exit(1);
-        });
+        std::fs::remove_dir_all(&temp_dir)
+            .with_context(|| format!("Failed to clean temp directory '{temp_dir}'"))?;
     }
-    std::fs::create_dir_all(&temp_dir).unwrap_or_else(|e| {
-        eprintln!("Failed to create temp directory '{temp_dir}': {e}");
-        std::process::exit(1);
-    });
+    std::fs::create_dir_all(&temp_dir)
+        .with_context(|| format!("Failed to create temp directory '{temp_dir}'"))?;
 
-    let duckdb_conn = utils::open_duckdb_conn().unwrap_or_else(|e| {
-        eprintln!("Failed to open DuckDB connection: {e}");
-        std::process::exit(1);
-    });
+    let duckdb_conn =
+        utils::open_duckdb_conn().with_context(|| "Failed to open DuckDB connection")?;
 
-    for table in &config.tables {
-        let table_name = &table.name;
+    for table_name in config.all_table_names() {
         let csv_source = format!("{source_path}/{table_name}");
         let table_temp_dir = format!("{temp_dir}/{table_name}");
-        std::fs::create_dir_all(&table_temp_dir).unwrap_or_else(|e| {
-            eprintln!("Failed to create temp directory '{table_temp_dir}': {e}");
-            std::process::exit(1);
-        });
+        std::fs::create_dir_all(&table_temp_dir)
+            .with_context(|| format!("Failed to create temp directory '{table_temp_dir}'"))?;
 
         // Download CSV files from source to local temp dir.
-        println!("Downloading CSV for '{table_name}' from {csv_source}...");
+        // We must use parallel=false because some datasets (stackoverflow for instance) contain a
+        // bunch of code or json that duckdbs parallel parser can't handle if one of its chunk
+        // boundaries ends up in one of the complicated-quote/line-break blocks common to those
+        // datasets
+        println!("Downloading CSVs for '{table_name}' from {csv_source}...");
         let download_sql = format!(
-            "COPY (SELECT * FROM read_csv('{csv_source}/*.csv', header=true, all_varchar=true)) \
+            "COPY (SELECT * FROM read_csv('{csv_source}/*.csv', header=true, parallel=false)) \
              TO '{table_temp_dir}' (FORMAT CSV, HEADER true, PER_THREAD_OUTPUT true)"
         );
         duckdb_conn
             .execute_batch(&download_sql)
-            .unwrap_or_else(|e| {
-                eprintln!("Failed to download CSV for table '{table_name}': {e}");
-                std::process::exit(1);
-            });
+            .with_context(|| format!("Failed to download CSV for table '{table_name}'"))?;
 
         // Load each local CSV file into PostgreSQL.
         println!("Loading '{table_name}' into PostgreSQL...");
         let local_csvs: Vec<_> = std::fs::read_dir(&table_temp_dir)
-            .unwrap_or_else(|e| {
-                eprintln!("Failed to read temp directory '{table_temp_dir}': {e}");
-                std::process::exit(1);
-            })
+            .with_context(|| format!("Failed to read temp directory '{table_temp_dir}'"))?
             .filter_map(|entry| {
                 let path = entry.ok()?.path();
                 if path.extension().and_then(|s| s.to_str()) == Some("csv") {
@@ -698,10 +627,9 @@ fn load_external_data(url: &str, dataset: &str, size_label: &str, data_source: O
                 .arg("-c")
                 .arg(&copy_cmd)
                 .status()
-                .expect("Failed to execute psql copy");
+                .with_context(|| "Failed to execute psql copy")?;
             if !status.success() {
-                eprintln!("Failed to load '{csv_str}' into table '{table_name}'");
-                std::process::exit(1);
+                bail!("Failed to load '{csv_str}' into table '{table_name}'");
             }
         }
         println!("  Loaded {} file(s) into '{table_name}'.", local_csvs.len());
@@ -714,22 +642,21 @@ fn load_external_data(url: &str, dataset: &str, size_label: &str, data_source: O
     }
 
     println!("External data loaded successfully.");
+    Ok(())
 }
 
-async fn process_index_creation_md(file: &mut File, args: &CommonBenchmarkArgs) {
-    writeln!(file, "\n## Index Creation Results").unwrap();
+async fn process_index_creation_md(file: &mut File, args: &BenchmarkArgs) -> anyhow::Result<()> {
+    writeln!(file, "\n## Index Creation Results")?;
     writeln!(
         file,
         "| Index Name | Duration (min) | Index Size (MB) | Segment Count |"
-    )
-    .unwrap();
+    )?;
     writeln!(
         file,
         "|------------|----------------|-----------------|---------------|"
-    )
-    .unwrap();
+    )?;
 
-    for result in process_index_creation(args).await {
+    for result in process_index_creation(args).await? {
         let IndexCreationResult {
             duration_min_ms,
             index_name,
@@ -740,29 +667,35 @@ async fn process_index_creation_md(file: &mut File, args: &CommonBenchmarkArgs) 
         writeln!(
             file,
             "| {index_name} | {duration_min_ms:.2} | {index_size} | {segment_count} |"
-        )
-        .unwrap();
+        )?;
     }
+    Ok(())
 }
 
-async fn run_benchmarks_md(file: &mut File, args: &CommonBenchmarkArgs) {
-    writeln!(file, "\n## Benchmark Results").unwrap();
+async fn run_benchmarks_md(file: &mut File, args: &BenchmarkArgs) -> anyhow::Result<()> {
+    writeln!(file, "\n## Benchmark Results")?;
 
-    write_benchmark_table_header(file, args.runs);
+    write_benchmark_table_header(file, args.runs)?;
 
-    for result in run_benchmarks(args).await {
+    for result in run_benchmarks(args).await? {
         let QueryResult {
             query_type,
             query,
-            runtimes_ms,
-            num_results,
+            results,
         } = result;
         let md_query = query.replace("|", "\\|");
-        write_benchmark_results_md(file, &query_type, &runtimes_ms, num_results, &md_query);
+        write_benchmark_results_md(
+            file,
+            &query_type,
+            &results.samples,
+            results.num_results,
+            &md_query,
+        )?;
     }
+    Ok(())
 }
 
-fn write_benchmark_table_header(file: &mut File, runs: usize) {
+fn write_benchmark_table_header(file: &mut File, runs: usize) -> anyhow::Result<()> {
     let mut header = String::from("| Query Type ");
     let mut separator = String::from("|------------");
 
@@ -774,8 +707,9 @@ fn write_benchmark_table_header(file: &mut File, runs: usize) {
     header.push_str("| Rows Returned | Query |");
     separator.push_str("|---------------|--------|");
 
-    writeln!(file, "{header}").unwrap();
-    writeln!(file, "{separator}").unwrap();
+    writeln!(file, "{header}")?;
+    writeln!(file, "{separator}")?;
+    Ok(())
 }
 
 fn write_benchmark_results_md(
@@ -784,7 +718,7 @@ fn write_benchmark_results_md(
     results: &[f64],
     num_results: usize,
     md_query: &str,
-) {
+) -> anyhow::Result<()> {
     let mut result_line = format!("| {query_type} ");
 
     for &result in results {
@@ -792,25 +726,29 @@ fn write_benchmark_results_md(
     }
 
     result_line.push_str(&format!("| {num_results} | `{md_query}` |"));
-    writeln!(file, "{result_line}").unwrap();
+    writeln!(file, "{result_line}")?;
+    Ok(())
 }
 
-async fn process_index_creation_json(args: &CommonBenchmarkArgs) {
-    for _result in process_index_creation(args).await {
+async fn process_index_creation_json(args: &BenchmarkArgs) -> anyhow::Result<()> {
+    for _result in process_index_creation(args).await? {
         // TODO: Record index creation results as JSON.
     }
+    Ok(())
 }
 
-async fn run_benchmarks_json(args: &CommonBenchmarkArgs) {
-    let mut file = File::create("results.json").expect("Failed to create output file");
+async fn run_benchmarks_json(args: &BenchmarkArgs) -> anyhow::Result<()> {
+    let mut file = File::create("results.json").with_context(|| "Failed to create output file")?;
     let results = run_benchmarks(args)
-        .await
+        .await?
         .into_iter()
         .map(JSONBenchmarkResult::from)
         .collect::<Vec<_>>();
-    let results_json = serde_json::to_string(&results).expect("Failed to serialize results");
+    let results_json =
+        serde_json::to_string(&results).with_context(|| "Failed to serialize results")?;
     file.write_all(results_json.as_bytes())
-        .expect("Failed to write results");
+        .with_context(|| "Failed to write results")?;
+    Ok(())
 }
 
 ///
@@ -872,52 +810,105 @@ fn extract_index_name(statement: &str) -> &str {
         .expect("Failed to parse index name")
 }
 
-async fn prewarm_indexes(conn: &mut PgConnection, dataset: &str, r#type: &str) {
-    let prewarm_sql = format!("datasets/{dataset}/prewarm/{type}.sql");
+async fn prewarm_indexes(conn: &mut PgConnection, dataset: &str) -> anyhow::Result<()> {
+    let prewarm_sql = format!("datasets/{dataset}/prewarm.sql");
     for statement in queries(Path::new(&prewarm_sql)) {
         sqlx::query(&statement)
             .execute(&mut *conn)
             .await
-            .expect("Failed to prewarm indexes");
+            .with_context(|| "Failed to prewarm indexes")?;
     }
+    Ok(())
 }
 
-/// Execute a benchmark query multiple times on a single reused connection.
+async fn get_query_id(query: &str, conn: &mut PgConnection) -> anyhow::Result<i64> {
+    let explain_str = format!("EXPLAIN (VERBOSE, FORMAT JSON) {query}");
+    let sqlx::types::Json(res): sqlx::types::Json<serde_json::Value> =
+        sqlx::query_scalar(&explain_str).fetch_one(conn).await?;
+
+    let query_id = res[0]["Query Identifier"]
+        .as_i64()
+        .ok_or_else(|| anyhow::anyhow!("Failed to find query id"))?;
+
+    Ok(query_id)
+}
+
+/// Execute a benchmark query, taking sample_count warmed samples on a single reused connection.
 ///
 /// This creates a fresh connection for each benchmark query and then reuses it across repeated
 /// runs of that query.
+///
+/// The query will be ran repeatedly, warming it,until a 3-run window shows a sub-0.1% ratio of
+/// variance over mean, or it has been ran 10 times. At that point, sample_count samples will
+/// be taken.
 ///
 /// Uses the simple query protocol (via `raw_sql`) to match `psql` behavior, which is
 /// necessary for compatibility with custom scan providers. Compound statements
 /// (e.g., `SET ...; SELECT ...`) are handled natively by the simple protocol.
 ///
-/// Timing uses `Instant` around `execute()`, which consumes the entire result set from
-/// the wire without per-row object allocation, matching how `psql` with `\timing` works.
+/// Timing uses the results of server-side planning + execution time from pg_stat_statements,
+/// limiting the amount of non-extension-code time captured.
 ///
 /// Returns `None` when `fail_on_error` is false and the query errors (the query is skipped).
 async fn execute_query_multiple_times(
     url: &str,
     query_type: &str,
     query: &str,
-    times: usize,
+    sample_count: usize,
     fail_on_error: bool,
-) -> Option<(Vec<f64>, usize)> {
+) -> anyhow::Result<Option<QueryRunResults>> {
     let mut conn = PgConnection::connect(url)
         .await
-        .expect("Failed to connect to database");
-    let mut results = Vec::new();
-    let mut num_results = 0;
+        .with_context(|| "Failed to connect to database")?;
+    let mut window = Window::new(3);
+    let mut results = QueryRunResults::default();
 
-    for i in 0..times {
-        let start = Instant::now();
-        let result = sqlx::raw_sql(query).execute(&mut conn).await;
-        let elapsed = start.elapsed();
+    let measured_query = query.split(";").last().unwrap().trim();
+    // SELECT the times for the last query run, making sure we don't accidentally get the 'reset'
+    // query
+    let stats_reset_query = "SELECT pg_stat_statements_reset();";
+
+    let query_id = get_query_id(measured_query, &mut conn).await?;
+    let stats_query = format!("SELECT max_exec_time, max_plan_time, rows FROM pg_stat_statements WHERE queryid = {query_id};");
+
+    // run until run-to-run variance is sub-0.1% (query is warmed) or
+    // until 10 runs have passed, then take the next sample_count results
+    let mut runs_completed = 0;
+    let mut samples_taken = 0;
+    while samples_taken < sample_count {
+        let result: anyhow::Result<(f64, f64, i64)> = {
+            sqlx::raw_sql(stats_reset_query)
+                .execute(&mut conn)
+                .await
+                .with_context(|| format!("Failed to execute query: {stats_reset_query}"))?;
+            sqlx::raw_sql(query)
+                .execute(&mut conn)
+                .await
+                .with_context(|| format!("Failed to execute query: {query}"))?;
+            let res = sqlx::query_as(&stats_query)
+                .fetch_one(&mut conn)
+                .await
+                .with_context(|| format!("Failed to execute query: {stats_query}"))?;
+            Ok(res)
+        };
 
         match result {
-            Ok(r) => {
-                results.push(elapsed.as_secs_f64() * 1000.0);
-                if i == 0 {
-                    num_results = r.rows_affected() as usize;
+            Ok((exec_time_ms, plan_time_ms, rows)) => {
+                let time = exec_time_ms + plan_time_ms;
+                window.push(time);
+                if runs_completed == 0 {
+                    results.num_results = rows as usize;
+                    results.cold = time;
+                } else if (window.is_full()
+                    && window
+                        .variance_over_mean()
+                        .filter(|v| *v <= 0.001)
+                        .is_some())
+                    || runs_completed >= 10
+                {
+                    // only record once the query is sufficiently warm, or if we've already ran 10
+                    results.samples.push(time);
+                    samples_taken += 1;
                 }
             }
             Err(err) => {
@@ -925,13 +916,15 @@ async fn execute_query_multiple_times(
                     panic!("Failed to execute benchmark query `{query_type}`:  {err}");
                 } else {
                     eprintln!("WARNING: Skipping query `{query_type}` due to error: {err}");
-                    return None;
+                    return Ok(None);
                 }
             }
         }
+
+        runs_completed += 1;
     }
 
-    Some((results, num_results))
+    Ok(Some(results))
 }
 
 fn drop_os_page_cache() -> Result<(), String> {
@@ -980,26 +973,21 @@ async fn clear_caches(conn: &mut PgConnection) -> Result<(), String> {
     }
 }
 
-async fn ensure_pg_buffercache_extension(conn: &mut PgConnection) -> Result<(), String> {
+async fn ensure_pg_buffercache_extension(conn: &mut PgConnection) -> anyhow::Result<()> {
     sqlx::query("CREATE EXTENSION IF NOT EXISTS pg_buffercache")
         .execute(&mut *conn)
         .await
-        .map_err(|e| {
-            format!("failed to create pg_buffercache extension (`CREATE EXTENSION IF NOT EXISTS pg_buffercache`): {e}")
+        .with_context(|| {
+            "failed to create pg_buffercache extension (`CREATE EXTENSION IF NOT EXISTS pg_buffercache`"
         })?;
     Ok(())
 }
 
-async fn evict_postgres_buffer_cache(conn: &mut PgConnection) -> Result<(), String> {
-    let sql = "DO $$ \
-               BEGIN \
-                   PERFORM pg_buffercache_evict(bufferid) \
-                   FROM pg_buffercache \
-                   WHERE relfilenode IS NOT NULL; \
-               END \
-               $$";
-    sqlx::query(sql).execute(&mut *conn).await.map_err(|e| {
-        format!("failed to evict PostgreSQL buffer cache via pg_buffercache (`{sql}`): {e}")
-    })?;
+async fn evict_postgres_buffer_cache(conn: &mut PgConnection) -> anyhow::Result<()> {
+    let evict_query = "SELECT pg_buffercache_evict_all();";
+    sqlx::raw_sql(evict_query)
+        .execute(conn)
+        .await
+        .with_context(|| format!("Failed to PostgreSQL buffer cache: {evict_query}"))?;
     Ok(())
 }

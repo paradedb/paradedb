@@ -1054,6 +1054,130 @@ GROUP BY p.category
 ORDER BY p.category;
 
 -- =====================================================================
+-- SECTION 17: JSON sub-field GROUP BY on join (DataFusion path)
+-- =====================================================================
+
+CREATE TABLE agg_json_items (
+    id SERIAL PRIMARY KEY,
+    metadata JSONB
+);
+
+CREATE TABLE agg_json_orders (
+    id SERIAL PRIMARY KEY,
+    item_id INTEGER,
+    qty INTEGER
+);
+
+INSERT INTO agg_json_items (metadata) VALUES
+    ('{"category": "Electronics", "brand": "Acme"}'),
+    ('{"category": "Electronics", "brand": "Beta"}'),
+    ('{"category": "Toys", "brand": "Acme"}');
+
+INSERT INTO agg_json_orders (item_id, qty) VALUES
+    (1, 10), (1, 5), (2, 3), (3, 7);
+
+CREATE INDEX agg_json_items_idx ON agg_json_items
+USING bm25 (id, metadata)
+WITH (
+    key_field='id',
+    json_fields='{"metadata": {"fast": true}}'
+);
+
+CREATE INDEX agg_json_orders_idx ON agg_json_orders
+USING bm25 (id, item_id, qty)
+WITH (
+    key_field='id',
+    numeric_fields='{"item_id": {"fast": true}, "qty": {"fast": true}}'
+);
+
+-- Test 17.1: GROUP BY JSON sub-field on join — EXPLAIN shows DataFusion
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT i.metadata->>'category' AS category, COUNT(*), SUM(o.qty)
+FROM agg_json_items i
+JOIN agg_json_orders o ON i.id = o.item_id
+WHERE i.id @@@ paradedb.all()
+GROUP BY i.metadata->>'category';
+
+-- Test 17.2: JSON sub-field GROUP BY results
+SELECT i.metadata->>'category' AS category, COUNT(*), SUM(o.qty)
+FROM agg_json_items i
+JOIN agg_json_orders o ON i.id = o.item_id
+WHERE i.id @@@ paradedb.all()
+GROUP BY i.metadata->>'category'
+ORDER BY category;
+
+-- Test 17.3: JSON sub-field GROUP BY parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT i.metadata->>'category' AS category, COUNT(*), SUM(o.qty)
+FROM agg_json_items i
+JOIN agg_json_orders o ON i.id = o.item_id
+WHERE i.id @@@ paradedb.all()
+GROUP BY i.metadata->>'category'
+ORDER BY category;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+DROP TABLE agg_json_orders;
+DROP TABLE agg_json_items;
+
+-- =====================================================================
+-- SECTION 17: Per-aggregate FILTER clause on join
+-- =====================================================================
+
+-- Test 17.1: COUNT with FILTER — EXPLAIN shows DataFusion
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT p.category,
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE p.price > 100) AS expensive
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category;
+
+-- Test 17.2: COUNT with FILTER — results
+SELECT p.category,
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE p.price > 100) AS expensive
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 17.3: FILTER parity — DataFusion vs Postgres native
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category,
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE p.price > 100) AS expensive
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+ORDER BY p.category;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- Test 17.4: SUM with FILTER
+SELECT p.category,
+       SUM(p.price) AS total_price,
+       SUM(p.price) FILTER (WHERE p.rating >= 4) AS high_rated_price
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+ORDER BY p.category;
+
+-- Test 17.5: SUM FILTER parity
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT p.category,
+       SUM(p.price) AS total_price,
+       SUM(p.price) FILTER (WHERE p.rating >= 4) AS high_rated_price
+FROM agg_join_products p
+JOIN agg_join_tags t ON p.id = t.product_id
+WHERE p.description @@@ 'laptop OR shoes OR jacket'
+GROUP BY p.category
+ORDER BY p.category;
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+-- =====================================================================
 -- Clean up
 -- =====================================================================
 DROP TABLE agg_join_tags;

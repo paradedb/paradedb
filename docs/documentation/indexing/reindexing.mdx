@@ -16,11 +16,67 @@ If an index's schema is changed, it must be rebuilt. This includes:
 Let's assume the existing index is called `search_idx`, and we want to create a new index called `search_idx_v2`.
 First, use `CREATE INDEX CONCURRENTLY` to build a new index in the background.
 
-```sql
+<CodeGroup>
+```sql SQL
 CREATE INDEX CONCURRENTLY search_idx_v2
 ON mock_items USING bm25 (id, description, category)
 WITH (key_field = 'id');
 ```
+
+```python Django
+from django.db import connection
+from paradedb.indexes import BM25Index
+
+with connection.schema_editor(atomic=False) as schema_editor:
+    schema_editor.add_index(
+        MockItem,
+        BM25Index(
+            fields={
+                "id": {},
+                "description": {},
+                "category": {},
+            },
+            key_field="id",
+            name="search_idx_v2",
+        ),
+        concurrently=True,
+    )
+```
+
+```python SQLAlchemy
+from sqlalchemy import Index
+from paradedb.sqlalchemy import indexing
+
+idx = Index(
+    "search_idx_v2",
+    indexing.BM25Field(MockItem.id),
+    indexing.BM25Field(MockItem.description),
+    indexing.BM25Field(MockItem.category),
+    postgresql_using="bm25",
+    postgresql_with={"key_field": "id"},
+    postgresql_concurrently=True,
+)
+
+with engine.connect() as conn:
+    conn = conn.execution_options(isolation_level="AUTOCOMMIT")
+    idx.create(conn)
+```
+
+```ruby Rails
+ActiveRecord::Base.connection.add_bm25_index(
+  :mock_items,
+  fields: {
+    id: {},
+    description: {},
+    category: {}
+  },
+  key_field: :id,
+  name: :search_idx_v2,
+  concurrently: true
+)
+```
+
+</CodeGroup>
 
 <Note>
   The `CONCURRENTLY` clause is required. `CONCURRENTLY` allows the existing

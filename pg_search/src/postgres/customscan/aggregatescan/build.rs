@@ -90,7 +90,7 @@ pub struct AggregateOrderBy {
 pub struct AggregateCSClause {
     targetlist: TargetList,
     orderby: OrderByClause,
-    limit_offset: LimitOffset,
+    limit_offset: Option<LimitOffset>,
     quals: SearchQueryClause,
     indexrelid: pg_sys::Oid,
     is_execution_time: bool,
@@ -361,7 +361,9 @@ impl AggregateCSClause {
             })
             .filter_map(|info| match &info.feature {
                 OrderByFeature::Field { name, .. } => Some(name.to_string()),
-                OrderByFeature::Score { .. } | OrderByFeature::Var { .. } => None,
+                OrderByFeature::Score { .. }
+                | OrderByFeature::Var { .. }
+                | OrderByFeature::NullTest { .. } => None,
             })
             .collect()
     }
@@ -407,7 +409,7 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
         };
 
         let topk_output: Vec<(String, String)> = if let (true, Some(ref agg_order)) =
-            (self.limit_offset.limit().is_some(), &self.aggregate_orderby)
+            (self.limit_offset.is_some(), &self.aggregate_orderby)
         {
             let dir = match agg_order.direction {
                 SortDirection::DescNullsFirst | SortDirection::DescNullsLast => "DESC",
@@ -448,7 +450,7 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
                 }
             }
         };
-        // LimitOffset is optional
+        // LimitOffset is optional - returns None when there is no LIMIT clause.
         let limit_offset = unsafe { LimitOffset::from_parse(args.root().parse) };
         let quals = SearchQueryClause::from_pg(args, heap_rti, index)?;
 
@@ -508,27 +510,7 @@ pub(super) unsafe fn has_aggregate_orderby_with_limit(args: &CreateUpperPathsHoo
     let Some(aggref) = find_single_aggref_in_expr(sort_expr) else {
         return false;
     };
-    if aggref as *mut pg_sys::Node != sort_expr {
-        return false;
-    }
-
-    // Verify GROUP BY uses simple column references (Var nodes).
-    // Complex expressions like `metadata->>'category'` (OpExpr) can't be handled
-    // by the DataFusion aggregate path which requires Var or Aggref target entries.
-    // TODO: extend the DataFusion path to support JSON sub-field GROUP BY expressions.
-    // This requires PgSearchTableProvider to expose JSON sub-fields (e.g., `metadata.category`)
-    // as separate Arrow columns, and populate_required_fields to register them by field name
-    // rather than attno. Until then, these queries stay in Tantivy which handles JSON
-    // sub-paths natively via TermsAggregation.
-    let group_clauses = PgList::<pg_sys::SortGroupClause>::from_pg((*parse).groupClause);
-    for group_clause_ptr in group_clauses.iter_ptr() {
-        let group_expr = pg_sys::get_sortgroupclause_expr(group_clause_ptr, (*parse).targetList);
-        if !group_expr.is_null() && (*group_expr).type_ != pg_sys::NodeTag::T_Var {
-            return false;
-        }
-    }
-
-    true
+    aggref as *mut pg_sys::Node == sort_expr
 }
 
 /// Detects ORDER BY on aggregate metrics (e.g., ORDER BY COUNT(*) DESC)
@@ -632,19 +614,18 @@ impl CollectNested<GroupedKey> for AggregateCSClause {
         // The only optimization is `size = K` limiting the merged output.
         // Postgres still adds Sort + Limit above us for final ordering.
         let size = {
-            let limit = self.limit_offset.limit();
-            let offset = self.limit_offset.offset();
-
             // We can use LIMIT-based size optimization when:
             // 1. There's exactly one grouping column (multiple columns need all combinations)
             // 2. Either no ORDER BY, or ORDER BY targets COUNT (the only safe aggregate
             //    for TopK — see detect_aggregate_orderby for why non-COUNT is excluded)
+            // 3. The LIMIT is statically known — parameterized LIMIT can't be
+            //    folded into bucket size at planning time.
             let can_limit_buckets = grouping_columns.len() == 1
                 && (!self.orderby.has_orderby() || self.aggregate_orderby.is_some());
 
             if can_limit_buckets {
-                if let Some(limit) = limit {
-                    (limit + offset.unwrap_or(0)).min(max_buckets)
+                if let Some(fetch) = self.limit_offset.as_ref().and_then(|lo| lo.static_fetch()) {
+                    (fetch as u32).min(max_buckets)
                 } else {
                     max_buckets
                 }

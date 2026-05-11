@@ -198,6 +198,8 @@ ORDER BY priority DESC NULLS LAST;
 
 -- 4.1: INTEGER type (using main table)
 \echo 'Test 4.1: INTEGER field sorting (using main table priority column)'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'searchable' ORDER BY priority DESC NULLS LAST;
 SELECT id, priority FROM sorted_scan_test WHERE content @@@ 'searchable' ORDER BY priority DESC NULLS LAST;
 
 -- 4.2: FLOAT type
@@ -216,6 +218,8 @@ CREATE INDEX dtype_float_test_idx ON dtype_float_test
 USING bm25 (id, content, rating)
 WITH (key_field = 'id', sort_by = 'rating DESC NULLS LAST');
 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, rating FROM dtype_float_test WHERE content @@@ 'movie' ORDER BY rating DESC NULLS LAST;
 SELECT id, rating FROM dtype_float_test WHERE content @@@ 'movie' ORDER BY rating DESC NULLS LAST;
 DROP TABLE dtype_float_test CASCADE;
 
@@ -239,6 +243,8 @@ CREATE INDEX dtype_ts_test_idx ON dtype_ts_test
 USING bm25 (id, content, created_at)
 WITH (key_field = 'id', sort_by = 'created_at DESC NULLS LAST');
 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, created_at FROM dtype_ts_test WHERE content @@@ 'event' ORDER BY created_at DESC NULLS LAST;
 SELECT id, created_at FROM dtype_ts_test WHERE content @@@ 'event' ORDER BY created_at DESC NULLS LAST;
 DROP TABLE dtype_ts_test CASCADE;
 
@@ -262,6 +268,8 @@ CREATE INDEX dtype_date_test_idx ON dtype_date_test
 USING bm25 (id, content, event_date)
 WITH (key_field = 'id', sort_by = 'event_date ASC NULLS FIRST');
 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, event_date FROM dtype_date_test WHERE content @@@ 'appointment' ORDER BY event_date ASC NULLS FIRST;
 SELECT id, event_date FROM dtype_date_test WHERE content @@@ 'appointment' ORDER BY event_date ASC NULLS FIRST;
 DROP TABLE dtype_date_test CASCADE;
 
@@ -283,14 +291,14 @@ INSERT INTO dtype_uuid_test (content, uuid_col) VALUES
     ('uuid', '00000000-0000-0000-0000-000000000100');
 
 CREATE INDEX dtype_uuid_test_idx ON dtype_uuid_test
-USING bm25 (id, content, uuid_col)
-WITH (
-    key_field = 'id',
-    text_fields = '{"content": {}, "uuid_col": {"fast": true, "tokenizer": {"type": "keyword"}}}',
-    sort_by = 'uuid_col ASC NULLS FIRST'
-);
+USING bm25 (id, content, (uuid_col::pdb.literal))
+WITH (key_field = 'id', sort_by = 'uuid_col ASC NULLS FIRST');
 
-SELECT id, uuid_col::text FROM dtype_uuid_test WHERE content @@@ 'uuid' ORDER BY uuid_col ASC NULLS FIRST;
+-- Select the native UUID column (no ::text cast) so ORDER BY resolves to the
+-- base Var and matches the index pathkey on uuid_col.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, uuid_col FROM dtype_uuid_test WHERE content @@@ 'uuid' ORDER BY uuid_col ASC NULLS FIRST;
+SELECT id, uuid_col FROM dtype_uuid_test WHERE content @@@ 'uuid' ORDER BY uuid_col ASC NULLS FIRST;
 DROP TABLE dtype_uuid_test CASCADE;
 
 -- 4.6: NUMERIC type (NumericBytes)
@@ -314,15 +322,11 @@ INSERT INTO dtype_numeric_test (content, amount) VALUES
 
 CREATE INDEX dtype_numeric_test_idx ON dtype_numeric_test
 USING bm25 (id, content, amount)
-WITH (
-    key_field = 'id',
-    text_fields = '{"content": {}}',
-    numeric_fields = '{"amount": {"fast": true}}',
-    sort_by = 'amount ASC NULLS FIRST'
-);
+WITH (key_field = 'id', sort_by = 'amount ASC NULLS FIRST');
 
--- Order by the source NUMERIC column to avoid sorting text output lexicographically.
-SELECT id, amount::text FROM dtype_numeric_test WHERE content @@@ 'num' ORDER BY dtype_numeric_test.amount ASC NULLS FIRST;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, amount FROM dtype_numeric_test WHERE content @@@ 'num' ORDER BY amount ASC NULLS FIRST;
+SELECT id, amount FROM dtype_numeric_test WHERE content @@@ 'num' ORDER BY amount ASC NULLS FIRST;
 DROP TABLE dtype_numeric_test CASCADE;
 
 -- =============================================================================

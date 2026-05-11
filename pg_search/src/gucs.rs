@@ -52,9 +52,9 @@ static ENABLE_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Allows the user to enable or disable the ColumnarExecState executor. Default is `true`.
 static ENABLE_COLUMNAR_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// Allows the user to enable or disable sorted execution for ColumnarExecState.
-/// When disabled, sorted paths will not be created even if the index has sort_by.
-static ENABLE_COLUMNAR_SORT: GucSetting<bool> = GucSetting::<bool>::new(true);
+/// When enabled, columnar scans use the index sort order if the query's ORDER BY matches the index's sort_by configuration.
+/// Defaults to false due to stability issues (see https://github.com/paradedb/paradedb/issues/4293).
+static ENABLE_COLUMNAR_SORT: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// In a Top K query, the limit is multiplied by this factor to determine the chunk size.
 static LIMIT_FETCH_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(1.0);
@@ -128,6 +128,76 @@ static DYNAMIC_FILTER_BATCH_SIZE: GucSetting<i32> = GucSetting::<i32>::new(0);
 /// When enabled, Top K queries on deferred (late-materialized) string/bytes columns
 /// use per-segment ordinal pruning to reduce dictionary decoding.
 static ENABLE_SEGMENTED_TOPK: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Gate the MPP (Massively Parallel Processing) plan partitioning path for JoinScan
+/// and AggregateScan. When off, behavior is identical to `origin/main`.
+static ENABLE_MPP: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+/// When on, `mpp_log!()` routes through `pgrx::warning!()` so runtime traces appear in
+/// the Postgres server log (and in CI benchmark logs). When off, `mpp_log!()` is a no-op.
+static MPP_DEBUG: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+/// Dedicated diagnostic GUC for per-shuffle EOF row counts. These lines emit concurrently
+/// from every participant and can reorder between runs, so they're kept off `mpp_debug` to
+/// avoid flaking regress expected files. Turn this on in long-running benchmark queries to
+/// capture per-participant input/output row counts per shuffle at WARNING level (server log + CI
+/// logs). When off, the same call sites route through `debug1!()` — still reachable via
+/// `SET log_min_messages = DEBUG1` but invisible to CI's default WARNING capture.
+static MPP_TRACE: GucSetting<bool> = GucSetting::<bool>::new(false);
+
+/// Total number of MPP participants (leader + workers). Default 4 splits
+/// scan + shuffle + partial-aggregate work across 4 processes. PG's
+/// `max_parallel_workers_per_gather` still caps the actual worker count
+/// at exec time, so users in constrained environments see fewer.
+static MPP_WORKER_COUNT: GucSetting<i32> = GucSetting::<i32>::new(4);
+
+/// Per-edge shm_mq queue size in bytes. Each MPP query allocates
+/// `num_meshes × N×(N-1) × mpp_queue_size` of dynamic shared memory: at
+/// N=4 with 3 meshes (group-by aggregate's worst case) the default 64 MiB
+/// produces ~2.3 GiB per query, sized so a ~100 MiB Partial-aggregate burst
+/// on the post-agg mesh fits without backpressure. Operators on memory-
+/// constrained boxes will want to dial this down; that's the explicit
+/// reason it's exposed instead of held as a `pub const`.
+///
+/// This is a foundation-era knob and may be replaced once mesh
+/// multiplexing lands (one queue carrying tagged messages from N stages
+/// instead of N meshes), at which point the right user knob is more
+/// likely a per-query DSM cap than a raw per-edge byte count.
+static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(64 * 1024 * 1024);
+
+/// The maximum size of an InList that can be pushed down to a TermSet Query.
+static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
+    GucSetting::<i32>::new(16 * 1024 * 1024);
+
+/// The maximum number of distinct values in an InList that can be pushed down
+/// to a TermSetQuery. Above this K, the predicate stays in PostgreSQL /
+/// DataFusion (HashExpr at the join, or PreFilter when the join feeds a
+/// dynamic filter).
+///
+/// Bench-tuned: on a sorted-segment index, pushdown wins through K=14K
+/// (1.08×–9.27× over PreFilter at N=1M) and loses at K=20K (0.90×). 20,000
+/// is the upper edge of the crossover band — admits K=15K–19K (interpolated
+/// wins) at the cost of one boundary cell (K=20,000 exact: 11% slowdown).
+///
+/// The byte cap `hash_join_inlist_pushdown_max_size` provides the memory
+/// belt (~524K elements at 32 bytes/term); this cap is the perf-tuned upper
+/// bound. Set to 0 to disable pushdown entirely.
+static HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: GucSetting<i32> =
+    GucSetting::<i32>::new(20_000);
+
+/// Kill-switch for galloping execution of `FastFieldTermSetQuery` on
+/// sorted segments. When `false`, the planner never returns the gallop
+/// strategy regardless of density, and pushed-down InList filters fall
+/// back to the legacy linear scan even for sorted segments.
+static TERM_SET_GALLOP_ENABLED: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// Density gate for the gallop dispatch path. Gallop is selected when
+/// `K' / N` is below this threshold on a sorted segment, where `K'` is
+/// the number of distinct terms surviving min/max pruning and `N` is the
+/// segment size. Larger values admit gallop more aggressively; smaller
+/// values are more conservative. Default `1/100 = 0.01` matches
+/// `tantivy::query::TermSetStrategyConfig::default()`.
+static TERM_SET_GALLOP_MAX_DENSITY: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 100.0);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
@@ -209,12 +279,12 @@ pub fn init() {
 
     GucRegistry::define_bool_guc(
         c"paradedb.enable_columnar_sort",
-        c"Enable sorted execution for ColumnarExecState",
-        c"Enable sorted execution for ColumnarExecState when the index has sort_by and the query ORDER BY matches the prefix. Disabling this forces unsorted execution.",
-                &ENABLE_COLUMNAR_SORT,
-                GucContext::Userset,
-                GucFlags::default(),
-            );
+        c"Enable sorted execution for columnar scans",
+        c"When enabled, columnar scans use the index sort order if the query's ORDER BY or join keys match the index's sort_by configuration. This also enables SortMergeJoin for joins on sorted index fields. Default is false.",
+        &ENABLE_COLUMNAR_SORT,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 
     GucRegistry::define_int_guc(
                 COLUMNAR_EXEC_COLUMN_THRESHOLD_NAME,        c"Threshold of fetched columns below which ColumnarExecState will be used.",
@@ -391,6 +461,52 @@ pub fn init() {
     );
 
     GucRegistry::define_int_guc(
+        c"paradedb.hash_join_inlist_pushdown_max_size",
+        c"The maximum size in bytes of an InList that can be pushed down to a TermSet Query.",
+        c"The maximum size in bytes of an InList that can be pushed down to a TermSet Query.",
+        &HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.hash_join_inlist_pushdown_max_distinct_values",
+        c"Maximum number of distinct values in an InList that can be pushed down to a TermSetQuery. Set to 0 to disable pushdown.",
+        c"Maximum number of distinct values in an InList that can be pushed down to a TermSetQuery; above this K the predicate stays in PostgreSQL. Set to 0 to disable pushdown entirely.",
+        &HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    // TermSet strategy density thresholds (issue #4895). The kill-switch
+    // (paradedb.term_set_gallop_enabled) is the safety override if the
+    // gallop optimization regresses unexpectedly; the five density values
+    // tune the planner without recompiling. Each density is unitless and
+    // bounded to [0.0, 1.0] (a density above 1.0 would mean more matches
+    // than corpus rows, which is impossible).
+    GucRegistry::define_bool_guc(
+        c"paradedb.term_set_gallop_enabled",
+        c"Enable galloping execution of FastFieldTermSetQuery on sorted segments.",
+        c"When false, FastFieldTermSetQuery falls back to the legacy linear scan even on sorted segments. Acts as a kill-switch for the issue #4895 optimization.",
+        &TERM_SET_GALLOP_ENABLED,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_float_guc(
+        c"paradedb.term_set_gallop_max_density",
+        c"Gallop is selected when K' / N is below this density on a sorted segment.",
+        c"K' is the number of distinct terms surviving min/max pruning; N is the segment size. Larger values admit gallop more aggressively; smaller values are more conservative. Default 1/100 = 0.01 (matches tantivy::query::TermSetStrategyConfig::default()).",
+        &TERM_SET_GALLOP_MAX_DENSITY,
+        0.0,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_int_guc(
         c"paradedb.dynamic_filter_batch_size",
         c"Scanner batch size override for dynamic filter pushdown",
         c"When > 0, caps the scanner batch size during dynamic filter pushdown so that \
@@ -400,6 +516,69 @@ pub fn init() {
         128_000,
         GucContext::Userset,
         GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.enable_mpp",
+        c"Enable ParadeDB's MPP (Massively Parallel Processing) plan partitioning",
+        c"When enabled, JoinScan and AggregateScan may hash-partition every table by the \
+          join key and shuffle intermediate rows between workers, so each row is scanned \
+          exactly once. Default is false; off path is identical to non-MPP behavior.",
+        &ENABLE_MPP,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.mpp_debug",
+        c"Emit verbose MPP runtime diagnostics",
+        c"When enabled, `mpp_log!()` calls route through `pgrx::warning!()` so MPP \
+          lifecycle and transport events appear in the Postgres server log. Default is false.",
+        &MPP_DEBUG,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_bool_guc(
+        c"paradedb.mpp_trace",
+        c"Emit per-shuffle EOF row counts at WARNING level",
+        c"When enabled, ShuffleStream and DrainGatherStream EOF trace lines route through \
+          `pgrx::warning!()` so per-participant input/output row counts appear in the \
+          Postgres server log (and in CI benchmark logs). These lines emit concurrently \
+          from every participant and can reorder run-to-run, so they're kept off \
+          `mpp_debug` to avoid flaking regress expected files. Default is false.",
+        &MPP_TRACE,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.mpp_worker_count",
+        c"Total MPP participants (leader + parallel workers)",
+        c"Sets the number of MPP participants per query when `enable_mpp` is on. \
+          The queue mesh and drain thread are general over N.",
+        &MPP_WORKER_COUNT,
+        1,
+        64,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.mpp_queue_size",
+        c"Per-edge shm_mq queue size for MPP shuffles",
+        c"Sets the per-edge shm_mq queue size for MPP shuffles. Accepts standard \
+          Postgres byte units (e.g. '64MB', '1GB', '512kB'). Total DSM per query is \
+          `num_meshes × N×(N-1) × mpp_queue_size`; at the default 64MB and N=4 with \
+          3 meshes that is ~2.3GB per query. Lower this on memory-constrained boxes; \
+          raise it only if a single shuffle batch routinely backs up the queue. \
+          Foundation-era knob — likely to be replaced by a per-query DSM cap once \
+          mesh multiplexing lands.",
+        &MPP_QUEUE_SIZE,
+        64 * 1024,
+        1024 * 1024 * 1024,
+        GucContext::Userset,
+        GucFlags::UNIT_BYTE,
     );
 }
 
@@ -573,6 +752,42 @@ pub fn dynamic_filter_batch_size() -> i32 {
 
 pub fn enable_segmented_topk() -> bool {
     ENABLE_SEGMENTED_TOPK.get()
+}
+
+pub fn enable_mpp() -> bool {
+    ENABLE_MPP.get()
+}
+
+pub fn mpp_debug() -> bool {
+    MPP_DEBUG.get()
+}
+
+pub fn mpp_trace() -> bool {
+    MPP_TRACE.get()
+}
+
+pub fn mpp_worker_count() -> i32 {
+    MPP_WORKER_COUNT.get()
+}
+
+pub fn mpp_queue_size() -> usize {
+    MPP_QUEUE_SIZE.get() as usize
+}
+
+pub fn hash_join_inlist_pushdown_max_size() -> i32 {
+    HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE.get()
+}
+
+pub fn hash_join_inlist_pushdown_max_distinct_values() -> i32 {
+    HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES.get()
+}
+
+pub fn term_set_gallop_enabled() -> bool {
+    TERM_SET_GALLOP_ENABLED.get()
+}
+
+pub fn term_set_gallop_max_density() -> f64 {
+    TERM_SET_GALLOP_MAX_DENSITY.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

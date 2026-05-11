@@ -17,15 +17,15 @@
 
 mod andandand;
 mod atatat;
-mod boost;
-mod const_score;
+pub(crate) mod boost;
+pub(crate) mod const_score;
 mod eqeqeq;
-mod fuzzy;
+pub(crate) mod fuzzy;
 mod hashhashhash;
 mod ororor;
 mod proximity;
 mod searchqueryinput;
-mod slop;
+pub(crate) mod slop;
 
 use crate::api::operator::boost::{boost_to_boost, BoostType};
 use crate::api::operator::fuzzy::{fuzzy_to_fuzzy, FuzzyType};
@@ -44,7 +44,8 @@ use crate::postgres::customscan::opexpr::{
 };
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::utils::{locate_bm25_index_from_heaprel, ToPalloc};
+use crate::postgres::rel_get_bm25_index;
+use crate::postgres::utils::ToPalloc;
 #[cfg(feature = "pg18")]
 use crate::postgres::var::resolve_rte_group_var;
 use crate::postgres::var::{
@@ -58,7 +59,7 @@ use pgrx::callconv::{BoxRet, FcInfo};
 use pgrx::datum::Datum;
 use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::pgrx_sql_entity_graph::metadata::{
-    ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
+    ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
 };
 use pgrx::*;
 use std::ptr::NonNull;
@@ -87,13 +88,12 @@ unsafe impl BoxRet for ReturnedNodePointer {
 }
 
 unsafe impl SqlTranslatable for ReturnedNodePointer {
-    fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-        Ok(SqlMapping::As("internal".into()))
-    }
-
-    fn return_sql() -> Result<Returns, ReturnsError> {
-        Ok(Returns::One(SqlMapping::As("internal".into())))
-    }
+    const TYPE_IDENT: &'static str = pgrx::pgrx_resolved_type!(ReturnedNodePointer);
+    const TYPE_ORIGIN: TypeOrigin = TypeOrigin::External;
+    const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
+        Ok(SqlMappingRef::literal("internal"));
+    const RETURN_SQL: Result<ReturnsRef, ReturnsError> =
+        Ok(ReturnsRef::One(SqlMappingRef::literal("internal")));
 }
 
 pub fn with_index_procoid() -> pg_sys::Oid {
@@ -374,9 +374,12 @@ pub unsafe fn tantivy_field_name_from_node(
     if heaprelid == pg_sys::Oid::INVALID {
         return None;
     }
-    let heaprel = PgSearchRelation::open(heaprelid);
-    let indexrel = locate_bm25_index_from_heaprel(&heaprel)
-        .unwrap_or_else(|| panic!("`{}` does not contain a `USING bm25` index", heaprel.name()));
+    let (heaprel, indexrel) = rel_get_bm25_index(heaprelid).unwrap_or_else(|| {
+        panic!(
+            "`{}` does not contain a `USING bm25` index",
+            PgSearchRelation::open(heaprelid).name()
+        )
+    });
 
     let field_name =
         field_name_from_node(VarContext::from_planner(root), &heaprel, &indexrel, node)?;

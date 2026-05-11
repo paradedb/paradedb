@@ -12,8 +12,11 @@ inputs:
   ref:
     description: "Git ref or short SHA to report in benchmarks"
     required: true
-  github_token:
-    description: "GitHub token to authenticate with"
+  github_app_id:
+    description: "GitHub App ID to authenticate with"
+    required: true
+  github_app_private_key:
+    description: "GitHub App private key to authenticate with"
     required: true
   slack_oauth_token:
     description: "Slack OAuth token to authenticate with"
@@ -97,6 +100,13 @@ runs:
         with open(f"pg_search_tps.json", "w")  as o: json.dump(tps, o)
         with open(f"pg_search_other.json", "w") as o: json.dump(other, o)
 
+    - name: Generate GitHub App Token
+      id: app-token
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ inputs.github_app_id }}
+        private-key: ${{ inputs.github_app_private_key }}
+
     # Necessary to avoid "destination path is not empty" error
     - name: Cleanup Previous Benchmark Publish Working Directory
       shell: bash
@@ -115,7 +125,7 @@ runs:
         ref: ${{ inputs.ref }}
         tool: customBiggerIsBetter
         output-file-path: pg_search_tps.json
-        github-token: ${{ inputs.github_token }}
+        github-token: ${{ steps.app-token.outputs.token }}
         gh-repository: github.com/${{ github.repository }}
         gh-pages-branch: gh-pages
         auto-push: ${{ github.event_name != 'pull_request' }}
@@ -143,7 +153,7 @@ runs:
         ref: ${{ inputs.ref }}
         tool: customSmallerIsBetter
         output-file-path: pg_search_other.json
-        github-token: ${{ inputs.github_token }}
+        github-token: ${{ steps.app-token.outputs.token }}
         gh-repository: github.com/${{ github.repository }}
         gh-pages-branch: gh-pages
         auto-push: ${{ github.event_name != 'pull_request' }}
@@ -170,36 +180,6 @@ runs:
             <${{ github.server_url }}/${{ github.repository }}/commit/${{ steps.resolve_ref.outputs.sha }}|${{ inputs.pr_label }}> @ <https://paradedb.github.io/${{ github.event.repository.name }}/stressgres/>
           file: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.png
           filename: stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.png
-
-    # NB: we'll publish every graph so they can be located for historical purposes
-    - name: Publish Stressgres Graph
-      uses: ./.github/actions/push-file
-      with:
-        commit-message: "automatic publish for ${{ steps.resolve_ref.outputs.sha }} by @${{ github.actor }}"
-        file-name: "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.png"
-        repository: "paradedb/benchmark-data"
-        push-token: ${{ inputs.github_token }}
-
-    - name: Comment benchmark image on PR
-      if: github.event_name == 'pull_request'
-      uses: actions/github-script@v6
-      env:
-        IMAGE_FILE: "stressgres-${{ steps.sanitize-inputs.outputs.jobname }}-${{ steps.resolve_ref.outputs.sha }}.png"
-      with:
-        github-token: ${{ inputs.github_token }}
-        script: |
-          const prNumber = context.payload.pull_request.number;
-          const file = process.env.IMAGE_FILE;
-          if (!file) throw new Error('IMAGE_FILE must be set');
-          // construct raw URL on the main branch of paradedb/benchmark-data
-          const url = `https://raw.githubusercontent.com/paradedb/benchmark-data/refs/heads/main/${file}`;
-          const body = `![${{ steps.sanitize-inputs.outputs.jobname }} result: ${file}](${url})`;
-          await github.rest.issues.createComment({
-          owner: context.repo.owner,
-          repo: context.repo.repo,
-          issue_number: prNumber,
-          body
-          });
 
     - name: Print Postgres Logs
       shell: bash

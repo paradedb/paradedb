@@ -166,7 +166,7 @@ fn quickstart(mut conn: PgConnection) {
     );
 
     r#"
-    CREATE EXTENSION vector;
+    CREATE EXTENSION IF NOT EXISTS vector;
     ALTER TABLE mock_items ADD COLUMN embedding vector(3);
     "#
     .execute(&mut conn);
@@ -1962,7 +1962,7 @@ fn hybrid_search(mut conn: PgConnection) {
     USING bm25 (id, description, category, rating, in_stock, created_at, metadata)
     WITH (key_field='id');
 
-    CREATE EXTENSION vector;
+    CREATE EXTENSION IF NOT EXISTS vector;
     ALTER TABLE mock_items ADD COLUMN embedding vector(3);
 
     UPDATE mock_items m
@@ -2005,7 +2005,7 @@ fn hybrid_search(mut conn: PgConnection) {
     .fetch(&mut conn);
 
     // Expected results
-    let expected = vec![
+    let expected = [
         (
             1,
             BigDecimal::from_str("0.03062178588125292193").unwrap(),

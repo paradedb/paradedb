@@ -40,6 +40,12 @@ SELECT 'this is a test.'::pdb.ngram(3, 5)::text[];
  {thi,this,"this ",his,"his ","his i","is ","is i","is is","s i","s is","s is "," is"," is "," is a","is ","is a","is a ","s a","s a ","s a t"," a "," a t"," a te","a t","a te","a tes"," te"," tes"," test",tes,test,test.,est,est.,st.}
 (1 row)
 
+SELECT 'this is a test.'::pdb.edge_ngram(2, 4)::text[];
+             text             
+------------------------------
+ {th,thi,this,is,te,tes,test}
+(1 row)
+
 SELECT 'this is a test.'::pdb.regex_pattern('is|a')::text[];
    text    
 -----------
@@ -68,5 +74,67 @@ SELECT 'this is a test. fn foo(arg: String) -> impl Foo<''a> { return 42; }'::pd
                           text                           
 ---------------------------------------------------------
  {this,is,a,test,fn,foo,arg,string,impl,foo,a,return,42}
+(1 row)
+
+SELECT ARRAY['this is a test.', 'foo bar baz']::pdb.whitespace::text[];
+             array             
+-------------------------------
+ {this,is,a,test.,foo,bar,baz}
+(1 row)
+
+SELECT '"foo"'::jsonb::pdb.whitespace::text[];
+ERROR:  cannot tokenize a jsonb inline
+SELECT '"foo"'::jsonb::pdb.whitespace::text;
+ text  
+-------
+ "foo"
+(1 row)
+
+SELECT ARRAY['foo bar', 'baz', ' qux']::pdb.whitespace::text[];
+       array       
+-------------------
+ {foo,bar,baz,qux}
+(1 row)
+
+SELECT ARRAY['foo bar', 'baz', ' qux']::pdb.whitespace::text;
+         array          
+------------------------
+ {"foo bar",baz," qux"}
+(1 row)
+
+-- Expression realloc function. Causes Postgres to reallocate the returned value
+CREATE FUNCTION realloc (anyelement) RETURNS anyelement
+AS 'SELECT $1 FROM random();'
+LANGUAGE SQL VOLATILE;
+SELECT realloc('foo'::pdb.whitespace)::text[];
+ realloc 
+---------
+ {foo}
+(1 row)
+
+SELECT realloc('foo'::pdb.whitespace)::text;
+ realloc 
+---------
+ foo
+(1 row)
+
+SELECT realloc('"foo"'::jsonb::pdb.whitespace)::text[];
+ERROR:  cannot tokenize a jsonb inline
+SELECT realloc('"foo"'::jsonb::pdb.whitespace)::text;
+ realloc 
+---------
+ "foo"
+(1 row)
+
+SELECT realloc(ARRAY['foo bar', 'baz', ' qux']::pdb.whitespace)::text[];
+      realloc      
+-------------------
+ {foo,bar,baz,qux}
+(1 row)
+
+SELECT realloc(ARRAY['foo bar', 'baz', ' qux']::pdb.whitespace)::text;
+        realloc         
+------------------------
+ {"foo bar",baz," qux"}
 (1 row)
 

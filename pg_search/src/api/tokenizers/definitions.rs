@@ -22,8 +22,9 @@ use std::ffi::CStr;
 
 #[pgrx::pg_schema]
 pub(crate) mod pdb {
+    use crate::api::operator::{boost, const_score, fuzzy, slop};
     use crate::api::tokenizers::{
-        CowString, DatumWrapper, GenericTypeWrapper, JsonMarker, JsonbMarker, SqlNameMarker,
+        tokenize, DatumWrapper, GenericTypeWrapper, JsonMarker, JsonbMarker, SqlNameMarker,
         TextArrayMarker, UuidMarker, VarcharArrayMarker,
     };
     use macros::generate_tokenizer_sql;
@@ -31,7 +32,7 @@ pub(crate) mod pdb {
     use pgrx::callconv::{Arg, ArgAbi, BoxRet, FcInfo};
     use pgrx::nullable::Nullable;
     use pgrx::pgrx_sql_entity_graph::metadata::{
-        ArgumentError, Returns, ReturnsError, SqlMapping, SqlTranslatable,
+        ArgumentError, ReturnsError, ReturnsRef, SqlMappingRef, SqlTranslatable, TypeOrigin,
     };
     use pgrx::{extension_sql, pg_extern, pg_sys, FromDatum, IntoDatum};
     use std::ffi::CString;
@@ -42,96 +43,177 @@ pub(crate) mod pdb {
         fn make_search_tokenizer() -> SearchTokenizer;
     }
 
-    /// Internal structure to store both the datum and its original type OID
-    /// This allows the output function to properly convert any type to text
-    ///
-    /// # IMPORTANT: Lifetime and Memory Safety Assumptions
-    ///
-    /// This structure stores a raw `pg_sys::Datum` value. For pass-by-value types (integers,
-    /// booleans, etc.), the datum contains the actual value and is safe to copy. However, for
-    /// varlena types (text, arrays, etc.), the datum is a **pointer** to memory that may be:
-    ///
-    /// - In a temporary memory context that could be freed
-    /// - TOASTed data whose detoasted copy could be freed
-    /// - Part of a tuple that gets freed after a function returns
-    ///
-    /// **Current Assumption**: We assume the input datum's lifetime extends beyond the wrapper's
-    /// lifetime. This holds true for:
-    /// - Index expressions: the datum comes from heap tuples during index build/insert
-    /// - Query execution: datums are in memory contexts that outlive the expression evaluation
-    ///
-    /// **Potential Issue**: If a wrapper is created with a datum from a temporary context and
-    /// then used after that context is destroyed, we'll have a dangling pointer leading to:
-    /// - Use-after-free bugs
-    /// - Segfaults when the output function tries to dereference the datum
-    /// - Heap corruption if the freed memory is reused
-    ///
-    /// **TODO**: Consider using `pg_sys::datumCopy()` for varlena types to ensure we own the
-    /// data, along with proper cleanup when the wrapper is freed. This would make the wrapper
-    /// fully self-contained and safe regardless of the input datum's lifetime.
+    /// Internal structure to store bytes from any type along with the info
+    /// needed to recover what type it is.
     #[repr(C)]
-    pub struct AliasDatumWithType {
-        vl_len_: i32,               // varlena header
-        magic: u32,                 // magic number to identify wrapped datums
-        typoid: pg_sys::Oid,        // original type OID
-        datum_value: pg_sys::Datum, // the actual datum value (RAW POINTER for varlena types!)
+    pub struct DatumWithType {
+        // varlena header
+        vl_len_: pg_sys::varlena,
+        // contents, separate for convenience with vardata functions.
+        contents: DatumWithTypeContents,
     }
 
-    // Magic number: "AL\0S" - includes a null byte to ensure no valid text string can match
-    // PostgreSQL text values cannot contain embedded nulls, making false positives impossible
-    const ALIAS_MAGIC: u32 = 0x414C0053; // 'A', 'L', 0x00, 'S'
+    #[repr(C)]
+    struct DatumWithTypeContents {
+        // magic number to identify wrapped datums
+        magic: u32,
+        // Metadata needed when extracting the wrapped data
+        elem_length: i16,
+        elem_by_val: bool,
+        // Reserved padding; always written as 0.
+        _padding: u8,
+        // original type OID
+        typoid: pg_sys::Oid,
+        // underlying types data goes here
+    }
 
-    impl AliasDatumWithType {
-        unsafe fn new(datum: pg_sys::Datum, typoid: pg_sys::Oid) -> *mut Self {
-            let size = std::mem::size_of::<AliasDatumWithType>();
-            let ptr = pg_sys::palloc(size) as *mut AliasDatumWithType;
+    // Check that there's no extra padding
+    const _: () = assert!(
+        std::mem::size_of::<DatumWithType>()
+            == std::mem::size_of::<i32>()
+                + std::mem::size_of::<u32>()
+                + std::mem::size_of::<i16>()
+                + std::mem::size_of::<bool>()
+                + std::mem::size_of::<u8>()
+                + std::mem::size_of::<pg_sys::Oid>()
+    );
 
-            // Since pdb.alias is defined as LIKE = text, PostgreSQL treats it as a varlena
-            // (variable-length) type. All varlena types must have a valid size header in the
-            // first 4 bytes (vl_len_). This header includes:
-            //   1. The total size of the structure (including the header itself)
-            //   2. Special bit flags used by PostgreSQL for TOAST and compression
-            //
-            // set_varsize_4b encodes this information correctly. Without it:
-            //   - PostgreSQL wouldn't know where our data ends (memory corruption)
-            //   - TOAST (oversized-attribute storage) would fail
-            //   - Copying/serializing the datum would cause segfaults
-            pgrx::set_varsize_4b(ptr.cast(), size as i32);
+    // Magic number: "err\0" - includes null bytes to ensure no valid text string can match
+    // (PostgreSQL text values cannot contain embedded nulls). Prints as the string "err" if
+    // interpreted as TEXT, making it a bit easier to catch.
+    const ALIAS_MAGIC: u32 = u32::from_ne_bytes([b'e', b'r', b'r', b'\0']);
 
-            // Set the magic number to identify this as a wrapped datum
-            // This prevents false positives when text happens to be the same size
-            (*ptr).magic = ALIAS_MAGIC;
+    impl DatumWithType {
+        unsafe fn new(mut datum: pg_sys::Datum, typoid: pg_sys::Oid) -> *mut Self {
+            use pgrx::varlena::varsize_any;
+            use std::mem::size_of;
 
-            // set the original type OID and the actual datum value
-            (*ptr).typoid = typoid;
-            (*ptr).datum_value = datum;
+            // load metadata about the underlying type.
+            let mut elem_length = 0;
+            let mut elem_by_val = false;
+            // Check that the data section is sufficiently aligned to store any
+            // type. So we don't need to use `elem_align`
+            const _: () = assert!(std::mem::size_of::<DatumWithType>().is_multiple_of(8));
+            let mut _elem_align = 0;
+            pg_sys::get_typlenbyvalalign(
+                typoid,
+                &mut elem_length,
+                &mut elem_by_val,
+                &mut _elem_align,
+            );
+
+            // Ensure that the data isn't TOASTed.
+            if elem_length == -1 {
+                datum = pg_sys::pg_detoast_datum(datum.cast_mut_ptr()).into();
+            }
+
+            // based on Postgres's `att_addlength_datum`
+            // (specifically `att_addlength_pointer` which it calls)
+            let data_len = if elem_length > 0 {
+                elem_length as usize
+            } else if elem_length == -1 {
+                varsize_any(datum.cast_mut_ptr::<pg_sys::varlena>())
+            } else {
+                unreachable!("tried to pass a C string as a tokenizer")
+            };
+
+            // DatumWithType is a multiple of 8bytes (the largest alignment
+            // postgres uses) so we don't need any additional aligning.
+            let size = size_of::<DatumWithType>() + data_len;
+            let ptr = pg_sys::palloc(size).cast::<DatumWithType>();
+
+            *ptr = DatumWithType {
+                vl_len_: pg_sys::varlena::default(),
+                contents: DatumWithTypeContents {
+                    // Set the magic number to identify this as a wrapped datum
+                    // This prevents false positives when text happens to be the same size
+                    magic: ALIAS_MAGIC,
+                    elem_length,
+                    elem_by_val,
+                    _padding: 0,
+                    // set the original type OID and the actual datum value
+                    typoid,
+                },
+            };
+
+            // Set the varlena header so Postgres knows the length.
+            pgrx::set_varsize_4b(&mut (*ptr).vl_len_, size as i32);
+
+            // Copy in the data for the underlying type
+            // (based on Postgres's `ArrayCastAndSet()`).
+            let data_ptr = ptr.add(1).cast::<u8>();
+            if elem_by_val {
+                crate::postgres::utils::store_att_byval(
+                    data_ptr.cast(),
+                    datum,
+                    data_len.try_into().unwrap(),
+                );
+            } else {
+                data_ptr.copy_from(datum.cast_mut_ptr(), data_len);
+            }
 
             ptr
         }
 
-        /// Check if a datum is a wrapped AliasDatumWithType by verifying size and magic number
-        pub unsafe fn is_wrapped(wrapper: pg_sys::Datum) -> bool {
-            let ptr = wrapper.cast_mut_ptr::<AliasDatumWithType>();
-            if ptr.is_null() {
-                return false;
-            }
+        /// Returns the a Datum for the underlying type,
+        /// along with its type Oid if it isn't a text type
+        /// SAFETY: datum must be a pointer to a valid `DatumWithType`
+        pub unsafe fn get_underlying_type(
+            this: pg_sys::Datum,
+        ) -> (pg_sys::Datum, Option<pg_sys::Oid>) {
+            use std::mem::offset_of;
+
+            // It would be nice to use pg_detoast_datum_packed(), but then if the
+            // stored type was using the 4B header reading it could be unaligned.
+            let ptr = pg_sys::pg_detoast_datum(this.cast_mut_ptr());
+            debug_assert!(!ptr.is_null());
 
             let vl_len = pgrx::varlena::varsize_any(ptr.cast::<pg_sys::varlena>());
-            let expected_size = std::mem::size_of::<AliasDatumWithType>();
+            let minimum_size = std::mem::size_of::<DatumWithTypeContents>();
 
-            // Check both size AND magic number to avoid false positives
-            vl_len == expected_size && (*ptr).magic == ALIAS_MAGIC
-        }
+            // Check both size AND magic number to avoid false positives.
+            // NOTE: False negatives are less risky than false positives since
+            //       any element of this type is prefixed with the valid C string
+            //       `err`
+            if vl_len < minimum_size
+                || pgrx::varlena::vardata_any(ptr)
+                    .byte_add(offset_of!(DatumWithTypeContents, magic))
+                    .cast::<u32>()
+                    .read_unaligned()
+                    != ALIAS_MAGIC
+            {
+                // Must have been a text type, return the detoasted value as-is
+                return (pg_sys::Datum::from(ptr), None);
+            }
 
-        pub unsafe fn extract_datum(wrapper: pg_sys::Datum) -> pg_sys::Datum {
-            let ptr = wrapper.cast_mut_ptr::<AliasDatumWithType>();
-            (*ptr).datum_value
-        }
+            let contents_ptr = pgrx::varlena::vardata_any(ptr).cast::<DatumWithTypeContents>();
+            let contents = contents_ptr.read();
 
-        unsafe fn extract_typoid(wrapper: pg_sys::Datum) -> pg_sys::Oid {
-            let ptr = wrapper.cast_mut_ptr::<AliasDatumWithType>();
-            (*ptr).typoid
+            let data_ptr = contents_ptr.add(1).cast();
+            let underlying = crate::postgres::utils::fetch_att(
+                data_ptr,
+                contents.elem_by_val,
+                contents.elem_length.into(),
+            );
+            (underlying, Some(contents.typoid))
         }
+    }
+
+    unsafe fn wrap_generic_type<InTy, InMarker, OutTy, OutMarker>(
+        input: GenericTypeWrapper<InTy, InMarker>,
+    ) -> GenericTypeWrapper<OutTy, OutMarker>
+    where
+        InTy: DatumWrapper,
+        OutTy: DatumWrapper,
+        InMarker: SqlNameMarker,
+        OutMarker: SqlNameMarker,
+    {
+        // Wrap datum and original typoid in a custom structure
+        let wrapper_ptr = unsafe { DatumWithType::new(input.datum, input.typoid) };
+
+        // Return the wrapper with the original typoid preserved
+        // This allows PostgreSQL to track array vs scalar types correctly
+        GenericTypeWrapper::new(pg_sys::Datum::from(wrapper_ptr), input.typoid)
     }
 
     macro_rules! cast_alias {
@@ -145,23 +227,18 @@ pub(crate) mod pdb {
 
                 #[pg_extern(immutable, parallel_safe, requires = [tokenize_alias])]
                 unsafe fn [<$fn_prefix _to_alias>](
-                    arr: GenericTypeWrapper<$rust_ty, [<$marker Marker>]>,
+                    mut arr: GenericTypeWrapper<$rust_ty, [<$marker Marker>]>,
                 ) -> GenericTypeWrapper<Alias, AliasMarker> {
-                    let original_typoid: pg_sys::Oid = $typoid;
-
-                    // Wrap datum and original typoid in a custom structure
-                    let wrapper_ptr = AliasDatumWithType::new(arr.datum, original_typoid);
-
-                    // Return the wrapper with the original typoid preserved
-                    // This allows PostgreSQL to track array vs scalar types correctly
-                    GenericTypeWrapper::new(pg_sys::Datum::from(wrapper_ptr), original_typoid)
+                    // TODO probably not needed but maintains old behavior
+                    arr.typoid = $typoid;
+                    wrap_generic_type(arr)
                 }
             }
         };
     }
 
     macro_rules! define_tokenizer_type {
-        ($rust_name:ident, $tokenizer_conf:expr, $cast_name:ident, $json_cast_name:ident, $jsonb_cast_name:ident, $uuid_cast_name:ident, $text_array_cast_name:ident, $varchar_array_cast_name:ident, $sql_name:literal, preferred = $preferred:literal, custom_typmod = $custom_typmod:literal) => {
+        ($def_name:literal, $rust_name:ident, $tokenizer_conf:expr, $cast_name:ident, $json_cast_name:ident, $jsonb_cast_name:ident, $uuid_cast_name:ident, $text_array_cast_name:ident, $varchar_array_cast_name:ident, $sql_name:literal, preferred = $preferred:literal, custom_typmod = $custom_typmod:literal) => {
             pub struct $rust_name(pg_sys::Datum);
 
             impl TokenizerCtor for $rust_name {
@@ -232,13 +309,12 @@ pub(crate) mod pdb {
             }
 
             unsafe impl SqlTranslatable for $rust_name {
-                fn argument_sql() -> Result<SqlMapping, ArgumentError> {
-                    Ok(SqlMapping::As(format!("pdb.{}", $sql_name)))
-                }
-
-                fn return_sql() -> Result<Returns, ReturnsError> {
-                    Ok(Returns::One(SqlMapping::As(format!("pdb.{}", $sql_name))))
-                }
+                const TYPE_IDENT: &'static str = pgrx::pgrx_resolved_type!($rust_name);
+                const TYPE_ORIGIN: TypeOrigin = TypeOrigin::External;
+                const ARGUMENT_SQL: Result<SqlMappingRef, ArgumentError> =
+                    Ok(SqlMappingRef::literal($sql_name));
+                const RETURN_SQL: Result<ReturnsRef, ReturnsError> =
+                    Ok(ReturnsRef::One(SqlMappingRef::literal($sql_name)));
             }
 
             #[pg_extern(immutable, parallel_safe)]
@@ -254,22 +330,16 @@ pub(crate) mod pdb {
                     super::super::apply_typmod(&mut tokenizer, typmod);
                 }
 
-                let mut analyzer = tokenizer
-                    .to_tantivy_tokenizer()
-                    .expect("failed to convert tokenizer to tantivy tokenizer");
-
-                let s = s.to_str();
-                let mut stream = analyzer.token_stream(&s);
-
-                let mut tokens = Vec::new();
-                while stream.advance() {
-                    let token = stream.token();
-                    tokens.push(token.text.to_string());
-                }
-                tokens
+                unsafe { tokenize(s, tokenizer) }
             }
 
             paste! {
+
+                struct [<$rust_name TextMarker>];
+                impl SqlNameMarker for [<$rust_name TextMarker>] {
+                    const SQL_NAME: &'static str = concat!("pdb.", $sql_name);
+                }
+
                 struct [<$rust_name JsonMarker>];
                 impl SqlNameMarker for [<$rust_name JsonMarker>] {
                     const SQL_NAME: &'static str = concat!("pdb.", $sql_name);
@@ -295,43 +365,104 @@ pub(crate) mod pdb {
                     const SQL_NAME: &'static str = concat!("pdb.", $sql_name);
                 }
 
+                #[pg_extern(immutable, strict, parallel_safe, requires = [$def_name])] // TODO handle typmod
+                fn [<$sql_name _in>](s: &std::ffi::CStr) -> GenericTypeWrapper<$rust_name, [<$rust_name TextMarker>]> {
+                    // TEXT and bytea share the same underlying layout,
+                    // so the bytea functions provide a convenient way to create
+                    // TEXT without UTF-8 conversion
+                    let text = pgrx::rust_byte_slice_to_bytea(s.to_bytes());
+                    let wrapper_ptr = unsafe { DatumWithType::new(text.into_datum().unwrap(), pg_sys::TEXTOID) };
+
+                    GenericTypeWrapper::new(pg_sys::Datum::from(wrapper_ptr), pg_sys::TEXTOID)
+                }
+
+                #[pg_extern(immutable, strict, parallel_safe, requires = [$def_name])]
+                fn [<$sql_name _out>](s: $rust_name) -> &'static std::ffi::CStr  {
+                    let wrapper_datum = s.as_datum();
+                    unsafe {
+                        let (underlying, typ) = DatumWithType::get_underlying_type(wrapper_datum);
+                        match typ {
+                            None => {
+                                    let ptr = underlying.cast_mut_ptr();
+                                    let cstr = pgrx::pg_sys::text_to_cstring(ptr);
+                                    std::ffi::CStr::from_ptr(cstr)
+                            }
+                            Some(typoid) => {
+                                let mut typoutput = 0.into();
+                                let mut typ_is_varlena = true;
+                                pg_sys::getTypeOutputInfo(
+                                    typoid,
+                                    &mut typoutput,
+                                    &mut typ_is_varlena);
+                                let cstr = pg_sys::OidOutputFunctionCall(typoutput, underlying);
+                                std::ffi::CStr::from_ptr(cstr)
+                            },
+                        }
+                    }
+                }
+
                 #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
                 fn $json_cast_name(
                     json: GenericTypeWrapper<pgrx::Json, JsonMarker>,
                 ) -> GenericTypeWrapper<$rust_name, [<$rust_name JsonMarker>]> {
-                    GenericTypeWrapper::new(json.datum, json.typoid)
+                    unsafe { wrap_generic_type(json) }
                 }
 
                 #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
                 unsafe fn $jsonb_cast_name(
                     jsonb: GenericTypeWrapper<pgrx::JsonB, JsonbMarker>,
                 ) -> GenericTypeWrapper<$rust_name, [<$rust_name JsonbMarker>]> {
-                    GenericTypeWrapper::new(jsonb.datum, jsonb.typoid)
+                    unsafe { wrap_generic_type(jsonb) }
                 }
 
                 #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
                 unsafe fn $uuid_cast_name(
                     uuid: GenericTypeWrapper<pgrx::datum::Uuid, UuidMarker>,
                 ) -> GenericTypeWrapper<$rust_name, [<$rust_name UuidMarker>]> {
-                    GenericTypeWrapper::new(uuid.datum, uuid.typoid)
+                    unsafe { wrap_generic_type(uuid) }
                 }
 
                 #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
                 unsafe fn $text_array_cast_name(
                     arr: GenericTypeWrapper<Vec<String>, TextArrayMarker>,
                 ) -> GenericTypeWrapper<$rust_name, [<$rust_name TextArrayMarker>]> {
-                    GenericTypeWrapper::new(arr.datum, arr.typoid)
+                    unsafe { wrap_generic_type(arr) }
                 }
 
                 #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
                 unsafe fn $varchar_array_cast_name(
                     arr: GenericTypeWrapper<Vec<String>, VarcharArrayMarker>,
                 ) -> GenericTypeWrapper<$rust_name, [<$rust_name VarcharArrayMarker>]> {
-                    GenericTypeWrapper::new(arr.datum, arr.typoid)
+                    unsafe { wrap_generic_type(arr) }
+                }
+
+                #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
+                fn [<$sql_name _to_boost>](input: $rust_name, typmod: i32, is_explicit: bool, fcinfo: pg_sys::FunctionCallInfo) -> boost::BoostType {
+                    let tokens = $cast_name(input, fcinfo);
+                    boost::text_array_to_boost(tokens, typmod, is_explicit)
+                }
+
+                #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
+                fn [<$sql_name _to_const>](input: $rust_name, typmod: i32, is_explicit: bool, fcinfo: pg_sys::FunctionCallInfo) -> const_score::ConstType {
+                    let tokens = $cast_name(input, fcinfo);
+                    const_score::text_array_to_const(tokens, typmod, is_explicit)
+                }
+
+                #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
+                fn [<$sql_name _to_fuzzy>](input: $rust_name, typmod: i32, is_explicit: bool, fcinfo: pg_sys::FunctionCallInfo) -> fuzzy::FuzzyType {
+                    let tokens = $cast_name(input, fcinfo);
+                    fuzzy::text_array_to_fuzzy(tokens, typmod, is_explicit)
+                }
+
+                #[pg_extern(immutable, parallel_safe, requires = [ $cast_name ])]
+                fn [<$sql_name _to_slop>](input: $rust_name, typmod: i32, is_explicit: bool, fcinfo: pg_sys::FunctionCallInfo) -> slop::SlopType {
+                    let tokens = $cast_name(input, fcinfo);
+                    slop::text_array_to_slop(tokens, typmod, is_explicit)
                 }
             }
 
             generate_tokenizer_sql!(
+                def_name = $def_name,
                 rust_name = $rust_name,
                 sql_name = $sql_name,
                 cast_name = $cast_name,
@@ -348,6 +479,7 @@ pub(crate) mod pdb {
     }
 
     define_tokenizer_type!(
+        "AliasDef",
         Alias,
         SearchTokenizer::Simple(SearchTokenizerFilters::default()),
         tokenize_alias,
@@ -361,58 +493,8 @@ pub(crate) mod pdb {
         custom_typmod = false
     );
 
-    /// Output function for pdb.alias that unwraps the stored datum and converts to text
-    #[pg_extern(immutable, strict, parallel_safe)]
-    fn alias_out_safe(input: Alias) -> std::ffi::CString {
-        unsafe {
-            let wrapper_datum = input.as_datum();
-
-            // Check if this is a wrapped AliasDatumWithType using magic number verification
-            // For text literals, PostgreSQL might pass them directly without wrapping
-            // due to LIKE = text in the type definition
-            if AliasDatumWithType::is_wrapped(wrapper_datum) {
-                let typoid = AliasDatumWithType::extract_typoid(wrapper_datum);
-                let original_datum = AliasDatumWithType::extract_datum(wrapper_datum);
-
-                // Get the output function for the original type
-                let mut typoutput: pg_sys::Oid = pg_sys::InvalidOid;
-                let mut is_varlena: bool = false;
-                pg_sys::getTypeOutputInfo(typoid, &mut typoutput, &mut is_varlena);
-
-                // Call the type's output function to get the C string
-                let cstring_ptr = pg_sys::OidOutputFunctionCall(typoutput, original_datum);
-                std::ffi::CStr::from_ptr(cstring_ptr).to_owned()
-            } else {
-                // Not wrapped, it's raw text (or null)
-                let ptr = wrapper_datum.cast_mut_ptr::<pg_sys::varlena>();
-                if ptr.is_null() {
-                    return std::ffi::CString::new("").unwrap();
-                }
-
-                // Convert the text varlena to a string using pgrx utilities
-                let text_len = pgrx::varlena::varsize_any_exhdr(ptr);
-                let text_data = pgrx::varlena::vardata_any(ptr);
-                #[allow(clippy::unnecessary_cast)]
-                let text_slice = std::slice::from_raw_parts(text_data as *const u8, text_len);
-                let text_str = std::str::from_utf8_unchecked(text_slice);
-                std::ffi::CString::new(text_str)
-                    .unwrap_or_else(|_| std::ffi::CString::new("").unwrap())
-            }
-        }
-    }
-
-    extension_sql!(
-        r#"
-        -- Override the output function for pdb.alias
-        CREATE OR REPLACE FUNCTION pdb.alias_out(pdb.alias) RETURNS cstring
-            AS 'MODULE_PATHNAME', 'alias_out_safe_wrapper'
-            LANGUAGE c IMMUTABLE STRICT PARALLEL SAFE;
-        "#,
-        name = "alias_out_safe_override",
-        requires = [tokenize_alias, alias_out_safe]
-    );
-
     define_tokenizer_type!(
+        "SimpleDef",
         Simple,
         SearchTokenizer::Simple(SearchTokenizerFilters::default()),
         tokenize_simple,
@@ -427,6 +509,7 @@ pub(crate) mod pdb {
     );
 
     define_tokenizer_type!(
+        "WhitespaceDef",
         Whitespace,
         SearchTokenizer::WhiteSpace(SearchTokenizerFilters::default()),
         tokenize_whitespace,
@@ -441,6 +524,7 @@ pub(crate) mod pdb {
     );
 
     define_tokenizer_type!(
+        "LiteralDef",
         Literal,
         SearchTokenizer::Keyword,
         tokenize_literal,
@@ -455,6 +539,7 @@ pub(crate) mod pdb {
     );
 
     define_tokenizer_type!(
+        "LiteralNormalizedDef",
         LiteralNormalized,
         SearchTokenizer::LiteralNormalized(SearchTokenizerFilters::default()),
         tokenize_literal_normalized,
@@ -469,6 +554,7 @@ pub(crate) mod pdb {
     );
 
     define_tokenizer_type!(
+        "ChineseCompatibleDef",
         ChineseCompatible,
         SearchTokenizer::ChineseCompatible(SearchTokenizerFilters::default()),
         tokenize_chinese_compatible,
@@ -483,6 +569,7 @@ pub(crate) mod pdb {
     );
 
     define_tokenizer_type!(
+        "LinderaDef",
         Lindera,
         SearchTokenizer::Lindera {
             language: LinderaLanguage::Chinese,
@@ -501,6 +588,7 @@ pub(crate) mod pdb {
     );
 
     define_tokenizer_type!(
+        "JiebaDef",
         Jieba,
         SearchTokenizer::Jieba {
             chinese_convert: None,
@@ -518,6 +606,7 @@ pub(crate) mod pdb {
     );
 
     define_tokenizer_type!(
+        "SourceCodeDef",
         SourceCode,
         SearchTokenizer::SourceCode(SearchTokenizerFilters::default()),
         tokenize_source_code,
@@ -532,6 +621,7 @@ pub(crate) mod pdb {
     );
 
     define_tokenizer_type!(
+        "IcuDef",
         Icu,
         SearchTokenizer::ICUTokenizer(SearchTokenizerFilters::default()),
         tokenize_icu,
@@ -546,6 +636,7 @@ pub(crate) mod pdb {
     );
 
     define_tokenizer_type!(
+        "NgramDef",
         Ngram,
         SearchTokenizer::Ngram {
             min_gram: 1,
@@ -566,6 +657,27 @@ pub(crate) mod pdb {
     );
 
     define_tokenizer_type!(
+        "EdgeNgramDef",
+        EdgeNgram,
+        SearchTokenizer::EdgeNgram {
+            min_gram: 1,
+            max_gram: 2,
+            token_chars: vec!["letter".to_string(), "digit".to_string()],
+            filters: SearchTokenizerFilters::default(),
+        },
+        tokenize_edge_ngram,
+        json_to_edge_ngram,
+        jsonb_to_edge_ngram,
+        uuid_to_edge_ngram,
+        text_array_to_edge_ngram,
+        varchar_array_to_edge_ngram,
+        "edge_ngram",
+        preferred = false,
+        custom_typmod = false
+    );
+
+    define_tokenizer_type!(
+        "RegexDef",
         Regex,
         SearchTokenizer::RegexTokenizer {
             pattern: ".*".to_string(),
@@ -583,6 +695,7 @@ pub(crate) mod pdb {
     );
 
     define_tokenizer_type!(
+        "UnicodeWordsDef",
         UnicodeWords,
         SearchTokenizer::UnicodeWords {
             remove_emojis: false,

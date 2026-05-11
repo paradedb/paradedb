@@ -47,7 +47,6 @@ Join pushdown is automatically used when a query meets several conditions. If an
 | Equi-join key       | The join must contain at least one equality condition such as `a.id = b.id`.                                                                                 |
 | Indexed fields      | All join keys, filters, and `ORDER BY` columns must be present in the BM25 index. Text and JSON fields must be [columnar](/documentation/indexing/columnar). |
 | LIMIT clause        | The query must include a `LIMIT`.                                                                                                                            |
-| No aggregates       | Queries containing aggregates (`GROUP BY`, `COUNT`, etc.) are not currently supported.                                                                       |
 
 If any checks fail, ParadeDB will emit a `NOTICE` explaining why and fall back to Postgres' native join execution.
 

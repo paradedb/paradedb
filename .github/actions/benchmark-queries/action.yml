@@ -3,10 +3,10 @@ description: Run a given benchmark dataset against pg_search and publish metrics
 
 inputs:
   dataset:
-    description: "The benchmark dataset to run (e.g. logs, docs)"
+    description: "The benchmark dataset to run (e.g. logs, docs, stackoverflow)"
     required: true
-  rows:
-    description: "Number of rows to generate (optional, uses dataset defaults if not specified)"
+  size:
+    description: "Size label for pre-sampled dataset, e.g. '100k', '1m', '20m'"
     required: true
   ref:
     description: "Git ref or short SHA to report in benchmarks"
@@ -35,35 +35,19 @@ runs:
       working-directory: benchmarks/
       shell: bash
       run: |
-        # Use provided rows if specified, otherwise use dataset defaults
-        if [ -n "${{ inputs.rows }}" ]; then
-          NUM_ROWS=${{ inputs.rows }}
-        else
-          echo "Unknown dataset!"
-          exit 1
-        fi
+        POSTGRES_URL="postgresql://localhost:288${{ env.pg_version }}/postgres"
 
-        # Run the benchmark.
-        cargo run --release -- benchmark generated \
-          --url postgresql://localhost:288${{ env.pg_version }}/postgres \
-          --rows ${NUM_ROWS} \
-          --type pg_search \
+        # Pre-sampled dataset loaded from S3.
+        cargo run --release -- benchmark \
+          --url "${POSTGRES_URL}" \
+          --size ${{ inputs.size }} \
           --dataset ${{ inputs.dataset }} \
+          --data-source s3://paradedb-ci-benchmarks/datasets/${{ inputs.dataset }}/ \
           --runs 10 \
           --output json \
           --fail-on-error ${{ inputs.fail_on_error }}
 
-        # Format row count for display (e.g., 100000 -> 100K, 1000000 -> 1M)
-        if [ ${NUM_ROWS} -ge 1000000000 ]; then
-          ROWS_LABEL="$((NUM_ROWS / 1000000000))B"
-        elif [ ${NUM_ROWS} -ge 1000000 ]; then
-          ROWS_LABEL="$((NUM_ROWS / 1000000))M"
-        elif [ ${NUM_ROWS} -ge 1000 ]; then
-          ROWS_LABEL="$((NUM_ROWS / 1000))K"
-        else
-          ROWS_LABEL="${NUM_ROWS}"
-        fi
-        echo "ROWS_LABEL=${ROWS_LABEL}" >> $GITHUB_ENV
+        echo "ROWS_LABEL=${{ inputs.size }}" >> $GITHUB_ENV
 
     - name: Print the Postgres Logs
       if: failure()
@@ -78,6 +62,7 @@ runs:
     # we sleep for a random number of seconds to hopefully avoid conflicting with other concurrent
     # benchmark-action publish actions running in other jobs
     - name: Sleep before publish
+      if: github.ref == 'refs/heads/main'
       shell: bash
       run: echo $(( 1 + RANDOM % ( 61 - 1 + 1 ) ))
 
@@ -91,7 +76,7 @@ runs:
         github-token: ${{ inputs.github_token }}
         gh-repository: github.com/${{ github.repository }}
         gh-pages-branch: gh-pages
-        auto-push: ${{ github.event_name != 'pull_request' }}
+        auto-push: ${{ github.ref == 'refs/heads/main' }}
         benchmark-data-dir-path: benchmarks
         alert-threshold: "115%"
         comment-on-alert: true # We comment and alert rather than failing, as we have both Github and Slack messages to notify us
@@ -99,7 +84,7 @@ runs:
         comment-always: ${{ github.event_name == 'pull_request' }}
 
     - name: Upload Benchmark Results to Slack (push only)
-      if: github.event_name != 'pull_request'
+      if: github.ref == 'refs/heads/main'
       uses: slackapi/slack-github-action@v3
       with:
         method: chat.postMessage

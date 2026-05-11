@@ -1,0 +1,3 @@
+DROP INDEX IF EXISTS orders_idx;
+DROP INDEX IF EXISTS search_idx;
+DROP INDEX IF EXISTS search_idx_v2;

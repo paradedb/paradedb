@@ -1,3 +1,4 @@
+
 SELECT 'this is a test.'::pdb.chinese_compatible::text[];
 SELECT 'this is a test.'::pdb.literal::text[];
 SELECT 'this is a test.'::pdb.jieba::text[];
@@ -5,8 +6,29 @@ SELECT 'this is a test.'::pdb.lindera(chinese)::text[];
 SELECT 'this is a test.'::pdb.lindera(japanese)::text[];
 SELECT 'this is a test.'::pdb.lindera(korean)::text[];
 SELECT 'this is a test.'::pdb.ngram(3, 5)::text[];
+SELECT 'this is a test.'::pdb.edge_ngram(2, 4)::text[];
 SELECT 'this is a test.'::pdb.regex_pattern('is|a')::text[];
 SELECT 'this is a test.'::pdb.simple::text[];
 SELECT 'this is a test.'::pdb.simple('stemmer=english')::text[];
 SELECT 'this is a test.'::pdb.whitespace::text[];
 SELECT 'this is a test. fn foo(arg: String) -> impl Foo<''a> { return 42; }'::pdb.source_code::text[];
+
+SELECT ARRAY['this is a test.', 'foo bar baz']::pdb.whitespace::text[];
+
+SELECT '"foo"'::jsonb::pdb.whitespace::text[];
+SELECT '"foo"'::jsonb::pdb.whitespace::text;
+SELECT ARRAY['foo bar', 'baz', ' qux']::pdb.whitespace::text[];
+SELECT ARRAY['foo bar', 'baz', ' qux']::pdb.whitespace::text;
+
+
+-- Expression realloc function. Causes Postgres to reallocate the returned value
+CREATE FUNCTION realloc (anyelement) RETURNS anyelement
+AS 'SELECT $1 FROM random();'
+LANGUAGE SQL VOLATILE;
+
+SELECT realloc('foo'::pdb.whitespace)::text[];
+SELECT realloc('foo'::pdb.whitespace)::text;
+SELECT realloc('"foo"'::jsonb::pdb.whitespace)::text[];
+SELECT realloc('"foo"'::jsonb::pdb.whitespace)::text;
+SELECT realloc(ARRAY['foo bar', 'baz', ' qux']::pdb.whitespace)::text[];
+SELECT realloc(ARRAY['foo bar', 'baz', ' qux']::pdb.whitespace)::text;

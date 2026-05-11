@@ -114,6 +114,7 @@ pub enum Property {
     String(PropertyKey, String),
     Regex(PropertyKey, regex::Regex),
     Integer(PropertyKey, i64),
+    Float(PropertyKey, f64),
     Boolean(PropertyKey, bool),
 }
 
@@ -125,12 +126,14 @@ impl Display for Property {
             Property::String(Some(key), s) => write!(f, "{key}={}", s.replace("'", "''")),
             Property::Regex(Some(key), r) => write!(f, "{key}=/{}/", r.as_str().replace("'", "''")),
             Property::Integer(Some(key), i) => write!(f, "{key}={i}"),
+            Property::Float(Some(key), v) => write!(f, "{key}={v}"),
             Property::Boolean(Some(key), b) => write!(f, "{key}={b}"),
 
             Property::None(None) => write!(f, ""),
             Property::String(None, s) => write!(f, "{}", s.replace("'", "''")),
             Property::Regex(None, r) => write!(f, "/{}/", r.as_str().replace("'", "''")),
             Property::Integer(None, i) => write!(f, "{i}"),
+            Property::Float(None, v) => write!(f, "{v}"),
             Property::Boolean(None, b) => write!(f, "{b}"),
         }
     }
@@ -163,6 +166,8 @@ impl FromStr for Property {
                     Ok(Property::Boolean(key, s == "true"))
                 } else if let Ok(i) = s.parse::<i64>() {
                     Ok(Property::Integer(key, i))
+                } else if let Ok(v) = s.parse::<f64>() {
+                    Ok(Property::Float(key, v))
                 } else {
                     Ok(Property::String(key, s.to_string()))
                 }
@@ -179,6 +184,7 @@ impl Property {
             | Property::String(key, _)
             | Property::Regex(key, _)
             | Property::Integer(key, _)
+            | Property::Float(key, _)
             | Property::Boolean(key, _) => key.as_deref(),
         }
     }
@@ -193,6 +199,24 @@ impl Property {
     pub fn as_bool(&self) -> Option<bool> {
         match self {
             Property::Boolean(_, b) => Some(*b),
+            _ => None,
+        }
+    }
+
+    /// Truncates f64 → f32 and i64 → f32. Safe for small magnitudes;
+    /// do not use for values where precision matters.
+    pub fn as_f32(&self) -> Option<f32> {
+        match self {
+            Property::Float(_, v) => Some(*v as f32),
+            Property::Integer(_, i) => Some(*i as f32),
+            _ => None,
+        }
+    }
+
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            Property::Float(_, v) => Some(*v),
+            Property::Integer(_, i) => Some(*i as f64),
             _ => None,
         }
     }
@@ -413,6 +437,7 @@ impl<'a> Index<&'a str> for ParsedTypmod {
                 Property::String(key, _) if key.as_deref() == Some(index) => return prop,
                 Property::Regex(key, _) if key.as_deref() == Some(index) => return prop,
                 Property::Integer(key, _) if key.as_deref() == Some(index) => return prop,
+                Property::Float(key, _) if key.as_deref() == Some(index) => return prop,
                 Property::Boolean(key, _) if key.as_deref() == Some(index) => return prop,
 
                 _ => {}

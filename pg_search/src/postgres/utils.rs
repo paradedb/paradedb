@@ -877,6 +877,7 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
             micros_to_tantivy_datetime(micros)
                 .expect("date exceeds Tantivy DateTime nanosecond range")
         }
+        // For TIMESTAMPOID, Used only by legacy indexes as of v0.24.0.
         PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID | PgBuiltInOids::TSRANGEOID) => {
             // Since [`pgrx::Timestamp`]s are tied to the Postgres instance's timezone,
             // to figure out *which* timezone it's actually in, we convert to a
@@ -898,6 +899,7 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
             micros_to_tantivy_datetime(micros)
                 .expect("timestamp exceeds Tantivy DateTime nanosecond range")
         }
+        // For TIMESTAMPTZOID, Used only by legacy indexes as of v0.24.0.
         PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID | pg_sys::BuiltinOid::TSTZRANGEOID) => {
             let twtz = pgrx::datum::TimestampWithTimeZone::from_str(date_string)
                 .expect("must be a valid postgres timestamp with time zone")

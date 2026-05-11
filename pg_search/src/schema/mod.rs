@@ -28,9 +28,11 @@ use crate::postgres::utils::{resolve_base_type, ExtractedFieldAttribute};
 pub use anyenum::AnyEnum;
 use anyhow::bail;
 pub use config::*;
+use pgrx::pg_sys::BuiltinOid;
 use std::cell::{Ref, RefCell};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
+use std::str::FromStr;
 use tantivy::index::{IndexSortByField, Order};
 
 use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, Typmod};
@@ -148,6 +150,12 @@ impl SearchFieldType {
         matches!(
             self,
             SearchFieldType::Numeric64(..) | SearchFieldType::NumericBytes(..)
+        )
+    }
+
+    pub fn is_i64_stored_timestamp(&self) -> bool {
+        matches!(self,
+            Self::I64(oid) if *oid == pg_sys::TIMESTAMPOID || *oid == pg_sys::TIMESTAMPTZOID
         )
     }
 
@@ -793,6 +801,22 @@ impl SearchField {
                 };
                 let datetime = convert_pg_date_string(typeoid, &s);
                 *value = OwnedValue::Date(datetime);
+                Ok(())
+            }
+            (FieldType::I64(_), OwnedValue::Str(s))
+                if self.field_type.is_i64_stored_timestamp() =>
+            {
+                match self.field_type.typeoid() {
+                    PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID) => {
+                        let ts = pgrx::datum::Timestamp::from_str(&s)?;
+                        *value = OwnedValue::I64(ts.into_inner());
+                    }
+                    PgOid::BuiltIn(BuiltinOid::TIMESTAMPTZOID) => {
+                        let ts = pgrx::datum::TimestampWithTimeZone::from_str(&s)?;
+                        *value = OwnedValue::I64(ts.into_inner());
+                    }
+                    _ => unreachable!(),
+                }
                 Ok(())
             }
             (FieldType::U64(_), OwnedValue::I64(v)) => {

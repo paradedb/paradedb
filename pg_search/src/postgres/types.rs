@@ -1211,7 +1211,11 @@ impl TryFrom<TantivyValue> for pgrx::datum::Timestamp {
                     s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
                 )?)
             }
-            OwnedValue::I64(val) => Ok(pgrx::datum::Timestamp::saturating_from_raw(val)),
+            OwnedValue::I64(val) => Ok(pgrx::datum::Timestamp::try_from(val).map_err(|err| {
+                TantivyValueError::UnsupportedIntoConversion(format!(
+                    "Invalid raw i64 value for timestamp: {err:?}"
+                ))
+            })?),
             _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "timestamp".to_string(),
             )),
@@ -1283,7 +1287,7 @@ impl TryFrom<TantivyValue> for pgrx::datum::TimestampWithTimeZone {
                 // try to convert from the raw i64 value.
                 let twtz = pgrx::datum::TimestampWithTimeZone::try_from(val).map_err(|err| {
                     TantivyValueError::UnsupportedIntoConversion(format!(
-                        "Bad raw i64 value for TimestampWithTimeZone: {err:?}"
+                        "Invalid raw i64 value for TimestampWithTimeZone: {err:?}"
                     ))
                 })?;
                 Ok(twtz)

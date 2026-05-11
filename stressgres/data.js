@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778524548791,
+  "lastUpdate": 1778524667024,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -140,6 +140,76 @@ window.BENCHMARK_DATA = {
             "value": 73.56459051416459,
             "unit": "median tps",
             "extra": "avg tps: 84.20056535639911, max tps: 867.8242864097849, count: 55043"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b09f4be12951cd04a36e9bbb0dc8c405645ae09b",
+          "message": "ci: Migrate create-github-app-token to client-id (#5050)\n\n## Summary\n- The `actions/create-github-app-token` action deprecated `app-id` in\nfavor of `client-id` (warning: `Input 'app-id' has been deprecated with\nmessage: Use 'client-id' instead.`)\n- Replaces `app-id:` with `client-id:` across all workflows and the\n`benchmark-stressgres` composite action\n- Switches from `vars.PARADEDB_GITHUB_APP_ID` (numeric App ID) to\n`vars.PARADEDB_GITHUB_APP_CLIENT_ID` (the App's Client ID, e.g.\n`Iv23li...`)\n\n## Notes\n- Client ID is a public identifier, so `vars.*` is appropriate; the\nPrivate Key remains in `secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY`\n- `vars.PARADEDB_GITHUB_APP_CLIENT_ID` has been added to repo variables\n- The old `vars.PARADEDB_GITHUB_APP_ID` is no longer referenced and can\nbe deleted after merge\n\n## Test plan\n- [ ] Verify cherry-pick, publish-github-release,\npublish-paradedb-docker, test-pg_search-nix, and\nbenchmark-pg_search-stressgres workflows successfully mint a token on\nnext run\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-09T18:11:33Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b09f4be12951cd04a36e9bbb0dc8c405645ae09b"
+        },
+        "date": 1778524610227,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 130.39790779890825,
+            "unit": "median tps",
+            "extra": "avg tps: 131.03661911571334, max tps: 145.8705190395134, count: 55248"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 473.2180747571198,
+            "unit": "median tps",
+            "extra": "avg tps: 474.78234792852726, max tps: 612.1502546641715, count: 55248"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3257.350083436879,
+            "unit": "median tps",
+            "extra": "avg tps: 3249.7422604788667, max tps: 3267.2589303659397, count: 55248"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 444.0734380142206,
+            "unit": "median tps",
+            "extra": "avg tps: 446.08093486203364, max tps: 480.5364214342859, count: 55248"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2968.415674554292,
+            "unit": "median tps",
+            "extra": "avg tps: 2968.7702024265236, max tps: 3089.6579560714977, count: 110496"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 531.3018308127793,
+            "unit": "median tps",
+            "extra": "avg tps: 530.4682826843944, max tps: 605.1789623017568, count: 55248"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2016.9813940072656,
+            "unit": "median tps",
+            "extra": "avg tps: 2012.2135535571604, max tps: 2025.738747970457, count: 55248"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 172.6774398613718,
+            "unit": "median tps",
+            "extra": "avg tps: 205.28319970200715, max tps: 327.18365201919784, count: 55248"
           }
         ]
       }

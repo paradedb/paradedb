@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778525457834,
+  "lastUpdate": 1778525660617,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -882,6 +882,54 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.6345584543739, max segment_count: 130.0, count: 57763"
+          }
+        ]
+      }
+    ],
+    "pg_search wide-table.toml Performance - TPS": [
+      {
+        "commit": {
+          "author": {
+            "name": "Ming",
+            "username": "rebasedming",
+            "email": "ming.ying.nyc@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "0b5f5714895d3226ae9025f04f5867cf6e63215d",
+          "message": "chore: Upgrade to 0.22.6 (#4694)\n\n## Summary\n- Bump version from 0.22.5 to 0.22.6\n- Add changelog entry for 0.22.6\n- Update version references in docs\n\n## Changes since 0.22.5\n- feat: Support expressions in JoinScan DISTINCT target lists (#4682)\n- fix: JoinScan `DISTINCT` planning for deferred keys (#4670)\n- fix: JoinScan pushdown with outer-only `ORDER BY` pathkeys (#4680)\n- fix: `pdb.score()` with `SELECT` subquery in `WHERE` clause (#4653)\n- fix: Handle `IN (SELECT ...) OR IS NULL` via LeftMark JoinScan (#4651)\n- fix: Score filter for joins and cases without other quals (#4650)\n- fix: Handle pruned columns in nested semi/anti join keys (#4668)\n- fix: Handle aliased indexed expressions in search resolution and top-k\norder by (#4671)\n- fix: Lower x86_64 target-cpu from x86-64-v3 to x86-64-v2 (#4673)\n- fix: Prevent DSM buffer overflow in PG18 parallel index scans (#4683)\n- fix: `PlaceHolderVar found where not expected` error (#4689)\n- fix: Restore `pdb.agg(jsonb)` if accidentally removed by an upgrade\nscript (#4688)\n\n## Test plan\n- [ ] CI passes on 0.22.x\n\n---------\n\nCo-authored-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>",
+          "timestamp": "2026-04-08T18:52:29Z",
+          "url": "https://github.com/paradedb/paradedb/commit/0b5f5714895d3226ae9025f04f5867cf6e63215d"
+        },
+        "date": 1778525611398,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1127.3230876086723,
+            "unit": "median tps",
+            "extra": "avg tps: 1132.7223535368896, max tps: 1192.254743902077, count: 56126"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1217.5320187625425,
+            "unit": "median tps",
+            "extra": "avg tps: 1215.1907892892023, max tps: 1265.0979276434825, count: 56126"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1093.5876380310779,
+            "unit": "median tps",
+            "extra": "avg tps: 1000.4283417902755, max tps: 1495.8151082112538, count: 56126"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.1516617407043865,
+            "unit": "median tps",
+            "extra": "avg tps: 5.229186842547593, max tps: 7.667708650764491, count: 56126"
           }
         ]
       }

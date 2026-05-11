@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778526748052,
+  "lastUpdate": 1778526863985,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1430,6 +1430,58 @@ window.BENCHMARK_DATA = {
             "value": 16.800845892308345,
             "unit": "median tps",
             "extra": "avg tps: 16.749898285445635, max tps: 22.25088581332695, count: 55666"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b09f4be12951cd04a36e9bbb0dc8c405645ae09b",
+          "message": "ci: Migrate create-github-app-token to client-id (#5050)\n\n## Summary\n- The `actions/create-github-app-token` action deprecated `app-id` in\nfavor of `client-id` (warning: `Input 'app-id' has been deprecated with\nmessage: Use 'client-id' instead.`)\n- Replaces `app-id:` with `client-id:` across all workflows and the\n`benchmark-stressgres` composite action\n- Switches from `vars.PARADEDB_GITHUB_APP_ID` (numeric App ID) to\n`vars.PARADEDB_GITHUB_APP_CLIENT_ID` (the App's Client ID, e.g.\n`Iv23li...`)\n\n## Notes\n- Client ID is a public identifier, so `vars.*` is appropriate; the\nPrivate Key remains in `secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY`\n- `vars.PARADEDB_GITHUB_APP_CLIENT_ID` has been added to repo variables\n- The old `vars.PARADEDB_GITHUB_APP_ID` is no longer referenced and can\nbe deleted after merge\n\n## Test plan\n- [ ] Verify cherry-pick, publish-github-release,\npublish-paradedb-docker, test-pg_search-nix, and\nbenchmark-pg_search-stressgres workflows successfully mint a token on\nnext run\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-09T18:11:33Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b09f4be12951cd04a36e9bbb0dc8c405645ae09b"
+        },
+        "date": 1778526820645,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 32.45369432026579,
+            "unit": "median tps",
+            "extra": "avg tps: 32.13410047001808, max tps: 33.171163770016946, count: 55811"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 250.41492995067242,
+            "unit": "median tps",
+            "extra": "avg tps: 279.31233816713467, max tps: 3208.546514854151, count: 55811"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 673.0728618158321,
+            "unit": "median tps",
+            "extra": "avg tps: 654.7949513329069, max tps: 900.0381300569359, count: 55811"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 156.87489044131692,
+            "unit": "median tps",
+            "extra": "avg tps: 180.2176146244029, max tps: 1176.1358056909976, count: 111622"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 18.145606564722975,
+            "unit": "median tps",
+            "extra": "avg tps: 17.685117271918866, max tps: 20.38934015935819, count: 55811"
           }
         ]
       }

@@ -972,7 +972,8 @@ impl TantivyValue {
     pub unsafe fn try_from_timestamptz_date(datum: Datum) -> Result<Self, TantivyValueError> {
         let val = pgrx::datum::TimestampWithTimeZone::from_datum(datum, false)
             .ok_or(TantivyValueError::DatumDeref)?;
-        let (v_h, v_m, v_s, v_ms) = val.to_utc().to_hms_micro();
+        let val = val.to_utc();
+        let (v_h, v_m, v_s, v_ms) = val.to_hms_micro();
         Ok(TantivyValue(datetime_components_to_tantivy_date(
             Some((val.year(), val.month(), val.day())),
             (v_h, v_m, v_s, v_ms),

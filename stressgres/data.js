@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778524215242,
+  "lastUpdate": 1778524504221,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -70,6 +70,76 @@ window.BENCHMARK_DATA = {
             "value": 36.781161842814036,
             "unit": "median tps",
             "extra": "avg tps: 63.235529810054764, max tps: 866.4332495492381, count: 55233"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot",
+            "email": "developers@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "c07921a78f3d24cbb0251b31a1150a7db600af5a",
+          "message": "chore: Prepare 0.23.4. (#4997)\n\n# Description\nBackport of #4994 to `0.23.x`.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-06T00:08:47Z",
+          "url": "https://github.com/paradedb/paradedb/commit/c07921a78f3d24cbb0251b31a1150a7db600af5a"
+        },
+        "date": 1778524463474,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 128.64386292411558,
+            "unit": "median tps",
+            "extra": "avg tps: 128.95555850005914, max tps: 142.44541271641796, count: 55043"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 503.0313013123388,
+            "unit": "median tps",
+            "extra": "avg tps: 501.33224364016957, max tps: 526.9012510048858, count: 55043"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3262.543500905718,
+            "unit": "median tps",
+            "extra": "avg tps: 3257.9866946578036, max tps: 3346.673209321352, count: 55043"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 424.6765627744994,
+            "unit": "median tps",
+            "extra": "avg tps: 423.8834197585094, max tps: 477.8197766192544, count: 55043"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3040.769535480371,
+            "unit": "median tps",
+            "extra": "avg tps: 3034.1818303189666, max tps: 3115.5200720347802, count: 110086"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 476.05112409428085,
+            "unit": "median tps",
+            "extra": "avg tps: 474.99212012668545, max tps: 596.8742125102216, count: 55043"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2134.266477374074,
+            "unit": "median tps",
+            "extra": "avg tps: 2122.8547315101973, max tps: 2140.8896996861367, count: 55043"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 73.56459051416459,
+            "unit": "median tps",
+            "extra": "avg tps: 84.20056535639911, max tps: 867.8242864097849, count: 55043"
           }
         ]
       }

@@ -255,6 +255,19 @@ pub fn arrow_array_to_datum(
                         numeric.into_datum()
                     }
                 }
+                PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID) => {
+                    pgrx::datum::Timestamp::try_from(val)
+                        .map_err(|err| format!("Invalid raw i64 value for Timestamp: {err:?}"))?
+                        .into_datum()
+                }
+                PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID) => {
+                    pgrx::datum::TimestampWithTimeZone::try_from(val)
+                        .map_err(|err| {
+                            format!("Invalid raw i64 value for TimestampWithTimeZone : {err:?}")
+                        })?
+                        .into_datum()
+                }
+
                 _ => {
                     if let Some(res) = try_convert_timestamp_nanos_to_datum(val, &oid) {
                         res?
@@ -491,6 +504,8 @@ fn arrow_array_to_datum_list(
     }
 }
 
+/// In the case of TIMESTAMP and TIMESTAMPTZ, this should only be used for legacy
+/// indexes, as new one's store those as raw i64, instead of converting to nanos.
 pub(crate) fn try_convert_timestamp_nanos_to_datum(
     ts_nanos: i64,
     oid: &PgOid,

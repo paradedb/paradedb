@@ -195,9 +195,9 @@ impl SearchFieldType {
 /// This function determines the correct SearchFieldType by examining what's actually
 /// stored in the tantivy schema, then augmenting with PostgreSQL metadata (OID, scale).
 ///
-/// This ensures backwards compatibility: legacy indexes that stored NUMERIC as F64
-/// will be correctly identified as F64, while new indexes use Numeric64/NumericBytes
-/// based on the actual tantivy field type.
+/// This ensures backwards compatibility: legacy indexes that stored PostgreSQL types using
+/// different SearchFieldTypes will still use the old type, while new indexes will use the
+/// new type.
 fn derive_field_type_from_schema(
     field_entry: &FieldEntry,
     options: &BM25IndexOptions,
@@ -211,16 +211,21 @@ fn derive_field_type_from_schema(
     });
 
     // For most types, the tantivy schema matches what we computed.
-    // The exception is NUMERIC, where legacy indexes used F64 but new code computes Numeric64/NumericBytes.
-    match field_entry.field_type() {
-        FieldType::F64(_) => {
-            // If computed type was Numeric64/NumericBytes but stored type is F64,
-            // this is a legacy index - use F64
-            if computed_type.is_numeric() {
-                SearchFieldType::F64(computed_type.typeoid().value())
-            } else {
-                computed_type
-            }
+    // The exceptions are:
+    // - NUMERIC, where legacy indexes used F64 but new code computes Numeric64/NumericBytes.
+    // - TIMESTAMP and TIMESTAMPTZ, where legacy indexes used Date but new code computes I64
+    match (field_entry.field_type(), computed_type) {
+        // If computed type was Numeric64/NumericBytes but stored type is F64,
+        // this is a legacy index - use F64
+        (FieldType::F64(_), _) if computed_type.is_numeric() => {
+            SearchFieldType::F64(computed_type.typeoid().value())
+        }
+        // If computed_type was i64 but stored type id Date, this is a
+        // legacy index - use Date.
+        (FieldType::Date(_), SearchFieldType::I64(oid))
+            if oid == pg_sys::TIMESTAMPOID || oid == pg_sys::TIMESTAMPTZOID =>
+        {
+            SearchFieldType::Date(oid)
         }
         _ => {
             // For all other types, the computed type is correct

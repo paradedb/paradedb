@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778526163651,
+  "lastUpdate": 1778526205115,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1224,6 +1224,106 @@ window.BENCHMARK_DATA = {
             "value": 163.58984375,
             "unit": "median mem",
             "extra": "avg mem: 181.92006797913007, max mem: 221.9453125, count: 56373"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Philippe Noël",
+            "username": "philippemnoel",
+            "email": "21990816+philippemnoel@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b09f4be12951cd04a36e9bbb0dc8c405645ae09b",
+          "message": "ci: Migrate create-github-app-token to client-id (#5050)\n\n## Summary\n- The `actions/create-github-app-token` action deprecated `app-id` in\nfavor of `client-id` (warning: `Input 'app-id' has been deprecated with\nmessage: Use 'client-id' instead.`)\n- Replaces `app-id:` with `client-id:` across all workflows and the\n`benchmark-stressgres` composite action\n- Switches from `vars.PARADEDB_GITHUB_APP_ID` (numeric App ID) to\n`vars.PARADEDB_GITHUB_APP_CLIENT_ID` (the App's Client ID, e.g.\n`Iv23li...`)\n\n## Notes\n- Client ID is a public identifier, so `vars.*` is appropriate; the\nPrivate Key remains in `secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY`\n- `vars.PARADEDB_GITHUB_APP_CLIENT_ID` has been added to repo variables\n- The old `vars.PARADEDB_GITHUB_APP_ID` is no longer referenced and can\nbe deleted after merge\n\n## Test plan\n- [ ] Verify cherry-pick, publish-github-release,\npublish-paradedb-docker, test-pg_search-nix, and\nbenchmark-pg_search-stressgres workflows successfully mint a token on\nnext run\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-09T18:11:33Z",
+          "url": "https://github.com/paradedb/paradedb/commit/b09f4be12951cd04a36e9bbb0dc8c405645ae09b"
+        },
+        "date": 1778526165504,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07219921437585539, max background_merging: 2.0, count: 56261"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.856432729358954, max cpu: 9.687184, count: 56261"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.84375,
+            "unit": "median mem",
+            "extra": "avg mem: 26.895830787534884, max mem: 26.96484375, count: 56261"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9239912442887395, max cpu: 28.09756, count: 56261"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 186.75,
+            "unit": "median mem",
+            "extra": "avg mem: 178.77632485202895, max mem: 188.26953125, count: 56261"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51447,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51315.471605552695, max block_count: 51447.0, count: 56261"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.739873091484334, max segment_count: 56.0, count: 56261"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.661029561137625, max cpu: 28.042841, count: 56261"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 145.4453125,
+            "unit": "median mem",
+            "extra": "avg mem: 134.43051331073033, max mem: 159.05078125, count: 56261"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.797176169357374, max cpu: 27.988338, count: 56261"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 183.78515625,
+            "unit": "median mem",
+            "extra": "avg mem: 179.06202169075826, max mem: 184.01171875, count: 56261"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.414635,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.919663097825403, max cpu: 33.768845, count: 56261"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 163.87890625,
+            "unit": "median mem",
+            "extra": "avg mem: 182.11343052636374, max mem: 222.2578125, count: 56261"
           }
         ]
       }

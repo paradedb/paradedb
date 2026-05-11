@@ -58,12 +58,6 @@ impl ExtractInfo {
         self.pushdown.is_some()
     }
 
-    // We have found some RestrictInfo conditions
-    // which should be executed by PostgreSQL standard evaluator
-    pub fn found_residual(&self) -> bool {
-        !self.residual.is_empty()
-    }
-
     pub fn get_pushdown(&self) -> Option<Qual> {
         self.pushdown.clone()
     }
@@ -74,6 +68,16 @@ impl ExtractInfo {
 
     pub fn has_match(&self) -> bool {
         self.pushdown.is_some() && self.state.uses_our_operator
+    }
+
+    pub fn has_pushdown(&self) -> bool {
+        self.pushdown.is_some()
+    }
+
+    // We have found some RestrictInfo conditions
+    // which should be executed by PostgreSQL standard evaluator
+    pub fn has_residual(&self) -> bool {
+        !self.residual.is_empty()
     }
 
     pub fn add_pushdown(&mut self, pushdown: Option<Qual>) {

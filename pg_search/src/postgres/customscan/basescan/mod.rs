@@ -777,15 +777,25 @@ impl CustomScan for BaseScan {
                 is_select,
             );
 
+            let has_match = extract_info.has_match();
+            let has_residual = extract_info.has_residual();
+
             // We have score() function, which can be handled by Custom Plan,
             // but didn't find ParadeDB operator - this is error,
             // don't silently fail, show error explicitly
-            if has_score_func && !extract_info.has_match() {
+            if has_score_func && !has_match {
                 ereport!(
                     PgLogLevel::ERROR,
                     PgSqlErrorCode::ERRCODE_INVALID_NAME,
                     "score() function should be used only with ParadeDB operator"
                 );
+            }
+
+            let force_custom_scan = gucs::enable_custom_scan_without_operator();
+            let can_use_custom_scan = has_match || has_window_aggs || force_custom_scan;
+
+            if !can_use_custom_scan {
+                return None;
             }
 
             let quals = extract_info.get_pushdown();
@@ -811,6 +821,22 @@ impl CustomScan for BaseScan {
                     // this query safely - the WHERE clause would be silently ignored.
                     return None;
                 }
+
+                /*
+                 * No pushdown qual exists.
+                 *
+                 * Qual::All is safe for pdb.agg/window aggregate only if either:
+                 * - there is no WHERE clause, or
+                 * - the WHERE clause is preserved as residual plan quals.
+                 *
+                 * Otherwise Qual::All would silently ignore WHERE.
+                 */
+                // if has_where_clause && !has_residual {
+                //     // There's a WHERE clause but we couldn't extract quals and filter_pushdown is disabled.
+                //     // This means qual extraction failed without creating HeapExpr, so we cannot handle
+                //     // this query safely - the WHERE clause would be silently ignored.
+                //     return None;
+                // }
 
                 // Safe to use Qual::All because:
                 // - Either there's no WHERE clause (nothing to filter), OR

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778524954032,
+  "lastUpdate": 1778525236700,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -638,6 +638,40 @@ window.BENCHMARK_DATA = {
             "value": 5.346574107000282,
             "unit": "median tps",
             "extra": "avg tps: 4.798661284996681, max tps: 5.995420939811215, count: 57574"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "paradedb[bot]",
+            "username": "paradedb-bot",
+            "email": "developers@paradedb.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "c07921a78f3d24cbb0251b31a1150a7db600af5a",
+          "message": "chore: Prepare 0.23.4. (#4997)\n\n# Description\nBackport of #4994 to `0.23.x`.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-06T00:08:47Z",
+          "url": "https://github.com/paradedb/paradedb/commit/c07921a78f3d24cbb0251b31a1150a7db600af5a"
+        },
+        "date": 1778525186781,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.92700021144408,
+            "unit": "median tps",
+            "extra": "avg tps: 6.764277775948097, max tps: 10.304365546692813, count: 57789"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.4212954831500335,
+            "unit": "median tps",
+            "extra": "avg tps: 4.8722095172010595, max tps: 6.094497440239919, count: 57789"
           }
         ]
       }

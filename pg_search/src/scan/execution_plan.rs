@@ -388,8 +388,7 @@ fn strategy_name(strategy: tantivy::query::StrategyTag) -> &'static str {
         StrategyTag::Gallop => "gallop",
         StrategyTag::Linear => "linear",
         StrategyTag::Bitset => "bitset_from_postings",
-        StrategyTag::Posting => "posting_direct",
-        StrategyTag::Hash => "hash_probe",
+        StrategyTag::Empty => "empty",
     }
 }
 

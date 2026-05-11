@@ -34,6 +34,7 @@ pub mod targetlist;
 // Re-export commonly used types for easier access
 pub use aggregate_type::AggregateType;
 pub use groupby::GroupingColumn;
+use pgrx::IntoDatum;
 pub use targetlist::TargetListEntry;
 
 use std::sync::Arc;
@@ -113,6 +114,7 @@ use chrono::{DateTime as ChronoDateTime, Utc};
 use futures::StreamExt;
 use pgrx::{pg_sys, PgList, PgMemoryContexts, PgTupleDesc};
 use std::ffi::CStr;
+use std::str::FromStr;
 use tantivy::schema::OwnedValue;
 
 #[derive(Default)]
@@ -2102,6 +2104,8 @@ unsafe fn group_key_to_datum(
     // DateTime columns don't have a missing sentinel (NULLs are excluded).
     let is_null_sentinel = match &key.0 {
         OwnedValue::Str(s) => s == NULL_SENTINEL_MIN || s == NULL_SENTINEL_MAX,
+        // Postgres min and max timestamp values are far within the bounds of i64, so sentinel
+        // collision is not an issue.
         OwnedValue::I64(v) => *v == i64::MAX || *v == i64::MIN,
         OwnedValue::U64(v) => *v == u64::MAX,
         OwnedValue::F64(v) => *v == f64::MAX || *v == f64::MIN,
@@ -2118,9 +2122,24 @@ unsafe fn group_key_to_datum(
     }
 
     // For datetime types, Tantivy's terms aggregation returns the date as
-    // an ISO 8601 string (e.g., "2025-12-26T00:00:00Z"). We need to parse
-    // this string and convert it to the appropriate PostgreSQL date type.
+    // an ISO 8601 string (e.g., "2025-12-26T00:00:00Z"). For timestamp/timestamptz,
+    // we can convert this directly. For other time types, we need to parse this
+    // string and convert it to the appropriate PostgreSQL date type.
     match &key.0 {
+        OwnedValue::Str(date_str) if expected_typoid == pg_sys::TIMESTAMPOID => {
+            let ts = match pgrx::datum::Timestamp::from_str(date_str) {
+                Ok(ts) => ts,
+                Err(e) => pgrx::error!("Failed to parse datetime string '{}': {}", date_str, e),
+            };
+            ts.into_datum()
+        }
+        OwnedValue::Str(date_str) if expected_typoid == pg_sys::TIMESTAMPTZOID => {
+            let ts = match pgrx::datum::TimestampWithTimeZone::from_str(date_str) {
+                Ok(ts) => ts,
+                Err(e) => pgrx::error!("Failed to parse datetime string '{}': {}", date_str, e),
+            };
+            ts.into_datum()
+        }
         OwnedValue::Str(date_str) => match date_str.parse::<ChronoDateTime<Utc>>() {
             Ok(chrono_dt) => {
                 // Convert to nanoseconds since epoch for Tantivy DateTime
@@ -2134,13 +2153,21 @@ unsafe fn group_key_to_datum(
                 pgrx::error!("Failed to parse datetime string '{}': {}", date_str, e);
             }
         },
-        OwnedValue::I64(nanos) => {
-            // Fallback for I64 (nanoseconds timestamp)
-            let datetime = tantivy::DateTime::from_timestamp_nanos(*nanos);
-            TantivyValue(OwnedValue::Date(datetime))
-                .try_into_datum(pgrx::PgOid::from(expected_typoid))
-                .expect("should be able to convert datetime to datum")
+        OwnedValue::I64(pg_micros) if expected_typoid == pg_sys::TIMESTAMPOID => {
+            let ts = match pgrx::datum::Timestamp::try_from(*pg_micros) {
+                Ok(ts) => ts,
+                Err(e) => pgrx::error!("Invalid raw i64 value for timestamp: '{e}'"),
+            };
+            ts.into_datum()
         }
+        OwnedValue::I64(pg_micros) if expected_typoid == pg_sys::TIMESTAMPTZOID => {
+            let ts = match pgrx::datum::TimestampWithTimeZone::try_from(*pg_micros) {
+                Ok(ts) => ts,
+                Err(e) => pgrx::error!("Invalid raw i64 value for timestamptz: '{e}'"),
+            };
+            ts.into_datum()
+        }
+
         _ => key
             .try_into_datum(pgrx::PgOid::from(expected_typoid))
             .expect("should be able to convert to datum"),

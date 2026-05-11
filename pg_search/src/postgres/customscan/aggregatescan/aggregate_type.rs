@@ -566,14 +566,69 @@ unsafe fn parse_aggregate_field(
         parse_coalesce_expression(coalesce_node)?
     } else if let Some(var) = nodecast!(Var, T_Var, (*first_arg).expr) {
         (var, None)
+    } else if let Some(opexpr) = nodecast!(OpExpr, T_OpExpr, (*first_arg).expr) {
+        let column = parse_operator_expression(opexpr, heaprelid)?;
+        return Ok((column, None));
     } else {
-        return Err("argument to aggregate function is neither a direct column reference nor a COALESCE expression".into());
+        return Err( "argument to aggregate function is neither a direct column reference, a COALESCE expression, nor a JSON field access expression" .into());
     };
 
     let field = fieldname_from_var(heaprelid, var, (*var).varattno)
         .ok_or("could not map variable to field name (may not be in the index)")?
         .into_inner();
+
     Ok((field, missing))
+}
+
+pub unsafe fn parse_operator_expression(
+    opexpr_node: *mut pg_sys::OpExpr,
+    heaprelid: pg_sys::Oid,
+) -> Result<String, String> {
+    let (var, json_key) = match (*opexpr_node).opno {
+        oid if oid == pg_sys::Oid::from(3477u32) => {
+            let args = PgList::<pg_sys::Node>::from_pg((*opexpr_node).args);
+            if args.is_empty() {
+                return Err("op expression has no arguments".into());
+            }
+
+            let first_arg = args
+                .get_ptr(0)
+                .ok_or("operator expression is missing the left-hand argument")?;
+            let var = <*mut pg_sys::Var>::unwrap_from_expr(first_arg as *mut pg_sys::Expr)
+                .ok_or("JSON field access expression must reference a column")?;
+
+            let second_arg = args
+                .get_ptr(1)
+                .ok_or("operator expression is missing the JSON key argument")?;
+            let const_node = ConstNode::unwrap_from_expr(second_arg as *mut pg_sys::Expr)
+                .ok_or("JSON field access key must be a constant string literal")?;
+
+            let json_key = match TantivyValue::try_from(const_node) {
+                Ok(TantivyValue(OwnedValue::Str(s))) => s,
+
+                _ => {
+                    return Err("JSON field name must be a text literal".into());
+                }
+            };
+
+            (var, json_key)
+        }
+
+        _ => {
+            return Err(format!(
+                "unsupported operator in aggregate expression: {:?}",
+                (*opexpr_node).opno
+            ));
+        }
+    };
+
+    let field = fieldname_from_var(heaprelid, var, (*var).varattno)
+        .ok_or("column referenced in aggregate expression is not part of the index")?
+        .into_inner();
+
+    let field = format!("{}.{}", field, json_key);
+
+    Ok(field)
 }
 
 /// Parse COALESCE expression to extract variable and missing value

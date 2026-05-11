@@ -1197,21 +1197,24 @@ impl TryFrom<TantivyValue> for pgrx::datum::Timestamp {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Date(val) = value.0 {
-            let prim_dt = val.into_primitive();
-            let (h, m, s, micro) = prim_dt.as_hms_micro();
-            Ok(pgrx::datum::Timestamp::new(
-                prim_dt.year(),
-                prim_dt.month().into(),
-                prim_dt.day(),
-                h,
-                m,
-                s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
-            )?)
-        } else {
-            Err(TantivyValueError::UnsupportedIntoConversion(
+        match value.0 {
+            // Legacy indexes stored timestamps as Date
+            OwnedValue::Date(val) => {
+                let prim_dt = val.into_primitive();
+                let (h, m, s, micro) = prim_dt.as_hms_micro();
+                Ok(pgrx::datum::Timestamp::new(
+                    prim_dt.year(),
+                    prim_dt.month().into(),
+                    prim_dt.day(),
+                    h,
+                    m,
+                    s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
+                )?)
+            }
+            OwnedValue::I64(val) => Ok(pgrx::datum::Timestamp::saturating_from_raw(val)),
+            _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "timestamp".to_string(),
-            ))
+            )),
         }
     }
 }
@@ -1261,22 +1264,33 @@ impl TryFrom<TantivyValue> for pgrx::datum::TimestampWithTimeZone {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Date(val) = value.0 {
-            let prim_dt = val.into_primitive();
-            let (h, m, s, micro) = prim_dt.as_hms_micro();
-            Ok(pgrx::datum::TimestampWithTimeZone::with_timezone(
-                prim_dt.year(),
-                prim_dt.month().into(),
-                prim_dt.day(),
-                h,
-                m,
-                s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
-                "UTC",
-            )?)
-        } else {
-            Err(TantivyValueError::UnsupportedIntoConversion(
+        match value.0 {
+            // Legacy indexes stored TIMESTAMP WITH TIMEZONE as Date. New indexes use I64
+            OwnedValue::Date(val) => {
+                let prim_dt = val.into_primitive();
+                let (h, m, s, micro) = prim_dt.as_hms_micro();
+                Ok(pgrx::datum::TimestampWithTimeZone::with_timezone(
+                    prim_dt.year(),
+                    prim_dt.month().into(),
+                    prim_dt.day(),
+                    h,
+                    m,
+                    s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
+                    "UTC",
+                )?)
+            }
+            OwnedValue::I64(val) => {
+                // try to convert from the raw i64 value.
+                let twtz = pgrx::datum::TimestampWithTimeZone::try_from(val).map_err(|err| {
+                    TantivyValueError::UnsupportedIntoConversion(format!(
+                        "Bad raw i64 value for TimestampWithTimeZone: {err:?}"
+                    ))
+                })?;
+                Ok(twtz)
+            }
+            _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "timestamptz".to_string(),
-            ))
+            )),
         }
     }
 }

@@ -45,7 +45,7 @@ use crate::postgres::customscan::mpp::dsm::{
 };
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 use crate::postgres::customscan::mpp::transport::{
-    DrainBuffer, DrainHandle, MppReceiver, MppSender,
+    DrainBuffer, DrainHandle, MppFrameHeader, MppReceiver, MppSender,
 };
 use crate::postgres::customscan::mpp::MppParticipantConfig;
 
@@ -232,10 +232,15 @@ pub unsafe fn worker_setup(
     let (header, plan_bytes, attach) =
         unsafe { worker_attach(coordinate, region_total, worker_index, seg) }?;
 
+    // Each `outbound_senders[p]` writes to consumer partition `p` of the
+    // network boundary. Stamp every outgoing batch with that partition (and
+    // stage_id=0 — the current architecture is single-stage; multi-stage tags
+    // arrive with M2). The receiver demuxes on this header once M1.c lands.
     let outbound_senders = attach
         .outbound_senders
         .into_iter()
-        .map(|s| MppSender::new(Box::new(s)))
+        .enumerate()
+        .map(|(p, s)| MppSender::with_header(Box::new(s), MppFrameHeader::batch(0, p as u32)))
         .collect();
 
     let build_cache = if header.n_cache_sources > 0 {

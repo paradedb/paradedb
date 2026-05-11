@@ -18,7 +18,13 @@
 //! Transport layer for MPP shuffle.
 //!
 //! Layout:
-//! - [`encode_batch`] / [`decode_batch`] serialize `RecordBatch` via Arrow IPC.
+//! - [`MppFrameHeader`] is a fixed 16-byte prefix every wire message carries.
+//!   It tags the payload with `(stage_id, partition)` so a single underlying
+//!   queue can multiplex frames for many logical channels — the foundation
+//!   the multi-stage natural-shape path needs.
+//! - [`encode_frame_into`] / [`decode_frame`] serialize a `RecordBatch` with a
+//!   header prefix via Arrow IPC. [`encode_batch`] / [`decode_batch`] are
+//!   test-only header-less wrappers retained for codec round-trip tests.
 //! - [`DrainBuffer`] is the local per-participant queue that the drain thread
 //!   writes into and the DataFusion consumer reads from. It decouples
 //!   consumer-side backpressure from producer-side backpressure: the drain thread
@@ -42,11 +48,124 @@ use datafusion::arrow::ipc::reader::StreamReader;
 use datafusion::arrow::ipc::writer::StreamWriter;
 use datafusion::common::DataFusionError;
 
-/// Serialize one `RecordBatch` as a self-contained Arrow IPC Stream message.
+/// Magic bytes "MPPF" (MPP Frame) at the start of every wire message.
+/// Lets receivers reject misrouted / corrupt frames before they hit Arrow IPC.
+pub const MPP_FRAME_MAGIC: u32 = 0x4D505046;
+
+/// Wire-format size of [`MppFrameHeader`] in bytes. Asserted at compile time
+/// below via `const _: ()`.
+pub const MPP_FRAME_HEADER_SIZE: usize = 16;
+
+/// Kind of payload following [`MppFrameHeader`].
 ///
-/// Test-only allocating wrapper for [`encode_batch_into`]; production hot paths
-/// reuse a scratch `Vec` so the ~500 KB/batch allocator traffic the 25M GROUP BY
-/// benchmark once spent 19 s on stays out of the critical loop.
+/// `Batch` is the common case — header is followed by an Arrow IPC stream
+/// containing one `RecordBatch`. `Eof` carries no payload and signals the
+/// receiver that the named `(stage_id, partition)` channel is finished, even
+/// though the underlying shm_mq queue may still carry frames for other
+/// channels.
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MppFrameKind {
+    Batch = 0,
+    Eof = 1,
+}
+
+/// 16-byte prefix on every transport frame.
+///
+/// The fixed layout `[magic, flags, stage_id, partition]` (4×u32) is what
+/// senders prepend before the Arrow IPC stream bytes and what receivers parse
+/// before deciding which sub-buffer the payload belongs to. The `flags` field
+/// is reserved for future use beyond `MppFrameKind`; bit 0 carries the kind,
+/// bits 1..31 must be zero.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MppFrameHeader {
+    pub magic: u32,
+    pub flags: u32,
+    pub stage_id: u32,
+    pub partition: u32,
+}
+
+const _: () = {
+    // shm_mq slot layout calculations depend on this being exact.
+    assert!(std::mem::size_of::<MppFrameHeader>() == MPP_FRAME_HEADER_SIZE);
+};
+
+impl MppFrameHeader {
+    /// Build a `Batch` header for the given `(stage_id, partition)`.
+    pub fn batch(stage_id: u32, partition: u32) -> Self {
+        Self {
+            magic: MPP_FRAME_MAGIC,
+            flags: MppFrameKind::Batch as u32,
+            stage_id,
+            partition,
+        }
+    }
+
+    /// Build an `Eof` header for the given `(stage_id, partition)`. Carries no
+    /// payload; receivers route it to the sub-buffer's source-done counter.
+    /// Used by M1.c's multi-channel sender wiring; tests exercise it now.
+    #[allow(dead_code)]
+    pub fn eof(stage_id: u32, partition: u32) -> Self {
+        Self {
+            magic: MPP_FRAME_MAGIC,
+            flags: MppFrameKind::Eof as u32,
+            stage_id,
+            partition,
+        }
+    }
+
+    /// Read the kind out of `flags`. Returns an error if `flags` is unknown,
+    /// which catches wire-format drift early.
+    pub fn kind(&self) -> Result<MppFrameKind, DataFusionError> {
+        match self.flags {
+            0 => Ok(MppFrameKind::Batch),
+            1 => Ok(MppFrameKind::Eof),
+            other => Err(DataFusionError::Internal(format!(
+                "mpp: unknown frame kind flags={other:#x}"
+            ))),
+        }
+    }
+
+    /// Serialize into the first `MPP_FRAME_HEADER_SIZE` bytes of `out`.
+    /// `out.len()` must be `>= MPP_FRAME_HEADER_SIZE`.
+    fn write_to(&self, out: &mut [u8]) {
+        debug_assert!(out.len() >= MPP_FRAME_HEADER_SIZE);
+        out[0..4].copy_from_slice(&self.magic.to_le_bytes());
+        out[4..8].copy_from_slice(&self.flags.to_le_bytes());
+        out[8..12].copy_from_slice(&self.stage_id.to_le_bytes());
+        out[12..16].copy_from_slice(&self.partition.to_le_bytes());
+    }
+
+    /// Parse from the first `MPP_FRAME_HEADER_SIZE` bytes of `bytes`. Returns
+    /// `Err` if the slice is too short or the magic doesn't match.
+    fn parse(bytes: &[u8]) -> Result<Self, DataFusionError> {
+        if bytes.len() < MPP_FRAME_HEADER_SIZE {
+            return Err(DataFusionError::Internal(format!(
+                "mpp: frame too short for header ({} < {})",
+                bytes.len(),
+                MPP_FRAME_HEADER_SIZE
+            )));
+        }
+        let magic = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
+        if magic != MPP_FRAME_MAGIC {
+            return Err(DataFusionError::Internal(format!(
+                "mpp: bad frame magic {magic:#x} (expected {MPP_FRAME_MAGIC:#x})"
+            )));
+        }
+        Ok(Self {
+            magic,
+            flags: u32::from_le_bytes(bytes[4..8].try_into().unwrap()),
+            stage_id: u32::from_le_bytes(bytes[8..12].try_into().unwrap()),
+            partition: u32::from_le_bytes(bytes[12..16].try_into().unwrap()),
+        })
+    }
+}
+
+/// Serialize one `RecordBatch` as a self-contained Arrow IPC Stream message,
+/// header-less. Test-only allocating wrapper retained for codec round-trip
+/// tests; production code paths go through [`encode_frame_into`] so the wire
+/// format always carries an [`MppFrameHeader`].
 #[cfg(test)]
 pub fn encode_batch(batch: &RecordBatch) -> Result<Vec<u8>, DataFusionError> {
     let mut buf = Vec::with_capacity(1024);
@@ -55,9 +174,11 @@ pub fn encode_batch(batch: &RecordBatch) -> Result<Vec<u8>, DataFusionError> {
 }
 
 /// Serialize `batch` into `buf`, clearing `buf` first so the caller's
-/// already-allocated capacity is reused. Caller is expected to hold `buf`
-/// alive across many encode calls (one per sender) so the peak-sized
-/// allocation amortizes.
+/// already-allocated capacity is reused. Header-less; production senders call
+/// [`encode_frame_into`] which inlines the same IPC stream after a header.
+/// Retained as a public helper for codec round-trip tests and external
+/// (header-less) consumers.
+#[allow(dead_code)]
 pub fn encode_batch_into(batch: &RecordBatch, buf: &mut Vec<u8>) -> Result<(), DataFusionError> {
     buf.clear();
     let mut writer = StreamWriter::try_new(&mut *buf, batch.schema_ref())?;
@@ -66,13 +187,84 @@ pub fn encode_batch_into(batch: &RecordBatch, buf: &mut Vec<u8>) -> Result<(), D
     Ok(())
 }
 
-/// Inverse of [`encode_batch`]. Expects exactly one batch per message.
+/// Serialize `batch` into `buf` with a 16-byte [`MppFrameHeader`] prefix
+/// addressing it to `(stage_id, partition)`. Wire format:
+///
+/// ```text
+/// [ magic | flags | stage_id | partition ] [ Arrow IPC stream bytes ]
+/// |---------- 16 bytes --------|           |---- variable ----|
+/// ```
+///
+/// Caller is expected to hold `buf` alive across many encodes so the peak-sized
+/// allocation amortizes (~500 KB/batch on the 25M GROUP BY bench).
+pub fn encode_frame_into(
+    header: MppFrameHeader,
+    batch: &RecordBatch,
+    buf: &mut Vec<u8>,
+) -> Result<(), DataFusionError> {
+    buf.clear();
+    buf.resize(MPP_FRAME_HEADER_SIZE, 0);
+    header.write_to(&mut buf[..MPP_FRAME_HEADER_SIZE]);
+    let mut writer = StreamWriter::try_new(&mut *buf, batch.schema_ref())?;
+    writer.write(batch)?;
+    writer.finish()?;
+    Ok(())
+}
+
+/// Serialize a payload-less [`MppFrameKind::Eof`] frame for `(stage_id, partition)`
+/// into `buf`. The shm_mq peer reads this as a 16-byte message and routes it to
+/// the sub-buffer's source-done counter without touching Arrow IPC.
+/// Used by M1.c's multi-channel sender wiring; tests exercise it now.
+#[allow(dead_code)]
+pub fn encode_eof_frame_into(
+    stage_id: u32,
+    partition: u32,
+    buf: &mut Vec<u8>,
+) -> Result<(), DataFusionError> {
+    buf.clear();
+    buf.resize(MPP_FRAME_HEADER_SIZE, 0);
+    MppFrameHeader::eof(stage_id, partition).write_to(&mut buf[..MPP_FRAME_HEADER_SIZE]);
+    Ok(())
+}
+
+/// Inverse of [`encode_batch`]. Expects exactly one batch per message,
+/// header-less. Test-only.
+#[cfg(test)]
 pub fn decode_batch(bytes: &[u8]) -> Result<RecordBatch, DataFusionError> {
     let mut reader = StreamReader::try_new(bytes, None)?;
     let batch = reader.next().ok_or_else(|| {
         DataFusionError::Execution("mpp: empty arrow-ipc stream in decode_batch".into())
     })??;
     Ok(batch)
+}
+
+/// Inverse of [`encode_frame_into`]. Parses the 16-byte header and, for
+/// `Batch` frames, decodes the trailing Arrow IPC stream. `Eof` frames return
+/// `(header, None)` — receivers branch on `header.kind()` to decide routing.
+pub fn decode_frame(
+    bytes: &[u8],
+) -> Result<(MppFrameHeader, Option<RecordBatch>), DataFusionError> {
+    let header = MppFrameHeader::parse(bytes)?;
+    match header.kind()? {
+        MppFrameKind::Eof => {
+            if bytes.len() != MPP_FRAME_HEADER_SIZE {
+                return Err(DataFusionError::Internal(format!(
+                    "mpp: Eof frame carries payload ({} > {})",
+                    bytes.len(),
+                    MPP_FRAME_HEADER_SIZE
+                )));
+            }
+            Ok((header, None))
+        }
+        MppFrameKind::Batch => {
+            let payload = &bytes[MPP_FRAME_HEADER_SIZE..];
+            let mut reader = StreamReader::try_new(payload, None)?;
+            let batch = reader.next().ok_or_else(|| {
+                DataFusionError::Execution("mpp: empty arrow-ipc stream in decode_frame".into())
+            })??;
+            Ok((header, Some(batch)))
+        }
+    }
 }
 
 /// Local queue that sits between the drain thread and the DataFusion consumer.
@@ -276,7 +468,16 @@ pub trait BatchChannelSender: Send {
 pub struct MppSender {
     channel: Box<dyn BatchChannelSender>,
     cooperative_drain: Option<Arc<DrainHandle>>,
-    /// Scratch buffer reused across every `encode_batch_into` on this
+    /// Frame header prepended to every outgoing batch. Identifies the logical
+    /// `(stage_id, partition)` channel the receiver demultiplexes on. For the
+    /// current single-stage architecture this is `(stage_id=0, partition=p)`
+    /// where `p` is the consumer-side partition this sender feeds. The header
+    /// is per-sender for now so existing call sites don't have to thread
+    /// `(stage_id, partition)` through every `send_batch_traced`; once
+    /// multiplexed senders carry multiple `(stage_id, partition)` channels
+    /// over a single shm_mq queue, the header moves to a per-call argument.
+    header: MppFrameHeader,
+    /// Scratch buffer reused across every `encode_frame_into` on this
     /// sender. Sized by the first batch; subsequent batches clear and
     /// re-fill without reallocating. Interior mutability lets the caller
     /// keep the `&self` signature (senders live inside `ShuffleWiring`
@@ -298,12 +499,30 @@ pub struct MppSender {
 unsafe impl Sync for MppSender {}
 
 impl MppSender {
-    pub fn new(channel: Box<dyn BatchChannelSender>) -> Self {
+    /// Construct a sender that tags every outgoing batch with `header`.
+    /// Production call sites build one `MppSender` per consumer partition and
+    /// pass `MppFrameHeader::batch(0, p)`.
+    pub fn with_header(channel: Box<dyn BatchChannelSender>, header: MppFrameHeader) -> Self {
         Self {
             channel,
             cooperative_drain: None,
+            header,
             scratch: std::cell::RefCell::new(Vec::new()),
         }
+    }
+
+    /// Construct a sender with the default `(stage_id=0, partition=0)` header.
+    /// Used by tests where the header carries no actionable routing info.
+    #[cfg(test)]
+    pub fn new(channel: Box<dyn BatchChannelSender>) -> Self {
+        Self::with_header(channel, MppFrameHeader::batch(0, 0))
+    }
+
+    /// Frame header this sender stamps onto every outgoing batch.
+    /// Consumed by M1.c's multi-channel sender wiring (DEAD until then).
+    #[allow(dead_code)]
+    pub fn header(&self) -> MppFrameHeader {
+        self.header
     }
 
     /// Test-only stats-less wrapper around [`Self::send_batch_traced`].
@@ -357,7 +576,7 @@ impl MppSender {
         stats: &mut SendBatchStats,
     ) -> Result<(), DataFusionError> {
         let t_enc = Instant::now();
-        encode_batch_into(batch, scratch)?;
+        encode_frame_into(self.header, batch, scratch)?;
         stats.encode += t_enc.elapsed();
         let Some(drain) = self.cooperative_drain.as_ref() else {
             // No drain attached (unit tests, in-proc channels): fall
@@ -450,8 +669,9 @@ impl MppReceiver {
 
     pub fn try_recv_batch(&self) -> RecvBatchOutcome {
         match self.channel.try_recv() {
-            RecvOutcome::Bytes(bytes) => match decode_batch(&bytes) {
-                Ok(batch) => RecvBatchOutcome::Batch(batch),
+            RecvOutcome::Bytes(bytes) => match decode_frame(&bytes) {
+                Ok((header, Some(batch))) => RecvBatchOutcome::Batch { header, batch },
+                Ok((header, None)) => RecvBatchOutcome::Eof { header },
                 Err(e) => RecvBatchOutcome::Error(e),
             },
             RecvOutcome::Empty => RecvBatchOutcome::Empty,
@@ -460,10 +680,28 @@ impl MppReceiver {
     }
 }
 
-/// Decoded result of an [`MppReceiver::try_recv_batch`].
+/// Decoded result of an [`MppReceiver::try_recv_batch`]. Carries the parsed
+/// [`MppFrameHeader`] so the drain thread can route the payload to the right
+/// `(stage_id, partition)` sub-buffer once multi-stage multiplexing lands.
+/// Today's positional design ignores `header` because there is exactly one
+/// channel per queue; M1.c starts consuming the field for routing.
 #[derive(Debug)]
 pub enum RecvBatchOutcome {
-    Batch(RecordBatch),
+    Batch {
+        // Consumed by M1.c's per-(stage_id, partition) demux.
+        #[allow(dead_code)]
+        header: MppFrameHeader,
+        batch: RecordBatch,
+    },
+    /// A payload-less `Eof` frame for `header.(stage_id, partition)`. The
+    /// underlying shm_mq queue is still attached; the sender is announcing
+    /// that this logical channel is done. Used by the multiplexed design to
+    /// per-channel-EOF without dropping the whole queue.
+    Eof {
+        // Consumed by M1.c's per-(stage_id, partition) demux.
+        #[allow(dead_code)]
+        header: MppFrameHeader,
+    },
     Empty,
     Detached,
     Error(DataFusionError),
@@ -612,8 +850,22 @@ impl DrainHandle {
             };
             for _ in 0..MAX_BATCHES_PER_SOURCE_PER_PASS {
                 match rx.try_recv_batch() {
-                    RecvBatchOutcome::Batch(b) => {
-                        self.buffer.push_batch(b);
+                    RecvBatchOutcome::Batch { header: _, batch } => {
+                        // Single-channel positional design: every frame on
+                        // this queue belongs to the one channel this drain
+                        // serves, so the header tag is informational. The
+                        // multiplexed path (M1.c) will route per-header.
+                        self.buffer.push_batch(batch);
+                    }
+                    RecvBatchOutcome::Eof { header: _ } => {
+                        // Per-channel Eof frames are produced by senders that
+                        // host multiple channels on one queue. The current
+                        // single-channel positional design never sees them;
+                        // when it does (M1.c+), the routing logic moves here.
+                        // For now, treat as source-done.
+                        *slot = None;
+                        self.buffer.notify_source_done();
+                        break;
                     }
                     RecvBatchOutcome::Empty => break,
                     RecvBatchOutcome::Detached => {
@@ -691,9 +943,15 @@ fn drain_loop(config: DrainConfig) -> Result<(), DataFusionError> {
             }
             all_done = false;
             match rx.try_recv_batch() {
-                RecvBatchOutcome::Batch(batch) => {
+                RecvBatchOutcome::Batch { header: _, batch } => {
                     got_any = true;
                     buffer.push_batch(batch);
+                }
+                RecvBatchOutcome::Eof { header: _ } => {
+                    // Per-channel Eof frame: single-channel positional design
+                    // treats it as a source-done signal. See `poll_drain_pass`.
+                    done[i] = true;
+                    buffer.notify_source_done();
                 }
                 RecvBatchOutcome::Empty => {}
                 RecvBatchOutcome::Detached => {
@@ -797,6 +1055,75 @@ mod tests {
     }
 
     #[test]
+    fn frame_round_trips_a_batch_with_header() {
+        let orig = sample_batch(64);
+        let header = MppFrameHeader::batch(7, 3);
+        let mut buf = Vec::with_capacity(1024);
+        encode_frame_into(header, &orig, &mut buf).expect("encode_frame");
+
+        let (parsed, batch_opt) = decode_frame(&buf).expect("decode_frame");
+        assert_eq!(parsed, header);
+        assert_eq!(parsed.kind().unwrap(), MppFrameKind::Batch);
+        let batch = batch_opt.expect("Batch frame must carry a payload");
+        assert_eq!(batch.num_rows(), 64);
+        assert_eq!(batch.schema(), orig.schema());
+    }
+
+    #[test]
+    fn frame_round_trips_eof() {
+        let mut buf = Vec::new();
+        encode_eof_frame_into(2, 5, &mut buf).expect("encode_eof");
+        assert_eq!(buf.len(), MPP_FRAME_HEADER_SIZE);
+
+        let (header, batch_opt) = decode_frame(&buf).expect("decode_frame");
+        assert_eq!(header, MppFrameHeader::eof(2, 5));
+        assert_eq!(header.kind().unwrap(), MppFrameKind::Eof);
+        assert!(batch_opt.is_none());
+    }
+
+    #[test]
+    fn frame_rejects_short_message() {
+        let too_short = vec![0u8; MPP_FRAME_HEADER_SIZE - 1];
+        let err = decode_frame(&too_short).expect_err("short frame must fail");
+        assert!(format!("{err}").contains("too short"));
+    }
+
+    #[test]
+    fn frame_rejects_bad_magic() {
+        let mut bad = vec![0u8; MPP_FRAME_HEADER_SIZE];
+        // Magic is the first 4 bytes; zeroing them is enough.
+        let err = decode_frame(&bad).expect_err("bad magic must fail");
+        assert!(format!("{err}").contains("bad frame magic"));
+        // And a non-zero garbage prefix also fails.
+        bad[0..4].copy_from_slice(&0xDEADBEEF_u32.to_le_bytes());
+        let err = decode_frame(&bad).expect_err("bad magic must fail");
+        assert!(format!("{err}").contains("bad frame magic"));
+    }
+
+    #[test]
+    fn frame_rejects_unknown_kind() {
+        let header = MppFrameHeader {
+            magic: MPP_FRAME_MAGIC,
+            flags: 0xFFFF_FFFF,
+            stage_id: 0,
+            partition: 0,
+        };
+        let mut buf = vec![0u8; MPP_FRAME_HEADER_SIZE];
+        header.write_to(&mut buf);
+        let err = decode_frame(&buf).expect_err("unknown kind must fail");
+        assert!(format!("{err}").contains("unknown frame kind"));
+    }
+
+    #[test]
+    fn frame_eof_with_payload_is_rejected() {
+        let mut buf = Vec::with_capacity(32);
+        encode_eof_frame_into(0, 0, &mut buf).expect("encode_eof");
+        buf.push(0xAB); // smuggle a payload byte after the Eof header
+        let err = decode_frame(&buf).expect_err("Eof+payload must fail");
+        assert!(format!("{err}").contains("Eof frame carries payload"));
+    }
+
+    #[test]
     fn codec_round_trips_many_batch_sizes() {
         for rows in [0, 1, 7, 64, 1024] {
             let orig = sample_batch(rows);
@@ -866,7 +1193,7 @@ mod tests {
         std::mem::drop(sender);
 
         match receiver.try_recv_batch() {
-            RecvBatchOutcome::Batch(b) => assert_eq!(b.num_rows(), 4),
+            RecvBatchOutcome::Batch { header: _, batch } => assert_eq!(batch.num_rows(), 4),
             other => panic!("expected batch, got {other:?}"),
         }
         assert!(matches!(

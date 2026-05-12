@@ -79,6 +79,12 @@ pub async fn run_worker_fragment(
                     .send_batch_traced(&batch, &mut stats)
                     .await?;
             }
+            // Signal channel EOF so the consumer's per-(stage_id, partition)
+            // sub-buffer transitions to Eof. The shared shm_mq queue can't
+            // be relied on to detach — multiple fragments multiplex over
+            // the same queue, so dropping this partition's sender doesn't
+            // close the queue.
+            sender.as_ref().send_eof_traced(&mut stats).await?;
             Ok::<(), DataFusionError>(())
         });
     }

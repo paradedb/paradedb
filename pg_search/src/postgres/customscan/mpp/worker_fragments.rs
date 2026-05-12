@@ -174,24 +174,51 @@ fn collect(
 
         // Determine routing for fragments produced by this boundary's
         // input_stage tasks.
+        //
+        // NetworkShuffleExec and NetworkBroadcastExec have IDENTICAL
+        // receive-side math: both compute `off = P_c * task_index` and
+        // pull partition `off + p_local` from every input task. The
+        // producer-side routing must therefore also be the same — output
+        // partition q goes to consumer task `q / P_c`. The semantic
+        // difference (shuffle hashes rows, broadcast emits the full set
+        // to every consumer) lives entirely inside each task's plan and
+        // doesn't change how partitions map to procs at the wire layer.
+        //
+        // NetworkCoalesceExec is different: its execute consults a single
+        // input task per consumer (`target_task = group.start_task +
+        // input_task_offset`) and the producer emits one stream per
+        // consumer task in its group. For the natural-shape plan we
+        // currently target the only nested coalesce is consumer_tc=1 (the
+        // top-level gather, handled by the `parent=None` arm), so the
+        // nested-coalesce arm here is a defensive fallback for shapes the
+        // M2.d milestone doesn't yet exercise.
         let routing = match (name, parent) {
-            // Top-level gather (or any top-level boundary): consumer is leader.
+            // Top-level boundary: consumer is leader.
             (_, None) => FragmentRouting::Coalesce { dest_proc: 0 },
-            // Nested NetworkShuffleExec: hash routing.
-            ("NetworkShuffleExec", Some(pctx)) => FragmentRouting::Shuffle {
-                parent_stage_id: pctx.parent_stage_id,
-                partitions_per_consumer_task: p_c,
-            },
-            // Nested NetworkCoalesceExec / NetworkBroadcastExec: consumer is
-            // a single task in the parent stage. M2.d targets the natural-
-            // shape Aggregate plan where nested coalesce isn't expected;
-            // we still handle it as "all output → parent task 0" so the
-            // shape is supported when it does appear.
+            // Nested NetworkShuffleExec or NetworkBroadcastExec: each
+            // output partition q maps to consumer task q / p_c.
+            ("NetworkShuffleExec" | "NetworkBroadcastExec", Some(pctx)) => {
+                FragmentRouting::Shuffle {
+                    parent_stage_id: pctx.parent_stage_id,
+                    partitions_per_consumer_task: p_c,
+                }
+            }
+            // Nested NetworkCoalesceExec: consumer is a single task in
+            // the parent stage. The receive math collapses to task 0 of
+            // the parent group.
             (_, Some(pctx)) => {
                 let dest = assignment.proc_for(pctx.parent_stage_id, 0).unwrap_or(0);
                 FragmentRouting::Coalesce { dest_proc: dest }
             }
         };
+        #[cfg(not(test))]
+        {
+            crate::mpp_log!(
+                "mpp worker_fragments::collect boundary name={name} stage_id={stage_id} \
+                 p_c={p_c} parent={:?}",
+                parent.map(|p| p.parent_stage_id)
+            );
+        }
 
         let task_count = stage.tasks.len();
         if let Some(stage_plan) = stage.plan() {

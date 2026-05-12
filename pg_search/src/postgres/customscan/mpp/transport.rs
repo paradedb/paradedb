@@ -226,8 +226,10 @@ pub fn encode_frame_into(
 /// Serialize a payload-less [`MppFrameKind::Eof`] frame for `(stage_id, partition)`
 /// into `buf`. The shm_mq peer reads this as a 16-byte message and routes it to
 /// the sub-buffer's source-done counter without touching Arrow IPC.
-/// Consumed by M2's per-channel EOF signalling; exercised in tests today.
-#[allow(dead_code)]
+/// Consumed by [`MppSender::send_eof_traced`] when a producer fragment's
+/// per-partition stream exhausts, so the receiver's `(stage_id, partition)`
+/// sub-buffer transitions to `Eof` even though the multiplexed shm_mq queue
+/// stays attached for other channels.
 pub fn encode_eof_frame_into(
     stage_id: u32,
     partition: u32,
@@ -619,6 +621,58 @@ impl MppSender {
         let result = self.send_with_scratch(batch, &mut scratch, stats).await;
         self.scratch.replace(scratch);
         result
+    }
+
+    /// Send a payload-less [`MppFrameKind::Eof`] frame so the receiver's
+    /// `(stage_id, partition)` sub-buffer transitions to `Eof` and the
+    /// consumer's pull loop terminates cleanly.
+    ///
+    /// Producer fragments must call this exactly once per
+    /// `(stage_id, partition)` channel after the local stream exhausts.
+    /// Without it the multiplexed shm_mq queue stays attached (other
+    /// channels still flow) and the consumer sub-buffer never reaches
+    /// `sources_done == 1`. The receive-side
+    /// [`DrainHandle::poll_drain_pass`] decodes the frame and calls
+    /// `notify_source_done` on the matching sub-buffer.
+    ///
+    /// Uses the same cooperative-spin path as
+    /// [`Self::send_batch_traced`] so a full outbound queue doesn't
+    /// deadlock the EOF send. `stats.spin_iters` / `send_wait` capture
+    /// any contention.
+    pub async fn send_eof_traced(&self, stats: &mut SendBatchStats) -> Result<(), DataFusionError> {
+        let mut scratch = self.scratch.replace(Vec::new());
+        let result = self.send_eof_with_scratch(&mut scratch, stats).await;
+        self.scratch.replace(scratch);
+        result
+    }
+
+    async fn send_eof_with_scratch(
+        &self,
+        scratch: &mut Vec<u8>,
+        stats: &mut SendBatchStats,
+    ) -> Result<(), DataFusionError> {
+        encode_eof_frame_into(self.header.stage_id, self.header.partition, scratch)?;
+        let Some(drain) = self.cooperative_drain.as_ref() else {
+            return self.channel.send_bytes(scratch);
+        };
+        let mut first_try = true;
+        let t_wait_start = Instant::now();
+        loop {
+            #[cfg(not(test))]
+            pgrx::check_for_interrupts!();
+            if self.channel.try_send_bytes(scratch)? {
+                if !first_try {
+                    stats.send_wait += t_wait_start.elapsed();
+                }
+                return Ok(());
+            }
+            first_try = false;
+            stats.spin_iters += 1;
+            let t_drain = Instant::now();
+            drain.poll_drain_pass()?;
+            stats.coop_drain_in_spin += t_drain.elapsed();
+            tokio::task::yield_now().await;
+        }
     }
 
     async fn send_with_scratch(

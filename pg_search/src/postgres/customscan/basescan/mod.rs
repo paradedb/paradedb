@@ -1185,7 +1185,6 @@ impl CustomScan for BaseScan {
             let clauses = PgList::<pg_sys::Node>::from_pg(builder.args().clauses);
             let mut residual_quals = PgList::<pg_sys::Node>::new();
             let residual = builder.custom_private().residual();
-            // let mut subplan_quals = PgList::<pg_sys::Node>::new();
             for clause in clauses.iter_ptr() {
                 if clause.is_null() {
                     continue;
@@ -1199,20 +1198,8 @@ impl CustomScan for BaseScan {
                 let clause_id = (*ri).rinfo_serial;
                 if residual.contains(&clause_id) {
                     // We have found residual conditions
-
                     residual_quals.push((*ri).clause.cast());
                 }
-
-                // if is_subplan(clause, builder.args().root) {
-                //     // strip RestrictInfo wrapper, plan.qual needs bare expressions
-                //     let bare_clause = if (*clause).type_ == pg_sys::NodeTag::T_RestrictInfo {
-                //         let ri = clause as *mut pg_sys::RestrictInfo;
-                //         (*ri).clause.cast()
-                //     } else {
-                //         clause
-                //     };
-                //     subplan_quals.push(bare_clause);
-                // }
             }
 
             // SubPlan quals require per-tuple heap access for ExecQual, which would

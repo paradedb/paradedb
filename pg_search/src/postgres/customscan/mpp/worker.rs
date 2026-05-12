@@ -67,25 +67,41 @@ pub async fn run_worker_fragment(
         let ctx = Arc::clone(&ctx);
         let sender = Arc::clone(sender);
         futures.push(async move {
-            let mut stream = plan.execute(partition, ctx)?;
             let mut stats = SendBatchStats::default();
-            while let Some(batch) = stream.next().await {
-                let batch = batch?;
-                if batch.num_rows() == 0 {
-                    continue;
+            // Run the partition stream to exhaustion; capture either the
+            // first error or Ok(()) so we can still emit the per-channel
+            // EOF below regardless of how the stream ended.
+            let stream_result: Result<(), DataFusionError> = async {
+                let mut stream = plan.execute(partition, ctx)?;
+                while let Some(batch) = stream.next().await {
+                    let batch = batch?;
+                    if batch.num_rows() == 0 {
+                        continue;
+                    }
+                    sender
+                        .as_ref()
+                        .send_batch_traced(&batch, &mut stats)
+                        .await?;
                 }
-                sender
-                    .as_ref()
-                    .send_batch_traced(&batch, &mut stats)
-                    .await?;
+                Ok(())
             }
+            .await;
             // Signal channel EOF so the consumer's per-(stage_id, partition)
             // sub-buffer transitions to Eof. The shared shm_mq queue can't
             // be relied on to detach — multiple fragments multiplex over
             // the same queue, so dropping this partition's sender doesn't
             // close the queue.
-            sender.as_ref().send_eof_traced(&mut stats).await?;
-            Ok::<(), DataFusionError>(())
+            //
+            // CORRECTNESS: send EOF even when the stream errored. Without
+            // this, a producer-side error (e.g. mid-scan I/O failure) leaves
+            // the consumer's M2.b sub-buffer stuck at `sources_done == 0`
+            // and the leader's `select_all` blocks forever. The deadlock
+            // detector only fires under `paradedb.mpp_debug = on`, so the
+            // production hang would be silent.
+            let eof_result = sender.as_ref().send_eof_traced(&mut stats).await;
+            // Propagate the stream's error first; otherwise surface any EOF
+            // send error so failure modes don't silently disappear.
+            stream_result.and(eof_result)
         });
     }
     futures::future::try_join_all(futures).await?;

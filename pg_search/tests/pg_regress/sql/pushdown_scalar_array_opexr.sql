@@ -4,6 +4,10 @@
 -- test the pushdown of scalar array expressions.
 SET paradedb.enable_custom_scan_without_operator = on;
 
+-- Disable HeapExpr fallback for the negative cases. This test is about indexed
+-- ScalarArrayOpExpr pushdown into term_set, not heap_filter(all, ...).
+SET paradedb.enable_filter_pushdown = off;
+
 CREATE TABLE scalar_array_pushdown(
     id SERIAL PRIMARY KEY,
     uuid_col UUID,

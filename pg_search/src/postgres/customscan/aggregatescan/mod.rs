@@ -40,7 +40,9 @@ use std::sync::Arc;
 
 use datafusion::execution::SessionStateBuilder;
 use datafusion::physical_plan::ExecutionPlan;
-use datafusion_distributed::{DistributedExt, SessionStateBuilderExt};
+use datafusion_distributed::{
+    display_plan_ascii, DistributedExec, DistributedExt, SessionStateBuilderExt,
+};
 
 use crate::postgres::customscan::mpp::dsm::MppDsmHeader;
 use crate::postgres::customscan::mpp::glue::{
@@ -1112,14 +1114,16 @@ impl AggregateScan {
 
     /// Rebuild and render the DataFusion physical plan into the explainer.
     /// Used only by plain EXPLAIN (no ANALYZE); EXPLAIN ANALYZE would cache
-    /// the executing plan separately. The rebuild uses the serial session
-    /// context (`create_aggregate_session_context`) regardless of MPP
-    /// state — building the distributed planner here would require
-    /// installing a runtime mesh just to throw it away, and the serial
-    /// plan still shows the join + aggregate + filter shape reviewers
-    /// care about. When MPP is active at exec time the inserted
-    /// `NetworkShuffleExec` etc. are appended around the same logical
-    /// shape, so the serial render is representative.
+    /// the executing plan separately.
+    ///
+    /// When `mpp_is_active()` we rebuild with the same distributed planner
+    /// the leader will run with, attached to a drain-less stub mesh — the
+    /// planner only consults the mesh's worker count, not the actual
+    /// `shm_mq` queues, so the stub is enough to produce a `DistributedExec`
+    /// root. That lets us render via `datafusion_distributed::display_plan_ascii`
+    /// and surface the boxed `Stage N — Tasks: t0:[p0..pN]` topology the
+    /// executor will actually run. When MPP is off we fall back to the
+    /// serial context and the standard `displayable().indent(false)` tree.
     ///
     /// Failures here go to a single explainer line rather than crashing
     /// EXPLAIN; the failure mode is non-load-bearing diagnostics.
@@ -1129,7 +1133,19 @@ impl AggregateScan {
     ) {
         let custom_exprs = df_state.custom_exprs;
         let custom_scan_tlist = df_state.custom_scan_tlist;
-        let ctx = create_aggregate_session_context();
+        let ctx = if mpp_is_active() {
+            // Drain-less stub mesh: `with_distributed_planner` only reads
+            // `n_workers` for stage sizing; `ShmMqWorkerTransport::open()`
+            // is execution-time only and never runs during EXPLAIN.
+            let stub_mesh = Arc::new(MppMesh {
+                n_workers: producer_worker_count(),
+                n_partitions: 1,
+                drains: Vec::new(),
+            });
+            Self::build_mpp_leader_session_context(stub_mesh)
+        } else {
+            create_aggregate_session_context()
+        };
         let Ok(runtime) = tokio::runtime::Builder::new_current_thread().build() else {
             explainer.add_text("DataFusion Plan", "(tokio runtime unavailable)");
             return;
@@ -1152,8 +1168,7 @@ impl AggregateScan {
         match plan_result {
             Ok(plan) => {
                 explainer.add_text("DataFusion Physical Plan", "");
-                let display = datafusion::physical_plan::displayable(plan.as_ref());
-                for line in display.indent(false).to_string().lines() {
+                for line in Self::render_plan_for_explain(plan.as_ref()).lines() {
                     explainer.add_text("  ", line);
                 }
             }
@@ -1163,6 +1178,20 @@ impl AggregateScan {
                     format!("(rebuild failed during EXPLAIN: {e})"),
                 );
             }
+        }
+    }
+
+    /// Render a physical plan for EXPLAIN. `DistributedExec` roots go through
+    /// `display_plan_ascii` for the boxed-stage rendering; serial plans keep
+    /// the standard `displayable().indent(false)` tree so non-MPP expected
+    /// outputs are stable.
+    fn render_plan_for_explain(plan: &dyn ExecutionPlan) -> String {
+        if plan.as_any().downcast_ref::<DistributedExec>().is_some() {
+            display_plan_ascii(plan, false)
+        } else {
+            datafusion::physical_plan::displayable(plan)
+                .indent(false)
+                .to_string()
         }
     }
 

@@ -162,13 +162,21 @@ WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
    Indexes: mpp_files_idx (f), mpp_pages_idx (p)
    Aggregates: COUNT(*)
    DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[], aggr=[agg_0]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[]
-     :     CooperativeExec
-     :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
-     :     CooperativeExec
-     :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(12 rows)
+     : ┌───── DistributedExec ── Tasks: t0:[p0]
+     : │ AggregateExec: mode=Final, gby=[], aggr=[agg_0]
+     : │   CoalescePartitionsExec
+     : │     AggregateExec: mode=Partial, gby=[], aggr=[agg_0]
+     : │       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[]
+     : │         CoalescePartitionsExec
+     : │           [Stage 1] => NetworkBroadcastExec: partitions_per_consumer=1, stage_partitions=1, input_tasks=3
+     : │         RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+     : │           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     : └──────────────────────────────────────────────────
+     :   ┌───── Stage 1 ── Tasks: t0:[p0] t1:[p1] t2:[p2]
+     :   │ BroadcastExec: input_partitions=1, consumer_tasks=1, output_partitions=1
+     :   │   PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+     :   └──────────────────────────────────────────────────
+(20 rows)
 
 SELECT COUNT(*)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
@@ -187,8 +195,8 @@ GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
 WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
-                                                                                                      QUERY PLAN                                                                                                      
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                         QUERY PLAN                                                                                                         
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.title, (count(*)), (sum(p.size_bytes))
    ->  Gather Merge
@@ -204,14 +212,23 @@ WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
                      Group By: title
                      Aggregates: COUNT(*), SUM(size_bytes)
                      DataFusion Physical Plan: 
-                       : SortExec: TopK(fetch=5), expr=[title@0 ASC NULLS LAST], preserve_partitioning=[false]
-                       :   AggregateExec: mode=Single, gby=[title@0 as title], aggr=[agg_0, agg_1]
-                       :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, size_bytes@3]
-                       :       CooperativeExec
-                       :         PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
-                       :       CooperativeExec
-                       :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(22 rows)
+                       : ┌───── DistributedExec ── Tasks: t0:[p0]
+                       : │ SortPreservingMergeExec: [title@0 ASC NULLS LAST], fetch=5
+                       : │   SortExec: TopK(fetch=5), expr=[title@0 ASC NULLS LAST], preserve_partitioning=[true]
+                       : │     AggregateExec: mode=FinalPartitioned, gby=[title@0 as title], aggr=[agg_0, agg_1]
+                       : │       [Stage 1] => NetworkShuffleExec: output_partitions=3, input_tasks=3
+                       : └──────────────────────────────────────────────────
+                       :   ┌───── Stage 1 ── Tasks: t0:[p0..p2] t1:[p0..p2] t2:[p0..p2]
+                       :   │ RepartitionExec: partitioning=Hash([title@0], 3), input_partitions=3
+                       :   │   AggregateExec: mode=Partial, gby=[title@0 as title], aggr=[agg_0, agg_1]
+                       :   │     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, size_bytes@3]
+                       :   │       CoalescePartitionsExec
+                       :   │         BroadcastExec: input_partitions=1, consumer_tasks=1, output_partitions=1
+                       :   │           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                       :   │       RepartitionExec: partitioning=RoundRobinBatch(3), input_partitions=1
+                       :   │         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+                       :   └──────────────────────────────────────────────────
+(31 rows)
 
 SELECT f.title, COUNT(*), SUM(p.size_bytes)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id

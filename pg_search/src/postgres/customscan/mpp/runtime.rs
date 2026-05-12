@@ -110,12 +110,17 @@ impl MppMesh {
         self.inbound_drains.get(idx).and_then(|slot| slot.as_ref())
     }
 
-    /// Install the plan-derived task assignment table. Idempotent in spirit
-    /// — a second call after the first wins is a logic bug, but
-    /// `OnceLock::set` silently no-ops in that case so callers don't have
-    /// to special-case it.
+    /// Install the plan-derived task assignment table. The first call wins;
+    /// a second call is a logic bug (e.g. a re-entrant exec path overwriting
+    /// the table mid-query). `OnceLock::set` silently no-ops in that case
+    /// so production stays correct, but a `debug_assert!` surfaces the bug
+    /// in dev/CI builds.
     pub fn install_assignment(&self, assignment: Arc<TaskAssignment>) {
-        let _ = self.task_assignment.set(assignment);
+        let install_was_first = self.task_assignment.set(assignment).is_ok();
+        debug_assert!(
+            install_was_first,
+            "MppMesh::install_assignment called twice — second call ignored"
+        );
     }
 
     /// Read the installed assignment table, or `None` if it hasn't been
@@ -153,11 +158,21 @@ impl ShmMqWorkerTransport {
     /// `NetworkCoalesceExec(consumer_tc=1, input_tc=N)` gather working
     /// while M2.d wires up per-worker meshes that install the assignment
     /// from the worker side too.
+    ///
+    /// If the table IS installed but doesn't carry an entry, that's a
+    /// plan-walk bug — the natural-shape plans M2.c targets always emit
+    /// matching entries. `debug_assert!` surfaces this in dev/CI so the
+    /// silent fallback doesn't hide a wrong-routing bug.
     fn sender_proc_for_task(&self, stage_id: u32, target_task: u32) -> u32 {
         if let Some(a) = self.mesh.task_assignment() {
             if let Some(p) = a.proc_for(stage_id, target_task) {
                 return p;
             }
+            debug_assert!(
+                false,
+                "TaskAssignment installed but missing (stage_id={stage_id}, task={target_task}); \
+                 falling back to task+1 — likely a plan-walk bug"
+            );
         }
         target_task + 1
     }

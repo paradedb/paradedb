@@ -92,10 +92,22 @@ impl TaskAssignment {
     ///
     /// The walk descends through `Stage.plan()` for each network boundary so
     /// nested stages (peer-mesh shuffles below a top-level gather) are
-    /// visible. Each `Stage.num` appears at most once in the resulting map.
+    /// visible. Duplicate visits to the same `(stage_num, task_idx)` overwrite
+    /// with the same value — harmless given the deterministic round-robin
+    /// policy.
+    ///
+    /// Precondition: `n_procs >= 2` (one leader + at least one worker). The
+    /// production gate at `glue::mpp_is_active` already enforces
+    /// `mpp_worker_count >= 3`, so callers downstream of the customscan
+    /// activation always satisfy this. The `debug_assert` exists to catch
+    /// future direct callers that miss the gate.
     ///
     /// [`NetworkBoundary`]: datafusion_distributed::NetworkBoundary
     pub fn from_plan(plan: &Arc<dyn ExecutionPlan>, n_procs: u32) -> Arc<Self> {
+        debug_assert!(
+            n_procs >= 2,
+            "TaskAssignment::from_plan requires n_procs >= 2 (1 leader + N workers), got {n_procs}"
+        );
         let n_workers = n_procs.saturating_sub(1).max(1);
         let mut map = HashMap::new();
         collect_into(plan, &mut map, n_workers);
@@ -112,6 +124,9 @@ impl TaskAssignment {
     /// Inverse lookup: every `(stage_id, task_idx)` slot hosted by
     /// `proc_idx`. The worker side consumes this in M2.d to know which
     /// fragments it must run; today this is exercised in tests only.
+    ///
+    /// Keys are unique by construction, so `sort_unstable` is sufficient
+    /// for a deterministic order.
     #[allow(dead_code)]
     pub fn slots_for_proc(&self, proc_idx: u32) -> Vec<(u32, u32)> {
         let mut out: Vec<(u32, u32)> = self
@@ -119,9 +134,7 @@ impl TaskAssignment {
             .iter()
             .filter_map(|(&k, &p)| if p == proc_idx { Some(k) } else { None })
             .collect();
-        // Stable order so M2.d's worker-side iteration is deterministic
-        // (sorted by (stage_id, task_idx)).
-        out.sort();
+        out.sort_unstable();
         out
     }
 
@@ -140,8 +153,13 @@ impl TaskAssignment {
 }
 
 /// Recursive plan walker. On every [`NetworkBoundary`], records the input
-/// stage's per-task assignments and recurses into `stage.plan()` so nested
-/// stages contribute too.
+/// stage's per-task assignments, recurses into `stage.plan()` so nested
+/// stages contribute too, and ALSO recurses into `plan.children()` for
+/// defensiveness — the DF-D fork's `find_input_stages` (private) uses the
+/// children path, and the two would diverge only if DF-D ever exposes a
+/// boundary node with children other than its input subplan. Duplicate
+/// visits hit `HashMap::insert` with the same value (deterministic policy),
+/// so the defensive recursion is idempotent.
 ///
 /// [`NetworkBoundary`]: datafusion_distributed::NetworkBoundary
 fn collect_into(plan: &Arc<dyn ExecutionPlan>, map: &mut HashMap<(u32, u32), u32>, n_workers: u32) {
@@ -156,10 +174,11 @@ fn collect_into(plan: &Arc<dyn ExecutionPlan>, map: &mut HashMap<(u32, u32), u32
         if let Some(inner) = stage.plan() {
             collect_into(inner, map, n_workers);
         }
-    } else {
-        for child in plan.children() {
-            collect_into(child, map, n_workers);
-        }
+    }
+    // Non-boundary nodes always recurse; boundary nodes recurse defensively
+    // in case `children()` carries something `stage.plan()` doesn't.
+    for child in plan.children() {
+        collect_into(child, map, n_workers);
     }
 }
 
@@ -221,27 +240,20 @@ mod tests {
     }
 
     #[test]
-    fn from_plan_collects_nested_stages() {
-        // Synthetic ExecutionPlan that nests two NetworkBoundary nodes:
-        // outer NetworkCoalesceExec with 2 tasks, inner NetworkShuffleExec
-        // with 4 tasks. Verifies `collect_into` descends into `Stage.plan()`.
-        //
-        // We build real DF-D nodes here because the trait's downcast checks
-        // exact types. The test harness mimics what `_distribute_plan`
-        // produces but skips the full planner setup.
-        //
-        // NOTE: this is light-touch — the constructors involved aren't
-        // exposed at the top-level crate API, so this test focuses on the
-        // empty-plan and round-robin math. Coverage of the full plan walk
-        // lives in the AggregateScan regression once M2.d makes the wiring
-        // observable end-to-end.
-        let n_procs = 4u32;
-        let a = TaskAssignment::empty(n_procs);
+    fn from_plan_on_boundary_free_plan_is_empty() {
+        // A plan with no NetworkBoundary nodes (just a leaf `EmptyExec`) must
+        // yield an empty assignment. Exercises the early-return path of
+        // `collect_into` end-to-end through `from_plan`.
+        use datafusion::arrow::datatypes::{Field, Schema};
+        use datafusion::physical_plan::empty::EmptyExec;
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "x",
+            datafusion::arrow::datatypes::DataType::Int32,
+            false,
+        )]));
+        let plan: Arc<dyn ExecutionPlan> = Arc::new(EmptyExec::new(schema));
+        let a = TaskAssignment::from_plan(&plan, 4);
         assert_eq!(a.len(), 0);
-        // Sanity-check from_plan with a trivial non-network plan (no boundaries).
-        // We can't easily construct one inline here without dragging in a
-        // pile of DF imports; the function is exercised in production by
-        // the leader's `build_mpp_leader_session_context` flow + the
-        // mpp_aggregate regression. Leaving this stub as a marker.
+        assert_eq!(a.proc_for(0, 0), None);
     }
 }

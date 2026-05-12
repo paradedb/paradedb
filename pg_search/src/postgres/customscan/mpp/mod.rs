@@ -26,11 +26,11 @@
 //! consumer-side backpressure from producer-side backpressure.
 
 pub mod dsm;
-pub mod exec;
 pub mod glue;
 pub mod mesh;
 pub mod runtime;
 pub mod transport;
+pub mod worker;
 
 use serde::{Deserialize, Serialize};
 

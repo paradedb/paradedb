@@ -43,7 +43,6 @@ use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::{DistributedExt, SessionStateBuilderExt};
 
 use crate::postgres::customscan::mpp::dsm::MppDsmHeader;
-use crate::postgres::customscan::mpp::exec::run_producer_fragment;
 use crate::postgres::customscan::mpp::glue::{
     estimate_dsm_size, leader_setup, mpp_is_active, mpp_worker_count, producer_worker_count,
     worker_setup,
@@ -52,6 +51,7 @@ use crate::postgres::customscan::mpp::runtime::{
     LocalExecWorkerTransport, MppMesh, MppWorkerResolver, ShmMqWorkerTransport,
 };
 use crate::postgres::customscan::mpp::transport::MppSender;
+use crate::postgres::customscan::mpp::worker::run_worker_fragment;
 
 use crate::api::agg_funcoid;
 use crate::api::SortDirection;
@@ -321,13 +321,18 @@ impl CustomScan for AggregateScan {
                     replace_aggrefs_in_target_list(plan);
                 }
                 // MPP path (parallel_aware): leave Aggrefs in
-                // `plan.targetlist`. PG's parallel-aggregate machinery will
-                // add Partial+Final Aggregate around our Gather; setrefs
-                // uses `equal()`-matching to rewire the Aggrefs across the
-                // Gather boundary, which only works if our targetlist still
-                // carries them. Replacing them with `pdb.agg_fn(...)`
-                // placeholders breaks every match and the planner rejects
-                // the parallel path, falling back to `Single Copy: true`.
+                // `plan.targetlist`. PG's `set_plan_refs` walks the
+                // partial-worker tlist looking for `equal()` matches to
+                // wire the Gather's projection — observed behaviour is
+                // that replacing the Aggrefs with `pdb.agg_fn(...)`
+                // placeholders breaks every match and the planner falls
+                // back to `Single Copy: true`. We haven't traced the
+                // exact upstream code path that does the rejection (it
+                // doesn't necessarily go through Partial+Final aggregate
+                // insertion), only the symptom. Either way the workaround
+                // is the same: keep the Aggrefs through path/plan
+                // construction and replace them at execution time in
+                // `create_custom_scan_state`.
                 //
                 // When has_pathkeys: same reason — `make_sort_from_pathkeys`
                 // needs to see the original Aggrefs. Replacement deferred
@@ -481,6 +486,17 @@ impl CustomScan for AggregateScan {
                 if !aggs.is_empty() {
                     explainer.add_text("Aggregates", aggs.join(", "));
                 }
+
+                // Rebuild and render the DataFusion physical plan so
+                // reviewers can see the join/aggregate/network shape PG
+                // is about to execute. Matches the joinscan EXPLAIN
+                // behaviour. For plain EXPLAIN we build with the leader's
+                // session context (distributed planner included) but
+                // skip installing the runtime mesh — `create_physical_plan`
+                // only needs `WorkerTransport` for boundary node
+                // construction, not actual execute calls. Build failures
+                // here shouldn't crash EXPLAIN; surface them as a note.
+                Self::render_df_physical_plan(df_state, explainer);
             }
             return;
         }
@@ -1094,11 +1110,67 @@ impl AggregateScan {
         datafusion::prelude::SessionContext::new_with_state(state_builder.build())
     }
 
+    /// Rebuild and render the DataFusion physical plan into the explainer.
+    /// Used only by plain EXPLAIN (no ANALYZE); EXPLAIN ANALYZE would cache
+    /// the executing plan separately. The rebuild uses the serial session
+    /// context (`create_aggregate_session_context`) regardless of MPP
+    /// state — building the distributed planner here would require
+    /// installing a runtime mesh just to throw it away, and the serial
+    /// plan still shows the join + aggregate + filter shape reviewers
+    /// care about. When MPP is active at exec time the inserted
+    /// `NetworkShuffleExec` etc. are appended around the same logical
+    /// shape, so the serial render is representative.
+    ///
+    /// Failures here go to a single explainer line rather than crashing
+    /// EXPLAIN; the failure mode is non-load-bearing diagnostics.
+    fn render_df_physical_plan(
+        df_state: &scan_state::DataFusionAggState,
+        explainer: &mut Explainer,
+    ) {
+        let custom_exprs = df_state.custom_exprs;
+        let custom_scan_tlist = df_state.custom_scan_tlist;
+        let ctx = create_aggregate_session_context();
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread().build() else {
+            explainer.add_text("DataFusion Plan", "(tokio runtime unavailable)");
+            return;
+        };
+        let plan_result = runtime.block_on(async {
+            let (logical, _) = build_join_aggregate_plan(
+                &df_state.plan,
+                &df_state.targetlist,
+                df_state.topk.as_ref(),
+                &df_state.join_level_predicates,
+                custom_exprs,
+                custom_scan_tlist,
+                df_state.having_filter.as_ref(),
+                &ctx,
+                None,
+            )
+            .await?;
+            build_physical_plan(&ctx, logical).await
+        });
+        match plan_result {
+            Ok(plan) => {
+                explainer.add_text("DataFusion Physical Plan", "");
+                let display = datafusion::physical_plan::displayable(plan.as_ref());
+                for line in display.indent(false).to_string().lines() {
+                    explainer.add_text("  ", line);
+                }
+            }
+            Err(e) => {
+                explainer.add_text(
+                    "DataFusion Plan",
+                    format!("(rebuild failed during EXPLAIN: {e})"),
+                );
+            }
+        }
+    }
+
     /// MPP worker exec: deserialize the logical plan from DSM, build the
     /// distributed physical plan (matching what the leader produced), find
     /// the worker fragment (the `input_stage.plan` of the bottom
     /// `NetworkShuffleExec`), and run it via
-    /// [`mpp::exec::run_producer_fragment`] which pushes every output batch
+    /// [`mpp::worker::run_worker_fragment`] which pushes every output batch
     /// to the leader's shm_mq queues. Workers emit zero rows back to PG;
     /// returning `null_mut()` signals end-of-stream.
     fn exec_mpp_worker(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
@@ -1263,9 +1335,9 @@ impl AggregateScan {
             unsafe { pg_sys::hash_mem_multiplier },
         );
         let result = runtime
-            .block_on(async { run_producer_fragment(fragment, outbound_senders, task_ctx).await });
+            .block_on(async { run_worker_fragment(fragment, outbound_senders, task_ctx).await });
         if let Err(e) = result {
-            pgrx::error!("mpp worker: run_producer_fragment failed: {e}");
+            pgrx::error!("mpp worker: run_worker_fragment failed: {e}");
         }
         std::ptr::null_mut()
     }

@@ -15,9 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Leader/worker exec helpers for MPP.
+//! MPP worker fragment runner.
 //!
-//! - [`run_producer_fragment`] — PG-parallel-worker push loop. Runs the
+//! "Worker" matches the DF-D fork's terminology — every distributed task is
+//! a `WorkerConnection` on the receive side, and the fragment runner is
+//! that worker's push side.
+//!
+//! - [`run_worker_fragment`] — PG-parallel-worker push loop. Runs the
 //!   `n_partitions` output partitions of `plan` concurrently; each batch
 //!   yielded by partition `p` is encoded and pushed through
 //!   `outbound_senders[p]`. Returns when every output stream is exhausted.
@@ -39,7 +43,7 @@ use crate::postgres::customscan::mpp::transport::{MppSender, SendBatchStats};
 ///
 /// The output partition count of `plan` MUST equal `outbound_senders.len()`;
 /// this is checked before the first batch is pulled.
-pub async fn run_producer_fragment(
+pub async fn run_worker_fragment(
     plan: Arc<dyn ExecutionPlan>,
     outbound_senders: Vec<MppSender>,
     ctx: Arc<TaskContext>,
@@ -47,7 +51,7 @@ pub async fn run_producer_fragment(
     let n_partitions = plan.output_partitioning().partition_count();
     if n_partitions != outbound_senders.len() {
         return Err(DataFusionError::Internal(format!(
-            "run_producer_fragment: plan has {} output partitions but {} senders provided",
+            "run_worker_fragment: plan has {} output partitions but {} senders provided",
             n_partitions,
             outbound_senders.len()
         )));

@@ -66,14 +66,21 @@ SELECT COUNT(*)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section';
 WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
-                   QUERY PLAN                    
--------------------------------------------------
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: pdb.agg_fn('COUNT(*)'::text)
    Backend: DataFusion
    Indexes: mpp_files_idx (f), mpp_pages_idx (p)
    Aggregates: COUNT(*)
-(5 rows)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[], aggr=[agg_0]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[]
+     :     CooperativeExec
+     :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+     :     CooperativeExec
+     :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(12 rows)
 
 SELECT COUNT(*)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
@@ -93,8 +100,8 @@ GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
 WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
-                           QUERY PLAN                           
-----------------------------------------------------------------
+                                                                                                   QUERY PLAN                                                                                                   
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.title, (count(*)), (sum(p.size_bytes))
    ->  Sort
@@ -106,7 +113,15 @@ WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
                Indexes: mpp_files_idx (f), mpp_pages_idx (p)
                Group By: title
                Aggregates: COUNT(*), SUM(size_bytes)
-(11 rows)
+               DataFusion Physical Plan: 
+                 : SortExec: TopK(fetch=5), expr=[title@0 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[title@0 as title], aggr=[agg_0, agg_1]
+                 :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, size_bytes@3]
+                 :       CooperativeExec
+                 :         PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                 :       CooperativeExec
+                 :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(19 rows)
 
 SELECT f.title, COUNT(*), SUM(p.size_bytes)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
@@ -139,14 +154,21 @@ SELECT COUNT(*)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section';
 WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
-                   QUERY PLAN                    
--------------------------------------------------
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: pdb.agg_fn('COUNT(*)'::text)
    Backend: DataFusion
    Indexes: mpp_files_idx (f), mpp_pages_idx (p)
    Aggregates: COUNT(*)
-(5 rows)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[], aggr=[agg_0]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[]
+     :     CooperativeExec
+     :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+     :     CooperativeExec
+     :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(12 rows)
 
 SELECT COUNT(*)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id
@@ -165,8 +187,8 @@ GROUP BY f.title
 ORDER BY f.title
 LIMIT 5;
 WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
-                              QUERY PLAN                              
-----------------------------------------------------------------------
+                                                                                                      QUERY PLAN                                                                                                      
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: f.title, (count(*)), (sum(p.size_bytes))
    ->  Gather Merge
@@ -181,7 +203,15 @@ WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
                      Indexes: mpp_files_idx (f), mpp_pages_idx (p)
                      Group By: title
                      Aggregates: COUNT(*), SUM(size_bytes)
-(14 rows)
+                     DataFusion Physical Plan: 
+                       : SortExec: TopK(fetch=5), expr=[title@0 ASC NULLS LAST], preserve_partitioning=[false]
+                       :   AggregateExec: mode=Single, gby=[title@0 as title], aggr=[agg_0, agg_1]
+                       :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, file_id@0)], projection=[title@1, size_bytes@3]
+                       :       CooperativeExec
+                       :         PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Section","lenient":null,"conjunction_mode":null}}}}
+                       :       CooperativeExec
+                       :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(22 rows)
 
 SELECT f.title, COUNT(*), SUM(p.size_bytes)
 FROM mpp_files f JOIN mpp_pages p ON f.id = p.file_id

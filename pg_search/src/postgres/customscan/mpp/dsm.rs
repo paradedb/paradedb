@@ -36,13 +36,11 @@
 //!
 //! - `n_workers` is the number of producer-side participants (== leader-as-
 //!   worker-0 + parallel workers). Leader is index 0.
-//! - `n_partitions` is the consumer-side partition count for the network
-//!   boundary. The DF-D fork's planner emits exactly one boundary per query
-//!   under this PR's config (`in_process_mode=on`, peer-shuffles off);
-//!   K-cut layouts come with the multi-peer-mesh follow-up.
-//! - Self-edges (worker i writing to its own consumer partition feed) are
-//!   included on purpose — every queue is shm_mq even when producer and
-//!   consumer live in the same process. Keeps the topology symmetric.
+//! - `n_partitions` is the consumer-side partition count for the single
+//!   network boundary the DF-D fork's planner emits under
+//!   `in_process_mode=on`. Multi-stage / multi-boundary layouts are tracked
+//!   on the natural-shape follow-up (PR #5060) and would generalise the
+//!   `worker × partition` slot indexing to a richer grid.
 
 use std::ffi::c_void;
 use std::mem::size_of;
@@ -63,8 +61,9 @@ pub const MPP_DSM_MAX_BYTES: usize = 16 * 1024 * 1024 * 1024;
 
 /// C-repr header at offset 0 of the DSM region.
 ///
-/// Field ordering: four `u32`s (16 bytes), four `u64`s (32 bytes). 48 bytes
-/// total with no internal padding on every supported target.
+/// Field ordering keeps every member naturally aligned: six `u32`s (24 bytes
+/// including the explicit `_pad0`) followed by nine `u64`s (72 bytes). 96
+/// bytes total with no internal padding on every supported target.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct MppDsmHeader {

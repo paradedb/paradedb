@@ -135,9 +135,17 @@ impl WorkerConnection for ShmMqWorkerConnection {
         // the receiver into the buffer (max 256 batches), then pops one
         // batch out to yield, then yields back to Tokio so sibling tasks
         // (e.g. the leader's own producer subplan) can advance.
+        //
+        // `pgrx::check_for_interrupts!()` at the top of every iteration so
+        // a user CANCEL or query timeout `longjmp`s out before the next
+        // drain pass; without it the cooperative spin would keep pumping
+        // batches even after the backend should have torn down. The send
+        // side has the same check inside `MppSender::send_batch_traced`'s
+        // retry loop in `transport.rs`.
         let stream = async_stream::stream! {
             loop {
-                if let Err(e) = drain.poll_drain_pass() {
+                pgrx::check_for_interrupts!();
+                if let Err(e) = drain.try_drain_pass() {
                     yield Err(e);
                     return;
                 }

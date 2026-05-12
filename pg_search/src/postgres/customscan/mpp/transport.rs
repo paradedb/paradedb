@@ -201,7 +201,7 @@ impl DrainBuffer {
     /// Non-blocking, non-waker variant. Returns the
     /// front item or `DrainItem::Eof` if all sources have detached and
     /// the queue is drained; returns `None` only when more data may yet
-    /// arrive. Cooperative consumers loop on `poll_drain_pass` + `try_pop`,
+    /// arrive. Cooperative consumers loop on `try_drain_pass` + `try_pop`,
     /// yielding to the executor between iterations.
     pub fn try_pop(&self) -> Option<DrainItem> {
         let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
@@ -269,7 +269,7 @@ pub trait BatchChannelSender: Send {
 ///
 /// With `cooperative_drain` set, `send_batch` breaks the symmetric-send
 /// deadlock on a single-threaded tokio runtime by interleaving send-retries
-/// with `DrainHandle::poll_drain_pass` on the same mesh's inbound side.
+/// with `DrainHandle::try_drain_pass` on the same mesh's inbound side.
 /// Each participant's sender doing the same guarantees mutual progress:
 /// our drain pulls peer-shipped rows out of our inbound queues, which
 /// frees peers' outbound-to-us send space, which lets their sends un-stall.
@@ -373,7 +373,7 @@ impl MppSender {
         // drain prevents is *cross-participant*, not same-runtime: two
         // peers each blocking on a full outbound and never reading the
         // other side. We break that by driving our own inbound on this
-        // same OS thread via `poll_drain_pass`, which pulls peer
+        // same OS thread via `try_drain_pass`, which pulls peer
         // batches that have already arrived and frees their slots so
         // peers' writers can advance.
         //
@@ -412,7 +412,7 @@ impl MppSender {
             // detaching mid-spin doesn't leave the sender looping
             // forever on a closed mesh.
             let t_drain = Instant::now();
-            drain.poll_drain_pass()?;
+            drain.try_drain_pass()?;
             stats.coop_drain_in_spin += t_drain.elapsed();
             tokio::task::yield_now().await;
         }
@@ -428,7 +428,7 @@ pub struct SendBatchStats {
     /// Cumulative wall time in the send-retry spin after the first failed
     /// `try_send_bytes`. Zero if the first try succeeded.
     pub send_wait: Duration,
-    /// Cumulative time spent in `poll_drain_pass` while spinning on a
+    /// Cumulative time spent in `try_drain_pass` while spinning on a
     /// full outbound. A subset of `send_wait`; the remainder is the
     /// `tokio::task::yield_now()` await + the (small) cost of
     /// `try_send_bytes` itself.
@@ -530,7 +530,7 @@ pub struct DrainHandle {
     /// this lets cooperative senders hold `Arc<DrainHandle>` shares.
     join: Mutex<Option<JoinHandle<Result<(), DataFusionError>>>>,
     /// Cooperative variant: the receivers are owned by the handle and polled
-    /// inline from `DrainGatherStream::poll_next` via [`Self::poll_drain_pass`].
+    /// inline from `DrainGatherStream::poll_next` via [`Self::try_drain_pass`].
     /// Production uses this variant because any pg FFI call
     /// (`shm_mq_receive` included) from a non-backend thread panics pgrx's
     /// `check_active_thread` guard. `None` when the handle was spawned
@@ -562,7 +562,7 @@ impl DrainHandle {
 
     /// Construct a cooperative drain handle: the receivers are stashed in the
     /// handle and drained inline from `DrainGatherStream::poll_next` (see
-    /// [`Self::poll_drain_pass`]). No background thread. This is the correct
+    /// [`Self::try_drain_pass`]). No background thread. This is the correct
     /// variant for production pg backend workers — the drain work runs on
     /// the backend thread, so any pg FFI inside `shm_mq_receive` is safe.
     pub fn cooperative(receivers: Vec<MppReceiver>, buffer: Arc<DrainBuffer>) -> Self {
@@ -594,7 +594,7 @@ impl DrainHandle {
     /// `try_send_bytes` regardless of drain progress), so the return is now
     /// just `Result<()>` so transport errors propagate instead of being
     /// silently dropped at the call site.
-    pub fn poll_drain_pass(&self) -> Result<(), DataFusionError> {
+    pub fn try_drain_pass(&self) -> Result<(), DataFusionError> {
         // Bound per-source pulls per call. The upper limit exists to give
         // the caller a chance to re-try its own send between drains —
         // otherwise a participant with a very fast peer could drain

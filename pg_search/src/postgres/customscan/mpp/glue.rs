@@ -154,7 +154,7 @@ pub unsafe fn leader_setup(
 
     // Build per-(worker, partition) cooperative drain handles. Each handle
     // owns one MppReceiver + one DrainBuffer; the consumer side calls
-    // `poll_drain_pass` inline on the backend thread (pgrx-safe) when
+    // `try_drain_pass` inline on the backend thread (pgrx-safe) when
     // pulling batches.
     let mut drains = Vec::with_capacity(attach.inbound_receivers.len());
     for shm_recv in attach.inbound_receivers {

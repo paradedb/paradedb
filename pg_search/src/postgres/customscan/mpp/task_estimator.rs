@@ -36,9 +36,16 @@
 //! from the missing input tasks.
 //!
 //! Installed via [`datafusion_distributed::SessionStateBuilderExt::with_distributed_task_estimator`]
-//! in front of the default per-leaf estimator, so non-canonical leaves
-//! (`PgSearchScanPlan` and friends) fall through to the default. With
-//! this estimator in place, the dispatcher's
+//! in front of the default per-leaf estimator. The DF-D fork's
+//! `CombinedTaskEstimator` iterates registered estimators and returns
+//! the FIRST `Some(_)` — registration order, not a "biggest task_count
+//! wins" tiebreak. (That tiebreak runs at the per-stage layer across
+//! distinct leaves, not within one leaf's estimator chain.) So this
+//! estimator returns `Some(Maximum(1))` for canonical-replica memory
+//! leaves and `None` everywhere else; the default `Desired(n_workers)`
+//! estimator handles the fallthrough.
+//!
+//! With this estimator in place, the dispatcher's
 //! [`FragmentRouting::Broadcast`] short-circuit becomes a defensive
 //! `debug_assert!(fragment.task_idx == 0)` rather than a load-bearing
 //! correctness patch — see the doc on

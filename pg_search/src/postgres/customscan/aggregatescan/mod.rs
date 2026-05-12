@@ -1482,7 +1482,7 @@ impl AggregateScan {
                     );
                 }
 
-                // Broadcast invariant + defensive short-circuit:
+                // Broadcast invariant — fail-loud cap check:
                 // pg_search's natural-shape AggregateScan plan canonical-
                 // replicates the build subtree via the `mpp build all-
                 // gather` step, so every producer task would scan the
@@ -1491,13 +1491,19 @@ impl AggregateScan {
                 // level [`BroadcastBuildSideOneTaskEstimator`] caps the
                 // build subtree at task_count=1, so a correct plan
                 // produces exactly one Broadcast fragment with
-                // task_idx == 0. The `debug_assert!` catches a future
-                // planner change that loses the cap, and the release-
-                // build short-circuit keeps results correct by EOF-only-
-                // ing any unexpected `task_idx > 0` fragment.
+                // task_idx == 0.
                 //
-                // See the doc on `FragmentRouting::Broadcast` and on
-                // `mpp::task_estimator::BroadcastBuildSideOneTaskEstimator`.
+                // A non-zero `task_idx` here means the cap silently
+                // failed — either the estimator wasn't installed, the
+                // chain order is wrong, or a future planner pass
+                // re-expanded the build subtree. We surface this as a
+                // hard error rather than silently EOF-only-ing the
+                // fragment: the EOF-only fallback is only correct under
+                // the canonical-replica INVARIANT documented on
+                // `FragmentRouting::Broadcast`, and we'd rather fail
+                // loudly than emit a stealth correctness regression.
+                // Matches the top-level NetworkBroadcastExec treatment
+                // in `worker_fragments::collect`.
                 if matches!(fragment.routing, FragmentRouting::Broadcast { .. }) {
                     debug_assert!(
                         fragment.task_idx == 0,
@@ -1506,26 +1512,19 @@ impl AggregateScan {
                          input_task_count at 1; plan-walk drift?",
                         fragment.task_idx,
                     );
-                }
-                if matches!(fragment.routing, FragmentRouting::Broadcast { .. })
-                    && fragment.task_idx != 0
-                {
-                    crate::mpp_log!(
-                        "mpp worker dispatch this_proc={this_proc} fragment(stage_id={}, \
-                         task_idx={}) Broadcast short-circuit: EOF-only (cap drift)",
-                        fragment.stage_id,
-                        fragment.task_idx,
-                    );
-                    let senders = per_partition_senders;
-                    futures.push(Box::pin(async move {
-                        let mut stats =
-                            crate::postgres::customscan::mpp::transport::SendBatchStats::default();
-                        for sender in &senders {
-                            sender.send_eof_traced(&mut stats).await?;
-                        }
-                        Ok(())
-                    }));
-                    continue;
+                    if fragment.task_idx != 0 {
+                        return Err(datafusion::common::DataFusionError::Internal(format!(
+                            "mpp worker dispatch (proc={this_proc}): Broadcast fragment \
+                             (stage_id={}, task_idx={}) with task_idx > 0 — the planner-level \
+                             BroadcastBuildSideOneTaskEstimator should cap input_task_count at \
+                             1. A non-zero task_idx here indicates plan-walk drift or a missing \
+                             estimator chain on this session; running the producer plan would \
+                             duplicate the canonical replica, EOF-only-ing it would drop a \
+                             real shard if the cap loss was due to a sharded build subtree. \
+                             Surface as error so the divergence is visible.",
+                            fragment.stage_id, fragment.task_idx,
+                        )));
+                    }
                 }
 
                 // Build a TaskContext seeded with the right

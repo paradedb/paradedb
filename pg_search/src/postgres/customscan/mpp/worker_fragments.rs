@@ -126,8 +126,9 @@ pub enum FragmentRouting {
     /// build subtree and makes the DF-D planner build
     /// `NetworkBroadcastExec` with `input_task_count = 1`. With the cap
     /// in place the dispatcher only ever sees `task_idx == 0` fragments
-    /// for Broadcast routing — the wire-layer short-circuit becomes a
-    /// defensive fall-back (`debug_assert!` in dev, EOF-only in release).
+    /// for Broadcast routing — the wire-layer guard is a hard
+    /// `pgrx::error!` for any `task_idx > 0` so a missed cap surfaces
+    /// loudly instead of silently mis-routing data.
     ///
     /// [`NetworkBroadcastExec`]: datafusion_distributed::NetworkBroadcastExec
     Broadcast {

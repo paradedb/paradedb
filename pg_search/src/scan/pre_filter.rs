@@ -732,6 +732,7 @@ fn try_convert_in_list_to_query(
                 tantivy_field,
                 &owned_value,
                 tantivy_field_type,
+                &field_type,
                 None,
                 is_date,
             )

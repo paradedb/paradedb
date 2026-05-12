@@ -158,18 +158,16 @@ impl WorkerConnection for ShmMqWorkerConnection {
         partition: usize,
         _on_metadata: OnMetadataCallback,
     ) -> Result<WorkerPartitionStream> {
-        // Today's single-stage gather has one logical channel per inbound
-        // queue (the natural plan emits NetworkCoalesceExec(consumer_tc=1)
-        // at the top, so the leader has one partition to merge from each
-        // sender_proc). `partition` is therefore always 0. M2's sub-buffer
-        // registry demuxes by partition; until then, assert defensively so
-        // an unexpected non-zero partition fails loudly in dev rather than
-        // silently routing to the wrong channel.
-        debug_assert_eq!(
-            partition, 0,
-            "M1 single-channel design: ShmMqWorkerConnection::stream_partition \
-             only supports partition=0 in the natural-shape gather path"
-        );
+        // M2.a (in progress): the natural plan can have consumer_tc > 1
+        // on inner boundaries (peer-mesh shuffles), so this is called with
+        // partition > 0. The full demux story — one DrainBuffer per
+        // (stage_id, sender_proc, partition) — is M2.b. For now we route
+        // every partition into the single inbound DrainBuffer for the
+        // sender_proc, which only works when the consumer side has exactly
+        // one logical partition per sender (the natural-shape gather case).
+        // Multi-partition consumers will see interleaved frames until
+        // M2.b lands.
+        let _ = partition;
         let drain = self.mesh.inbound_drain(self.sender_proc).ok_or_else(|| {
             DataFusionError::Internal(format!(
                 "ShmMqWorkerConnection: no inbound drain for sender_proc={} \

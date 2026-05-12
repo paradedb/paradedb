@@ -39,7 +39,7 @@ pub use targetlist::TargetListEntry;
 use std::sync::Arc;
 
 use datafusion::execution::SessionStateBuilder;
-use datafusion::physical_plan::ExecutionPlan;
+use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use datafusion_distributed::{
     display_plan_ascii, DistributedExec, DistributedExt, SessionStateBuilderExt,
 };
@@ -1364,8 +1364,30 @@ impl AggregateScan {
             unsafe { pg_sys::work_mem as usize * 1024 },
             unsafe { pg_sys::hash_mem_multiplier },
         );
-        let result = runtime
-            .block_on(async { run_worker_fragment(fragment, outbound_senders, task_ctx).await });
+        // M2.a: expand the single leader-bound sender into N senders matching
+        // the fragment's output_partitioning. Each clone shares the same
+        // shm_mq queue but stamps a different `partition` on its frames, so
+        // the leader's drain can demux. `stage_id` stays at 0 — the natural-
+        // shape gather is a single logical stage.
+        let n_out_partitions = fragment.output_partitioning().partition_count();
+        let base_sender = outbound_senders
+            .into_iter()
+            .next()
+            .expect("worker_setup must hand back at least one MppSender");
+        let mut expanded: Vec<MppSender> = Vec::with_capacity(n_out_partitions);
+        for partition in 0..n_out_partitions {
+            let partition_u32 = u32::try_from(partition).unwrap_or(u32::MAX);
+            expanded.push(base_sender.clone_with_header(
+                crate::postgres::customscan::mpp::transport::MppFrameHeader::batch(
+                    0,
+                    partition_u32,
+                ),
+            ));
+        }
+        drop(base_sender);
+
+        let result =
+            runtime.block_on(async { run_worker_fragment(fragment, expanded, task_ctx).await });
         if let Err(e) = result {
             pgrx::error!("mpp worker: run_worker_fragment failed: {e}");
         }
@@ -1373,18 +1395,25 @@ impl AggregateScan {
     }
 
     /// Walk a DistributedExec-rooted plan and return the input subtree of
-    /// the **topmost** `NetworkShuffleExec` (the worker producer fragment).
-    /// Returns `None` if no `NetworkShuffleExec` is reachable from the root.
+    /// the **topmost** worker→leader network boundary (the worker producer
+    /// fragment). Returns `None` if no qualifying boundary is reachable.
+    ///
+    /// In the band-aided fork the topmost boundary was always
+    /// `NetworkShuffleExec(consumer_tc=1, input_tc=N)`; in the natural-shape
+    /// plan that's now `NetworkCoalesceExec(consumer_tc=1, input_tc=N)`.
+    /// We accept either, since the worker subtree below is the same shape
+    /// in both cases.
     ///
     /// Pre-order traversal returns on the first match, which is the
-    /// outermost shuffle — the one that straddles the worker→leader split.
-    /// Nested `NetworkShuffleExec`s inside the worker fragment (e.g. the
-    /// shuffles `HashJoinExec(Partitioned)` inserts on each side once the
-    /// build side crosses `hash_join_single_partition_threshold`) are
-    /// re-executed locally by `LocalExecWorkerTransport` at execute time,
-    /// so the worker only needs to find the outermost one.
+    /// outermost boundary — the one that straddles the worker→leader split.
+    /// Nested boundaries inside the worker fragment (e.g. the shuffles
+    /// `HashJoinExec(Partitioned)` inserts on each side once the build side
+    /// crosses `hash_join_single_partition_threshold`) are re-executed
+    /// locally by `LocalExecWorkerTransport` at execute time, so the worker
+    /// only needs to find the outermost one.
     fn find_worker_fragment(plan: &Arc<dyn ExecutionPlan>) -> Option<Arc<dyn ExecutionPlan>> {
-        if plan.name() == "NetworkShuffleExec" {
+        let name = plan.name();
+        if name == "NetworkShuffleExec" || name == "NetworkCoalesceExec" {
             return plan.children().first().map(|c| Arc::clone(c));
         }
         for child in plan.children() {

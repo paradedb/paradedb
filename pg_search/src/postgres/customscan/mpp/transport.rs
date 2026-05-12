@@ -457,7 +457,7 @@ pub trait BatchChannelReceiver: Send {
 /// (`nowait=false`) touches `WaitLatch`/`CHECK_FOR_INTERRUPTS`, which is not
 /// safe off-thread. See [`crate::postgres::customscan::mpp::mesh::ShmMqSender`]
 /// for the safety contract.
-pub trait BatchChannelSender: Send {
+pub trait BatchChannelSender: Send + Sync {
     fn send_bytes(&self, bytes: &[u8]) -> Result<(), DataFusionError>;
 
     /// Non-blocking variant. Returns `Ok(true)` on success, `Ok(false)`
@@ -479,7 +479,12 @@ pub trait BatchChannelSender: Send {
 /// our drain pulls peer-shipped rows out of our inbound queues, which
 /// frees peers' outbound-to-us send space, which lets their sends un-stall.
 pub struct MppSender {
-    channel: Box<dyn BatchChannelSender>,
+    /// Underlying byte channel. Held behind `Arc` so multiple `MppSender`s
+    /// can share one `shm_mq` queue while tagging frames with different
+    /// `(stage_id, partition)` headers — the multiplexed path's natural
+    /// pattern. Clone the Arc, build a new `MppSender` with a different
+    /// header, both write into the same queue.
+    channel: Arc<dyn BatchChannelSender>,
     cooperative_drain: Option<Arc<DrainHandle>>,
     /// Frame header prepended to every outgoing batch. Identifies the logical
     /// `(stage_id, partition)` channel the receiver demultiplexes on. For the
@@ -513,9 +518,11 @@ unsafe impl Sync for MppSender {}
 
 impl MppSender {
     /// Construct a sender that tags every outgoing batch with `header`.
-    /// Production call sites build one `MppSender` per consumer partition and
-    /// pass `MppFrameHeader::batch(0, p)`.
-    pub fn with_header(channel: Box<dyn BatchChannelSender>, header: MppFrameHeader) -> Self {
+    /// Production call sites clone one shared `Arc<dyn BatchChannelSender>`
+    /// across N senders, each with a different `MppFrameHeader::batch(stage, p)`
+    /// — the multiplexed pattern for fanning multiple partitions over one
+    /// shm_mq queue.
+    pub fn with_header(channel: Arc<dyn BatchChannelSender>, header: MppFrameHeader) -> Self {
         Self {
             channel,
             cooperative_drain: None,
@@ -527,7 +534,7 @@ impl MppSender {
     /// Construct a sender with the default `(stage_id=0, partition=0)` header.
     /// Used by tests where the header carries no actionable routing info.
     #[cfg(test)]
-    pub fn new(channel: Box<dyn BatchChannelSender>) -> Self {
+    pub fn new(channel: Arc<dyn BatchChannelSender>) -> Self {
         Self::with_header(channel, MppFrameHeader::batch(0, 0))
     }
 
@@ -537,6 +544,19 @@ impl MppSender {
     #[allow(dead_code)]
     pub fn header(&self) -> MppFrameHeader {
         self.header
+    }
+
+    /// Build a new `MppSender` that shares this sender's underlying channel
+    /// but tags every frame with `header` instead. Used by callers that know
+    /// the physical plan's output partition count and need one sender per
+    /// partition, all multiplexed over the same shm_mq queue.
+    pub fn clone_with_header(&self, header: MppFrameHeader) -> Self {
+        Self {
+            channel: Arc::clone(&self.channel),
+            cooperative_drain: self.cooperative_drain.as_ref().map(Arc::clone),
+            header,
+            scratch: std::cell::RefCell::new(Vec::new()),
+        }
     }
 
     /// Test-only stats-less wrapper around [`Self::send_batch_traced`].
@@ -1216,7 +1236,7 @@ mod tests {
     #[test]
     fn in_proc_channel_round_trips_through_mpp_sender_receiver() {
         let (tx, rx) = in_proc_channel(8);
-        let sender = MppSender::new(Box::new(tx));
+        let sender = MppSender::new(Arc::new(tx));
         let receiver = MppReceiver::new(Box::new(rx));
 
         sender.send_batch(&sample_batch(4)).unwrap();
@@ -1235,7 +1255,7 @@ mod tests {
     #[test]
     fn drain_thread_drains_single_source() {
         let (tx, rx) = in_proc_channel(4);
-        let sender = MppSender::new(Box::new(tx));
+        let sender = MppSender::new(Arc::new(tx));
         let receiver = MppReceiver::new(Box::new(rx));
         let buffer = DrainBuffer::new(1);
 
@@ -1261,7 +1281,7 @@ mod tests {
     #[test]
     fn drain_handle_shutdown_joins_cleanly() {
         let (tx, rx) = in_proc_channel(4);
-        let sender = MppSender::new(Box::new(tx));
+        let sender = MppSender::new(Arc::new(tx));
         let receiver = MppReceiver::new(Box::new(rx));
         let buffer = DrainBuffer::new(1);
         let handle = DrainHandle::spawn(DrainConfig::new(vec![receiver], StdArc::clone(&buffer)));
@@ -1282,7 +1302,7 @@ mod tests {
         // drop the handle. The Drop impl must cancel the buffer and join the
         // thread without hanging.
         let (tx, rx) = in_proc_channel(4);
-        let _sender_kept_alive = MppSender::new(Box::new(tx));
+        let _sender_kept_alive = MppSender::new(Arc::new(tx));
         let receiver = MppReceiver::new(Box::new(rx));
         let buffer = DrainBuffer::new(1);
         let handle = DrainHandle::spawn(DrainConfig::new(vec![receiver], StdArc::clone(&buffer)));
@@ -1317,8 +1337,8 @@ mod tests {
         let buffer = DrainBuffer::new(2);
         let drain_join = spawn_drain_thread(DrainConfig::new(receivers, StdArc::clone(&buffer)));
 
-        let tx0_send = MppSender::new(Box::new(tx0));
-        let tx1_send = MppSender::new(Box::new(tx1));
+        let tx0_send = MppSender::new(Arc::new(tx0));
+        let tx1_send = MppSender::new(Arc::new(tx1));
         let batch_template = sample_batch(1);
 
         let p0 = {
@@ -1444,8 +1464,8 @@ mod tests {
         ];
         let buffer = DrainBuffer::new(2);
         let drain_join = spawn_drain_thread(DrainConfig::new(receivers, StdArc::clone(&buffer)));
-        let tx0_send = MppSender::new(Box::new(tx0));
-        let tx1_send = MppSender::new(Box::new(tx1));
+        let tx0_send = MppSender::new(Arc::new(tx0));
+        let tx1_send = MppSender::new(Arc::new(tx1));
 
         let per_source = batches / 2;
         let round_trip_start = Instant::now();

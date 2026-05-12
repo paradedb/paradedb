@@ -277,8 +277,25 @@ pub unsafe fn worker_setup(
     let leader_sender = row.remove(0);
     drop(row);
     drop(attach.inbound_receivers); // unused in single-stage worker
+
+    // M2.a: instead of one MppSender (header partition=0), share the single
+    // shm_mq queue across `n_partitions` senders, each tagged with a different
+    // partition. The worker's producer fragment in the natural plan outputs
+    // multiple hash partitions per task; `run_producer_fragment` drives one
+    // sender per output partition. They all multiplex over the same
+    // shm_mq queue and the leader's drain demuxes by frame header.
+    //
+    // The actual `n_partitions` is determined from the physical plan at
+    // worker exec time (since the worker is what knows how many partitions
+    // the fragment emits). For now, we hand back one Arc to the channel; the
+    // caller (aggregatescan::exec_mpp_worker) clones it into N senders.
+    let shared_channel: Arc<dyn crate::postgres::customscan::mpp::transport::BatchChannelSender> =
+        Arc::new(leader_sender);
+    // Build a one-element vec for back-compat with the existing call site;
+    // the exec path will clone the Arc out of `outbound_senders[0]` and
+    // expand to the right number of senders once the physical plan is built.
     let outbound_senders = vec![MppSender::with_header(
-        Box::new(leader_sender),
+        Arc::clone(&shared_channel),
         MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION),
     )];
 

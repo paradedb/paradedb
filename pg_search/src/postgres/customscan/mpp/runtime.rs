@@ -134,20 +134,20 @@ impl MppMesh {
     /// can drain inbound peer data inline — preventing the N×N symmetric-send
     /// deadlock when every peer is simultaneously stalled waiting for space.
     ///
-    /// Returns the first error if any drain's `poll_drain_pass` errors;
+    /// Returns the first error if any drain's `try_drain_pass` errors;
     /// otherwise `Ok(())` after all drains have been polled. Drains that
     /// have already detached are skipped silently (their slot is still
     /// `Some`, but their inner `coop_receivers` Vec entry is `None`).
     pub fn drain_all_inbound(&self) -> Result<(), DataFusionError> {
         for drain in self.inbound_drains.iter().flatten() {
-            drain.poll_drain_pass()?;
+            drain.try_drain_pass()?;
         }
         Ok(())
     }
 }
 
 impl CooperativeDrainSet for MppMesh {
-    fn poll_drain_pass(&self) -> Result<(), DataFusionError> {
+    fn try_drain_pass(&self) -> Result<(), DataFusionError> {
         self.drain_all_inbound()
     }
 }

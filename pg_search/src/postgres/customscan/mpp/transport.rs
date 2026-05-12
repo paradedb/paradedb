@@ -281,7 +281,7 @@ pub fn decode_frame(
     }
 }
 
-/// Local queue between a drain (either the cooperative `poll_drain_pass`
+/// Local queue between a drain (either the cooperative `try_drain_pass`
 /// or the test-only thread variant) and the consumer that pops batches.
 ///
 /// In the cooperative path each `DrainBuffer` corresponds to one logical
@@ -470,12 +470,12 @@ pub trait BatchChannelSender: Send + Sync {
 /// so the implementation typically delegates to
 /// `MppMesh::drain_all_inbound()` which iterates every per-sender-proc drain.
 pub trait CooperativeDrainSet: Send + Sync {
-    fn poll_drain_pass(&self) -> Result<(), DataFusionError>;
+    fn try_drain_pass(&self) -> Result<(), DataFusionError>;
 }
 
 impl CooperativeDrainSet for DrainHandle {
-    fn poll_drain_pass(&self) -> Result<(), DataFusionError> {
-        DrainHandle::poll_drain_pass(self)
+    fn try_drain_pass(&self) -> Result<(), DataFusionError> {
+        DrainHandle::try_drain_pass(self)
     }
 }
 
@@ -632,7 +632,7 @@ impl MppSender {
     /// Without it the multiplexed shm_mq queue stays attached (other
     /// channels still flow) and the consumer sub-buffer never reaches
     /// `sources_done == 1`. The receive-side
-    /// [`DrainHandle::poll_drain_pass`] decodes the frame and calls
+    /// [`DrainHandle::try_drain_pass`] decodes the frame and calls
     /// `notify_source_done` on the matching sub-buffer.
     ///
     /// Uses the same cooperative-spin path as
@@ -642,7 +642,7 @@ impl MppSender {
     ///
     /// Symmetric-EOF safety: when every peer reaches EOF simultaneously
     /// with full outbound queues, each peer's cooperative
-    /// [`CooperativeDrainSet::poll_drain_pass`] inside the spin pulls
+    /// [`CooperativeDrainSet::try_drain_pass`] inside the spin pulls
     /// peer-sent frames out of its own inbound queues, freeing space
     /// the peers are blocked on. Progress is monotone — at least one
     /// `try_send_bytes` succeeds per spin iteration somewhere in the
@@ -678,7 +678,7 @@ impl MppSender {
             first_try = false;
             stats.spin_iters += 1;
             let t_drain = Instant::now();
-            drain.poll_drain_pass()?;
+            drain.try_drain_pass()?;
             stats.coop_drain_in_spin += t_drain.elapsed();
             tokio::task::yield_now().await;
         }
@@ -1150,9 +1150,9 @@ impl Drop for DrainHandle {
 /// path replaced. Per-channel `Eof` frames are treated as "this source is
 /// done" (not "this logical channel within the source is done"), matching the
 /// original single-buffer semantics. Production code routes through
-/// [`DrainHandle::poll_drain_pass`] instead, which keys on the frame header.
+/// [`DrainHandle::try_drain_pass`] instead, which keys on the frame header.
 /// Tests that want to validate the production demux must use
-/// [`DrainHandle::cooperative`] and call `poll_drain_pass` directly.
+/// [`DrainHandle::cooperative`] and call `try_drain_pass` directly.
 #[cfg(test)]
 fn drain_loop(config: DrainConfig) -> Result<(), DataFusionError> {
     let DrainConfig {

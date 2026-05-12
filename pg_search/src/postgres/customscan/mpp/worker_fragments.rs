@@ -256,7 +256,22 @@ fn collect(
             // it as an error so a future planner change that hits this
             // shape doesn't silently produce wrong answers.
             ("NetworkBroadcastExec", None) => {
+                // `pgrx::error!` pulls PG runtime symbols (`CopyErrorData`,
+                // `PG_exception_stack`, `CurrentMemoryContext`,
+                // `error_context_stack`) via the ereport machinery. Reaching it
+                // from the `#[cfg(test)]` block at the bottom of this file
+                // would force the test binary to link against postgres, which
+                // `cargo test --features pgNN --no-default-features` does not.
+                // Plain `panic!` in test builds, same `!` return type as
+                // `pgrx::error!`, so the match arm still type-checks.
+                #[cfg(not(test))]
                 pgrx::error!(
+                    "mpp worker_fragments: top-level NetworkBroadcastExec is unsupported \
+                     (stage_id={stage_id}). The natural-shape AggregateScan plan does not \
+                     produce this shape; route via a NetworkCoalesceExec gather instead."
+                );
+                #[cfg(test)]
+                panic!(
                     "mpp worker_fragments: top-level NetworkBroadcastExec is unsupported \
                      (stage_id={stage_id}). The natural-shape AggregateScan plan does not \
                      produce this shape; route via a NetworkCoalesceExec gather instead."

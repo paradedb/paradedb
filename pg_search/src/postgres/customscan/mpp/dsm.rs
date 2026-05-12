@@ -400,12 +400,17 @@ impl MppBuildCache {
 
     /// Spin until all `n_workers` have signalled completion for `source`.
     /// Yields to PG via `check_for_interrupts!` so `statement_timeout` works.
+    /// `check_for_interrupts!` pulls in PG runtime symbols and is gated out of
+    /// `cargo test` builds; the lib tests in this file never reach
+    /// `wait_complete`, but the gate keeps the symbol off the test-binary link
+    /// line even if the linker fails to DCE the function.
     pub fn wait_complete(&self, source: u32) {
         let counter = unsafe { &*self.completion_ptr(source) };
         loop {
             if counter.load(std::sync::atomic::Ordering::Acquire) >= self.n_workers {
                 return;
             }
+            #[cfg(not(test))]
             pgrx::check_for_interrupts!();
             std::hint::spin_loop();
         }

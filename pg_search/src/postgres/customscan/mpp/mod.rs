@@ -57,12 +57,29 @@ pub struct MppParticipantConfig {
 /// Emit a runtime trace when `paradedb.mpp_debug` is on.
 ///
 /// Routed through `pgrx::warning!` so the line appears in the Postgres server log
-/// (and in CI benchmark logs). No-op when the GUC is off.
+/// (and in CI benchmark logs). No-op when the GUC is off, and no-op in `cargo
+/// test` builds: `pgrx::warning!` expands to a call into PG's `ereport`
+/// machinery (`CurrentMemoryContext`, `PG_exception_stack`,
+/// `error_context_stack`, `CopyErrorData`), which the plain `cargo test
+/// --no-default-features` link line does not provide. Production builds
+/// (`cargo pgrx install`, the cdylib) link against PG and resolve these at
+/// load time, so gating only the `#[cfg(test)]` lib-test build is enough.
+#[cfg(not(test))]
 #[macro_export]
 macro_rules! mpp_log {
     ($($arg:tt)*) => {
         if $crate::gucs::mpp_debug() {
             pgrx::warning!($($arg)*);
         }
+    };
+}
+
+/// `cargo test` variant: no-op. `format_args!` is invoked solely to silence
+/// "unused variable" / "unused import" warnings at the call sites.
+#[cfg(test)]
+#[macro_export]
+macro_rules! mpp_log {
+    ($($arg:tt)*) => {
+        { let _ = format_args!($($arg)*); }
     };
 }

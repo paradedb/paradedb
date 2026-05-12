@@ -55,10 +55,10 @@ use crate::postgres::customscan::mpp::glue::{
 use crate::postgres::customscan::mpp::runtime::{MppMesh, MppWorkerResolver, ShmMqWorkerTransport};
 use crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator;
 use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, MppFrameHeader, MppSender};
+use crate::postgres::customscan::mpp::worker::run_worker_fragment;
 use crate::postgres::customscan::mpp::worker_fragments::{
     find_worker_assignments, FragmentRouting,
 };
-use crate::postgres::customscan::mpp::worker::run_worker_fragment;
 
 use crate::api::agg_funcoid;
 use crate::api::SortDirection;

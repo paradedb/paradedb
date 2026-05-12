@@ -53,6 +53,7 @@ use crate::postgres::customscan::mpp::glue::{
     worker_setup,
 };
 use crate::postgres::customscan::mpp::runtime::{MppMesh, MppWorkerResolver, ShmMqWorkerTransport};
+use crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator;
 use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, MppFrameHeader, MppSender};
 use crate::postgres::customscan::mpp::worker_fragments::{
     find_worker_assignments, FragmentRouting,
@@ -1111,6 +1112,15 @@ impl AggregateScan {
             .with_distributed_worker_transport(ShmMqWorkerTransport::new(mesh))
             .with_distributed_in_process_mode(true)
             .expect("with_distributed_in_process_mode")
+            // Estimator chain — order matters. The DF-D fork tries each
+            // estimator in registration order until one returns Some.
+            // The build-side one-task estimator must come first; otherwise
+            // the default `Desired(n_workers)` leaf estimator wins and the
+            // all-gather memory leaf gets task_count = n_workers, which
+            // makes `_distribute_plan` build NetworkBroadcastExec with
+            // input_task_count = n_workers and the consumer's select_all
+            // over-counts by n_workers. See task_estimator.rs.
+            .with_distributed_task_estimator(BroadcastBuildSideOneTaskEstimator)
             .with_distributed_task_estimator(n_workers)
             .with_distributed_broadcast_joins(true)
             .expect("with_distributed_broadcast_joins")
@@ -1346,6 +1356,13 @@ impl AggregateScan {
             .with_distributed_worker_transport(ShmMqWorkerTransport::new(Arc::clone(&worker_mesh)))
             .with_distributed_in_process_mode(true)
             .expect("with_distributed_in_process_mode")
+            // Same estimator chain as the leader (see
+            // `build_mpp_leader_session_context`). The build-side
+            // one-task estimator must precede the default leaf
+            // estimator so that worker physical plans match the
+            // leader's — TaskAssignment depends on byte-identical
+            // stage numbering across procs.
+            .with_distributed_task_estimator(BroadcastBuildSideOneTaskEstimator)
             .with_distributed_task_estimator(n_workers_us)
             .with_distributed_broadcast_joins(true)
             .expect("with_distributed_broadcast_joins")
@@ -1465,29 +1482,37 @@ impl AggregateScan {
                     );
                 }
 
-                // Broadcast short-circuit (load-bearing for correctness):
+                // Broadcast invariant + defensive short-circuit:
                 // pg_search's natural-shape AggregateScan plan canonical-
-                // replicates the build subtree across producer procs via
-                // the `mpp build all-gather` step that pre-stages the
-                // canonical source on every worker. Each producer task's
-                // BroadcastExec would therefore scan the full canonical
-                // data — running every task and `select_all`ing their
-                // outputs in the consumer would over-count by
-                // `input_task_count`. The wire-level short-circuit forces
-                // input_task_count=1: only task 0 runs, the rest emit EOF.
+                // replicates the build subtree via the `mpp build all-
+                // gather` step, so every producer task would scan the
+                // full canonical data and the consumer's `select_all`
+                // would over-count by `input_task_count`. The planner-
+                // level [`BroadcastBuildSideOneTaskEstimator`] caps the
+                // build subtree at task_count=1, so a correct plan
+                // produces exactly one Broadcast fragment with
+                // task_idx == 0. The `debug_assert!` catches a future
+                // planner change that loses the cap, and the release-
+                // build short-circuit keeps results correct by EOF-only-
+                // ing any unexpected `task_idx > 0` fragment.
                 //
-                // INVARIANT: every `FragmentRouting::Broadcast` fragment
-                // is over a canonical-replicated child. Today this is
-                // enforced by the AggregateScan path's all-gather step.
-                // See the doc on `FragmentRouting::Broadcast` for what
-                // breaks if a future planner emits broadcast over sharded
-                // input.
+                // See the doc on `FragmentRouting::Broadcast` and on
+                // `mpp::task_estimator::BroadcastBuildSideOneTaskEstimator`.
+                if matches!(fragment.routing, FragmentRouting::Broadcast { .. }) {
+                    debug_assert!(
+                        fragment.task_idx == 0,
+                        "mpp dispatcher: Broadcast fragment with task_idx={} but \
+                         BroadcastBuildSideOneTaskEstimator should have capped \
+                         input_task_count at 1; plan-walk drift?",
+                        fragment.task_idx,
+                    );
+                }
                 if matches!(fragment.routing, FragmentRouting::Broadcast { .. })
                     && fragment.task_idx != 0
                 {
                     crate::mpp_log!(
                         "mpp worker dispatch this_proc={this_proc} fragment(stage_id={}, \
-                         task_idx={}) Broadcast short-circuit: EOF-only",
+                         task_idx={}) Broadcast short-circuit: EOF-only (cap drift)",
                         fragment.stage_id,
                         fragment.task_idx,
                     );

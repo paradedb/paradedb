@@ -119,6 +119,16 @@ pub enum FragmentRouting {
     /// `BroadcastCanonicalReplica` vs. `BroadcastSharded` (or the
     /// short-circuit must be conditional on a planner-set sentinel).
     ///
+    /// **Planner-level cap:** the AggregateScan session installs
+    /// [`crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator`]
+    /// in front of the default leaf estimator, which caps the canonical-
+    /// replica memory leaf at `task_count = 1`. This propagates up the
+    /// build subtree and makes the DF-D planner build
+    /// `NetworkBroadcastExec` with `input_task_count = 1`. With the cap
+    /// in place the dispatcher only ever sees `task_idx == 0` fragments
+    /// for Broadcast routing — the wire-layer short-circuit becomes a
+    /// defensive fall-back (`debug_assert!` in dev, EOF-only in release).
+    ///
     /// [`NetworkBroadcastExec`]: datafusion_distributed::NetworkBroadcastExec
     Broadcast {
         /// Stage id of the immediately enclosing stage. Same semantics as

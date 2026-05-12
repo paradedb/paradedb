@@ -30,6 +30,7 @@ pub mod dsm;
 pub mod glue;
 pub mod mesh;
 pub mod runtime;
+pub mod task_estimator;
 pub mod transport;
 pub mod worker;
 pub mod worker_fragments;

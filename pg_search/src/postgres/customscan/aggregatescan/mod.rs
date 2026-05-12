@@ -1956,6 +1956,27 @@ impl AggregateScan {
                 unsafe { pg_sys::work_mem as usize * 1024 },
                 unsafe { pg_sys::hash_mem_multiplier },
             );
+            // M2.d review-fix: explicitly install `DistributedTaskContext` on
+            // the leader's task_ctx. The fork's `from_ctx` defaults to
+            // `{task_index: 0, task_count: 1}` which arithmetically matches
+            // our current single-leader natural-shape gather, but the
+            // implicit fallback silently masks any planner shape that emits
+            // a different `consumer_tc` at the top boundary. Installing it
+            // up-front makes the contract explicit and aligns with the
+            // worker dispatcher's `DistributedTaskContext` setup.
+            let task_ctx = {
+                let cfg = task_ctx.session_config().clone().with_extension(Arc::new(
+                    DistributedTaskContext {
+                        task_index: 0,
+                        task_count: 1,
+                    },
+                ));
+                Arc::new(
+                    TaskContext::default()
+                        .with_session_config(cfg)
+                        .with_runtime(task_ctx.runtime_env().clone()),
+                )
+            };
             let stream = {
                 let _guard = runtime.enter();
                 match physical_plan.execute(0, task_ctx) {

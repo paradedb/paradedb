@@ -1,0 +1,216 @@
+-- =====================================================================
+-- MPP AggregateScan: multi-stage natural-shape plan coverage.
+--
+-- Exercises the M2.d/M3 transport substrate end-to-end via post-aggregate
+-- patterns that produce a three-stage plan
+-- (NetworkCoalesceExec -> NetworkShuffleExec -> NetworkBroadcastExec):
+--   - GROUP BY one key, multiple aggregates
+--   - GROUP BY multiple keys
+--   - HAVING + ORDER BY + LIMIT
+--   - aggregation over a HashJoin with broadcast build subtree
+--
+-- Each pass runs the same query in serial mode (enable_mpp=off) then MPP
+-- mode (enable_mpp=on) and the expected.out compares them byte-for-byte
+-- — any MPP-vs-serial divergence shows up as a regression.
+-- =====================================================================
+CREATE EXTENSION IF NOT EXISTS pg_search;
+SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.enable_join_custom_scan TO on;
+SET paradedb.mpp_worker_count TO 4;
+SET max_parallel_workers_per_gather TO 4;
+SET max_parallel_workers TO 8;
+SET min_parallel_table_scan_size TO 0;
+SET parallel_setup_cost TO 0;
+SET parallel_tuple_cost TO 0;
+CREATE TABLE mpp_postagg_files (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    category TEXT,
+    content TEXT
+);
+CREATE TABLE mpp_postagg_pages (
+    id SERIAL PRIMARY KEY,
+    file_id INTEGER,
+    page_text TEXT,
+    size_bytes INTEGER
+);
+INSERT INTO mpp_postagg_files (title, category, content)
+SELECT 'file-' || g,
+       'cat-' || (g % 5),
+       'Section ' || g || ' has content for testing'
+FROM generate_series(1, 200) AS g;
+INSERT INTO mpp_postagg_pages (file_id, page_text, size_bytes)
+SELECT (g % 200) + 1,
+       'Page text for page ' || g,
+       (g * 17) % 4096
+FROM generate_series(1, 1000) AS g;
+CREATE INDEX mpp_postagg_files_idx ON mpp_postagg_files
+USING bm25 (id, title, category, content)
+WITH (
+    key_field='id',
+    text_fields='{"title": {"fast": true}, "category": {"fast": true}, "content": {}}'
+);
+CREATE INDEX mpp_postagg_pages_idx ON mpp_postagg_pages
+USING bm25 (id, file_id, page_text, size_bytes)
+WITH (
+    key_field='id',
+    numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
+    text_fields='{"page_text": {}}'
+);
+ANALYZE mpp_postagg_files;
+ANALYZE mpp_postagg_pages;
+-- =====================================================================
+-- Scenario 1: GROUP BY one key with multiple aggregates.
+-- =====================================================================
+SET paradedb.enable_mpp TO off;
+SELECT f.category,
+       COUNT(*) AS row_count,
+       SUM(p.size_bytes) AS total_bytes,
+       MIN(p.size_bytes) AS min_bytes,
+       MAX(p.size_bytes) AS max_bytes
+FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+GROUP BY f.category
+ORDER BY f.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
+ category | row_count | total_bytes | min_bytes | max_bytes 
+----------+-----------+-------------+-----------+-----------
+ cat-0    |       200 |      394380 |         4 |      4063
+ cat-1    |       200 |      397780 |        21 |      4080
+ cat-2    |       200 |      396468 |         1 |      4081
+ cat-3    |       200 |      395772 |         2 |      4082
+ cat-4    |       200 |      395076 |         3 |      4083
+(5 rows)
+
+SET paradedb.enable_mpp TO on;
+SELECT f.category,
+       COUNT(*) AS row_count,
+       SUM(p.size_bytes) AS total_bytes,
+       MIN(p.size_bytes) AS min_bytes,
+       MAX(p.size_bytes) AS max_bytes
+FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+GROUP BY f.category
+ORDER BY f.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
+ category | row_count | total_bytes | min_bytes | max_bytes 
+----------+-----------+-------------+-----------+-----------
+ cat-0    |       200 |      394380 |         4 |      4063
+ cat-1    |       200 |      397780 |        21 |      4080
+ cat-2    |       200 |      396468 |         1 |      4081
+ cat-3    |       200 |      395772 |         2 |      4082
+ cat-4    |       200 |      395076 |         3 |      4083
+(5 rows)
+
+-- =====================================================================
+-- Scenario 2: GROUP BY multiple keys.
+-- =====================================================================
+SET paradedb.enable_mpp TO off;
+SELECT f.category, f.title, COUNT(*) AS pages_per_file
+FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+GROUP BY f.category, f.title
+ORDER BY f.category, f.title
+LIMIT 10;
+WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
+ category |  title   | pages_per_file 
+----------+----------+----------------
+ cat-0    | file-10  |              5
+ cat-0    | file-100 |              5
+ cat-0    | file-105 |              5
+ cat-0    | file-110 |              5
+ cat-0    | file-115 |              5
+ cat-0    | file-120 |              5
+ cat-0    | file-125 |              5
+ cat-0    | file-130 |              5
+ cat-0    | file-135 |              5
+ cat-0    | file-140 |              5
+(10 rows)
+
+SET paradedb.enable_mpp TO on;
+SELECT f.category, f.title, COUNT(*) AS pages_per_file
+FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+GROUP BY f.category, f.title
+ORDER BY f.category, f.title
+LIMIT 10;
+WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
+ category |  title   | pages_per_file 
+----------+----------+----------------
+ cat-0    | file-10  |              5
+ cat-0    | file-100 |              5
+ cat-0    | file-105 |              5
+ cat-0    | file-110 |              5
+ cat-0    | file-115 |              5
+ cat-0    | file-120 |              5
+ cat-0    | file-125 |              5
+ cat-0    | file-130 |              5
+ cat-0    | file-135 |              5
+ cat-0    | file-140 |              5
+(10 rows)
+
+-- =====================================================================
+-- Scenario 3: HAVING + ORDER BY + LIMIT — late aggregate filtering.
+-- =====================================================================
+SET paradedb.enable_mpp TO off;
+SELECT f.category, COUNT(*) AS c, SUM(p.size_bytes) AS s
+FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+GROUP BY f.category
+HAVING COUNT(*) > 100
+ORDER BY s DESC
+LIMIT 3;
+WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
+ category |  c  |   s    
+----------+-----+--------
+ cat-1    | 200 | 397780
+ cat-2    | 200 | 396468
+ cat-3    | 200 | 395772
+(3 rows)
+
+SET paradedb.enable_mpp TO on;
+SELECT f.category, COUNT(*) AS c, SUM(p.size_bytes) AS s
+FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+GROUP BY f.category
+HAVING COUNT(*) > 100
+ORDER BY s DESC
+LIMIT 3;
+WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
+ category |  c  |   s    
+----------+-----+--------
+ cat-1    | 200 | 397780
+ cat-2    | 200 | 396468
+ cat-3    | 200 | 395772
+(3 rows)
+
+-- =====================================================================
+-- Scenario 4: Scalar COUNT(*) — falls back to serial (planner caps the
+-- task_count for scalar aggregates), but confirms MPP-on doesn't break
+-- the serial fallback path.
+-- =====================================================================
+SET paradedb.enable_mpp TO off;
+SELECT COUNT(*)
+FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section';
+WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
+ count 
+-------
+  1000
+(1 row)
+
+SET paradedb.enable_mpp TO on;
+SELECT COUNT(*)
+FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section';
+WARNING:  JoinScan not used: aggregates are not supported (tables: f, p)
+ count 
+-------
+  1000
+(1 row)
+
+-- =====================================================================
+-- Cleanup
+-- =====================================================================
+DROP TABLE mpp_postagg_pages;
+DROP TABLE mpp_postagg_files;

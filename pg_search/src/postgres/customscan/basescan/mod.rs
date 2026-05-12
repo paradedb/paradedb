@@ -65,8 +65,8 @@ use crate::postgres::customscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
 use crate::postgres::customscan::qual_inspect::{
-    extract_join_predicates, optimize_quals_with_heap_expr, try_extract_pushdown_qual, ExtractInfo,
-    PlannerContext, Qual, QualExtractState,
+    extract_join_predicates, optimize_quals_with_heap_expr, restrict_info_id,
+    try_extract_pushdown_qual, ExtractInfo, PlannerContext, Qual, QualExtractState,
 };
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -1193,7 +1193,7 @@ impl CustomScan for BaseScan {
                 }
 
                 let ri = clause as *mut pg_sys::RestrictInfo;
-                let clause_id = (*ri).rinfo_serial;
+                let clause_id = restrict_info_id(ri);
                 if residual.contains(&clause_id) {
                     // We have found residual conditions
                     residual_quals.push((*ri).clause.cast());

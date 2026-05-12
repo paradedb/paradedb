@@ -34,7 +34,20 @@ use pgrx::{pg_guard, pg_sys, FromDatum, IntoDatum, PgList};
 use std::ops::Bound;
 use tantivy::schema::OwnedValue;
 
-pub type RestrictInfoID = ::core::ffi::c_int;
+// Planner-local identity for a RestrictInfo node.
+//
+// Do not treat this as a stable PostgreSQL object id. It is only used during
+// one planner invocation to match the same RestrictInfo pointer between
+// create_custom_path and plan_custom_path.
+//
+// We intentionally do not use RestrictInfo::rinfo_serial here: that field is
+// not available in PostgreSQL 15 pgrx bindings.
+pub type RestrictInfoID = usize;
+
+#[inline]
+pub fn restrict_info_id(r_info: *mut RestrictInfo) -> RestrictInfoID {
+    r_info as usize
+}
 
 #[derive(Default)]
 pub struct ExtractInfo {
@@ -76,8 +89,9 @@ impl ExtractInfo {
     }
 
     pub fn add_residual(&mut self, r_info: *mut RestrictInfo) {
-        let id = unsafe { (*r_info).rinfo_serial };
-        self.residual.push(id);
+        if !r_info.is_null() {
+            self.residual.push(restrict_info_id(r_info));
+        }
     }
 
     pub fn add_state(&mut self, state: QualExtractState) {

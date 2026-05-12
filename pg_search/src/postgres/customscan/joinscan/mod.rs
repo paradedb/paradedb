@@ -1251,6 +1251,8 @@ impl CustomScan for JoinScan {
                 None,
                 vec![],
                 vec![],
+                None,
+                0,
             )
             .expect("Failed to deserialize logical plan");
             let physical_plan = runtime
@@ -1335,6 +1337,8 @@ impl CustomScan for JoinScan {
                     Some(planstate),
                     state.custom_state().non_partitioning_segments.clone(),
                     index_segment_ids,
+                    None,
+                    0,
                 )
                 .expect("Failed to deserialize logical plan");
 

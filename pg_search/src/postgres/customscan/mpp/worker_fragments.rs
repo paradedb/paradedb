@@ -97,16 +97,27 @@ pub enum FragmentRouting {
         /// `P_c` in the receive-side formula `off = P_c * task_index`.
         partitions_per_consumer_task: usize,
     },
-    /// Broadcast mesh ([`NetworkBroadcastExec`]). Wire-level routing math is
-    /// identical to [`Self::Shuffle`] (consumer task `q / P_c`), but the
-    /// pg_search natural-shape plan canonical-replicates the build subtree
-    /// across all workers — every input task scans the full canonical data
-    /// and the consumer's `select_all` would union duplicates. We force
-    /// `input_task_count = 1` at the wire layer by having only task 0 run
-    /// the producer plan; tasks `task_idx > 0` short-circuit to per-partition
-    /// EOF. The consumer's three input streams then yield real data from
-    /// task 0 + empty streams from the others, matching the upstream
-    /// "single producer broadcast" pattern.
+    /// Broadcast mesh ([`NetworkBroadcastExec`]) over a build subtree that
+    /// is canonical-replicated across all producer procs. Wire-level math
+    /// is identical to [`Self::Shuffle`] (output partition `q` →
+    /// consumer task `q / P_c`), but the dispatcher effectively reduces
+    /// the producer side to a single task: only `task_idx == 0` runs the
+    /// producer plan; tasks `task_idx > 0` send a per-partition EOF and
+    /// exit. The consumer's input streams merge real data from task 0
+    /// with empty streams from the others, matching upstream's
+    /// single-producer broadcast pattern.
+    ///
+    /// **INVARIANT (load-bearing for correctness):** the build subtree's
+    /// output is canonical-replicated across all producer procs. In the
+    /// AggregateScan MPP path this is enforced by the all-gather step
+    /// (`mpp build all-gather`) that pre-stages the canonical source on
+    /// every worker before plan execution. If a future planner emits a
+    /// [`NetworkBroadcastExec`] over a sharded child (e.g. each producer
+    /// task scans a different file_group), the short-circuit silently
+    /// drops `input_task_count - 1` shards' worth of data. When that
+    /// pattern is introduced, this variant must be split into
+    /// `BroadcastCanonicalReplica` vs. `BroadcastSharded` (or the
+    /// short-circuit must be conditional on a planner-set sentinel).
     ///
     /// [`NetworkBroadcastExec`]: datafusion_distributed::NetworkBroadcastExec
     Broadcast {
@@ -225,7 +236,22 @@ fn collect(
         // nested-coalesce arm here is a defensive fallback for shapes the
         // M2.d milestone doesn't yet exercise.
         let routing = match (name, parent) {
-            // Top-level boundary: consumer is leader.
+            // Top-level NetworkBroadcastExec is not a shape the natural-
+            // shape AggregateScan plan produces today (broadcast is always
+            // nested inside the HashJoin build subtree). Falling through
+            // to `Coalesce { dest_proc: 0 }` would silently send every
+            // input task's full canonical replica to the leader and
+            // `select_all` would over-count by `input_task_count`. Surface
+            // it as an error so a future planner change that hits this
+            // shape doesn't silently produce wrong answers.
+            ("NetworkBroadcastExec", None) => {
+                pgrx::error!(
+                    "mpp worker_fragments: top-level NetworkBroadcastExec is unsupported \
+                     (stage_id={stage_id}). The natural-shape AggregateScan plan does not \
+                     produce this shape; route via a NetworkCoalesceExec gather instead."
+                );
+            }
+            // Top-level boundary (gather to leader): consumer is leader proc 0.
             (_, None) => FragmentRouting::Coalesce { dest_proc: 0 },
             // Nested NetworkShuffleExec: hash-partitioned mesh. Each
             // output partition q maps to consumer task q / p_c.
@@ -236,7 +262,7 @@ fn collect(
             // Nested NetworkBroadcastExec: same wire-level math as
             // Shuffle, but the dispatcher only runs the producer plan on
             // task 0 to avoid the canonical-replica duplication described
-            // on FragmentRouting::Broadcast.
+            // on `FragmentRouting::Broadcast`.
             ("NetworkBroadcastExec", Some(pctx)) => FragmentRouting::Broadcast {
                 parent_stage_id: pctx.parent_stage_id,
                 partitions_per_consumer_task: p_c,

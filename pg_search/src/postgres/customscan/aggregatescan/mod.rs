@@ -1465,12 +1465,23 @@ impl AggregateScan {
                     );
                 }
 
-                // Broadcast short-circuit: pg_search's natural-shape plan
-                // canonical-replicates the build subtree (see the doc on
-                // `FragmentRouting::Broadcast`), so running the producer
-                // plan on every input task would duplicate by
-                // `input_task_count`. Only task 0 runs the plan; tasks
-                // `task_idx > 0` send a per-partition EOF and return.
+                // Broadcast short-circuit (load-bearing for correctness):
+                // pg_search's natural-shape AggregateScan plan canonical-
+                // replicates the build subtree across producer procs via
+                // the `mpp build all-gather` step that pre-stages the
+                // canonical source on every worker. Each producer task's
+                // BroadcastExec would therefore scan the full canonical
+                // data — running every task and `select_all`ing their
+                // outputs in the consumer would over-count by
+                // `input_task_count`. The wire-level short-circuit forces
+                // input_task_count=1: only task 0 runs, the rest emit EOF.
+                //
+                // INVARIANT: every `FragmentRouting::Broadcast` fragment
+                // is over a canonical-replicated child. Today this is
+                // enforced by the AggregateScan path's all-gather step.
+                // See the doc on `FragmentRouting::Broadcast` for what
+                // breaks if a future planner emits broadcast over sharded
+                // input.
                 if matches!(fragment.routing, FragmentRouting::Broadcast { .. })
                     && fragment.task_idx != 0
                 {

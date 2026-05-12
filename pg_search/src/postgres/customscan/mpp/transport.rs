@@ -639,6 +639,15 @@ impl MppSender {
     /// [`Self::send_batch_traced`] so a full outbound queue doesn't
     /// deadlock the EOF send. `stats.spin_iters` / `send_wait` capture
     /// any contention.
+    ///
+    /// Symmetric-EOF safety: when every peer reaches EOF simultaneously
+    /// with full outbound queues, each peer's cooperative
+    /// [`CooperativeDrainSet::poll_drain_pass`] inside the spin pulls
+    /// peer-sent frames out of its own inbound queues, freeing space
+    /// the peers are blocked on. Progress is monotone — at least one
+    /// `try_send_bytes` succeeds per spin iteration somewhere in the
+    /// mesh, so symmetric stalls resolve within a few iterations
+    /// rather than deadlocking.
     pub async fn send_eof_traced(&self, stats: &mut SendBatchStats) -> Result<(), DataFusionError> {
         let mut scratch = self.scratch.replace(Vec::new());
         let result = self.send_eof_with_scratch(&mut scratch, stats).await;

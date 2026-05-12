@@ -11,35 +11,26 @@
 --
 -- These tests intentionally do not compare full EXPLAIN output. Instead, each
 -- case returns stable boolean planner/executor invariants.
-
 SET client_min_messages TO warning;
 CREATE EXTENSION IF NOT EXISTS pg_search;
-
 SET max_parallel_workers_per_gather = 0;
-
 DROP TABLE IF EXISTS mock_items CASCADE;
-
 CALL paradedb.create_bm25_test_table(
     schema_name => 'public',
     table_name => 'mock_items'
 );
-
 CREATE INDEX search_idx ON mock_items
     USING bm25 (id, description)
     WITH (key_field = 'id');
-
 ANALYZE mock_items;
-
 CREATE TEMP TABLE issue_4710_config (
     name text PRIMARY KEY,
     enabled boolean NOT NULL
 );
-
 INSERT INTO issue_4710_config(name, enabled)
 VALUES
     ('enabled', true),
     ('disabled', false);
-
 CREATE FUNCTION pg_temp.issue_4710_has_access()
     RETURNS boolean
     LANGUAGE sql
@@ -47,7 +38,6 @@ CREATE FUNCTION pg_temp.issue_4710_has_access()
 AS $$
 SELECT true
            $$;
-
 CREATE FUNCTION pg_temp.issue_4710_threshold()
     RETURNS integer
     LANGUAGE sql
@@ -55,7 +45,6 @@ CREATE FUNCTION pg_temp.issue_4710_threshold()
 AS $$
 SELECT 100
            $$;
-
 CREATE FUNCTION pg_temp.check_scored_custom_scan(
     p_case_no text,
     p_case_name text,
@@ -162,13 +151,11 @@ END;
 RETURN NEXT;
 END
 $$;
-
 CREATE TEMP TABLE issue_4710_cases (
     case_no text PRIMARY KEY,
     case_name text NOT NULL,
     query text NOT NULL
 );
-
 INSERT INTO issue_4710_cases(case_no, case_name, query)
 VALUES
     (
@@ -405,7 +392,6 @@ VALUES
             LIMIT 5
         $q$
     );
-
 CREATE TEMP TABLE issue_4710_results AS
 SELECT r.*
 FROM issue_4710_cases c
@@ -414,7 +400,6 @@ FROM issue_4710_cases c
     c.case_name,
     c.query
 ) r;
-
 SELECT
     case_no,
     case_name,
@@ -429,11 +414,32 @@ SELECT
     error_kind
 FROM issue_4710_results
 ORDER BY case_no;
+ case_no |             case_name              | explain_ok | execution_ok | custom_scan | scores_true | tantivy_query | no_plain_index_scan | score_evaluated | passed | error_kind 
+---------+------------------------------------+------------+--------------+-------------+-------------+---------------+---------------------+-----------------+--------+------------
+ 01      | issue_4710_original                | t          | t            | t           | t           | t             | t                   | t               | t      | 
+ 02      | issue_4596_top_level_initplan_and  | t          | t            | t           | t           | t             | t                   | t               | t      | 
+ 03      | reversed_initplan_or               | t          | t            | t           | t           | t             | t                   | t               | t      | 
+ 04      | false_initplan_or_with_real_filter | t          | t            | t           | t           | t             | t                   | t               | t      | 
+ 05      | nested_or_and_residual             | t          | t            | t           | t           | t             | t                   | t               | t      | 
+ 06      | table_backed_initplan_inside_or    | t          | t            | t           | t           | t             | t                   | t               | t      | 
+ 07      | stable_function_subquery_inside_or | t          | t            | t           | t           | t             | t                   | t               | t      | 
+ 08      | exists_inside_or                   | t          | t            | t           | t           | t             | t                   | t               | t      | 
+ 09      | correlated_exists_inside_or        | t          | t            | t           | t           | t             | t                   | t               | t      | 
+ 10      | scalar_initplan_inside_opexpr      | t          | t            | t           | t           | t             | t                   | t               | t      | 
+ 11      | case_expression_with_initplan      | t          | t            | t           | t           | t             | t                   | t               | t      | 
+ 12      | coalesce_expression_with_initplan  | t          | t            | t           | t           | t             | t                   | t               | t      | 
+ 13      | not_and_expression_with_initplan   | t          | t            | t           | t           | t             | t                   | t               | t      | 
+ 14      | scalar_array_opexpr_inside_or      | t          | t            | t           | t           | t             | t                   | t               | t      | 
+ 15      | score_nested_inside_target_expr    | t          | t            | t           | t           | t             | t                   | t               | t      | 
+ 16      | score_used_in_order_by             | t          | t            | t           | t           | t             | t                   | t               | t      | 
+ 17      | cte_backed_initplan_inside_or      | t          | t            | t           | t           | t             | t                   | t               | t      | 
+ 18      | multiple_residual_conjuncts        | t          | t            | t           | t           | t             | t                   | t               | t      | 
+ 19      | non_subquery_residual_expression   | t          | t            | t           | t           | t             | t                   | t               | t      | 
+(19 rows)
 
 DROP TABLE issue_4710_results;
 DROP TABLE issue_4710_cases;
 DROP TABLE issue_4710_config;
 DROP TABLE mock_items CASCADE;
-
 RESET max_parallel_workers_per_gather;
 RESET client_min_messages;

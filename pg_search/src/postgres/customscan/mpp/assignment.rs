@@ -111,7 +111,25 @@ impl TaskAssignment {
         let n_workers = n_procs.saturating_sub(1).max(1);
         let mut map = HashMap::new();
         collect_into(plan, &mut map, n_workers);
-        Arc::new(Self { map, n_procs })
+        let table = Arc::new(Self { map, n_procs });
+        #[cfg(not(test))]
+        {
+            // Diagnostic dump: every (stage_id, task_idx) → proc_idx the walker
+            // recorded. Lets us compare leader vs worker on the same logical
+            // plan and confirm `Stage.num` parity.
+            crate::mpp_log!(
+                "mpp assignment::from_plan n_procs={} entries={}",
+                n_procs,
+                table.map.len()
+            );
+            let mut entries: Vec<(u32, u32, u32)> =
+                table.map.iter().map(|(&(s, t), &p)| (s, t, p)).collect();
+            entries.sort_unstable();
+            for (s, t, p) in entries {
+                crate::mpp_log!("mpp assignment::from_plan stage_id={s} task_idx={t} proc_idx={p}");
+            }
+        }
+        table
     }
 
     /// Look up the proc that hosts `(stage_id, task_idx)`. Returns `None` if

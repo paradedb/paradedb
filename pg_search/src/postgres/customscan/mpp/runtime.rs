@@ -227,6 +227,11 @@ impl WorkerTransport for ShmMqWorkerTransport {
                 self.mesh.n_procs
             )));
         }
+        crate::mpp_log!(
+            "mpp transport::open this_proc={} stage_id={stage_id} target_task={target_task} \
+             → sender_proc={sender_proc}",
+            self.mesh.this_proc
+        );
         Ok(Box::new(ShmMqWorkerConnection {
             mesh: Arc::clone(&self.mesh),
             sender_proc,
@@ -268,6 +273,13 @@ impl WorkerConnection for ShmMqWorkerConnection {
         // matching header land here; frames tagged with other partitions go
         // to their own sub-buffers, so this consumer only sees its slice.
         let buffer = drain.register_channel(self.stage_id, partition_u32);
+        crate::mpp_log!(
+            "mpp transport::stream_partition this_proc={} sender_proc={} stage_id={} \
+             partition={partition_u32} (register_channel)",
+            self.mesh.this_proc,
+            self.sender_proc,
+            self.stage_id,
+        );
         // Cooperative pull loop: pgrx requires shm_mq FFI on the backend
         // thread, so the drain pass runs inline here. Each iteration drains
         // the receiver into the registry (max 256 batches), then pops one

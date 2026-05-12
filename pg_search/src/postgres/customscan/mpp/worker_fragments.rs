@@ -41,6 +41,8 @@
 use std::sync::Arc;
 
 use datafusion::physical_plan::ExecutionPlan;
+#[cfg(not(test))]
+use datafusion::physical_plan::ExecutionPlanProperties;
 use datafusion_distributed::NetworkBoundaryExt;
 
 use crate::postgres::customscan::mpp::assignment::TaskAssignment;
@@ -116,6 +118,37 @@ pub fn find_worker_assignments(
 ) -> Vec<FragmentAssignment> {
     let mut out = Vec::new();
     collect(root, this_proc, assignment, None, &mut out);
+    #[cfg(not(test))]
+    {
+        crate::mpp_log!(
+            "mpp worker_fragments::find_worker_assignments this_proc={} fragments={}",
+            this_proc,
+            out.len()
+        );
+        for f in &out {
+            let n_out = f.plan.output_partitioning().partition_count();
+            match &f.routing {
+                FragmentRouting::Coalesce { dest_proc } => crate::mpp_log!(
+                    "mpp worker_fragments fragment stage_id={} task_idx={} task_count={} \
+                     n_out={n_out} routing=Coalesce dest_proc={dest_proc}",
+                    f.stage_id,
+                    f.task_idx,
+                    f.task_count,
+                ),
+                FragmentRouting::Shuffle {
+                    parent_stage_id,
+                    partitions_per_consumer_task,
+                } => crate::mpp_log!(
+                    "mpp worker_fragments fragment stage_id={} task_idx={} task_count={} \
+                     n_out={n_out} routing=Shuffle parent_stage_id={parent_stage_id} \
+                     partitions_per_consumer_task={partitions_per_consumer_task}",
+                    f.stage_id,
+                    f.task_idx,
+                    f.task_count,
+                ),
+            }
+        }
+    }
     out
 }
 

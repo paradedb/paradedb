@@ -1364,6 +1364,10 @@ impl AggregateScan {
         // mesh. `ShmMqWorkerTransport::open` consults it to route nested
         // boundaries (e.g. the `NetworkShuffleExec` inside a `FinalPartitioned`
         // fragment) to the right peer proc.
+        crate::mpp_log!(
+            "mpp worker (proc={this_proc}): physical plan built; installing assignment table \
+             (total_procs={total_procs})"
+        );
         let assignment = TaskAssignment::from_plan(&physical_plan, total_procs);
         worker_mesh.install_assignment(Arc::clone(&assignment));
 
@@ -1429,6 +1433,12 @@ impl AggregateScan {
                         }
                     };
                     let q_u32 = u32::try_from(q).unwrap_or(u32::MAX);
+                    crate::mpp_log!(
+                        "mpp worker dispatch this_proc={this_proc} fragment(stage_id={}, \
+                         task_idx={}) partition={q} → dest_proc={dest_proc}",
+                        fragment.stage_id,
+                        fragment.task_idx,
+                    );
                     // Attach the worker mesh as the cooperative drain so a
                     // full outbound shm_mq queue doesn't block the backend
                     // thread — the spin pulls every inbound drain while
@@ -1475,7 +1485,34 @@ impl AggregateScan {
             // would never observe `Detached`, and `stream_partition`'s pull
             // loop would spin forever.
             drop(outbound_senders);
-            futures::future::try_join_all(futures).await.map(|_| ())
+            crate::mpp_log!(
+                "mpp worker dispatch this_proc={this_proc} starting try_join_all on {} fragments",
+                fragments.len()
+            );
+            // Deadlock detector: under `paradedb.mpp_debug`, if no fragment
+            // completes within 30s we treat it as a hang and surface as an
+            // error rather than letting the backend spin indefinitely.
+            // Per-drain state is logged via the inbound drains' own traces
+            // (M2.b/M2.d logging in transport.rs / runtime.rs).
+            let join_fut = futures::future::try_join_all(futures);
+            let outcome = if crate::gucs::mpp_debug() {
+                match tokio::time::timeout(std::time::Duration::from_secs(30), join_fut).await {
+                    Ok(r) => r.map(|_| ()),
+                    Err(_) => {
+                        crate::mpp_log!(
+                            "mpp worker dispatch this_proc={this_proc} \
+                             HANG: try_join_all exceeded 30s"
+                        );
+                        Err(datafusion::common::DataFusionError::Internal(format!(
+                            "mpp worker dispatch (proc={this_proc}): try_join_all exceeded 30s — \
+                             deadlock detector triggered"
+                        )))
+                    }
+                }
+            } else {
+                join_fut.await.map(|_| ())
+            };
+            outcome
         });
         if let Err(e) = result {
             pgrx::error!("mpp worker: fragment dispatch failed: {e}");
@@ -1946,6 +1983,10 @@ impl AggregateScan {
             // execute; without it, routing falls back to the M1 single-stage
             // heuristic.
             if let Some(scan_state::MppExecState::Leader(leader)) = df_state.mpp.as_ref() {
+                crate::mpp_log!(
+                    "mpp leader: physical plan built; installing assignment table (n_procs={})",
+                    leader.mesh.n_procs
+                );
                 let assignment = TaskAssignment::from_plan(&physical_plan, leader.mesh.n_procs);
                 leader.mesh.install_assignment(assignment);
             }

@@ -36,6 +36,7 @@ use tantivy::schema::OwnedValue;
 
 pub type RestrictInfoID = ::core::ffi::c_int;
 
+#[derive(Default)]
 pub struct ExtractInfo {
     // Have we found any residual conditions,
     // which should be handled by
@@ -97,16 +98,6 @@ impl ExtractInfo {
         }
 
         self.pushdown = heap_expr_qual;
-    }
-}
-
-impl Default for ExtractInfo {
-    fn default() -> Self {
-        Self {
-            residual: vec![],
-            pushdown: None,
-            state: QualExtractState::default(),
-        }
     }
 }
 

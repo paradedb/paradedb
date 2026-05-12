@@ -125,7 +125,7 @@ pub unsafe fn uses_scores_in_query(
         // Check that not only we have pointer to Query,
         // but it's really a valid struct
         let node = nodecast!(Query, T_Query, query);
-        if let None = node {
+        if node.is_none() {
             return false;
         }
     }

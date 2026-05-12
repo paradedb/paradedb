@@ -253,7 +253,7 @@ impl BaseScan {
         let mut extract_info = ExtractInfo::default();
 
         let mut quals = try_extract_pushdown_qual(
-            &context,
+            context,
             rti,
             restrict_list.as_ptr().cast(),
             RestrictInfoType::Join,
@@ -291,7 +291,7 @@ impl BaseScan {
             let mut local_state = QualExtractState::default();
 
             let opt_qual = try_extract_pushdown_qual(
-                &context,
+                context,
                 rti,
                 ri.cast(),
                 ri_type,
@@ -363,15 +363,14 @@ impl BaseScan {
                 // PostgreSQL evaluator
                 // Try partial extractions - extract all conditions
                 // we support and then combine them under AND operator
-                let extract_info = Self::try_extract_partial_quals(
+                Self::try_extract_partial_quals(
                     &context,
                     rti,
                     ri_type,
                     indexrel,
                     &filtered_restrict_info,
                     attempt_pushdown,
-                );
-                extract_info
+                )
             }
             Some(qual) => {
                 // All conditions are ParadeDB-specific,
@@ -385,14 +384,13 @@ impl BaseScan {
                 let joinri: PgList<pg_sys::RestrictInfo> =
                     PgList::from_pg(builder.args().rel().joininfo);
 
-                let extract_info = Self::try_extract_quals_from_join(
+                Self::try_extract_quals_from_join(
                     &context,
                     rti,
                     indexrel,
                     &joinri,
                     attempt_pushdown,
-                );
-                extract_info
+                )
             }
             true => extract_info,
         };

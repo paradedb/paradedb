@@ -33,13 +33,16 @@ use crate::api::operator::searchqueryinput_typoid;
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::customscan::explain::{format_for_explain, ExplainFormat};
+use crate::postgres::datetime::micros_to_tantivy_datetime;
 use crate::postgres::utils::convert_pg_date_string;
 use crate::query::more_like_this::MoreLikeThisQuery;
 use crate::query::pdb_query::pdb;
 use crate::query::score::ScoreFilter;
+use crate::schema::SearchFieldType;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
 use core::panic;
+use pgrx::datetime::support::DateTimeConversionError;
 use pgrx::{
     pg_sys, varlena_to_byte_slice, FromDatum, IntoDatum, PgBuiltInOids, PgOid, PostgresType,
 };
@@ -47,6 +50,7 @@ use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::{Debug, Formatter};
 use std::ops::Bound;
+use std::str::FromStr;
 use tantivy::query::{
     AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
     Query as TantivyQuery, QueryParser, TermSetQuery,
@@ -1288,6 +1292,7 @@ impl SearchQueryInput {
                             search_field.field(),
                             &value,
                             field_type,
+                            &search_field.field_type(),
                             field.path().as_deref(),
                             search_field.is_datetime(),
                         )
@@ -1545,6 +1550,7 @@ pub fn value_to_term(
     field: Field,
     value: &OwnedValue,
     field_type: &FieldType,
+    search_field_type: &SearchFieldType,
     path: Option<&str>,
     is_datetime: bool,
 ) -> Result<Term> {
@@ -1564,14 +1570,47 @@ pub fn value_to_term(
     }
 
     if is_datetime {
-        if let OwnedValue::Str(text) = value {
-            let TantivyDateTime(date) = TantivyDateTime::try_from(text.as_str())?;
-            // https://github.com/quickwit-oss/tantivy/pull/2456
-            // It's a footgun that date needs to truncated when creating the Term
-            return Ok(Term::from_field_date(
-                field,
-                date.truncate(DATE_TIME_PRECISION_INDEXED),
-            ));
+        match (value, field_type, search_field_type) {
+            (OwnedValue::Str(text), FieldType::Date(_), _) => {
+                let TantivyDateTime(date) = TantivyDateTime::try_from(text.as_str())?;
+                // https://github.com/quickwit-oss/tantivy/pull/2456
+                // It's a footgun that date needs to truncated when creating the Term
+                return Ok(Term::from_field_date(
+                    field,
+                    date.truncate(DATE_TIME_PRECISION_INDEXED),
+                ));
+            }
+            // Timestamp/timestamptz are stored as i64, so convert to i64 if that's our target
+            (OwnedValue::Str(text), FieldType::I64(_), SearchFieldType::I64(oid))
+                if *oid == pg_sys::TIMESTAMPOID =>
+            {
+                let ts = pgrx::datum::Timestamp::from_str(text)?;
+                return Ok(Term::from_field_i64(field, ts.into_inner()));
+            }
+            (OwnedValue::Str(text), FieldType::I64(_), SearchFieldType::I64(oid))
+                if *oid == pg_sys::TIMESTAMPTZOID =>
+            {
+                let ts = pgrx::datum::TimestampWithTimeZone::from_str(text)?;
+                return Ok(Term::from_field_i64(field, ts.into_inner()));
+            }
+            // Got a timestamp/timestamptz value that was converted to an i64, but this is a legacy index that
+            // uses Date, so we need to convert it.
+            // The raw i64 values for timestamp and timestamptz are equivalent, so we can handle
+            // them the same way.
+            (OwnedValue::I64(pg_micros), FieldType::Date(_), SearchFieldType::Date(oid))
+                if *oid == pg_sys::TIMESTAMPOID || *oid == pg_sys::TIMESTAMPTZOID =>
+            {
+                let epoch_ts = unsafe { pg_sys::SetEpochTimestamp() };
+                let unix_micros = pg_micros
+                    .checked_sub(epoch_ts)
+                    .ok_or(DateTimeConversionError::OutOfRange)?;
+                let dt = micros_to_tantivy_datetime(unix_micros)?;
+                return Ok(Term::from_field_date(
+                    field,
+                    dt.truncate(DATE_TIME_PRECISION_INDEXED),
+                ));
+            }
+            _ => (),
         }
     }
 

@@ -82,8 +82,4 @@ impl AnyEnum {
             None => None,
         }
     }
-
-    pub fn typeoid(&self) -> pg_sys::Oid {
-        self.typoid
-    }
 }

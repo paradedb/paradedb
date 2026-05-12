@@ -1388,8 +1388,18 @@ impl AggregateScan {
         let hash_mem_multiplier = unsafe { pg_sys::hash_mem_multiplier };
         let session_arc = Arc::new(session);
 
+        // Two future shapes coexist in this dispatcher: real producer
+        // fragments (`run_producer_fragment`) and broadcast short-circuit
+        // EOF-only stubs. The alias keeps the `Vec<_>` declaration legible
+        // and silences clippy::type_complexity.
+        type FragmentFuture = std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = Result<(), datafusion::common::DataFusionError>>
+                    + Send,
+            >,
+        >;
         let result = runtime.block_on(async move {
-            let mut futures = Vec::with_capacity(fragments.len());
+            let mut futures: Vec<FragmentFuture> = Vec::with_capacity(fragments.len());
             for fragment in &fragments {
                 let n_out = fragment.plan.output_partitioning().partition_count();
                 // Build per-output-partition senders. For each partition `q`
@@ -1400,6 +1410,10 @@ impl AggregateScan {
                     let dest_proc = match &fragment.routing {
                         FragmentRouting::Coalesce { dest_proc } => *dest_proc,
                         FragmentRouting::Shuffle {
+                            parent_stage_id,
+                            partitions_per_consumer_task,
+                        }
+                        | FragmentRouting::Broadcast {
                             parent_stage_id,
                             partitions_per_consumer_task,
                         } => {
@@ -1451,6 +1465,33 @@ impl AggregateScan {
                     );
                 }
 
+                // Broadcast short-circuit: pg_search's natural-shape plan
+                // canonical-replicates the build subtree (see the doc on
+                // `FragmentRouting::Broadcast`), so running the producer
+                // plan on every input task would duplicate by
+                // `input_task_count`. Only task 0 runs the plan; tasks
+                // `task_idx > 0` send a per-partition EOF and return.
+                if matches!(fragment.routing, FragmentRouting::Broadcast { .. })
+                    && fragment.task_idx != 0
+                {
+                    crate::mpp_log!(
+                        "mpp worker dispatch this_proc={this_proc} fragment(stage_id={}, \
+                         task_idx={}) Broadcast short-circuit: EOF-only",
+                        fragment.stage_id,
+                        fragment.task_idx,
+                    );
+                    let senders = per_partition_senders;
+                    futures.push(Box::pin(async move {
+                        let mut stats =
+                            crate::postgres::customscan::mpp::transport::SendBatchStats::default();
+                        for sender in &senders {
+                            sender.send_eof_traced(&mut stats).await?;
+                        }
+                        Ok(())
+                    }));
+                    continue;
+                }
+
                 // Build a TaskContext seeded with the right
                 // `DistributedTaskContext` so the boundary nodes inside the
                 // fragment's plan know their `(task_index, task_count)`.
@@ -1476,7 +1517,11 @@ impl AggregateScan {
                 );
 
                 let plan = Arc::clone(&fragment.plan);
-                futures.push(run_worker_fragment(plan, per_partition_senders, task_ctx));
+                futures.push(Box::pin(run_worker_fragment(
+                    plan,
+                    per_partition_senders,
+                    task_ctx,
+                )));
             }
             // Drop the original outbound_senders so the only remaining Arcs
             // to each shm_mq queue / in-proc channel are the per-partition

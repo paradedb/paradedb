@@ -97,6 +97,27 @@ pub enum FragmentRouting {
         /// `P_c` in the receive-side formula `off = P_c * task_index`.
         partitions_per_consumer_task: usize,
     },
+    /// Broadcast mesh ([`NetworkBroadcastExec`]). Wire-level routing math is
+    /// identical to [`Self::Shuffle`] (consumer task `q / P_c`), but the
+    /// pg_search natural-shape plan canonical-replicates the build subtree
+    /// across all workers — every input task scans the full canonical data
+    /// and the consumer's `select_all` would union duplicates. We force
+    /// `input_task_count = 1` at the wire layer by having only task 0 run
+    /// the producer plan; tasks `task_idx > 0` short-circuit to per-partition
+    /// EOF. The consumer's three input streams then yield real data from
+    /// task 0 + empty streams from the others, matching the upstream
+    /// "single producer broadcast" pattern.
+    ///
+    /// [`NetworkBroadcastExec`]: datafusion_distributed::NetworkBroadcastExec
+    Broadcast {
+        /// Stage id of the immediately enclosing stage. Same semantics as
+        /// [`Self::Shuffle::parent_stage_id`].
+        parent_stage_id: u32,
+        /// `B.properties().output_partitioning().partition_count()`. Same
+        /// semantics as
+        /// [`Self::Shuffle::partitions_per_consumer_task`].
+        partitions_per_consumer_task: usize,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -141,6 +162,17 @@ pub fn find_worker_assignments(
                 } => crate::mpp_log!(
                     "mpp worker_fragments fragment stage_id={} task_idx={} task_count={} \
                      n_out={n_out} routing=Shuffle parent_stage_id={parent_stage_id} \
+                     partitions_per_consumer_task={partitions_per_consumer_task}",
+                    f.stage_id,
+                    f.task_idx,
+                    f.task_count,
+                ),
+                FragmentRouting::Broadcast {
+                    parent_stage_id,
+                    partitions_per_consumer_task,
+                } => crate::mpp_log!(
+                    "mpp worker_fragments fragment stage_id={} task_idx={} task_count={} \
+                     n_out={n_out} routing=Broadcast parent_stage_id={parent_stage_id} \
                      partitions_per_consumer_task={partitions_per_consumer_task}",
                     f.stage_id,
                     f.task_idx,
@@ -195,14 +227,20 @@ fn collect(
         let routing = match (name, parent) {
             // Top-level boundary: consumer is leader.
             (_, None) => FragmentRouting::Coalesce { dest_proc: 0 },
-            // Nested NetworkShuffleExec or NetworkBroadcastExec: each
+            // Nested NetworkShuffleExec: hash-partitioned mesh. Each
             // output partition q maps to consumer task q / p_c.
-            ("NetworkShuffleExec" | "NetworkBroadcastExec", Some(pctx)) => {
-                FragmentRouting::Shuffle {
-                    parent_stage_id: pctx.parent_stage_id,
-                    partitions_per_consumer_task: p_c,
-                }
-            }
+            ("NetworkShuffleExec", Some(pctx)) => FragmentRouting::Shuffle {
+                parent_stage_id: pctx.parent_stage_id,
+                partitions_per_consumer_task: p_c,
+            },
+            // Nested NetworkBroadcastExec: same wire-level math as
+            // Shuffle, but the dispatcher only runs the producer plan on
+            // task 0 to avoid the canonical-replica duplication described
+            // on FragmentRouting::Broadcast.
+            ("NetworkBroadcastExec", Some(pctx)) => FragmentRouting::Broadcast {
+                parent_stage_id: pctx.parent_stage_id,
+                partitions_per_consumer_task: p_c,
+            },
             // Nested NetworkCoalesceExec: consumer is a single task in
             // the parent stage. The receive math collapses to task 0 of
             // the parent group.

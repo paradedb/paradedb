@@ -1080,7 +1080,9 @@ impl AggregateScan {
     /// shm_mq mesh at execute time.
     fn build_mpp_leader_session_context(mesh: Arc<MppMesh>) -> datafusion::prelude::SessionContext {
         let serial = create_aggregate_session_context();
-        let n_workers = mesh.n_workers as usize;
+        // Workers are procs 1..n_procs; leader is proc 0. The producer
+        // count is therefore `n_procs - 1`.
+        let n_workers = mesh.n_procs.saturating_sub(1).max(1) as usize;
         // Four-knob unlock for actually inserting NetworkShuffleExec/etc.:
         //   1. target_partitions(N) — without this, EnforceDistribution skips
         //      every RepartitionExec, so the annotator never sees a Shuffle.
@@ -1136,13 +1138,12 @@ impl AggregateScan {
         let custom_scan_tlist = df_state.custom_scan_tlist;
         let ctx = if mpp_is_active() {
             // Drain-less stub mesh: `with_distributed_planner` only reads
-            // `n_workers` for stage sizing; `ShmMqWorkerTransport::open()`
-            // is execution-time only and never runs during EXPLAIN.
-            let stub_mesh = Arc::new(MppMesh {
-                n_workers: producer_worker_count(),
-                n_partitions: 1,
-                drains: Vec::new(),
-            });
+            // `n_procs` for stage sizing; `ShmMqWorkerTransport::open()` is
+            // execution-time only and never runs during EXPLAIN. After
+            // M1.c+d reshaped `MppMesh` to `{this_proc, n_procs,
+            // inbound_drains}`, the constructor is the only safe way to
+            // build one outside `glue::leader_setup`.
+            let stub_mesh = Arc::new(MppMesh::new(0, mpp_worker_count(), Vec::new()));
             Self::build_mpp_leader_session_context(stub_mesh)
         } else {
             create_aggregate_session_context()

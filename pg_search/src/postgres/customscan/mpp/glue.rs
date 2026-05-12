@@ -170,46 +170,48 @@ pub unsafe fn leader_setup(
 
     let attach = unsafe { leader_init(coordinate, seg, &layout, &plan_bytes) }?;
 
-    // M1.b: the leader is now a full participant in the multiplexed grid
-    // (sender for its row, receiver for its column). For continuity with the
-    // current single-stage routing, we adapt the leader's column receivers
-    // (slot(*, 0)) into per-sender DrainHandles indexed by sender_proc.
+    // M1.c: build the proc-pair indexed mesh. The leader is `proc_idx = 0`;
+    // its inbound queues are `slot(*, 0)`, one per sender_proc. The self-loop
+    // entry at index 0 is set to `None` — slot(0, 0) is the leader-to-leader
+    // queue, which the natural-shape gather doesn't traverse. For every
+    // sender_proc in 1..n_procs (the workers), we install a cooperative drain
+    // that pulls frames from `slot(sender_proc, 0)` and parses each
+    // [`MppFrameHeader`] before delivering the batch to the consumer side.
     //
-    // The legacy MppMesh was indexed by (producer_worker, consumer_partition)
-    // with consumer_partition driven by the plan's network-boundary fanout.
-    // The natural-shape plan emits NetworkCoalesceExec(consumer_tc=1, ...)
-    // at the top, meaning *one* leader consumer partition for the worker→
-    // leader gather — so partition is effectively always 0. We expose the
-    // mesh under the same `(worker, partition)` keying with `n_partitions=1`
-    // for the gather case; the multiplexed routing logic in M1.c will replace
-    // this with per-(stage_id, sender_proc, partition) sub-buffers.
-    //
-    // The leader's own outbound row senders + self-loop receiver are dropped
-    // for now — the leader is consumer-only at the single network boundary
-    // this single-stage path exercises. Multi-stage senders (when the leader
-    // hosts a producer task) come with M2.
+    // The drain still uses a single-buffer per inbound queue. Multi-channel
+    // demux (one buffer per `(stage_id, partition)` on the same queue) is
+    // the M2 follow-up; the natural-shape single-stage gather has exactly
+    // one channel per queue so the single-buffer model still applies.
     let _ = n_partitions;
-    let mut inbound_receivers = attach.inbound_receivers;
-    // Drop the self-loop receiver — slot(0, 0) would be the leader sending
-    // to itself, which isn't a path the single-stage code uses.
-    if !inbound_receivers.is_empty() {
-        inbound_receivers.remove(0);
-    }
-    let mut drains = Vec::with_capacity(inbound_receivers.len());
-    for shm_recv in inbound_receivers {
+    let mut inbound_drains: Vec<Option<Arc<DrainHandle>>> =
+        Vec::with_capacity(total_procs as usize);
+    let mut receivers = attach.inbound_receivers;
+    for sender_proc in 0..total_procs {
+        if sender_proc == 0 {
+            // Self-loop slot(0, 0) is unused by the gather path; drop the
+            // receiver so peer ShmMqSender::attach on slot(0, 0) doesn't
+            // see a perpetually-attached counterpart.
+            inbound_drains.push(None);
+            // Receivers were collected in `for s in 0..n_procs` order; the
+            // self-loop is at index 0 — drop it.
+            if !receivers.is_empty() {
+                receivers.remove(0);
+            }
+            continue;
+        }
+        let shm_recv = receivers.remove(0);
         let mpp_recv = MppReceiver::new(Box::new(shm_recv));
         let buffer = DrainBuffer::new(1);
-        drains.push(Arc::new(DrainHandle::cooperative(vec![mpp_recv], buffer)));
+        inbound_drains.push(Some(Arc::new(DrainHandle::cooperative(
+            vec![mpp_recv],
+            buffer,
+        ))));
     }
 
-    // n_workers = total_procs - 1 (workers only), n_partitions = 1 (the leader
-    // is the sole gather consumer). MppMesh.drains is indexed
-    // worker * n_partitions + partition = worker * 1 + 0 = worker.
-    let worker_count = total_procs.saturating_sub(1).max(1);
     let mesh = Arc::new(MppMesh {
-        n_workers: worker_count,
-        n_partitions: 1,
-        drains,
+        this_proc: 0,
+        n_procs: total_procs,
+        inbound_drains,
     });
 
     // Drop the leader's own outbound senders — the leader doesn't yet host

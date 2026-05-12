@@ -48,29 +48,49 @@ use url::Url;
 use crate::postgres::customscan::mpp::transport::{DrainHandle, DrainItem};
 
 /// Runtime handle the customscan populates at DSM-init time.
+///
+/// M1.c restructured this from a `(worker, partition)`-indexed grid to a
+/// per-sender-proc map. Each shm_mq queue (one per `(sender_proc, this_proc)`
+/// pair in the V2 DSM grid) is multi-channel: frames from any number of
+/// `(stage_id, partition)` logical channels can arrive on one queue, tagged
+/// by [`MppFrameHeader`]. M2 will introduce a sub-buffer registry indexed by
+/// `(stage_id, partition)` so a single drain can fan frames out to multiple
+/// consumers. For now, the single-stage gather path treats each queue as
+/// carrying one channel — the per-`(stage_id, partition)` registry sits at
+/// `n_inbound_per_sender = 1` and is implicit.
 pub struct MppMesh {
-    /// Number of producer workers (including leader-as-worker-0).
-    pub n_workers: u32,
-    /// Number of consumer-side partitions on the leader.
-    pub n_partitions: u32,
-    /// One [`DrainHandle`] per `(worker, partition)` pair on the leader,
-    /// indexed `worker * n_partitions + partition`. Workers receive their
-    /// own slice of senders separately (see
-    /// [`crate::postgres::customscan::mpp::dsm::WorkerAttach`]).
-    pub drains: Vec<Arc<DrainHandle>>,
+    /// This process's `proc_idx` (= 0 for the leader, `ParallelWorkerNumber + 1`
+    /// for workers). Frames addressed to this proc arrive on `slot(*, this_proc)`.
+    pub this_proc: u32,
+    /// Total participant count. Mostly for bounds checking the sender_proc
+    /// lookups in [`ShmMqWorkerTransport::open`].
+    pub n_procs: u32,
+    /// `inbound_drains[sender_proc]` is the cooperative drain that pulls
+    /// frames from `slot(sender_proc, this_proc)`. `None` for entries the
+    /// process doesn't consume from (self-loop, currently). The natural-shape
+    /// gather installs drains for every `sender_proc != this_proc`.
+    pub inbound_drains: Vec<Option<Arc<DrainHandle>>>,
 }
 
 impl MppMesh {
-    pub fn drain(&self, worker: u32, partition: u32) -> Option<&Arc<DrainHandle>> {
-        if worker >= self.n_workers || partition >= self.n_partitions {
-            return None;
-        }
-        self.drains
-            .get((worker as usize) * (self.n_partitions as usize) + (partition as usize))
+    /// Look up the drain that owns frames coming from `sender_proc`. Returns
+    /// `None` if no drain is installed (out-of-range or the self-loop slot,
+    /// which the single-stage gather skips).
+    pub fn inbound_drain(&self, sender_proc: u32) -> Option<&Arc<DrainHandle>> {
+        let idx = sender_proc as usize;
+        self.inbound_drains.get(idx).and_then(|slot| slot.as_ref())
     }
 }
 
 /// Implements the DF-D fork's [`WorkerTransport`] over the leader's [`MppMesh`].
+///
+/// `open(input_stage, target_task)` translates the DF-D `(stage, task)`
+/// addressing into the proc-pair grid: `target_task` selects which `sender_proc`
+/// hosts the producer-side task, and the returned [`WorkerConnection`] pulls
+/// from that proc's inbound drain. For the natural-shape single-stage gather
+/// the mapping is `sender_proc = target_task + 1` (workers start at proc 1;
+/// leader is proc 0 and is the consumer here). M2 generalizes this to a
+/// plan-driven `(stage_id, task) -> proc_idx` assignment table.
 pub struct ShmMqWorkerTransport {
     mesh: Arc<MppMesh>,
 }
@@ -79,37 +99,57 @@ impl ShmMqWorkerTransport {
     pub fn new(mesh: Arc<MppMesh>) -> Self {
         Self { mesh }
     }
+
+    /// `(stage_id, task)` → `sender_proc` assignment. Single-stage heuristic
+    /// for now: task 0..N-1 maps to proc 1..N (skipping the leader). M2
+    /// replaces this with a plan-driven lookup table.
+    fn sender_proc_for_task(&self, _stage_id: u32, target_task: u32) -> u32 {
+        target_task + 1
+    }
 }
 
 impl WorkerTransport for ShmMqWorkerTransport {
     fn open(
         &self,
-        _input_stage: &Stage,
+        input_stage: &Stage,
         _target_partitions: Range<usize>,
         target_task: usize,
         _ctx: &Arc<TaskContext>,
     ) -> Result<Box<dyn WorkerConnection>> {
-        let worker = u32::try_from(target_task).map_err(|_| {
+        let target_task_u32 = u32::try_from(target_task).map_err(|_| {
             DataFusionError::Internal(format!(
                 "ShmMqWorkerTransport: target_task={target_task} > u32::MAX"
             ))
         })?;
-        if worker >= self.mesh.n_workers {
+        let stage_id = u32::try_from(input_stage.num()).map_err(|_| {
+            DataFusionError::Internal(format!(
+                "ShmMqWorkerTransport: input_stage.num()={} > u32::MAX",
+                input_stage.num()
+            ))
+        })?;
+        let sender_proc = self.sender_proc_for_task(stage_id, target_task_u32);
+        if sender_proc >= self.mesh.n_procs {
             return Err(DataFusionError::Internal(format!(
-                "ShmMqWorkerTransport: target_task={worker} >= n_workers={}",
-                self.mesh.n_workers
+                "ShmMqWorkerTransport: sender_proc={sender_proc} >= n_procs={} \
+                 (stage_id={stage_id}, target_task={target_task})",
+                self.mesh.n_procs
             )));
         }
         Ok(Box::new(ShmMqWorkerConnection {
             mesh: Arc::clone(&self.mesh),
-            worker,
+            sender_proc,
+            stage_id,
         }))
     }
 }
 
 struct ShmMqWorkerConnection {
     mesh: Arc<MppMesh>,
-    worker: u32,
+    sender_proc: u32,
+    // `stage_id` of the boundary's `input_stage`. Held for diagnostics today;
+    // M2's sub-buffer registry will key on it.
+    #[allow(dead_code)]
+    stage_id: u32,
 }
 
 impl WorkerConnection for ShmMqWorkerConnection {
@@ -118,15 +158,17 @@ impl WorkerConnection for ShmMqWorkerConnection {
         partition: usize,
         _on_metadata: OnMetadataCallback,
     ) -> Result<WorkerPartitionStream> {
-        let partition_u32 = u32::try_from(partition).map_err(|_| {
+        // Today's single-stage gather has one logical channel per inbound
+        // queue (the natural plan emits NetworkCoalesceExec(consumer_tc=1)
+        // at the top, so the leader has one partition to merge from each
+        // sender_proc). `partition` is therefore always 0; we keep the
+        // value parsed for the M2 sub-buffer registry that demuxes by it.
+        let _ = partition;
+        let drain = self.mesh.inbound_drain(self.sender_proc).ok_or_else(|| {
             DataFusionError::Internal(format!(
-                "ShmMqWorkerConnection: partition={partition} > u32::MAX"
-            ))
-        })?;
-        let drain = self.mesh.drain(self.worker, partition_u32).ok_or_else(|| {
-            DataFusionError::Internal(format!(
-                "ShmMqWorkerConnection: no drain for (worker={}, partition={partition_u32})",
-                self.worker
+                "ShmMqWorkerConnection: no inbound drain for sender_proc={} \
+                 (stage_id={}, this_proc={})",
+                self.sender_proc, self.stage_id, self.mesh.this_proc
             ))
         })?;
         let drain = Arc::clone(drain);

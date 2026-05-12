@@ -79,20 +79,25 @@ pub fn mpp_queue_size() -> usize {
 }
 
 /// Body of `estimate_dsm_custom_scan`. Returns total DSM bytes the leader
-/// will need for plan + N×K queue mesh + build-side cache. `N` is the *worker*
-/// count (`mpp_worker_count - 1`); the leader is a consumer-only participant
-/// in this iteration, so its slot is omitted from the mesh.
+/// will need for the plan + multiplexed `n_procs × n_procs` queue mesh +
+/// build-side cache. `n_procs` is the total participant count (leader +
+/// `producer_worker_count()` parallel workers).
 ///
 /// `n_cache_sources` is the number of non-partitioning sources the build-side
-/// all-gather cache should reserve slots for; pass 0 to skip caching.
+/// all-gather cache should reserve slots for; pass 0 to skip caching. The
+/// cache region is sized using worker-only slots (leader does not write).
+///
+/// `n_partitions` is preserved as an arg for callers that still think in the
+/// single-stage worker→leader gather frame; the multiplexed grid does not
+/// need it for sizing, so it's currently unused. M2's plan-driven sizing will
+/// supersede this parameter.
 pub fn estimate_dsm_size(
     plan_bytes_len: usize,
-    n_partitions: u32,
+    _n_partitions: u32,
     n_cache_sources: u32,
 ) -> Result<usize, String> {
     let layout = compute_dsm_layout(
-        producer_worker_count(),
-        n_partitions,
+        n_procs(),
         mpp_queue_size(),
         plan_bytes_len,
         n_cache_sources,
@@ -102,11 +107,16 @@ pub fn estimate_dsm_size(
     Ok(layout.region_total)
 }
 
-/// Number of producer workers in the mesh: `mpp_worker_count - 1`. The leader
-/// is a consumer-only participant for now (leader-as-worker-0 deferred); its
-/// slot is omitted, so PG launches exactly this many parallel workers.
+/// Number of producer workers PG should launch as `parallel_workers`.
+/// `mpp_worker_count - 1` because participant 0 is the leader.
 pub fn producer_worker_count() -> u32 {
     mpp_worker_count().saturating_sub(1).max(1)
+}
+
+/// Total participant count: 1 leader + N producer workers. This is the
+/// dimension of the multiplexed `n_procs × n_procs` shm_mq grid.
+pub fn n_procs() -> u32 {
+    mpp_worker_count()
 }
 
 /// Returned to the leader from [`leader_setup`]. The customscan stashes this
@@ -148,10 +158,9 @@ pub unsafe fn leader_setup(
     plan_bytes: Vec<u8>,
     n_cache_sources: u32,
 ) -> Result<MppLeaderState, String> {
-    let n_workers = producer_worker_count();
+    let total_procs = n_procs();
     let layout = compute_dsm_layout(
-        n_workers,
-        n_partitions,
+        total_procs,
         mpp_queue_size(),
         plan_bytes.len(),
         n_cache_sources,
@@ -161,33 +170,53 @@ pub unsafe fn leader_setup(
 
     let attach = unsafe { leader_init(coordinate, seg, &layout, &plan_bytes) }?;
 
-    // Build per-(worker, partition) cooperative drain handles. Each handle
-    // owns one MppReceiver + one DrainBuffer; the consumer side calls
-    // `try_drain_pass` inline on the backend thread (pgrx-safe) when
-    // pulling batches.
-    let mut drains = Vec::with_capacity(attach.inbound_receivers.len());
-    for shm_recv in attach.inbound_receivers {
+    // M1.b: the leader is now a full participant in the multiplexed grid
+    // (sender for its row, receiver for its column). For continuity with the
+    // current single-stage routing, we adapt the leader's column receivers
+    // (slot(*, 0)) into per-sender DrainHandles indexed by sender_proc.
+    //
+    // The legacy MppMesh was indexed by (producer_worker, consumer_partition)
+    // with consumer_partition driven by the plan's network-boundary fanout.
+    // The natural-shape plan emits NetworkCoalesceExec(consumer_tc=1, ...)
+    // at the top, meaning *one* leader consumer partition for the worker→
+    // leader gather — so partition is effectively always 0. We expose the
+    // mesh under the same `(worker, partition)` keying with `n_partitions=1`
+    // for the gather case; the multiplexed routing logic in M1.c will replace
+    // this with per-(stage_id, sender_proc, partition) sub-buffers.
+    //
+    // The leader's own outbound row senders + self-loop receiver are dropped
+    // for now — the leader is consumer-only at the single network boundary
+    // this single-stage path exercises. Multi-stage senders (when the leader
+    // hosts a producer task) come with M2.
+    let _ = n_partitions;
+    let mut inbound_receivers = attach.inbound_receivers;
+    // Drop the self-loop receiver — slot(0, 0) would be the leader sending
+    // to itself, which isn't a path the single-stage code uses.
+    if !inbound_receivers.is_empty() {
+        inbound_receivers.remove(0);
+    }
+    let mut drains = Vec::with_capacity(inbound_receivers.len());
+    for shm_recv in inbound_receivers {
         let mpp_recv = MppReceiver::new(Box::new(shm_recv));
         let buffer = DrainBuffer::new(1);
         drains.push(Arc::new(DrainHandle::cooperative(vec![mpp_recv], buffer)));
     }
 
+    // n_workers = total_procs - 1 (workers only), n_partitions = 1 (the leader
+    // is the sole gather consumer). MppMesh.drains is indexed
+    // worker * n_partitions + partition = worker * 1 + 0 = worker.
+    let worker_count = total_procs.saturating_sub(1).max(1);
     let mesh = Arc::new(MppMesh {
-        n_workers,
-        n_partitions,
+        n_workers: worker_count,
+        n_partitions: 1,
         drains,
     });
 
-    // Drop the leader's own producer slot senders — the leader doesn't
-    // produce in this iteration, so its slot would never receive data.
-    // Dropping them now means peer receivers observe Detached at first
-    // poll and short-circuit cleanly. (When leader-as-worker-0 lands,
-    // we'll route these into a Tokio-spawned producer subplan instead.)
+    // Drop the leader's own outbound senders — the leader doesn't yet host
+    // a producer fragment in single-stage mode.
     drop(attach.outbound_senders);
 
-    // The leader doesn't read or write the build-side cache — workers attach
-    // to it via DSM offset, and Postgres owns the DSM segment's lifetime.
-    // `n_cache_sources` is sized into the layout for the worker side.
+    // Cache region is sized into the layout for workers. Leader doesn't touch.
     let _ = n_cache_sources;
 
     Ok(MppLeaderState { mesh, pcxt })
@@ -225,23 +254,34 @@ pub unsafe fn worker_setup(
     if worker_number < 0 {
         return Err("mpp: worker_number < 0".into());
     }
-    // Leader is consumer-only, so all parallel workers map directly to mesh
-    // slots: ParallelWorkerNumber 0..N-1 maps to slot 0..N-1.
-    let worker_index = worker_number as u32;
+    // M1.b: leader is now `proc_idx = 0`, workers are `1..n_procs`. Worker N
+    // maps from PG's `ParallelWorkerNumber = N` to `proc_idx = N + 1`.
+    let proc_idx = (worker_number as u32) + 1;
 
     let (header, plan_bytes, attach) =
-        unsafe { worker_attach(coordinate, region_total, worker_index, seg) }?;
+        unsafe { worker_attach(coordinate, region_total, proc_idx, seg) }?;
 
-    // Each `outbound_senders[p]` writes to consumer partition `p` of the
-    // network boundary. Stamp every outgoing batch with that partition (and
-    // stage_id=0 — the current architecture is single-stage; multi-stage tags
-    // arrive with M2). The receiver demuxes on this header once M1.c lands.
-    let outbound_senders = attach
-        .outbound_senders
-        .into_iter()
-        .enumerate()
-        .map(|(p, s)| MppSender::with_header(Box::new(s), MppFrameHeader::batch(0, p as u32)))
-        .collect();
+    // Pick out the worker→leader sender. In the multiplexed grid this is
+    // `outbound_senders[0]` (leader is at proc 0); the single-stage path
+    // gathers everything onto leader proc 0. Frames carry the natural-shape
+    // gather header `(stage_id=0, partition=0)` since the current path
+    // emits one NetworkCoalesceExec(consumer_tc=1, input_tc=N) at the top.
+    //
+    // M1.c will replace this with per-target-proc senders that multiplex
+    // many (stage_id, partition) channels over one shm_mq queue.
+    let mut row = attach.outbound_senders;
+    if row.is_empty() {
+        return Err("mpp: worker_attach returned empty senders row".into());
+    }
+    // outbound_senders[0] writes to slot(this_proc, 0) — i.e. to leader.
+    // Drop the rest (self-loop + peer slots are unused in single-stage path).
+    let leader_sender = row.remove(0);
+    drop(row);
+    drop(attach.inbound_receivers); // unused in single-stage worker
+    let outbound_senders = vec![MppSender::with_header(
+        Box::new(leader_sender),
+        MppFrameHeader::batch(0, 0),
+    )];
 
     let build_cache = if header.n_cache_sources > 0 {
         Some(Arc::new(unsafe {
@@ -251,12 +291,14 @@ pub unsafe fn worker_setup(
         None
     };
 
+    // For MppParticipantConfig, expose worker-only counts (N producer workers).
+    let worker_count = header.n_procs.saturating_sub(1).max(1);
     Ok(MppWorkerState {
         outbound_senders,
         plan_bytes,
         participant_config: MppParticipantConfig {
-            participant_index: worker_index,
-            total_participants: header.n_workers,
+            participant_index: worker_number as u32,
+            total_participants: worker_count,
         },
         build_cache,
     })

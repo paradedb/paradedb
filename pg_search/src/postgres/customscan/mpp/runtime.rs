@@ -161,9 +161,15 @@ impl WorkerConnection for ShmMqWorkerConnection {
         // Today's single-stage gather has one logical channel per inbound
         // queue (the natural plan emits NetworkCoalesceExec(consumer_tc=1)
         // at the top, so the leader has one partition to merge from each
-        // sender_proc). `partition` is therefore always 0; we keep the
-        // value parsed for the M2 sub-buffer registry that demuxes by it.
-        let _ = partition;
+        // sender_proc). `partition` is therefore always 0. M2's sub-buffer
+        // registry demuxes by partition; until then, assert defensively so
+        // an unexpected non-zero partition fails loudly in dev rather than
+        // silently routing to the wrong channel.
+        debug_assert_eq!(
+            partition, 0,
+            "M1 single-channel design: ShmMqWorkerConnection::stream_partition \
+             only supports partition=0 in the natural-shape gather path"
+        );
         let drain = self.mesh.inbound_drain(self.sender_proc).ok_or_else(|| {
             DataFusionError::Internal(format!(
                 "ShmMqWorkerConnection: no inbound drain for sender_proc={} \

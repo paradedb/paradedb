@@ -36,16 +36,19 @@ use serde::{Deserialize, Serialize};
 
 /// Describes this participant's position in an MPP query. Held by
 /// [`glue::MppLeaderState`] / [`glue::MppWorkerState`] so the AggregateScan
-/// worker path can size the in-process planner via `total_participants`.
+/// worker path can size the in-process planner via `total_workers`.
 /// The DF-D fork's `WorkerResolver` derives task identity from its own indexing,
 /// so this is a diagnostic / sizing hand-off — not a `SessionConfig`
 /// extension.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MppParticipantConfig {
-    /// 0-based index of this participant. The leader is always index 0.
+    /// 0-based worker index (`ParallelWorkerNumber`). Workers only — the
+    /// leader has no `MppParticipantConfig` since it doesn't run a worker
+    /// fragment in the single-stage gather path.
     pub participant_index: u32,
-    /// Total number of participants (leader + workers).
-    pub total_participants: u32,
+    /// Number of producer workers in the mesh (= `n_procs - 1`; the leader
+    /// is consumer-only in the single-stage gather path).
+    pub total_workers: u32,
 }
 
 /// Emit a runtime trace when `paradedb.mpp_debug` is on.

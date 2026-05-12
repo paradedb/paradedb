@@ -43,10 +43,11 @@
 //!   carries frames for any number of logical `(stage_id, partition)`
 //!   channels, demultiplexed on the receive side via the [`MppFrameHeader`]
 //!   prefix introduced in M1.a.
-//! - Self-loops (`slot(k, k)`) are included on purpose. They are rarely the
-//!   hot path (an embedded query usually keeps single-process traffic
-//!   off-mesh), but keeping the topology symmetric simplifies the attach
-//!   protocol and the routing math in [`super::runtime::ShmMqWorkerTransport`].
+//! - Self-loop slots (`slot(k, k)`) are reserved in the layout and
+//!   `shm_mq_create`'d by the leader so the slot-offset math stays a simple
+//!   row-major index, but no process attaches as sender or receiver to its
+//!   own self-loop. In-process traffic stays off the mesh; M2 may decide
+//!   to put it on a bypass channel rather than wake the self-loop slots.
 
 use std::ffi::c_void;
 use std::mem::size_of;
@@ -151,10 +152,13 @@ impl MppDsmHeader {
     /// Byte offset of the build-side cache slot at `(source, worker)`. The
     /// build-cache region is sized as `n_cache_sources × (n_procs - 1)` to
     /// match the worker-only producer count (leader does not write the cache).
+    /// `compute_dsm_layout` requires `n_procs >= 2`, so `n_procs - 1` is
+    /// always a valid worker count.
     #[cfg(test)]
     pub fn cache_data_slot_offset(&self, source: u32, worker: u32) -> u64 {
         debug_assert!(source < self.n_cache_sources);
-        let worker_slots = self.n_procs.saturating_sub(1);
+        debug_assert!(self.n_procs >= 2);
+        let worker_slots = self.n_procs - 1;
         debug_assert!(worker < worker_slots);
         let slot = (source as u64) * (worker_slots as u64) + (worker as u64);
         self.cache_data_offset + slot * self.cache_per_slot
@@ -196,8 +200,14 @@ pub fn compute_dsm_layout(
     n_cache_sources: u32,
     cache_per_slot: usize,
 ) -> Result<DsmLayout, &'static str> {
-    if n_procs == 0 {
-        return Err("mpp: n_procs must be > 0");
+    // Require at least one leader + one worker. `mpp_is_active` enforces a
+    // stricter `n_procs >= 3` (leader + ≥2 workers for meaningful
+    // parallelism); the looser bound here keeps DSM layout math valid for
+    // any plausible runtime configuration without burning a special case
+    // into `cache_data_slot_offset` / `MppBuildCache` for the n_procs=1
+    // edge.
+    if n_procs < 2 {
+        return Err("mpp: n_procs must be >= 2 (leader + at least one worker)");
     }
     let queue_bytes = aligned_queue_bytes(queue_bytes);
     if queue_bytes == 0 {
@@ -227,8 +237,9 @@ pub fn compute_dsm_layout(
     //   data:       n_cache_sources × worker_slots × cache_per_slot
     //
     // `worker_slots = n_procs - 1` because the leader is consumer-only for
-    // the build-side cache; only workers all-gather into it.
-    let worker_slots = (n_procs as usize).saturating_sub(1).max(1);
+    // the build-side cache; only workers all-gather into it. n_procs >= 2 is
+    // enforced above, so subtraction is safe.
+    let worker_slots = (n_procs as usize) - 1;
     let cache_completion_offset =
         align_up_maxalign_checked(queues_end).ok_or("mpp: cache completion alignment overflow")?;
     let cache_completion_size = (n_cache_sources as usize)
@@ -403,13 +414,31 @@ impl MppBuildCache {
 
 /// Per-participant return: handles for the process's row (senders) and
 /// column (receivers) in the multiplexed `n_procs × n_procs` grid.
+///
+/// Self-loop slots (`slot(this_proc, this_proc)`) are skipped to avoid two
+/// `shm_mq_attach` calls + two `on_dsm_detach` callbacks per process for a
+/// queue nothing reads. As a consequence, `outbound_senders` and
+/// `inbound_receivers` each have `n_procs - 1` entries; the index gymnastics
+/// to translate `proc_idx` ↔ slice index are handled by
+/// [`MppMesh::inbound_drain`] in the runtime.
 pub struct ProcAttach {
-    /// `outbound_senders[r]` writes to `slot(this_proc, r)`. One entry per
-    /// receiver process, including the self-loop `slot(this_proc, this_proc)`.
+    /// `outbound_senders[i]` writes to `slot(this_proc, peer_proc(i))` where
+    /// `peer_proc(i) = i if i < this_proc else i + 1` (skipping the self-loop).
     pub outbound_senders: Vec<ShmMqSender>,
-    /// `inbound_receivers[s]` reads from `slot(s, this_proc)`. One entry per
-    /// sender process, including the self-loop.
+    /// `inbound_receivers[i]` reads from `slot(peer_proc(i), this_proc)`,
+    /// same skip-self-loop mapping as `outbound_senders`.
     pub inbound_receivers: Vec<ShmMqReceiver>,
+}
+
+/// Translate a peer index (`0..n_procs - 1`) into a process index
+/// (`0..n_procs`) by skipping the self-loop slot.
+#[inline]
+pub fn peer_proc_for_index(this_proc: u32, peer_idx: u32) -> u32 {
+    if peer_idx < this_proc {
+        peer_idx
+    } else {
+        peer_idx + 1
+    }
 }
 
 /// Initialize the DSM region as the leader (`proc_idx = 0`). Writes the
@@ -501,23 +530,22 @@ unsafe fn attach_proc_row_and_column(
     seg: *mut pg_sys::dsm_segment,
 ) -> ProcAttach {
     let n_procs = header.n_procs;
-    let mut outbound_senders = Vec::with_capacity(n_procs as usize);
-    let mut inbound_receivers = Vec::with_capacity(n_procs as usize);
+    let peer_count = (n_procs - 1) as usize; // n_procs >= 2 is layout invariant
+    let mut outbound_senders = Vec::with_capacity(peer_count);
+    let mut inbound_receivers = Vec::with_capacity(peer_count);
 
-    // Senders: this process's row. `outbound_senders[r]` writes to slot(this, r).
-    for r in 0..n_procs {
+    // Senders: this process's row, skipping the self-loop slot(this, this).
+    for peer_idx in 0..(n_procs - 1) {
+        let r = peer_proc_for_index(this_proc, peer_idx);
         let off = header.slot_offset(this_proc, r) as usize;
         let mq_addr = unsafe { base.add(off) };
         let mq = mq_addr.cast::<pg_sys::shm_mq>();
         outbound_senders.push(unsafe { ShmMqSender::attach(seg, mq) });
     }
 
-    // Receivers: this process's column. `inbound_receivers[s]` reads from
-    // slot(s, this). The self-loop slot was already attached as sender
-    // above; `shm_mq_set_receiver` is a separate operation on the same
-    // queue handle, so the double-attach (once as sender, once as receiver)
-    // on the self-loop is safe.
-    for s in 0..n_procs {
+    // Receivers: this process's column, skipping the self-loop slot(this, this).
+    for peer_idx in 0..(n_procs - 1) {
+        let s = peer_proc_for_index(this_proc, peer_idx);
         let off = header.slot_offset(s, this_proc) as usize;
         let mq_addr = unsafe { base.add(off) };
         let mq = mq_addr.cast::<pg_sys::shm_mq>();
@@ -645,6 +673,21 @@ mod tests {
         let l = compute_dsm_layout(2, 64 * 1024, 0, 0, 0).unwrap();
         let h = MppDsmHeader::from_layout(&l);
         assert!(h.validate(l.region_total as u64).is_ok());
+    }
+
+    #[test]
+    fn header_validate_rejects_wrong_version() {
+        // Bumping `MPP_DSM_HEADER_VERSION` without rejecting old-version
+        // headers would let an attached worker silently read the wrong
+        // layout. This test pins the version gate so v1 → v2 (and any
+        // future bump) actually trips `validate`.
+        let l = compute_dsm_layout(2, 64 * 1024, 0, 0, 0).unwrap();
+        let mut h = MppDsmHeader::from_layout(&l);
+        h.header_version = MPP_DSM_HEADER_VERSION.wrapping_sub(1);
+        let err = h
+            .validate(l.region_total as u64)
+            .expect_err("wrong version must fail");
+        assert!(err.contains("DSM header version mismatch"), "got: {err}");
     }
 
     #[test]

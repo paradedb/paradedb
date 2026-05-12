@@ -73,10 +73,13 @@ pub enum MppFrameKind {
 /// 16-byte prefix on every transport frame.
 ///
 /// The fixed layout `[magic, flags, stage_id, partition]` (4×u32) is what
-/// senders prepend before the Arrow IPC stream bytes and what receivers parse
-/// before deciding which sub-buffer the payload belongs to. The `flags` field
-/// is reserved for future use beyond `MppFrameKind`; bit 0 carries the kind,
-/// bits 1..31 must be zero.
+/// senders prepend before the Arrow IPC stream bytes and what receivers
+/// parse before deciding which sub-buffer the payload belongs to.
+///
+/// The `flags` word currently encodes `MppFrameKind` in its low byte (mask
+/// `0x0000_00FF`); the upper 24 bits are reserved-must-be-zero and are
+/// validated at parse time so a future use can repurpose them without a
+/// wire-format break.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MppFrameHeader {
@@ -85,6 +88,9 @@ pub struct MppFrameHeader {
     pub stage_id: u32,
     pub partition: u32,
 }
+
+/// Bit mask in [`MppFrameHeader::flags`] for the [`MppFrameKind`] discriminant.
+const FRAME_KIND_MASK: u32 = 0x0000_00FF;
 
 const _: () = {
     // shm_mq slot layout calculations depend on this being exact.
@@ -104,7 +110,7 @@ impl MppFrameHeader {
 
     /// Build an `Eof` header for the given `(stage_id, partition)`. Carries no
     /// payload; receivers route it to the sub-buffer's source-done counter.
-    /// Used by M1.c's multi-channel sender wiring; tests exercise it now.
+    /// Consumed by M2's per-channel EOF signalling; exercised in tests today.
     #[allow(dead_code)]
     pub fn eof(stage_id: u32, partition: u32) -> Self {
         Self {
@@ -115,14 +121,21 @@ impl MppFrameHeader {
         }
     }
 
-    /// Read the kind out of `flags`. Returns an error if `flags` is unknown,
-    /// which catches wire-format drift early.
+    /// Read the kind out of `flags`. Returns an error if the kind byte is
+    /// unknown or if any reserved upper bit is set, which catches wire-format
+    /// drift early.
     pub fn kind(&self) -> Result<MppFrameKind, DataFusionError> {
-        match self.flags {
+        let reserved = self.flags & !FRAME_KIND_MASK;
+        if reserved != 0 {
+            return Err(DataFusionError::Internal(format!(
+                "mpp: reserved frame flag bits set ({reserved:#x})"
+            )));
+        }
+        match self.flags & FRAME_KIND_MASK {
             0 => Ok(MppFrameKind::Batch),
             1 => Ok(MppFrameKind::Eof),
             other => Err(DataFusionError::Internal(format!(
-                "mpp: unknown frame kind flags={other:#x}"
+                "mpp: unknown frame kind {other:#x}"
             ))),
         }
     }
@@ -214,7 +227,7 @@ pub fn encode_frame_into(
 /// Serialize a payload-less [`MppFrameKind::Eof`] frame for `(stage_id, partition)`
 /// into `buf`. The shm_mq peer reads this as a 16-byte message and routes it to
 /// the sub-buffer's source-done counter without touching Arrow IPC.
-/// Used by M1.c's multi-channel sender wiring; tests exercise it now.
+/// Consumed by M2's per-channel EOF signalling; exercised in tests today.
 #[allow(dead_code)]
 pub fn encode_eof_frame_into(
     stage_id: u32,
@@ -519,7 +532,8 @@ impl MppSender {
     }
 
     /// Frame header this sender stamps onto every outgoing batch.
-    /// Consumed by M1.c's multi-channel sender wiring (DEAD until then).
+    /// Consumed by M2's per-channel sender pool when sender per-call
+    /// re-tagging lands; today this getter is for diagnostics only.
     #[allow(dead_code)]
     pub fn header(&self) -> MppFrameHeader {
         self.header
@@ -1104,7 +1118,7 @@ mod tests {
     fn frame_rejects_unknown_kind() {
         let header = MppFrameHeader {
             magic: MPP_FRAME_MAGIC,
-            flags: 0xFFFF_FFFF,
+            flags: 0x42, // unknown kind byte, no reserved bits set
             stage_id: 0,
             partition: 0,
         };
@@ -1112,6 +1126,22 @@ mod tests {
         header.write_to(&mut buf);
         let err = decode_frame(&buf).expect_err("unknown kind must fail");
         assert!(format!("{err}").contains("unknown frame kind"));
+    }
+
+    #[test]
+    fn frame_rejects_reserved_flag_bits() {
+        // Any bit above the low byte of `flags` is reserved-must-be-zero;
+        // setting one should trip `kind()` before the kind byte is consulted.
+        let header = MppFrameHeader {
+            magic: MPP_FRAME_MAGIC,
+            flags: 0x0000_0100, // bit 8 set, kind byte 0 (would be Batch)
+            stage_id: 0,
+            partition: 0,
+        };
+        let mut buf = vec![0u8; MPP_FRAME_HEADER_SIZE];
+        header.write_to(&mut buf);
+        let err = decode_frame(&buf).expect_err("reserved bit must fail");
+        assert!(format!("{err}").contains("reserved frame flag bits"));
     }
 
     #[test]

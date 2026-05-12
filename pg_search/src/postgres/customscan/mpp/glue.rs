@@ -41,13 +41,24 @@ use crate::gucs::{
     mpp_worker_count as gucs_mpp_worker_count,
 };
 use crate::postgres::customscan::mpp::dsm::{
-    compute_dsm_layout, leader_init, worker_attach, MppBuildCache,
+    compute_dsm_layout, leader_init, peer_proc_for_index, worker_attach, MppBuildCache,
 };
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 use crate::postgres::customscan::mpp::transport::{
     DrainBuffer, DrainHandle, MppFrameHeader, MppReceiver, MppSender,
 };
 use crate::postgres::customscan::mpp::MppParticipantConfig;
+
+/// Stage id stamped onto frames in the natural-shape single-stage gather.
+/// All worker→leader traffic in M1's single-stage path carries this stage id.
+/// M2 introduces multi-stage pipelines and replaces this constant with
+/// plan-driven stage ids derived from each `NetworkBoundary.input_stage.num`.
+const NATURAL_GATHER_STAGE_ID: u32 = 0;
+
+/// Consumer-side partition stamped on natural-shape gather frames. The
+/// natural plan emits `NetworkCoalesceExec(consumer_tc=1, input_tc=N)` at the
+/// top, so there is exactly one consumer partition on the leader.
+const NATURAL_GATHER_PARTITION: u32 = 0;
 
 /// True iff `paradedb.enable_mpp = on` and `paradedb.mpp_worker_count >= 3`.
 /// Customscan path-builders gate `parallel_workers` on this.
@@ -86,16 +97,7 @@ pub fn mpp_queue_size() -> usize {
 /// `n_cache_sources` is the number of non-partitioning sources the build-side
 /// all-gather cache should reserve slots for; pass 0 to skip caching. The
 /// cache region is sized using worker-only slots (leader does not write).
-///
-/// `n_partitions` is preserved as an arg for callers that still think in the
-/// single-stage worker→leader gather frame; the multiplexed grid does not
-/// need it for sizing, so it's currently unused. M2's plan-driven sizing will
-/// supersede this parameter.
-pub fn estimate_dsm_size(
-    plan_bytes_len: usize,
-    _n_partitions: u32,
-    n_cache_sources: u32,
-) -> Result<usize, String> {
+pub fn estimate_dsm_size(plan_bytes_len: usize, n_cache_sources: u32) -> Result<usize, String> {
     let layout = compute_dsm_layout(
         n_procs(),
         mpp_queue_size(),
@@ -171,12 +173,13 @@ pub unsafe fn leader_setup(
     let attach = unsafe { leader_init(coordinate, seg, &layout, &plan_bytes) }?;
 
     // M1.c: build the proc-pair indexed mesh. The leader is `proc_idx = 0`;
-    // its inbound queues are `slot(*, 0)`, one per sender_proc. The self-loop
-    // entry at index 0 is set to `None` — slot(0, 0) is the leader-to-leader
-    // queue, which the natural-shape gather doesn't traverse. For every
-    // sender_proc in 1..n_procs (the workers), we install a cooperative drain
-    // that pulls frames from `slot(sender_proc, 0)` and parses each
-    // [`MppFrameHeader`] before delivering the batch to the consumer side.
+    // its inbound queues are `slot(*, 0)` for every peer (workers 1..n_procs).
+    // `attach.inbound_receivers` is already peer-indexed (self-loop skipped),
+    // so receiver[i] corresponds to peer_proc_for_index(0, i) = i + 1.
+    //
+    // The mesh stores `inbound_drains[sender_proc]` so `runtime.rs` can look
+    // up the right drain in O(1) given a sender_proc from the natural-shape
+    // gather; the self-loop entry at index 0 is `None`.
     //
     // The drain still uses a single-buffer per inbound queue. Multi-channel
     // demux (one buffer per `(stage_id, partition)` on the same queue) is
@@ -185,21 +188,14 @@ pub unsafe fn leader_setup(
     let _ = n_partitions;
     let mut inbound_drains: Vec<Option<Arc<DrainHandle>>> =
         Vec::with_capacity(total_procs as usize);
-    let mut receivers = attach.inbound_receivers;
-    for sender_proc in 0..total_procs {
-        if sender_proc == 0 {
-            // Self-loop slot(0, 0) is unused by the gather path; drop the
-            // receiver so peer ShmMqSender::attach on slot(0, 0) doesn't
-            // see a perpetually-attached counterpart.
-            inbound_drains.push(None);
-            // Receivers were collected in `for s in 0..n_procs` order; the
-            // self-loop is at index 0 — drop it.
-            if !receivers.is_empty() {
-                receivers.remove(0);
-            }
-            continue;
-        }
-        let shm_recv = receivers.remove(0);
+    inbound_drains.push(None); // self-loop slot at sender_proc = 0
+    for (peer_idx, shm_recv) in attach.inbound_receivers.into_iter().enumerate() {
+        let sender_proc = peer_proc_for_index(0, peer_idx as u32);
+        debug_assert_eq!(
+            sender_proc as usize,
+            inbound_drains.len(),
+            "peer_proc_for_index must produce sender_proc indices in order"
+        );
         let mpp_recv = MppReceiver::new(Box::new(shm_recv));
         let buffer = DrainBuffer::new(1);
         inbound_drains.push(Some(Arc::new(DrainHandle::cooperative(
@@ -263,26 +259,27 @@ pub unsafe fn worker_setup(
     let (header, plan_bytes, attach) =
         unsafe { worker_attach(coordinate, region_total, proc_idx, seg) }?;
 
-    // Pick out the worker→leader sender. In the multiplexed grid this is
-    // `outbound_senders[0]` (leader is at proc 0); the single-stage path
-    // gathers everything onto leader proc 0. Frames carry the natural-shape
-    // gather header `(stage_id=0, partition=0)` since the current path
-    // emits one NetworkCoalesceExec(consumer_tc=1, input_tc=N) at the top.
+    // Pick out the worker→leader sender. With self-loops skipped, the worker's
+    // peer-indexed row starts at peer_idx=0 → sender_proc=0 (leader). So
+    // `outbound_senders[0]` writes to `slot(this_proc, 0)`, the worker→leader
+    // queue. Frames carry the natural-shape gather header
+    // `(stage_id=0, partition=0)` since the current path emits
+    // one `NetworkCoalesceExec(consumer_tc=1, input_tc=N)` at the top.
     //
-    // M1.c will replace this with per-target-proc senders that multiplex
-    // many (stage_id, partition) channels over one shm_mq queue.
+    // M2 will replace this with per-target-proc senders that multiplex many
+    // (stage_id, partition) channels over one shm_mq queue.
     let mut row = attach.outbound_senders;
     if row.is_empty() {
         return Err("mpp: worker_attach returned empty senders row".into());
     }
-    // outbound_senders[0] writes to slot(this_proc, 0) — i.e. to leader.
-    // Drop the rest (self-loop + peer slots are unused in single-stage path).
+    // Sanity: with self-loop skipped, peer_idx 0 maps to sender_proc 0 (leader).
+    debug_assert_eq!(peer_proc_for_index(proc_idx, 0), 0);
     let leader_sender = row.remove(0);
     drop(row);
     drop(attach.inbound_receivers); // unused in single-stage worker
     let outbound_senders = vec![MppSender::with_header(
         Box::new(leader_sender),
-        MppFrameHeader::batch(0, 0),
+        MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION),
     )];
 
     let build_cache = if header.n_cache_sources > 0 {
@@ -300,7 +297,7 @@ pub unsafe fn worker_setup(
         plan_bytes,
         participant_config: MppParticipantConfig {
             participant_index: worker_number as u32,
-            total_participants: worker_count,
+            total_workers: worker_count,
         },
         build_cache,
     })

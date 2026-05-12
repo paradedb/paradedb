@@ -681,7 +681,6 @@ impl ParallelQueryCapable for AggregateScan {
         let Some(plan_bytes) = df_state.mpp_plan_bytes.as_ref() else {
             return 0;
         };
-        let n_partitions = df_state.mpp_n_partitions;
         let plan_bytes_len = plan_bytes.len();
 
         // Capture source manifests so we can size the ParallelScanState block.
@@ -702,7 +701,7 @@ impl ParallelQueryCapable for AggregateScan {
             .source_manifests
             .len()
             .saturating_sub(1) as u32;
-        let mpp_size = match estimate_dsm_size(plan_bytes_len, n_partitions, n_cache_sources) {
+        let mpp_size = match estimate_dsm_size(plan_bytes_len, n_cache_sources) {
             Ok(sz) => sz,
             Err(e) => {
                 pgrx::warning!("mpp: estimate_dsm failed: {e}; falling back to serial");
@@ -1244,7 +1243,7 @@ impl AggregateScan {
         // producer (= mpp_n_partitions), not the worker count — using it as
         // n_workers misconfigured the planner so NetworkShuffleExec scaled
         // its hash to mpp_n_partitions × mpp_n_partitions = 81 partitions.
-        let n_workers = worker.participant_config.total_participants;
+        let n_workers = worker.participant_config.total_workers;
         let worker_idx_for_cache = worker.participant_config.participant_index;
         let outbound_senders: Vec<MppSender> = match df_state.mpp.as_mut() {
             Some(scan_state::MppExecState::Worker(w)) => std::mem::take(&mut w.outbound_senders),

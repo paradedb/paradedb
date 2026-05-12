@@ -32,6 +32,7 @@ pub mod mesh;
 pub mod runtime;
 pub mod transport;
 pub mod worker;
+pub mod worker_fragments;
 
 use serde::{Deserialize, Serialize};
 

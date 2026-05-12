@@ -462,12 +462,27 @@ pub trait BatchChannelSender: Send + Sync {
     }
 }
 
+/// Pluggable "drain everything inbound" hook for [`MppSender`]'s cooperative
+/// send spin. The peer-mesh deadlock-breaking pattern needs the producer to
+/// pump ALL inbound queues (not just one) while waiting for a full outbound,
+/// so the implementation typically delegates to
+/// `MppMesh::drain_all_inbound()` which iterates every per-sender-proc drain.
+pub trait CooperativeDrainSet: Send + Sync {
+    fn poll_drain_pass(&self) -> Result<(), DataFusionError>;
+}
+
+impl CooperativeDrainSet for DrainHandle {
+    fn poll_drain_pass(&self) -> Result<(), DataFusionError> {
+        DrainHandle::poll_drain_pass(self)
+    }
+}
+
 /// High-level sender: encodes a `RecordBatch` then pushes bytes through the
 /// underlying channel.
 ///
 /// With `cooperative_drain` set, `send_batch` breaks the symmetric-send
 /// deadlock on a single-threaded tokio runtime by interleaving send-retries
-/// with `DrainHandle::try_drain_pass` on the same mesh's inbound side.
+/// with `CooperativeDrainSet::try_drain_pass` on the same mesh's inbound side.
 /// Each participant's sender doing the same guarantees mutual progress:
 /// our drain pulls peer-shipped rows out of our inbound queues, which
 /// frees peers' outbound-to-us send space, which lets their sends un-stall.
@@ -478,7 +493,7 @@ pub struct MppSender {
     /// pattern. Clone the Arc, build a new `MppSender` with a different
     /// header, both write into the same queue.
     channel: Arc<dyn BatchChannelSender>,
-    cooperative_drain: Option<Arc<DrainHandle>>,
+    cooperative_drain: Option<Arc<dyn CooperativeDrainSet>>,
     /// Frame header prepended to every outgoing batch. Identifies the logical
     /// `(stage_id, partition)` channel the receiver demultiplexes on. For the
     /// current single-stage architecture this is `(stage_id=0, partition=p)`
@@ -550,6 +565,16 @@ impl MppSender {
             header,
             scratch: std::cell::RefCell::new(Vec::new()),
         }
+    }
+
+    /// Attach a [`CooperativeDrainSet`] so [`Self::send_batch_traced`]'s spin
+    /// can drain inbound peer traffic while waiting for outbound space.
+    /// Required for peer-mesh fragments where every worker is both sender and
+    /// consumer; without it, symmetric full-queue stalls deadlock the
+    /// single-threaded Tokio runtime.
+    pub fn with_cooperative_drain(mut self, drain: Arc<dyn CooperativeDrainSet>) -> Self {
+        self.cooperative_drain = Some(drain);
+        self
     }
 
     /// Test-only stats-less wrapper around [`Self::send_batch_traced`].
@@ -1124,21 +1149,31 @@ fn drain_loop(config: DrainConfig) -> Result<(), DataFusionError> {
     }
 }
 
-/// SPSC channel pair for unit tests and in-process single-worker validation.
-/// Bounded capacity via `std::sync::mpsc::sync_channel` so tests can exercise
-/// backpressure (`send` blocks when full).
-#[cfg(test)]
+/// SPSC channel pair for two use cases:
+/// - Unit tests (bounded capacity, exercising backpressure).
+/// - Production self-loop slots: when a worker's fragment emits a partition
+///   destined for its OWN proc (e.g. peer-mesh hash routing where consumer
+///   task t lands on the same worker as producer task t), the shm_mq grid
+///   leaves the `slot(this_proc, this_proc)` diagonal unattached. M2.d's
+///   dispatcher routes those self-loops through this in-proc channel
+///   instead, sharing the same `BatchChannelSender`/`BatchChannelReceiver`
+///   abstraction as shm_mq so the drain / sub-buffer registry needs no
+///   special-case for them.
+///
+/// Production callers pass a very large `capacity` (so the channel is
+/// effectively unbounded under steady state) — the current-thread Tokio
+/// runtime interleaves producer and consumer fragments via
+/// `yield_now().await`, so backpressure would be benign, but unbounded
+/// avoids any chance of a self-deadlock if the producer never yields.
 pub fn in_proc_channel(capacity: usize) -> (InProcSender, InProcReceiver) {
     let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(capacity);
     (InProcSender { tx }, InProcReceiver { rx: Mutex::new(rx) })
 }
 
-#[cfg(test)]
 pub struct InProcSender {
     tx: std::sync::mpsc::SyncSender<Vec<u8>>,
 }
 
-#[cfg(test)]
 pub struct InProcReceiver {
     // The std::sync::mpsc receiver is !Sync; wrap in a Mutex so the drain
     // thread can hold it behind a `Box<dyn BatchChannelReceiver>` (which is
@@ -1148,16 +1183,24 @@ pub struct InProcReceiver {
     rx: Mutex<std::sync::mpsc::Receiver<Vec<u8>>>,
 }
 
-#[cfg(test)]
 impl BatchChannelSender for InProcSender {
     fn send_bytes(&self, bytes: &[u8]) -> Result<(), DataFusionError> {
         self.tx.send(bytes.to_vec()).map_err(|_| {
             DataFusionError::Execution("mpp: in-proc channel detached during send".into())
         })
     }
+
+    fn try_send_bytes(&self, bytes: &[u8]) -> Result<bool, DataFusionError> {
+        match self.tx.try_send(bytes.to_vec()) {
+            Ok(()) => Ok(true),
+            Err(std::sync::mpsc::TrySendError::Full(_)) => Ok(false),
+            Err(std::sync::mpsc::TrySendError::Disconnected(_)) => Err(DataFusionError::Execution(
+                "mpp: in-proc channel detached during try_send".into(),
+            )),
+        }
+    }
 }
 
-#[cfg(test)]
 impl BatchChannelReceiver for InProcReceiver {
     fn try_recv(&self) -> RecvOutcome {
         let rx = self.rx.lock().expect("InProcReceiver mutex poisoned");
@@ -1168,6 +1211,13 @@ impl BatchChannelReceiver for InProcReceiver {
         }
     }
 }
+
+/// Effectively unbounded capacity for self-loop in-proc channels. The
+/// `std::sync::mpsc::sync_channel` API requires a numeric capacity; this
+/// constant picks one large enough that production workloads won't reach
+/// it but small enough that a runaway producer (e.g. infinite-loop bug)
+/// won't allocate billions of `Vec<u8>` before OOM.
+pub const SELF_LOOP_CAPACITY: usize = 1 << 20;
 
 #[cfg(test)]
 mod tests {

@@ -45,7 +45,8 @@ use crate::postgres::customscan::mpp::dsm::{
 };
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 use crate::postgres::customscan::mpp::transport::{
-    DrainHandle, MppFrameHeader, MppReceiver, MppSender,
+    in_proc_channel, BatchChannelSender, DrainHandle, MppFrameHeader, MppReceiver, MppSender,
+    SELF_LOOP_CAPACITY,
 };
 use crate::postgres::customscan::mpp::MppParticipantConfig;
 
@@ -293,7 +294,7 @@ pub unsafe fn worker_setup(
     debug_assert_eq!(
         outbound_senders.iter().filter(|s| s.is_some()).count(),
         (total_procs as usize).saturating_sub(1),
-        "worker outbound senders: expected {} non-self-loop entries",
+        "worker outbound senders: expected {} non-self-loop entries before self-loop install",
         total_procs.saturating_sub(1)
     );
 
@@ -309,6 +310,25 @@ pub unsafe fn worker_setup(
         inbound_drains[sender_proc as usize] =
             Some(Arc::new(DrainHandle::cooperative(vec![mpp_recv])));
     }
+    // M2.d.3: install a self-loop in-proc channel for `slot(this_proc, this_proc)`.
+    // Peer-mesh hash routing can land producer-side and consumer-side tasks
+    // for the same `(stage, partition)` on the same worker, in which case the
+    // shm_mq grid's unattached diagonal would surface as "outbound_senders[this_proc]
+    // is None". The in-proc channel keeps frame routing uniform from the
+    // dispatcher's perspective: senders push, the DrainHandle reads via the
+    // same `BatchChannelReceiver` contract as shm_mq, and the M2.b sub-buffer
+    // registry demuxes per `(stage_id, partition)`.
+    let (self_tx, self_rx) = in_proc_channel(SELF_LOOP_CAPACITY);
+    let self_tx_arc: Arc<dyn BatchChannelSender> = Arc::new(self_tx);
+    outbound_senders[proc_idx as usize] = Some(MppSender::with_header(
+        Arc::clone(&self_tx_arc),
+        MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION),
+    ));
+    inbound_drains[proc_idx as usize] =
+        Some(Arc::new(DrainHandle::cooperative(vec![MppReceiver::new(
+            Box::new(self_rx),
+        )])));
+
     let mesh = Arc::new(MppMesh::new(proc_idx, total_procs, inbound_drains));
 
     let build_cache = if header.n_cache_sources > 0 {

@@ -38,10 +38,12 @@ pub use targetlist::TargetListEntry;
 
 use std::sync::Arc;
 
-use datafusion::execution::SessionStateBuilder;
+use datafusion::execution::runtime_env::RuntimeEnvBuilder;
+use datafusion::execution::{SessionStateBuilder, TaskContext};
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use datafusion_distributed::{
-    display_plan_ascii, DistributedExec, DistributedExt, SessionStateBuilderExt,
+    display_plan_ascii, DistributedExec, DistributedExt, DistributedTaskContext,
+    SessionStateBuilderExt,
 };
 
 use crate::postgres::customscan::mpp::assignment::TaskAssignment;
@@ -50,10 +52,11 @@ use crate::postgres::customscan::mpp::glue::{
     estimate_dsm_size, leader_setup, mpp_is_active, mpp_worker_count, producer_worker_count,
     worker_setup,
 };
-use crate::postgres::customscan::mpp::runtime::{
-    LocalExecWorkerTransport, MppMesh, MppWorkerResolver, ShmMqWorkerTransport,
+use crate::postgres::customscan::mpp::runtime::{MppMesh, MppWorkerResolver, ShmMqWorkerTransport};
+use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, MppFrameHeader, MppSender};
+use crate::postgres::customscan::mpp::worker_fragments::{
+    find_worker_assignments, FragmentRouting,
 };
-use crate::postgres::customscan::mpp::transport::MppSender;
 use crate::postgres::customscan::mpp::worker::run_worker_fragment;
 
 use crate::api::agg_funcoid;
@@ -86,6 +89,7 @@ use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
+use crate::postgres::customscan::datafusion::memory::create_memory_pool;
 use crate::postgres::customscan::dsm::{
     estimate_dsm_custom_scan, initialize_dsm_custom_scan, initialize_worker_custom_scan,
     reinitialize_dsm_custom_scan, ParallelQueryCapable,
@@ -1246,6 +1250,14 @@ impl AggregateScan {
         // its hash to mpp_n_partitions × mpp_n_partitions = 81 partitions.
         let n_workers = worker.participant_config.total_workers;
         let worker_idx_for_cache = worker.participant_config.participant_index;
+        // M2.d.3: capture the worker's mesh + total proc count for the
+        // dispatcher. The mesh's inbound drains were attached in
+        // `worker_setup`; here we wire its `ShmMqWorkerTransport` into the
+        // session and install the plan-driven assignment table once the
+        // physical plan is built.
+        let worker_mesh = Arc::clone(&worker.mesh);
+        let this_proc = worker.mesh.this_proc;
+        let total_procs = worker.mesh.n_procs;
         let outbound_senders: Vec<Option<MppSender>> = match df_state.mpp.as_mut() {
             Some(scan_state::MppExecState::Worker(w)) => std::mem::take(&mut w.outbound_senders),
             _ => unreachable!(),
@@ -1317,15 +1329,21 @@ impl AggregateScan {
             .with_default_features()
             .with_config(cfg)
             .with_distributed_worker_resolver(MppWorkerResolver::new(n_workers_us))
-            // Workers may encounter nested network boundaries inside the
-            // producer fragment (e.g. a `NetworkBroadcastExec` on the build
-            // side of a `HashJoin`). Without a transport registered, the
-            // default `FlightWorkerTransport` would try to dial the empty
-            // URL and error out. The `LocalExecWorkerTransport` re-executes
-            // the boundary's input subtree locally — duplicates the build
-            // scan across workers, but for small index scans that's cheap
-            // and keeps the in-process design self-contained.
-            .with_distributed_worker_transport(LocalExecWorkerTransport)
+            // M2.d.3: route nested boundaries through the worker's
+            // `MppMesh` via `ShmMqWorkerTransport`. Workers running a
+            // consumer-side fragment (e.g. `FinalPartitioned` above a
+            // `NetworkShuffleExec` peer-mesh) call `WorkerTransport::open`
+            // here; the returned `ShmMqWorkerConnection` pulls from the
+            // worker's inbound drain for the producer's proc, demuxing on
+            // `(stage_id, partition)` via the M2.b sub-buffer registry.
+            //
+            // The earlier `LocalExecWorkerTransport` "re-execute the
+            // boundary's input subtree locally" path is gone: with the
+            // assignment table from M2.c the producer task is hosted on a
+            // specific peer proc, and re-executing locally would duplicate
+            // work and break correctness for hash-partitioned shuffles
+            // (each worker would see all rows instead of its hash slice).
+            .with_distributed_worker_transport(ShmMqWorkerTransport::new(Arc::clone(&worker_mesh)))
             .with_distributed_in_process_mode(true)
             .expect("with_distributed_in_process_mode")
             .with_distributed_task_estimator(n_workers_us)
@@ -1342,93 +1360,127 @@ impl AggregateScan {
             Ok(p) => p,
             Err(e) => pgrx::error!("mpp worker: create_physical_plan failed: {e}"),
         };
-        // Find the bottom NetworkShuffleExec; its input_stage.plan (==
-        // children()[0]) is the worker fragment. If the DF-D fork's planner
-        // didn't insert one (some plan shapes don't benefit from a network
-        // shuffle, or PartialReduce isn't enabled), the worker has no
-        // fragment to run — emit zero rows and let the leader produce
-        // results via its own copy. Logging at WARNING so production
-        // monitors can spot the falls-back-to-no-op case.
-        let fragment = match Self::find_worker_fragment(&physical_plan) {
-            Some(f) => f,
-            None => {
-                pgrx::warning!(
-                    "mpp worker: no NetworkShuffleExec found in distributed plan; \
-                     skipping producer-fragment run (worker emits zero rows)"
-                );
-                return std::ptr::null_mut();
-            }
-        };
-        let task_ctx = build_task_context(
-            &session,
-            &fragment,
-            unsafe { pg_sys::work_mem as usize * 1024 },
-            unsafe { pg_sys::hash_mem_multiplier },
-        );
-        // M2.a / M2.d.1: expand the leader-bound sender into N senders matching
-        // the fragment's output_partitioning. Each clone shares the same
-        // shm_mq queue but stamps a different `partition` on its frames, so
-        // the leader's drain can demux. `stage_id` stays at 0 — the natural-
-        // shape gather is a single logical stage, and M2.d.3 will replace
-        // this loop with the plan-walking dispatcher that uses the worker's
-        // full per-proc-indexed sender table.
-        let n_out_partitions = fragment.output_partitioning().partition_count();
-        let mut outbound_iter = outbound_senders.into_iter();
-        // Leader is proc 0; its slot in the per-proc-indexed vec is at index 0.
-        let leader_slot = outbound_iter.next().flatten();
-        let base_sender =
-            leader_slot.expect("worker_setup must populate outbound_senders[0] (leader)");
-        let mut expanded: Vec<MppSender> = Vec::with_capacity(n_out_partitions);
-        for partition in 0..n_out_partitions {
-            let partition_u32 = u32::try_from(partition).unwrap_or(u32::MAX);
-            expanded.push(base_sender.clone_with_header(
-                crate::postgres::customscan::mpp::transport::MppFrameHeader::batch(
-                    0,
-                    partition_u32,
-                ),
-            ));
-        }
-        drop(base_sender);
-        // Remaining peer-bound senders are unused in single-fragment mode and
-        // get dropped here; M2.d.3 wires them in for peer-mesh fragments.
-        drop(outbound_iter);
+        // M2.d.3: install the plan-driven assignment table on the worker's
+        // mesh. `ShmMqWorkerTransport::open` consults it to route nested
+        // boundaries (e.g. the `NetworkShuffleExec` inside a `FinalPartitioned`
+        // fragment) to the right peer proc.
+        let assignment = TaskAssignment::from_plan(&physical_plan, total_procs);
+        worker_mesh.install_assignment(Arc::clone(&assignment));
 
-        let result =
-            runtime.block_on(async { run_worker_fragment(fragment, expanded, task_ctx).await });
+        // Walk the plan and collect every `(stage_id, task_idx)` slot the
+        // assignment table puts on this proc. The dispatcher spawns one
+        // async task per fragment; together they form the worker's complete
+        // contribution to the distributed plan.
+        let fragments = find_worker_assignments(&physical_plan, this_proc, &assignment);
+        if fragments.is_empty() {
+            pgrx::warning!(
+                "mpp worker (proc={this_proc}): no fragments assigned by TaskAssignment; \
+                 skipping (worker emits zero rows)"
+            );
+            return std::ptr::null_mut();
+        }
+
+        let work_mem_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
+        let hash_mem_multiplier = unsafe { pg_sys::hash_mem_multiplier };
+        let session_arc = Arc::new(session);
+
+        let result = runtime.block_on(async move {
+            let mut futures = Vec::with_capacity(fragments.len());
+            for fragment in &fragments {
+                let n_out = fragment.plan.output_partitioning().partition_count();
+                // Build per-output-partition senders. For each partition `q`
+                // emitted by this fragment, look up the destination proc via
+                // `fragment.routing` and clone the right outbound sender.
+                let mut per_partition_senders: Vec<MppSender> = Vec::with_capacity(n_out);
+                for q in 0..n_out {
+                    let dest_proc = match &fragment.routing {
+                        FragmentRouting::Coalesce { dest_proc } => *dest_proc,
+                        FragmentRouting::Shuffle {
+                            parent_stage_id,
+                            partitions_per_consumer_task,
+                        } => {
+                            let t_c = (q / partitions_per_consumer_task) as u32;
+                            match assignment.proc_for(*parent_stage_id, t_c) {
+                                Some(p) => p,
+                                None => {
+                                    return Err(datafusion::common::DataFusionError::Internal(
+                                        format!(
+                                            "mpp worker dispatch: no proc for \
+                                             (parent_stage_id={parent_stage_id}, task={t_c}); \
+                                             fragment stage_id={} task_idx={}",
+                                            fragment.stage_id, fragment.task_idx,
+                                        ),
+                                    ));
+                                }
+                            }
+                        }
+                    };
+                    let base = match outbound_senders
+                        .get(dest_proc as usize)
+                        .and_then(|s| s.as_ref())
+                    {
+                        Some(s) => s,
+                        None => {
+                            return Err(datafusion::common::DataFusionError::Internal(format!(
+                                "mpp worker dispatch: outbound_senders[{dest_proc}] is None \
+                                 (self-loop or unattached); fragment stage_id={} task_idx={}",
+                                fragment.stage_id, fragment.task_idx,
+                            )));
+                        }
+                    };
+                    let q_u32 = u32::try_from(q).unwrap_or(u32::MAX);
+                    // Attach the worker mesh as the cooperative drain so a
+                    // full outbound shm_mq queue doesn't block the backend
+                    // thread — the spin pulls every inbound drain while
+                    // retrying the send, breaking N×N symmetric stalls.
+                    per_partition_senders.push(
+                        base.clone_with_header(MppFrameHeader::batch(fragment.stage_id, q_u32))
+                            .with_cooperative_drain(
+                                Arc::clone(&worker_mesh) as Arc<dyn CooperativeDrainSet>
+                            ),
+                    );
+                }
+
+                // Build a TaskContext seeded with the right
+                // `DistributedTaskContext` so the boundary nodes inside the
+                // fragment's plan know their `(task_index, task_count)`.
+                let cfg = session_arc
+                    .state()
+                    .config()
+                    .clone()
+                    .with_extension(Arc::new(DistributedTaskContext {
+                        task_index: fragment.task_idx,
+                        task_count: fragment.task_count,
+                    }));
+                let memory_pool =
+                    create_memory_pool(&fragment.plan, work_mem_bytes, hash_mem_multiplier);
+                let task_ctx = Arc::new(
+                    TaskContext::default()
+                        .with_session_config(cfg)
+                        .with_runtime(Arc::new(
+                            RuntimeEnvBuilder::new()
+                                .with_memory_pool(memory_pool)
+                                .build()
+                                .expect("Failed to create RuntimeEnv"),
+                        )),
+                );
+
+                let plan = Arc::clone(&fragment.plan);
+                futures.push(run_worker_fragment(plan, per_partition_senders, task_ctx));
+            }
+            // Drop the original outbound_senders so the only remaining Arcs
+            // to each shm_mq queue / in-proc channel are the per-partition
+            // clones owned by the spawned fragments. Without this, the
+            // originals would outlive the futures, the consumer-side drains
+            // would never observe `Detached`, and `stream_partition`'s pull
+            // loop would spin forever.
+            drop(outbound_senders);
+            futures::future::try_join_all(futures).await.map(|_| ())
+        });
         if let Err(e) = result {
-            pgrx::error!("mpp worker: run_worker_fragment failed: {e}");
+            pgrx::error!("mpp worker: fragment dispatch failed: {e}");
         }
         std::ptr::null_mut()
-    }
-
-    /// Walk a DistributedExec-rooted plan and return the input subtree of
-    /// the **topmost** worker→leader network boundary (the worker producer
-    /// fragment). Returns `None` if no qualifying boundary is reachable.
-    ///
-    /// In the band-aided fork the topmost boundary was always
-    /// `NetworkShuffleExec(consumer_tc=1, input_tc=N)`; in the natural-shape
-    /// plan that's now `NetworkCoalesceExec(consumer_tc=1, input_tc=N)`.
-    /// We accept either, since the worker subtree below is the same shape
-    /// in both cases.
-    ///
-    /// Pre-order traversal returns on the first match, which is the
-    /// outermost boundary — the one that straddles the worker→leader split.
-    /// Nested boundaries inside the worker fragment (e.g. the shuffles
-    /// `HashJoinExec(Partitioned)` inserts on each side once the build side
-    /// crosses `hash_join_single_partition_threshold`) are re-executed
-    /// locally by `LocalExecWorkerTransport` at execute time, so the worker
-    /// only needs to find the outermost one.
-    fn find_worker_fragment(plan: &Arc<dyn ExecutionPlan>) -> Option<Arc<dyn ExecutionPlan>> {
-        let name = plan.name();
-        if name == "NetworkShuffleExec" || name == "NetworkCoalesceExec" {
-            return plan.children().first().map(|c| Arc::clone(c));
-        }
-        for child in plan.children() {
-            if let Some(found) = Self::find_worker_fragment(child) {
-                return Some(found);
-            }
-        }
-        None
     }
 
     /// Existing single-table Tantivy aggregate path.

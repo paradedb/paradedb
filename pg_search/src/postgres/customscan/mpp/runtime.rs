@@ -38,7 +38,6 @@ use std::sync::{Arc, OnceLock};
 use async_trait::async_trait;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
-use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::{
     OnMetadataCallback, Stage, WorkerConnection, WorkerPartitionStream, WorkerResolver,
     WorkerTransport,
@@ -46,7 +45,7 @@ use datafusion_distributed::{
 use url::Url;
 
 use crate::postgres::customscan::mpp::assignment::TaskAssignment;
-use crate::postgres::customscan::mpp::transport::{DrainHandle, DrainItem};
+use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, DrainHandle, DrainItem};
 
 /// Runtime handle the customscan populates at DSM-init time.
 ///
@@ -127,6 +126,29 @@ impl MppMesh {
     /// installed yet.
     pub fn task_assignment(&self) -> Option<&Arc<TaskAssignment>> {
         self.task_assignment.get()
+    }
+
+    /// Pull from every installed inbound drain. Called from
+    /// [`crate::postgres::customscan::mpp::transport::MppSender`]'s
+    /// cooperative-send spin so a producer stalled on a full outbound queue
+    /// can drain inbound peer data inline — preventing the N×N symmetric-send
+    /// deadlock when every peer is simultaneously stalled waiting for space.
+    ///
+    /// Returns the first error if any drain's `poll_drain_pass` errors;
+    /// otherwise `Ok(())` after all drains have been polled. Drains that
+    /// have already detached are skipped silently (their slot is still
+    /// `Some`, but their inner `coop_receivers` Vec entry is `None`).
+    pub fn drain_all_inbound(&self) -> Result<(), DataFusionError> {
+        for drain in self.inbound_drains.iter().flatten() {
+            drain.poll_drain_pass()?;
+        }
+        Ok(())
+    }
+}
+
+impl CooperativeDrainSet for MppMesh {
+    fn poll_drain_pass(&self) -> Result<(), DataFusionError> {
+        self.drain_all_inbound()
     }
 }
 
@@ -296,64 +318,5 @@ impl WorkerResolver for MppWorkerResolver {
     fn get_urls(&self) -> Result<Vec<Url>, DataFusionError> {
         let url = Url::parse("http://mpp.local/").expect("static URL parses");
         Ok(vec![url; self.n_workers])
-    }
-}
-
-/// Worker-side [`WorkerTransport`] that resolves nested network boundaries
-/// (such as a `NetworkBroadcastExec` on the build side of a `HashJoin`) by
-/// executing the boundary's `input_stage.plan` locally on the worker.
-///
-/// In the DF-D fork's gRPC distributed model, every worker would pull the
-/// broadcast data from a designated source via a Flight stream. In our
-/// in-process model the producer fragment that workers run already contains
-/// these network boundary nodes (the worker re-plans from the same logical
-/// plan as the leader), and rather than fan a broadcast across an in-process
-/// mesh we just have each worker re-execute the build-side plan locally —
-/// it's a small index scan, cheap enough that duplicating the work across
-/// `n_workers` producers is preferable to wiring a second mesh.
-///
-/// The worker's session must keep `input_stage.plan = Some(...)` (i.e. the
-/// DF-D fork's `prepare_plan` is *not* invoked on the worker side because we
-/// drop into `find_worker_fragment` below the leader's `DistributedExec`).
-pub struct LocalExecWorkerTransport;
-
-impl WorkerTransport for LocalExecWorkerTransport {
-    fn open(
-        &self,
-        input_stage: &Stage,
-        _target_partitions: Range<usize>,
-        _target_task: usize,
-        ctx: &Arc<TaskContext>,
-    ) -> Result<Box<dyn WorkerConnection>> {
-        let plan = input_stage.plan().cloned().ok_or_else(|| {
-            DataFusionError::Internal(
-                "LocalExecWorkerTransport: input_stage.plan is None — \
-                 worker re-plan must keep the boundary's input subtree intact"
-                    .into(),
-            )
-        })?;
-        Ok(Box::new(LocalExecWorkerConnection {
-            plan,
-            ctx: Arc::clone(ctx),
-        }))
-    }
-}
-
-struct LocalExecWorkerConnection {
-    plan: Arc<dyn ExecutionPlan>,
-    ctx: Arc<TaskContext>,
-}
-
-impl WorkerConnection for LocalExecWorkerConnection {
-    fn stream_partition(
-        &self,
-        partition: usize,
-        _on_metadata: OnMetadataCallback,
-    ) -> Result<WorkerPartitionStream> {
-        let stream = self.plan.execute(partition, Arc::clone(&self.ctx))?;
-        // SendableRecordBatchStream is already `Pin<Box<dyn Stream<Item = Result<RecordBatch>> + Send>>`;
-        // the WorkerPartitionStream alias drops the schema bound, so the
-        // existing pinned box satisfies it directly.
-        Ok(stream)
     }
 }

@@ -33,7 +33,7 @@
 //!   address satisfies the API.
 
 use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 use datafusion::common::{DataFusionError, Result};
@@ -45,6 +45,7 @@ use datafusion_distributed::{
 };
 use url::Url;
 
+use crate::postgres::customscan::mpp::assignment::TaskAssignment;
 use crate::postgres::customscan::mpp::transport::{DrainHandle, DrainItem};
 
 /// Runtime handle the customscan populates at DSM-init time.
@@ -53,11 +54,16 @@ use crate::postgres::customscan::mpp::transport::{DrainHandle, DrainItem};
 /// per-sender-proc map. Each shm_mq queue (one per `(sender_proc, this_proc)`
 /// pair in the V2 DSM grid) is multi-channel: frames from any number of
 /// `(stage_id, partition)` logical channels can arrive on one queue, tagged
-/// by [`MppFrameHeader`]. M2 will introduce a sub-buffer registry indexed by
-/// `(stage_id, partition)` so a single drain can fan frames out to multiple
-/// consumers. For now, the single-stage gather path treats each queue as
-/// carrying one channel — the per-`(stage_id, partition)` registry sits at
-/// `n_inbound_per_sender = 1` and is implicit.
+/// by [`MppFrameHeader`]. M2.b added the sub-buffer registry per
+/// [`DrainHandle`] so a single drain can fan frames out to multiple
+/// consumers keyed on `(stage_id, partition)`.
+///
+/// M2.c added [`Self::task_assignment`] — the plan-driven
+/// `(stage_id, task_idx) → proc_idx` table installed after physical-plan
+/// build. [`ShmMqWorkerTransport::open`] consults it to route
+/// `(input_stage, target_task)` requests to the right inbound drain.
+///
+/// [`MppFrameHeader`]: crate::postgres::customscan::mpp::transport::MppFrameHeader
 pub struct MppMesh {
     /// This process's `proc_idx` (= 0 for the leader, `ParallelWorkerNumber + 1`
     /// for workers). Frames addressed to this proc arrive on `slot(*, this_proc)`.
@@ -70,15 +76,52 @@ pub struct MppMesh {
     /// process doesn't consume from (self-loop, currently). The natural-shape
     /// gather installs drains for every `sender_proc != this_proc`.
     pub inbound_drains: Vec<Option<Arc<DrainHandle>>>,
+    /// Plan-driven `(stage_id, task_idx) → proc_idx` table. Installed by
+    /// [`Self::install_assignment`] right after the leader builds the
+    /// physical plan; read by [`ShmMqWorkerTransport::open`] at execute
+    /// time. `OnceLock` because the table is logically immutable for the
+    /// lifetime of the query — install once, read many. If `get()` returns
+    /// `None`, the transport falls back to the M1 heuristic to keep the
+    /// single-stage gather working during incremental rollout.
+    task_assignment: OnceLock<Arc<TaskAssignment>>,
 }
 
 impl MppMesh {
+    /// Build a fresh mesh with the assignment table unset. Use
+    /// [`Self::install_assignment`] after the physical plan is available.
+    pub fn new(
+        this_proc: u32,
+        n_procs: u32,
+        inbound_drains: Vec<Option<Arc<DrainHandle>>>,
+    ) -> Self {
+        Self {
+            this_proc,
+            n_procs,
+            inbound_drains,
+            task_assignment: OnceLock::new(),
+        }
+    }
+
     /// Look up the drain that owns frames coming from `sender_proc`. Returns
     /// `None` if no drain is installed (out-of-range or the self-loop slot,
     /// which the single-stage gather skips).
     pub fn inbound_drain(&self, sender_proc: u32) -> Option<&Arc<DrainHandle>> {
         let idx = sender_proc as usize;
         self.inbound_drains.get(idx).and_then(|slot| slot.as_ref())
+    }
+
+    /// Install the plan-derived task assignment table. Idempotent in spirit
+    /// — a second call after the first wins is a logic bug, but
+    /// `OnceLock::set` silently no-ops in that case so callers don't have
+    /// to special-case it.
+    pub fn install_assignment(&self, assignment: Arc<TaskAssignment>) {
+        let _ = self.task_assignment.set(assignment);
+    }
+
+    /// Read the installed assignment table, or `None` if it hasn't been
+    /// installed yet.
+    pub fn task_assignment(&self) -> Option<&Arc<TaskAssignment>> {
+        self.task_assignment.get()
     }
 }
 
@@ -87,10 +130,13 @@ impl MppMesh {
 /// `open(input_stage, target_task)` translates the DF-D `(stage, task)`
 /// addressing into the proc-pair grid: `target_task` selects which `sender_proc`
 /// hosts the producer-side task, and the returned [`WorkerConnection`] pulls
-/// from that proc's inbound drain. For the natural-shape single-stage gather
-/// the mapping is `sender_proc = target_task + 1` (workers start at proc 1;
-/// leader is proc 0 and is the consumer here). M2 generalizes this to a
-/// plan-driven `(stage_id, task) -> proc_idx` assignment table.
+/// from that proc's inbound drain.
+///
+/// M2.c routes via the mesh's plan-driven [`TaskAssignment`] table. If the
+/// table is uninstalled (e.g. during incremental rollout) the transport
+/// falls back to the legacy single-stage heuristic
+/// `sender_proc = target_task + 1` so the natural-shape gather keeps
+/// working.
 pub struct ShmMqWorkerTransport {
     mesh: Arc<MppMesh>,
 }
@@ -100,10 +146,19 @@ impl ShmMqWorkerTransport {
         Self { mesh }
     }
 
-    /// `(stage_id, task)` → `sender_proc` assignment. Single-stage heuristic
-    /// for now: task 0..N-1 maps to proc 1..N (skipping the leader). M2
-    /// replaces this with a plan-driven lookup table.
-    fn sender_proc_for_task(&self, _stage_id: u32, target_task: u32) -> u32 {
+    /// `(stage_id, task)` → `sender_proc`. Consults the installed
+    /// [`TaskAssignment`]; falls back to `task + 1` if the table isn't
+    /// populated or doesn't carry an entry for the requested key. The
+    /// fallback matches M1's single-stage heuristic and keeps the
+    /// `NetworkCoalesceExec(consumer_tc=1, input_tc=N)` gather working
+    /// while M2.d wires up per-worker meshes that install the assignment
+    /// from the worker side too.
+    fn sender_proc_for_task(&self, stage_id: u32, target_task: u32) -> u32 {
+        if let Some(a) = self.mesh.task_assignment() {
+            if let Some(p) = a.proc_for(stage_id, target_task) {
+                return p;
+            }
+        }
         target_task + 1
     }
 }

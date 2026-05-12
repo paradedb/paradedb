@@ -200,11 +200,7 @@ pub unsafe fn leader_setup(
         inbound_drains.push(Some(Arc::new(DrainHandle::cooperative(vec![mpp_recv]))));
     }
 
-    let mesh = Arc::new(MppMesh {
-        this_proc: 0,
-        n_procs: total_procs,
-        inbound_drains,
-    });
+    let mesh = Arc::new(MppMesh::new(0, total_procs, inbound_drains));
 
     // Drop the leader's own outbound senders — the leader doesn't yet host
     // a producer fragment in single-stage mode.

@@ -44,6 +44,7 @@ use datafusion_distributed::{
     display_plan_ascii, DistributedExec, DistributedExt, SessionStateBuilderExt,
 };
 
+use crate::postgres::customscan::mpp::assignment::TaskAssignment;
 use crate::postgres::customscan::mpp::dsm::MppDsmHeader;
 use crate::postgres::customscan::mpp::glue::{
     estimate_dsm_size, leader_setup, mpp_is_active, mpp_worker_count, producer_worker_count,
@@ -1880,6 +1881,16 @@ impl AggregateScan {
                 Ok(p) => p,
                 Err(e) => pgrx::error!("Failed to build DataFusion aggregate plan: {}", e),
             };
+
+            // M2.c: install the plan-driven `(stage_id, task_idx) → proc_idx`
+            // table on the mesh now that the physical plan is in hand. The
+            // transport's `open()` reads through this on every NetworkBoundary
+            // execute; without it, routing falls back to the M1 single-stage
+            // heuristic.
+            if let Some(scan_state::MppExecState::Leader(leader)) = df_state.mpp.as_ref() {
+                let assignment = TaskAssignment::from_plan(&physical_plan, leader.mesh.n_procs);
+                leader.mesh.install_assignment(assignment);
+            }
 
             let task_ctx = build_task_context(
                 &ctx,

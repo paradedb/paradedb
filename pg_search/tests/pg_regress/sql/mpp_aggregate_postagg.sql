@@ -161,8 +161,58 @@ FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section';
 
 -- =====================================================================
+-- Scenario 5: Three-table join (two HashJoins → two NetworkBroadcastExec
+-- build subtrees under one NetworkShuffleExec shuffle).
+--
+-- Exercises the walker's nested-parent context propagation across two
+-- distinct `stage_id`s simultaneously, and the dispatcher's per-channel
+-- EOF on multiple Broadcast routings + the broadcast short-circuit on
+-- task_idx > 0 for both build stages.
+-- =====================================================================
+
+CREATE TABLE mpp_postagg_categories (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    description TEXT
+);
+
+INSERT INTO mpp_postagg_categories (name, description)
+SELECT 'cat-' || g, 'Category ' || g || ' Section description'
+FROM generate_series(0, 4) AS g;
+
+CREATE INDEX mpp_postagg_categories_idx ON mpp_postagg_categories
+USING bm25 (id, name, description)
+WITH (
+    key_field='id',
+    text_fields='{"name": {"fast": true}, "description": {}}'
+);
+
+ANALYZE mpp_postagg_categories;
+
+SET paradedb.enable_mpp TO off;
+
+SELECT c.name, COUNT(*) AS row_count, SUM(p.size_bytes) AS total_bytes
+FROM mpp_postagg_files f
+JOIN mpp_postagg_pages p ON f.id = p.file_id
+JOIN mpp_postagg_categories c ON f.category = c.name
+WHERE f.content @@@ 'Section'
+GROUP BY c.name
+ORDER BY c.name;
+
+SET paradedb.enable_mpp TO on;
+
+SELECT c.name, COUNT(*) AS row_count, SUM(p.size_bytes) AS total_bytes
+FROM mpp_postagg_files f
+JOIN mpp_postagg_pages p ON f.id = p.file_id
+JOIN mpp_postagg_categories c ON f.category = c.name
+WHERE f.content @@@ 'Section'
+GROUP BY c.name
+ORDER BY c.name;
+
+-- =====================================================================
 -- Cleanup
 -- =====================================================================
 
+DROP TABLE mpp_postagg_categories;
 DROP TABLE mpp_postagg_pages;
 DROP TABLE mpp_postagg_files;

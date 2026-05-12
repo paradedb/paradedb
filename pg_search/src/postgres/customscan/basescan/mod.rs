@@ -1798,9 +1798,13 @@ fn validate_topk_expectation(
     let has_limit = privdata.limit_offset().is_some();
     let has_search_query = privdata.query().is_some();
     let no_group_by = privdata.window_aggregates().is_empty();
+    let no_residual_quals = !privdata.has_residual();
 
-    // Top K is expected when we have: explicit LIMIT + search query + no GROUP BY
-    let should_use_topk = has_limit && limit_is_explicit && has_search_query && no_group_by;
+    // Top K is expected only when it is semantically safe.
+    // PostgreSQL residual quals are evaluated outside the ParadeDB query, so TopK
+    // would apply LIMIT before those quals and can change query results.
+    let should_use_topk =
+        has_limit && limit_is_explicit && has_search_query && no_group_by && no_residual_quals;
 
     // Check if we actually got Top K
     let is_using_topk = matches!(chosen_method, ExecMethodType::TopK { .. });
@@ -1900,40 +1904,56 @@ fn choose_exec_method(
     table_name: &str,
     has_sort_by_pathkey: bool,
 ) -> Vec<ExecMethodType> {
+    /*
+     * TopK is an early-limit execution method: it limits the candidate set
+     * inside the ParadeDB scan before PostgreSQL plan quals are evaluated.
+     *
+     * That is only semantically safe when every row-rejecting predicate has
+     * already been represented in the ParadeDB query itself.
+     *
+     * If we have residual RestrictInfos, they are later materialized as
+     * scan.plan.qual and evaluated by PostgreSQL's ExecQual machinery. Using
+     * TopK before those quals can drop rows that would have survived the
+     * residual filter, changing LIMIT/MIN/MAX semantics.
+     */
+    let can_use_topk = !privdata.has_residual();
+
     // See if we can use Top K.
     // A known limit value or a parameterized limit (value resolved at execution time) both qualify.
-    if let Some(lo) = privdata.limit_offset().clone() {
-        if let Some(orderby_info) = privdata.maybe_orderby_info() {
-            let method = ExecMethodType::TopK {
-                heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
-                limit_offset: lo.clone(),
-                orderby_info: Some(orderby_info.clone()),
-                window_aggregates: privdata.window_aggregates().clone(),
-            };
-            validate_topk_expectation(
-                privdata,
-                topk_pathkey_info,
-                limit_is_explicit,
-                &method,
-                table_name,
-            );
-            return vec![method];
-        }
-        if matches!(topk_pathkey_info, PathKeyInfo::None) {
-            let method = ExecMethodType::TopK {
-                heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
-                limit_offset: lo,
-                orderby_info: None,
-                window_aggregates: privdata.window_aggregates().clone(),
-            };
-            validate_topk_expectation(
-                privdata,
-                topk_pathkey_info,
-                limit_is_explicit,
-                &method,
-                table_name,
-            );
-            return vec![method];
+    if can_use_topk {
+        if let Some(lo) = privdata.limit_offset().clone() {
+            if let Some(orderby_info) = privdata.maybe_orderby_info() {
+                let method = ExecMethodType::TopK {
+                    heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
+                    limit_offset: lo.clone(),
+                    orderby_info: Some(orderby_info.clone()),
+                    window_aggregates: privdata.window_aggregates().clone(),
+                };
+                validate_topk_expectation(
+                    privdata,
+                    topk_pathkey_info,
+                    limit_is_explicit,
+                    &method,
+                    table_name,
+                );
+                return vec![method];
+            }
+            if matches!(topk_pathkey_info, PathKeyInfo::None) {
+                let method = ExecMethodType::TopK {
+                    heaprelid: privdata.heaprelid().expect("heaprelid must be set"),
+                    limit_offset: lo,
+                    orderby_info: None,
+                    window_aggregates: privdata.window_aggregates().clone(),
+                };
+                validate_topk_expectation(
+                    privdata,
+                    topk_pathkey_info,
+                    limit_is_explicit,
+                    &method,
+                    table_name,
+                );
+                return vec![method];
+            }
         }
     }
 

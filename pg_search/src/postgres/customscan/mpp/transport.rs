@@ -37,7 +37,6 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-use std::task::Waker;
 #[cfg(test)]
 use std::thread;
 use std::thread::JoinHandle;
@@ -280,15 +279,23 @@ pub fn decode_frame(
     }
 }
 
-/// Local queue that sits between the drain thread and the DataFusion consumer.
+/// Local queue between a drain (either the cooperative `poll_drain_pass`
+/// or the test-only thread variant) and the consumer that pops batches.
 ///
-/// Push side: the drain thread appends fully-deserialized batches as they arrive
-/// from inbound shm_mqs. When a source queue detaches, [`DrainBuffer::notify_source_done`]
-/// is called; once all sources are done AND the queue is empty, `pop_front` returns
+/// In the cooperative path each `DrainBuffer` corresponds to one logical
+/// channel — i.e. one `(stage_id, partition)` entry in the owning
+/// [`DrainHandle`]'s registry. `num_sources` is always `1` there because a
+/// given drain serves a single sender_proc, which is the only producer for
+/// any channel routed through it. The test-only thread path uses a single
+/// shared buffer with `num_sources = N` over an N-sender setup.
+///
+/// Push side: callers append deserialized batches; on source detach (or per-
+/// channel `Eof` frame) [`DrainBuffer::notify_source_done`] is called. Once
+/// `sources_done >= num_sources` AND the queue is empty, `try_pop` returns
 /// [`DrainItem::Eof`].
 ///
-/// Pop side: the consumer calls `pop_front` which blocks on the condvar until
-/// either a batch is available or EOF has been reached.
+/// Pop side: cooperative consumers loop on `try_pop` + `yield_now`. The
+/// test-only `pop_front` blocks on the condvar.
 #[derive(Debug)]
 pub struct DrainBuffer {
     inner: Mutex<DrainBufferInner>,
@@ -300,15 +307,10 @@ struct DrainBufferInner {
     queue: VecDeque<RecordBatch>,
     num_sources: u32,
     sources_done: u32,
-    /// Consumer-side cancel flag. When set (e.g., query cancelled), the drain
-    /// thread should stop pushing and unblock waiting consumers with EOF.
+    /// Consumer-side cancel flag. When set (e.g., query cancelled or
+    /// `DrainHandle` dropped), `try_pop`/`pop_front` returns `Eof` even
+    /// if `sources_done` hasn't reached `num_sources`.
     cancelled: bool,
-    /// Most recently registered async waker from a `poll_pop_front` caller.
-    /// Woken on push / source-done / cancel so a stream running inside a
-    /// DataFusion `poll_next` returns `Poll::Pending` without blocking the
-    /// executor thread. `Option` so we don't allocate one if the buffer is
-    /// only consumed synchronously via `pop_front`.
-    waker: Option<Waker>,
 }
 
 /// Yielded by [`DrainBuffer::pop_front`].
@@ -331,7 +333,6 @@ impl DrainBuffer {
                 num_sources,
                 sources_done: 0,
                 cancelled: false,
-                waker: None,
             }),
             cond: Condvar::new(),
         })
@@ -342,21 +343,16 @@ impl DrainBuffer {
         let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
         guard.queue.push_back(batch);
         self.cond.notify_one();
-        if let Some(w) = guard.waker.take() {
-            w.wake();
-        }
     }
 
     /// Mark one source queue as detached. Safe to call from the drain thread
-    /// after observing `SHM_MQ_DETACHED` on a given inbound queue.
+    /// after observing `SHM_MQ_DETACHED` on a given inbound queue or from
+    /// [`DrainHandle::mark_detached`] when the underlying receiver has died.
     pub fn notify_source_done(&self) {
         let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
         guard.sources_done = guard.sources_done.saturating_add(1);
         if guard.sources_done >= guard.num_sources {
             self.cond.notify_all();
-            if let Some(w) = guard.waker.take() {
-                w.wake();
-            }
         }
     }
 
@@ -365,9 +361,6 @@ impl DrainBuffer {
         let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
         guard.cancelled = true;
         self.cond.notify_all();
-        if let Some(w) = guard.waker.take() {
-            w.wake();
-        }
     }
 
     /// Block until a batch is available, EOF is reached, or the buffer is
@@ -403,22 +396,22 @@ impl DrainBuffer {
             .cancelled
     }
 
-    /// Non-blocking, non-waker variant. Returns the
-    /// front item or `DrainItem::Eof` if all sources have detached and
-    /// the queue is drained; returns `None` only when more data may yet
-    /// arrive. Cooperative consumers loop on `try_drain_pass` + `try_pop`,
-    /// yielding to the executor between iterations.
+    /// Non-blocking variant. Returns the front item, or `DrainItem::Eof` if
+    /// all sources have detached and the queue is drained, or `None` if more
+    /// data may yet arrive. Cooperative consumers loop on
+    /// `try_drain_pass` + `try_pop`, yielding to the executor between
+    /// iterations.
     pub fn try_pop(&self) -> Option<DrainItem> {
         let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
         Self::try_pop_locked(&mut guard)
     }
 
-    /// Shared body of [`try_pop`] and [`poll_pop_front`]. Returns
-    /// `Some(Batch)` if the queue has data, `Some(Eof)` if all sources
-    /// have detached or the buffer is cancelled, and `None` otherwise.
-    /// Lets the two public entry points stay in lockstep on the
-    /// "buffered data wins over cancellation/EOF" invariant locked in
-    /// by `drain_buffer_drains_buffered_before_eof`.
+    /// Shared body of [`try_pop`] and the test-only [`Self::pop_front`].
+    /// Returns `Some(Batch)` if the queue has data, `Some(Eof)` if all
+    /// sources have detached or the buffer is cancelled, and `None`
+    /// otherwise. Lets the two entry points stay in lockstep on the
+    /// "buffered data wins over cancellation/EOF" invariant locked in by
+    /// the `drain_buffer_drains_buffered_before_eof` test.
     fn try_pop_locked(guard: &mut MutexGuard<'_, DrainBufferInner>) -> Option<DrainItem> {
         if let Some(batch) = guard.queue.pop_front() {
             return Some(DrainItem::Batch(batch));
@@ -912,31 +905,45 @@ impl DrainHandle {
 
     /// Mark the drain as detached and `notify_source_done` every registered
     /// sub-buffer. Idempotent. Used by `try_drain_pass` after `Detached` /
-    /// `Error` outcomes; also called from `Drop` for the cooperative path so
-    /// any consumer blocked on `try_pop` unblocks with `Eof` even if the
-    /// query is torn down before EOF frames flow.
+    /// `Error` outcomes; the cooperative-path equivalent fires from `Drop`
+    /// via [`Self::cancel_sub_buffers`] so any consumer blocked on `try_pop`
+    /// unblocks with `Eof` even if the query is torn down before EOF frames
+    /// flow.
+    ///
+    /// Collects buffer handles under the registry lock, then notifies after
+    /// releasing it. Notifying inline would block any concurrent
+    /// [`Self::register_channel`] for as long as it takes to acquire
+    /// `DrainBuffer::inner` N times — fine today (single backend thread),
+    /// but cheap insurance against the multi-thread variant landing later.
     fn mark_detached(&self) {
-        let mut guard = self
-            .sub_buffers
-            .lock()
-            .expect("DrainHandle sub_buffers mutex poisoned");
-        if guard.detached {
-            return;
-        }
-        guard.detached = true;
-        for buf in guard.map.values() {
+        let to_notify = {
+            let mut guard = self
+                .sub_buffers
+                .lock()
+                .expect("DrainHandle sub_buffers mutex poisoned");
+            if guard.detached {
+                return;
+            }
+            guard.detached = true;
+            guard.map.values().cloned().collect::<Vec<_>>()
+        };
+        for buf in to_notify {
             buf.notify_source_done();
         }
     }
 
     /// Cancel every registered sub-buffer. Called from `Drop` to unblock any
     /// consumer waiting on a sub-buffer when the handle goes away mid-query.
+    /// Same collect-then-notify pattern as [`Self::mark_detached`].
     fn cancel_sub_buffers(&self) {
-        let guard = self
-            .sub_buffers
-            .lock()
-            .expect("DrainHandle sub_buffers mutex poisoned");
-        for buf in guard.map.values() {
+        let to_cancel = {
+            let guard = self
+                .sub_buffers
+                .lock()
+                .expect("DrainHandle sub_buffers mutex poisoned");
+            guard.map.values().cloned().collect::<Vec<_>>()
+        };
+        for buf in to_cancel {
             buf.cancel();
         }
     }
@@ -1050,6 +1057,14 @@ impl Drop for DrainHandle {
     }
 }
 
+/// Test-only thread-backed drain. Writes every observed frame into a single
+/// shared [`DrainBuffer`] — the *legacy* `num_sources = N` model the cooperative
+/// path replaced. Per-channel `Eof` frames are treated as "this source is
+/// done" (not "this logical channel within the source is done"), matching the
+/// original single-buffer semantics. Production code routes through
+/// [`DrainHandle::poll_drain_pass`] instead, which keys on the frame header.
+/// Tests that want to validate the production demux must use
+/// [`DrainHandle::cooperative`] and call `poll_drain_pass` directly.
 #[cfg(test)]
 fn drain_loop(config: DrainConfig) -> Result<(), DataFusionError> {
     let DrainConfig {
@@ -1782,5 +1797,59 @@ mod tests {
         let first = handle.register_channel(2, 3);
         let second = handle.register_channel(2, 3);
         assert!(Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn drain_handle_demuxes_frames_by_stage_id() {
+        // Same partition (0) for two different stage ids on the same queue.
+        // The registry's compound key keeps them on separate sub-buffers.
+        let (tx, rx) = in_proc_channel(8);
+        let tx_arc: Arc<dyn BatchChannelSender> = Arc::new(tx);
+        let s_stage0 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(0, 0));
+        let s_stage1 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(1, 0));
+        let receiver = MppReceiver::new(Box::new(rx));
+        let handle = DrainHandle::cooperative(vec![receiver]);
+
+        s_stage0.send_batch(&sample_batch(2)).unwrap();
+        s_stage1.send_batch(&sample_batch(9)).unwrap();
+        s_stage0.send_batch(&sample_batch(4)).unwrap();
+        drop(s_stage0);
+        drop(s_stage1);
+        drop(tx_arc);
+
+        let buf0 = handle.register_channel(0, 0);
+        let buf1 = handle.register_channel(1, 0);
+
+        drain_until_detached(&handle);
+
+        let mut stage0_rows = Vec::new();
+        while let Some(DrainItem::Batch(b)) = buf0.try_pop() {
+            stage0_rows.push(b.num_rows());
+        }
+        let mut stage1_rows = Vec::new();
+        while let Some(DrainItem::Batch(b)) = buf1.try_pop() {
+            stage1_rows.push(b.num_rows());
+        }
+        assert_eq!(stage0_rows, vec![2, 4]);
+        assert_eq!(stage1_rows, vec![9]);
+    }
+
+    #[test]
+    fn drain_handle_drop_cancels_registered_sub_buffers() {
+        // Dropping a cooperative DrainHandle must wake any consumer holding
+        // an Arc<DrainBuffer> from `register_channel` — otherwise a query
+        // error path that tears down the mesh would leave a consumer
+        // blocked on a buffer that will never see EOF.
+        let (_tx, rx) = in_proc_channel(8);
+        let receiver = MppReceiver::new(Box::new(rx));
+        let handle = DrainHandle::cooperative(vec![receiver]);
+
+        let buf_a = handle.register_channel(0, 0);
+        let buf_b = handle.register_channel(7, 3);
+        // No data ever flows; the handle is just dropped.
+        drop(handle);
+
+        assert!(matches!(buf_a.try_pop(), Some(DrainItem::Eof)));
+        assert!(matches!(buf_b.try_pop(), Some(DrainItem::Eof)));
     }
 }

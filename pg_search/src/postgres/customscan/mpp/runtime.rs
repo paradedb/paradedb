@@ -146,9 +146,9 @@ impl WorkerTransport for ShmMqWorkerTransport {
 struct ShmMqWorkerConnection {
     mesh: Arc<MppMesh>,
     sender_proc: u32,
-    // `stage_id` of the boundary's `input_stage`. Held for diagnostics today;
-    // M2's sub-buffer registry will key on it.
-    #[allow(dead_code)]
+    /// `stage_id` of the boundary's `input_stage`. Passed to
+    /// `DrainHandle::register_channel` so the sub-buffer this connection
+    /// streams from sees only frames tagged with the same `(stage_id, p)`.
     stage_id: u32,
 }
 

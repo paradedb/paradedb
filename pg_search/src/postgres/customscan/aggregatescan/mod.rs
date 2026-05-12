@@ -1246,7 +1246,7 @@ impl AggregateScan {
         // its hash to mpp_n_partitions × mpp_n_partitions = 81 partitions.
         let n_workers = worker.participant_config.total_workers;
         let worker_idx_for_cache = worker.participant_config.participant_index;
-        let outbound_senders: Vec<MppSender> = match df_state.mpp.as_mut() {
+        let outbound_senders: Vec<Option<MppSender>> = match df_state.mpp.as_mut() {
             Some(scan_state::MppExecState::Worker(w)) => std::mem::take(&mut w.outbound_senders),
             _ => unreachable!(),
         };
@@ -1365,16 +1365,19 @@ impl AggregateScan {
             unsafe { pg_sys::work_mem as usize * 1024 },
             unsafe { pg_sys::hash_mem_multiplier },
         );
-        // M2.a: expand the single leader-bound sender into N senders matching
+        // M2.a / M2.d.1: expand the leader-bound sender into N senders matching
         // the fragment's output_partitioning. Each clone shares the same
         // shm_mq queue but stamps a different `partition` on its frames, so
         // the leader's drain can demux. `stage_id` stays at 0 — the natural-
-        // shape gather is a single logical stage.
+        // shape gather is a single logical stage, and M2.d.3 will replace
+        // this loop with the plan-walking dispatcher that uses the worker's
+        // full per-proc-indexed sender table.
         let n_out_partitions = fragment.output_partitioning().partition_count();
-        let base_sender = outbound_senders
-            .into_iter()
-            .next()
-            .expect("worker_setup must hand back at least one MppSender");
+        let mut outbound_iter = outbound_senders.into_iter();
+        // Leader is proc 0; its slot in the per-proc-indexed vec is at index 0.
+        let leader_slot = outbound_iter.next().flatten();
+        let base_sender =
+            leader_slot.expect("worker_setup must populate outbound_senders[0] (leader)");
         let mut expanded: Vec<MppSender> = Vec::with_capacity(n_out_partitions);
         for partition in 0..n_out_partitions {
             let partition_u32 = u32::try_from(partition).unwrap_or(u32::MAX);
@@ -1386,6 +1389,9 @@ impl AggregateScan {
             ));
         }
         drop(base_sender);
+        // Remaining peer-bound senders are unused in single-fragment mode and
+        // get dropped here; M2.d.3 wires them in for peer-mesh fragments.
+        drop(outbound_iter);
 
         let result =
             runtime.block_on(async { run_worker_fragment(fragment, expanded, task_ctx).await });

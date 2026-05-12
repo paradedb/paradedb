@@ -215,9 +215,18 @@ pub unsafe fn leader_setup(
 /// Returned to a worker from [`worker_setup`]. The customscan reads the plan
 /// bytes, runs the plan, and pushes resulting batches through `outbound_senders`.
 pub struct MppWorkerState {
-    /// Per-partition outbound senders this worker writes to.
-    /// `outbound_senders[p]` writes to `slot(this_worker, p)`.
-    pub outbound_senders: Vec<MppSender>,
+    /// `outbound_senders[proc_idx]` is the sender that writes to
+    /// `slot(this_proc, proc_idx)`. The entry at `proc_idx == this_proc` is
+    /// `None` because the self-loop slot is never attached (matches the
+    /// leader's `inbound_drains` shape).
+    ///
+    /// M2.d wires each fragment's per-partition output sender to the right
+    /// proc by looking up `outbound_senders[dest_proc]` from the
+    /// [`crate::postgres::customscan::mpp::assignment::TaskAssignment`]
+    /// table. Each `MppSender` wraps an `Arc<dyn BatchChannelSender>` so
+    /// callers can `clone_with_header` to multiplex `(stage_id, partition)`
+    /// channels onto one shm_mq queue.
+    pub outbound_senders: Vec<Option<MppSender>>,
     /// Worker fragment plan bytes, copied out of DSM. Caller deserializes via
     /// the `PgSearchExtensionCodec` to get an `Arc<dyn ExecutionPlan>`.
     pub plan_bytes: Vec<u8>,
@@ -225,6 +234,13 @@ pub struct MppWorkerState {
     /// Build-side all-gather cache. The worker writes its 1/N slice for each
     /// non-partitioning source, then reads back peer slices after the barrier.
     pub build_cache: Option<Arc<MppBuildCache>>,
+    /// Worker's MppMesh — same shape as the leader's. `inbound_drains[sender_proc]`
+    /// pulls frames from `slot(sender_proc, this_proc)`. Workers consume from
+    /// peers when running consumer fragments (e.g. a `FinalPartitioned`
+    /// aggregate above a `NetworkShuffleExec` peer-mesh). Read by
+    /// M2.d.3's multi-fragment dispatcher in `aggregatescan::exec_mpp_worker`.
+    #[allow(dead_code)]
+    pub mesh: Arc<MppMesh>,
 }
 
 /// Body of `initialize_worker_custom_scan`. Reads the header, attaches as
@@ -250,46 +266,50 @@ pub unsafe fn worker_setup(
 
     let (header, plan_bytes, attach) =
         unsafe { worker_attach(coordinate, region_total, proc_idx, seg) }?;
+    let total_procs = header.n_procs;
 
-    // Pick out the worker→leader sender. With self-loops skipped, the worker's
-    // peer-indexed row starts at peer_idx=0 → sender_proc=0 (leader). So
-    // `outbound_senders[0]` writes to `slot(this_proc, 0)`, the worker→leader
-    // queue. Frames carry the natural-shape gather header
-    // `(stage_id=0, partition=0)` since the current path emits
-    // one `NetworkCoalesceExec(consumer_tc=1, input_tc=N)` at the top.
-    //
-    // M2 will replace this with per-target-proc senders that multiplex many
-    // (stage_id, partition) channels over one shm_mq queue.
-    let mut row = attach.outbound_senders;
-    if row.is_empty() {
-        return Err("mpp: worker_attach returned empty senders row".into());
+    // M2.d: build per-proc-indexed outbound senders. Each MppSender wraps the
+    // queue's `Arc<dyn BatchChannelSender>` so per-(stage_id, partition)
+    // clones can multiplex over the same shm_mq slot. The slot at
+    // proc_idx==this_proc is `None` because self-loops are never attached
+    // (`compute_dsm_layout` reserves the bytes but `worker_attach` skips
+    // them).
+    let mut outbound_senders: Vec<Option<MppSender>> = (0..total_procs).map(|_| None).collect();
+    for (peer_idx, shm_send) in attach.outbound_senders.into_iter().enumerate() {
+        let target_proc = peer_proc_for_index(proc_idx, peer_idx as u32);
+        debug_assert!(target_proc != proc_idx);
+        debug_assert!(target_proc < total_procs);
+        let shared: Arc<dyn crate::postgres::customscan::mpp::transport::BatchChannelSender> =
+            Arc::new(shm_send);
+        // Default header: the per-fragment dispatcher in
+        // `aggregatescan::exec_mpp_worker` immediately `clone_with_header`s
+        // these to the right `(stage_id, partition)` per output partition,
+        // so the default placeholder header is never observed on the wire.
+        outbound_senders[target_proc as usize] = Some(MppSender::with_header(
+            Arc::clone(&shared),
+            MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION),
+        ));
     }
-    // Sanity: with self-loop skipped, peer_idx 0 maps to sender_proc 0 (leader).
-    debug_assert_eq!(peer_proc_for_index(proc_idx, 0), 0);
-    let leader_sender = row.remove(0);
-    drop(row);
-    drop(attach.inbound_receivers); // unused in single-stage worker
+    debug_assert_eq!(
+        outbound_senders.iter().filter(|s| s.is_some()).count(),
+        (total_procs as usize).saturating_sub(1),
+        "worker outbound senders: expected {} non-self-loop entries",
+        total_procs.saturating_sub(1)
+    );
 
-    // M2.a: instead of one MppSender (header partition=0), share the single
-    // shm_mq queue across `n_partitions` senders, each tagged with a different
-    // partition. The worker's producer fragment in the natural plan outputs
-    // multiple hash partitions per task; `run_producer_fragment` drives one
-    // sender per output partition. They all multiplex over the same
-    // shm_mq queue and the leader's drain demuxes by frame header.
-    //
-    // The actual `n_partitions` is determined from the physical plan at
-    // worker exec time (since the worker is what knows how many partitions
-    // the fragment emits). For now, we hand back one Arc to the channel; the
-    // caller (aggregatescan::exec_mpp_worker) clones it into N senders.
-    let shared_channel: Arc<dyn crate::postgres::customscan::mpp::transport::BatchChannelSender> =
-        Arc::new(leader_sender);
-    // Build a one-element vec for back-compat with the existing call site;
-    // the exec path will clone the Arc out of `outbound_senders[0]` and
-    // expand to the right number of senders once the physical plan is built.
-    let outbound_senders = vec![MppSender::with_header(
-        Arc::clone(&shared_channel),
-        MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION),
-    )];
+    // M2.d: build the worker's MppMesh. Inbound drains pull frames from each
+    // peer proc's `slot(peer_proc, this_proc)` queue; per-(stage_id, partition)
+    // sub-buffers (M2.b) demux frames into the right consumer fragment.
+    let mut inbound_drains: Vec<Option<Arc<DrainHandle>>> =
+        (0..total_procs).map(|_| None).collect();
+    for (peer_idx, shm_recv) in attach.inbound_receivers.into_iter().enumerate() {
+        let sender_proc = peer_proc_for_index(proc_idx, peer_idx as u32);
+        debug_assert!(sender_proc != proc_idx);
+        let mpp_recv = MppReceiver::new(Box::new(shm_recv));
+        inbound_drains[sender_proc as usize] =
+            Some(Arc::new(DrainHandle::cooperative(vec![mpp_recv])));
+    }
+    let mesh = Arc::new(MppMesh::new(proc_idx, total_procs, inbound_drains));
 
     let build_cache = if header.n_cache_sources > 0 {
         Some(Arc::new(unsafe {
@@ -300,7 +320,7 @@ pub unsafe fn worker_setup(
     };
 
     // For MppParticipantConfig, expose worker-only counts (N producer workers).
-    let worker_count = header.n_procs.saturating_sub(1).max(1);
+    let worker_count = total_procs.saturating_sub(1).max(1);
     Ok(MppWorkerState {
         outbound_senders,
         plan_bytes,
@@ -309,5 +329,6 @@ pub unsafe fn worker_setup(
             total_workers: worker_count,
         },
         build_cache,
+        mesh,
     })
 }

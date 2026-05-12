@@ -17,9 +17,8 @@
 
 use crate::nodecast;
 use crate::postgres::customscan::score_funcoids;
-use pgrx::pg_sys::{expression_tree_walker, Query};
+use pgrx::pg_sys::expression_tree_walker;
 use pgrx::{extension_sql, pg_extern, pg_guard, pg_sys, AnyElement, PgList};
-use std::ptr;
 use std::ptr::addr_of_mut;
 
 #[pgrx::pg_schema]
@@ -93,12 +92,7 @@ pub unsafe fn uses_scores(
     score_funcoids: [pg_sys::Oid; 2],
     rti: pg_sys::Index,
 ) -> bool {
-    struct Data {
-        score_funcoids: [pg_sys::Oid; 2],
-        rti: pg_sys::Index,
-    }
-
-    let mut data = Data {
+    let mut data = ScoreWalkerContext {
         score_funcoids,
         rti,
     };

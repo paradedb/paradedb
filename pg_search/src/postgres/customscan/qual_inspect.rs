@@ -70,16 +70,6 @@ impl ExtractInfo {
         self.pushdown.is_some() && self.state.uses_our_operator
     }
 
-    pub fn has_pushdown(&self) -> bool {
-        self.pushdown.is_some()
-    }
-
-    // We have found some RestrictInfo conditions
-    // which should be executed by PostgreSQL standard evaluator
-    pub fn has_residual(&self) -> bool {
-        !self.residual.is_empty()
-    }
-
     pub fn add_pushdown(&mut self, pushdown: Option<Qual>) {
         self.pushdown = pushdown;
     }
@@ -108,8 +98,6 @@ impl ExtractInfo {
 
         self.pushdown = heap_expr_qual;
     }
-
-    pub fn try_heap_expr_optimization_() {}
 }
 
 impl Default for ExtractInfo {
@@ -709,27 +697,6 @@ pub unsafe fn is_subplan(node: *mut pg_sys::Node, root: *mut pg_sys::PlannerInfo
     }
 
     walker(node, std::ptr::null_mut())
-}
-
-pub enum ClauseExtraction {
-    /// Expression fully represented as ParadeDB/Tantivy-side Qual.
-    Pushdown(Qual),
-
-    /// Expression cannot be represented as Tantivy query, but can be safely
-    /// evaluated later by PostgreSQL as plan.qual.
-    Residual,
-
-    /// Expression cannot be partially extracted safely in this context.
-    Unsupported(UnsupportedReason),
-}
-
-pub enum UnsupportedReason {
-    UnsafeBooleanContext,
-    NoSearchPredicate,
-    UnsupportedParadeDbPredicate,
-    ExternalReference,
-    JoinLevelMismatch,
-    DisabledPushdown,
 }
 
 #[allow(clippy::too_many_arguments)]

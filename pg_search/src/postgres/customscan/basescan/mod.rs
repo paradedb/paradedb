@@ -65,8 +65,8 @@ use crate::postgres::customscan::projections::{
     inject_placeholders, maybe_needs_const_projections, pullout_funcexprs,
 };
 use crate::postgres::customscan::qual_inspect::{
-    extract_join_predicates, is_subplan, optimize_quals_with_heap_expr, try_extract_pushdown_qual,
-    ExtractInfo, PlannerContext, Qual, QualExtractState,
+    extract_join_predicates, optimize_quals_with_heap_expr, try_extract_pushdown_qual, ExtractInfo,
+    PlannerContext, Qual, QualExtractState,
 };
 use crate::postgres::customscan::score_funcoids;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
@@ -85,10 +85,8 @@ use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_S
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 
 use crate::postgres::customscan::limit_offset::LimitOffset;
-use pgrx::pg_sys::{expression_tree_walker, Query};
 use pgrx::{
-    ereport, pg_guard, pg_sys, FromDatum, IntoDatum, PgList, PgLogLevel, PgMemoryContexts,
-    PgSqlErrorCode,
+    ereport, pg_sys, FromDatum, IntoDatum, PgList, PgLogLevel, PgMemoryContexts, PgSqlErrorCode,
 };
 use tantivy::snippet::SnippetGenerator;
 use tantivy::Index;
@@ -245,7 +243,6 @@ impl BaseScan {
     unsafe fn try_extract_quals_from_join(
         context: &PlannerContext,
         rti: pg_sys::Index,
-        ri_type: RestrictInfoType,
         indexrel: &PgSearchRelation,
         // We only try to find ParadeDB-specific conditions
         // in this RestrictInfo list
@@ -280,14 +277,12 @@ impl BaseScan {
         rti: pg_sys::Index,
         ri_type: RestrictInfoType,
         indexrel: &PgSearchRelation,
-        convert_external_to_special_qual: bool,
         // We only try to find ParadeDB-specific conditions
         // in this RestrictInfo list
         restrict_list: &PgList<pg_sys::RestrictInfo>,
         attempt_pushdown: bool,
     ) -> ExtractInfo {
         let mut pushdown: Vec<Qual> = Vec::new();
-        let mut has_residual = false;
         let mut extract_info = ExtractInfo::default();
 
         let mut final_state = QualExtractState::default();
@@ -327,8 +322,6 @@ impl BaseScan {
         extract_info.add_state(final_state);
 
         extract_info
-
-        // ExtractInfo::new(final_pushdown, has_residual, final_state)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -339,12 +332,10 @@ impl BaseScan {
         restrict_info: PgList<pg_sys::RestrictInfo>,
         ri_type: RestrictInfoType,
         indexrel: &PgSearchRelation,
-        uses_score_or_snippet: bool,
         attempt_pushdown: bool,
     ) -> ExtractInfo {
         let mut state = QualExtractState::default();
         let context = PlannerContext::from_planner(root);
-        // let mut extract_info = ExtractInfo::default();
 
         // Filter out predicates that are implied by the partial index predicate.
         // If a partial index has predicate P (e.g., "deleted_at IS NULL"), and the query
@@ -352,7 +343,7 @@ impl BaseScan {
         // partial index already guarantees it.
         let filtered_restrict_info = filter_implied_predicates(indexrel.rd_indpred, &restrict_info);
 
-        let mut quals = try_extract_pushdown_qual(
+        let quals = try_extract_pushdown_qual(
             &context,
             rti,
             filtered_restrict_info.as_ptr().cast(),
@@ -377,7 +368,6 @@ impl BaseScan {
                     rti,
                     ri_type,
                     indexrel,
-                    false,
                     &filtered_restrict_info,
                     attempt_pushdown,
                 );
@@ -398,7 +388,6 @@ impl BaseScan {
                 let extract_info = Self::try_extract_quals_from_join(
                     &context,
                     rti,
-                    RestrictInfoType::Join,
                     indexrel,
                     &joinri,
                     attempt_pushdown,
@@ -410,113 +399,7 @@ impl BaseScan {
 
         extract_info.try_heap_expr_optimization();
 
-        // If full extraction failed (e.g., baserestrictinfo contains SubPlan from
-        // RLS policies alongside our @@@ operator), try partial extraction: extract
-        // each restrict_info item individually, skipping ones we can't handle.
-        // Only use partial extraction when ALL skipped clauses are SubPlans
-        // (which will be evaluated via plan.qual). If any non-SubPlan clause
-        // is skipped, fall back to let PostgreSQL handle the query normally.
-        //
-        // TODO: We do something similar in `collect_join_sources_base_rel`,
-        // is unification possible?
-        // if quals.is_none() {
-        //     let mut partial_quals = Vec::new();
-        //     let mut partial_state = QualExtractState::default();
-        //     let mut all_skipped_are_subplans = true;
-        //     for ri in filtered_restrict_info.iter_ptr() {
-        //         if let Some(qual) = extract_quals(
-        //             &context,
-        //             rti,
-        //             ri.cast(),
-        //             ri_type,
-        //             indexrel,
-        //             false,
-        //             &mut partial_state,
-        //             attempt_pushdown,
-        //         ) {
-        //             partial_quals.push(qual);
-        //         } else if !is_subplan(ri.cast(), root) {
-        //             all_skipped_are_subplans = false;
-        //         }
-        //     }
-        //     if !partial_quals.is_empty()
-        //         && partial_state.uses_our_operator
-        //         && all_skipped_are_subplans
-        //     {
-        //         state = partial_state;
-        //         quals = if partial_quals.len() == 1 {
-        //             partial_quals.pop()
-        //         } else {
-        //             Some(Qual::And(partial_quals))
-        //         };
-        //     }
-        // }
-
-        // If we couldn't push down quals, try to push down quals from the join
-        // This is only done if we have a join predicate, and only if we have used our operator
-        // let quals = if quals.is_none() {
-        //     // let joinri: PgList<pg_sys::RestrictInfo> =
-        //     //     PgList::from_pg(builder.args().rel().joininfo);
-        //
-        //     // let res = Self::try_extract_quals_from_join(
-        //     //     &context,
-        //     //     rti,
-        //     //     RestrictInfoType::Join,
-        //     //     indexrel,
-        //     //     &joinri,
-        //     //     attempt_pushdown,
-        //     // );
-        //     // let mut quals = try_extract_pushdown_qual(
-        //     //     &context,
-        //     //     rti,
-        //     //     joinri.as_ptr().cast(),
-        //     //     RestrictInfoType::Join,
-        //     //     indexrel,
-        //     //     true, // Join quals should convert external to all
-        //     //     &mut state,
-        //     //     attempt_pushdown,
-        //     // );
-        //
-        //     // let quals = Self::handle_heap_expr_optimization(&state, &mut quals);
-        //
-        //     // If we have found something to push down in the join, then we can use the join quals
-        //     // Note: these Join quals won't help in filtering down the data (as they contain
-        //     // external vars, e.g. `b.category_name @@@ "technology"` in
-        //     // `a.name @@@ "abc" OR b.category_name @@@ "technology"`), and we cannot evaluate
-        //     // boolean expressions that contain external vars. That's why, when handling the Join
-        //     // quals, we'd endup scanning the whole tantivy index.
-        //     // However, the Join quals help with scoring and snippet generation, as the documents
-        //     // that match partially the Join quals will be scored and snippets generated. That is
-        //     // why it only makes sense to use the Join quals if we have used our operator and
-        //     // also used pdb.score or pdb.snippet functions in the query.
-        //     if state.uses_our_operator && uses_score_or_snippet {
-        //         quals
-        //     } else {
-        //         None
-        //     }
-        // } else {
-        //     Self::handle_heap_expr_optimization(&state, &mut quals)
-        // };
-
         extract_info
-
-        // Finally, decide whether we can actually use the extracted quals.
-        // We allow custom scan if:
-        // 1. The query uses @@@ operator, OR
-        // 2. enable_custom_scan_without_operator is true, OR
-        // 3. The query has window aggregates (pdb.agg()) that we must handle
-        // let has_window_aggs = query_has_window_agg_functions(root);
-        // let opt_quals = if state.uses_our_operator
-        //     || gucs::enable_custom_scan_without_operator()
-        //     || has_window_aggs
-        // {
-        //     quals
-        // } else {
-        //     None
-        // };
-
-        // let has_match = state.uses_our_operator;
-        // ExtractInfo::new(has_match, opt_quals, state)
     }
 
     unsafe fn handle_heap_expr_optimization(
@@ -795,12 +678,10 @@ impl CustomScan for BaseScan {
                 PgList::from_pg(restrict_info.as_ptr()),
                 ri_type,
                 &bm25_index,
-                maybe_needs_const_projections,
                 is_select,
             );
 
             let has_match = extract_info.has_match();
-            let has_residual = extract_info.has_residual();
 
             // We have score() function, which can be handled by Custom Plan,
             // but didn't find ParadeDB operator - this is error,
@@ -854,26 +735,6 @@ impl CustomScan for BaseScan {
                     return None;
                 }
 
-                /*
-                 * No pushdown qual exists.
-                 *
-                 * Qual::All is safe for pdb.agg/window aggregate only if either:
-                 * - there is no WHERE clause, or
-                 * - the WHERE clause is preserved as residual plan quals.
-                 *
-                 * Otherwise Qual::All would silently ignore WHERE.
-                 */
-                // if has_where_clause && !has_residual {
-                //     // There's a WHERE clause but we couldn't extract quals and filter_pushdown is disabled.
-                //     // This means qual extraction failed without creating HeapExpr, so we cannot handle
-                //     // this query safely - the WHERE clause would be silently ignored.
-                //     return None;
-                // }
-
-                // Safe to use Qual::All because:
-                // - Either there's no WHERE clause (nothing to filter), OR
-                // - filter_pushdown is enabled, meaning HeapExpr was created during qual extraction
-                //   and will be evaluated by PostgreSQL's executor after we return results
                 Qual::All
             } else {
                 // No quals and no window aggregates - we can't help

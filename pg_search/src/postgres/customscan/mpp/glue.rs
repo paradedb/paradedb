@@ -121,6 +121,14 @@ pub struct MppLeaderState {
     /// `with_extension(Arc::clone(&mesh))` so `ShmMqWorkerTransport` can find
     /// it at execute time.
     pub mesh: Arc<MppMesh>,
+    /// Borrowed pointer to the parallel context PG passed to
+    /// `initialize_dsm_custom_scan`. Lifetime: valid for the duration of
+    /// the parallel exec; PG destroys it after `ExecParallelFinish`. The
+    /// leader reads `(*pcxt).nworkers_launched` at exec time to detect
+    /// short worker launches (see #5061 for the long-term plan); the
+    /// raw pointer is the only way to get at that field since the
+    /// CustomScan exec callback doesn't get `ParallelContext` directly.
+    pub pcxt: *mut pg_sys::ParallelContext,
 }
 
 /// Body of `initialize_dsm_custom_scan`. Allocates the queue mesh, populates
@@ -135,6 +143,7 @@ pub struct MppLeaderState {
 pub unsafe fn leader_setup(
     coordinate: *mut c_void,
     seg: *mut pg_sys::dsm_segment,
+    pcxt: *mut pg_sys::ParallelContext,
     n_partitions: u32,
     plan_bytes: Vec<u8>,
     n_cache_sources: u32,
@@ -181,7 +190,7 @@ pub unsafe fn leader_setup(
     // `n_cache_sources` is sized into the layout for the worker side.
     let _ = n_cache_sources;
 
-    Ok(MppLeaderState { mesh })
+    Ok(MppLeaderState { mesh, pcxt })
 }
 
 /// Returned to a worker from [`worker_setup`]. The customscan reads the plan

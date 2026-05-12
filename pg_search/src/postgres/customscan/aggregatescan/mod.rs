@@ -788,6 +788,7 @@ impl ParallelQueryCapable for AggregateScan {
             leader_setup(
                 mpp_coordinate,
                 seg,
+                pcxt,
                 n_partitions,
                 plan_bytes,
                 n_cache_sources,
@@ -1799,6 +1800,29 @@ impl AggregateScan {
             // session context.
             let ctx = match df_state.mpp.as_ref() {
                 Some(scan_state::MppExecState::Leader(leader)) => {
+                    // CustomScan parallel exec doesn't guarantee that PG
+                    // launches every worker we requested at planning time
+                    // (other queries can hold all worker slots, etc.). The
+                    // unattached `shm_mq` slots stay in init-state, the
+                    // cooperative pull never sees `Detached`, and the leader
+                    // hangs on the missing partitions. Fail loudly instead
+                    // and ask the user to retry until #5061 picks a long-term
+                    // shape (resize the mesh at exec start, or move off
+                    // CustomScan parallel workers).
+                    let pcxt = leader.pcxt;
+                    if !pcxt.is_null() {
+                        let launched = unsafe { (*pcxt).nworkers_launched } as u32;
+                        let expected = producer_worker_count();
+                        if launched < expected {
+                            pgrx::error!(
+                                "mpp aggregate: PG launched {launched} of {expected} requested \
+                                 parallel workers; missing slots would hang the query. Retry, or \
+                                 raise `max_parallel_workers` / `max_parallel_workers_per_gather` \
+                                 so PG can launch the full set. Long-term fix tracked in \
+                                 https://github.com/paradedb/paradedb/issues/5061."
+                            );
+                        }
+                    }
                     Self::build_mpp_leader_session_context(Arc::clone(&leader.mesh))
                 }
                 _ => create_aggregate_session_context(),

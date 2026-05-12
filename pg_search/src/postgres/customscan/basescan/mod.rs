@@ -219,6 +219,28 @@ impl BaseScan {
         }
     }
 
+    unsafe fn is_simple_rel(rel: *mut pg_sys::RelOptInfo) -> bool {
+        if rel.is_null() {
+            return false;
+        }
+
+        matches!(
+            (*rel).reloptkind,
+            pg_sys::RelOptKind::RELOPT_BASEREL | pg_sys::RelOptKind::RELOPT_OTHER_MEMBER_REL
+        )
+    }
+
+    unsafe fn can_emit_base_scan_score_diagnostic(
+        root: *mut pg_sys::PlannerInfo,
+        rel: *mut pg_sys::RelOptInfo,
+    ) -> bool {
+        if root.is_null() || rel.is_null() {
+            return false;
+        }
+
+        Self::is_simple_rel(rel) && pg_sys::bms_num_members((*root).all_baserels) == 1
+    }
+
     #[allow(clippy::too_many_arguments)]
     unsafe fn try_extract_quals_from_join(
         context: &PlannerContext,
@@ -783,17 +805,22 @@ impl CustomScan for BaseScan {
             // We have score() function, which can be handled by Custom Plan,
             // but didn't find ParadeDB operator - this is error,
             // don't silently fail, show error explicitly
+            // We might don't find ParadeDB operator because of JOIN
             if has_score_func && !has_match {
-                ereport!(
-                    PgLogLevel::ERROR,
-                    PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
-                    "ParadeDB score functions require a ParadeDB search predicate",
-                    concat!(
-                        "The query references a ParadeDB score function, ",
-                        "but no supported ParadeDB search operator was found. ",
-                        "Plain PostgreSQL predicates do not define a BM25 scoring context."
-                    )
-                );
+                if Self::can_emit_base_scan_score_diagnostic(root, builder.args().rel) {
+                    ereport!(
+                        PgLogLevel::ERROR,
+                        PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
+                        "ParadeDB score functions require a ParadeDB search predicate",
+                        concat!(
+                            "The query references a ParadeDB score function, ",
+                            "but no supported ParadeDB search operator was found. ",
+                            "Plain PostgreSQL predicates do not define a BM25 scoring context."
+                        )
+                    );
+                }
+
+                return None;
             }
 
             let force_custom_scan = gucs::enable_custom_scan_without_operator();

@@ -37,6 +37,13 @@ CREATE TABLE publishers (
     founded_year INTEGER
 );
 CREATE TABLE books (
+-- Suppose id should be UNIQUE because
+-- CREATE TABLE bridge_table fails with error
+-- that books(id) should be UNIQUE
+-- Constraint imposed by
+-- book_id INTEGER REFERENCES books(id)
+-- but this fix completely changes all results
+--  id INT UNIQUE,
     id INT,
     title TEXT,
     content TEXT,
@@ -557,7 +564,10 @@ ORDER BY a.id, author_score DESC;
  John Smith   |   0.74260163
 (6 rows)
 
--- Test 6.2: Performance vs correctness trade-off
+-- Test 6.2: PostgreSQL aggregate over ParadeDB-scored join results
+-- The search OR provides score context for both relations. The ordinary
+-- cross-relation OR is preserved as a PostgreSQL residual filter and applied
+-- before COUNT/AVG aggregation.
 SELECT 
     COUNT(*) as total_results,
     AVG(pdb.score(a.id)) as avg_author_score,
@@ -566,7 +576,25 @@ FROM authors a
 JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'story')
   AND (a.is_active = true OR b.is_published = true);
-ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+ total_results |  avg_author_score  |   avg_book_score   
+---------------+--------------------+--------------------
+             8 | 0.5164865255355835 | 0.2097555547952652
+(1 row)
+
+SELECT
+    a.bio,
+    a.is_active,
+    b.content,
+    b.is_published
+FROM authors a
+         JOIN books b ON a.id = b.author_id
+WHERE (a.bio @@@ 'author' OR b.content @@@ 'story')
+  AND NOT (a.is_active = true OR b.is_published = true);
+                           bio                            | is_active |                         content                         | is_published 
+----------------------------------------------------------+-----------+---------------------------------------------------------+--------------
+ English novelist known for romantic fiction love stories | f         | A romantic story about love and prejudice relationships | f
+(1 row)
+
 -- Test 6.3: Unsafe conditions that cannot be pushed down
 SELECT 
     a.name as author_name,

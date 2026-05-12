@@ -45,6 +45,13 @@ CREATE TABLE publishers (
 );
 
 CREATE TABLE books (
+-- Suppose id should be UNIQUE because
+-- CREATE TABLE bridge_table fails with error
+-- that books(id) should be UNIQUE
+-- Constraint imposed by
+-- book_id INTEGER REFERENCES books(id)
+-- but this fix completely changes all results
+--  id INT UNIQUE,
     id INT,
     title TEXT,
     content TEXT,
@@ -413,7 +420,10 @@ JOIN books b ON a.id = b.author_id
 WHERE a.bio @@@ 'author'
 ORDER BY a.id, author_score DESC;
 
--- Test 6.2: Performance vs correctness trade-off
+-- Test 6.2: PostgreSQL aggregate over ParadeDB-scored join results
+-- The search OR provides score context for both relations. The ordinary
+-- cross-relation OR is preserved as a PostgreSQL residual filter and applied
+-- before COUNT/AVG aggregation.
 SELECT 
     COUNT(*) as total_results,
     AVG(pdb.score(a.id)) as avg_author_score,
@@ -422,6 +432,16 @@ FROM authors a
 JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'story')
   AND (a.is_active = true OR b.is_published = true);
+
+SELECT
+    a.bio,
+    a.is_active,
+    b.content,
+    b.is_published
+FROM authors a
+         JOIN books b ON a.id = b.author_id
+WHERE (a.bio @@@ 'author' OR b.content @@@ 'story')
+  AND NOT (a.is_active = true OR b.is_published = true);
 
 -- Test 6.3: Unsafe conditions that cannot be pushed down
 SELECT 

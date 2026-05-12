@@ -45,7 +45,7 @@ use crate::postgres::customscan::mpp::dsm::{
 };
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 use crate::postgres::customscan::mpp::transport::{
-    DrainBuffer, DrainHandle, MppFrameHeader, MppReceiver, MppSender,
+    DrainHandle, MppFrameHeader, MppReceiver, MppSender,
 };
 use crate::postgres::customscan::mpp::MppParticipantConfig;
 
@@ -181,10 +181,10 @@ pub unsafe fn leader_setup(
     // up the right drain in O(1) given a sender_proc from the natural-shape
     // gather; the self-loop entry at index 0 is `None`.
     //
-    // The drain still uses a single-buffer per inbound queue. Multi-channel
-    // demux (one buffer per `(stage_id, partition)` on the same queue) is
-    // the M2 follow-up; the natural-shape single-stage gather has exactly
-    // one channel per queue so the single-buffer model still applies.
+    // M2.b: each `DrainHandle` owns a per-`(stage_id, partition)` sub-buffer
+    // registry, so one shm_mq queue can multiplex frames from many logical
+    // channels — the sub-buffer is created lazily on first frame OR by
+    // `WorkerConnection::stream_partition` registering ahead of time.
     let _ = n_partitions;
     let mut inbound_drains: Vec<Option<Arc<DrainHandle>>> =
         Vec::with_capacity(total_procs as usize);
@@ -197,11 +197,7 @@ pub unsafe fn leader_setup(
             "peer_proc_for_index must produce sender_proc indices in order"
         );
         let mpp_recv = MppReceiver::new(Box::new(shm_recv));
-        let buffer = DrainBuffer::new(1);
-        inbound_drains.push(Some(Arc::new(DrainHandle::cooperative(
-            vec![mpp_recv],
-            buffer,
-        ))));
+        inbound_drains.push(Some(Arc::new(DrainHandle::cooperative(vec![mpp_recv]))));
     }
 
     let mesh = Arc::new(MppMesh {

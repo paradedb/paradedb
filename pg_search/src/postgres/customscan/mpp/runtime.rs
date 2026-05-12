@@ -158,16 +158,11 @@ impl WorkerConnection for ShmMqWorkerConnection {
         partition: usize,
         _on_metadata: OnMetadataCallback,
     ) -> Result<WorkerPartitionStream> {
-        // M2.a (in progress): the natural plan can have consumer_tc > 1
-        // on inner boundaries (peer-mesh shuffles), so this is called with
-        // partition > 0. The full demux story — one DrainBuffer per
-        // (stage_id, sender_proc, partition) — is M2.b. For now we route
-        // every partition into the single inbound DrainBuffer for the
-        // sender_proc, which only works when the consumer side has exactly
-        // one logical partition per sender (the natural-shape gather case).
-        // Multi-partition consumers will see interleaved frames until
-        // M2.b lands.
-        let _ = partition;
+        let partition_u32 = u32::try_from(partition).map_err(|_| {
+            DataFusionError::Internal(format!(
+                "ShmMqWorkerConnection: partition={partition} > u32::MAX"
+            ))
+        })?;
         let drain = self.mesh.inbound_drain(self.sender_proc).ok_or_else(|| {
             DataFusionError::Internal(format!(
                 "ShmMqWorkerConnection: no inbound drain for sender_proc={} \
@@ -176,9 +171,14 @@ impl WorkerConnection for ShmMqWorkerConnection {
             ))
         })?;
         let drain = Arc::clone(drain);
+        // M2.b: ask the drain for the sub-buffer dedicated to this
+        // `(stage_id, partition)` channel. Frames the worker emits with a
+        // matching header land here; frames tagged with other partitions go
+        // to their own sub-buffers, so this consumer only sees its slice.
+        let buffer = drain.register_channel(self.stage_id, partition_u32);
         // Cooperative pull loop: pgrx requires shm_mq FFI on the backend
         // thread, so the drain pass runs inline here. Each iteration drains
-        // the receiver into the buffer (max 256 batches), then pops one
+        // the receiver into the registry (max 256 batches), then pops one
         // batch out to yield, then yields back to Tokio so sibling tasks
         // (e.g. the leader's own producer subplan) can advance.
         //
@@ -195,7 +195,7 @@ impl WorkerConnection for ShmMqWorkerConnection {
                     yield Err(e);
                     return;
                 }
-                match drain.buffer().try_pop() {
+                match buffer.try_pop() {
                     Some(DrainItem::Batch(batch)) => yield Ok(batch),
                     Some(DrainItem::Eof) => break,
                     None => tokio::task::yield_now().await,

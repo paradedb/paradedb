@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778632932338,
+  "lastUpdate": 1778632963978,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1672,6 +1672,108 @@ window.BENCHMARK_DATA = {
             "value": 163.87890625,
             "unit": "median mem",
             "extra": "avg mem: 182.11343052636374, max mem: 222.2578125, count: 56261"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6bdea0d414fb563f086ddfe56712b2960d200626",
+          "message": "feat(mpp): AggregateScan in-process MPP via custom shm_mq transport (#4988)\n\n# Ticket(s) Closed\n\n- Closes #4152\n\n## What\n\nAdds an MPP execution path for AggregateScan that runs\njoin-with-aggregate shapes inside Postgres parallel-worker processes via\na custom transport on top of `paradedb/datafusion-distributed`. Default\noff behind `paradedb.enable_mpp` (minimum `mpp_worker_count = 3`). Other\nshapes and the JoinScan path are unchanged.\n\n## Why\n\nSingle-process DataFusion bottlenecks on join-with-aggregate at scale.\nDistributing the producer fragment across PG parallel workers gives us\n1.55–1.92× speedup on the 25M `aggregate_join_groupby` bench at N=2/4\nwithout leaving the embedded model — every worker is still a real PG\nprocess with its own snapshot, no gRPC, no extra daemon.\n\n## How\n\n- Leader builds the logical plan and stashes it in a DSM segment\nalongside an N-way `shm_mq` mesh.\n- Workers attach, deserialize, and re-plan with the same `SessionState`.\nIdentical inputs ⇒ structurally identical physical plans on every\nworker, so we don't need to serialize physical subplans.\n- Each worker runs its producer fragment and pushes batches through its\noutbound queue. Leader runs `NetworkShuffleExec` + final aggregate and\nreturns rows to the client. Leader is consumer-only in this iteration.\n- Build side (non-partitioning sources like `HashJoinExec(CollectLeft)`)\nis split via DSM all-gather: each worker scans its 1/N slice, writes to\na per-worker DSM region, completion-flag barrier, then everyone reads\nevery slice. Build is fully parallel; no leader-side serial scan.\n- The fork emits the network operators (`NetworkShuffleExec`,\n`NetworkBroadcastExec`, `NetworkCoalesceExec`) and we register a custom\ntransport that short-circuits the gRPC dialer. The fork's in-process\ntwo-boundary planner distinguishes outer (worker → leader, N producers)\nfrom nested (single local producer) Network boundaries.\n\n## Reviewer's Guide\n\nSuggested reading order — most of the diff lives under\n`pg_search/src/postgres/customscan/mpp/`:\n\n1. `mpp/dsm.rs` — the DSM layout: header, queue mesh, build-cache\nregion. `compute_dsm_layout` is the math; `leader_init` /\n`worker_attach` are the unsafe FFI boundaries.\n2. `mpp/runtime.rs` — `MppMesh` (runtime handle), `ShmMqWorkerTransport`\n(the `WorkerTransport` impl the leader registers),\n`LocalExecWorkerTransport` (the worker-side stub for nested broadcasts),\n`MppWorkerResolver`.\n3. `mpp/transport.rs` — `DrainHandle` and the cooperative-pull\nprimitives. The drain runs inline on the backend thread because pgrx\n0.18 enforces single-threaded Postgres FFI.\n4. `mpp/glue.rs` — the public API the customscan calls:\n`estimate_dsm_size`, `leader_setup`, `worker_setup`. Thin wrappers\naround dsm/runtime.\n5. `mpp/exec.rs` — `run_producer_fragment` is the worker push loop.\n6. `aggregatescan/mod.rs` — the integration: `stash_mpp_plan_bytes`,\n`exec_mpp_worker`, `build_mpp_leader_session_context`, the\n`ParallelQueryCapable` impl, the `parallel_workers` clamp in\n`try_build_datafusion_aggregate_path`. Both leader and worker session\ncontexts call `with_distributed_in_process_mode(true)` explicitly.\n\nThe build-side all-gather lives in\n`aggregatescan/mod.rs::exec_mpp_worker` and `mpp/dsm.rs` (the cache\nregion). Read those together.\n\n## Tests\n\n- pgrx regression suite — new `mpp_aggregate.sql` covers correctness on\nthe join-with-aggregate shapes; existing `mpp_*` suites still pass.\n- 25M `aggregate_join_groupby` bench: byte-exact result vs serial\nDataFusion at N=2/4/8/10.\n- Build-side all-gather is exercised at all N in the regression suite\n(workers vs leader-only-writer paths).\n\n---------\n\nCo-authored-by: paradedb-bot <developers@paradedb.com>\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-12T16:47:00-07:00",
+          "tree_id": "38dfa579bfcab58f4b6b66ddea91de57c32f5204",
+          "url": "https://github.com/paradedb/paradedb/commit/6bdea0d414fb563f086ddfe56712b2960d200626"
+        },
+        "date": 1778632933913,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.06950959488272922, max background_merging: 2.0, count: 56280"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.830826643948626, max cpu: 13.967022, count: 56280"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 27.93359375,
+            "unit": "median mem",
+            "extra": "avg mem: 27.98479949582445, max mem: 28.0546875, count: 56280"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.071075621653811, max cpu: 24.072216, count: 56280"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 189.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 181.86135887249023, max mem: 189.96875, count: 56280"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51426,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51292.36364605543, max block_count: 51426.0, count: 56280"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.84662402274343, max segment_count: 56.0, count: 56280"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.794482538772412, max cpu: 28.973843, count: 56280"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 163.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 144.76274764570007, max mem: 176.75390625, count: 56280"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.775576090588614, max cpu: 28.374382, count: 56280"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 184.625,
+            "unit": "median mem",
+            "extra": "avg mem: 176.33161494425195, max mem: 185.87890625, count: 56280"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.788570906052662, max cpu: 33.939396, count: 56280"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 164.15234375,
+            "unit": "median mem",
+            "extra": "avg mem: 182.21498756218907, max mem: 222.54296875, count: 56280"
           }
         ]
       }

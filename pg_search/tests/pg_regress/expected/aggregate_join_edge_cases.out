@@ -79,14 +79,21 @@ SELECT COUNT(*)
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket';
-                     QUERY PLAN                     
-----------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                        
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: pdb.agg_fn('COUNT(*)'::text)
    Backend: DataFusion
    Indexes: ec_products_idx (p), ec_reviews_idx (r)
    Aggregates: COUNT(*)
-(5 rows)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[], aggr=[agg_0]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[]
+     :     CooperativeExec
+     :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket","lenient":null,"conjunction_mode":null}}}}
+     :     CooperativeExec
+     :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(12 rows)
 
 SELECT COUNT(*)
 FROM ec_products p
@@ -105,8 +112,8 @@ JOIN ec_reviews r ON p.category = r.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
 GROUP BY p.category
 ORDER BY p.category;
-                                QUERY PLAN                                
---------------------------------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.category, (count(*)), (sum(r.rating)), (avg(r.rating))
    Sort Key: p.category
@@ -116,7 +123,14 @@ ORDER BY p.category;
          Indexes: ec_products_idx (p), ec_reviews_idx (r)
          Group By: category
          Aggregates: COUNT(*), SUM(rating), AVG(rating)
-(9 rows)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[agg_0, agg_1, agg_2]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@0, rating@2]
+           :     CooperativeExec
+           :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket","lenient":null,"conjunction_mode":null}}}}
+           :     CooperativeExec
+           :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(16 rows)
 
 SELECT p.category, COUNT(*), SUM(r.rating), AVG(r.rating)
 FROM ec_products p
@@ -173,8 +187,8 @@ LEFT JOIN ec_reviews r ON p.category = r.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
 GROUP BY p.category
 ORDER BY p.category;
-                        QUERY PLAN                         
------------------------------------------------------------
+                                                                                                               QUERY PLAN                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: p.category, (count(*)), (count(r.rating))
    Sort Key: p.category
@@ -184,7 +198,14 @@ ORDER BY p.category;
          Indexes: ec_products_idx (p), ec_reviews_idx (r)
          Group By: category
          Aggregates: COUNT(*), COUNT(rating)
-(9 rows)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[agg_0, agg_1]
+           :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@0, category@0)], projection=[category@0, rating@2]
+           :     CooperativeExec
+           :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
+           :     CooperativeExec
+           :       PgSearchScan: segments=1, query="all"
+(16 rows)
 
 SELECT p.category, COUNT(*), COUNT(r.rating)
 FROM ec_products p
@@ -230,8 +251,8 @@ JOIN ec_suppliers s ON p.category = s.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
 GROUP BY p.category
 ORDER BY p.category;
-                                   QUERY PLAN                                   
---------------------------------------------------------------------------------
+                                                                                                            QUERY PLAN                                                                                                            
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: p.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -239,7 +260,17 @@ ORDER BY p.category;
          Indexes: ec_products_idx (p), ec_reviews_idx (r), ec_suppliers_idx (s)
          Group By: category
          Aggregates: COUNT(*), SUM(rating)
-(7 rows)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[agg_0, agg_1]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@0, rating@1]
+           :     HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@0, rating@2]
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket","lenient":null,"conjunction_mode":null}}}}
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :     CooperativeExec
+           :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(17 rows)
 
 SELECT p.category, COUNT(*), SUM(r.rating)
 FROM ec_products p
@@ -283,8 +314,8 @@ LEFT JOIN ec_suppliers s ON p.category = s.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
 GROUP BY p.category
 ORDER BY p.category;
-                                   QUERY PLAN                                   
---------------------------------------------------------------------------------
+                                                                                                                QUERY PLAN                                                                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: p.category
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -292,7 +323,17 @@ ORDER BY p.category;
          Indexes: ec_products_idx (p), ec_reviews_idx (r), ec_suppliers_idx (s)
          Group By: category
          Aggregates: COUNT(*), COUNT(rating), COUNT(supplier_name)
-(7 rows)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[agg_0, agg_1, agg_2]
+           :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@0, category@0)], projection=[category@0, rating@1, supplier_name@3]
+           :     HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@0, category@0)], projection=[category@0, rating@2]
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query="all"
+           :     CooperativeExec
+           :       PgSearchScan: segments=1, query="all"
+(17 rows)
 
 SELECT p.category, COUNT(*), COUNT(r.rating), COUNT(s.supplier_name)
 FROM ec_products p
@@ -371,8 +412,8 @@ JOIN ec_reviews r ON p.category = r.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket OR novel'
 GROUP BY 1
 ORDER BY 1;
-                        QUERY PLAN                        
-----------------------------------------------------------
+                                                                                                               QUERY PLAN                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: ((p.metadata -> 'brand'::text))
    Sort Key: ((p.metadata -> 'brand'::text))
@@ -381,7 +422,14 @@ ORDER BY 1;
          Backend: DataFusion
          Indexes: ec_products_idx (p), ec_reviews_idx (r)
          Group By: metadata.brand
-(8 rows)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[metadata.brand@0 as metadata.brand], aggr=[]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[metadata.brand@1]
+           :     CooperativeExec
+           :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR shoes OR jacket OR monitor OR racket OR novel","lenient":null,"conjunction_mode":null}}}}
+           :     CooperativeExec
+           :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(15 rows)
 
 SELECT p.metadata -> 'brand'
 FROM ec_products p
@@ -428,8 +476,8 @@ LEFT JOIN ec_suppliers s ON r.category = s.category
 WHERE p.description @@@ 'laptop'
 GROUP BY p.metadata->>'brand', p.metadata->'brand'
 ORDER BY brand_text;
-                                    QUERY PLAN                                     
------------------------------------------------------------------------------------
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Output: ((p.metadata ->> 'brand'::text)), ((p.metadata -> 'brand'::text))
    Sort Key: ((p.metadata ->> 'brand'::text))
@@ -438,7 +486,17 @@ ORDER BY brand_text;
          Backend: DataFusion
          Indexes: ec_products_idx (p), ec_reviews_idx (r), ec_suppliers_idx (s)
          Group By: metadata.brand
-(8 rows)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[metadata.brand@0 as metadata.brand], aggr=[]
+           :   HashJoinExec: mode=CollectLeft, join_type=Left, on=[(category@1, category@0)], projection=[metadata.brand@0]
+           :     HashJoinExec: mode=CollectLeft, join_type=Left, on=[(id@0, id@0)], projection=[metadata.brand@1, category@3]
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}}
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query="all"
+           :     CooperativeExec
+           :       PgSearchScan: segments=1, query="all"
+(18 rows)
 
 SELECT p.metadata->>'brand' AS brand_text, p.metadata->'brand' AS brand_json
 FROM ec_products p

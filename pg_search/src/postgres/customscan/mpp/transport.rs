@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(dead_code)]
 //! Transport layer for MPP shuffle.
 //!
 //! Layout:
@@ -31,9 +30,8 @@
 //! top of these primitives.
 
 use std::collections::VecDeque;
-use std::future::poll_fn;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-use std::task::{Poll, Waker};
+use std::task::Waker;
 #[cfg(test)]
 use std::thread;
 use std::thread::JoinHandle;
@@ -200,42 +198,10 @@ impl DrainBuffer {
             .cancelled
     }
 
-    /// Async-friendly variant of `pop_front`. Returns immediately with a
-    /// batch or EOF if available; otherwise registers `waker` (to be woken
-    /// on the next `push_batch` / `notify_source_done` / `cancel`) and
-    /// returns `None`. Lets `DrainGatherStream::poll_next` return
-    /// `Poll::Pending` instead of blocking the executor thread.
-    pub fn poll_pop_front(&self, waker: &Waker) -> Option<DrainItem> {
-        let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
-        if let Some(item) = Self::try_pop_locked(&mut guard) {
-            return Some(item);
-        }
-        // Single-consumer invariant; switch to `Vec<Waker>` if ever lifted.
-        debug_assert!(
-            guard.waker.is_none() || guard.waker.as_ref().unwrap().will_wake(waker),
-            "DrainBuffer::poll_pop_front: second consumer registered a different waker — \
-             only one consumer is supported per buffer"
-        );
-        guard.waker = Some(waker.clone());
-        None
-    }
-
-    /// Await-able wrapper over [`poll_pop_front`]. Use only for thread-backed
-    /// drains; cooperative handles must use [`try_pop`](Self::try_pop) +
-    /// executor yield (otherwise the await suspends with no one to wake it).
-    pub async fn recv(self: &Arc<Self>) -> DrainItem {
-        let buf = Arc::clone(self);
-        poll_fn(move |cx| match buf.poll_pop_front(cx.waker()) {
-            Some(item) => Poll::Ready(item),
-            None => Poll::Pending,
-        })
-        .await
-    }
-
-    /// Non-blocking, non-waker variant of [`poll_pop_front`]. Returns the
+    /// Non-blocking, non-waker variant. Returns the
     /// front item or `DrainItem::Eof` if all sources have detached and
     /// the queue is drained; returns `None` only when more data may yet
-    /// arrive. Cooperative consumers loop on `poll_drain_pass` + `try_pop`,
+    /// arrive. Cooperative consumers loop on `try_drain_pass` + `try_pop`,
     /// yielding to the executor between iterations.
     pub fn try_pop(&self) -> Option<DrainItem> {
         let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
@@ -303,7 +269,7 @@ pub trait BatchChannelSender: Send {
 ///
 /// With `cooperative_drain` set, `send_batch` breaks the symmetric-send
 /// deadlock on a single-threaded tokio runtime by interleaving send-retries
-/// with `DrainHandle::poll_drain_pass` on the same mesh's inbound side.
+/// with `DrainHandle::try_drain_pass` on the same mesh's inbound side.
 /// Each participant's sender doing the same guarantees mutual progress:
 /// our drain pulls peer-shipped rows out of our inbound queues, which
 /// frees peers' outbound-to-us send space, which lets their sends un-stall.
@@ -338,15 +304,6 @@ impl MppSender {
             cooperative_drain: None,
             scratch: std::cell::RefCell::new(Vec::new()),
         }
-    }
-
-    /// Attach a drain handle whose `poll_drain_pass` is called between
-    /// send retries when the channel is full. Required on production
-    /// shm_mq backends (see struct docs); tests without pressure can
-    /// omit it.
-    pub fn with_cooperative_drain(mut self, drain: Arc<DrainHandle>) -> Self {
-        self.cooperative_drain = Some(drain);
-        self
     }
 
     /// Test-only stats-less wrapper around [`Self::send_batch_traced`].
@@ -416,7 +373,7 @@ impl MppSender {
         // drain prevents is *cross-participant*, not same-runtime: two
         // peers each blocking on a full outbound and never reading the
         // other side. We break that by driving our own inbound on this
-        // same OS thread via `poll_drain_pass`, which pulls peer
+        // same OS thread via `try_drain_pass`, which pulls peer
         // batches that have already arrived and frees their slots so
         // peers' writers can advance.
         //
@@ -455,7 +412,7 @@ impl MppSender {
             // detaching mid-spin doesn't leave the sender looping
             // forever on a closed mesh.
             let t_drain = Instant::now();
-            drain.poll_drain_pass()?;
+            drain.try_drain_pass()?;
             stats.coop_drain_in_spin += t_drain.elapsed();
             tokio::task::yield_now().await;
         }
@@ -471,7 +428,7 @@ pub struct SendBatchStats {
     /// Cumulative wall time in the send-retry spin after the first failed
     /// `try_send_bytes`. Zero if the first try succeeded.
     pub send_wait: Duration,
-    /// Cumulative time spent in `poll_drain_pass` while spinning on a
+    /// Cumulative time spent in `try_drain_pass` while spinning on a
     /// full outbound. A subset of `send_wait`; the remainder is the
     /// `tokio::task::yield_now()` await + the (small) cost of
     /// `try_send_bytes` itself.
@@ -573,7 +530,7 @@ pub struct DrainHandle {
     /// this lets cooperative senders hold `Arc<DrainHandle>` shares.
     join: Mutex<Option<JoinHandle<Result<(), DataFusionError>>>>,
     /// Cooperative variant: the receivers are owned by the handle and polled
-    /// inline from `DrainGatherStream::poll_next` via [`Self::poll_drain_pass`].
+    /// inline from `DrainGatherStream::poll_next` via [`Self::try_drain_pass`].
     /// Production uses this variant because any pg FFI call
     /// (`shm_mq_receive` included) from a non-backend thread panics pgrx's
     /// `check_active_thread` guard. `None` when the handle was spawned
@@ -605,7 +562,7 @@ impl DrainHandle {
 
     /// Construct a cooperative drain handle: the receivers are stashed in the
     /// handle and drained inline from `DrainGatherStream::poll_next` (see
-    /// [`Self::poll_drain_pass`]). No background thread. This is the correct
+    /// [`Self::try_drain_pass`]). No background thread. This is the correct
     /// variant for production pg backend workers — the drain work runs on
     /// the backend thread, so any pg FFI inside `shm_mq_receive` is safe.
     pub fn cooperative(receivers: Vec<MppReceiver>, buffer: Arc<DrainBuffer>) -> Self {
@@ -637,7 +594,7 @@ impl DrainHandle {
     /// `try_send_bytes` regardless of drain progress), so the return is now
     /// just `Result<()>` so transport errors propagate instead of being
     /// silently dropped at the call site.
-    pub fn poll_drain_pass(&self) -> Result<(), DataFusionError> {
+    pub fn try_drain_pass(&self) -> Result<(), DataFusionError> {
         // Bound per-source pulls per call. The upper limit exists to give
         // the caller a chance to re-try its own send between drains —
         // otherwise a participant with a very fast peer could drain
@@ -675,26 +632,10 @@ impl DrainHandle {
         Ok(())
     }
 
-    /// True if this handle drains cooperatively (no background thread).
-    pub fn is_cooperative(&self) -> bool {
-        self.coop_receivers.lock().unwrap().is_some()
-    }
-
     /// Access the shared buffer so consumers (typically `GatherExec`) can
     /// `pop_front` without holding the handle itself.
     pub fn buffer(&self) -> &Arc<DrainBuffer> {
         &self.buffer
-    }
-
-    /// Cancel the drain explicitly and join the thread (thread-backed only).
-    /// For cooperative handles, simply drops the receivers (signalling detach
-    /// to peer senders) and returns. Called by the consumer at natural
-    /// shutdown; the Drop impl handles panic paths.
-    pub fn shutdown(&self) -> Result<(), DataFusionError> {
-        self.buffer.cancel();
-        // Drop receivers (if any) so peer shm_mq senders observe detach.
-        let _ = self.coop_receivers.lock().unwrap().take();
-        self.join_inner()
     }
 
     fn join_inner(&self) -> Result<(), DataFusionError> {
@@ -973,7 +914,9 @@ mod tests {
                                 // Pop the one batch
         assert!(matches!(buffer.pop_front(), DrainItem::Batch(_)));
         assert!(matches!(buffer.pop_front(), DrainItem::Eof));
-        handle.shutdown().unwrap();
+        // Drop drives production teardown (cancel + join). Test passes if
+        // this returns without hanging.
+        std::mem::drop(handle);
     }
 
     #[test]

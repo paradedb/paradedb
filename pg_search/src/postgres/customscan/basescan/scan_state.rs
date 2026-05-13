@@ -19,6 +19,7 @@ use std::cell::UnsafeCell;
 
 use crate::api::{FieldName, HashMap, OrderByInfo, Varno};
 use crate::customscan::CustomScanState;
+use crate::index::fast_fields_helper::FFHelper;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::basescan::exec_methods::ExecMethod;
 use crate::postgres::customscan::basescan::projections::snippet::pdb::IntArray2D;
@@ -52,7 +53,8 @@ pub struct BaseScanState {
 
     base_search_query_input: SearchQueryInput,
     search_query_input: SearchQueryInput,
-    pub search_reader: Option<SearchIndexReader>,
+    search_reader: Option<SearchIndexReader>,
+    ctid_cache: FFHelper,
 
     pub targetlist_len: usize,
 
@@ -111,6 +113,29 @@ impl CustomScanState for BaseScanState {
 }
 
 impl BaseScanState {
+    /// Set the search reader and its corresponding ctid cache together,
+    /// ensuring the segment ordinals always line up.
+    pub fn set_search_reader(&mut self, reader: SearchIndexReader) {
+        self.ctid_cache = FFHelper::ctid_only(&reader);
+        self.search_reader = Some(reader);
+    }
+
+    pub fn search_reader(&self) -> Option<&SearchIndexReader> {
+        self.search_reader.as_ref()
+    }
+
+    pub fn search_reader_mut(&mut self) -> Option<&mut SearchIndexReader> {
+        self.search_reader.as_mut()
+    }
+
+    pub fn take_search_reader(&mut self) -> Option<SearchIndexReader> {
+        self.search_reader.take()
+    }
+
+    pub fn ctid_cache(&self) -> &FFHelper {
+        &self.ctid_cache
+    }
+
     pub fn open_relations(&mut self, lockmode: pg_sys::LOCKMODE) {
         self.lockmode = lockmode;
         if self.heaprel.is_none() {
@@ -186,8 +211,7 @@ impl BaseScanState {
             .expect("should be able to serialize query");
 
         let segment_readers = self
-            .search_reader
-            .as_ref()
+            .search_reader()
             .expect("search reader must be initialized to build parallel serialization data")
             .segment_readers();
 

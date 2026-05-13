@@ -15,7 +15,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::index::fast_fields_helper::{resolve_ctid, FFType};
 use crate::index::reader::index::MultiSegmentSearchResults;
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;
@@ -32,8 +31,6 @@ pub struct NormalScanExecState {
     search_results: Option<MultiSegmentSearchResults>,
 
     did_query: bool,
-    /// Cached per-segment ctid fast-field reader.
-    ctid_cache: Option<(tantivy::SegmentOrdinal, FFType)>,
 }
 
 impl Default for NormalScanExecState {
@@ -44,7 +41,6 @@ impl Default for NormalScanExecState {
             slot: std::ptr::null_mut(),
             search_results: None,
             did_query: false,
-            ctid_cache: None,
         }
     }
 }
@@ -74,7 +70,7 @@ impl ExecMethod for NormalScanExecState {
             return false;
         }
 
-        let search_reader = state.search_reader.as_ref().unwrap();
+        let search_reader = state.search_reader().unwrap();
 
         self.search_results = if let Some(parallel_state) = state.parallel_state {
             // NormalScanExecState evaluates isolated batches directly, so it does not participate
@@ -91,15 +87,14 @@ impl ExecMethod for NormalScanExecState {
 
     fn internal_next(&mut self, state: &mut BaseScanState) -> ExecState {
         // Extract the result first so the mutable borrow on search_results is released
-        // before we need to access self.ctid_cache and state.search_reader.
+        // before we need to access state.search_reader.
         let next_result = self.search_results.as_mut().and_then(|r| r.next());
         match next_result {
             None => ExecState::Eof,
 
             // we have a row, and we're set up such that we can check it with the visibility map
             Some((scored, doc_address)) if self.can_use_visibility_map => unsafe {
-                let searcher = state.search_reader.as_ref().unwrap().searcher();
-                let ctid = resolve_ctid(&mut self.ctid_cache, searcher, doc_address);
+                let ctid = state.ctid_cache().ctid_u64(doc_address);
 
                 let mut tid = pg_sys::ItemPointerData::default();
                 u64_to_item_pointer(ctid, &mut tid);
@@ -133,8 +128,7 @@ impl ExecMethod for NormalScanExecState {
 
             // otherwise we'll always fetch from the heap
             Some((scored, doc_address)) => {
-                let searcher = state.search_reader.as_ref().unwrap().searcher();
-                let ctid = resolve_ctid(&mut self.ctid_cache, searcher, doc_address);
+                let ctid = state.ctid_cache().ctid_u64(doc_address);
                 ExecState::FromHeap {
                     ctid,
                     score: scored.bm25,
@@ -147,6 +141,5 @@ impl ExecMethod for NormalScanExecState {
     fn reset(&mut self, _state: &mut BaseScanState) {
         self.did_query = false;
         self.search_results = None;
-        self.ctid_cache = None;
     }
 }

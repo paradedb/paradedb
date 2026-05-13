@@ -17,21 +17,29 @@
 
 use std::any::Any;
 use std::fmt::Debug;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
+use datafusion::arrow::array::RecordBatch;
+use datafusion::arrow::datatypes::Schema as ArrowSchema;
+use datafusion::arrow::ipc::reader::StreamReader;
+use datafusion::arrow::ipc::writer::StreamWriter;
 use datafusion::catalog::{Session, TableProvider};
+use datafusion::common::stats::{ColumnStatistics, Precision};
 use datafusion::common::{DataFusionError, Result, Statistics};
 use datafusion::logical_expr::{Expr, TableProviderFilterPushDown, TableType};
-use datafusion::physical_plan::ExecutionPlan;
+use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 use tantivy::index::SegmentId;
 
+use crate::api::HashSet;
 use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::customscan::mpp::dsm::MppBuildCache;
 use crate::postgres::customscan::parallel::{checkout_segment, list_segment_ids};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
@@ -42,8 +50,6 @@ use crate::scan::filter_pushdown::{combine_with_and, FilterAnalyzer};
 use crate::scan::info::{RowEstimate, ScanInfo};
 use crate::scan::late_materialization::DeferredField;
 use crate::scan::Scanner;
-
-use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct VisibilitySourceMetadata {
@@ -75,9 +81,9 @@ pub struct PgSearchTableProvider {
     scan_info: ScanInfo,
     fields: Vec<WhichFastField>,
     #[serde(skip)]
-    schema: std::sync::OnceLock<SchemaRef>,
+    schema: OnceLock<SchemaRef>,
     #[serde(skip)]
-    late_materialization_schema: std::sync::OnceLock<SchemaRef>,
+    late_materialization_schema: OnceLock<SchemaRef>,
     is_parallel: bool,
     /// Parallel state is skipped during serialization because it's a raw pointer
     /// to shared memory that is only valid in the current process. It is
@@ -105,7 +111,7 @@ pub struct PgSearchTableProvider {
     /// `MvccSatisfies::Snapshot`. Injected by the execution codec based on
     /// `non_partitioning_index`; `None` for the partitioning source and serial scans.
     #[serde(skip)]
-    canonical_segment_ids: Option<crate::api::HashSet<SegmentId>>,
+    canonical_segment_ids: Option<HashSet<SegmentId>>,
     /// The visibility strategy for this source.
     ///
     /// `Deferred { plan_position }` means the scan emits packed DocAddresses in its
@@ -130,6 +136,23 @@ pub struct PgSearchTableProvider {
     /// and load (in get_schema) execute sequentially within the same single-threaded optimization pass.
     #[serde(with = "atomic_bool_serde")]
     late_materialization_active: AtomicBool,
+
+    /// MPP build-side all-gather cache. When set, this provider is a
+    /// non-partitioning source under MPP, and `scan()` runs the all-gather
+    /// path: scan the worker's 1/N slice of segments, write to DSM, wait for
+    /// peers, read back, return a `MemoryExec` over the gathered batches.
+    #[serde(skip)]
+    mpp_build_cache: Option<Arc<MppBuildCache>>,
+    /// Cache slot identifier (`source_idx` within the non-partitioning sources).
+    #[serde(skip)]
+    mpp_source_idx: u32,
+    /// 0-based index of this participant among MPP producer workers.
+    #[serde(skip)]
+    mpp_worker_idx: u32,
+    /// Lazy cache of the gathered build-side batches. Populated on the first
+    /// `scan()` call when `mpp_build_cache` is set; subsequent scans reuse.
+    #[serde(skip)]
+    mpp_gathered_batches: OnceLock<Arc<Vec<RecordBatch>>>,
 }
 
 mod atomic_bool_serde {
@@ -160,8 +183,8 @@ impl PgSearchTableProvider {
         Self {
             scan_info,
             fields,
-            schema: std::sync::OnceLock::new(),
-            late_materialization_schema: std::sync::OnceLock::new(),
+            schema: OnceLock::new(),
+            late_materialization_schema: OnceLock::new(),
             is_parallel,
             parallel_state: None,
             expr_context: None,
@@ -170,7 +193,24 @@ impl PgSearchTableProvider {
             canonical_segment_ids: None,
             visibility_mode: VisibilityMode::Eager,
             late_materialization_active: AtomicBool::new(false),
+            mpp_build_cache: None,
+            mpp_source_idx: 0,
+            mpp_worker_idx: 0,
+            mpp_gathered_batches: OnceLock::new(),
         }
+    }
+
+    /// Configure this provider as a non-partitioning source participating in
+    /// the MPP build-side all-gather. See `mpp/dsm.rs::MppBuildCache`.
+    pub(crate) fn set_mpp_build_cache(
+        &mut self,
+        cache: Arc<MppBuildCache>,
+        source_idx: u32,
+        worker_idx: u32,
+    ) {
+        self.mpp_build_cache = Some(cache);
+        self.mpp_source_idx = source_idx;
+        self.mpp_worker_idx = worker_idx;
     }
 
     /// Transitions the provider from Phase 1 (`Utf8View`) into Phase 2 (`Union`)
@@ -201,7 +241,7 @@ impl PgSearchTableProvider {
     }
 
     /// Inject the canonical segment IDs for this replicated-parallel provider.
-    pub(crate) fn set_canonical_segment_ids(&mut self, ids: crate::api::HashSet<SegmentId>) {
+    pub(crate) fn set_canonical_segment_ids(&mut self, ids: HashSet<SegmentId>) {
         self.canonical_segment_ids = Some(ids);
     }
 
@@ -212,7 +252,7 @@ impl PgSearchTableProvider {
     pub(crate) fn set_planstate(&mut self, planstate: Option<*mut pg_sys::PlanState>) {
         self.planstate = planstate;
     }
-    fn enable_deferred_columns(&mut self, required_early_columns: &crate::api::HashSet<String>) {
+    fn enable_deferred_columns(&mut self, required_early_columns: &HashSet<String>) {
         for wff in self.fields.iter_mut() {
             if let WhichFastField::Named(name, field_type) = wff {
                 let is_string_or_bytes = matches!(
@@ -257,7 +297,7 @@ impl PgSearchTableProvider {
     /// - ctid resolution for JoinScan deferred visibility
     pub fn configure_deferred_outputs(
         &mut self,
-        required_early_columns: &crate::api::HashSet<String>,
+        required_early_columns: &HashSet<String>,
         visibility_mode: VisibilityMode,
     ) {
         self.enable_deferred_columns(required_early_columns);
@@ -659,8 +699,6 @@ impl TableProvider for PgSearchTableProvider {
     }
 
     fn statistics(&self) -> Option<Statistics> {
-        use datafusion::common::stats::{ColumnStatistics, Precision};
-
         let num_rows = match self.scan_info.estimate {
             RowEstimate::Known(n) => Precision::Inexact(n as usize),
             RowEstimate::Unknown => Precision::Absent,
@@ -700,6 +738,157 @@ impl TableProvider for PgSearchTableProvider {
 
     async fn scan(
         &self,
+        state: &dyn Session,
+        projection: Option<&Vec<usize>>,
+        filters: &[Expr],
+        limit: Option<usize>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        // MPP build-side all-gather. Only triggered for non-partitioning
+        // sources that have a build cache configured (set by the codec when
+        // the worker registered an `MppBuildCache`). First call does the
+        // gather (scan 1/N slice → write DSM → barrier → read peers); later
+        // calls reuse the cached batches via the OnceLock.
+        if self.mpp_build_cache.is_some() {
+            return self
+                .scan_mpp_all_gather(state, projection, filters, limit)
+                .await;
+        }
+        self.scan_inner(
+            self.canonical_segment_ids.clone(),
+            state,
+            projection,
+            filters,
+            limit,
+        )
+        .await
+    }
+}
+
+impl PgSearchTableProvider {
+    async fn scan_mpp_all_gather(
+        &self,
+        state: &dyn Session,
+        projection: Option<&Vec<usize>>,
+        filters: &[Expr],
+        limit: Option<usize>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        let cache = self
+            .mpp_build_cache
+            .as_ref()
+            .expect("scan_mpp_all_gather called without cache");
+        let n_workers = cache.n_workers;
+        let source_idx = self.mpp_source_idx;
+        let worker_idx = self.mpp_worker_idx;
+
+        // Reuse the gathered batches from the first call.
+        if let Some(cached) = self.mpp_gathered_batches.get() {
+            return memory_exec_for_cached(cached.clone());
+        }
+
+        // Slice canonical_segment_ids deterministically (sorted by uuid_string,
+        // round-robin by worker_idx).
+        let full = self.canonical_segment_ids.clone().unwrap_or_default();
+        let my_slice: HashSet<SegmentId> = if n_workers <= 1 {
+            full.clone()
+        } else {
+            let mut sorted: Vec<SegmentId> = full.iter().copied().collect();
+            sorted.sort_by_key(|id| id.uuid_string());
+            sorted
+                .into_iter()
+                .enumerate()
+                .filter(|(i, _)| (*i as u32) % n_workers == worker_idx)
+                .map(|(_, id)| id)
+                .collect()
+        };
+
+        let t_start = std::time::Instant::now();
+
+        // Run the inner scan over the worker's 1/N slice.
+        let sub_plan = self
+            .scan_inner(Some(my_slice), state, projection, filters, limit)
+            .await?;
+        let task_ctx = state.task_ctx();
+        let n_partitions = sub_plan.output_partitioning().partition_count();
+        let mut my_batches: Vec<RecordBatch> = Vec::new();
+        for p in 0..n_partitions {
+            let mut stream = sub_plan.execute(p, Arc::clone(&task_ctx))?;
+            while let Some(b) = futures::StreamExt::next(&mut stream).await {
+                my_batches.push(b?);
+            }
+        }
+        let t_scan = t_start.elapsed();
+        let my_rows: usize = my_batches.iter().map(|b| b.num_rows()).sum();
+
+        // Encode my batches as a single Arrow IPC stream.
+        let t_encode_start = std::time::Instant::now();
+        let my_bytes = encode_batches_ipc(&my_batches)?;
+        let t_encode = t_encode_start.elapsed();
+        let my_bytes_len = my_bytes.len();
+        cache
+            .write_slice(source_idx, worker_idx, &my_bytes)
+            .map_err(DataFusionError::Internal)?;
+        let t_write = t_encode_start.elapsed() - t_encode;
+
+        // Wait until every peer has signalled completion.
+        let t_barrier_start = std::time::Instant::now();
+        cache.wait_complete(source_idx);
+        let t_barrier = t_barrier_start.elapsed();
+
+        // Read peer slices, decode, concatenate.
+        let t_read_start = std::time::Instant::now();
+        let mut all_batches: Vec<RecordBatch> =
+            Vec::with_capacity(my_batches.len() * (n_workers as usize));
+        for w in 0..n_workers {
+            let bytes = if w == worker_idx {
+                my_bytes.as_slice().to_vec()
+            } else {
+                cache.read_slice(source_idx, w)
+            };
+            if bytes.is_empty() {
+                continue;
+            }
+            let peer_batches = decode_batches_ipc(&bytes)?;
+            all_batches.extend(peer_batches);
+        }
+        let t_read = t_read_start.elapsed();
+        let all_rows: usize = all_batches.iter().map(|b| b.num_rows()).sum();
+        crate::mpp_log!(
+            "mpp build all-gather: heap_oid={} index_oid={} is_parallel={} canonical_segs={} \
+             source={} worker={}/{} my_rows={} my_bytes={} all_rows={} \
+             scan_ms={:.1} encode_ms={:.1} write_ms={:.1} barrier_ms={:.1} read_ms={:.1}",
+            self.scan_info.heaprelid,
+            self.scan_info.indexrelid,
+            self.is_parallel,
+            self.canonical_segment_ids
+                .as_ref()
+                .map(|s| s.len())
+                .unwrap_or(0),
+            source_idx,
+            worker_idx,
+            n_workers,
+            my_rows,
+            my_bytes_len,
+            all_rows,
+            t_scan.as_secs_f64() * 1000.0,
+            t_encode.as_secs_f64() * 1000.0,
+            t_write.as_secs_f64() * 1000.0,
+            t_barrier.as_secs_f64() * 1000.0,
+            t_read.as_secs_f64() * 1000.0,
+        );
+
+        let arc = Arc::new(all_batches);
+        // OnceLock: only the first writer wins; others reuse.
+        let _ = self.mpp_gathered_batches.set(Arc::clone(&arc));
+        let cached = self
+            .mpp_gathered_batches
+            .get()
+            .expect("OnceLock must be set");
+        memory_exec_for_cached(cached.clone())
+    }
+
+    async fn scan_inner(
+        &self,
+        canonical_override: Option<HashSet<SegmentId>>,
         _state: &dyn Session,
         projection: Option<&Vec<usize>>,
         filters: &[Expr],
@@ -714,7 +903,8 @@ impl TableProvider for PgSearchTableProvider {
         let expr_context = self.expr_context;
         let planstate = self.planstate;
         let parallel_state = self.parallel_state;
-        let canonical_segment_ids = self.canonical_segment_ids.clone();
+        let canonical_segment_ids =
+            canonical_override.or_else(|| self.canonical_segment_ids.clone());
 
         let heap_rel = PgSearchRelation::open(heap_relid);
         let index_rel = PgSearchRelation::open(index_relid);
@@ -834,4 +1024,59 @@ impl TableProvider for PgSearchTableProvider {
             )
         }
     }
+}
+
+/// Encode a slice of `RecordBatch`es as a single Arrow IPC stream blob.
+fn encode_batches_ipc(batches: &[RecordBatch]) -> Result<Vec<u8>> {
+    let mut buf = Vec::with_capacity(64 * 1024);
+    let schema: SchemaRef = if let Some(b) = batches.first() {
+        b.schema()
+    } else {
+        // Empty input: produce an empty IPC stream with a placeholder schema.
+        Arc::new(ArrowSchema::empty())
+    };
+    {
+        let mut writer = StreamWriter::try_new(&mut buf, &schema)
+            .map_err(|e| DataFusionError::Internal(format!("ipc writer init: {e}")))?;
+        for b in batches {
+            writer
+                .write(b)
+                .map_err(|e| DataFusionError::Internal(format!("ipc write: {e}")))?;
+        }
+        writer
+            .finish()
+            .map_err(|e| DataFusionError::Internal(format!("ipc finish: {e}")))?;
+    }
+    Ok(buf)
+}
+
+/// Decode an Arrow IPC stream blob into its `RecordBatch`es.
+fn decode_batches_ipc(bytes: &[u8]) -> Result<Vec<RecordBatch>> {
+    let cursor = std::io::Cursor::new(bytes);
+    let reader = StreamReader::try_new(cursor, None)
+        .map_err(|e| DataFusionError::Internal(format!("ipc reader init: {e}")))?;
+    let mut out = Vec::new();
+    for b in reader {
+        out.push(b.map_err(|e| DataFusionError::Internal(format!("ipc read: {e}")))?);
+    }
+    Ok(out)
+}
+
+/// Wrap a `Vec<RecordBatch>` as a single-partition `MemoryExec` for the given
+/// schema and projection. Used by the MPP build-side all-gather to expose the
+/// gathered build side to the rest of the plan without going back through
+/// Tantivy.
+fn memory_exec_for_cached(batches: Arc<Vec<RecordBatch>>) -> Result<Arc<dyn ExecutionPlan>> {
+    use datafusion_datasource::memory::MemorySourceConfig;
+    // The cached batches were produced by `scan_inner` with the caller's
+    // projection already applied — re-projecting at MemorySourceConfig level
+    // would re-index against an already-narrowed schema and panic. Use the
+    // batches' actual schema and pass `None` for projection.
+    let schema: SchemaRef = batches
+        .first()
+        .map(|b| b.schema())
+        .unwrap_or_else(|| Arc::new(ArrowSchema::empty()));
+    let partitions: Vec<Vec<RecordBatch>> = vec![(*batches).clone()];
+    let exec = MemorySourceConfig::try_new_exec(&partitions, schema, None)?;
+    Ok(exec as Arc<dyn ExecutionPlan>)
 }

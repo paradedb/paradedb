@@ -86,7 +86,7 @@ pub extern "C-unwind" fn ambuild(
         pgrx::debug1!("build_index: flushing buffers");
 
         // if we're configured to defer WAL logging, now is the time to do it
-        if deferred_wal {
+        if deferred_wal && needs_wal {
             let nblocks =
                 pg_sys::RelationGetNumberOfBlocksInFork(indexrel, pg_sys::ForkNumber::MAIN_FORKNUM);
 
@@ -112,6 +112,8 @@ pub extern "C-unwind" fn ambuild(
 pub unsafe extern "C-unwind" fn ambuildempty(index_relation: pg_sys::Relation) {
     let mut relation = PgSearchRelation::from_pg(index_relation);
     relation.set_fork_number(pg_sys::ForkNumber::INIT_FORKNUM);
+    // INIT fork always needs WAL, even if the relation is unlogged
+    relation.set_need_wal(true);
     build_empty(&relation);
 }
 

@@ -52,10 +52,6 @@ pub enum GenericXlogState {
         rel: NonNull<pg_sys::RelationData>,
         flag: XlogFlag,
     },
-    Started {
-        flag: XlogFlag,
-        pg_state: NonNull<pg_sys::GenericXLogState>,
-    },
     Modified {
         pg_state: NonNull<pg_sys::GenericXLogState>,
         pg_page: pg_sys::Page,
@@ -70,13 +66,13 @@ pub enum XlogStyle {
 }
 
 impl XlogStyle {
-    pub unsafe fn start_generic(rel: pg_sys::Relation) -> XlogStyle {
-        let pg_state = pg_sys::GenericXLogStart(rel);
-        let state = GenericXlogState::Started {
-            flag: XlogFlag::ExistingBuffer,
-            pg_state: NonNull::new_unchecked(pg_state),
-        };
-        XlogStyle::GenericXlog(state)
+    pub fn get_page(&self, buffer: pg_sys::Buffer) -> pg_sys::Page {
+        unsafe {
+            match self {
+                XlogStyle::GenericXlog(GenericXlogState::Modified { pg_page, .. }) => *pg_page,
+                _ => pg_sys::BufferGetPage(buffer),
+            }
+        }
     }
 
     pub fn get_page_mut(&mut self, buffer: pg_sys::Buffer) -> pg_sys::Page {
@@ -88,16 +84,6 @@ impl XlogStyle {
                     let pg_page = pg_sys::GenericXLogRegisterBuffer(pg_state, buffer, *flag as _);
                     let state = GenericXlogState::Modified {
                         pg_state: NonNull::new_unchecked(pg_state),
-                        pg_page,
-                    };
-                    *self = XlogStyle::GenericXlog(state);
-                    pg_page
-                }
-                XlogStyle::GenericXlog(GenericXlogState::Started { flag, pg_state }) => {
-                    let pg_page =
-                        pg_sys::GenericXLogRegisterBuffer(pg_state.as_ptr(), buffer, *flag as _);
-                    let state = GenericXlogState::Modified {
-                        pg_state: *pg_state,
                         pg_page,
                     };
                     *self = XlogStyle::GenericXlog(state);
@@ -117,18 +103,13 @@ pub unsafe fn finish_xlog(buffer: &mut BufferMut) {
             }
 
             XlogStyle::FullPageImage => {
-                pg_sys::MarkBufferDirty(buffer.pg_buffer);
                 pg_sys::CritSectionCount += 1;
+                pg_sys::MarkBufferDirty(buffer.pg_buffer);
                 pg_sys::log_newpage_buffer(buffer.pg_buffer, true);
                 pg_sys::CritSectionCount -= 1;
             }
 
             XlogStyle::GenericXlog(GenericXlogState::Uninitialized { .. }) => {
-                // noop
-            }
-
-            XlogStyle::GenericXlog(GenericXlogState::Started { .. }) => {
-                // BufferMut started a generic xlog record but never got the page and modified it
                 // noop
             }
 
@@ -138,10 +119,7 @@ pub unsafe fn finish_xlog(buffer: &mut BufferMut) {
         }
     } else {
         match buffer.style {
-            XlogStyle::GenericXlog(
-                GenericXlogState::Started { pg_state, .. }
-                | GenericXlogState::Modified { pg_state, .. },
-            ) => {
+            XlogStyle::GenericXlog(GenericXlogState::Modified { pg_state, .. }) => {
                 pg_sys::GenericXLogAbort(pg_state.as_ptr());
             }
             _ => {

@@ -267,7 +267,7 @@ impl Buffer {
         let blockno = self.number();
         drop(self);
 
-        let style = unsafe { XlogStyle::start_generic(bman.rbufacc.rel().as_ptr()) };
+        let style = XlogFlag::ExistingBuffer.into_style(bman.rbufacc.rel());
         let pg_buffer = bman
             .rbufacc
             .get_buffer(blockno, Some(pg_sys::BUFFER_LOCK_EXCLUSIVE));
@@ -283,7 +283,7 @@ impl Buffer {
         let blockno = self.number();
         drop(self);
 
-        let style = unsafe { XlogStyle::start_generic(bman.rbufacc.rel().as_ptr()) };
+        let style = XlogFlag::ExistingBuffer.into_style(bman.rbufacc.rel());
         let pg_buffer = bman.rbufacc.get_buffer_conditional(blockno)?;
         block_tracker::track!(Write, blockno);
         Some(BufferMut {
@@ -333,16 +333,11 @@ impl BufferMut {
         page
     }
 
-    #[allow(dead_code)]
     pub fn page(&self) -> Page<'_> {
-        unsafe {
-            let pg_page = pg_sys::BufferGetPage(self.inner.pg_buffer);
-            assert!(!pg_page.is_null());
-
-            Page {
-                pg_page,
-                _buffer: Some(&self.inner),
-            }
+        let pg_page = self.style.get_page(self.inner.pg_buffer);
+        Page {
+            pg_page,
+            _buffer: Some(&self.inner),
         }
     }
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778632963978,
+  "lastUpdate": 1778633410547,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -282,6 +282,78 @@ window.BENCHMARK_DATA = {
             "value": 67.34385086164706,
             "unit": "median tps",
             "extra": "avg tps: 76.03067470667787, max tps: 222.15077195171745, count: 55221"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "james.sewell@gmail.com",
+            "name": "James Sewell",
+            "username": "jamessewell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8182eaf110c30cbefe008197caa40efa8b44f8e0",
+          "message": "refactor: use existing FFHelper ctid cache instead of dedicated cache (#4905)\n\nFix a performance regression introduced in e0804b347 (#4765) which\nremoved ctid from SearchIndexScore and switched to lazy per-row\nresolution.\n\nPrior to #4765, ctid was resolved during result construction and carried\nin `SearchIndexScore` — no per-row fast-field lookups needed. #4765\nmoved ctid resolution to the consumption side (top_k.rs, normal.rs,\nscan.rs) using a single-entry `Option<(SegmentOrdinal, FFType)>` cache.\nWhen TopK results interleave across segments (sorted by score), every\nsegment transition re-opens the ctid column via `FastFieldReaders::u64\n-> DynamicColumnHandle::open -> BlockwiseLinearCodec::load`, which is\nvery expensive. Profiling showed 45% of total cycles spent in this\nre-open path.\n\nThe columnar scan path (`ColumnarExecState`) was unaffected — it already\nused `FFHelper`'s per-segment `OnceLock` ctid cache. This PR brings the\nremaining paths in line:\n\n- `scan.rs` uses its existing `Bm25ScanState.fast_fields` FFHelper\n- `normal.rs` and `top_k.rs` use a new `ctid_cache` FFHelper on\n`BaseScanState`\n\nEach segment's ctid column is opened at most once via `OnceLock`,\neliminating the thrashing. `FFHelper` has had this per-segment ctid\ncaching built in since cb78f0ca2 (Oct 2024).",
+          "timestamp": "2026-05-13T12:18:31+12:00",
+          "tree_id": "814e1da895eec41e0dfe3cbb5348bdb237811bf7",
+          "url": "https://github.com/paradedb/paradedb/commit/8182eaf110c30cbefe008197caa40efa8b44f8e0"
+        },
+        "date": 1778633380401,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 134.44772096721013,
+            "unit": "median tps",
+            "extra": "avg tps: 134.8665599203604, max tps: 146.58834784657859, count: 55114"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 501.3056430048433,
+            "unit": "median tps",
+            "extra": "avg tps: 504.3773654119763, max tps: 670.3929495559473, count: 55114"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3322.836603293853,
+            "unit": "median tps",
+            "extra": "avg tps: 3299.83297960128, max tps: 3338.9642482025924, count: 55114"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 444.32427190473334,
+            "unit": "median tps",
+            "extra": "avg tps: 447.585824690253, max tps: 554.2868106424017, count: 55114"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3017.037923029604,
+            "unit": "median tps",
+            "extra": "avg tps: 3006.1900651768856, max tps: 3040.8386928133427, count: 110228"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 524.8389229349693,
+            "unit": "median tps",
+            "extra": "avg tps: 526.9844944825845, max tps: 674.7039227652011, count: 55114"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2058.30716837331,
+            "unit": "median tps",
+            "extra": "avg tps: 2048.970564480642, max tps: 2068.0258867143543, count: 55114"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 32.98109823577119,
+            "unit": "median tps",
+            "extra": "avg tps: 46.88167502744731, max tps: 787.3866950545817, count: 55114"
           }
         ]
       }

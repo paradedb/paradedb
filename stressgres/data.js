@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778696652876,
+  "lastUpdate": 1778696684730,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5658,6 +5658,186 @@ window.BENCHMARK_DATA = {
             "value": 32.8125,
             "unit": "median mem",
             "extra": "avg mem: 32.083466864849186, max mem: 32.8984375, count: 53875"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "59696464+saadtajwar@users.noreply.github.com",
+            "name": "Saad Tajwar",
+            "username": "saadtajwar"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bc20c3dd4b36a13dbcc74d03499f966a4dc93fe6",
+          "message": "refactor: Deduplicate deferred materialization request partitioning between visibility and lookup (#4903)\n\n# Ticket(s) Closed\n- Closes https://github.com/paradedb/paradedb/issues/4568\n\n## What\nDeduplicated the segment-grouping/materialization loop shared between\n`materialize_deferred_ctid()` in `visibility_filter.rs` and\n`materialize_deferred_column()` in `tantivy_lookup_exec.rs`.\n\n## Why\nBoth functions implemented the same pattern of partitioning packed doc\naddresses by segment ordinal, batch-reading via `FFHelper`, and writing\nresults back in row order. This duplication made the two paths harder to\nkeep consistent and made future optimization work more tedious.\n\n## How\n\n### Shared helper in `fast_fields_helper.rs`\n- Added `for_each_segment`: partitions an iterator of `(row_index,\npacked_doc_address)` pairs into per-segment buckets and invokes a\ncaller-supplied closure once per non-empty segment, in segment-ordinal\norder. Backed by a `Vec<Vec<(usize, DocId)>>` indexed by segment ordinal\n(dense in practice; cheaper than a hash map for typical segment counts).\n- Added `FFHelper::num_segments()` so callers can size the bucket vector\nwithout reaching into private fields.\n\n### `materialize_deferred_ctid` (visibility_filter.rs)\n- Replaced the manual sort + partition + per-segment slice loop with a\nsingle `for_each_segment` call.\n- Kept `DeferredCtidMaterializationState` for buffer reuse across calls,\nbut removed its now-unused `requests` field; the per-segment\npartitioning lives inside `for_each_segment`.\n- Removed the TODO comment that flagged this duplication.\n\n### `materialize_deferred_column` (tantivy_lookup_exec.rs)\nFunction body shrank from ~160 lines to ~50 by extracting three\nsingle-responsibility helpers:\n- `resolve_doc_addresses_to_term_ords` — resolves State 0 (packed doc\naddresses) into per-segment `(row_index, Option<TermOrdinal>)` pairs via\n`for_each_segment`.\n- `extract_term_ords` — parses State 1 (pre-resolved `(segment_ord,\nterm_ord)` pairs from the dense union's `StructArray` child) into the\nsame per-segment shape.\n- `decode_term_ordinals` — takes the merged per-segment ordinals and\nperforms the bulk dictionary lookup once per segment, recording\npositions for the final `interleave`.\n\nState 0 and State 1 are now merged into a single `Vec<Vec<(row_index,\nOption<TermOrdinal>)>>` indexed by segment ordinal, then decoded in one\npass — previously each state was iterated and decoded separately,\nproducing two `segment_arrays` entries per segment touched by both. The\nfinal interleaved output is identical.\n\nReplaced the `(ff_index: usize, is_bytes: bool)` parameter pair with a\n`DeferredColumnKind { Text { ff_index }, Bytes { ff_index } }` enum to\nmake the `is_bytes && wrong-ff-type` mismatch unrepresentable.\n\n## Tests\nNo new tests; behavior is unchanged. Existing coverage exercises both\npaths end-to-end:\n- `pg_search/tests/pg_regress/sql/join_deferred_visibility.sql` —\n`materialize_deferred_ctid`.\n- `pg_search/tests/pg_regress/sql/segmented_topk.sql` plus joinscan\ntests — `materialize_deferred_column` (the segmented top-K rule is what\nproduces State 1 rows below `TantivyLookupExec`).\n\n---------\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-05-13T10:07:59-07:00",
+          "tree_id": "cc9e05e63ed6052c202d00901357d2c5026923d0",
+          "url": "https://github.com/paradedb/paradedb/commit/bc20c3dd4b36a13dbcc74d03499f966a4dc93fe6"
+        },
+        "date": 1778696654513,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.072662982117275, max cpu: 9.257474, count: 53864"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 52.6640625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.76543615633818, max mem: 58.890625, count: 53864"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.137016787146727, max cpu: 4.5801525, count: 53864"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 32.453125,
+            "unit": "median mem",
+            "extra": "avg mem: 31.787727395616738, max mem: 33.125, count: 53864"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.116809,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.539325465475969, max cpu: 18.33811, count: 53864"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 55.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 55.25188843661815, max mem: 61.62109375, count: 53864"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.065430960447016, max cpu: 9.230769, count: 53864"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 51.8828125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.970352850465986, max mem: 58.0859375, count: 53864"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.58080178317347, max cpu: 9.213051, count: 53864"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 32.94921875,
+            "unit": "median mem",
+            "extra": "avg mem: 33.04980990898374, max mem: 38.23046875, count: 53864"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1121,
+            "unit": "median pages",
+            "extra": "avg pages: 1129.3315201247588, max pages: 1882.0, count: 53864"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.7578125,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.822902646015892, max relation_size:MB: 14.703125, count: 53864"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.79318283083321, max segment_count: 19.0, count: 53864"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.135433990221484, max cpu: 4.6153846, count: 53864"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 28.558138175543963, max mem: 29.6015625, count: 53864"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5368624,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.3959431196506045, max cpu: 4.58891, count: 53864"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.29296875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.657318228547823, max mem: 29.85546875, count: 53864"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 9.142857,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.182340970706203, max cpu: 27.246925, count: 53864"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 50.78515625,
+            "unit": "median mem",
+            "extra": "avg mem: 50.89196315024878, max mem: 56.9453125, count: 53864"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.00002672455205652488, max replication_lag:MB: 0.1368560791015625, count: 53864"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.223940707935863, max cpu: 13.766731, count: 107728"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 51.71875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.77521160788049, max mem: 58.046875, count: 107728"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.402011915539643, max cpu: 4.5933013, count: 53864"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 32.7578125,
+            "unit": "median mem",
+            "extra": "avg mem: 32.00510189725512, max mem: 32.76953125, count: 53864"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.8832999511081194, max cpu: 4.5801525, count: 53864"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 33.03515625,
+            "unit": "median mem",
+            "extra": "avg mem: 32.348674946972935, max mem: 33.4375, count: 53864"
           }
         ]
       }

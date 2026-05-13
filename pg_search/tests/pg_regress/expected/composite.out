@@ -1946,8 +1946,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, price FROM smoke_test
 WHERE price @@@ pdb.range(numrange(50.0, 100.0, '[]'))
 ORDER BY price, id;
-                                                                            QUERY PLAN                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: price, id
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
@@ -1955,7 +1955,7 @@ ORDER BY price, id;
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"range":{"field":"price","lower_bound":{"included":"50"},"upper_bound":{"included":"100"},"is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"range":{"field":"price","lower_bound":{"included":"50"},"upper_bound":{"included":"100"}}}}}
 (8 rows)
 
 SELECT id, name, price FROM smoke_test
@@ -1973,8 +1973,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, rating FROM smoke_test
 WHERE id @@@ pdb.parse('description:shoes OR description:boots') AND rating >= 4.0
 ORDER BY rating DESC, id;
-                                                                                                                                      QUERY PLAN                                                                                                                                      
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: rating DESC, id
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
@@ -1982,7 +1982,7 @@ ORDER BY rating DESC, id;
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:boots","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4.0},"upper_bound":null,"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:boots","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4.0},"upper_bound":null}}]}}
 (8 rows)
 
 SELECT id, name, rating FROM smoke_test
@@ -2113,8 +2113,8 @@ SELECT id, name, rating, in_stock
 FROM smoke_test
 WHERE id @@@ pdb.parse('category:Electronics') AND rating > 4.0 AND in_stock = true
 ORDER BY rating DESC, id;
-                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                      QUERY PLAN                                                                                                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: rating DESC, id
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
@@ -2122,7 +2122,7 @@ ORDER BY rating DESC, id;
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null,"is_datetime":false}}]}},"field_filters":[{"heap_filter":"in_stock"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null}}]}},"field_filters":[{"heap_filter":"in_stock"}]}}]}}
 (8 rows)
 
 SELECT id, name, rating, in_stock
@@ -2142,8 +2142,8 @@ SELECT id, name, price
 FROM smoke_test
 WHERE id @@@ pdb.parse('description:shoes OR description:boots') AND price BETWEEN 50 AND 150
 ORDER BY price, id;
-                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                        
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                    QUERY PLAN                                                                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: price, id
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
@@ -2151,7 +2151,7 @@ ORDER BY price, id;
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:boots","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"price","lower_bound":{"included":50.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":150.0},"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:boots","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"price","lower_bound":{"included":50.0},"upper_bound":null}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":150.0}}}]}}
 (8 rows)
 
 SELECT id, name, price
@@ -2461,8 +2461,8 @@ SELECT id, name FROM smoke_test WHERE description @@@ pdb.phrase_prefix(ARRAY['l
 -- pdb.range() on FLOAT field (not composite, but verify it works alongside)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, rating FROM smoke_test WHERE rating @@@ pdb.range(numrange(4.0, 5.0, '[]')) ORDER BY id;
-                                                                           QUERY PLAN                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
@@ -2470,7 +2470,7 @@ SELECT id, name, rating FROM smoke_test WHERE rating @@@ pdb.range(numrange(4.0,
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":"4"},"upper_bound":{"included":"5"},"is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":"4"},"upper_bound":{"included":"5"}}}}}
 (8 rows)
 
 SELECT id, name, rating FROM smoke_test WHERE rating @@@ pdb.range(numrange(4.0, 5.0, '[]')) ORDER BY id;
@@ -2922,15 +2922,15 @@ INSERT INTO numeric_expr_test (price) VALUES (100.00), (200.00), (50.00);
 -- Range query on original price (use the expression 'price' which maps to 'original_price' field)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, price FROM numeric_expr_test WHERE price @@@ pdb.range(numrange(75, 150, '[]'));
-                                                                             QUERY PLAN                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                   QUERY PLAN                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on numeric_expr_test
    Table: numeric_expr_test
    Index: idx_numeric_expr
    Exec Method: ColumnarExecState
    Fast Fields: id, original_price
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"range":{"field":"original_price","lower_bound":{"included":"75"},"upper_bound":{"included":"150"},"is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"range":{"field":"original_price","lower_bound":{"included":"75"},"upper_bound":{"included":"150"}}}}}
 (7 rows)
 
 SELECT id, price FROM numeric_expr_test WHERE price @@@ pdb.range(numrange(75, 150, '[]'));
@@ -2942,15 +2942,15 @@ SELECT id, price FROM numeric_expr_test WHERE price @@@ pdb.range(numrange(75, 1
 -- Range query on calculated discounted price (use the expression 'price * 0.9' which maps to 'discounted_price' field)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, price FROM numeric_expr_test WHERE (price * 0.9) @@@ pdb.range(numrange(80, 100, '[]'));
-                                                                              QUERY PLAN                                                                               
------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on numeric_expr_test
    Table: numeric_expr_test
    Index: idx_numeric_expr
    Exec Method: ColumnarExecState
    Fast Fields: id, original_price
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"range":{"field":"discounted_price","lower_bound":{"included":"80"},"upper_bound":{"included":"100"},"is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"range":{"field":"discounted_price","lower_bound":{"included":"80"},"upper_bound":{"included":"100"}}}}}
 (7 rows)
 
 SELECT id, price FROM numeric_expr_test WHERE (price * 0.9) @@@ pdb.range(numrange(80, 100, '[]'));

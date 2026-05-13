@@ -315,15 +315,15 @@ WHERE id @@@ paradedb.range(
     field => 'rating',
     range => int4range(4, 5)
 );
-                                                                                         QUERY PLAN                                                                                         
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                               QUERY PLAN                                                                               
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":{"excluded":5},"is_datetime":false},"estimated_docs":4}},"estimated_docs":4}
+   Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":{"excluded":5}},"estimated_docs":4}},"estimated_docs":4}
 (7 rows)
 
 -- Test 5.4: Regex query (CRITICAL: Tests pattern matching estimates)
@@ -631,15 +631,15 @@ WHERE id @@@ paradedb.range(
     field => 'created_at',
     range => tsrange('2023-01-01', '2023-12-31')
 );
-                                                                                                                QUERY PLAN                                                                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                       QUERY PLAN                                                                                                       
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on recursive_test.estimate_items
    Output: id, description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time, weight_range
    Table: estimate_items
    Index: idx_recursive_estimates
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"range":{"field":"created_at","lower_bound":{"included":"2023-01-01T00:00:00Z"},"upper_bound":{"excluded":"2023-12-31T00:00:00Z"},"is_datetime":true},"estimated_docs":41}},"estimated_docs":41}
+   Tantivy Query: {"with_index":{"query":{"range":{"field":"created_at","lower_bound":{"included":"2023-01-01T00:00:00Z"},"upper_bound":{"excluded":"2023-12-31T00:00:00Z"}},"estimated_docs":41}},"estimated_docs":41}
 (7 rows)
 
 -- Test 5.22: TermSet with paradedb.term_set function
@@ -1143,27 +1143,27 @@ WHERE rating @@@ paradedb.range(
     field => 'rating',
     range => int4range(4, 5)
 );
-                                                                                                         QUERY PLAN                                                                                                         
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- [                                                                                                                                                                                                                         +
-   {                                                                                                                                                                                                                       +
-     "Plan": {                                                                                                                                                                                                             +
-       "Node Type": "Custom Scan",                                                                                                                                                                                         +
-       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                                       +
-       "Parallel Aware": false,                                                                                                                                                                                            +
-       "Async Capable": false,                                                                                                                                                                                             +
-       "Relation Name": "estimate_items",                                                                                                                                                                                  +
-       "Schema": "recursive_test",                                                                                                                                                                                         +
-       "Alias": "estimate_items",                                                                                                                                                                                          +
-       "Disabled": false,                                                                                                                                                                                                  +
-       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                                          +
-       "Table": "estimate_items",                                                                                                                                                                                          +
-       "Index": "idx_recursive_estimates",                                                                                                                                                                                 +
-       "Exec Method": "NormalScanExecState",                                                                                                                                                                               +
-       "Scores": false,                                                                                                                                                                                                    +
-       "Tantivy Query": "{\"with_index\":{\"query\":{\"range\":{\"field\":\"rating\",\"lower_bound\":{\"included\":4},\"upper_bound\":{\"excluded\":5},\"is_datetime\":false},\"estimated_docs\":4}},\"estimated_docs\":4}"+
-     }                                                                                                                                                                                                                     +
-   }                                                                                                                                                                                                                       +
+                                                                                              QUERY PLAN                                                                                              
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ [                                                                                                                                                                                                   +
+   {                                                                                                                                                                                                 +
+     "Plan": {                                                                                                                                                                                       +
+       "Node Type": "Custom Scan",                                                                                                                                                                   +
+       "Custom Plan Provider": "ParadeDB Base Scan",                                                                                                                                                 +
+       "Parallel Aware": false,                                                                                                                                                                      +
+       "Async Capable": false,                                                                                                                                                                       +
+       "Relation Name": "estimate_items",                                                                                                                                                            +
+       "Schema": "recursive_test",                                                                                                                                                                   +
+       "Alias": "estimate_items",                                                                                                                                                                    +
+       "Disabled": false,                                                                                                                                                                            +
+       "Output": ["id", "description", "rating", "category", "in_stock", "metadata", "created_at", "last_updated_date", "latest_available_time", "weight_range"],                                    +
+       "Table": "estimate_items",                                                                                                                                                                    +
+       "Index": "idx_recursive_estimates",                                                                                                                                                           +
+       "Exec Method": "NormalScanExecState",                                                                                                                                                         +
+       "Scores": false,                                                                                                                                                                              +
+       "Tantivy Query": "{\"with_index\":{\"query\":{\"range\":{\"field\":\"rating\",\"lower_bound\":{\"included\":4},\"upper_bound\":{\"excluded\":5}},\"estimated_docs\":4}},\"estimated_docs\":4}"+
+     }                                                                                                                                                                                               +
+   }                                                                                                                                                                                                 +
  ]
 (1 row)
 

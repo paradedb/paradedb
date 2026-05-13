@@ -433,8 +433,8 @@ SELECT title, author, pdb.score(id)
 FROM score_test
 WHERE content @@@ 'technology' AND rating >= 4 AND is_featured = true
 ORDER BY title, author, pdb.score(id) DESC;
-                                                                                                                                                                      QUERY PLAN                                                                                                                                                                       
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                            QUERY PLAN                                                                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: title, author, (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on score_test
@@ -443,7 +443,7 @@ ORDER BY title, author, pdb.score(id) DESC;
          Exec Method: ColumnarExecState
          Fast Fields: author, id, title
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null,"is_datetime":false}},{"term":{"field":"is_featured","value":true,"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null}},{"term":{"field":"is_featured","value":true,"is_datetime":false}}]}}
 (9 rows)
 
 SELECT title, author, pdb.score(id)
@@ -474,8 +474,8 @@ FROM scored_posts
 WHERE rating > 3
 ORDER BY title, author, relevance DESC
 LIMIT 10;
-                                                                                                                                          QUERY PLAN                                                                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                QUERY PLAN                                                                                                                                
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on score_test
          Table: score_test
@@ -484,7 +484,7 @@ LIMIT 10;
          Scores: true
             TopK Order By: title asc, author asc, pdb.score() desc
             TopK Limit: 10
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"science OR research","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3},"upper_bound":null,"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"science OR research","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3},"upper_bound":null}}]}}
 (9 rows)
 
 WITH scored_posts AS (
@@ -521,8 +521,8 @@ FROM (
 ) sp
 WHERE sp.relevance > 0.5
 ORDER BY sp.title, sp.author, sp.relevance DESC;
-                                                                                                                                                                        QUERY PLAN                                                                                                                                                                        
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                              QUERY PLAN                                                                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: score_test.title, score_test.author, (pdb.score(score_test.id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on score_test
@@ -531,7 +531,7 @@ ORDER BY sp.title, sp.author, sp.relevance DESC;
          Exec Method: ColumnarExecState
          Fast Fields: author, id, title
          Scores: true
-         Tantivy Query: {"score_filter":{"bounds":[[{"Excluded":0.5},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3},"upper_bound":null,"is_datetime":false}}]}}}}
+         Tantivy Query: {"score_filter":{"bounds":[[{"Excluded":0.5},"Unbounded"]],"query":{"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3},"upper_bound":null}}]}}}}
 (9 rows)
 
 SELECT sp.title, sp.author, sp.relevance
@@ -783,8 +783,8 @@ SELECT
 FROM score_test
 WHERE content @@@ 'research OR development' AND rating > 4
 ORDER BY title, author, pdb.score(id) DESC;
-                                                                                                                                            QUERY PLAN                                                                                                                                            
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: title, author, (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on score_test
@@ -792,7 +792,7 @@ ORDER BY title, author, pdb.score(id) DESC;
          Index: score_test_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research OR development","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":4},"upper_bound":null,"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"research OR development","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":4},"upper_bound":null}}]}}
 (8 rows)
 
 SELECT

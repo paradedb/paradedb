@@ -92,8 +92,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT description, metadata->>'color' as color, metadata->>'price' as price FROM mock_items
 WHERE metadata->>'color' @@@ 'white' AND (metadata->>'price')::int > 100
 ORDER BY id LIMIT 5;
-                                                                                                                                           QUERY PLAN                                                                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                 QUERY PLAN                                                                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
@@ -102,7 +102,7 @@ ORDER BY id LIMIT 5;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"metadata.color","query_string":"white","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"metadata.price","lower_bound":{"excluded":100},"upper_bound":null,"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"metadata.color","query_string":"white","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"metadata.price","lower_bound":{"excluded":100},"upper_bound":null}}]}}
 (9 rows)
 
 -- should be pushed down

@@ -572,8 +572,8 @@ JOIN product_categories pc ON tp.id = pc.product_id
 JOIN categories c ON pc.category_id = c.id
 WHERE c.is_active = true
 ORDER BY pr.avg_rating DESC, pdb.score(tp.id), tp.price DESC;
-                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                    
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: pr.avg_rating DESC, (pdb.score(tp.id)), tp.price DESC
    ->  Hash Join
@@ -603,7 +603,7 @@ ORDER BY pr.avg_rating DESC, pdb.score(tp.id), tp.price DESC;
                                  Scores: false
                                     TopK Order By: price desc
                                     TopK Limit: 50
-                                 Tantivy Query: {"boolean":{"must":[{"range":{"field":"price","lower_bound":{"included":100.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":800.0},"is_datetime":false}},{"term":{"field":"is_available","value":true,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}]}}
+                                 Tantivy Query: {"boolean":{"must":[{"range":{"field":"price","lower_bound":{"included":100.0},"upper_bound":null}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":800.0}}},{"term":{"field":"is_available","value":true,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}]}}
 (30 rows)
 
 WITH top_products AS (
@@ -809,8 +809,8 @@ ORDER BY
     END DESC,
     pdb.score(p.id),
     p.price;
-                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                                          
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (CASE WHEN ((avg(reviews.rating)) IS NULL) THEN '0'::numeric ELSE (avg(reviews.rating)) END) DESC, (pdb.score(p.id)), p.price
    ->  Hash Right Join
@@ -824,7 +824,7 @@ ORDER BY
                      Index: products_idx
                      Exec Method: NormalScanExecState
                      Scores: true
-                     Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_available","value":true,"is_datetime":false}},{"range":{"field":"price","lower_bound":{"included":200.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":600.0},"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}]}}
+                     Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_available","value":true,"is_datetime":false}},{"range":{"field":"price","lower_bound":{"included":200.0},"upper_bound":null}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":600.0}}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Product","lenient":null,"conjunction_mode":null}}}}]}}
 (14 rows)
 
 SELECT 

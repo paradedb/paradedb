@@ -490,7 +490,7 @@ LIMIT 50;
                  :         ProjectionExec: expr=[ctid_0@1 as ctid_0, id@2 as id, title@3 as title, parents@4 as parents, ctid_1@0 as ctid_1, ctid_2@5 as ctid_2]
                  :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(fileId@1, id@5)], projection=[ctid_1@0, ctid_0@2, id@3, title@4, parents@5, ctid_2@6]
                  :             CooperativeExec
-                 :               PgSearchScan: segments=1, query={"range":{"field":"sizeInBytes","lower_bound":{"excluded":5000},"upper_bound":null,"is_datetime":false}}
+                 :               PgSearchScan: segments=1, query={"range":{"field":"sizeInBytes","lower_bound":{"excluded":5000},"upper_bound":null}}
                  :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, documentId@1)], projection=[ctid_0@0, id@1, title@2, parents@3, ctid_2@4, id@6]
                  :               CooperativeExec
                  :                 PgSearchScan: segments=1, query={"boolean":{"must":[{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(parents ~~ 'SFR%'::text)"}]}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}

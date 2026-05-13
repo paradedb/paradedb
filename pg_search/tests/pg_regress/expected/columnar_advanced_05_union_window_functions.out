@@ -319,8 +319,8 @@ SELECT title, author, rating, price
 FROM union_test_b
 WHERE title @@@ 'Book B' AND rating > 3
 ORDER BY rating DESC, title;
-                                                                                                                                            QUERY PLAN                                                                                                                                             
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                  QUERY PLAN                                                                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: union_test_a.rating DESC, union_test_a.title
    ->  Unique
@@ -334,7 +334,7 @@ ORDER BY rating DESC, title;
                            Exec Method: ColumnarExecState
                            Fast Fields: author, price, rating, title
                            Scores: false
-                           Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null,"is_datetime":false}}]}}
+                           Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null}}]}}
                ->  Sort
                      Sort Key: union_test_b.title, union_test_b.author, union_test_b.rating, union_test_b.price
                      ->  Custom Scan (ParadeDB Base Scan) on union_test_b
@@ -343,7 +343,7 @@ ORDER BY rating DESC, title;
                            Exec Method: ColumnarExecState
                            Fast Fields: author, price, rating, title
                            Scores: false
-                           Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book B","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3.0},"upper_bound":null,"is_datetime":false}}]}}
+                           Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book B","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":3.0},"upper_bound":null}}]}}
 (23 rows)
 
 SELECT title, author, rating, price
@@ -405,8 +405,8 @@ SELECT title, price, year
 FROM union_test_b
 WHERE price < 45 AND year > 1982 and title @@@ 'Book B'
 ORDER BY price;
-                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                        
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                   QUERY PLAN                                                                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: union_test_a.price
    ->  Append
@@ -416,14 +416,14 @@ ORDER BY price;
                Exec Method: ColumnarExecState
                Fast Fields: price, title, year
                Scores: false
-               Tantivy Query: {"boolean":{"must":[{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":30.0},"is_datetime":false}},{"range":{"field":"year","lower_bound":{"excluded":2000},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
+               Tantivy Query: {"boolean":{"must":[{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":30.0}}},{"range":{"field":"year","lower_bound":{"excluded":2000},"upper_bound":null}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
          ->  Custom Scan (ParadeDB Base Scan) on union_test_b
                Table: union_test_b
                Index: union_test_b_idx
                Exec Method: ColumnarExecState
                Fast Fields: price, title, year
                Scores: false
-               Tantivy Query: {"boolean":{"must":[{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":45.0},"is_datetime":false}},{"range":{"field":"year","lower_bound":{"excluded":1982},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book B","lenient":null,"conjunction_mode":null}}}}]}}
+               Tantivy Query: {"boolean":{"must":[{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":45.0}}},{"range":{"field":"year","lower_bound":{"excluded":1982},"upper_bound":null}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book B","lenient":null,"conjunction_mode":null}}}}]}}
 (17 rows)
 
 SELECT title, price, year
@@ -629,8 +629,8 @@ SELECT title, author, rating, source,
        RANK() OVER (PARTITION BY author ORDER BY rating DESC) as author_rank
 FROM combined_books
 ORDER BY title, author, author_rank;
-                                                                                                                                                        QUERY PLAN                                                                                                                                                         
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                              QUERY PLAN                                                                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: combined_books.title, combined_books.author, (rank() OVER w1)
    ->  WindowAgg
@@ -650,7 +650,7 @@ ORDER BY title, author, author_rank;
                                                    Exec Method: ColumnarExecState
                                                    Fast Fields: author, rating, title
                                                    Scores: false
-                                                   Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":3.5},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
+                                                   Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":3.5},"upper_bound":null}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
                                        ->  Sort
                                              Sort Key: union_test_b.title, union_test_b.author, union_test_b.rating
                                              ->  Custom Scan (ParadeDB Base Scan) on union_test_b
@@ -659,7 +659,7 @@ ORDER BY title, author, author_rank;
                                                    Exec Method: ColumnarExecState
                                                    Fast Fields: author, rating, title
                                                    Scores: false
-                                                   Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":2.5},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
+                                                   Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":2.5},"upper_bound":null}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
 (29 rows)
 
 WITH combined_books AS (
@@ -927,8 +927,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 INTERSECT
 (SELECT author FROM union_test_b WHERE rating > 4.0 and title @@@ 'Book A')
 ORDER BY author;
-                                                                                                                                      QUERY PLAN                                                                                                                                       
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  SetOp Intersect
    ->  Sort
          Sort Key: union_test_a.author
@@ -938,7 +938,7 @@ ORDER BY author;
                Exec Method: ColumnarExecState
                Fast Fields: author
                Scores: false
-               Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":4.5},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
+               Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":4.5},"upper_bound":null}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
    ->  Sort
          Sort Key: union_test_b.author
          ->  Custom Scan (ParadeDB Base Scan) on union_test_b
@@ -947,7 +947,7 @@ ORDER BY author;
                Exec Method: ColumnarExecState
                Fast Fields: author
                Scores: false
-               Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
+               Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null}},{"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Book A","lenient":null,"conjunction_mode":null}}}}]}}
 (19 rows)
 
 (SELECT author FROM union_test_a WHERE rating > 4.5 and title @@@ 'Book A')

@@ -70,8 +70,8 @@ WHERE contact_id IN (SELECT ldf_id FROM asa_contact_list WHERE list_id @@@ 'list
   AND job_title @@@ 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
-                                    QUERY PLAN                                     
------------------------------------------------------------------------------------
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (count(*)) DESC, asa_cccf.job_title
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -79,7 +79,14 @@ ORDER BY doc_count DESC, job_title;
          Indexes: asa_cccf_idx (asa_cccf), asa_contact_list_idx (asa_contact_list)
          Group By: job_title
          Aggregates: COUNT(*)
-(7 rows)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[job_title@0 as job_title], aggr=[agg_0]
+           :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@0, ldf_id@0)], projection=[job_title@1]
+           :     CooperativeExec
+           :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"job_title","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
+           :     CooperativeExec
+           :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-A","lenient":null,"conjunction_mode":null}}}}
+(14 rows)
 
 SELECT job_title, COUNT(*) AS doc_count
 FROM asa_cccf
@@ -105,8 +112,8 @@ WHERE EXISTS     (SELECT 1 FROM asa_contact_list cl WHERE cl.ldf_id = c.contact_
   AND c.job_title @@@ 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
-                                       QUERY PLAN                                        
------------------------------------------------------------------------------------------
+                                                                                       QUERY PLAN                                                                                       
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (count(*)) DESC, c.job_title
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -114,7 +121,17 @@ ORDER BY doc_count DESC, job_title;
          Indexes: asa_cccf_idx (c), asa_contact_list_idx (cl), asa_contact_list_idx (cl)
          Group By: job_title
          Aggregates: COUNT(*)
-(7 rows)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[job_title@0 as job_title], aggr=[agg_0]
+           :   HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(contact_id@0, ldf_id@0)], projection=[job_title@1]
+           :     HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@0, ldf_id@0)]
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"job_title","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-A","lenient":null,"conjunction_mode":null}}}}
+           :     CooperativeExec
+           :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-B","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 SELECT job_title, COUNT(*) AS doc_count
 FROM asa_cccf c
@@ -146,8 +163,8 @@ WHERE contact_id IN     (SELECT ldf_id FROM asa_contact_list WHERE list_id @@@ '
   AND job_title @@@ 'Senior'
 GROUP BY job_title
 ORDER BY doc_count DESC, job_title;
-                                                         QUERY PLAN                                                         
-----------------------------------------------------------------------------------------------------------------------------
+                                                                                       QUERY PLAN                                                                                       
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (count(*)) DESC, asa_cccf.job_title
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -155,7 +172,17 @@ ORDER BY doc_count DESC, job_title;
          Indexes: asa_cccf_idx (asa_cccf), asa_contact_list_idx (asa_contact_list), asa_contact_list_idx (asa_contact_list)
          Group By: job_title
          Aggregates: COUNT(*)
-(7 rows)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[job_title@0 as job_title], aggr=[agg_0]
+           :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(contact_id@0, ldf_id@0)], projection=[job_title@1]
+           :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(contact_id@0, ldf_id@0)]
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"job_title","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-B","lenient":null,"conjunction_mode":null}}}}
+           :     CooperativeExec
+           :       PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"list_id","query_string":"list-A","lenient":null,"conjunction_mode":null}}}}
+(17 rows)
 
 SELECT job_title, COUNT(*) AS doc_count
 FROM asa_cccf
@@ -360,8 +387,8 @@ WHERE id IN     (SELECT id FROM asa_excl_include)
   AND label @@@ 'Senior'
 GROUP BY label
 ORDER BY doc_count DESC, label;
-                                                             QUERY PLAN                                                             
-------------------------------------------------------------------------------------------------------------------------------------
+                                                                                     QUERY PLAN                                                                                     
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: (count(*)) DESC, asa_excl_outer.label
    ->  Custom Scan (ParadeDB Aggregate Scan)
@@ -369,7 +396,17 @@ ORDER BY doc_count DESC, label;
          Indexes: asa_excl_outer_idx (asa_excl_outer), asa_excl_inner_idx (asa_excl_inner), asa_excl_include_idx (asa_excl_include)
          Group By: label
          Aggregates: COUNT(*)
-(7 rows)
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[label@0 as label], aggr=[agg_0]
+           :   HashJoinExec: mode=CollectLeft, join_type=LeftSemi, on=[(id@0, id@0)], projection=[label@1]
+           :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, eid@0)]
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"label","query_string":"Senior","lenient":null,"conjunction_mode":null}}}}
+           :       CooperativeExec
+           :         PgSearchScan: segments=1, query="all"
+           :     CooperativeExec
+           :       PgSearchScan: segments=1, query="all"
+(17 rows)
 
 SELECT label, COUNT(*) AS doc_count
 FROM asa_excl_outer
@@ -605,7 +642,20 @@ WHERE a.id NOT IN (
    Indexes: asa_rti_outer_a_idx (a), asa_rti_inner_y_idx (y), asa_rti_inner_x_idx (x), asa_rti_outer_b_idx (b)
    Multi-Table Filter: {OPEXPR :opno 521 :opfuncid 147 :opresulttype 16 :opretset false :opcollid 0 :inputcollid 0 :args ({VAR :varno 2 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 2 :varattnosyn 3 :location -1} {VAR :varno 1 :varattno 3 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels (b) :varlevelsup 0 :varreturningtype 0 :varnosyn 1 :varattnosyn 3 :location -1}) :location -1}
    Aggregates: COUNT(*), SUM(val)
-(5 rows)
+   DataFusion Physical Plan: 
+     : AggregateExec: mode=Single, gby=[], aggr=[agg_0, agg_1]
+     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, a_id@0)], filter=val@1 > threshold@0, projection=[val@3]
+     :     HashJoinExec: mode=CollectLeft, join_type=LeftAnti, on=[(id@0, aid@0)]
+     :       CooperativeExec
+     :         PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"outermatch","lenient":null,"conjunction_mode":null}}}}
+     :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, y_id@1)], projection=[aid@1]
+     :         CooperativeExec
+     :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"body","query_string":"block","lenient":null,"conjunction_mode":null}}}}
+     :         CooperativeExec
+     :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+     :     CooperativeExec
+     :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(18 rows)
 
 SET paradedb.enable_aggregate_custom_scan TO on;
 SELECT COUNT(*), SUM(b.val)

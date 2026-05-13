@@ -48,18 +48,10 @@ jobs:
     steps:
       # The job can be triggered manually by attaching the `benchmark` label to a PR. This step
       # removes the label once the job has started, so it can be applied again if needed.
-      - name: Generate GitHub App Token for Label Removal
-        id: label-app-token
-        if: github.event_name == 'pull_request' && (github.event.label.name == 'benchmark' || github.event.label.name == 'benchmark-stressgres')
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-
       - name: Maybe Remove Label
         if: github.event_name == 'pull_request' && (github.event.label.name == 'benchmark' || github.event.label.name == 'benchmark-stressgres')
         env:
-          GH_TOKEN: ${{ steps.label-app-token.outputs.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh pr edit ${{ github.event.pull_request.number }} \
             --repo ${{ github.repository }} \

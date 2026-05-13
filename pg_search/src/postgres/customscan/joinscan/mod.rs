@@ -36,7 +36,7 @@
 //! resides in fast fields, and that the result set size is small enough (via LIMIT)
 //! that the random heap access cost doesn't outweigh the join benefit.
 //!
-//! 1. **GUC enabled**: `paradedb.enable_join_custom_scan = on` (default: on)
+//! 1. **GUC enabled**: `paradedb.enable_join_custom_scan = on` (default: off)
 //!
 //! 2. **Join type**: INNER, SEMI, and ANTI joins are supported
 //!    - LEFT, RIGHT, and FULL joins are planned for future work
@@ -140,7 +140,7 @@
 
 pub mod build;
 pub mod planner;
-mod planning;
+pub mod planning;
 pub mod predicate;
 pub mod privdat;
 pub mod scan_state;
@@ -528,7 +528,7 @@ impl JoinScan {
         // the current join-hook invocation from needing equi-keys.
         let root_is_semi_anti = matches!(
             &plan,
-            RelNode::Join(j) if matches!(j.join_type, build::JoinType::Semi | build::JoinType::Anti)
+            RelNode::Join(j) if matches!(j.join_type, build::JoinType::Semi | build::JoinType::Anti { .. })
         );
         if join_keys.is_empty() && !root_is_semi_anti {
             return Err(JoinDeclineReason::new(
@@ -1251,6 +1251,8 @@ impl CustomScan for JoinScan {
                 None,
                 vec![],
                 vec![],
+                None,
+                0,
             )
             .expect("Failed to deserialize logical plan");
             let physical_plan = runtime
@@ -1335,6 +1337,8 @@ impl CustomScan for JoinScan {
                     Some(planstate),
                     state.custom_state().non_partitioning_segments.clone(),
                     index_segment_ids,
+                    None,
+                    0,
                 )
                 .expect("Failed to deserialize logical plan");
 

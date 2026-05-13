@@ -25,6 +25,7 @@ use syn::{parse_macro_input, Error, Ident, LitBool, LitStr, Result, Token};
 pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
     let mut args = parse_macro_input!(input as NamedArgs);
 
+    let def_name = args.take_str("def_name").unwrap();
     let rust_name = args.take_ident("rust_name").unwrap();
     let sql_name = args.take_str("sql_name").unwrap();
     let cast_name = args.take_ident("cast_name").unwrap();
@@ -36,30 +37,29 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
     let uuid_cast_name = args.take_ident("uuid_cast_name").unwrap();
     let text_array_cast_name = args.take_ident("text_array_cast_name").unwrap();
     let varchar_array_cast_name = args.take_ident("varchar_array_cast_name").unwrap();
+    let input_name = quote::format_ident!("{}_in", sql_name.value());
+    let output_name: Ident = quote::format_ident!("{}_out", sql_name.value());
     let to_boost_name = quote::format_ident!("{}_to_boost", sql_name.value());
     let to_const_name = quote::format_ident!("{}_to_const", sql_name.value());
     let to_fuzzy_name = quote::format_ident!("{}_to_fuzzy", sql_name.value());
     let to_slop_name = quote::format_ident!("{}_to_slop", sql_name.value());
     let pgrx_name = format!("{}_definition", sql_name.value());
 
+    let create_type_stub_sql = format!(
+        "CREATE TYPE {schema}.{sql_name};",
+        sql_name = sql_name.value()
+    );
     let create_type_sql = format!(
         r#"
-            CREATE TYPE {schema}.{sql_name};
-
-            CREATE OR REPLACE FUNCTION {schema}.{sql_name}_in(cstring) RETURNS {schema}.{sql_name} AS 'textin' LANGUAGE internal IMMUTABLE STRICT;
-            CREATE OR REPLACE FUNCTION {schema}.{sql_name}_out({schema}.{sql_name}) RETURNS cstring AS 'textout' LANGUAGE internal IMMUTABLE STRICT;
-            CREATE OR REPLACE FUNCTION {schema}.{sql_name}_send({schema}.{sql_name}) RETURNS bytea AS 'textsend' LANGUAGE internal IMMUTABLE STRICT;
-            CREATE OR REPLACE FUNCTION {schema}.{sql_name}_recv(internal) RETURNS {schema}.{sql_name} AS 'textrecv' LANGUAGE internal IMMUTABLE STRICT;
-
             CREATE TYPE {schema}.{sql_name} (
-                INPUT = {schema}.{sql_name}_in,
-                OUTPUT = {schema}.{sql_name}_out,
-                SEND = {schema}.{sql_name}_send,
-                RECEIVE = {schema}.{sql_name}_recv,
+                INPUT = {schema}.{input_name},
+                OUTPUT = {schema}.{output_name},
                 COLLATABLE = true,
                 CATEGORY = 't', -- 't' is for tokenizer
                 PREFERRED = {preferred},
-                LIKE = text
+                INTERNALLENGTH = -1,
+                ALIGNMENT = double,
+                STORAGE = extended
             );
          "#,
         sql_name = sql_name.value(),
@@ -166,10 +166,17 @@ pub fn generate_tokenizer_sql(input: TokenStream) -> TokenStream {
     };
 
     quote! {
+
+        extension_sql!(
+            #create_type_stub_sql,
+            name = #def_name,
+        );
+
         extension_sql!(
             #create_type_sql,
             name = #pgrx_name,
             creates = [Type(#rust_name)],
+            requires = [#input_name, #output_name],
         );
 
         #typmod

@@ -52,9 +52,9 @@ static ENABLE_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Allows the user to enable or disable the ColumnarExecState executor. Default is `true`.
 static ENABLE_COLUMNAR_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// Allows the user to enable or disable sorted execution for ColumnarExecState.
-/// When disabled, sorted paths will not be created even if the index has sort_by.
-static ENABLE_COLUMNAR_SORT: GucSetting<bool> = GucSetting::<bool>::new(true);
+/// When enabled, columnar scans use the index sort order if the query's ORDER BY matches the index's sort_by configuration.
+/// Defaults to false due to stability issues (see https://github.com/paradedb/paradedb/issues/4293).
+static ENABLE_COLUMNAR_SORT: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// In a Top K query, the limit is multiplied by this factor to determine the chunk size.
 static LIMIT_FETCH_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(1.0);
@@ -164,6 +164,15 @@ static MPP_WORKER_COUNT: GucSetting<i32> = GucSetting::<i32>::new(4);
 /// instead of N meshes), at which point the right user knob is more
 /// likely a per-query DSM cap than a raw per-edge byte count.
 static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(64 * 1024 * 1024);
+
+/// Per-source-per-worker build-side cache slot size (bytes). The build-side
+/// all-gather reserves N slots of this size in DSM; total cache reservation
+/// is `n_cache_sources × n_workers × mpp_cache_per_slot`. Sized so a 1.25M-row
+/// build side encoded in Arrow IPC (~400 MB total at our 25M bench, accounting
+/// for Utf8View widening + schema overhead) fits split across N workers with
+/// headroom for the worst single-worker slice. A future heuristic should
+/// derive this from index stats per query.
+static MPP_CACHE_PER_SLOT: GucSetting<i32> = GucSetting::<i32>::new(256 * 1024 * 1024);
 
 /// The maximum size of an InList that can be pushed down to a TermSet Query.
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
@@ -279,12 +288,12 @@ pub fn init() {
 
     GucRegistry::define_bool_guc(
         c"paradedb.enable_columnar_sort",
-        c"Enable sorted execution for ColumnarExecState",
-        c"Enable sorted execution for ColumnarExecState when the index has sort_by and the query ORDER BY matches the prefix. Disabling this forces unsorted execution.",
-                &ENABLE_COLUMNAR_SORT,
-                GucContext::Userset,
-                GucFlags::default(),
-            );
+        c"Enable sorted execution for columnar scans",
+        c"When enabled, columnar scans use the index sort order if the query's ORDER BY or join keys match the index's sort_by configuration. This also enables SortMergeJoin for joins on sorted index fields. Default is false.",
+        &ENABLE_COLUMNAR_SORT,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 
     GucRegistry::define_int_guc(
                 COLUMNAR_EXEC_COLUMN_THRESHOLD_NAME,        c"Threshold of fetched columns below which ColumnarExecState will be used.",
@@ -580,6 +589,21 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::UNIT_BYTE,
     );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.mpp_cache_per_slot",
+        c"Per-source-per-worker build-side cache slot size",
+        c"Sets the per-source-per-worker build-side all-gather cache slot size, in \
+          bytes. Total cache reservation per query is \
+          `n_cache_sources × n_workers × mpp_cache_per_slot`. The default 256 MiB is \
+          sized for a 1.25M-row build side encoded in Arrow IPC (~400 MB total at the \
+          25M bench scale) split across N workers; raise it for larger build sides.",
+        &MPP_CACHE_PER_SLOT,
+        1024 * 1024,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::UNIT_BYTE,
+    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -772,6 +796,10 @@ pub fn mpp_worker_count() -> i32 {
 
 pub fn mpp_queue_size() -> usize {
     MPP_QUEUE_SIZE.get() as usize
+}
+
+pub fn mpp_cache_per_slot() -> usize {
+    MPP_CACHE_PER_SLOT.get() as usize
 }
 
 pub fn hash_join_inlist_pushdown_max_size() -> i32 {

@@ -309,7 +309,7 @@ pub fn deferred_plan_positions(node: &RelNode) -> crate::api::HashSet<usize> {
                 }
                 JoinType::Left => collect(&join.left, acc),
                 JoinType::Semi => collect(&join.left, acc),
-                JoinType::Anti => collect(&join.left, acc),
+                JoinType::Anti { .. } => collect(&join.left, acc),
                 JoinType::Right => collect(&join.right, acc),
                 JoinType::RightSemi => collect(&join.right, acc),
                 JoinType::RightAnti => collect(&join.right, acc),
@@ -1514,7 +1514,7 @@ mod tests {
 
     #[pg_test]
     fn visibility_node_codec_roundtrip() -> Result<()> {
-        use crate::scan::codec::{deserialize_logical_plan, serialize_logical_plan};
+        use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
         use datafusion::execution::TaskContext;
 
         let plan = make_ctid_plan(TEST_PLAN_POS, pg_sys::Oid::from(42), Some("test_table"))?;
@@ -1529,8 +1529,18 @@ mod tests {
         let bytes =
             serialize_logical_plan(&wrapped).expect("VisibilityFilterNode should serialize");
         let ctx = TaskContext::default();
-        let decoded = deserialize_logical_plan(&bytes, &ctx)
-            .expect("VisibilityFilterNode should deserialize");
+        let decoded = deserialize_logical_plan_with_runtime(
+            &bytes,
+            &ctx,
+            None,
+            None,
+            None,
+            vec![],
+            vec![],
+            None,
+            0,
+        )
+        .expect("VisibilityFilterNode should deserialize");
 
         let LogicalPlan::Extension(ext) = &decoded else {
             panic!("decoded root should be Extension");

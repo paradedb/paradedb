@@ -104,7 +104,7 @@ runs:
       id: app-token
       uses: actions/create-github-app-token@v3
       with:
-        app-id: ${{ inputs.github_app_id }}
+        client-id: ${{ inputs.github_app_id }}
         private-key: ${{ inputs.github_app_private_key }}
 
     # Necessary to avoid "destination path is not empty" error

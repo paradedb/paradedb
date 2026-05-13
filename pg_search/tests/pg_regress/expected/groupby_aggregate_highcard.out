@@ -120,8 +120,8 @@ WHERE id @@@ paradedb.all()
 GROUP BY rating
 ORDER BY 2
 LIMIT 5;
-                    QUERY PLAN                     
----------------------------------------------------
+                                               QUERY PLAN                                                
+---------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: (count(*))
@@ -130,7 +130,12 @@ LIMIT 5;
                Indexes: products_idx (products)
                Group By: rating
                Aggregates: COUNT(*)
-(8 rows)
+               DataFusion Physical Plan: 
+                 : SortExec: TopK(fetch=5), expr=[agg_0@1 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[rating@0 as rating], aggr=[agg_0]
+                 :     CooperativeExec
+                 :       PgSearchScan: segments=1, query={"with_index":{"query":"all"}}
+(13 rows)
 
 SELECT rating, COUNT(*) FROM products
 WHERE id @@@ paradedb.all()

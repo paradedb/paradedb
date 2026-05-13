@@ -54,19 +54,25 @@
 use std::sync::Arc;
 
 use datafusion::config::ConfigOptions;
-use datafusion::datasource::memory::DataSourceExec;
 use datafusion::physical_plan::ExecutionPlan;
-use datafusion_datasource::memory::MemorySourceConfig;
-use datafusion_distributed::{TaskEstimation, TaskEstimator};
+use datafusion_distributed::{BroadcastExec, TaskEstimation, TaskEstimator};
 
-/// Caps every `DataSourceExec(MemorySourceConfig)` leaf at task_count=1.
+/// Caps every [`BroadcastExec`] subtree at `task_count = 1`.
 ///
-/// In pg_search the only call site that produces this exact pair is
-/// `memory_exec_for_cached` in `scan/table_provider.rs`, which materialises
-/// the all-gathered canonical replica of an MPP build subtree. Capping the
-/// leaf at 1 propagates up through `BroadcastExec` and tells
-/// `_distribute_plan` to build a `NetworkBroadcastExec` with
-/// `input_task_count = 1`.
+/// In pg_search every CollectLeft hash join with `broadcast_joins=true`
+/// produces a `BroadcastExec` over the (smaller) build side, and pg_search's
+/// scan model treats that build side as a single canonical replica — the
+/// same data on every worker. Capping the `BroadcastExec`'s task_count at 1
+/// propagates upward and tells `_distribute_plan` to build a
+/// `NetworkBroadcastExec` with `input_task_count = 1`: a single producer
+/// task scans the build side and the fan-out replicates that stream to
+/// every consumer task.
+///
+/// Targeting `BroadcastExec` directly (rather than a marker wrapper on the
+/// leaf) survives DataFusion's HashJoin reordering — the planner may flip
+/// build/probe based on cost, but the `BroadcastExec` always sits above the
+/// final build side, so the cap is applied at the right point regardless of
+/// which source ends up there.
 #[derive(Debug)]
 pub struct BroadcastBuildSideOneTaskEstimator;
 
@@ -76,16 +82,7 @@ impl TaskEstimator for BroadcastBuildSideOneTaskEstimator {
         plan: &Arc<dyn ExecutionPlan>,
         _: &ConfigOptions,
     ) -> Option<TaskEstimation> {
-        if !plan.children().is_empty() {
-            return None;
-        }
-        let exec = plan.as_any().downcast_ref::<DataSourceExec>()?;
-        if exec
-            .data_source()
-            .as_any()
-            .downcast_ref::<MemorySourceConfig>()
-            .is_some()
-        {
+        if plan.as_any().downcast_ref::<BroadcastExec>().is_some() {
             Some(TaskEstimation::maximum(1))
         } else {
             None
@@ -105,28 +102,24 @@ impl TaskEstimator for BroadcastBuildSideOneTaskEstimator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use datafusion::arrow::array::Int32Array;
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
-    use datafusion::arrow::record_batch::RecordBatch;
     use datafusion::physical_plan::empty::EmptyExec;
 
     fn cfg() -> ConfigOptions {
         ConfigOptions::default()
     }
 
-    #[test]
-    fn memory_leaf_is_capped_at_one() {
+    fn empty_leaf() -> Arc<dyn ExecutionPlan> {
         let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int32, false)]));
-        let batch = RecordBatch::try_new(
-            Arc::clone(&schema),
-            vec![Arc::new(Int32Array::from(vec![1, 2, 3]))],
-        )
-        .expect("build batch");
-        let exec: Arc<dyn ExecutionPlan> =
-            MemorySourceConfig::try_new_exec(&[vec![batch]], schema, None)
-                .expect("build MemoryExec");
+        Arc::new(EmptyExec::new(schema))
+    }
+
+    #[test]
+    fn broadcast_exec_is_capped_at_one() {
+        let inner = empty_leaf();
+        let broadcast: Arc<dyn ExecutionPlan> = Arc::new(BroadcastExec::new(inner, 1));
         let est = BroadcastBuildSideOneTaskEstimator;
-        let out = est.task_estimation(&exec, &cfg()).expect("estimation");
+        let out = est.task_estimation(&broadcast, &cfg()).expect("estimation");
         // `TaskEstimation::maximum(1)` is what propagates up to
         // `NetworkBroadcastExec::input_task_count = 1`.
         assert_eq!(out.task_count.as_usize(), 1);
@@ -140,24 +133,17 @@ mod tests {
     }
 
     #[test]
-    fn non_memory_leaf_falls_through() {
-        let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int32, false)]));
-        let plan: Arc<dyn ExecutionPlan> = Arc::new(EmptyExec::new(schema));
+    fn non_broadcast_node_falls_through() {
+        let plan = empty_leaf();
         let est = BroadcastBuildSideOneTaskEstimator;
         assert!(est.task_estimation(&plan, &cfg()).is_none());
     }
 
     #[test]
     fn scale_up_is_a_no_op() {
-        let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int32, false)]));
-        let batch = RecordBatch::try_new(
-            Arc::clone(&schema),
-            vec![Arc::new(Int32Array::from(vec![1]))],
-        )
-        .expect("build batch");
-        let exec: Arc<dyn ExecutionPlan> =
-            MemorySourceConfig::try_new_exec(&[vec![batch]], schema, None).expect("build");
+        let inner = empty_leaf();
+        let broadcast: Arc<dyn ExecutionPlan> = Arc::new(BroadcastExec::new(inner, 1));
         let est = BroadcastBuildSideOneTaskEstimator;
-        assert!(est.scale_up_leaf_node(&exec, 7, &cfg()).is_none());
+        assert!(est.scale_up_leaf_node(&broadcast, 7, &cfg()).is_none());
     }
 }

@@ -1529,18 +1529,9 @@ mod tests {
         let bytes =
             serialize_logical_plan(&wrapped).expect("VisibilityFilterNode should serialize");
         let ctx = TaskContext::default();
-        let decoded = deserialize_logical_plan_with_runtime(
-            &bytes,
-            &ctx,
-            None,
-            None,
-            None,
-            vec![],
-            vec![],
-            None,
-            0,
-        )
-        .expect("VisibilityFilterNode should deserialize");
+        let decoded =
+            deserialize_logical_plan_with_runtime(&bytes, &ctx, None, None, None, vec![], vec![])
+                .expect("VisibilityFilterNode should deserialize");
 
         let LogicalPlan::Extension(ext) = &decoded else {
             panic!("decoded root should be Extension");

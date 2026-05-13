@@ -37,11 +37,10 @@ use std::sync::Arc;
 use pgrx::pg_sys;
 
 use crate::gucs::{
-    enable_mpp, mpp_cache_per_slot, mpp_queue_size as gucs_mpp_queue_size,
-    mpp_worker_count as gucs_mpp_worker_count,
+    enable_mpp, mpp_queue_size as gucs_mpp_queue_size, mpp_worker_count as gucs_mpp_worker_count,
 };
 use crate::postgres::customscan::mpp::dsm::{
-    compute_dsm_layout, leader_init, peer_proc_for_index, worker_attach, MppBuildCache,
+    compute_dsm_layout, leader_init, peer_proc_for_index, worker_attach,
 };
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 use crate::postgres::customscan::mpp::transport::{
@@ -92,21 +91,11 @@ pub fn mpp_queue_size() -> usize {
 
 /// Body of `estimate_dsm_custom_scan`. Returns total DSM bytes the leader
 /// will need for the plan + multiplexed `n_procs × n_procs` queue mesh +
-/// build-side cache. `n_procs` is the total participant count (leader +
+/// the worker plan. `n_procs` is the total participant count (leader +
 /// `producer_worker_count()` parallel workers).
-///
-/// `n_cache_sources` is the number of non-partitioning sources the build-side
-/// all-gather cache should reserve slots for; pass 0 to skip caching. The
-/// cache region is sized using worker-only slots (leader does not write).
-pub fn estimate_dsm_size(plan_bytes_len: usize, n_cache_sources: u32) -> Result<usize, String> {
-    let layout = compute_dsm_layout(
-        n_procs(),
-        mpp_queue_size(),
-        plan_bytes_len,
-        n_cache_sources,
-        mpp_cache_per_slot(),
-    )
-    .map_err(|e| format!("mpp: estimate_dsm_size: {e}"))?;
+pub fn estimate_dsm_size(plan_bytes_len: usize) -> Result<usize, String> {
+    let layout = compute_dsm_layout(n_procs(), mpp_queue_size(), plan_bytes_len)
+        .map_err(|e| format!("mpp: estimate_dsm_size: {e}"))?;
     Ok(layout.region_total)
 }
 
@@ -159,17 +148,10 @@ pub unsafe fn leader_setup(
     pcxt: *mut pg_sys::ParallelContext,
     n_partitions: u32,
     plan_bytes: Vec<u8>,
-    n_cache_sources: u32,
 ) -> Result<MppLeaderState, String> {
     let total_procs = n_procs();
-    let layout = compute_dsm_layout(
-        total_procs,
-        mpp_queue_size(),
-        plan_bytes.len(),
-        n_cache_sources,
-        mpp_cache_per_slot(),
-    )
-    .map_err(|e| format!("mpp: leader_setup compute layout: {e}"))?;
+    let layout = compute_dsm_layout(total_procs, mpp_queue_size(), plan_bytes.len())
+        .map_err(|e| format!("mpp: leader_setup compute layout: {e}"))?;
 
     let attach = unsafe { leader_init(coordinate, seg, &layout, &plan_bytes) }?;
 
@@ -207,9 +189,6 @@ pub unsafe fn leader_setup(
     // a producer fragment in single-stage mode.
     drop(attach.outbound_senders);
 
-    // Cache region is sized into the layout for workers. Leader doesn't touch.
-    let _ = n_cache_sources;
-
     Ok(MppLeaderState { mesh, pcxt })
 }
 
@@ -231,9 +210,6 @@ pub struct MppWorkerState {
     /// the `PgSearchExtensionCodec` to get an `Arc<dyn ExecutionPlan>`.
     pub plan_bytes: Vec<u8>,
     pub participant_config: MppParticipantConfig,
-    /// Build-side all-gather cache. The worker writes its 1/N slice for each
-    /// non-partitioning source, then reads back peer slices after the barrier.
-    pub build_cache: Option<Arc<MppBuildCache>>,
     /// Worker's MppMesh — same shape as the leader's. `inbound_drains[sender_proc]`
     /// pulls frames from `slot(sender_proc, this_proc)`. Workers consume from
     /// peers when running consumer fragments (e.g. a `FinalPartitioned`
@@ -330,14 +306,6 @@ pub unsafe fn worker_setup(
 
     let mesh = Arc::new(MppMesh::new(proc_idx, total_procs, inbound_drains));
 
-    let build_cache = if header.n_cache_sources > 0 {
-        Some(Arc::new(unsafe {
-            MppBuildCache::from_header(coordinate as *mut u8, &header)
-        }))
-    } else {
-        None
-    };
-
     // For MppParticipantConfig, expose worker-only counts (N producer workers).
     let worker_count = total_procs.saturating_sub(1).max(1);
     Ok(MppWorkerState {
@@ -347,7 +315,6 @@ pub unsafe fn worker_setup(
             participant_index: worker_number as u32,
             total_workers: worker_count,
         },
-        build_cache,
         mesh,
     })
 }

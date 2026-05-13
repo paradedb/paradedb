@@ -713,13 +713,7 @@ impl ParallelQueryCapable for AggregateScan {
         let pscan_size = ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false);
         let mpp_offset = mpp_align(mpp_agg_pscan_offset() + pscan_size);
 
-        // Number of non-partitioning sources gets a build-cache slot per worker.
-        let n_cache_sources = state
-            .custom_state()
-            .source_manifests
-            .len()
-            .saturating_sub(1) as u32;
-        let mpp_size = match estimate_dsm_size(plan_bytes_len, n_cache_sources) {
+        let mpp_size = match estimate_dsm_size(plan_bytes_len) {
             Ok(sz) => sz,
             Err(e) => {
                 pgrx::warning!("mpp: estimate_dsm failed: {e}; falling back to serial");
@@ -796,27 +790,14 @@ impl ParallelQueryCapable for AggregateScan {
         // Init the MPP region.
         let mpp_coordinate =
             unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut std::os::raw::c_void };
-        let n_cache_sources = state
-            .custom_state()
-            .source_manifests
-            .len()
-            .saturating_sub(1) as u32;
-        let leader = match unsafe {
-            leader_setup(
-                mpp_coordinate,
-                seg,
-                pcxt,
-                n_partitions,
-                plan_bytes,
-                n_cache_sources,
-            )
-        } {
-            Ok(l) => l,
-            Err(e) => {
-                pgrx::warning!("mpp: leader_setup failed: {e}; falling back to serial");
-                return;
-            }
-        };
+        let leader =
+            match unsafe { leader_setup(mpp_coordinate, seg, pcxt, n_partitions, plan_bytes) } {
+                Ok(l) => l,
+                Err(e) => {
+                    pgrx::warning!("mpp: leader_setup failed: {e}; falling back to serial");
+                    return;
+                }
+            };
         let df_state = state
             .custom_state_mut()
             .datafusion_state
@@ -1275,7 +1256,6 @@ impl AggregateScan {
         // n_workers misconfigured the planner so NetworkShuffleExec scaled
         // its hash to mpp_n_partitions × mpp_n_partitions = 81 partitions.
         let n_workers = worker.participant_config.total_workers;
-        let worker_idx_for_cache = worker.participant_config.participant_index;
         // M2.d.3: capture the worker's mesh + total proc count for the
         // dispatcher. The mesh's inbound drains were attached in
         // `worker_setup`; here we wire its `ShmMqWorkerTransport` into the
@@ -1322,10 +1302,6 @@ impl AggregateScan {
             }
         }
 
-        let mpp_build_cache = match df_state.mpp.as_ref() {
-            Some(scan_state::MppExecState::Worker(w)) => w.build_cache.as_ref().map(Arc::clone),
-            _ => None,
-        };
         let logical = match deserialize_logical_plan_with_runtime(
             &plan_bytes,
             &ctx.task_ctx(),
@@ -1334,8 +1310,6 @@ impl AggregateScan {
             None, // planstate: same
             non_partitioning_segments,
             index_segment_ids,
-            mpp_build_cache,
-            worker_idx_for_cache,
         ) {
             Ok(lp) => lp,
             Err(e) => pgrx::error!("mpp worker: deserialize_logical_plan failed: {e}"),

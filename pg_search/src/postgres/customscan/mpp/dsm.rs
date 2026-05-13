@@ -23,7 +23,6 @@
 //!   +--- MppDsmHeader (repr C, MAXALIGN-padded) -------------+
 //!   |    magic, version, n_procs, queue_bytes               |
 //!   |    plan_offset, plan_len, queues_offset, region_total |
-//!   |    cache_per_slot, cache_offsets, n_cache_sources     |
 //!   +-------------------------------------------------------+
 //!   | plan bytes (bincode-serialized worker fragment)       |
 //!   +-------------------------------------------------------+
@@ -41,13 +40,12 @@
 //!   **receiver** to its column (`slot(*, this)`). The grid is uniform and
 //!   independent of plan shape: a single multiplexed queue per process-pair
 //!   carries frames for any number of logical `(stage_id, partition)`
-//!   channels, demultiplexed on the receive side via the [`MppFrameHeader`]
-//!   prefix introduced in M1.a.
+//!   channels, demultiplexed on the receive side via the `MppFrameHeader`
+//!   prefix.
 //! - Self-loop slots (`slot(k, k)`) are reserved in the layout and
 //!   `shm_mq_create`'d by the leader so the slot-offset math stays a simple
 //!   row-major index, but no process attaches as sender or receiver to its
-//!   own self-loop. In-process traffic stays off the mesh; M2 may decide
-//!   to put it on a bypass channel rather than wake the self-loop slots.
+//!   own self-loop.
 
 use std::ffi::c_void;
 use std::mem::size_of;
@@ -59,9 +57,11 @@ use crate::postgres::customscan::mpp::mesh::{
 };
 
 pub const MPP_DSM_MAGIC: u32 = 0x4D50_5052; // "MPPR" (RPC variant)
-/// V2: switched from `n_workers × n_partitions` grid to multiplexed
-/// `n_procs × n_procs` grid (M1.b of the natural-shape track).
-pub const MPP_DSM_HEADER_VERSION: u32 = 2;
+/// V3: dropped the build-side cache region. Canonical-replica fan-out is now
+/// handled by `BroadcastExec` + `NetworkBroadcastExec(input_task_count=1)`,
+/// with [`crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator`]
+/// capping the `BroadcastExec` subtree at one producer task.
+pub const MPP_DSM_HEADER_VERSION: u32 = 3;
 
 /// Absolute cap on DSM region size. 16 GiB is two orders of magnitude beyond
 /// any realistic workload; the cap fails early on a pathologically oversized
@@ -70,8 +70,7 @@ pub const MPP_DSM_MAX_BYTES: usize = 16 * 1024 * 1024 * 1024;
 
 /// C-repr header at offset 0 of the DSM region.
 ///
-/// Field ordering: four `u32`s (16 bytes), eight `u64`s (64 bytes). 80 bytes
-/// total with no internal padding on every supported target.
+/// Layout: three `u32`s + padding, then six `u64`s.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct MppDsmHeader {
@@ -80,15 +79,11 @@ pub struct MppDsmHeader {
     /// Total participant count. Leader is `proc_idx = 0`; workers are
     /// `proc_idx = ParallelWorkerNumber + 1`. The shm_mq grid is `n_procs × n_procs`.
     pub n_procs: u32,
-    pub n_cache_sources: u32,
+    pub _pad: u32,
     pub queue_bytes: u64,
     pub plan_offset: u64,
     pub plan_len: u64,
     pub queues_offset: u64,
-    pub cache_per_slot: u64,
-    pub cache_completion_offset: u64,
-    pub cache_lengths_offset: u64,
-    pub cache_data_offset: u64,
     pub region_total: u64,
 }
 
@@ -98,15 +93,11 @@ impl MppDsmHeader {
             magic: MPP_DSM_MAGIC,
             header_version: MPP_DSM_HEADER_VERSION,
             n_procs: layout.n_procs,
-            n_cache_sources: layout.n_cache_sources,
+            _pad: 0,
             queue_bytes: layout.queue_bytes as u64,
             plan_offset: layout.plan_offset as u64,
             plan_len: layout.plan_len as u64,
             queues_offset: layout.queues_offset as u64,
-            cache_per_slot: layout.cache_per_slot as u64,
-            cache_completion_offset: layout.cache_completion_offset as u64,
-            cache_lengths_offset: layout.cache_lengths_offset as u64,
-            cache_data_offset: layout.cache_data_offset as u64,
             region_total: layout.region_total as u64,
         }
     }
@@ -148,36 +139,16 @@ impl MppDsmHeader {
         let slot = (sender_proc as u64) * (self.n_procs as u64) + (receiver_proc as u64);
         self.queues_offset + slot * self.queue_bytes
     }
-
-    /// Byte offset of the build-side cache slot at `(source, worker)`. The
-    /// build-cache region is sized as `n_cache_sources × (n_procs - 1)` to
-    /// match the worker-only producer count (leader does not write the cache).
-    /// `compute_dsm_layout` requires `n_procs >= 2`, so `n_procs - 1` is
-    /// always a valid worker count.
-    #[cfg(test)]
-    pub fn cache_data_slot_offset(&self, source: u32, worker: u32) -> u64 {
-        debug_assert!(source < self.n_cache_sources);
-        debug_assert!(self.n_procs >= 2);
-        let worker_slots = self.n_procs - 1;
-        debug_assert!(worker < worker_slots);
-        let slot = (source as u64) * (worker_slots as u64) + (worker as u64);
-        self.cache_data_offset + slot * self.cache_per_slot
-    }
 }
 
 /// Pure-math layout for [`compute_dsm_layout`].
 #[derive(Debug, Clone, Copy)]
 pub struct DsmLayout {
     pub n_procs: u32,
-    pub n_cache_sources: u32,
     pub queue_bytes: usize,
-    pub cache_per_slot: usize,
     pub plan_offset: usize,
     pub plan_len: usize,
     pub queues_offset: usize,
-    pub cache_completion_offset: usize,
-    pub cache_lengths_offset: usize,
-    pub cache_data_offset: usize,
     pub region_total: usize,
 }
 
@@ -186,26 +157,11 @@ pub struct DsmLayout {
 /// `n_procs` is the total participant count (1 leader + N workers). The
 /// shm_mq grid is `n_procs × n_procs`; each process attaches as sender to its
 /// row and receiver to its column.
-///
-/// `n_cache_sources` is the number of non-partitioning sources to allocate
-/// build-side cache slots for. `cache_per_slot` is the bytes reserved for
-/// each (source, worker) pair (worst-case per-worker IPC payload). Pass 0
-/// for both if no cache is needed. The cache region is sized using
-/// worker-only slots (`n_procs - 1`) since the leader does not write the
-/// build-side cache.
 pub fn compute_dsm_layout(
     n_procs: u32,
     queue_bytes: usize,
     plan_len: usize,
-    n_cache_sources: u32,
-    cache_per_slot: usize,
 ) -> Result<DsmLayout, &'static str> {
-    // Require at least one leader + one worker. `mpp_is_active` enforces a
-    // stricter `n_procs >= 3` (leader + ≥2 workers for meaningful
-    // parallelism); the looser bound here keeps DSM layout math valid for
-    // any plausible runtime configuration without burning a special case
-    // into `cache_data_slot_offset` / `MppBuildCache` for the n_procs=1
-    // edge.
     if n_procs < 2 {
         return Err("mpp: n_procs must be >= 2 (leader + at least one worker)");
     }
@@ -227,194 +183,20 @@ pub fn compute_dsm_layout(
     let queues_bytes = total_slots
         .checked_mul(queue_bytes)
         .ok_or("mpp: queues bytes overflow")?;
-    let queues_end = queues_offset
+    let region_total = queues_offset
         .checked_add(queues_bytes)
-        .ok_or("mpp: queues end overflow")?;
-
-    // Build-side cache region. Layout:
-    //   completion: n_cache_sources × u32  (atomic counter)
-    //   lengths:    n_cache_sources × worker_slots × u32  (actual bytes written)
-    //   data:       n_cache_sources × worker_slots × cache_per_slot
-    //
-    // `worker_slots = n_procs - 1` because the leader is consumer-only for
-    // the build-side cache; only workers all-gather into it. n_procs >= 2 is
-    // enforced above, so subtraction is safe.
-    let worker_slots = (n_procs as usize) - 1;
-    let cache_completion_offset =
-        align_up_maxalign_checked(queues_end).ok_or("mpp: cache completion alignment overflow")?;
-    let cache_completion_size = (n_cache_sources as usize)
-        .checked_mul(size_of::<u32>())
-        .ok_or("mpp: cache completion size overflow")?;
-    let cache_lengths_offset = align_up_maxalign_checked(
-        cache_completion_offset
-            .checked_add(cache_completion_size)
-            .ok_or("mpp: cache lengths offset overflow")?,
-    )
-    .ok_or("mpp: cache lengths alignment overflow")?;
-    let cache_lengths_size = (n_cache_sources as usize)
-        .checked_mul(worker_slots)
-        .and_then(|x| x.checked_mul(size_of::<u32>()))
-        .ok_or("mpp: cache lengths size overflow")?;
-    let cache_data_offset = align_up_maxalign_checked(
-        cache_lengths_offset
-            .checked_add(cache_lengths_size)
-            .ok_or("mpp: cache data offset overflow")?,
-    )
-    .ok_or("mpp: cache data alignment overflow")?;
-    let cache_data_size = (n_cache_sources as usize)
-        .checked_mul(worker_slots)
-        .and_then(|x| x.checked_mul(cache_per_slot))
-        .ok_or("mpp: cache data size overflow")?;
-    let region_total = cache_data_offset
-        .checked_add(cache_data_size)
         .ok_or("mpp: region total overflow")?;
     if region_total > MPP_DSM_MAX_BYTES {
         return Err("mpp: DSM region exceeds MPP_DSM_MAX_BYTES");
     }
     Ok(DsmLayout {
         n_procs,
-        n_cache_sources,
         queue_bytes,
-        cache_per_slot,
         plan_offset,
         plan_len,
         queues_offset,
-        cache_completion_offset,
-        cache_lengths_offset,
-        cache_data_offset,
         region_total,
     })
-}
-
-/// Runtime handle to the build-side cache region inside DSM.
-///
-/// Held on every participant's customscan state. Workers use it to write their
-/// own slice and read back peer slices via the all-gather barrier; the leader
-/// holds it inert (consumer-only for the cache — leader doesn't write a slice).
-///
-/// `Send + Sync` is asserted because the underlying DSM mapping is shared
-/// memory accessed by multiple processes; access is coordinated via atomic
-/// completion counters and write-once length cells.
-#[derive(Debug)]
-pub struct MppBuildCache {
-    base: *mut u8,
-    /// Number of worker slots in the cache. Equals `n_procs - 1` since the
-    /// leader is consumer-only for the cache.
-    pub n_workers: u32,
-    pub n_sources: u32,
-    pub cache_per_slot: usize,
-    pub completion_offset: usize,
-    pub lengths_offset: usize,
-    pub data_offset: usize,
-}
-
-unsafe impl Send for MppBuildCache {}
-unsafe impl Sync for MppBuildCache {}
-
-impl MppBuildCache {
-    /// Construct from a raw DSM base pointer and the resolved `MppDsmHeader`.
-    ///
-    /// # Safety
-    /// `base` must point to a DSM region of size `>= header.region_total` whose
-    /// header has already been validated.
-    pub unsafe fn from_header(base: *mut u8, header: &MppDsmHeader) -> Self {
-        Self {
-            base,
-            // Workers-only — leader is consumer-only for the build cache.
-            n_workers: header.n_procs.saturating_sub(1).max(1),
-            n_sources: header.n_cache_sources,
-            cache_per_slot: header.cache_per_slot as usize,
-            completion_offset: header.cache_completion_offset as usize,
-            lengths_offset: header.cache_lengths_offset as usize,
-            data_offset: header.cache_data_offset as usize,
-        }
-    }
-
-    fn slot_data_ptr(&self, source: u32, worker: u32) -> *mut u8 {
-        debug_assert!(source < self.n_sources);
-        debug_assert!(worker < self.n_workers);
-        let slot = (source as usize) * (self.n_workers as usize) + (worker as usize);
-        unsafe { self.base.add(self.data_offset + slot * self.cache_per_slot) }
-    }
-
-    fn length_ptr(&self, source: u32, worker: u32) -> *mut u32 {
-        debug_assert!(source < self.n_sources);
-        debug_assert!(worker < self.n_workers);
-        let slot = (source as usize) * (self.n_workers as usize) + (worker as usize);
-        unsafe {
-            self.base
-                .add(self.lengths_offset + slot * size_of::<u32>())
-                .cast()
-        }
-    }
-
-    fn completion_ptr(&self, source: u32) -> *mut std::sync::atomic::AtomicU32 {
-        debug_assert!(source < self.n_sources);
-        unsafe {
-            self.base
-                .add(self.completion_offset + (source as usize) * size_of::<u32>())
-                .cast()
-        }
-    }
-
-    /// Worker writes its slice for `source` and atomically signals completion.
-    /// Returns an error if `bytes.len()` exceeds the per-slot cap.
-    pub fn write_slice(&self, source: u32, worker: u32, bytes: &[u8]) -> Result<(), String> {
-        if bytes.len() > self.cache_per_slot {
-            return Err(format!(
-                "mpp: build-side slice for source={source} worker={worker} is {} bytes, exceeds cap {}",
-                bytes.len(),
-                self.cache_per_slot
-            ));
-        }
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                bytes.as_ptr(),
-                self.slot_data_ptr(source, worker),
-                bytes.len(),
-            );
-            // Length is observed only after the completion increment (Release).
-            // No atomic needed for the length itself; the fence below makes the
-            // copy + length write visible to readers that observe the completion.
-            std::ptr::write_volatile(self.length_ptr(source, worker), bytes.len() as u32);
-        }
-        let counter = unsafe { &*self.completion_ptr(source) };
-        counter.fetch_add(1, std::sync::atomic::Ordering::Release);
-        Ok(())
-    }
-
-    /// Worker reads peer's slice. Caller must have already passed the barrier.
-    pub fn read_slice(&self, source: u32, worker: u32) -> Vec<u8> {
-        let len = unsafe { std::ptr::read_volatile(self.length_ptr(source, worker)) } as usize;
-        let mut out = Vec::with_capacity(len);
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                self.slot_data_ptr(source, worker),
-                out.as_mut_ptr(),
-                len,
-            );
-            out.set_len(len);
-        }
-        out
-    }
-
-    /// Spin until all `n_workers` have signalled completion for `source`.
-    /// Yields to PG via `check_for_interrupts!` so `statement_timeout` works.
-    /// `check_for_interrupts!` pulls in PG runtime symbols and is gated out of
-    /// `cargo test` builds; the lib tests in this file never reach
-    /// `wait_complete`, but the gate keeps the symbol off the test-binary link
-    /// line even if the linker fails to DCE the function.
-    pub fn wait_complete(&self, source: u32) {
-        let counter = unsafe { &*self.completion_ptr(source) };
-        loop {
-            if counter.load(std::sync::atomic::Ordering::Acquire) >= self.n_workers {
-                return;
-            }
-            #[cfg(not(test))]
-            pgrx::check_for_interrupts!();
-            std::hint::spin_loop();
-        }
-    }
 }
 
 /// Per-participant return: handles for the process's row (senders) and
@@ -618,7 +400,7 @@ mod tests {
 
     #[test]
     fn compute_dsm_layout_works() {
-        let l = compute_dsm_layout(4, 64 * 1024, 1024, 0, 0).unwrap();
+        let l = compute_dsm_layout(4, 64 * 1024, 1024).unwrap();
         assert_eq!(l.n_procs, 4);
         // Grid is n_procs × n_procs = 16 slots.
         let aligned = aligned_queue_bytes(64 * 1024);
@@ -627,27 +409,19 @@ mod tests {
     }
 
     #[test]
-    fn compute_dsm_layout_with_cache() {
-        // n_procs=4 → 3 worker slots in the cache (leader excluded).
-        let l = compute_dsm_layout(4, 64 * 1024, 1024, 2, 1024 * 1024).unwrap();
-        let cache_data_size = 2 * 3 * 1024 * 1024; // 2 sources × 3 worker slots × 1 MiB
-        assert_eq!(l.region_total, l.cache_data_offset + cache_data_size);
-    }
-
-    #[test]
     fn compute_dsm_layout_rejects_zero_procs() {
-        assert!(compute_dsm_layout(0, 64 * 1024, 0, 0, 0).is_err());
+        assert!(compute_dsm_layout(0, 64 * 1024, 0).is_err());
     }
 
     #[test]
     fn compute_dsm_layout_rejects_oversize() {
-        assert!(compute_dsm_layout(u32::MAX, 64 * 1024, 0, 0, 0).is_err());
+        assert!(compute_dsm_layout(u32::MAX, 64 * 1024, 0).is_err());
     }
 
     #[test]
     fn header_slot_offset_is_row_major_over_n_procs() {
         // 4 procs → 4×4 = 16 slots, row-major over (sender, receiver).
-        let l = compute_dsm_layout(4, 64 * 1024, 0, 0, 0).unwrap();
+        let l = compute_dsm_layout(4, 64 * 1024, 0).unwrap();
         let h = MppDsmHeader::from_layout(&l);
         let aligned = h.queue_bytes;
         assert_eq!(h.slot_offset(0, 0), h.queues_offset);
@@ -658,35 +432,15 @@ mod tests {
     }
 
     #[test]
-    fn header_cache_offsets() {
-        // n_procs=4 → 3 worker slots in the cache.
-        let l = compute_dsm_layout(4, 64 * 1024, 0, 2, 1024).unwrap();
-        let h = MppDsmHeader::from_layout(&l);
-        // (source=0, worker=0) is the first slot.
-        assert_eq!(h.cache_data_slot_offset(0, 0), h.cache_data_offset);
-        // (source=0, worker=1) is one slot later.
-        assert_eq!(h.cache_data_slot_offset(0, 1), h.cache_data_offset + 1024);
-        // (source=1, worker=0) is `worker_slots` slots in.
-        assert_eq!(
-            h.cache_data_slot_offset(1, 0),
-            h.cache_data_offset + 3 * 1024
-        );
-    }
-
-    #[test]
     fn header_validate_accepts_self() {
-        let l = compute_dsm_layout(2, 64 * 1024, 0, 0, 0).unwrap();
+        let l = compute_dsm_layout(2, 64 * 1024, 0).unwrap();
         let h = MppDsmHeader::from_layout(&l);
         assert!(h.validate(l.region_total as u64).is_ok());
     }
 
     #[test]
     fn header_validate_rejects_wrong_version() {
-        // Bumping `MPP_DSM_HEADER_VERSION` without rejecting old-version
-        // headers would let an attached worker silently read the wrong
-        // layout. This test pins the version gate so v1 → v2 (and any
-        // future bump) actually trips `validate`.
-        let l = compute_dsm_layout(2, 64 * 1024, 0, 0, 0).unwrap();
+        let l = compute_dsm_layout(2, 64 * 1024, 0).unwrap();
         let mut h = MppDsmHeader::from_layout(&l);
         h.header_version = MPP_DSM_HEADER_VERSION.wrapping_sub(1);
         let err = h
@@ -697,7 +451,7 @@ mod tests {
 
     #[test]
     fn header_validate_rejects_size_mismatch() {
-        let l = compute_dsm_layout(2, 64 * 1024, 0, 0, 0).unwrap();
+        let l = compute_dsm_layout(2, 64 * 1024, 0).unwrap();
         let h = MppDsmHeader::from_layout(&l);
         assert!(h.validate(l.region_total as u64 + 1).is_err());
     }

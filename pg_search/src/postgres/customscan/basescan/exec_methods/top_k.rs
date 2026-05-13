@@ -19,6 +19,7 @@ use std::cell::RefCell;
 
 use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
+use crate::index::fast_fields_helper::{resolve_ctid, FFType};
 use crate::index::reader::index::{
     SearchIndexReader, TopKAuxiliaryCollector, TopKSearchResults, MAX_TOPK_FEATURES,
 };
@@ -41,6 +42,7 @@ use tantivy::aggregation::{
     AggContextParams, AggregationLimitsGuard, DistributedAggregationCollector,
 };
 use tantivy::index::SegmentId;
+use tantivy::SegmentOrdinal;
 
 struct PreparedAggregations {
     aggregations: Aggregations,
@@ -77,6 +79,8 @@ pub struct TopKScanExecState {
     scale_factor: f64,
     // Window aggregates to compute
     window_aggregates: Vec<WindowAggregateInfo>,
+    /// Cached per-segment ctid fast-field reader.
+    ctid_cache: Option<(SegmentOrdinal, FFType)>,
 }
 
 impl TopKScanExecState {
@@ -126,6 +130,7 @@ impl TopKScanExecState {
             claimed_segments: RefCell::default(),
             scale_factor,
             window_aggregates: Vec::new(),
+            ctid_cache: None,
         }
     }
 
@@ -373,7 +378,10 @@ impl ExecMethod for TopKScanExecState {
                 .as_ref()
                 .unwrap()
                 .search_top_k_in_segments(
-                    self.segments_to_query(state.search_reader().unwrap(), state.parallel_state),
+                    self.segments_to_query(
+                        state.search_reader.as_ref().unwrap(),
+                        state.parallel_state,
+                    ),
                     orderby_info,
                     local_limit,
                     self.offset,
@@ -384,7 +392,10 @@ impl ExecMethod for TopKScanExecState {
                 .as_ref()
                 .unwrap()
                 .search_top_k_unordered_in_segments(
-                    self.segments_to_query(state.search_reader().unwrap(), state.parallel_state),
+                    self.segments_to_query(
+                        state.search_reader.as_ref().unwrap(),
+                        state.parallel_state,
+                    ),
                     local_limit,
                     self.offset,
                 )
@@ -467,7 +478,8 @@ impl ExecMethod for TopKScanExecState {
                 }
                 Some((scored, doc_address)) => {
                     self.nresults += 1;
-                    let ctid = state.ctid_cache().ctid_u64(doc_address);
+                    let searcher = self.search_reader.as_ref().unwrap().searcher();
+                    let ctid = resolve_ctid(&mut self.ctid_cache, searcher, doc_address);
                     return ExecState::FromHeap {
                         ctid,
                         score: scored.bm25,
@@ -504,8 +516,9 @@ impl ExecMethod for TopKScanExecState {
         self.did_query = false;
         self.exhausted = false;
         self.search_query_input = Some(state.search_query_input().clone());
-        self.search_reader = state.search_reader().cloned();
+        self.search_reader = state.search_reader.clone();
         self.search_results = TopKSearchResults::empty();
+        self.ctid_cache = None;
 
         // Get window aggregates from state if available
         if let ExecMethodType::TopK {

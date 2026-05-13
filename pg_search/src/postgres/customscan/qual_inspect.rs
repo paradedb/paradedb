@@ -97,6 +97,22 @@ impl ExtractInfo {
     pub fn add_state(&mut self, state: QualExtractState) {
         self.state = state;
     }
+    pub fn merge_from(&mut self, other: ExtractInfo) {
+        match (self.pushdown.take(), other.pushdown) {
+            (None, other_pushdown) => {
+                self.pushdown = other_pushdown;
+            }
+            (Some(current), None) => {
+                self.pushdown = Some(current);
+            }
+            (Some(current), Some(other)) => {
+                self.pushdown = Some(Qual::And(vec![current, other]));
+            }
+        }
+
+        self.state.merge(&other.state);
+        self.residual.extend(other.residual);
+    }
 
     pub fn try_heap_expr_optimization(&mut self) {
         if self.state.uses_heap_expr && !self.state.uses_our_operator {

@@ -184,7 +184,7 @@ ORDER BY CASE kind WHEN 'pg' THEN 1 ELSE 2 END;
  kind | count_value 
 ------+-------------
  pg   |           2
- bm25 |           0
+ bm25 |           2
 (2 rows)
 
 SELECT
@@ -195,7 +195,7 @@ SELECT
     (SELECT count_value FROM issue_4710_subquery_results WHERE kind = 'bm25') AS same_count;
  pg_count | bm25_count | same_count 
 ----------+------------+------------
-        2 |          0 | f
+        2 |          2 | t
 (1 row)
 
 SELECT *
@@ -213,7 +213,7 @@ FROM pg_temp.issue_4710_subquery_plan_flags($q$
 $q$);
  orders_custom_scan | rating_filter_preserved 
 --------------------+-------------------------
- t                  | f
+ t                  | t
 (1 row)
 
 DROP TABLE issue_4710_subquery_results;

@@ -354,7 +354,7 @@ impl BaseScan {
             attempt_pushdown,
         );
 
-        let extract_info = match quals {
+        let mut extract_info = match quals {
             None => {
                 // Can't recognize all conditions as ParadeDB-specific
                 // We need to split conditions into ParadeDB-specific -
@@ -379,21 +379,20 @@ impl BaseScan {
             }
         };
 
-        let mut extract_info = match extract_info.found_pushdown() {
-            false => {
-                let joinri: PgList<pg_sys::RestrictInfo> =
-                    PgList::from_pg(builder.args().rel().joininfo);
+        if !extract_info.found_pushdown() {
+            let joinri: PgList<pg_sys::RestrictInfo> =
+                PgList::from_pg(builder.args().rel().joininfo);
 
-                Self::try_extract_quals_from_join(
-                    &context,
-                    rti,
-                    indexrel,
-                    &joinri,
-                    attempt_pushdown,
-                )
-            }
-            true => extract_info,
-        };
+            let join_extract_info = Self::try_extract_quals_from_join(
+                &context,
+                rti,
+                indexrel,
+                &joinri,
+                attempt_pushdown,
+            );
+
+            extract_info.merge_from(join_extract_info);
+        }
 
         extract_info.try_heap_expr_optimization();
 

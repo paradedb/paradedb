@@ -4,7 +4,7 @@ set -euo pipefail
 
 # If you don't want check the snippets for all languages at once, pass in the list you'd like to check:
 # scripts/smoke_test_code_snippets.sh sql rails
-LANGUAGES=${*:-'sql django sqlalchemy rails'}
+LANGUAGES=${*:-'sql django sqlalchemy rails drizzle'}
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 VERIFY_DIR="${SCRIPT_DIR}/verify"
@@ -36,6 +36,7 @@ export PGPORT="$PARADEDB_PORT"
 export PGDATABASE="$PARADEDB_DATABASE"
 export PGUSER="$PARADEDB_USER"
 export PGPASSWORD="$PARADEDB_PASSWORD"
+export DATABASE_URL="${DATABASE_URL:-postgres://${PARADEDB_USER}${PARADEDB_PASSWORD:+:${PARADEDB_PASSWORD}}@${PARADEDB_HOST}:${PARADEDB_PORT}/${PARADEDB_DATABASE}}"
 
 PSQL=(psql -v ON_ERROR_STOP=1)
 
@@ -231,11 +232,57 @@ PY
   done < <(find "$SQLALCHEMY_DIR" -type f -name '*.py' | LC_ALL=C sort)
 fi
 
+drizzle_pass_count=0
+drizzle_fail_count=0
+if [[ $LANGUAGES =~ "drizzle" ]]; then
+  if [[ ! -d "${REPO_ROOT}/../drizzle-paradedb" ]]; then
+    echo "${RED}[FAIL]${RESET} Drizzle repo not found: ${REPO_ROOT}/../drizzle-paradedb" >&2
+    drizzle_fail_count=$((drizzle_fail_count + 1))
+  else
+    echo "Installing and building local drizzle-paradedb..."
+    pnpm --dir "${REPO_ROOT}/../drizzle-paradedb" install --frozen-lockfile
+    pnpm --dir "${REPO_ROOT}/../drizzle-paradedb" build
+
+    while IFS= read -r snippet_file; do
+      rel_snippet="${snippet_file#"$REPO_ROOT"/}"
+
+      run_psql_file "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql"
+      drop_snippet_indexes
+
+      if ! grep -Fq 'bm25Index' "$snippet_file"; then
+        create_snippet_indexes
+      fi
+
+      if {
+        cat "${SCRIPT_DIR}/drizzle_snippet_harness.ts"
+        cat <<TS
+import { client } from "drizzle-paradedb";
+
+// Source: $rel_snippet
+TS
+        cat "$snippet_file"
+        cat <<'TS'
+
+await client.end();
+TS
+      } | pnpm --dir "${REPO_ROOT}/../drizzle-paradedb" exec tsx - >/dev/null; then
+        echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
+        drizzle_pass_count=$((drizzle_pass_count + 1))
+      else
+        exit_if_interrupted "$?"
+        echo "${RED}[FAIL]${RESET} $rel_snippet" >&2
+        drizzle_fail_count=$((drizzle_fail_count + 1))
+      fi
+    done < <(find "${VERIFY_DIR}/drizzle" -type f -name '*.ts' | LC_ALL=C sort)
+  fi
+fi
+
 echo "SQL passed: $sql_pass_count failed: $sql_fail_count"
 echo "Django passed: $django_pass_count failed: $django_fail_count"
 echo "Rails passed: $rails_pass_count failed: $rails_fail_count"
 echo "SQLAlchemy passed: $sqlalchemy_pass_count failed: $sqlalchemy_fail_count"
+echo "Drizzle passed: $drizzle_pass_count failed: $drizzle_fail_count"
 
-if [[ $sql_fail_count -gt 0 || $django_fail_count -gt 0 || $rails_fail_count -gt 0 || $sqlalchemy_fail_count -gt 0 ]]; then
+if [[ $sql_fail_count -gt 0 || $django_fail_count -gt 0 || $rails_fail_count -gt 0 || $sqlalchemy_fail_count -gt 0 || $drizzle_fail_count -gt 0 ]]; then
   exit 1
 fi

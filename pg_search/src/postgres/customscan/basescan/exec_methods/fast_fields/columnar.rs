@@ -100,7 +100,7 @@ impl Inner {
             );
             // Initialize the fast field helper wrapped in Arc for sharing
             self.ffhelper = Some(Arc::new(FFHelper::with_fields(
-                state.search_reader().unwrap(),
+                state.search_reader.as_ref().unwrap(),
                 &self.which_fast_fields,
             )));
         }
@@ -384,7 +384,7 @@ impl ColumnarExecState {
         }
         self.inner.did_query = true;
 
-        let search_reader = state.search_reader().unwrap();
+        let search_reader = state.search_reader.as_ref().unwrap();
         let index_rel = state.indexrel.as_ref().unwrap();
         let heap_rel = state.heaprel.as_ref().unwrap();
         let ffhelper = self
@@ -476,7 +476,7 @@ impl ColumnarExecState {
             .ffhelper
             .as_ref()
             .expect("ColumnarExecState: ffhelper should be initialized");
-        let search_reader = state.search_reader().unwrap();
+        let search_reader = state.search_reader.as_ref().unwrap();
         let visibility_checker = state
             .visibility_checker
             .clone()

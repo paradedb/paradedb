@@ -29,7 +29,7 @@ impl ParallelQueryCapable for BaseScan {
         state: &mut CustomScanStateWrapper<Self>,
         _pcxt: *mut ParallelContext,
     ) -> Size {
-        if state.custom_state().search_reader().is_none() {
+        if state.custom_state().search_reader.is_none() {
             BaseScan::init_search_reader(state);
         }
 

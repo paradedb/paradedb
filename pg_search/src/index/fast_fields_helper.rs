@@ -66,8 +66,17 @@ pub struct FFHelper {
 }
 
 impl FFHelper {
-    pub fn empty() -> Self {
-        Self::default()
+    /// Build an FFHelper that only tracks the ctid fast field (no named columns).
+    pub fn ctid_only(reader: &SearchIndexReader) -> Self {
+        let segment_caches = reader
+            .segment_readers()
+            .iter()
+            .map(|reader| {
+                let fast_fields_reader = reader.fast_fields().clone();
+                (fast_fields_reader, Vec::new(), OnceLock::default())
+            })
+            .collect();
+        Self { segment_caches }
     }
 
     pub fn with_fields(reader: &SearchIndexReader, fields: &[WhichFastField]) -> Self {
@@ -100,6 +109,14 @@ impl FFHelper {
     pub fn ctid(&self, segment_ord: SegmentOrdinal) -> &FFType {
         let (ff_readers, _, ctid) = &self.segment_caches[segment_ord as usize];
         ctid.get_or_init(|| FFType::new_ctid(ff_readers))
+    }
+
+    /// Look up the u64 ctid for a [`DocAddress`], panicking if absent.
+    #[inline(always)]
+    pub fn ctid_u64(&self, doc_address: DocAddress) -> u64 {
+        self.ctid(doc_address.segment_ord)
+            .as_u64(doc_address.doc_id)
+            .expect("ctid should be present")
     }
 
     pub fn column(&self, segment_ord: SegmentOrdinal, field: FFIndex) -> &FFType {
@@ -409,36 +426,6 @@ pub fn build_arrow_schema(which_fast_fields: &[WhichFastField]) -> arrow_schema:
         .map(|wff| Field::new(wff.name(), wff.arrow_data_type(), true))
         .collect();
     Arc::new(Schema::new(fields))
-}
-
-/// Resolve the `ctid` for a single `doc_address` using a cached per-segment [`FFType`].
-///
-/// On the first call for a given segment, this opens the `ctid` fast-field column and stores
-/// it in `cache`.  Subsequent calls for the same segment reuse the cached reader, avoiding the
-/// overhead of re-opening the column on every row.
-///
-/// # Panics
-/// Panics if the `ctid` fast field is absent for the given doc (should never happen in a
-/// well-formed ParadeDB index).
-#[inline]
-pub fn resolve_ctid(
-    cache: &mut Option<(tantivy::SegmentOrdinal, FFType)>,
-    searcher: &tantivy::Searcher,
-    doc_address: tantivy::DocAddress,
-) -> u64 {
-    let seg_ord = doc_address.segment_ord;
-    if cache.as_ref().is_none_or(|(o, _)| *o != seg_ord) {
-        *cache = Some((
-            seg_ord,
-            FFType::new_ctid(searcher.segment_reader(seg_ord).fast_fields()),
-        ));
-    }
-    cache
-        .as_ref()
-        .unwrap()
-        .1
-        .as_u64(doc_address.doc_id)
-        .expect("ctid should be present")
 }
 
 pub(crate) const NULL_TERM_ORDINAL: TermOrdinal = u64::MAX;

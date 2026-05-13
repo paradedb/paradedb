@@ -199,7 +199,7 @@ destinations = ["Subscriber"]
 ##
 
 [[jobs]]
-refresh_ms = 100
+refresh_ms = 50
 log_tps = false
 title = "Update 1..9"
 cancel_keycode = 'U'
@@ -221,7 +221,7 @@ ABORT;
 destinations = ["Publisher"]
 
 [[jobs]]
-refresh_ms = 100
+refresh_ms = 75
 log_tps = false
 title = "Insert value A"
 sql = """
@@ -230,7 +230,7 @@ INSERT INTO test (message, unique_id) VALUES ('A', nextval('test_unique_id_seq')
 destinations = ["Publisher"]
 
 [[jobs]]
-refresh_ms = 100
+refresh_ms = 75
 log_tps = false
 title = "Insert value B"
 sql = """

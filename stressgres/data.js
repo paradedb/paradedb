@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778634287893,
+  "lastUpdate": 1778634319601,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3438,6 +3438,186 @@ window.BENCHMARK_DATA = {
             "value": 32.81640625,
             "unit": "median mem",
             "extra": "avg mem: 32.13750571441169, max mem: 32.90234375, count: 53866"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6bdea0d414fb563f086ddfe56712b2960d200626",
+          "message": "feat(mpp): AggregateScan in-process MPP via custom shm_mq transport (#4988)\n\n# Ticket(s) Closed\n\n- Closes #4152\n\n## What\n\nAdds an MPP execution path for AggregateScan that runs\njoin-with-aggregate shapes inside Postgres parallel-worker processes via\na custom transport on top of `paradedb/datafusion-distributed`. Default\noff behind `paradedb.enable_mpp` (minimum `mpp_worker_count = 3`). Other\nshapes and the JoinScan path are unchanged.\n\n## Why\n\nSingle-process DataFusion bottlenecks on join-with-aggregate at scale.\nDistributing the producer fragment across PG parallel workers gives us\n1.55–1.92× speedup on the 25M `aggregate_join_groupby` bench at N=2/4\nwithout leaving the embedded model — every worker is still a real PG\nprocess with its own snapshot, no gRPC, no extra daemon.\n\n## How\n\n- Leader builds the logical plan and stashes it in a DSM segment\nalongside an N-way `shm_mq` mesh.\n- Workers attach, deserialize, and re-plan with the same `SessionState`.\nIdentical inputs ⇒ structurally identical physical plans on every\nworker, so we don't need to serialize physical subplans.\n- Each worker runs its producer fragment and pushes batches through its\noutbound queue. Leader runs `NetworkShuffleExec` + final aggregate and\nreturns rows to the client. Leader is consumer-only in this iteration.\n- Build side (non-partitioning sources like `HashJoinExec(CollectLeft)`)\nis split via DSM all-gather: each worker scans its 1/N slice, writes to\na per-worker DSM region, completion-flag barrier, then everyone reads\nevery slice. Build is fully parallel; no leader-side serial scan.\n- The fork emits the network operators (`NetworkShuffleExec`,\n`NetworkBroadcastExec`, `NetworkCoalesceExec`) and we register a custom\ntransport that short-circuits the gRPC dialer. The fork's in-process\ntwo-boundary planner distinguishes outer (worker → leader, N producers)\nfrom nested (single local producer) Network boundaries.\n\n## Reviewer's Guide\n\nSuggested reading order — most of the diff lives under\n`pg_search/src/postgres/customscan/mpp/`:\n\n1. `mpp/dsm.rs` — the DSM layout: header, queue mesh, build-cache\nregion. `compute_dsm_layout` is the math; `leader_init` /\n`worker_attach` are the unsafe FFI boundaries.\n2. `mpp/runtime.rs` — `MppMesh` (runtime handle), `ShmMqWorkerTransport`\n(the `WorkerTransport` impl the leader registers),\n`LocalExecWorkerTransport` (the worker-side stub for nested broadcasts),\n`MppWorkerResolver`.\n3. `mpp/transport.rs` — `DrainHandle` and the cooperative-pull\nprimitives. The drain runs inline on the backend thread because pgrx\n0.18 enforces single-threaded Postgres FFI.\n4. `mpp/glue.rs` — the public API the customscan calls:\n`estimate_dsm_size`, `leader_setup`, `worker_setup`. Thin wrappers\naround dsm/runtime.\n5. `mpp/exec.rs` — `run_producer_fragment` is the worker push loop.\n6. `aggregatescan/mod.rs` — the integration: `stash_mpp_plan_bytes`,\n`exec_mpp_worker`, `build_mpp_leader_session_context`, the\n`ParallelQueryCapable` impl, the `parallel_workers` clamp in\n`try_build_datafusion_aggregate_path`. Both leader and worker session\ncontexts call `with_distributed_in_process_mode(true)` explicitly.\n\nThe build-side all-gather lives in\n`aggregatescan/mod.rs::exec_mpp_worker` and `mpp/dsm.rs` (the cache\nregion). Read those together.\n\n## Tests\n\n- pgrx regression suite — new `mpp_aggregate.sql` covers correctness on\nthe join-with-aggregate shapes; existing `mpp_*` suites still pass.\n- 25M `aggregate_join_groupby` bench: byte-exact result vs serial\nDataFusion at N=2/4/8/10.\n- Build-side all-gather is exercised at all N in the regression suite\n(workers vs leader-only-writer paths).\n\n---------\n\nCo-authored-by: paradedb-bot <developers@paradedb.com>\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-12T16:47:00-07:00",
+          "tree_id": "38dfa579bfcab58f4b6b66ddea91de57c32f5204",
+          "url": "https://github.com/paradedb/paradedb/commit/6bdea0d414fb563f086ddfe56712b2960d200626"
+        },
+        "date": 1778634289464,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.082804762089665, max cpu: 9.266409, count: 53907"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 52.61328125,
+            "unit": "median mem",
+            "extra": "avg mem: 52.645079938018256, max mem: 58.625, count: 53907"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5584044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.8228658688937975, max cpu: 4.6021094, count: 53907"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 32.33984375,
+            "unit": "median mem",
+            "extra": "avg mem: 31.70566866026212, max mem: 32.84765625, count: 53907"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.090909,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.611902613832086, max cpu: 18.373205, count: 53907"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 55.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 55.40385104786948, max mem: 61.73046875, count: 53907"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.029599207525417, max cpu: 9.257474, count: 53907"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 52.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.324574542151296, max mem: 58.25, count: 53907"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6131271390796105, max cpu: 9.213051, count: 53907"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 33.9453125,
+            "unit": "median mem",
+            "extra": "avg mem: 34.04992263875749, max mem: 39.30078125, count: 53907"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1115,
+            "unit": "median pages",
+            "extra": "avg pages: 1118.253288070195, max pages: 1857.0, count: 53907"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.7109375,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.736353957973918, max relation_size:MB: 14.5078125, count: 53907"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 7,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 6.708572170590091, max segment_count: 12.0, count: 53907"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5411544,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.7501826367435984, max cpu: 4.6021094, count: 53907"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.390625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.735466216701912, max mem: 29.80078125, count: 53907"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.041080792406923, max cpu: 4.6021094, count: 53907"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.21875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.561703489342758, max mem: 29.6484375, count: 53907"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.543067941190928, max cpu: 27.480915, count: 53907"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 50.7578125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.78170789218005, max mem: 56.734375, count: 53907"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.00002548184089576435, max replication_lag:MB: 0.2012176513671875, count: 53907"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.284605802994717, max cpu: 13.779904, count: 107814"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 51.4296875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.52270895941158, max mem: 57.80859375, count: 107814"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.714036552679468, max cpu: 4.5933013, count: 53907"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 32.99609375,
+            "unit": "median mem",
+            "extra": "avg mem: 32.368512988804795, max mem: 33.56640625, count: 53907"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.057855079718936, max cpu: 4.5801525, count: 53907"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 33.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 32.38525282836645, max mem: 33.2734375, count: 53907"
           }
         ]
       }

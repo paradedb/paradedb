@@ -44,6 +44,25 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```ts Drizzle
+import { and, gt } from "drizzle-orm";
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    and(
+      search.matchAny(mockItems.description, "running shoes"),
+      gt(mockItems.rating, 2),
+    ),
+  );
+```
+
 </CodeGroup>
 
 ## Filter Pushdown
@@ -157,6 +176,25 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```ts Drizzle
+import { and, eq } from "drizzle-orm";
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    and(
+      search.term(mockItems.description, "shoes"),
+      eq(mockItems.category, "Footwear"),
+    ),
+  );
+```
+
 </CodeGroup>
 
 To push down the `category = 'Footwear'` filter, `category` must be indexed using the [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer:
@@ -204,6 +242,25 @@ MockItem.search(:description)
         .term("shoes")
         .where(category: ["Footwear", "Apparel"])
         .select(:description, :rating, :category)
+```
+
+```ts Drizzle
+import { and, inArray } from "drizzle-orm";
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    and(
+      search.term(mockItems.description, "shoes"),
+      inArray(mockItems.category, ["Footwear", "Apparel"]),
+    ),
+  );
 ```
 
 </CodeGroup>

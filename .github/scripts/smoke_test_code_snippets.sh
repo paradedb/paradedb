@@ -256,8 +256,6 @@ if [[ $LANGUAGES =~ "drizzle" ]]; then
       if {
         cat "${SCRIPT_DIR}/drizzle_snippet_harness.ts"
         cat <<TS
-import { client } from "drizzle-paradedb";
-
 // Source: $rel_snippet
 TS
         cat "$snippet_file"

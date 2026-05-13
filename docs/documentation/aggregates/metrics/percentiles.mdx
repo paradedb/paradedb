@@ -42,6 +42,17 @@ MockItem.search(:id)
         .facets_agg(agg: ParadeDB::Aggregations.percentiles(:rating, percents: [50, 95]))
 ```
 
+```ts Drizzle
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({ percentiles: { field: "rating", percents: [50, 95] } }),
+  })
+  .from(mockItems)
+  .where(search.all(mockItems.id));
+```
+
 </CodeGroup>
 
 ```ini Expected Response

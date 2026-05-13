@@ -41,6 +41,17 @@ MockItem.search(:id)
         .facets_agg(agg: ParadeDB::Aggregations.avg(:rating))
 ```
 
+```ts Drizzle
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({ avg: { field: "rating" } }),
+  })
+  .from(mockItems)
+  .where(search.all(mockItems.id));
+```
+
 </CodeGroup>
 
 ```ini Expected Response

@@ -44,6 +44,24 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```ts Drizzle
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.proximity(
+      mockItems.description,
+      search.proxStr("sleek").within(1, "shoes"),
+    ),
+  );
+```
+
 </CodeGroup>
 
 <Note>
@@ -87,6 +105,24 @@ with Session(engine) as session:
 MockItem.search(:description)
         .near(ParadeDB.proximity("sleek").within(1, "shoes", ordered: true))
         .select(:description, :rating, :category)
+```
+
+```ts Drizzle
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.proximity(
+      mockItems.description,
+      search.proxStr("sleek").within(1, "shoes", true),
+    ),
+  );
 ```
 
 </CodeGroup>
@@ -133,6 +169,24 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```ts Drizzle
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.proximity(
+      mockItems.description,
+      search.proxRegex("sl.*").within(1, "shoes"),
+    ),
+  );
+```
+
 </CodeGroup>
 
 By default, `pdb.prox_regex` will expand to the first `50` regex matches in each document. This limit can be overridden
@@ -172,6 +226,24 @@ with Session(engine) as session:
 MockItem.search(:description)
         .near(ParadeDB.proximity(ParadeDB.regex_term("sl.*", max_expansions: 100)).within(1, "shoes"))
         .select(:description, :rating, :category)
+```
+
+```ts Drizzle
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.proximity(
+      mockItems.description,
+      search.proxRegex("sl.*", 100).within(1, "shoes"),
+    ),
+  );
 ```
 
 </CodeGroup>
@@ -216,6 +288,24 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```ts Drizzle
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.proximity(
+      mockItems.description,
+      search.proxArray("sleek", "white").within(1, "shoes"),
+    ),
+  );
+```
+
 </CodeGroup>
 
 `pdb.prox_array` can also take regex:
@@ -253,6 +343,24 @@ with Session(engine) as session:
 MockItem.search(:description)
         .near(ParadeDB.proximity(ParadeDB.regex_term("sl.*"), "white").within(1, "shoes"))
         .select(:description, :rating, :category)
+```
+
+```ts Drizzle
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.proximity(
+      mockItems.description,
+      search.proxArray(search.proxRegex("sl.*"), "white").within(1, "shoes"),
+    ),
+  );
 ```
 
 </CodeGroup>
@@ -294,6 +402,27 @@ with Session(engine) as session:
 MockItem.search(:description)
         .near(ParadeDB.proximity("sleek").within(1, "running").within(2, ['sneakers', ParadeDB.regex_term('sho.*')]))
         .select(:description, :rating, :category)
+```
+
+```ts Drizzle
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.proximity(
+      mockItems.description,
+      search
+        .proxStr("sleek")
+        .within(1, "running")
+        .within(2, search.proxArray("sneakers", search.proxRegex("sho.*"))),
+    ),
+  );
 ```
 
 </CodeGroup>

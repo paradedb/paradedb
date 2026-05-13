@@ -41,6 +41,19 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```ts Drizzle
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.phrasePrefix(mockItems.description, ["running", "sh"]));
+```
+
 </CodeGroup>
 
 <div className="mt-8" />

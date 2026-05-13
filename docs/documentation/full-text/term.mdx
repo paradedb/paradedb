@@ -73,6 +73,30 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```ts Drizzle
+import { search } from "drizzle-paradedb";
+
+// Term query 1
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.description, "running"));
+
+// Term query 2
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.description, "RUNNING"));
+```
+
 </CodeGroup>
 
 The first query returns:
@@ -161,6 +185,19 @@ with Session(engine) as session:
 MockItem.search(:description)
         .term_set("shoes", "running")
         .select(:description, :rating, :category)
+```
+
+```ts Drizzle
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.description, ["shoes", "running"]));
 ```
 
 </CodeGroup>

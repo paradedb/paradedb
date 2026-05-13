@@ -37,6 +37,12 @@ diagnostics.paradedb_verify_index(engine, "search_idx")
 ParadeDB.paradedb_verify_index("search_idx")
 ```
 
+```ts Drizzle
+import { diagnostics } from "drizzle-paradedb";
+
+await db.execute(diagnostics.verifyIndex("search_idx"));
+```
+
 </CodeGroup>
 
 This returns a table with three columns:
@@ -88,6 +94,16 @@ ParadeDB.paradedb_verify_index(
   "search_idx",
   heapallindexed: true
 )
+```
+
+```ts Drizzle
+import { diagnostics } from "drizzle-paradedb";
+
+await db.execute(
+  diagnostics.verifyIndex("search_idx", {
+    heapAllIndexed: true,
+  }),
+);
 ```
 
 </CodeGroup>
@@ -145,6 +161,17 @@ ParadeDB.paradedb_verify_index(
 )
 ```
 
+```ts Drizzle
+import { diagnostics } from "drizzle-paradedb";
+
+await db.execute(
+  diagnostics.verifyIndex("search_idx", {
+    heapAllIndexed: true,
+    sampleRate: 0.1,
+  }),
+);
+```
+
 </CodeGroup>
 
 ### Progress Reporting
@@ -186,6 +213,17 @@ ParadeDB.paradedb_verify_index(
   heapallindexed: true,
   report_progress: true
 )
+```
+
+```ts Drizzle
+import { diagnostics } from "drizzle-paradedb";
+
+await db.execute(
+  diagnostics.verifyIndex("search_idx", {
+    heapAllIndexed: true,
+    reportProgress: true,
+  }),
+);
 ```
 
 </CodeGroup>
@@ -237,6 +275,18 @@ ParadeDB.paradedb_verify_index(
 )
 ```
 
+```ts Drizzle
+import { diagnostics } from "drizzle-paradedb";
+
+await db.execute(
+  diagnostics.verifyIndex("search_idx", {
+    heapAllIndexed: true,
+    reportProgress: true,
+    verbose: true,
+  }),
+);
+```
+
 </CodeGroup>
 
 ### Stop on First Error
@@ -271,6 +321,16 @@ ParadeDB.paradedb_verify_index(
 )
 ```
 
+```ts Drizzle
+import { diagnostics } from "drizzle-paradedb";
+
+await db.execute(
+  diagnostics.verifyIndex("search_idx", {
+    onErrorStop: true,
+  }),
+);
+```
+
 </CodeGroup>
 
 ## Parallel Verification
@@ -303,6 +363,12 @@ diagnostics.paradedb_index_segments(engine, "search_idx")
 
 ```ruby Rails
 ParadeDB.paradedb_index_segments("search_idx")
+```
+
+```ts Drizzle
+import { diagnostics } from "drizzle-paradedb";
+
+await db.execute(diagnostics.indexSegments("search_idx"));
 ```
 
 </CodeGroup>
@@ -390,6 +456,36 @@ ParadeDB.paradedb_verify_index(
 )
 ```
 
+```ts Drizzle
+import { diagnostics } from "drizzle-paradedb";
+
+const segments = await db.execute(diagnostics.indexSegments("search_idx"));
+const evenSegments = segments
+  .map((row) => row.segment_idx)
+  .filter((segmentIdx) => segmentIdx % 2 === 0);
+const oddSegments = segments
+  .map((row) => row.segment_idx)
+  .filter((segmentIdx) => segmentIdx % 2 === 1);
+
+// Worker 1: Verify even segments
+await db.execute(
+  diagnostics.verifyIndex("search_idx", {
+    heapAllIndexed: true,
+    segmentIds: evenSegments,
+  }),
+);
+
+// Worker 2: Verify odd segments
+if (oddSegments.length) {
+  await db.execute(
+    diagnostics.verifyIndex("search_idx", {
+      heapAllIndexed: true,
+      segmentIds: oddSegments,
+    }),
+  );
+}
+```
+
 </CodeGroup>
 
 ### Automation Example
@@ -453,6 +549,21 @@ ParadeDB.paradedb_verify_index(
   })
 ```
 
+```ts Drizzle
+import { diagnostics } from "drizzle-paradedb";
+
+const segments = await db.execute(diagnostics.indexSegments("search_idx"));
+
+await db.execute(
+  diagnostics.verifyIndex("search_idx", {
+    heapAllIndexed: true,
+    segmentIds: segments
+      .map((row) => row.segment_idx)
+      .filter((segmentIdx) => segmentIdx % 4 === 0),
+  }),
+);
+```
+
 </CodeGroup>
 
 ## Verifying All BM25 Indexes
@@ -478,6 +589,12 @@ diagnostics.paradedb_verify_all_indexes(engine)
 
 ```ruby Rails
 ParadeDB.paradedb_verify_all_indexes()
+```
+
+```ts Drizzle
+import { diagnostics } from "drizzle-paradedb";
+
+await db.execute(diagnostics.verifyAllIndexes());
 ```
 </CodeGroup>
 
@@ -557,6 +674,33 @@ ParadeDB.paradedb_verify_all_indexes(
 )
 ```
 
+```ts Drizzle
+import { diagnostics } from "drizzle-paradedb";
+
+// Verify indexes in the 'public' schema only
+await db.execute(
+  diagnostics.verifyAllIndexes({
+    schemaPattern: "public",
+  }),
+);
+
+// Verify indexes matching a name pattern
+await db.execute(
+  diagnostics.verifyAllIndexes({
+    indexPattern: "search_%",
+  }),
+);
+
+// Combine filters
+await db.execute(
+  diagnostics.verifyAllIndexes({
+    schemaPattern: "public",
+    indexPattern: "search_%",
+    heapAllIndexed: true,
+  }),
+);
+```
+
 </CodeGroup>
 
 ## Listing All BM25 Indexes
@@ -582,6 +726,12 @@ diagnostics.paradedb_indexes(engine)
 
 ```ruby Rails
 ParadeDB.paradedb_indexes()
+```
+
+```ts Drizzle
+import { diagnostics } from "drizzle-paradedb";
+
+await db.execute(diagnostics.indexes());
 ```
 
 </CodeGroup>

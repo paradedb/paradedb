@@ -43,6 +43,19 @@ MockItem.search(:id)
         .select(:description, :rating, :category)
 ```
 
+```ts Drizzle
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.parse(mockItems.id, "description:(sleek shoes) AND rating:>3"));
+```
+
 </CodeGroup>
 
 Please refer to the [Tantivy docs](https://docs.rs/tantivy/latest/tantivy/query/struct.QueryParser.html) for an overview of
@@ -87,6 +100,23 @@ MockItem.search(:id)
         .select(:description, :rating, :category)
 ```
 
+```ts Drizzle
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.parse(mockItems.id, "description:(sleek shoes) AND rating:>3", {
+      lenient: true,
+    }),
+  );
+```
+
 </CodeGroup>
 
 ## Conjunction Mode
@@ -126,6 +156,23 @@ with Session(engine) as session:
 MockItem.search(:id)
         .parse("description:(sleek shoes)", conjunction_mode: true)
         .select(:description, :rating, :category)
+```
+
+```ts Drizzle
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.parse(mockItems.id, "description:(sleek shoes)", {
+      conjunctionMode: true,
+    }),
+  );
 ```
 
 </CodeGroup>

@@ -51,6 +51,17 @@ MockItem.search(:id)
         .facets_agg(agg: ParadeDB::Aggregations.min(:rating))
 ```
 
+```ts Drizzle
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({ min: { field: "rating" } }),
+  })
+  .from(mockItems)
+  .where(search.all(mockItems.id));
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -181,6 +192,17 @@ with Session(engine) as session:
 MockItem.search(:id)
         .match_all
         .facets_agg(agg: ParadeDB::Aggregations.max(:rating))
+```
+
+```ts Drizzle
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({ max: { field: "rating" } }),
+  })
+  .from(mockItems)
+  .where(search.all(mockItems.id));
 ```
 
 </CodeGroup>

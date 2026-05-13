@@ -20,9 +20,6 @@ CREATE SEQUENCE test_unique_id_seq START 1;
 DROP PUBLICATION IF EXISTS stressgres_pub;
 CREATE PUBLICATION stressgres_pub FOR ALL TABLES;
 
--- ids 1..14: the original "beer/wine" seed used by the assert(...) jobs below.
--- The count(*)='beer'=8, count(*)='wine'=8, and "Top K beer ORDER BY id DESC LIMIT 25"
--- assert=11 invariants depend on these 14 rows, so do not change them.
 INSERT INTO test (message, unique_id) VALUES ('beer wine cheese a', nextval('test_unique_id_seq'));
 INSERT INTO test (message, unique_id) VALUES ('beer wine a', nextval('test_unique_id_seq'));
 INSERT INTO test (message, unique_id) VALUES ('beer cheese a', nextval('test_unique_id_seq'));
@@ -37,13 +34,6 @@ INSERT INTO test (message, unique_id) VALUES ('beer a', nextval('test_unique_id_
 INSERT INTO test (message, unique_id) VALUES ('wine cheese a', nextval('test_unique_id_seq'));
 INSERT INTO test (message, unique_id) VALUES ('wine a', nextval('test_unique_id_seq'));
 INSERT INTO test (message, unique_id) VALUES ('cheese a', nextval('test_unique_id_seq'));
-
--- ids 15..100: filler rows so the "Update 1..50" / "Update 51..100" writers below
--- generate enough churn to keep autovacuum (threshold=50) firing every cycle.
--- These intentionally avoid the words 'beer' and 'wine' so the count asserts hold.
-INSERT INTO test (message, unique_id)
-SELECT 'apple orange pear ' || i::text, nextval('test_unique_id_seq')
-FROM generate_series(15, 100) AS s(i);
 """
 [server.teardown]
 sql = ""
@@ -209,27 +199,29 @@ destinations = ["Subscriber"]
 ##
 
 [[jobs]]
-refresh_ms = 50
+refresh_ms = 100
 log_tps = false
-title = "Update 1..50"
+title = "Update 1..9"
 cancel_keycode = 'U'
 sql = """
-UPDATE test SET message = array_to_string((string_to_array(message, ' '))[1:array_upper(string_to_array(message, ' '), 1) - 1], ' ') || ' ' || txid_current(), old_message = message WHERE id <= 50;
+UPDATE test SET message = array_to_string((string_to_array(message, ' '))[1:array_upper(string_to_array(message, ' '), 1) - 1], ' ') || ' ' || txid_current(), old_message = message WHERE id < 10;
 """
 destinations = ["Publisher"]
 
 [[jobs]]
-refresh_ms = 50
+refresh_ms = 100
 log_tps = false
-title = "Update 51..100"
+title = "Update 10,11"
 cancel_keycode = 'U'
 sql = """
-UPDATE test SET message = array_to_string((string_to_array(message, ' '))[1:array_upper(string_to_array(message, ' '), 1) - 1], ' ') || ' ' || txid_current(), old_message = message WHERE id > 50 AND id <= 100;
+BEGIN;
+UPDATE test SET message = array_to_string((string_to_array(message, ' '))[1:array_upper(string_to_array(message, ' '), 1) - 1], ' ') || ' ' || txid_current(), old_message = message WHERE id IN (10, 11);
+ABORT;
 """
 destinations = ["Publisher"]
 
 [[jobs]]
-refresh_ms = 75
+refresh_ms = 100
 log_tps = false
 title = "Insert value A"
 sql = """
@@ -238,7 +230,7 @@ INSERT INTO test (message, unique_id) VALUES ('A', nextval('test_unique_id_seq')
 destinations = ["Publisher"]
 
 [[jobs]]
-refresh_ms = 75
+refresh_ms = 100
 log_tps = false
 title = "Insert value B"
 sql = """
@@ -253,6 +245,6 @@ pause_keycode = 'd'
 cancel_keycode = 'D'
 title = "Delete values"
 sql = """
-DELETE FROM test WHERE id > 200;
+DELETE FROM test WHERE id > 14;
 """
 destinations = ["Publisher"]

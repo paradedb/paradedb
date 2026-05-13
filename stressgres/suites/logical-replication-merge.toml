@@ -1,20 +1,3 @@
-# Stressgres suite to reproduce FSM race condition (#4935)
-#
-# The bug: read-only iteration methods (list/for_each/is_empty/lookup) released
-# the header lock before iterating the segment_metas linked list, allowing
-# AtomicGuard::commit() to swap the header and recycle old blocks to FSM while
-# concurrent readers were still traversing them.
-#
-# Reproduction conditions:
-#   - Logical replication subscriber with BM25 index
-#   - Sustained UPDATE/INSERT/DELETE traffic (~high commits/sec)
-#   - Aggressive autovacuum to trigger garbage_collect_index() frequently
-#   - Small layer_sizes to trigger frequent merges
-#   - Multiple concurrent reader jobs to maximize race window
-#
-# Without the fix: SIGSEGV or SegmentMetaEntryHeader: UnexpectedEnd within minutes.
-# With the fix: runs indefinitely without errors.
-
 [[server]]
 name = "Publisher"
 [server.style.Automatic]
@@ -37,7 +20,6 @@ CREATE SEQUENCE test_unique_id_seq START 1;
 DROP PUBLICATION IF EXISTS stressgres_pub;
 CREATE PUBLICATION stressgres_pub FOR ALL TABLES;
 
--- Seed initial data
 INSERT INTO test (message, unique_id)
 SELECT
     (ARRAY['beer wine cheese', 'beer wine', 'beer cheese', 'beer',
@@ -86,9 +68,7 @@ DROP SUBSCRIPTION IF EXISTS stressgres_sub;
 CREATE SUBSCRIPTION stressgres_sub CONNECTION '@Publisher_CONNSTR@' PUBLICATION stressgres_pub;
 SELECT pg_sleep(5);
 
--- Small layer_sizes to trigger frequent merges and GC (maximizes race window)
-CREATE INDEX idxtest ON test USING bm25(id, message)
-    WITH (key_field = 'id', layer_sizes = '10kb, 100kb, 1mb, 100mb');
+CREATE INDEX idxtest ON test USING bm25(id, message) WITH (key_field = 'id', layer_sizes = '10kb, 100kb, 1mb, 100mb');
 
 ALTER SYSTEM SET autovacuum_naptime TO '1s';
 SELECT pg_reload_conf();
@@ -107,8 +87,6 @@ FROM paradedb.index_info('idxtest', true)
 ORDER BY byte_size DESC;
 """
 
-# -- Monitoring jobs --
-
 [[jobs]]
 refresh_ms = 5
 title = "Index Size Info"
@@ -126,12 +104,9 @@ FROM paradedb.index_info('idxtest', true);
 """
 destinations = ["Subscriber"]
 
-# -- Reader jobs (concurrent with replication apply + autovacuum) --
-# Multiple reader jobs to maximize the chance of hitting the race window
-
 [[jobs]]
 refresh_ms = 5
-title = "Count Query (Custom Scan)"
+title = "Custom Scan"
 on_connect = """
 SET enable_indexonlyscan to OFF;
 SET enable_indexscan to OFF;
@@ -143,7 +118,7 @@ destinations = ["Subscriber"]
 
 [[jobs]]
 refresh_ms = 5
-title = "Top K Query"
+title = "Top K"
 on_connect = """
 SET enable_indexonlyscan to OFF;
 SET enable_indexscan to OFF;
@@ -176,12 +151,15 @@ SELECT count(*) FROM test WHERE id @@@ 'message:bread';
 """
 destinations = ["Subscriber"]
 
-# -- Writer jobs on Publisher (generates sustained replication traffic) --
+##
+## These UPDATE/INSERT/DELETE jobs run on the primary, which has no pg_search index, so there's no need for us to
+## log their tps -- nothing we can do about that
+##
 
 [[jobs]]
 refresh_ms = 50
 log_tps = false
-title = "Rapid Updates (rows 1..50)"
+title = "Update 1..50"
 sql = """
 UPDATE test SET message = message || ' ' || txid_current(), old_message = message WHERE id <= 50;
 """
@@ -190,7 +168,7 @@ destinations = ["Publisher"]
 [[jobs]]
 refresh_ms = 50
 log_tps = false
-title = "Rapid Updates (rows 51..100)"
+title = "Update 51..100"
 sql = """
 UPDATE test SET message = message || ' ' || txid_current(), old_message = message WHERE id > 50 AND id <= 100;
 """
@@ -199,10 +177,9 @@ destinations = ["Publisher"]
 [[jobs]]
 refresh_ms = 75
 log_tps = false
-title = "Insert new rows"
+title = "Insert value"
 sql = """
-INSERT INTO test (message, unique_id)
-VALUES ('new row ' || txid_current(), nextval('test_unique_id_seq'));
+INSERT INTO test (message, unique_id) VALUES ('new ' || txid_current(), nextval('test_unique_id_seq'));
 """
 destinations = ["Publisher"]
 
@@ -211,7 +188,7 @@ refresh_ms = 100
 log_tps = false
 pause_keycode = 'd'
 cancel_keycode = 'D'
-title = "Delete old rows"
+title = "Delete values"
 sql = """
 DELETE FROM test WHERE id > 200;
 """

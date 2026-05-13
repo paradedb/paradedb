@@ -49,12 +49,14 @@ jobs:
       # The job can be triggered manually by attaching the `benchmark` label to a PR. This step
       # removes the label once the job has started, so it can be applied again if needed.
       - name: Maybe Remove Label
-        uses: actions-ecosystem/action-remove-labels@v1
-        if: github.event_name == 'pull_request' && github.event.label.name == 'benchmark' || github.event_name == 'pull_request' && github.event.label.name == 'benchmark-stressgres'
-        with:
-          labels: |
-            benchmark
-            benchmark-stressgres
+        if: github.event_name == 'pull_request' && (github.event.label.name == 'benchmark' || github.event.label.name == 'benchmark-stressgres')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr edit ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --remove-label benchmark \
+            --remove-label benchmark-stressgres || true
 
       - name: Determine Ref to Benchmark
         id: determine-ref

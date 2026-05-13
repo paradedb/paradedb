@@ -218,55 +218,44 @@ jobs:
         working-directory: stressgres/
         run: CARGO_TARGET_DIR=../target/ cargo install --path .
 
-      # # Runs default to 10 minutes, but can be configured to run for longer with the `duration` input.
-      # - name: Benchmark single-server.toml
-      #   uses: ./.github/actions/benchmark-stressgres
-      #   with:
-      #     test_file: single-server.toml
-      #     ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-      #     github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-      #     github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-      #     slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-      #     slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-      #     pr_label: ${{ steps.pr_label.outputs.result }}
-
-      # - name: Benchmark bulk-updates.toml
-      #   uses: ./.github/actions/benchmark-stressgres
-      #   with:
-      #     test_file: bulk-updates.toml
-      #     ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-      #     github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-      #     github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-      #     slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-      #     slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-      #     pr_label: ${{ steps.pr_label.outputs.result }}
-
-      # - name: Benchmark wide-table.toml
-      #   uses: ./.github/actions/benchmark-stressgres
-      #   with:
-      #     test_file: wide-table.toml
-      #     ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-      #     github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-      #     github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-      #     slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-      #     slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-      #     pr_label: ${{ steps.pr_label.outputs.result }}
-
-      # - name: Benchmark background-merge.toml
-      #   uses: ./.github/actions/benchmark-stressgres
-      #   with:
-      #     test_file: background-merge.toml
-      #     ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-      #     github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
-      #     github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
-      #     slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-      #     slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
-      #     pr_label: ${{ steps.pr_label.outputs.result }}
-
-      - name: Benchmark logical-replication-merge.toml
+      # Runs default to 10 minutes, but can be configured to run for longer with the `duration` input.
+      - name: Benchmark single-server.toml
         uses: ./.github/actions/benchmark-stressgres
         with:
-          test_file: logical-replication-merge.toml
+          test_file: single-server.toml
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+
+      - name: Benchmark bulk-updates.toml
+        uses: ./.github/actions/benchmark-stressgres
+        with:
+          test_file: bulk-updates.toml
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+
+      - name: Benchmark wide-table.toml
+        uses: ./.github/actions/benchmark-stressgres
+        with:
+          test_file: wide-table.toml
+          ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+          pr_label: ${{ steps.pr_label.outputs.result }}
+
+      - name: Benchmark background-merge.toml
+        uses: ./.github/actions/benchmark-stressgres
+        with:
+          test_file: background-merge.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}

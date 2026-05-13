@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778636222124,
+  "lastUpdate": 1778653010287,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -354,6 +354,78 @@ window.BENCHMARK_DATA = {
             "value": 32.98109823577119,
             "unit": "median tps",
             "extra": "avg tps: 46.88167502744731, max tps: 787.3866950545817, count: 55114"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fa4b7613b7a49e0a05075ef635fac3a6f677fd31",
+          "message": "feat: agg-on-join end-to-end IN/NOT IN/EXISTS/NOT EXISTS with null-aware semantics (#5005)\n\n## Summary\n\nMakes the agg-on-join path handle `IN (SELECT ...)`, `NOT IN (SELECT\n...)`, `EXISTS (SELECT ...)`, and `NOT EXISTS (SELECT ...)` end-to-end,\nincluding the `NOT IN` against a NULL-bearing inner case, which is the\nhard one because of SQL's three-valued NULL logic.\n\nTarget query shape - aggregate over a join with IN/NOT IN sublinks plus\na BM25 search predicate:\n\n```sql\nSELECT contact_job_title, COUNT(*) AS doc_count\nFROM contacts\nWHERE contact_id IN     (SELECT ldf_id FROM contact_list WHERE list_id IN ('include_list'))\n  AND contact_id NOT IN (SELECT ldf_id FROM contact_list WHERE list_id IN ('exclude_list'))\n  AND contact_id @@@ paradedb.boolean(...)\nGROUP BY contact_job_title\nORDER BY doc_count DESC LIMIT 10;\n```\n\nAfter this PR, this shape pushes down to a single `Custom Scan (ParadeDB\nAggregate Scan)` node and returns correct results in both NULL-bearing\nand non-NULL inner cases.\n\n## Coverage\n\n| Query shape | Result |\n\n|----------------------------------------------|-------------------------------------|\n| `IN (SELECT ...)` PG-pulled-up | Pushed down (Semi) |\n| `EXISTS / NOT EXISTS` | Pushed down (Semi/Anti) |\n| Single-col `IN` un-pulled-up | Lifted to Semi, pushed down |\n| Single-col `NOT IN`, no NULL inner | Lifted to null-aware Anti |\n| Single-col `NOT IN`, NULL inner | Lifted, returns 0 rows |\n| Multi-col `NOT IN` / `IN` | Declines cleanly, PG fallback |\n| OR-nested SubPlan | Declines cleanly, PG fallback |\n\n## What changed\n\nPre-PR the agg-on-join walker bailed on Semi/Anti shapes with one of:\n`unexpected node type T_FromExpr in join tree`, `aggregate-on-join does\nnot support Semi/Anti JOIN`, or `Aggregate-on-join does not support Anti\nJOIN`. Separately, un-pulled-up `IN`/`NOT IN` SubPlans in\n`baserestrictinfo` were silently dropped by the per-RI `extract_quals`\nloop, producing wrong row counts when push-down succeeded.\n\n**Walker / accept-list.** `build_relnode_from_node` recognizes\n`T_FromExpr` (the post-pull-up parse-tree shape PG produces) and\nrecurses into `build_relnode_from_fromexpr`. `build_join_node` extends\nto `Semi`/`Anti`/`RightSemi`/`RightAnti`; all four are unconditionally\nsafe for aggregate pushdown because they never project the non-preserved\nside. The translator's dead `JoinTypeAllowList::EquiOnly` enum is\ndropped.\n\n**SubPlan lifting.** `build_scan_node` classifies `baserestrictinfo`\ninto search predicates / top-level SubPlans / OR-nested SubPlans. Search\npredicates batch into one strict `extract_quals` call (no silent drop).\nOR-nested SubPlans decline upfront. Top-level SubPlans lift via shared\n`wrap_with_semi_anti`, which now returns `Result<RelNode, String>`;\nevery former silent-skip path returns Err with a site-specific reason.\nBoth callers (new agg caller, existing JoinScan caller) propagate to a\nclean decline. Side-effect: closes a latent silent-drop window in\nJoinScan non-LIMIT queries that `is_limit_pushdown_safe` only caught for\nLIMIT.\n\n**Null-aware NOT IN.** `JoinType::Anti` becomes a struct variant `Anti {\nnull_aware: bool }`. The flag lives on the variant rather than as a\nseparate `JoinNode` field, so `(JoinType::Inner, null_aware: true)` is\nunrepresentable in the type system. `wrap_with_semi_anti` constructs\n`Anti { null_aware: is_anti }` for `NOT IN` lifts.\n`build_null_aware_anti_join` lowers to `LogicalPlan::Join` with\n`null_equality=NullEqualsNothing` and `null_aware=true`. DataFusion's\n`HashJoinExec` then emits zero rows when the probe (inner) side has any\nNULL, matching SQL three-valued logic.\n\n**plan_position-stored targetlist refs.** Every agg-on-join targetlist\nref (`JoinGroupColumn`, `JoinAggColRef`, `AggOrderByEntry`,\n`FilterExpr::ColumnRef`) carries a `plan_position` resolved once at\nextraction time against the just-built `RelNode` tree; execution-time\ncolumn binding is a `plan_position` lookup. `rti` is only unique within\na single `PlannerInfo`, so post-lift trees that mix sources from\nsub-PlannerInfos (e.g. SubPlans lifted by `wrap_with_semi_anti`) need a\n`PlannerRootId` to disambiguate. Three new shared `RelNode` primitives\nback this and unify with how JoinScan already addresses output columns:\n`source_with(root_id, rti, attno)`, `plan_position(root_id, rti,\nattno)`, `source_at_plan_position(plan_position)`. The FILTER build\ncontext bundles `plan` + `outer_root_id` into\n`Option<FilterPlanResolution>` so the two can't go out of sync.\n\n**Executor plumbing.** `ExprContext` + `PlanState` are threaded from the\nexecutor's runtime into each per-relation `PgSearchTableProvider`.\nHeapFilter queries (runtime expressions like `=` on a `pdb.literal`-cast\ncolumn) need a live evaluation context. Skip the `ExecAssignExprContext`\nallocation under `EXEC_FLAG_EXPLAIN_ONLY`.\n\n## DataFusion null-aware single-column limitation\n\nDataFusion 53.1.0's null-aware mode is restricted to a single-column\nequi-key. The validation in `HashJoinExec::build` rejects multi-column\nnull-aware:\n\n```rust\nif exec.null_aware && on.len() != 1 {\n    return plan_err!(\"null_aware anti join only supports single column join key, got {} columns\", on.len());\n}\n```\n\nThe runtime stream code only inspects `state.values[0]` and\n`left_data.values()[0]`. Multi-column `NOT IN` therefore can't ride the\nnull-aware fast path; this PR declines pushdown and lets PG's\n`nodeSubplan.c::ExecHashSubPlan` handle them.\n\n## Why this works without a `datafusion-proto` patch\n\nSister PR #5006 noted that `datafusion-proto 53.1.0` is missing\n`null_aware` from the `LogicalPlan::Join` proto schema (oversight in\n[apache/datafusion#19635](https://github.com/apache/datafusion/pull/19635);\nadded everywhere except the logical Join proto). This bites consumers\nthat round-trip `LogicalPlan` through the proto codec.\n\n**The agg-on-join path is unaffected.** The agg executor builds a\n`LogicalPlan` in `build_join_aggregate_plan`, hands it to\n`build_physical_plan` in the same Rust process, and runs the physical\nplan via `physical_plan.execute(...)`. No proto serialization. The\n`null_aware` flag travels purely through Rust struct fields from\nconstruction to execution. The proto bug only matters for the JoinScan\npath (which serializes its `LogicalPlan` for parallel leader/worker IPC)\nand is tracked separately in #5006.\n\n## Test plan\n\n`aggregate_join_semi_anti.sql` - six tests covering the full feature\nsurface:\n\n- **Test 1**: `IN (SELECT ...)` pulls up to Semi -> AggregateScan\n- **Test 2**: `EXISTS / NOT EXISTS` -> AggregateScan\n- **Test 3**: single-column `NOT IN` un-pulled-up -> null-aware Anti\nlift, AggregateScan\n- **Test 4**: parity with `enable_aggregate_custom_scan = off` for Test\n3\n- **Test 5**: multi-column `(a,b) NOT IN (SELECT x,y FROM t)` declines\ncleanly with a precise WARNING; PG plan runs; result matches PG\ncustom-scan-OFF\n- **Test 6**: single-column `NOT IN` with a NULL-bearing inner ->\nAggregateScan returns zero rows (SQL three-valued logic), parity with PG\ncustom-scan-OFF, plus a sanity check that removing the NULL inner row\nmakes the query return non-zero rows (guards against trivially passing\nwith zero rows for the wrong reason)\n\nAll other `aggregate_join_*` and `join_*` regress tests pass on PG 18\n(`cargo pgrx regress`); `cargo check` + `cargo clippy -- -D warnings`\nclean.\n\nRefs #4911. Sister PR #5006 covers the JoinScan-side end-to-end via the\nproto fork (separate dependency).",
+          "timestamp": "2026-05-13T11:17:13+05:30",
+          "tree_id": "d71839d2438c950c53328948b31766398e213d87",
+          "url": "https://github.com/paradedb/paradedb/commit/fa4b7613b7a49e0a05075ef635fac3a6f677fd31"
+        },
+        "date": 1778652977666,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 129.8678466279457,
+            "unit": "median tps",
+            "extra": "avg tps: 130.19292060412968, max tps: 148.5863380976672, count: 54628"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 487.90884886202275,
+            "unit": "median tps",
+            "extra": "avg tps: 489.3267296455401, max tps: 688.1652748189458, count: 54628"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3213.530345015931,
+            "unit": "median tps",
+            "extra": "avg tps: 3208.764480310673, max tps: 3280.2997134757006, count: 54628"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 411.65820266486173,
+            "unit": "median tps",
+            "extra": "avg tps: 413.9135304056252, max tps: 506.76672944661834, count: 54628"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2956.8481495389115,
+            "unit": "median tps",
+            "extra": "avg tps: 2962.372728897761, max tps: 3009.5235018983376, count: 109256"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 492.96785630113584,
+            "unit": "median tps",
+            "extra": "avg tps: 493.6472955374516, max tps: 669.161165660014, count: 54628"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2132.229286570798,
+            "unit": "median tps",
+            "extra": "avg tps: 2124.776321425405, max tps: 2143.3316246477543, count: 54628"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 73.92893171895703,
+            "unit": "median tps",
+            "extra": "avg tps: 90.28874661273329, max tps: 373.329676361748, count: 54628"
           }
         ]
       }

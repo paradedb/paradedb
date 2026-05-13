@@ -253,11 +253,22 @@ jobs:
       # `antithesis-stressgres`, or `antithesis-proptests` label to a PR. This
       # step removes the triggering label once the job has started so it can be
       # applied again if needed.
-      - name: Maybe Remove Label
-        uses: actions-ecosystem/action-remove-labels@v1
+      - name: Generate GitHub App Token for Label Removal
+        id: label-app-token
         if: github.event_name == 'pull_request' && contains(fromJSON('["antithesis","antithesis-stressgres","antithesis-proptests"]'), github.event.label.name)
+        uses: actions/create-github-app-token@v3
         with:
-          labels: ${{ github.event.label.name }}
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+
+      - name: Maybe Remove Label
+        if: github.event_name == 'pull_request' && contains(fromJSON('["antithesis","antithesis-stressgres","antithesis-proptests"]'), github.event.label.name)
+        env:
+          GH_TOKEN: ${{ steps.label-app-token.outputs.token }}
+        run: |
+          gh pr edit ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --remove-label "${{ github.event.label.name }}" || true
 
       - name: Checkout Git Repository
         uses: actions/checkout@v6

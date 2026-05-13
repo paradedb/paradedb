@@ -32,7 +32,7 @@ use crate::postgres::customscan::aggregatescan::join_targetlist::{
 use crate::postgres::customscan::aggregatescan::privdat::{CompareOp, DataFusionTopK, FilterExpr};
 use crate::postgres::customscan::datafusion::translator::{
     apply_join_level_filter, build_join_df, make_col, make_source_col, ColumnMapper,
-    JoinTypeAllowList, PredicateTranslator,
+    PredicateTranslator,
 };
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, JoinSource, RelNode, RelationAlias,
@@ -79,6 +79,8 @@ pub async fn build_join_aggregate_plan(
     custom_scan_tlist: *mut pg_sys::List,
     having_filter: Option<&FilterExpr>,
     ctx: &SessionContext,
+    expr_context: Option<*mut pg_sys::ExprContext>,
+    planstate: Option<*mut pg_sys::PlanState>,
 ) -> Result<(datafusion::logical_expr::LogicalPlan, Vec<usize>)> {
     // Step 1: Build the join DataFrame from the RelNode tree
     let df = build_relnode_df(
@@ -87,6 +89,8 @@ pub async fn build_join_aggregate_plan(
         join_level_predicates,
         custom_exprs,
         custom_scan_tlist,
+        expr_context,
+        planstate,
     )
     .await?;
 
@@ -99,12 +103,20 @@ pub async fn build_join_aggregate_plan(
     let mut group_df_indices = Vec::with_capacity(targetlist.group_columns.len());
 
     for gc in &targetlist.group_columns {
-        let entry = field_to_df_idx.entry((gc.rti, gc.field_name.clone()));
+        // Dedup key by (plan_position, field_name): plan_position is the
+        // unique source identity; field_name distinguishes columns within
+        // a source. Keying by rti would collapse rti-aliased sources from
+        // sub-PlannerInfos into one DataFusion column.
+        let entry = field_to_df_idx.entry((gc.plan_position, gc.field_name.clone()));
         let df_idx = match entry {
             std::collections::hash_map::Entry::Vacant(v) => {
                 let df_idx = group_exprs.len();
                 v.insert(df_idx);
-                group_exprs.push(make_rti_col(plan, gc.rti, &gc.field_name));
+                group_exprs.push(make_plan_position_col(
+                    plan,
+                    gc.plan_position,
+                    &gc.field_name,
+                ));
                 df_idx
             }
             std::collections::hash_map::Entry::Occupied(o) => *o.get(),
@@ -246,18 +258,22 @@ pub async fn build_join_aggregate_plan(
 /// - Does NOT handle LIMIT, ORDER BY, DISTINCT, or output projection
 ///   (those are handled by the aggregate layer above)
 /// - Is single-threaded (no partitioning logic)
+#[allow(clippy::too_many_arguments)]
 fn build_relnode_df<'a>(
     ctx: &'a SessionContext,
     node: &'a RelNode,
     join_level_predicates: &'a [JoinLevelSearchPredicate],
     custom_exprs: *mut pg_sys::List,
     custom_scan_tlist: *mut pg_sys::List,
+    expr_context: Option<*mut pg_sys::ExprContext>,
+    planstate: Option<*mut pg_sys::PlanState>,
 ) -> LocalBoxFuture<'a, Result<DataFrame>> {
     async move {
         match node {
             RelNode::Scan(source) => {
                 let plan_position = source.plan_position;
-                let df = build_source_df(ctx, source, plan_position).await?;
+                let df =
+                    build_source_df(ctx, source, plan_position, expr_context, planstate).await?;
                 let alias =
                     RelationAlias::new(source.scan_info.alias.as_deref()).execution(plan_position);
                 Ok(df.alias(&alias)?)
@@ -269,6 +285,8 @@ fn build_relnode_df<'a>(
                     join_level_predicates,
                     custom_exprs,
                     custom_scan_tlist,
+                    expr_context,
+                    planstate,
                 )
                 .await?;
                 let right_df = build_relnode_df(
@@ -277,10 +295,12 @@ fn build_relnode_df<'a>(
                     join_level_predicates,
                     custom_exprs,
                     custom_scan_tlist,
+                    expr_context,
+                    planstate,
                 )
                 .await?;
 
-                build_join_df(left_df, right_df, join, JoinTypeAllowList::EquiOnly)
+                build_join_df(left_df, right_df, join)
             }
             RelNode::Filter(filter) => {
                 let df = build_relnode_df(
@@ -289,6 +309,8 @@ fn build_relnode_df<'a>(
                     join_level_predicates,
                     custom_exprs,
                     custom_scan_tlist,
+                    expr_context,
+                    planstate,
                 )
                 .await?;
 
@@ -304,7 +326,11 @@ fn build_relnode_df<'a>(
                 // and the ctid field is named "ctid" (from WhichFastField::Ctid)
                 // in the table provider schema. After aliasing, it's accessible
                 // as `<alias>.ctid`.
-                let sources = filter.input.sources();
+                // The filter is evaluated after the input node has applied any
+                // Semi/Anti pruning.  Only output-visible sources are addressable
+                // in the DataFusion schema here; lifted SubPlan inner sources may
+                // reuse outer RTIs but are not projected.
+                let sources = filter.input.output_sources();
                 let ctid_map: crate::api::HashMap<pg_sys::Index, Expr> = sources
                     .iter()
                     .map(|s| (s.plan_position as pg_sys::Index, make_source_col(s, "ctid")))
@@ -421,9 +447,13 @@ impl FilterExpr {
                 }
             }
             FilterExpr::GroupRef(field_name) => Some(datafusion::prelude::col(field_name.as_str())),
-            FilterExpr::ColumnRef { rti, field_name } => {
+            FilterExpr::ColumnRef {
+                plan_position,
+                field_name,
+                ..
+            } => {
                 let plan = ctx.plan?;
-                Some(make_rti_col(plan, *rti, field_name))
+                Some(make_plan_position_col(plan, *plan_position, field_name))
             }
             FilterExpr::LitInt(v) => Some(lit(*v)),
             FilterExpr::LitFloat(v) => Some(lit(*v)),
@@ -490,6 +520,8 @@ async fn build_source_df(
     ctx: &SessionContext,
     source: &JoinSource,
     plan_position: usize,
+    expr_context: Option<*mut pg_sys::ExprContext>,
+    planstate: Option<*mut pg_sys::PlanState>,
 ) -> Result<DataFrame> {
     let mut scan_info = source.scan_info.clone();
 
@@ -526,7 +558,16 @@ async fn build_source_df(
         fields.push(WhichFastField::Ctid);
     }
 
-    let provider = PgSearchTableProvider::new(scan_info, fields, false);
+    let mut provider = PgSearchTableProvider::new(scan_info, fields, false);
+    // HeapFilter queries (e.g. `=` on a column indexed via a
+    // `pdb.literal(...)` cast) compile to runtime Postgres expressions
+    // that can only be evaluated with a live ExprContext + PlanState.
+    // The provider's `scan()` reaches for them via
+    // `init_postgres_expressions` / `solve_postgres_expressions` only
+    // when needed, so threading them through here is what makes the
+    // agg-on-join path match JoinScan and Base Scan.
+    provider.set_expr_context(expr_context);
+    provider.set_planstate(planstate);
     let df = register_source_table(ctx, alias.as_str(), provider).await?;
 
     // Select all fields from the provider schema using their qualified names.
@@ -548,16 +589,12 @@ async fn build_source_df(
     }
 }
 
-/// Build a DataFusion column expression for a `(rti, field_name)` reference
-/// against the given plan tree.
-///
-/// Thin wrapper around the shared [`make_source_col`] that walks the plan to
-/// find the source claiming `rti` first. Use this instead of resolving the
-/// source manually at every aggregate-on-join call site.
-fn make_rti_col(plan: &RelNode, rti: pgrx::pg_sys::Index, field_name: &str) -> Expr {
+/// Build a DataFusion column expression for a targetlist ref by its
+/// previously-resolved `plan_position`.
+fn make_plan_position_col(plan: &RelNode, plan_position: usize, field_name: &str) -> Expr {
     let source = plan
-        .source_for_rti_in_subtree(rti)
-        .unwrap_or_else(|| panic!("make_rti_col: RTI {rti} not found in plan sources"));
+        .source_at_plan_position(plan_position)
+        .unwrap_or_else(|| panic!("no source at plan_position {plan_position}"));
     make_source_col(source, field_name)
 }
 
@@ -595,10 +632,10 @@ fn with_filter(expr: Expr, filter: Expr) -> Expr {
 
 /// Build a DataFusion column expression for an aggregate's first field reference.
 fn agg_field_col(agg: &JoinAggregateEntry, plan: &RelNode) -> Result<Expr> {
-    let (rti, _attno, ref field_name) = agg.field_refs.first().ok_or_else(|| {
+    let r = agg.field_refs.first().ok_or_else(|| {
         DataFusionError::Internal("non-COUNT(*) aggregate must have a field reference".to_string())
     })?;
-    Ok(make_rti_col(plan, *rti, field_name))
+    Ok(make_plan_position_col(plan, r.plan_position, &r.field_name))
 }
 
 /// Convert aggregate ORDER BY entries to DataFusion `Sort` expressions.
@@ -607,7 +644,7 @@ fn agg_order_by_exprs(order_by: &[AggOrderByEntry], plan: &RelNode) -> Vec<Sort>
         .iter()
         .map(|entry| {
             Sort::new(
-                make_rti_col(plan, entry.rti, &entry.field_name),
+                make_plan_position_col(plan, entry.plan_position, &entry.field_name),
                 entry.direction.is_asc(),
                 entry.direction.is_nulls_first(),
             )
@@ -620,6 +657,6 @@ fn agg_order_by_exprs(order_by: &[AggOrderByEntry], plan: &RelNode) -> Vec<Sort>
 fn agg_field_cols(agg: &JoinAggregateEntry, plan: &RelNode) -> Result<Vec<Expr>> {
     agg.field_refs
         .iter()
-        .map(|(rti, _attno, field_name)| Ok(make_rti_col(plan, *rti, field_name)))
+        .map(|r| Ok(make_plan_position_col(plan, r.plan_position, &r.field_name)))
         .collect()
 }

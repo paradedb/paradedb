@@ -73,7 +73,7 @@ pub enum AggKind {
     BoolAnd,
     BoolOr,
     ArrayAgg,
-    /// STRING_AGG(col, separator) — stores the separator string.
+    /// STRING_AGG(col, separator) - stores the separator string.
     StringAgg(String),
 }
 
@@ -100,25 +100,36 @@ impl std::fmt::Display for AggKind {
 }
 
 /// A GROUP BY column reference in a join aggregate query.
+///
+/// `plan_position` is the unique DataFusion-facing source identity (used
+/// for execution-time column binding). `attno` is load-bearing for
+/// fast-field projection in `populate_required_fields`. `rti` is not
+/// stored - recoverable via `source_at_plan_position(plan_position).rti`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct JoinGroupColumn {
-    /// Range table index of the table this column belongs to.
-    pub rti: pg_sys::Index,
-    /// Attribute number within that table.
+    pub plan_position: usize,
     pub attno: pg_sys::AttrNumber,
-    /// Resolved field name (from the BM25 index schema).
     pub field_name: String,
     /// Position in the output tuple (index into `output_rel.reltarget.exprs`).
     pub output_index: usize,
 }
 
-/// A single ORDER BY entry within an aggregate (e.g., the `ORDER BY col2` in
-/// `STRING_AGG(col, ',' ORDER BY col2)`).
+/// Aggregate-argument column reference. Same identity model as
+/// [`JoinGroupColumn`].
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct JoinAggColRef {
+    pub plan_position: usize,
+    pub attno: pg_sys::AttrNumber,
+    pub field_name: String,
+}
+
+/// Aggregate ORDER BY entry (e.g. `STRING_AGG(col, ',' ORDER BY col2)`).
+/// Same identity model as [`JoinGroupColumn`].
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AggOrderByEntry {
-    /// Table RTI for the ORDER BY column.
-    pub rti: pg_sys::Index,
+    pub plan_position: usize,
     /// 1-based attribute number in the source relation's tuple descriptor.
+    /// Load-bearing for fast-field projection.
     pub attno: pg_sys::AttrNumber,
     /// Resolved field name (from the BM25 index schema).
     pub field_name: String,
@@ -133,9 +144,9 @@ pub struct JoinAggregateEntry {
     pub func_oid: u32,
     /// Simplified classification.
     pub agg_kind: AggKind,
-    /// Field references: (rti, attno, field_name). Empty for COUNT(*),
-    /// single entry for most aggregates, multiple for COUNT(DISTINCT col1, col2).
-    pub field_refs: Vec<(pg_sys::Index, pg_sys::AttrNumber, String)>,
+    /// Field references. Empty for COUNT(*), single entry for most
+    /// aggregates, multiple for `COUNT(DISTINCT col1, col2)`.
+    pub field_refs: Vec<JoinAggColRef>,
     /// Position in the output tuple.
     pub output_index: usize,
     /// Postgres result type OID (INT8OID for COUNT, FLOAT8OID for others).
@@ -155,7 +166,11 @@ pub struct JoinAggregateEntry {
     pub filter: Option<FilterExpr>,
 }
 
-/// The complete aggregate target list for a join aggregate query.
+/// The complete aggregate target list for a join aggregate query. Each
+/// targetlist ref carries a resolved `plan_position` (an opaque, unique
+/// per-`RelNode::Scan` identity), so execution-time column binding is a
+/// straight lookup with no ambiguity from rti aliasing across sub-
+/// PlannerInfos.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct JoinAggregateTargetList {
     pub group_columns: Vec<JoinGroupColumn>,
@@ -222,6 +237,10 @@ fn classify_aggregate_by_name(aggfnoid: u32) -> Option<AggKind> {
 /// column (`T_Var`) or an aggregate function (`T_Aggref`). For joins, `Var.varno`
 /// tells us which table the column belongs to.
 ///
+/// Each `T_Var` is resolved against `plan` to its unique `plan_position`
+/// here at extraction time, so execution-time binding is immune to
+/// rti-aliasing across sub-PlannerInfos.
+///
 /// # Errors
 ///
 /// Returns an error if:
@@ -231,15 +250,20 @@ fn classify_aggregate_by_name(aggfnoid: u32) -> Option<AggKind> {
 /// - An aggregate OID is unknown/unsupported
 /// - A `Var` references a table not in `sources`
 /// - A field name cannot be resolved
+/// - A `Var` does not resolve to a unique output-visible source in `plan`
 pub unsafe fn extract_aggregate_targetlist(
     args: &CreateUpperPathsHookArgs,
     sources: &[JoinAggSource],
+    plan: &crate::postgres::customscan::joinscan::build::RelNode,
 ) -> Result<JoinAggregateTargetList, String> {
     let output_rel = args.output_rel();
     let target_exprs = PgList::<pg_sys::Expr>::from_pg((*output_rel.reltarget).exprs);
     if target_exprs.is_empty() {
         return Err("target list is empty".into());
     }
+
+    let outer_root_id =
+        crate::postgres::customscan::joinscan::build::PlannerRootId::from(args.root);
 
     let mut group_columns = Vec::new();
     let mut aggregates = Vec::new();
@@ -262,8 +286,17 @@ pub unsafe fn extract_aggregate_targetlist(
                 )
             })?;
 
+            let plan_position = plan
+                .plan_position(outer_root_id, rti, attno)
+                .ok_or_else(|| {
+                    format!(
+                        "GROUP BY column (RTI={rti}, attno={attno}) does not resolve to a unique \
+                         output-visible source in the plan tree"
+                    )
+                })?;
+
             group_columns.push(JoinGroupColumn {
-                rti,
+                plan_position,
                 attno,
                 field_name,
                 output_index: idx,
@@ -279,19 +312,20 @@ pub unsafe fn extract_aggregate_targetlist(
             let attno = (*var).varattno;
             let field_name = field_name.into_inner();
 
-            // Validate that the RTI is in our known sources. Unlike the T_Var
-            // branch above, we don't need the source itself — `find_one_var_and_fieldname`
-            // already resolved the Tantivy field name — but we want a clear error
-            // if the expression references a table that isn't part of the join.
-            if !sources.iter().any(|s| s.rti == rti) {
-                return Err(format!(
-                    "GROUP BY expression references table at RTI {} which is not in the join",
-                    rti
-                ));
-            }
+            // Resolve the outer source's plan_position so execution-time
+            // column binding is unambiguous regardless of SubPlan-lift
+            // aliasing.
+            let plan_position = plan
+                .plan_position(outer_root_id, rti, attno)
+                .ok_or_else(|| {
+                    format!(
+                        "GROUP BY expression at RTI {rti} (attno={attno}) does not resolve to a \
+                         unique output-visible source in the plan tree"
+                    )
+                })?;
 
             group_columns.push(JoinGroupColumn {
-                rti,
+                plan_position,
                 attno,
                 field_name,
                 output_index: idx,
@@ -307,9 +341,10 @@ pub unsafe fn extract_aggregate_targetlist(
             } else {
                 FilterExpr::from_pg_node(
                     (*aggref).aggfilter as *mut pg_sys::Node,
-                    &FilterExprBuildContext {
-                        targetlist: None,
-                        sources: Some(sources),
+                    &FilterExprBuildContext::Filter {
+                        sources,
+                        plan,
+                        outer_root_id,
                     },
                 )
             };
@@ -319,7 +354,7 @@ pub unsafe fn extract_aggregate_targetlist(
             let pdb_agg_mvcc_oid = crate::api::agg_with_solve_mvcc_funcoid().to_u32();
             if aggfnoid == pdb_agg_oid || aggfnoid == pdb_agg_mvcc_oid {
                 return Err(
-                    "pdb.agg() is not supported on joins — use standard SQL aggregates (COUNT, SUM, AVG, MIN, MAX)".into()
+                    "pdb.agg() is not supported on joins - use standard SQL aggregates (COUNT, SUM, AVG, MIN, MAX)".into()
                 );
             }
 
@@ -333,10 +368,11 @@ pub unsafe fn extract_aggregate_targetlist(
                 agg_kind = AggKind::StringAgg(separator);
             }
 
-            let field_refs = extract_aggref_field_refs(aggref, sources, is_string_agg)?;
-            let order_by = extract_aggref_order_by(aggref, sources)?;
+            let field_refs =
+                extract_aggref_field_refs(aggref, sources, is_string_agg, plan, outer_root_id)?;
+            let order_by = extract_aggref_order_by(aggref, sources, plan, outer_root_id)?;
             // Use the actual Postgres result type from the Aggref node,
-            // not a guessed type — this avoids segfaults from type mismatches
+            // not a guessed type - this avoids segfaults from type mismatches
             let result_type_oid = (*aggref).aggtype;
 
             aggregates.push(JoinAggregateEntry {
@@ -401,7 +437,9 @@ unsafe fn extract_aggref_field_refs(
     aggref: *mut pg_sys::Aggref,
     sources: &[JoinAggSource],
     is_string_agg: bool,
-) -> Result<Vec<(pg_sys::Index, pg_sys::AttrNumber, String)>, String> {
+    plan: &crate::postgres::customscan::joinscan::build::RelNode,
+    outer_root_id: crate::postgres::customscan::joinscan::build::PlannerRootId,
+) -> Result<Vec<JoinAggColRef>, String> {
     // COUNT(*) has no arguments
     if (*aggref).aggstar {
         return Ok(Vec::new());
@@ -424,7 +462,7 @@ unsafe fn extract_aggref_field_refs(
         let expr = (*arg_ptr).expr;
 
         // The argument must be a bare Var (possibly wrapped in RelabelType).
-        // Reject complex expressions like COALESCE(score, 0) — find_one_var
+        // Reject complex expressions like COALESCE(score, 0) - find_one_var
         // would strip the wrapper, causing DataFusion to compute e.g. SUM(score)
         // instead of the intended SUM(COALESCE(score, 0)).
         let var = unwrap_to_var(expr as *mut pg_sys::Node).ok_or(
@@ -444,7 +482,20 @@ unsafe fn extract_aggref_field_refs(
             )
         })?;
 
-        refs.push((rti, attno, field_name));
+        let plan_position = plan
+            .plan_position(outer_root_id, rti, attno)
+            .ok_or_else(|| {
+                format!(
+                    "aggregate argument (RTI={rti}, attno={attno}) does not resolve to a unique \
+                     output-visible source in the plan tree"
+                )
+            })?;
+
+        refs.push(JoinAggColRef {
+            plan_position,
+            attno,
+            field_name,
+        });
     }
 
     Ok(refs)
@@ -460,6 +511,8 @@ unsafe fn extract_aggref_field_refs(
 unsafe fn extract_aggref_order_by(
     aggref: *mut pg_sys::Aggref,
     sources: &[JoinAggSource],
+    plan: &crate::postgres::customscan::joinscan::build::RelNode,
+    outer_root_id: crate::postgres::customscan::joinscan::build::PlannerRootId,
 ) -> Result<Vec<AggOrderByEntry>, String> {
     if (*aggref).aggorder.is_null() {
         return Ok(Vec::new());
@@ -511,8 +564,17 @@ unsafe fn extract_aggref_order_by(
                     )
                 })?;
 
+        let plan_position = plan
+            .plan_position(outer_root_id, rti, attno)
+            .ok_or_else(|| {
+                format!(
+                    "aggregate ORDER BY column (RTI={rti}, attno={attno}) does not resolve to a \
+                     unique output-visible source in the plan tree"
+                )
+            })?;
+
         entries.push(AggOrderByEntry {
-            rti,
+            plan_position,
             attno,
             field_name,
             direction,

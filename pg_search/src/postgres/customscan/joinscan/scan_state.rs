@@ -87,7 +87,7 @@ use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::datafusion::translator::{
     apply_join_level_filter, build_join_df_with_filter, make_col, make_source_col,
     make_source_score_col, translate_pg_node_string, ColumnMapper, CombinedMapper,
-    JoinTypeAllowList, PredicateTranslator,
+    PredicateTranslator,
 };
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
@@ -559,14 +559,7 @@ fn build_relnode_df<'a>(
                 let right_df = build_relnode_df(rctx, &join.right).await?;
                 let mut sources = join.left.sources();
                 sources.extend(join.right.sources());
-                build_join_df_with_filter(
-                    left_df,
-                    right_df,
-                    join,
-                    &sources,
-                    rctx.output_columns,
-                    JoinTypeAllowList::All,
-                )
+                build_join_df_with_filter(left_df, right_df, join, &sources, rctx.output_columns)
             }
             RelNode::Filter(filter) => {
                 let df = build_relnode_df(rctx, &filter.input).await?;

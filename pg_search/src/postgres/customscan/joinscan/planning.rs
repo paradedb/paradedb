@@ -265,7 +265,15 @@ pub(super) unsafe fn collect_join_sources_base_rel(
     let mut current_node = RelNode::Scan(Box::new(source));
     let mut all_keys = Vec::new();
 
-    current_node = wrap_with_semi_anti(current_node, classified.top_level_subplans, &mut all_keys);
+    // Decline JoinScan pushdown if any top-level SubPlan can't be lifted.
+    // `is_limit_pushdown_safe` catches this only when LIMIT is being
+    // pushed; for queries without LIMIT a silent drop would execute the
+    // plan without that predicate.
+    let Ok(node) = wrap_with_semi_anti(current_node, classified.top_level_subplans, &mut all_keys)
+    else {
+        return None;
+    };
+    current_node = node;
     current_node = wrap_with_mark_filter(current_node, classified.or_subplans, &mut all_keys);
 
     Some((current_node, all_keys))
@@ -273,20 +281,20 @@ pub(super) unsafe fn collect_join_sources_base_rel(
 
 /// Buckets that [`classify_base_restrictinfo`] sorts a relation's
 /// `baserestrictinfo` clauses into.
-struct ClassifiedBaseRestrictInfo {
+pub struct ClassifiedBaseRestrictInfo {
     /// Clauses that are not subplans and should be batched into `extract_quals`
     /// for search predicate extraction.
-    search_ri: PgList<pg_sys::RestrictInfo>,
+    pub search_ri: PgList<pg_sys::RestrictInfo>,
     /// Top-level SubPlans (e.g. `col IN (SELECT ...)`) that should become
     /// Semi/Anti joins wrapping the base scan.
-    top_level_subplans: Vec<(*mut pg_sys::SubPlan, bool, *mut pg_sys::PlannerInfo)>,
+    pub top_level_subplans: Vec<(*mut pg_sys::SubPlan, bool, *mut pg_sys::PlannerInfo)>,
     /// SubPlans nested inside an OR (e.g. `col IS NULL OR col IN (SELECT ...)`)
     /// that should become LeftMark joins followed by a Filter.
-    or_subplans: Vec<OrSubPlanExtraction>,
+    pub or_subplans: Vec<OrSubPlanExtraction>,
 }
 
 impl ClassifiedBaseRestrictInfo {
-    fn empty() -> Self {
+    pub fn empty() -> Self {
         Self {
             search_ri: PgList::<pg_sys::RestrictInfo>::new(),
             top_level_subplans: Vec::new(),
@@ -299,7 +307,7 @@ impl ClassifiedBaseRestrictInfo {
 /// buckets: search-extractable predicates, top-level SubPlans, or OR-nested
 /// SubPlans. Subplans are pulled out so the remaining `search_ri` can be passed
 /// to `extract_quals` as a fully-search-capable batch.
-unsafe fn classify_base_restrictinfo(
+pub unsafe fn classify_base_restrictinfo(
     root: *mut pg_sys::PlannerInfo,
     baserestrictinfo: *mut pg_sys::List,
 ) -> ClassifiedBaseRestrictInfo {
@@ -352,20 +360,57 @@ unsafe fn classify_base_restrictinfo(
 /// Wrap a base scan node with Semi/Anti joins, one per top-level extracted
 /// SubPlan. Equi-keys produced by each SubPlan are appended to `all_keys` so
 /// the caller can return the full set alongside the wrapped node.
-unsafe fn wrap_with_semi_anti(
+///
+/// Returns `Err` with a site-specific message if any SubPlan cannot be lifted.
+/// Callers must propagate the error so the customscan path declines pushdown
+/// and Postgres handles those SubPlans correctly via `nodeSubplan.c`. Silently
+/// dropping a SubPlan would leave the surrounding plan executing without that
+/// predicate (wrong row counts in the agg-on-join path; wrong answers in the
+/// JoinScan non-LIMIT path).
+pub unsafe fn wrap_with_semi_anti(
     mut current_node: RelNode,
     top_level_subplans: Vec<(*mut pg_sys::SubPlan, bool, *mut pg_sys::PlannerInfo)>,
     all_keys: &mut Vec<JoinKeyPair>,
-) -> RelNode {
+) -> Result<RelNode, String> {
     for (subplan, is_anti, inner_root) in top_level_subplans {
-        // Find the final rel for the inner subquery
+        let plan_id = (*subplan).plan_id;
+
+        // Decline correlated SubPlans (`parParam` non-empty). HashJoinExec
+        // builds the inner side once with no per-outer-row state, so the
+        // inner's correlation reference would fail to bind. PG's
+        // `nodeSubplan` executes correlated SubPlans correctly per outer
+        // row; declining here lets PG handle them.
+        //
+        // See also `qual_inspect::contains_correlated_param` for the
+        // expression-tree-walk variant of correlation detection used
+        // elsewhere in the codebase.
+        let par_param_len = PgList::<i32>::from_pg((*subplan).parParam).len();
+        if par_param_len > 0 {
+            pgrx::debug1!(
+                "agg-on-join: declining correlated SubPlan plan_id={} (parParam={})",
+                plan_id,
+                par_param_len
+            );
+            return Err("correlated subquery cannot be lifted into the aggregate scan".into());
+        }
+
+        // Find the final rel for the inner subquery.
         let inner_rel = find_final_rel(inner_root);
         if inner_rel.is_null() {
-            continue; // Can't resolve inner relation, maybe log or skip
+            pgrx::debug1!(
+                "agg-on-join: SubPlan plan_id={plan_id} declined; \
+                 find_final_rel returned NULL"
+            );
+            return Err("subquery cannot be pushed into the aggregate scan".into());
         }
 
         let Some((inner_node, inner_keys)) = collect_join_sources(inner_root, inner_rel) else {
-            continue;
+            pgrx::debug1!(
+                "agg-on-join: SubPlan plan_id={plan_id} declined; \
+                 inner relation cannot be pushed (no BM25 index, volatile, \
+                 or un-pushdownable predicates)"
+            );
+            return Err("subquery cannot be pushed into the aggregate scan".into());
         };
 
         // Recursively collect join sources for the inner subquery
@@ -374,13 +419,38 @@ unsafe fn wrap_with_semi_anti(
         let equi_keys =
             extract_equi_keys_from_subplan(subplan, inner_root, &current_node, &inner_node);
 
-        let plan_id = (*subplan).plan_id;
+        // `is_in_shaped` distinguishes IN-family sublinks (carry a per-row
+        // comparison like `x = y`) from EXISTS-family sublinks (no
+        // comparison; just "is the inner empty?"). With `is_anti`, this
+        // identifies all four sublink shapes:
+        //   (true,  true)  NOT IN     -> Anti{null_aware:true}, single equi-key only
+        //   (true,  false) NOT EXISTS -> Anti{null_aware:false} (no 3-valued logic)
+        //   (false, true)  IN         -> Semi, equi-keys decoded from testexpr
+        //   (false, false) EXISTS     -> Semi (cross-product when inner non-empty)
+        let is_in_shaped = !(*subplan).testexpr.is_null();
+        let join_type = match (is_anti, is_in_shaped) {
+            (true, true) if equi_keys.len() != 1 => {
+                pgrx::debug1!(
+                    "agg-on-join: declining NOT IN lift (plan_id={}, equi_keys={})",
+                    plan_id,
+                    equi_keys.len()
+                );
+                return Err("multi-column NOT IN cannot be pushed into the aggregate scan".into());
+            }
+            (true, true) => JoinType::Anti { null_aware: true },
+            (true, false) => JoinType::Anti { null_aware: false },
+            (false, true) if equi_keys.is_empty() => {
+                pgrx::debug1!(
+                    "agg-on-join: declining IN lift (plan_id={}); testexpr undecodable",
+                    plan_id
+                );
+                return Err("IN subquery cannot be pushed into the aggregate scan".into());
+            }
+            _ => JoinType::Semi,
+        };
+
         let join_node = JoinNode {
-            join_type: if is_anti {
-                JoinType::Anti
-            } else {
-                JoinType::Semi
-            },
+            join_type,
             left: current_node,
             right: inner_node,
             equi_keys: equi_keys.clone(),
@@ -392,7 +462,7 @@ unsafe fn wrap_with_semi_anti(
         current_node = RelNode::Join(Box::new(join_node));
     }
 
-    current_node
+    Ok(current_node)
 }
 
 /// Wrap a base scan node with a `LeftMark` join + Filter for each OR-extracted
@@ -731,7 +801,12 @@ unsafe fn extract_subplan_from_clause(
 /// Contains the SubPlan info plus the outer column varno/attno
 /// for which the IS NULL condition was found (used to build the
 /// post-LeftMark-join filter: `mark = true OR outer_col IS NULL`).
-struct OrSubPlanExtraction {
+///
+/// The struct itself is `pub` so callers can hold a `Vec<OrSubPlanExtraction>`,
+/// but the fields are private - only `wrap_with_mark_filter` and the
+/// extractor here read them. External callers (the agg-on-join path) only
+/// need `Vec::is_empty()` to decide whether to decline pushdown.
+pub struct OrSubPlanExtraction {
     subplan: *mut pg_sys::SubPlan,
     is_anti: bool,
     inner_root: *mut pg_sys::PlannerInfo,

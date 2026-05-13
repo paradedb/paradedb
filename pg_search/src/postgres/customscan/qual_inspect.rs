@@ -324,28 +324,24 @@ impl From<&Qual> for SearchQueryInput {
                 field: field.attname(),
                 query: pdb::Query::Term {
                     value: OwnedValue::Bool(true),
-                    is_datetime: false,
                 },
             },
             Qual::PushdownVarEqFalse { field } => SearchQueryInput::FieldedQuery {
                 field: field.attname(),
                 query: pdb::Query::Term {
                     value: OwnedValue::Bool(false),
-                    is_datetime: false,
                 },
             },
             Qual::PushdownVarIsTrue { field } => SearchQueryInput::FieldedQuery {
                 field: field.attname(),
                 query: pdb::Query::Term {
                     value: OwnedValue::Bool(true),
-                    is_datetime: false,
                 },
             },
             Qual::PushdownVarIsFalse { field } => SearchQueryInput::FieldedQuery {
                 field: field.attname(),
                 query: pdb::Query::Term {
                     value: OwnedValue::Bool(false),
-                    is_datetime: false,
                 },
             },
             Qual::PushdownIsNotNull { field } => SearchQueryInput::FieldedQuery {
@@ -1894,7 +1890,6 @@ mod tests {
             field: "foo".into(),
             query: pdb::Query::Term {
                 value: OwnedValue::Bool(true),
-                is_datetime: false,
             },
         };
         assert_eq!(got, want);
@@ -1910,7 +1905,6 @@ mod tests {
             field: "bar".into(),
             query: pdb::Query::Term {
                 value: OwnedValue::Bool(false),
-                is_datetime: false,
             },
         };
         assert_eq!(got, want);
@@ -1926,7 +1920,6 @@ mod tests {
             field: "baz".into(),
             query: pdb::Query::Term {
                 value: OwnedValue::Bool(true),
-                is_datetime: false,
             },
         };
         assert_eq!(got, want);
@@ -1942,7 +1935,6 @@ mod tests {
             field: "qux".into(),
             query: pdb::Query::Term {
                 value: OwnedValue::Bool(false),
-                is_datetime: false,
             },
         };
         assert_eq!(got, want);

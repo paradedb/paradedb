@@ -113,7 +113,6 @@ pub enum SearchQueryInput {
         lenient: Option<bool>,
         conjunction_mode: Option<bool>,
     },
-
     TermSet {
         terms: Vec<TermInput>,
     },
@@ -648,8 +647,6 @@ impl SearchQueryInput {
 pub struct TermInput {
     pub field: FieldName,
     pub value: OwnedValue,
-    #[serde(default)]
-    pub is_datetime: bool,
 }
 
 /// Serialize a [`SearchQueryInput`] node to a Postgres [`pg_sys::Const`] node, palloc'd
@@ -1219,17 +1216,13 @@ impl SearchQueryInput {
             }
             SearchQueryInput::TermSet { terms: fields } => {
                 let query = Box::new(TermSetQuery::new(fields.into_iter().map(
-                    |TermInput {
-                         field,
-                         value,
-                         is_datetime,
-                     }| {
+                    |TermInput { field, value }| {
                         let search_field = schema
                             .search_field(field.root())
                             .ok_or_else(|| QueryError::NonIndexedField(field.clone()))
                             .expect("could not find search field");
                         let field_type = search_field.field_entry().field_type();
-                        let is_datetime = search_field.is_datetime() || is_datetime;
+                        let is_datetime = search_field.is_datetime();
 
                         // Convert string numeric values to appropriate types for JSON fields
                         let value = convert_for_field_type(&value, field_type);
@@ -1673,7 +1666,6 @@ mod tests {
             terms: vec![TermInput {
                 field: "test".into(),
                 value: OwnedValue::Str("value".to_string()),
-                is_datetime: false,
             }],
         }
     }

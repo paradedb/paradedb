@@ -313,8 +313,6 @@ pub mod pdb {
         },
         Term {
             value: OwnedValue,
-            #[serde(default)]
-            is_datetime: bool,
         },
         TermSet {
             terms: Vec<OwnedValue>,
@@ -362,8 +360,7 @@ impl pdb::Query {
 
             pdb::Query::Term {
                 value: OwnedValue::Str(value),
-                is_datetime,
-            } if !*is_datetime => {
+            } => {
                 *self = pdb::Query::FuzzyTerm {
                     value: value.to_string(),
                     distance: Some(new_fuzzy_data.distance),
@@ -595,7 +592,7 @@ impl pdb::Query {
                 slop,
                 max_expansions,
             } => regex_phrase(&field, schema, regexes, slop, max_expansions)?,
-            pdb::Query::Term { value, is_datetime } => term(field, schema, &value, is_datetime)?,
+            pdb::Query::Term { value } => term(field, schema, &value)?,
             pdb::Query::TermSet { terms } => term_set(field, schema, terms)?,
         };
 
@@ -780,14 +777,13 @@ fn term(
     field: FieldName,
     schema: &SearchIndexSchema,
     value: &OwnedValue,
-    is_datetime: bool,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let record_option = IndexRecordOption::WithFreqsAndPositions;
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
-    let is_datetime = search_field.is_datetime() || is_datetime;
+    let is_datetime = search_field.is_datetime();
     let search_field_type = search_field.field_type();
 
     // Convert value based on field type (handles NUMERIC scaling, JSON types, etc.)

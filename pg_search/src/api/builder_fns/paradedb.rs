@@ -192,14 +192,6 @@ pub unsafe fn terms_with_operator(
         //    - = ANY(ARRAY[x, y, z])
         //
         // this case can be optimized to use the tantivy TermSet
-        let is_datetime = matches!(
-            array_type,
-            pg_sys::DATEOID
-                | pg_sys::TIMEOID
-                | pg_sys::TIMETZOID
-                | pg_sys::TIMESTAMPOID
-                | pg_sys::TIMESTAMPTZOID
-        );
         let array_type = PgOid::from_untagged(array_type);
         let terms = array
             .into_nullable_iter()
@@ -212,7 +204,6 @@ pub unsafe fn terms_with_operator(
                 Ok(TermInput {
                     field: field.clone(),
                     value: value.into(),
-                    is_datetime,
                 })
             })
             .collect::<Result<Vec<_>, TantivyValueError>>()?;
@@ -313,12 +304,8 @@ pub fn term_set(terms: Vec<SearchQueryInput>) -> SearchQueryInput {
         .map(|input| match input {
             SearchQueryInput::FieldedQuery {
                 field,
-                query: pdb::Query::Term { value, is_datetime },
-            } => TermInput {
-                field,
-                value,
-                is_datetime,
-            },
+                query: pdb::Query::Term { value },
+            } => TermInput { field, value },
             _ => panic!("only term queries can be passed to term_set"),
         })
         .collect();

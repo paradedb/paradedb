@@ -234,10 +234,7 @@ impl<'a> FilterAnalyzer<'a> {
     fn term_query(&self, field: FieldName, value: OwnedValue) -> SearchQueryInput {
         SearchQueryInput::FieldedQuery {
             field,
-            query: pdb::Query::Term {
-                value,
-                is_datetime: false,
-            },
+            query: pdb::Query::Term { value },
         }
     }
 

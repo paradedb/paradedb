@@ -423,31 +423,12 @@ mod pdb {
                 let tantivy_value = TantivyValue::try_from(value)
                     .expect("value should be a valid TantivyValue representation")
                     .tantivy_schema_value();
-                let is_datetime = match tantivy_value {
-                    OwnedValue::Date(_) => true,
-                    _ => false,
-                };
 
                 pdb::Query::Term {
                     value: tantivy_value,
-                    is_datetime,
                 }
             }
         };
-    }
-
-    #[builder_fn]
-    #[pg_extern(immutable, parallel_safe, name = "term")]
-    pub fn term_anyenum(value: AnyEnum) -> pdb::Query {
-        let tantivy_value = TantivyValue::try_from(value)
-            .expect("value should be a valid TantivyValue representation")
-            .tantivy_schema_value();
-        let is_datetime = matches!(tantivy_value, OwnedValue::Date(_));
-
-        pdb::Query::Term {
-            value: tantivy_value,
-            is_datetime,
-        }
     }
 
     term_fn!(term_bytes, Vec<u8>);
@@ -467,6 +448,7 @@ mod pdb {
     term_fn!(numeric, pgrx::AnyNumeric);
     term_fn!(uuid, pgrx::Uuid);
     term_fn!(inet, pgrx::Inet);
+    term_fn!(term_anyenum, AnyEnum);
 
     macro_rules! term_set_fn {
         ($func_name:ident, $value_type:ty) => {

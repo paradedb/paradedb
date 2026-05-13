@@ -277,7 +277,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: pg-search-antithesis-deb-${{ env.COMMIT_SHA }}
-          path: .
+          path: docker
 
       - name: Log Into Antithesis Registry
         uses: docker/login-action@v4
@@ -301,7 +301,7 @@ jobs:
       - name: Build and Push Workload Docker Image to Antithesis Registry
         uses: docker/build-push-action@v7
         with:
-          context: .
+          context: docker
           platforms: linux/amd64
           file: docker/Dockerfile.antithesis-${{ env.PG_VERSION }}
           push: true

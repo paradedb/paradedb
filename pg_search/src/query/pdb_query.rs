@@ -445,10 +445,6 @@ impl pdb::Query {
         parser: &QueryParserCtor,
         searcher: &Searcher,
     ) -> anyhow::Result<Box<dyn TantivyQuery>> {
-        let search_field = schema
-            .search_field(field.root())
-            .ok_or(QueryError::NonIndexedField(field.clone()))?;
-
         let query: Box<dyn TantivyQuery> = match self {
             pdb::Query::All => Box::new(AllQuery),
             pdb::Query::Empty => Box::new(EmptyQuery),
@@ -579,13 +575,7 @@ impl pdb::Query {
             pdb::Query::RangeWithin {
                 lower_bound,
                 upper_bound,
-            } => range_within(
-                &field,
-                schema,
-                lower_bound,
-                upper_bound,
-                search_field.is_datetime(),
-            )?,
+            } => range_within(&field, schema, lower_bound, upper_bound)?,
             pdb::Query::Regex { pattern } => regex(&field, schema, &pattern)?,
             pdb::Query::RegexPhrase {
                 regexes,
@@ -844,13 +834,12 @@ fn range_within(
     schema: &SearchIndexSchema,
     lower_bound: Bound<OwnedValue>,
     upper_bound: Bound<OwnedValue>,
-    is_datetime: bool,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let typeoid = search_field.field_type().typeoid();
-    let is_datetime = search_field.is_datetime() || is_datetime;
+    let is_datetime = search_field.is_datetime();
     let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
 
     let range_field = RangeField::new(search_field.field(), is_datetime);

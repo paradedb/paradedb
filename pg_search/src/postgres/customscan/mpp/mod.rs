@@ -44,25 +44,18 @@ use serde::{Deserialize, Serialize};
 /// extension.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MppParticipantConfig {
-    /// 0-based worker index (`ParallelWorkerNumber`). Workers only — the
-    /// leader has no `MppParticipantConfig` since it doesn't run a worker
-    /// fragment in the single-stage gather path.
+    /// 0-based worker index (`ParallelWorkerNumber`). Workers only; the leader has no
+    /// `MppParticipantConfig` because it doesn't host a producer fragment.
     pub participant_index: u32,
-    /// Number of producer workers in the mesh (= `n_procs - 1`; the leader
-    /// is consumer-only in the single-stage gather path).
+    /// Number of producer workers in the mesh (= `n_procs - 1`; the leader is consumer-only).
     pub total_workers: u32,
 }
 
 /// Emit a runtime trace when `paradedb.mpp_debug` is on.
 ///
-/// Routed through `pgrx::warning!` so the line appears in the Postgres server log
-/// (and in CI benchmark logs). No-op when the GUC is off, and no-op in `cargo
-/// test` builds: `pgrx::warning!` expands to a call into PG's `ereport`
-/// machinery (`CurrentMemoryContext`, `PG_exception_stack`,
-/// `error_context_stack`, `CopyErrorData`), which the plain `cargo test
-/// --no-default-features` link line does not provide. Production builds
-/// (`cargo pgrx install`, the cdylib) link against PG and resolve these at
-/// load time, so gating only the `#[cfg(test)]` lib-test build is enough.
+/// Routed through `pgrx::warning!` so the line lands in the Postgres server log (and CI bench
+/// logs). Gated `#[cfg(not(test))]` because `pgrx::warning!` expands to PG's `ereport` machinery,
+/// which the lib-test binary doesn't link against; see the `#[cfg(test)]` no-op stub below.
 #[cfg(not(test))]
 #[macro_export]
 macro_rules! mpp_log {

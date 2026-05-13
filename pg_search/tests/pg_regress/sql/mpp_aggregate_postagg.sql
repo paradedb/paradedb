@@ -1,7 +1,7 @@
 -- =====================================================================
 -- MPP AggregateScan: multi-stage natural-shape plan coverage.
 --
--- Exercises the M2.d/M3 transport substrate end-to-end via post-aggregate
+-- Exercises the transport substrate end-to-end via post-aggregate
 -- patterns that produce a three-stage plan
 -- (NetworkCoalesceExec -> NetworkShuffleExec -> NetworkBroadcastExec):
 --   - GROUP BY one key, multiple aggregates
@@ -10,8 +10,8 @@
 --   - aggregation over a HashJoin with broadcast build subtree
 --
 -- Each pass runs the same query in serial mode (enable_mpp=off) then MPP
--- mode (enable_mpp=on) and the expected.out compares them byte-for-byte
--- — any MPP-vs-serial divergence shows up as a regression.
+-- mode (enable_mpp=on). The expected.out compares them byte-for-byte, so
+-- any MPP-vs-serial divergence shows up as a regression.
 -- =====================================================================
 
 CREATE EXTENSION IF NOT EXISTS pg_search;

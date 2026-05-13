@@ -57,10 +57,9 @@ use crate::postgres::customscan::mpp::mesh::{
 };
 
 pub const MPP_DSM_MAGIC: u32 = 0x4D50_5052; // "MPPR" (RPC variant)
-/// V3: dropped the build-side cache region. Canonical-replica fan-out is now
-/// handled by `BroadcastExec` + `NetworkBroadcastExec(input_task_count=1)`,
-/// with [`crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator`]
-/// capping the `BroadcastExec` subtree at one producer task.
+/// Bumped on any wire-incompatible change to the DSM header layout or to the slot-offset math,
+/// so attaching workers reject mismatched leaders loudly rather than reading garbage. Validated
+/// in [`MppDsmHeader::validate`].
 pub const MPP_DSM_HEADER_VERSION: u32 = 3;
 
 /// Absolute cap on DSM region size. 16 GiB is two orders of magnitude beyond
@@ -228,20 +227,18 @@ pub fn peer_proc_for_index(this_proc: u32, peer_idx: u32) -> u32 {
     }
 }
 
-/// Initialize the DSM region as the leader (`proc_idx = 0`). Writes the
-/// header, copies the plan bytes, calls `shm_mq_create` on every queue slot,
-/// and attaches the leader's row + column handles.
+/// Initialize the DSM region as the leader (`proc_idx = 0`). Writes the header, copies the plan
+/// bytes, calls `shm_mq_create` on every queue slot, and attaches the leader's row + column
+/// handles.
 ///
-/// In the multiplexed `n_procs × n_procs` grid, every process — leader
-/// included — is a full participant: sender for its row, receiver for its
-/// column. The leader is responsible for the one-time `shm_mq_create` on
-/// every queue (workers cannot, since the region is uninitialized at their
-/// attach time), then performs its own `set_sender` / `set_receiver` calls
-/// on its row and column slots.
+/// In the multiplexed `n_procs × n_procs` grid, every process (leader included) is a full
+/// participant: sender for its row, receiver for its column. The leader is responsible for the
+/// one-time `shm_mq_create` on every queue (workers can't, since the region is uninitialized at
+/// their attach time), then does its own `set_sender` / `set_receiver` calls on its row and column
+/// slots.
 ///
 /// # Safety
-/// - `coordinate` must point to the start of a DSM region of size
-///   `>= layout.region_total`.
+/// - `coordinate` must point to the start of a DSM region of size `>= layout.region_total`.
 /// - `seg` must be the leader's `dsm_segment*`.
 /// - The region must be uninitialized (the leader is the first writer).
 pub unsafe fn leader_init(
@@ -279,10 +276,9 @@ pub unsafe fn leader_init(
         );
     }
 
-    // One-time create of every shm_mq slot. Workers cannot do this — the
-    // region is uninitialized at their attach time — so the leader runs
-    // `shm_mq_create` for all `n_procs²` slots even though it only attaches
-    // to its own row and column below.
+    // One-time create of every shm_mq slot. Workers can't do this (the region is uninitialized at
+    // their attach time), so the leader runs `shm_mq_create` for all `n_procs²` slots even though
+    // it only attaches to its own row and column below.
     let header = MppDsmHeader::from_layout(layout);
     let n_procs = layout.n_procs;
     for s in 0..n_procs {
@@ -299,17 +295,15 @@ pub unsafe fn leader_init(
 /// Attach to the leader-initialized DSM region as `proc_idx` (`0 = leader`,
 /// `1..N = parallel workers`).
 ///
-/// Workers use this from `initialize_worker_custom_scan` via `worker_attach`;
-/// the leader uses it inline at the end of `leader_init`. Each process
-/// attaches as sender to its row and receiver to its column of the
-/// `n_procs × n_procs` grid, including the self-loop at `(this, this)`.
+/// Workers use this from `initialize_worker_custom_scan` via `worker_attach`; the leader uses it
+/// inline at the end of `leader_init`. Each process attaches as sender to its row and receiver to
+/// its column of the `n_procs × n_procs` grid, including the self-loop at `(this, this)`.
 ///
 /// # Safety
 /// - `base` must point to a DSM region whose header has been validated.
-/// - `header.slot_offset(s, r)` must already point at a slot initialized by
-///   `shm_mq_create` (the leader does this in `leader_init`).
-/// - `seg` may be NULL on workers — `shm_mq_attach` skips its on-detach
-///   callback when so.
+/// - `header.slot_offset(s, r)` must already point at a slot initialized by `shm_mq_create` (the
+///   leader does this in `leader_init`).
+/// - `seg` may be NULL on workers. `shm_mq_attach` skips its on-detach callback in that case.
 unsafe fn attach_proc_row_and_column(
     base: *mut u8,
     header: &MppDsmHeader,
@@ -351,10 +345,9 @@ unsafe fn attach_proc_row_and_column(
 /// # Safety
 /// - `coordinate` must be the DSM region pointer the leader initialized.
 /// - `region_total` must match the DSM's attached size.
-/// - `seg` may be NULL — `initialize_worker_custom_scan` does not surface
-///   the segment pointer and `shm_mq_attach` handles NULL by skipping its
-///   on-detach callback (cleanup falls back to process exit, safe for
-///   parallel-worker lifetimes).
+/// - `seg` may be NULL. `initialize_worker_custom_scan` doesn't surface the segment pointer, and
+///   `shm_mq_attach` handles NULL by skipping its on-detach callback (cleanup falls back to
+///   process exit, safe for parallel-worker lifetimes).
 pub unsafe fn worker_attach(
     coordinate: *mut c_void,
     region_total: u64,

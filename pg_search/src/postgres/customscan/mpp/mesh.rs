@@ -67,13 +67,12 @@ pub struct ShmMqSender {
 
 // SAFETY: see struct doc.
 unsafe impl Send for ShmMqSender {}
-// SAFETY: `MppSender` ensures all `send_*` paths execute on the attach
-// thread (a `debug_assert!` in `send_bytes` / `try_send_bytes` pins this),
-// so cross-thread sharing of `&ShmMqSender` never actually crosses threads
-// at the FFI boundary. The Sync bound exists so multiple `MppSender`s can
-// hold `Arc<dyn BatchChannelSender>` clones of the same underlying queue
-// — the M2 multi-partition fan-out pattern — without the type system
-// rejecting the `Arc::clone` at compile time.
+// SAFETY: `MppSender` ensures all `send_*` paths execute on the attach thread (a
+// `debug_assert!` in `send_bytes` / `try_send_bytes` pins this), so cross-thread sharing of
+// `&ShmMqSender` never actually crosses threads at the FFI boundary. The Sync bound is there so
+// multiple `MppSender`s can hold `Arc<dyn BatchChannelSender>` clones of the same underlying
+// queue (the multi-partition fan-out pattern) without the type system rejecting the `Arc::clone`
+// at compile time.
 unsafe impl Sync for ShmMqSender {}
 
 impl ShmMqSender {

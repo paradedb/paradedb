@@ -103,28 +103,24 @@ pub enum FragmentRouting {
     /// with empty streams from the others, matching upstream's
     /// single-producer broadcast pattern.
     ///
-    /// **INVARIANT (load-bearing for correctness):** the build subtree's
-    /// output is canonical-replicated across all producer procs. In the
-    /// AggregateScan MPP path this is enforced by the all-gather step
-    /// (`mpp build all-gather`) that pre-stages the canonical source on
-    /// every worker before plan execution. If a future planner emits a
-    /// [`NetworkBroadcastExec`] over a sharded child (e.g. each producer
-    /// task scans a different file_group), the short-circuit silently
-    /// drops `input_task_count - 1` shards' worth of data. When that
-    /// pattern is introduced, this variant must be split into
-    /// `BroadcastCanonicalReplica` vs. `BroadcastSharded` (or the
-    /// short-circuit must be conditional on a planner-set sentinel).
+    /// **INVARIANT (load-bearing for correctness):** the build subtree's output is
+    /// canonical-replicated across all producer procs. In the AggregateScan MPP path this is
+    /// enforced by the all-gather step (`mpp build all-gather`) that pre-stages the canonical
+    /// source on every worker before plan execution. If a future planner emits a
+    /// [`NetworkBroadcastExec`] over a sharded child (e.g. each producer task scans a different
+    /// file_group), the short-circuit silently drops `input_task_count - 1` shards' worth of
+    /// data. When that pattern is introduced, this variant must be split into
+    /// `BroadcastCanonicalReplica` vs. `BroadcastSharded` (or the short-circuit must be
+    /// conditional on a planner-set sentinel).
     ///
     /// **Planner-level cap:** the AggregateScan session installs
     /// [`crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator`]
-    /// in front of the default leaf estimator, which caps the canonical-
-    /// replica memory leaf at `task_count = 1`. This propagates up the
-    /// build subtree and makes the DF-D planner build
-    /// `NetworkBroadcastExec` with `input_task_count = 1`. With the cap
-    /// in place the dispatcher only ever sees `task_idx == 0` fragments
-    /// for Broadcast routing — the wire-layer guard is a hard
-    /// `pgrx::error!` for any `task_idx > 0` so a missed cap surfaces
-    /// loudly instead of silently mis-routing data.
+    /// in front of the default leaf estimator, which caps the canonical-replica memory leaf at
+    /// `task_count = 1`. This propagates up the build subtree and makes the DF-D planner build
+    /// `NetworkBroadcastExec` with `input_task_count = 1`. With the cap in place the dispatcher
+    /// only ever sees `task_idx == 0` fragments for Broadcast routing. The wire-layer guard is
+    /// a hard `pgrx::error!` for any `task_idx > 0` so a missed cap surfaces loudly instead of
+    /// silently mis-routing data.
     ///
     /// [`NetworkBroadcastExec`]: datafusion_distributed::NetworkBroadcastExec
     Broadcast {
@@ -201,10 +197,9 @@ fn collect(
     if let Some(nb) = plan.as_ref().as_network_boundary() {
         let stage = nb.input_stage();
         let stage_id = stage.num() as u32;
-        // Boundary's name decides routing rule. Downcasting through the
-        // trait gives us back-pointers to the concrete type, but the
-        // dispatcher only needs the receive-side math which is identical
-        // for the embedded model whether we got here through Shuffle or
+        // Boundary's name decides routing rule. Downcasting through the trait gives us
+        // back-pointers to the concrete type, but the dispatcher only needs the receive-side
+        // math which is identical for the embedded model whether we got here through Shuffle or
         // Coalesce; the only distinction is the partitions-per-task math.
         let name = plan.name();
         // Receive-side per-consumer-task partition count: see
@@ -214,41 +209,34 @@ fn collect(
         // Determine routing for fragments produced by this boundary's
         // input_stage tasks.
         //
-        // NetworkShuffleExec and NetworkBroadcastExec have IDENTICAL
-        // receive-side math: both compute `off = P_c * task_index` and
-        // pull partition `off + p_local` from every input task. The
-        // producer-side routing must therefore also be the same — output
-        // partition q goes to consumer task `q / P_c`. The semantic
-        // difference (shuffle hashes rows, broadcast emits the full set
-        // to every consumer) lives entirely inside each task's plan and
-        // doesn't change how partitions map to procs at the wire layer.
+        // NetworkShuffleExec and NetworkBroadcastExec have IDENTICAL receive-side math: both
+        // compute `off = P_c * task_index` and pull partition `off + p_local` from every input
+        // task. So the producer-side routing has to match: output partition q goes to consumer
+        // task `q / P_c`. The semantic difference (shuffle hashes rows, broadcast emits the full
+        // set to every consumer) lives entirely inside each task's plan and doesn't change how
+        // partitions map to procs at the wire layer.
         //
-        // NetworkCoalesceExec is different: its execute consults a single
-        // input task per consumer (`target_task = group.start_task +
-        // input_task_offset`) and the producer emits one stream per
-        // consumer task in its group. For the natural-shape plan we
-        // currently target the only nested coalesce is consumer_tc=1 (the
-        // top-level gather, handled by the `parent=None` arm), so the
-        // nested-coalesce arm here is a defensive fallback for shapes the
-        // M2.d milestone doesn't yet exercise.
+        // NetworkCoalesceExec is different. Its execute consults a single input task per
+        // consumer (`target_task = group.start_task + input_task_offset`), and the producer emits
+        // one stream per consumer task in its group. In the natural-shape plan we currently
+        // target, the only nested coalesce is consumer_tc=1 (the top-level gather, handled by
+        // the `parent=None` arm). The nested-coalesce arm below is a defensive fallback for
+        // shapes we don't exercise yet.
         let routing = match (name, nested) {
-            // Top-level NetworkBroadcastExec is not a shape the natural-
-            // shape AggregateScan plan produces today (broadcast is always
-            // nested inside the HashJoin build subtree). Falling through
-            // to `Coalesce { dest_proc: 0 }` would silently send every
-            // input task's full canonical replica to the leader and
-            // `select_all` would over-count by `input_task_count`. Surface
-            // it as an error so a future planner change that hits this
-            // shape doesn't silently produce wrong answers.
+            // Top-level NetworkBroadcastExec isn't a shape the natural-shape AggregateScan plan
+            // produces (broadcast is always nested inside the HashJoin build subtree). Falling
+            // through to `Coalesce { dest_proc: 0 }` would silently send every input task's full
+            // canonical replica to the leader and `select_all` would over-count by
+            // `input_task_count`. Surface it as an error so a future planner change that hits
+            // this shape doesn't silently produce wrong answers.
             ("NetworkBroadcastExec", false) => {
-                // `pgrx::error!` pulls PG runtime symbols (`CopyErrorData`,
-                // `PG_exception_stack`, `CurrentMemoryContext`,
-                // `error_context_stack`) via the ereport machinery. Reaching it
-                // from the `#[cfg(test)]` block at the bottom of this file
-                // would force the test binary to link against postgres, which
-                // `cargo test --features pgNN --no-default-features` does not.
-                // Plain `panic!` in test builds, same `!` return type as
-                // `pgrx::error!`, so the match arm still type-checks.
+                // `pgrx::error!` pulls PG runtime symbols (`CopyErrorData`, `PG_exception_stack`,
+                // `CurrentMemoryContext`, `error_context_stack`) via the ereport machinery.
+                // Reaching it from the `#[cfg(test)]` block at the bottom of this file would
+                // force the test binary to link against postgres, which
+                // `cargo test --features pgNN --no-default-features` doesn't. Plain `panic!` in
+                // test builds, same `!` return type as `pgrx::error!`, so the match arm still
+                // type-checks.
                 #[cfg(not(test))]
                 pgrx::error!(
                     "mpp worker_fragments: top-level NetworkBroadcastExec is unsupported \
@@ -264,30 +252,27 @@ fn collect(
             }
             // Top-level boundary (gather to leader): consumer is leader proc 0.
             (_, false) => FragmentRouting::Coalesce { dest_proc: 0 },
-            // Nested NetworkShuffleExec: hash-partitioned mesh. Each
-            // output partition q maps to consumer task q / p_c.
+            // Nested NetworkShuffleExec: hash-partitioned mesh. Each output partition q maps to
+            // consumer task q / p_c.
             ("NetworkShuffleExec", true) => FragmentRouting::Shuffle {
                 partitions_per_consumer_task: p_c,
             },
-            // Nested NetworkBroadcastExec: same wire-level math as
-            // Shuffle, but the dispatcher only runs the producer plan on
-            // task 0 to avoid the canonical-replica duplication described
-            // on `FragmentRouting::Broadcast`.
+            // Nested NetworkBroadcastExec: same wire-level math as Shuffle, but the dispatcher
+            // only runs the producer plan on task 0 to avoid the canonical-replica duplication
+            // described on `FragmentRouting::Broadcast`.
             ("NetworkBroadcastExec", true) => FragmentRouting::Broadcast {
                 partitions_per_consumer_task: p_c,
             },
-            // Nested NetworkCoalesceExec: consumer is a single task in
-            // the parent stage. The receive math collapses to task 0 of
-            // the parent group, so the destination proc is
+            // Nested NetworkCoalesceExec: consumer is a single task in the parent stage. The
+            // receive math collapses to task 0 of the parent group, so the destination proc is
             // `proc_for_task(n_workers, 0)`.
             ("NetworkCoalesceExec", true) => FragmentRouting::Coalesce {
                 dest_proc: proc_for_task(n_workers, 0),
             },
-            // Any other nested boundary kind is unknown territory. Fall
-            // through to a hard error rather than silently routing to
-            // task 0 of `proc_for_task`, which would over-count or drop
-            // batches for a shape we haven't reasoned about. Surface as
-            // error so plan-walk drift is visible.
+            // Any other nested boundary kind is unknown territory. Fall through to a hard error
+            // rather than silently routing to task 0 of `proc_for_task`, which would over-count
+            // or drop batches for a shape we haven't reasoned about. Surface as error so
+            // plan-walk drift is visible.
             (other, true) => {
                 #[cfg(not(test))]
                 pgrx::error!(
@@ -327,10 +312,9 @@ fn collect(
                     });
                 }
             }
-            // Recurse into the stage's plan with `nested = true`. The
-            // boundary's `children()` returns `[stage.plan]` so descending
-            // through it would double-process every nested fragment —
-            // return here to keep visit counts exact.
+            // Recurse into the stage's plan with `nested = true`. The boundary's `children()`
+            // returns `[stage.plan]`, so descending through it would double-process every nested
+            // fragment. Return here to keep visit counts exact.
             collect(stage_plan, this_proc, n_workers, true, out);
         }
         return;

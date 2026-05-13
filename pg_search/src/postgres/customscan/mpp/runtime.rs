@@ -48,14 +48,13 @@ use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, DrainHand
 
 /// `(producer_task_idx) → proc_idx` round-robin over the worker procs.
 ///
-/// Leader is `proc_idx = 0`; workers are `1..n_procs`. The mapping is a pure
-/// function of `task_idx % n_workers`, so it doesn't need a side table — every
-/// proc that knows `n_workers` computes the same answer.
+/// Leader is `proc_idx = 0`; workers are `1..n_procs`. The mapping is a pure function of
+/// `task_idx % n_workers`, so it doesn't need a side table: every proc that knows `n_workers`
+/// computes the same answer.
 ///
-/// With the planner's `target_partitions = n_workers` and
-/// `distributed_task_estimator = n_workers` knobs, the natural-shape plans
-/// keep `task_idx < n_workers` in every stage we currently target; the modulo
-/// wraps cleanly when future shapes exceed that.
+/// With the planner's `target_partitions = n_workers` and `distributed_task_estimator = n_workers`
+/// knobs, the natural-shape plans keep `task_idx < n_workers` in every stage we target; the
+/// modulo wraps cleanly when future shapes exceed that.
 #[inline]
 pub fn proc_for_task(n_workers: u32, task_idx: u32) -> u32 {
     1 + (task_idx % n_workers.max(1))
@@ -63,26 +62,24 @@ pub fn proc_for_task(n_workers: u32, task_idx: u32) -> u32 {
 
 /// Runtime handle the customscan populates at DSM-init time.
 ///
-/// M1.c restructured this from a `(worker, partition)`-indexed grid to a
-/// per-sender-proc map. Each shm_mq queue (one per `(sender_proc, this_proc)`
-/// pair in the V2 DSM grid) is multi-channel: frames from any number of
-/// `(stage_id, partition)` logical channels can arrive on one queue, tagged
-/// by [`MppFrameHeader`]. M2.b added the sub-buffer registry per
-/// [`DrainHandle`] so a single drain can fan frames out to multiple
-/// consumers keyed on `(stage_id, partition)`.
+/// Each shm_mq queue (one per `(sender_proc, this_proc)` pair in the V2 DSM grid) is
+/// multi-channel. Frames from any number of `(stage_id, partition)` logical channels can arrive
+/// on one queue, tagged by [`MppFrameHeader`]. The sub-buffer registry on each [`DrainHandle`]
+/// fans them out to the matching consumers keyed on `(stage_id, partition)`.
 ///
 /// [`MppFrameHeader`]: crate::postgres::customscan::mpp::transport::MppFrameHeader
 pub struct MppMesh {
-    /// This process's `proc_idx` (= 0 for the leader, `ParallelWorkerNumber + 1`
-    /// for workers). Frames addressed to this proc arrive on `slot(*, this_proc)`.
+    /// This process's `proc_idx` (= 0 for the leader, `ParallelWorkerNumber + 1` for workers).
+    /// Frames addressed to this proc arrive on `slot(*, this_proc)`.
     pub this_proc: u32,
     /// Total participant count. Bounds the producer/consumer proc lookups in
     /// [`ShmMqWorkerTransport::open`].
     pub n_procs: u32,
-    /// `inbound_drains[sender_proc]` is the cooperative drain that pulls
-    /// frames from `slot(sender_proc, this_proc)`. `None` for entries the
-    /// process doesn't consume from (self-loop, currently). The natural-shape
-    /// gather installs drains for every `sender_proc != this_proc`.
+    /// `inbound_drains[sender_proc]` is the cooperative drain that pulls frames from
+    /// `slot(sender_proc, this_proc)`. `None` at the self-loop entry
+    /// (`sender_proc == this_proc`); workers route those frames through an in-proc channel via
+    /// `outbound_senders[this_proc]` instead. The natural-shape gather installs drains for every
+    /// `sender_proc != this_proc`.
     pub inbound_drains: Vec<Option<Arc<DrainHandle>>>,
 }
 
@@ -100,9 +97,8 @@ impl MppMesh {
         }
     }
 
-    /// Look up the drain that owns frames coming from `sender_proc`. Returns
-    /// `None` if no drain is installed (out-of-range or the self-loop slot,
-    /// which the single-stage gather skips).
+    /// Look up the drain that owns frames coming from `sender_proc`. Returns `None` if no drain
+    /// is installed (out-of-range or the self-loop slot, which the single-stage gather skips).
     pub fn inbound_drain(&self, sender_proc: u32) -> Option<&Arc<DrainHandle>> {
         let idx = sender_proc as usize;
         self.inbound_drains.get(idx).and_then(|slot| slot.as_ref())
@@ -115,15 +111,14 @@ impl MppMesh {
     }
 
     /// Pull from every installed inbound drain. Called from
-    /// [`crate::postgres::customscan::mpp::transport::MppSender`]'s
-    /// cooperative-send spin so a producer stalled on a full outbound queue
-    /// can drain inbound peer data inline — preventing the N×N symmetric-send
-    /// deadlock when every peer is simultaneously stalled waiting for space.
+    /// [`crate::postgres::customscan::mpp::transport::MppSender`]'s cooperative-send spin so a
+    /// producer stalled on a full outbound queue can drain inbound peer data inline. That's what
+    /// prevents the N×N symmetric-send deadlock when every peer is simultaneously stalled waiting
+    /// for space.
     ///
-    /// Returns the first error if any drain's `try_drain_pass` errors;
-    /// otherwise `Ok(())` after all drains have been polled. Drains that
-    /// have already detached are skipped silently (their slot is still
-    /// `Some`, but their inner `coop_receivers` Vec entry is `None`).
+    /// Returns the first error if any drain's `try_drain_pass` errors; otherwise `Ok(())` after
+    /// all drains have been polled. Drains that have already detached are skipped silently (their
+    /// slot is still `Some`, but their inner `coop_receivers` Vec entry is `None`).
     pub fn drain_all_inbound(&self) -> Result<(), DataFusionError> {
         for drain in self.inbound_drains.iter().flatten() {
             drain.try_drain_pass()?;
@@ -198,9 +193,9 @@ impl WorkerTransport for ShmMqWorkerTransport {
 struct ShmMqWorkerConnection {
     mesh: Arc<MppMesh>,
     sender_proc: u32,
-    /// `stage_id` of the boundary's `input_stage`. Passed to
-    /// `DrainHandle::register_channel` so the sub-buffer this connection
-    /// streams from sees only frames tagged with the same `(stage_id, p)`.
+    /// `stage_id` of the boundary's `input_stage`. Passed to `DrainHandle::register_channel` so
+    /// the sub-buffer this connection streams from sees only frames tagged with the same
+    /// `(stage_id, p)`.
     stage_id: u32,
 }
 
@@ -219,10 +214,9 @@ impl WorkerConnection for ShmMqWorkerConnection {
             ))
         })?;
         let drain = Arc::clone(drain);
-        // M2.b: ask the drain for the sub-buffer dedicated to this
-        // `(stage_id, partition)` channel. Frames the worker emits with a
-        // matching header land here; frames tagged with other partitions go
-        // to their own sub-buffers, so this consumer only sees its slice.
+        // Ask the drain for the sub-buffer dedicated to this `(stage_id, partition)` channel.
+        // Frames with a matching header land here; frames tagged with other partitions go to
+        // their own sub-buffers, so this consumer only sees its slice.
         let buffer = drain.register_channel(self.stage_id, partition_u32);
         crate::mpp_log!(
             "mpp transport::stream_partition this_proc={} sender_proc={} stage_id={} \
@@ -231,18 +225,15 @@ impl WorkerConnection for ShmMqWorkerConnection {
             self.sender_proc,
             self.stage_id,
         );
-        // Cooperative pull loop: pgrx requires shm_mq FFI on the backend
-        // thread, so the drain pass runs inline here. Each iteration drains
-        // the receiver into the registry (max 256 batches), then pops one
-        // batch out to yield, then yields back to Tokio so sibling tasks
+        // Cooperative pull loop: pgrx requires shm_mq FFI on the backend thread, so the drain
+        // pass runs inline here. Each iteration drains the receiver into the registry (max 256
+        // batches), then pops one batch out to yield, then yields back to Tokio so sibling tasks
         // (e.g. the leader's own producer subplan) can advance.
         //
-        // `pgrx::check_for_interrupts!()` at the top of every iteration so
-        // a user CANCEL or query timeout `longjmp`s out before the next
-        // drain pass; without it the cooperative spin would keep pumping
-        // batches even after the backend should have torn down. The send
-        // side has the same check inside `MppSender::send_batch_traced`'s
-        // retry loop in `transport.rs`.
+        // `pgrx::check_for_interrupts!()` at the top of every iteration so a user CANCEL or query
+        // timeout `longjmp`s out before the next drain pass; without it the cooperative spin
+        // would keep pumping batches even after the backend should have torn down. The send side
+        // has the same check inside `MppSender::send_batch_traced`'s retry loop in `transport.rs`.
         let stream = async_stream::stream! {
             loop {
                 pgrx::check_for_interrupts!();

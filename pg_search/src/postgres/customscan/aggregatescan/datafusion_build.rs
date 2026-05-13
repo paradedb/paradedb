@@ -888,8 +888,8 @@ impl FilterExpr {
                         // Non-star: confirm the argument column matches.
                         // Compare by `plan_position` rather than rti so the
                         // match is robust to rti aliasing across sub-
-                        // PlannerInfos (Moe #5 dropped rti from targetlist
-                        // refs; plan_position is the canonical identity).
+                        // PlannerInfos. `plan_position` is the canonical
+                        // identity; targetlist refs don't carry rti.
                         if !agg.field_refs.is_empty() {
                             let args = PgList::<pg_sys::TargetEntry>::from_pg((*aggref).args);
                             if let Some(first_arg) = args.get_ptr(0) {

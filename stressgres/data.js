@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778633410547,
+  "lastUpdate": 1778633445437,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -878,6 +878,138 @@ window.BENCHMARK_DATA = {
             "value": 55.8359375,
             "unit": "median mem",
             "extra": "avg mem: 55.76807750335018, max mem: 69.515625, count: 55221"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "james.sewell@gmail.com",
+            "name": "James Sewell",
+            "username": "jamessewell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8182eaf110c30cbefe008197caa40efa8b44f8e0",
+          "message": "refactor: use existing FFHelper ctid cache instead of dedicated cache (#4905)\n\nFix a performance regression introduced in e0804b347 (#4765) which\nremoved ctid from SearchIndexScore and switched to lazy per-row\nresolution.\n\nPrior to #4765, ctid was resolved during result construction and carried\nin `SearchIndexScore` — no per-row fast-field lookups needed. #4765\nmoved ctid resolution to the consumption side (top_k.rs, normal.rs,\nscan.rs) using a single-entry `Option<(SegmentOrdinal, FFType)>` cache.\nWhen TopK results interleave across segments (sorted by score), every\nsegment transition re-opens the ctid column via `FastFieldReaders::u64\n-> DynamicColumnHandle::open -> BlockwiseLinearCodec::load`, which is\nvery expensive. Profiling showed 45% of total cycles spent in this\nre-open path.\n\nThe columnar scan path (`ColumnarExecState`) was unaffected — it already\nused `FFHelper`'s per-segment `OnceLock` ctid cache. This PR brings the\nremaining paths in line:\n\n- `scan.rs` uses its existing `Bm25ScanState.fast_fields` FFHelper\n- `normal.rs` and `top_k.rs` use a new `ctid_cache` FFHelper on\n`BaseScanState`\n\nEach segment's ctid column is opened at most once via `OnceLock`,\neliminating the thrashing. `FFHelper` has had this per-segment ctid\ncaching built in since cb78f0ca2 (Oct 2024).",
+          "timestamp": "2026-05-13T12:18:31+12:00",
+          "tree_id": "814e1da895eec41e0dfe3cbb5348bdb237811bf7",
+          "url": "https://github.com/paradedb/paradedb/commit/8182eaf110c30cbefe008197caa40efa8b44f8e0"
+        },
+        "date": 1778633412584,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.275363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.184210757695471, max cpu: 19.077902, count: 55114"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 66.40234375,
+            "unit": "median mem",
+            "extra": "avg mem: 66.19309600044907, max mem: 77.23046875, count: 55114"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.591495673146632, max cpu: 18.897638, count: 55114"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 65.08203125,
+            "unit": "median mem",
+            "extra": "avg mem: 64.81071293704866, max mem: 75.75390625, count: 55114"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7371640980421725, max cpu: 9.347614, count: 55114"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 36.59765625,
+            "unit": "median mem",
+            "extra": "avg mem: 36.26604912091302, max mem: 38.46484375, count: 55114"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.873994065981994, max cpu: 9.467456, count: 55114"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 63.515625,
+            "unit": "median mem",
+            "extra": "avg mem: 62.99029199704249, max mem: 74.33984375, count: 55114"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.65669578333524, max cpu: 9.275363, count: 110228"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 62.90625,
+            "unit": "median mem",
+            "extra": "avg mem: 61.621889614594295, max mem: 73.8984375, count: 110228"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1748,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1756.3705592045578, max block_count: 3106.0, count: 55114"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 10,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.464346626991327, max segment_count: 16.0, count: 55114"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.479926491940563, max cpu: 18.879055, count: 55114"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 64.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 64.53767120763327, max mem: 75.52734375, count: 55114"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.578715438909623, max cpu: 9.302325, count: 55114"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 54.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 57.855413679487064, max mem: 73.82421875, count: 55114"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.537875646704179, max cpu: 4.7244096, count: 55114"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 57.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 56.37168698062198, max mem: 68.78125, count: 55114"
           }
         ]
       }

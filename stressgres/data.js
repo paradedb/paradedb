@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778634832583,
+  "lastUpdate": 1778634864011,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2122,6 +2122,108 @@ window.BENCHMARK_DATA = {
             "value": 164.15234375,
             "unit": "median mem",
             "extra": "avg mem: 182.21498756218907, max mem: 222.54296875, count: 56280"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "james.sewell@gmail.com",
+            "name": "James Sewell",
+            "username": "jamessewell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8182eaf110c30cbefe008197caa40efa8b44f8e0",
+          "message": "refactor: use existing FFHelper ctid cache instead of dedicated cache (#4905)\n\nFix a performance regression introduced in e0804b347 (#4765) which\nremoved ctid from SearchIndexScore and switched to lazy per-row\nresolution.\n\nPrior to #4765, ctid was resolved during result construction and carried\nin `SearchIndexScore` — no per-row fast-field lookups needed. #4765\nmoved ctid resolution to the consumption side (top_k.rs, normal.rs,\nscan.rs) using a single-entry `Option<(SegmentOrdinal, FFType)>` cache.\nWhen TopK results interleave across segments (sorted by score), every\nsegment transition re-opens the ctid column via `FastFieldReaders::u64\n-> DynamicColumnHandle::open -> BlockwiseLinearCodec::load`, which is\nvery expensive. Profiling showed 45% of total cycles spent in this\nre-open path.\n\nThe columnar scan path (`ColumnarExecState`) was unaffected — it already\nused `FFHelper`'s per-segment `OnceLock` ctid cache. This PR brings the\nremaining paths in line:\n\n- `scan.rs` uses its existing `Bm25ScanState.fast_fields` FFHelper\n- `normal.rs` and `top_k.rs` use a new `ctid_cache` FFHelper on\n`BaseScanState`\n\nEach segment's ctid column is opened at most once via `OnceLock`,\neliminating the thrashing. `FFHelper` has had this per-segment ctid\ncaching built in since cb78f0ca2 (Oct 2024).",
+          "timestamp": "2026-05-13T12:18:31+12:00",
+          "tree_id": "814e1da895eec41e0dfe3cbb5348bdb237811bf7",
+          "url": "https://github.com/paradedb/paradedb/commit/8182eaf110c30cbefe008197caa40efa8b44f8e0"
+        },
+        "date": 1778634834038,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07046434376987773, max background_merging: 2.0, count: 56596"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.879072499869863, max cpu: 9.67742, count: 56596"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 29.38671875,
+            "unit": "median mem",
+            "extra": "avg mem: 29.32580482719627, max mem: 29.39453125, count: 56596"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.0373522673360265, max cpu: 27.906979, count: 56596"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 184.484375,
+            "unit": "median mem",
+            "extra": "avg mem: 180.22597859168494, max mem: 186.0, count: 56596"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51453,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51324.20930807831, max block_count: 51453.0, count: 56596"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.93439465686621, max segment_count: 56.0, count: 56596"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.636874247588598, max cpu: 32.40116, count: 56596"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 145.0625,
+            "unit": "median mem",
+            "extra": "avg mem: 132.94325059964484, max mem: 160.109375, count: 56596"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.708351953049828, max cpu: 28.543112, count: 56596"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 189.609375,
+            "unit": "median mem",
+            "extra": "avg mem: 182.76740329760494, max mem: 189.86328125, count: 56596"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.566226249860446, max cpu: 33.768845, count: 56596"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 163.828125,
+            "unit": "median mem",
+            "extra": "avg mem: 182.87408700482365, max mem: 222.23828125, count: 56596"
           }
         ]
       }

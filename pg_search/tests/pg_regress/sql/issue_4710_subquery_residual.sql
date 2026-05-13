@@ -1,0 +1,242 @@
+-- Regression test for Issue #4710 follow-up:
+--
+--   BaseScan must preserve ordinary PostgreSQL residual quals when it falls
+--   back from base-relation qual extraction to joininfo extraction.
+--
+-- This reproduces the qgen generated_subquery failure shape:
+--
+--   SELECT COUNT(*)
+--   FROM products
+--   WHERE NOT EXISTS (
+--       SELECT 1
+--       FROM orders
+--       WHERE orders.name = products.name
+--         AND orders.rating = '4'
+--       ORDER BY orders.id ASC NULLS FIRST
+--   )
+--   AND NOT (products.id @@@ '4');
+--
+-- The inner orders relation has:
+--   - a base restriction: orders.rating = 4
+--   - a join/correlation restriction: orders.name = products.name
+--
+-- The bug was:
+--   1. partial base extraction stored orders.rating = 4 as residual;
+--   2. joininfo extraction then replaced the whole ExtractInfo;
+--   3. residual became empty;
+--   4. orders.scan.plan.qual did not receive Filter: (rating = 4);
+--   5. NOT EXISTS was evaluated against all matching orders names instead of
+--      only orders with rating = 4.
+
+SET client_min_messages TO warning;
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+SET max_parallel_workers_per_gather TO 0;
+
+DROP TABLE IF EXISTS issue_4710_subquery_products CASCADE;
+DROP TABLE IF EXISTS issue_4710_subquery_orders CASCADE;
+
+CREATE TABLE issue_4710_subquery_products (
+                                              id bigint NOT NULL PRIMARY KEY,
+                                              name text NOT NULL,
+                                              rating integer NOT NULL
+);
+
+CREATE TABLE issue_4710_subquery_orders (
+                                            id bigint NOT NULL PRIMARY KEY,
+                                            name text NOT NULL,
+                                            rating integer NOT NULL
+);
+
+-- Correct PostgreSQL result:
+--
+--   NOT EXISTS(order with same name AND rating = 4)
+--     keeps alice, bob, dave
+--
+--   AND NOT id = 4
+--     removes dave
+--
+--   Final count = 2.
+--
+-- If the residual orders.rating = 4 is dropped, every product has some order
+-- with the same name, so NOT EXISTS becomes false for all rows and the BM25
+-- count becomes 0.
+INSERT INTO issue_4710_subquery_products(id, name, rating)
+VALUES
+    (1, 'alice', 1),
+    (2, 'bob',   2),
+    (3, 'carol', 3),
+    (4, 'dave',  4);
+
+INSERT INTO issue_4710_subquery_orders(id, name, rating)
+VALUES
+    (1, 'alice', 5),
+    (2, 'bob',   5),
+    (3, 'carol', 4),
+    (4, 'dave',  5);
+
+-- Do not configure id through numeric_fields: id is the key_field.
+-- Do not index rating: the test needs rating = 4 to remain a PostgreSQL
+-- residual qual, not a ParadeDB/Tantivy pushdown qual.
+CREATE INDEX issue_4710_subquery_products_bm25_idx
+    ON issue_4710_subquery_products
+    USING bm25 (id, name)
+    WITH (
+    key_field = 'id',
+    text_fields = '{"name": { "tokenizer": { "type": "keyword" }, "fast": true }}'
+    );
+
+CREATE INDEX issue_4710_subquery_orders_bm25_idx
+    ON issue_4710_subquery_orders
+    USING bm25 (id, name)
+    WITH (
+    key_field = 'id',
+    text_fields = '{"name": { "tokenizer": { "type": "keyword" }, "fast": true }}'
+    );
+
+ANALYZE issue_4710_subquery_products;
+ANALYZE issue_4710_subquery_orders;
+
+CREATE FUNCTION pg_temp.issue_4710_subquery_plan_flags(p_query text)
+    RETURNS TABLE (
+                      orders_custom_scan boolean,
+                      rating_filter_preserved boolean
+                  )
+    LANGUAGE plpgsql
+AS $$
+DECLARE
+plan_line text;
+    in_orders_scan boolean := false;
+BEGIN
+    orders_custom_scan := false;
+    rating_filter_preserved := false;
+
+FOR plan_line IN EXECUTE
+        format('EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) %s', p_query)
+    LOOP
+        IF plan_line LIKE '%Custom Scan (ParadeDB Base Scan) on issue_4710_subquery_orders%' THEN
+            orders_custom_scan := true;
+            in_orders_scan := true;
+        ELSIF plan_line LIKE '%Custom Scan (ParadeDB Base Scan) on issue_4710_subquery_products%' THEN
+            in_orders_scan := false;
+END IF;
+
+        IF in_orders_scan THEN
+            rating_filter_preserved :=
+                rating_filter_preserved
+                OR plan_line LIKE '%Filter:%rating%4%';
+END IF;
+END LOOP;
+
+RETURN NEXT;
+END
+$$;
+
+CREATE TEMP TABLE issue_4710_subquery_results (
+    kind text PRIMARY KEY,
+    count_value bigint NOT NULL
+);
+
+-- Baseline: plain PostgreSQL semantics.
+SET paradedb.enable_aggregate_custom_scan TO false;
+SET paradedb.enable_custom_scan TO false;
+SET paradedb.enable_custom_scan_without_operator TO false;
+SET paradedb.enable_filter_pushdown TO false;
+SET paradedb.enable_join_custom_scan TO false;
+SET enable_seqscan TO true;
+SET enable_indexscan TO true;
+SET enable_hashjoin TO true;
+SET enable_mergejoin TO true;
+SET enable_nestloop TO true;
+SET max_parallel_workers TO 0;
+SET parallel_leader_participation TO false;
+SET paradedb.enable_columnar_exec TO false;
+SET paradedb.enable_columnar_sort TO false;
+
+INSERT INTO issue_4710_subquery_results(kind, count_value)
+SELECT 'pg', COUNT(*)
+FROM issue_4710_subquery_products products
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM issue_4710_subquery_orders orders
+    WHERE orders.name = products.name
+      AND orders.rating = '4'
+    ORDER BY orders.id ASC NULLS FIRST
+)
+  AND NOT (products.id = '4');
+
+-- BM25/CustomScan path matching the failing qgen GUC shape.
+SET paradedb.enable_aggregate_custom_scan TO false;
+SET paradedb.enable_custom_scan TO true;
+SET paradedb.enable_custom_scan_without_operator TO true;
+SET paradedb.enable_filter_pushdown TO false;
+SET paradedb.enable_join_custom_scan TO false;
+SET enable_seqscan TO false;
+SET enable_indexscan TO false;
+SET enable_hashjoin TO true;
+SET enable_mergejoin TO false;
+SET enable_nestloop TO false;
+SET max_parallel_workers TO 0;
+SET parallel_leader_participation TO false;
+SET paradedb.enable_columnar_exec TO false;
+SET paradedb.enable_columnar_sort TO false;
+
+INSERT INTO issue_4710_subquery_results(kind, count_value)
+SELECT 'bm25', COUNT(*)
+FROM issue_4710_subquery_products products
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM issue_4710_subquery_orders orders
+    WHERE orders.name = products.name
+      AND orders.rating = '4'
+    ORDER BY orders.id ASC NULLS FIRST
+)
+  AND NOT (products.id @@@ '4');
+
+SELECT
+    kind,
+    count_value
+FROM issue_4710_subquery_results
+ORDER BY CASE kind WHEN 'pg' THEN 1 ELSE 2 END;
+
+SELECT
+    (SELECT count_value FROM issue_4710_subquery_results WHERE kind = 'pg') AS pg_count,
+    (SELECT count_value FROM issue_4710_subquery_results WHERE kind = 'bm25') AS bm25_count,
+    (SELECT count_value FROM issue_4710_subquery_results WHERE kind = 'pg')
+        =
+    (SELECT count_value FROM issue_4710_subquery_results WHERE kind = 'bm25') AS same_count;
+
+SELECT *
+FROM pg_temp.issue_4710_subquery_plan_flags($q$
+    SELECT COUNT(*)
+    FROM issue_4710_subquery_products products
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM issue_4710_subquery_orders orders
+        WHERE orders.name = products.name
+          AND orders.rating = '4'
+        ORDER BY orders.id ASC NULLS FIRST
+    )
+    AND NOT (products.id @@@ '4')
+$q$);
+
+DROP TABLE issue_4710_subquery_results;
+DROP TABLE issue_4710_subquery_products CASCADE;
+DROP TABLE issue_4710_subquery_orders CASCADE;
+
+RESET max_parallel_workers_per_gather;
+RESET max_parallel_workers;
+RESET parallel_leader_participation;
+RESET enable_seqscan;
+RESET enable_indexscan;
+RESET enable_hashjoin;
+RESET enable_mergejoin;
+RESET enable_nestloop;
+RESET paradedb.enable_aggregate_custom_scan;
+RESET paradedb.enable_custom_scan;
+RESET paradedb.enable_custom_scan_without_operator;
+RESET paradedb.enable_filter_pushdown;
+RESET paradedb.enable_join_custom_scan;
+RESET paradedb.enable_columnar_exec;
+RESET paradedb.enable_columnar_sort;
+RESET client_min_messages;

@@ -140,7 +140,7 @@
 
 pub mod build;
 pub mod planner;
-mod planning;
+pub mod planning;
 pub mod predicate;
 pub mod privdat;
 pub mod scan_state;
@@ -528,7 +528,7 @@ impl JoinScan {
         // the current join-hook invocation from needing equi-keys.
         let root_is_semi_anti = matches!(
             &plan,
-            RelNode::Join(j) if matches!(j.join_type, build::JoinType::Semi | build::JoinType::Anti)
+            RelNode::Join(j) if matches!(j.join_type, build::JoinType::Semi | build::JoinType::Anti { .. })
         );
         if join_keys.is_empty() && !root_is_semi_anti {
             return Err(JoinDeclineReason::new(

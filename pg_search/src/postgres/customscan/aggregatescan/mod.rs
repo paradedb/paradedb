@@ -480,7 +480,7 @@ impl CustomScan for AggregateScan {
                             a.agg_kind.to_string()
                         } else {
                             let fields: Vec<&str> =
-                                a.field_refs.iter().map(|(_, _, n)| n.as_str()).collect();
+                                a.field_refs.iter().map(|r| r.field_name.as_str()).collect();
                             format!("{}({})", a.agg_kind, fields.join(", "))
                         }
                     })
@@ -522,12 +522,23 @@ impl CustomScan for AggregateScan {
     fn begin_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
         estate: *mut pg_sys::EState,
-        _eflags: i32,
+        eflags: i32,
     ) {
         if state.custom_state().is_datafusion_backend() {
-            // DataFusion backend: create scan slot for result projection
+            // The agg-on-join path runs entirely inside DataFusion and
+            // never reaches the standard `init_expr_context` block below.
+            // Allocate an ExprContext here so per-relation HeapFilter
+            // queries (e.g. `=` on a `pdb.literal`-cast column) have a
+            // live evaluation context - except under EXPLAIN_ONLY, where
+            // no expressions run and the allocation is just dead weight
+            // until the per-query context tears down.
             unsafe {
                 let planstate = state.planstate();
+                if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) == 0 {
+                    pg_sys::ExecAssignExprContext(estate, planstate);
+                    state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
+                }
+
                 let scan_slot = pg_sys::MakeTupleTableSlot(
                     (*planstate).ps_ResultTupleDesc,
                     &pg_sys::TTSOpsVirtual,
@@ -1042,6 +1053,8 @@ impl AggregateScan {
                 custom_scan_tlist,
                 df_state.having_filter.as_ref(),
                 &ctx,
+                None,
+                None,
                 Some(mpp_ctx),
             )
             .await
@@ -1161,6 +1174,8 @@ impl AggregateScan {
                 custom_scan_tlist,
                 df_state.having_filter.as_ref(),
                 &ctx,
+                None,
+                None,
                 None,
             )
             .await?;
@@ -1511,7 +1526,7 @@ impl AggregateScan {
                 .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Extract aggregate target list (GROUP BY + aggregates)
-        let targetlist = unsafe { extract_aggregate_targetlist(builder.args(), &sources) }
+        let targetlist = unsafe { extract_aggregate_targetlist(builder.args(), &sources, &plan) }
             .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Reject plans with any join node that has no equi-keys (CROSS JOIN).
@@ -1539,15 +1554,25 @@ impl AggregateScan {
         // redundant Sort above us, which is correct (just wasteful on K rows).
         let topk = unsafe { detect_join_aggregate_topk(builder.args(), &targetlist) };
 
-        // Extract HAVING clause if present
+        // Extract HAVING clause if present.
+        //
+        // HAVING produces `AggRef`/`GroupRef`, never `ColumnRef`, so the
+        // FILTER `T_Var` arm is unreachable from here. But the HAVING
+        // matchers need the plan tree anyway to recover a source's rti
+        // from `plan_position` when matching parse-tree Vars to extracted
+        // targetlist refs (Moe #5 dropped rti from the targetlist refs
+        // themselves; the plan is the system of record now).
+        let outer_root_id =
+            crate::postgres::customscan::joinscan::build::PlannerRootId::from(builder.args().root);
         let having_filter = unsafe {
             let parse = builder.args().root().parse;
             if !parse.is_null() && !(*parse).havingQual.is_null() {
                 privdat::FilterExpr::from_pg_node(
                     (*parse).havingQual,
-                    &datafusion_build::FilterExprBuildContext {
-                        targetlist: Some(&targetlist),
-                        sources: None,
+                    &datafusion_build::FilterExprBuildContext::Having {
+                        targetlist: &targetlist,
+                        plan: &plan,
+                        outer_root_id,
                     },
                 )
             } else {
@@ -1772,6 +1797,16 @@ impl AggregateScan {
             .scan_slot
             .expect("scan_slot must be initialized in begin_custom_scan");
 
+        // Capture before the mutable borrow on `datafusion_state`. Threaded
+        // down to each `PgSearchTableProvider` so HeapFilter queries (`=`
+        // on a `pdb.literal`-cast column, etc.) can resolve their runtime
+        // expressions - the same plumbing single-table aggregates get from
+        // `state.runtime_context` directly.
+        let runtime_expr_context =
+            (!state.runtime_context.is_null()).then_some(state.runtime_context);
+        let ps = state.planstate();
+        let runtime_planstate = (!ps.is_null()).then_some(ps);
+
         let df_state = state
             .custom_state_mut()
             .datafusion_state
@@ -1840,6 +1875,8 @@ impl AggregateScan {
                     custom_scan_tlist,
                     df_state.having_filter.as_ref(),
                     &ctx,
+                    runtime_expr_context,
+                    runtime_planstate,
                     None,
                 )
                 .await?;

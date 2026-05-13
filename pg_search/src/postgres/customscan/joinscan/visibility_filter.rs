@@ -956,7 +956,7 @@ impl ExecutionPlan for VisibilityFilterExec {
 // Deferred ctid materialization
 // ---------------------------------------------------------------------------
 
-/// Reusable buffers for `materialize_deferred_ctid`, avoiding per-batch allocations.
+/// Reusable buffers for per-segment ctid materialization.
 #[derive(Default)]
 struct DeferredCtidMaterializationState {
     resolved_ctids: Vec<Option<u64>>,

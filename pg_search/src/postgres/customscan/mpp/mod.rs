@@ -25,43 +25,26 @@
 //! that reads all inbound queues into a spillable local buffer — this decouples
 //! consumer-side backpressure from producer-side backpressure.
 
+pub mod dsm;
+pub mod glue;
 pub mod mesh;
-pub mod session;
-pub mod shuffle;
+pub mod runtime;
 pub mod transport;
 pub mod worker;
 
 use serde::{Deserialize, Serialize};
 
-/// Describes this participant's position in an MPP query.
-///
-/// Injected into the DataFusion `SessionConfig` via `config_options` so downstream
-/// operators (optimizer rules, hash partitioners) can discover it without an
-/// out-of-band side channel.
-#[allow(dead_code)]
+/// Describes this participant's position in an MPP query. Held by
+/// [`glue::MppLeaderState`] / [`glue::MppWorkerState`] so the AggregateScan
+/// worker path can size the in-process planner via `total_participants`.
+/// The DF-D fork's `WorkerResolver` derives task identity from its own indexing,
+/// so this is a diagnostic / sizing hand-off — not a `SessionConfig`
+/// extension.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MppParticipantConfig {
     /// 0-based index of this participant. The leader is always index 0.
     pub participant_index: u32,
     /// Total number of participants (leader + workers).
-    pub total_participants: u32,
-}
-
-/// Session-scoped MPP sharding info. Stashed as a DataFusion session
-/// `config_extension` by `exec_datafusion_aggregate` on every participant
-/// before `build_join_aggregate_plan` runs, so `PgSearchTableProvider::scan`
-/// can shard segments deterministically across participants.
-///
-/// This is the path that lets the lazy-scan code (one `ScanState` wrapping
-/// a `MultiSegmentSearchResults` of *all* segments) still parallelize — the
-/// coarse shard at the `PgSearchScanPlan::states` vec level doesn't help
-/// that path since there's only one state to filter. With `MppShardConfig`
-/// set, the provider calls `reader.search_segments(sharded_ids)` and each
-/// participant reads only its share of segments.
-#[derive(Clone, Debug)]
-#[allow(dead_code)]
-pub struct MppShardConfig {
-    pub participant_index: u32,
     pub total_participants: u32,
 }
 

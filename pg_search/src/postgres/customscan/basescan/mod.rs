@@ -154,7 +154,7 @@ impl BaseScan {
             needs_tokenizer_manager,
         )
         .expect("should be able to open the search index reader");
-        state.custom_state_mut().search_reader = Some(search_reader);
+        state.custom_state_mut().set_search_reader(search_reader);
 
         let csstate = addr_of_mut!(state.csstate);
         state.custom_state_mut().init_exec_method(csstate);
@@ -188,8 +188,7 @@ impl BaseScan {
 
                 let mut new_generator = state
                     .custom_state()
-                    .search_reader
-                    .as_ref()
+                    .search_reader()
                     .unwrap()
                     .snippet_generator(
                         snippet_type.field().root(),
@@ -1341,35 +1340,34 @@ impl CustomScan for BaseScan {
                 // - EXPLAIN ANALYZE: search_reader is already initialized by begin_custom_scan
                 // - EXPLAIN (without ANALYZE): search_reader is None, so we create a temporary
                 //   reader using MvccSatisfies::LargestSegment for estimation purposes only
-                let query_tree =
-                    if let Some(search_reader) = state.custom_state().search_reader.as_ref() {
-                        // EXPLAIN ANALYZE: use the existing search reader
-                        search_reader
-                            .build_query_tree_with_estimates(base_query.clone())
-                            .expect("building query tree with estimates should not fail")
-                    } else {
-                        // EXPLAIN (without ANALYZE): create a temporary reader for estimates
-                        let indexrel = state
-                            .custom_state()
-                            .indexrel
-                            .as_ref()
-                            .expect("indexrel should be open");
+                let query_tree = if let Some(search_reader) = state.custom_state().search_reader() {
+                    // EXPLAIN ANALYZE: use the existing search reader
+                    search_reader
+                        .build_query_tree_with_estimates(base_query.clone())
+                        .expect("building query tree with estimates should not fail")
+                } else {
+                    // EXPLAIN (without ANALYZE): create a temporary reader for estimates
+                    let indexrel = state
+                        .custom_state()
+                        .indexrel
+                        .as_ref()
+                        .expect("indexrel should be open");
 
-                        let temp_reader = SearchIndexReader::open_with_context(
-                            indexrel,
-                            base_query.clone(),
-                            false,                         // don't need scores for estimates
-                            MvccSatisfies::LargestSegment, // Use largest segment for estimation
-                            None,                          // No expr_context needed for estimates
-                            None,                          // No planstate needed for estimates
-                            base_query.needs_tokenizer(),
-                        )
-                        .expect("opening temporary search reader for estimates should not fail");
+                    let temp_reader = SearchIndexReader::open_with_context(
+                        indexrel,
+                        base_query.clone(),
+                        false,                         // don't need scores for estimates
+                        MvccSatisfies::LargestSegment, // Use largest segment for estimation
+                        None,                          // No expr_context needed for estimates
+                        None,                          // No planstate needed for estimates
+                        base_query.needs_tokenizer(),
+                    )
+                    .expect("opening temporary search reader for estimates should not fail");
 
-                        temp_reader
-                            .build_query_tree_with_estimates(base_query.clone())
-                            .expect("building query tree with estimates should not fail")
-                    };
+                    temp_reader
+                        .build_query_tree_with_estimates(base_query.clone())
+                        .expect("building query tree with estimates should not fail")
+                };
 
                 explainer.add_query_with_estimates(&query_tree);
             } else {
@@ -1455,7 +1453,7 @@ impl CustomScan for BaseScan {
 
     #[allow(clippy::blocks_in_conditions)]
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
-        if state.custom_state().search_reader.is_none() {
+        if state.custom_state().search_reader().is_none() {
             Self::init_search_reader(state);
         }
 
@@ -1592,7 +1590,7 @@ impl CustomScan for BaseScan {
         // get some things dropped now
         drop(state.custom_state_mut().visibility_checker.take());
         drop(state.custom_state_mut().doc_from_heap_state.take());
-        drop(state.custom_state_mut().search_reader.take());
+        drop(state.custom_state_mut().take_search_reader());
         drop(std::mem::take(
             &mut state.custom_state_mut().snippet_generators,
         ));

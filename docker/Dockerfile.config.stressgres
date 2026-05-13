@@ -1,0 +1,8 @@
+FROM scratch
+
+# Antithesis "config image" for the Stressgres workload: only the manifests
+# this workflow needs are bundled, so the proptests pod is not launched
+# alongside it.
+COPY docker/manifests/cnpg.yaml /manifests/
+COPY docker/manifests/antithesis-paradedb.yaml /manifests/
+COPY docker/manifests/antithesis-stressgres.yaml /manifests/

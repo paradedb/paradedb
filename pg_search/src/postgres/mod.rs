@@ -132,6 +132,13 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     amroutine.into_pg_boxed()
 }
 
+/// Finds and returns the `USING bm25` index on the specified relation with the highest OID,
+/// along with the heap relation. Returns [`None`] if there isn't one.
+///
+/// Filters out indexes that aren't yet `indisvalid` (e.g. mid-`CREATE INDEX CONCURRENTLY`
+/// or a failed `REINDEX`). When more than one valid bm25 index exists on the relation
+/// (only possible via `CREATE INDEX CONCURRENTLY`, which bypasses the single-bm25-index
+/// check), the highest-OID one is chosen so that the index added most recently wins.
 pub fn rel_get_bm25_index(
     relid: pg_sys::Oid,
 ) -> Option<(rel::PgSearchRelation, rel::PgSearchRelation)> {
@@ -140,9 +147,12 @@ pub fn rel_get_bm25_index(
     }
 
     let rel = PgSearchRelation::with_lock(relid, pg_sys::AccessShareLock as _);
-    rel.indices(pg_sys::AccessShareLock as _)
-        .find(is_bm25_index)
-        .map(|index| (rel, index))
+    let index = unsafe {
+        rel.indices(pg_sys::AccessShareLock as _)
+            .filter(|index| pg_sys::get_index_isvalid(index.oid()) && is_bm25_index(index))
+            .max_by_key(|i| i.oid().to_u32())?
+    };
+    Some((rel, index))
 }
 
 // 16 bytes for segment UUID

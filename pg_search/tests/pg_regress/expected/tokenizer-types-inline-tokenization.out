@@ -84,3 +84,57 @@ SELECT ARRAY['this is a test.', 'foo bar baz']::pdb.whitespace::text[];
 
 SELECT '"foo"'::jsonb::pdb.whitespace::text[];
 ERROR:  cannot tokenize a jsonb inline
+SELECT '"foo"'::jsonb::pdb.whitespace::text;
+ text  
+-------
+ "foo"
+(1 row)
+
+SELECT ARRAY['foo bar', 'baz', ' qux']::pdb.whitespace::text[];
+       array       
+-------------------
+ {foo,bar,baz,qux}
+(1 row)
+
+SELECT ARRAY['foo bar', 'baz', ' qux']::pdb.whitespace::text;
+         array          
+------------------------
+ {"foo bar",baz," qux"}
+(1 row)
+
+-- Expression realloc function. Causes Postgres to reallocate the returned value
+CREATE FUNCTION realloc (anyelement) RETURNS anyelement
+AS 'SELECT $1 FROM random();'
+LANGUAGE SQL VOLATILE;
+SELECT realloc('foo'::pdb.whitespace)::text[];
+ realloc 
+---------
+ {foo}
+(1 row)
+
+SELECT realloc('foo'::pdb.whitespace)::text;
+ realloc 
+---------
+ foo
+(1 row)
+
+SELECT realloc('"foo"'::jsonb::pdb.whitespace)::text[];
+ERROR:  cannot tokenize a jsonb inline
+SELECT realloc('"foo"'::jsonb::pdb.whitespace)::text;
+ realloc 
+---------
+ "foo"
+(1 row)
+
+SELECT realloc(ARRAY['foo bar', 'baz', ' qux']::pdb.whitespace)::text[];
+      realloc      
+-------------------
+ {foo,bar,baz,qux}
+(1 row)
+
+SELECT realloc(ARRAY['foo bar', 'baz', ' qux']::pdb.whitespace)::text;
+        realloc         
+------------------------
+ {"foo bar",baz," qux"}
+(1 row)
+

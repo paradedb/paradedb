@@ -38,8 +38,13 @@ pub enum FilterExpr {
     /// Reference to a GROUP BY column by field name (HAVING context).
     GroupRef(String),
     /// Reference to a pre-aggregate table column (FILTER context).
+    /// Execution identity is `plan_position`, resolved against the
+    /// `RelNode` tree at construction; rti/attno are kept for diagnostics
+    /// and for fast-field projection in `populate_required_fields`.
     ColumnRef {
+        plan_position: usize,
         rti: pgrx::pg_sys::Index,
+        attno: pgrx::pg_sys::AttrNumber,
         field_name: String,
     },
     LitInt(i64),
@@ -94,11 +99,11 @@ impl TopKSortTarget {
             TopKSortTarget::Aggregate(idx) => format!("agg_{}", idx),
             TopKSortTarget::GroupColumn(idx) => {
                 let gc = &targetlist.group_columns[*idx];
-                let source = plan.source_for_rti_in_subtree(gc.rti);
+                let source = plan.source_at_plan_position(gc.plan_position);
                 let alias = if let Some(src) = source {
                     RelationAlias::new(src.scan_info.alias.as_deref()).execution(src.plan_position)
                 } else {
-                    format!("unknown_rti_{}", gc.rti)
+                    format!("unknown_plan_position_{}", gc.plan_position)
                 };
                 format!("{}.{}", alias, gc.field_name)
             }

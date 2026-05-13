@@ -104,8 +104,21 @@ pub async fn run_worker_fragment(
             stream_result.and(eof_result)
         });
     }
-    futures::future::try_join_all(futures).await?;
-    // Drop senders so peers observe Detached on their next try_recv.
+    // Drive every partition future to completion via `join_all` rather than
+    // `try_join_all`. `try_join_all` is fail-fast: when one partition
+    // returns Err it drops the still-pending sibling futures mid-`await`,
+    // so siblings that haven't yet reached their `send_eof_traced` line
+    // never emit EOF. The consumer's sub-buffer for those channels stays
+    // stuck at `sources_done == 0`, and unless the backend tears down (and
+    // the shm_mq queue detaches) the leader's `select_all` blocks forever.
+    // `join_all` waits for every partition to run its EOF send before we
+    // propagate any error.
+    let results = futures::future::join_all(futures).await;
+    // Drop senders so peers observe Detached on their next try_recv even if
+    // a partition's EOF send itself errored.
     drop(senders);
+    for r in results {
+        r?;
+    }
     Ok(())
 }

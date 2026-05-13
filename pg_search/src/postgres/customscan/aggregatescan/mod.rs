@@ -1553,32 +1553,51 @@ impl AggregateScan {
             // loop would spin forever.
             drop(outbound_senders);
             crate::mpp_log!(
-                "mpp worker dispatch this_proc={this_proc} starting try_join_all on {} fragments",
+                "mpp worker dispatch this_proc={this_proc} starting join_all on {} fragments",
                 fragments.len()
             );
-            // Deadlock detector: under `paradedb.mpp_debug`, if no fragment
-            // completes within 30s we treat it as a hang and surface as an
-            // error rather than letting the backend spin indefinitely.
-            // Per-drain state is logged via the inbound drains' own traces
-            // (M2.b/M2.d logging in transport.rs / runtime.rs).
-            let join_fut = futures::future::try_join_all(futures);
-            let outcome = if crate::gucs::mpp_debug() {
-                match tokio::time::timeout(std::time::Duration::from_secs(30), join_fut).await {
-                    Ok(r) => r.map(|_| ()),
-                    Err(_) => {
-                        crate::mpp_log!(
-                            "mpp worker dispatch this_proc={this_proc} \
-                             HANG: try_join_all exceeded 30s"
-                        );
-                        Err(datafusion::common::DataFusionError::Internal(format!(
-                            "mpp worker dispatch (proc={this_proc}): try_join_all exceeded 30s — \
+            // Drive every fragment to completion via `join_all` rather
+            // than `try_join_all`. `try_join_all` would drop sibling
+            // fragments on first error mid-`await`, and a cancelled
+            // `run_worker_fragment` cancels its inner partition
+            // futures, leaving their `(stage_id, partition)` sub-buffers
+            // on the consumer side stuck at `sources_done == 0`. Today
+            // backend teardown via `pgrx::error!` and shm_mq detach
+            // happen to unstick the leader, but the EOF semantics need
+            // to be load-bearing on their own — see the matching
+            // comment in `run_worker_fragment`.
+            //
+            // Deadlock detector. Under `paradedb.mpp_debug`, if any
+            // fragment hasn't completed within 30s we treat it as a hang
+            // and surface an error instead of letting the backend spin
+            // forever. Per-drain state is logged via the inbound drains'
+            // own traces (M2.b/M2.d logging in transport.rs / runtime.rs).
+            let join_fut = futures::future::join_all(futures);
+            let outcome: Result<(), datafusion::common::DataFusionError> =
+                if crate::gucs::mpp_debug() {
+                    match tokio::time::timeout(std::time::Duration::from_secs(30), join_fut).await {
+                        Ok(results) => results
+                            .into_iter()
+                            .collect::<Result<Vec<_>, _>>()
+                            .map(|_| ()),
+                        Err(_) => {
+                            crate::mpp_log!(
+                                "mpp worker dispatch this_proc={this_proc} \
+                             HANG: join_all exceeded 30s"
+                            );
+                            Err(datafusion::common::DataFusionError::Internal(format!(
+                                "mpp worker dispatch (proc={this_proc}): join_all exceeded 30s — \
                              deadlock detector triggered"
-                        )))
+                            )))
+                        }
                     }
-                }
-            } else {
-                join_fut.await.map(|_| ())
-            };
+                } else {
+                    join_fut
+                        .await
+                        .into_iter()
+                        .collect::<Result<Vec<_>, _>>()
+                        .map(|_| ())
+                };
             outcome
         });
         if let Err(e) = result {

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778655824544,
+  "lastUpdate": 1778693869495,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -426,6 +426,78 @@ window.BENCHMARK_DATA = {
             "value": 73.92893171895703,
             "unit": "median tps",
             "extra": "avg tps: 90.28874661273329, max tps: 373.329676361748, count: 54628"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "59696464+saadtajwar@users.noreply.github.com",
+            "name": "Saad Tajwar",
+            "username": "saadtajwar"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bc20c3dd4b36a13dbcc74d03499f966a4dc93fe6",
+          "message": "refactor: Deduplicate deferred materialization request partitioning between visibility and lookup (#4903)\n\n# Ticket(s) Closed\n- Closes https://github.com/paradedb/paradedb/issues/4568\n\n## What\nDeduplicated the segment-grouping/materialization loop shared between\n`materialize_deferred_ctid()` in `visibility_filter.rs` and\n`materialize_deferred_column()` in `tantivy_lookup_exec.rs`.\n\n## Why\nBoth functions implemented the same pattern of partitioning packed doc\naddresses by segment ordinal, batch-reading via `FFHelper`, and writing\nresults back in row order. This duplication made the two paths harder to\nkeep consistent and made future optimization work more tedious.\n\n## How\n\n### Shared helper in `fast_fields_helper.rs`\n- Added `for_each_segment`: partitions an iterator of `(row_index,\npacked_doc_address)` pairs into per-segment buckets and invokes a\ncaller-supplied closure once per non-empty segment, in segment-ordinal\norder. Backed by a `Vec<Vec<(usize, DocId)>>` indexed by segment ordinal\n(dense in practice; cheaper than a hash map for typical segment counts).\n- Added `FFHelper::num_segments()` so callers can size the bucket vector\nwithout reaching into private fields.\n\n### `materialize_deferred_ctid` (visibility_filter.rs)\n- Replaced the manual sort + partition + per-segment slice loop with a\nsingle `for_each_segment` call.\n- Kept `DeferredCtidMaterializationState` for buffer reuse across calls,\nbut removed its now-unused `requests` field; the per-segment\npartitioning lives inside `for_each_segment`.\n- Removed the TODO comment that flagged this duplication.\n\n### `materialize_deferred_column` (tantivy_lookup_exec.rs)\nFunction body shrank from ~160 lines to ~50 by extracting three\nsingle-responsibility helpers:\n- `resolve_doc_addresses_to_term_ords` — resolves State 0 (packed doc\naddresses) into per-segment `(row_index, Option<TermOrdinal>)` pairs via\n`for_each_segment`.\n- `extract_term_ords` — parses State 1 (pre-resolved `(segment_ord,\nterm_ord)` pairs from the dense union's `StructArray` child) into the\nsame per-segment shape.\n- `decode_term_ordinals` — takes the merged per-segment ordinals and\nperforms the bulk dictionary lookup once per segment, recording\npositions for the final `interleave`.\n\nState 0 and State 1 are now merged into a single `Vec<Vec<(row_index,\nOption<TermOrdinal>)>>` indexed by segment ordinal, then decoded in one\npass — previously each state was iterated and decoded separately,\nproducing two `segment_arrays` entries per segment touched by both. The\nfinal interleaved output is identical.\n\nReplaced the `(ff_index: usize, is_bytes: bool)` parameter pair with a\n`DeferredColumnKind { Text { ff_index }, Bytes { ff_index } }` enum to\nmake the `is_bytes && wrong-ff-type` mismatch unrepresentable.\n\n## Tests\nNo new tests; behavior is unchanged. Existing coverage exercises both\npaths end-to-end:\n- `pg_search/tests/pg_regress/sql/join_deferred_visibility.sql` —\n`materialize_deferred_ctid`.\n- `pg_search/tests/pg_regress/sql/segmented_topk.sql` plus joinscan\ntests — `materialize_deferred_column` (the segmented top-K rule is what\nproduces State 1 rows below `TantivyLookupExec`).\n\n---------\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-05-13T10:07:59-07:00",
+          "tree_id": "cc9e05e63ed6052c202d00901357d2c5026923d0",
+          "url": "https://github.com/paradedb/paradedb/commit/bc20c3dd4b36a13dbcc74d03499f966a4dc93fe6"
+        },
+        "date": 1778693838622,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 131.74144755010374,
+            "unit": "median tps",
+            "extra": "avg tps: 131.6088467540558, max tps: 146.22080214675532, count: 54970"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 518.2588996266887,
+            "unit": "median tps",
+            "extra": "avg tps: 516.3779970335505, max tps: 659.6265612641431, count: 54970"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3302.7109484838993,
+            "unit": "median tps",
+            "extra": "avg tps: 3286.8258706668285, max tps: 3314.3917503534685, count: 54970"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 420.44643767578657,
+            "unit": "median tps",
+            "extra": "avg tps: 421.42989183849613, max tps: 492.07613894097835, count: 54970"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 3012.2925597460094,
+            "unit": "median tps",
+            "extra": "avg tps: 3006.8863886721756, max tps: 3035.3311424557605, count: 109940"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 540.7824798578989,
+            "unit": "median tps",
+            "extra": "avg tps: 538.4748340785521, max tps: 633.121372829133, count: 54970"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2022.3187497713584,
+            "unit": "median tps",
+            "extra": "avg tps: 2016.0734971407708, max tps: 2036.5169566309437, count: 54970"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 59.683428784769696,
+            "unit": "median tps",
+            "extra": "avg tps: 64.90349238862323, max tps: 355.4357500120848, count: 54970"
           }
         ]
       }

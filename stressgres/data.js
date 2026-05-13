@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778634319601,
+  "lastUpdate": 1778634832583,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1670,6 +1670,54 @@ window.BENCHMARK_DATA = {
             "value": 5.2481414287796735,
             "unit": "median tps",
             "extra": "avg tps: 5.30110600266312, max tps: 6.931926468356105, count: 56280"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "james.sewell@gmail.com",
+            "name": "James Sewell",
+            "username": "jamessewell"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8182eaf110c30cbefe008197caa40efa8b44f8e0",
+          "message": "refactor: use existing FFHelper ctid cache instead of dedicated cache (#4905)\n\nFix a performance regression introduced in e0804b347 (#4765) which\nremoved ctid from SearchIndexScore and switched to lazy per-row\nresolution.\n\nPrior to #4765, ctid was resolved during result construction and carried\nin `SearchIndexScore` — no per-row fast-field lookups needed. #4765\nmoved ctid resolution to the consumption side (top_k.rs, normal.rs,\nscan.rs) using a single-entry `Option<(SegmentOrdinal, FFType)>` cache.\nWhen TopK results interleave across segments (sorted by score), every\nsegment transition re-opens the ctid column via `FastFieldReaders::u64\n-> DynamicColumnHandle::open -> BlockwiseLinearCodec::load`, which is\nvery expensive. Profiling showed 45% of total cycles spent in this\nre-open path.\n\nThe columnar scan path (`ColumnarExecState`) was unaffected — it already\nused `FFHelper`'s per-segment `OnceLock` ctid cache. This PR brings the\nremaining paths in line:\n\n- `scan.rs` uses its existing `Bm25ScanState.fast_fields` FFHelper\n- `normal.rs` and `top_k.rs` use a new `ctid_cache` FFHelper on\n`BaseScanState`\n\nEach segment's ctid column is opened at most once via `OnceLock`,\neliminating the thrashing. `FFHelper` has had this per-segment ctid\ncaching built in since cb78f0ca2 (Oct 2024).",
+          "timestamp": "2026-05-13T12:18:31+12:00",
+          "tree_id": "814e1da895eec41e0dfe3cbb5348bdb237811bf7",
+          "url": "https://github.com/paradedb/paradedb/commit/8182eaf110c30cbefe008197caa40efa8b44f8e0"
+        },
+        "date": 1778634802633,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1123.9446343920936,
+            "unit": "median tps",
+            "extra": "avg tps: 1127.9208009212323, max tps: 1182.6705979574772, count: 56596"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1248.7198416926376,
+            "unit": "median tps",
+            "extra": "avg tps: 1239.5517000635755, max tps: 1256.6266616414973, count: 56596"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1771.9779346561904,
+            "unit": "median tps",
+            "extra": "avg tps: 1772.6759135297948, max tps: 1976.9182710536963, count: 56596"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.432104241692168,
+            "unit": "median tps",
+            "extra": "avg tps: 5.4477160674660015, max tps: 7.024264873452389, count: 56596"
           }
         ]
       }

@@ -263,10 +263,10 @@ jobs:
       #     slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
       #     pr_label: ${{ steps.pr_label.outputs.result }}
 
-      - name: Benchmark fsm-race-4935.toml
+      - name: Benchmark logical-replication-merge.toml
         uses: ./.github/actions/benchmark-stressgres
         with:
-          test_file: fsm-race-4935.toml
+          test_file: logical-replication-merge.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
           github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
           github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}

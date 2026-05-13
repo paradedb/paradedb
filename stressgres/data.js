@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778693869495,
+  "lastUpdate": 1778693902125,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1286,6 +1286,138 @@ window.BENCHMARK_DATA = {
             "value": 57.15234375,
             "unit": "median mem",
             "extra": "avg mem: 56.32322717116222, max mem: 68.9765625, count: 54628"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "59696464+saadtajwar@users.noreply.github.com",
+            "name": "Saad Tajwar",
+            "username": "saadtajwar"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bc20c3dd4b36a13dbcc74d03499f966a4dc93fe6",
+          "message": "refactor: Deduplicate deferred materialization request partitioning between visibility and lookup (#4903)\n\n# Ticket(s) Closed\n- Closes https://github.com/paradedb/paradedb/issues/4568\n\n## What\nDeduplicated the segment-grouping/materialization loop shared between\n`materialize_deferred_ctid()` in `visibility_filter.rs` and\n`materialize_deferred_column()` in `tantivy_lookup_exec.rs`.\n\n## Why\nBoth functions implemented the same pattern of partitioning packed doc\naddresses by segment ordinal, batch-reading via `FFHelper`, and writing\nresults back in row order. This duplication made the two paths harder to\nkeep consistent and made future optimization work more tedious.\n\n## How\n\n### Shared helper in `fast_fields_helper.rs`\n- Added `for_each_segment`: partitions an iterator of `(row_index,\npacked_doc_address)` pairs into per-segment buckets and invokes a\ncaller-supplied closure once per non-empty segment, in segment-ordinal\norder. Backed by a `Vec<Vec<(usize, DocId)>>` indexed by segment ordinal\n(dense in practice; cheaper than a hash map for typical segment counts).\n- Added `FFHelper::num_segments()` so callers can size the bucket vector\nwithout reaching into private fields.\n\n### `materialize_deferred_ctid` (visibility_filter.rs)\n- Replaced the manual sort + partition + per-segment slice loop with a\nsingle `for_each_segment` call.\n- Kept `DeferredCtidMaterializationState` for buffer reuse across calls,\nbut removed its now-unused `requests` field; the per-segment\npartitioning lives inside `for_each_segment`.\n- Removed the TODO comment that flagged this duplication.\n\n### `materialize_deferred_column` (tantivy_lookup_exec.rs)\nFunction body shrank from ~160 lines to ~50 by extracting three\nsingle-responsibility helpers:\n- `resolve_doc_addresses_to_term_ords` — resolves State 0 (packed doc\naddresses) into per-segment `(row_index, Option<TermOrdinal>)` pairs via\n`for_each_segment`.\n- `extract_term_ords` — parses State 1 (pre-resolved `(segment_ord,\nterm_ord)` pairs from the dense union's `StructArray` child) into the\nsame per-segment shape.\n- `decode_term_ordinals` — takes the merged per-segment ordinals and\nperforms the bulk dictionary lookup once per segment, recording\npositions for the final `interleave`.\n\nState 0 and State 1 are now merged into a single `Vec<Vec<(row_index,\nOption<TermOrdinal>)>>` indexed by segment ordinal, then decoded in one\npass — previously each state was iterated and decoded separately,\nproducing two `segment_arrays` entries per segment touched by both. The\nfinal interleaved output is identical.\n\nReplaced the `(ff_index: usize, is_bytes: bool)` parameter pair with a\n`DeferredColumnKind { Text { ff_index }, Bytes { ff_index } }` enum to\nmake the `is_bytes && wrong-ff-type` mismatch unrepresentable.\n\n## Tests\nNo new tests; behavior is unchanged. Existing coverage exercises both\npaths end-to-end:\n- `pg_search/tests/pg_regress/sql/join_deferred_visibility.sql` —\n`materialize_deferred_ctid`.\n- `pg_search/tests/pg_regress/sql/segmented_topk.sql` plus joinscan\ntests — `materialize_deferred_column` (the segmented top-K rule is what\nproduces State 1 rows below `TantivyLookupExec`).\n\n---------\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>",
+          "timestamp": "2026-05-13T10:07:59-07:00",
+          "tree_id": "cc9e05e63ed6052c202d00901357d2c5026923d0",
+          "url": "https://github.com/paradedb/paradedb/commit/bc20c3dd4b36a13dbcc74d03499f966a4dc93fe6"
+        },
+        "date": 1778693871950,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.363714104900016, max cpu: 23.692005, count: 54970"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 66.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 66.58209399729398, max mem: 78.15234375, count: 54970"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.4843678059851335, max cpu: 18.58664, count: 54970"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 65.62890625,
+            "unit": "median mem",
+            "extra": "avg mem: 65.49964675334273, max mem: 76.96484375, count: 54970"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.659255682205345, max cpu: 9.239654, count: 54970"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 36.0546875,
+            "unit": "median mem",
+            "extra": "avg mem: 35.68127074995452, max mem: 37.890625, count: 54970"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6231285207437995, max cpu: 9.248554, count: 54970"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 63.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 63.22185645295161, max mem: 75.16796875, count: 54970"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6057064126807195, max cpu: 9.402546, count: 109940"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 55.65625,
+            "unit": "median mem",
+            "extra": "avg mem: 54.77262668842096, max mem: 73.625, count: 109940"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1783,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1788.6193560123704, max block_count: 3186.0, count: 54970"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 11.619283245406585, max segment_count: 29.0, count: 54970"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.4641777286646604, max cpu: 18.934912, count: 54970"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 65.17578125,
+            "unit": "median mem",
+            "extra": "avg mem: 65.11406200256958, max mem: 76.6171875, count: 54970"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.581335599448414, max cpu: 4.7666335, count: 54970"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 54.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 53.82623426698654, max mem: 65.3203125, count: 54970"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.721402135017601, max cpu: 4.6332045, count: 54970"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 56.91015625,
+            "unit": "median mem",
+            "extra": "avg mem: 56.740882882140255, max mem: 70.08984375, count: 54970"
           }
         ]
       }

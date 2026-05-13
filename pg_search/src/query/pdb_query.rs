@@ -773,7 +773,6 @@ fn term(
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
-    let is_datetime = search_field.is_datetime();
     let search_field_type = search_field.field_type();
 
     // Convert value based on field type (handles NUMERIC scaling, JSON types, etc.)
@@ -784,7 +783,7 @@ fn term(
         &value,
         field_type,
         field.path().as_deref(),
-        is_datetime,
+        search_field.is_datetime(),
     )?;
 
     Ok(Box::new(TermQuery::new(term, record_option.into())))
@@ -839,10 +838,9 @@ fn range_within(
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let typeoid = search_field.field_type().typeoid();
-    let is_datetime = search_field.is_datetime();
     let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
 
-    let range_field = RangeField::new(search_field.field(), is_datetime);
+    let range_field = RangeField::new(search_field.field(), search_field.is_datetime());
 
     let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
     let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
@@ -1102,10 +1100,9 @@ fn range_intersects(
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let typeoid = search_field.field_type().typeoid();
-    let is_datetime = search_field.is_datetime();
 
     let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
-    let range_field = RangeField::new(search_field.field(), is_datetime);
+    let range_field = RangeField::new(search_field.field(), search_field.is_datetime());
 
     let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
     let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
@@ -1258,9 +1255,8 @@ fn range_contains(
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let typeoid = search_field.field_type().typeoid();
-    let is_datetime = search_field.is_datetime();
     let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
-    let range_field = RangeField::new(search_field.field(), is_datetime);
+    let range_field = RangeField::new(search_field.field(), search_field.is_datetime());
 
     let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
     let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
@@ -1417,7 +1413,6 @@ fn range(
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
     let typeoid = search_field.field_type().typeoid();
-    let is_datetime = search_field.is_datetime();
     let search_field_type = search_field.field_type();
 
     // Handle NUMERIC field types with special storage strategies
@@ -1470,14 +1465,14 @@ fn range(
             &value,
             field_type,
             field.path().as_deref(),
-            is_datetime,
+            search_field.is_datetime(),
         )?),
         Bound::Excluded(value) => Bound::Excluded(value_to_term(
             search_field.field(),
             &value,
             field_type,
             field.path().as_deref(),
-            is_datetime,
+            search_field.is_datetime(),
         )?),
         Bound::Unbounded => Bound::Unbounded,
     };
@@ -1488,14 +1483,14 @@ fn range(
             &value,
             field_type,
             field.path().as_deref(),
-            is_datetime,
+            search_field.is_datetime(),
         )?),
         Bound::Excluded(value) => Bound::Excluded(value_to_term(
             search_field.field(),
             &value,
             field_type,
             field.path().as_deref(),
-            is_datetime,
+            search_field.is_datetime(),
         )?),
         Bound::Unbounded => Bound::Unbounded,
     };

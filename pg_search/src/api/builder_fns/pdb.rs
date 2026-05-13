@@ -488,7 +488,7 @@ mod pdb {
     term_set_fn!(term_set_uuid, pgrx::Uuid);
 
     // TODO:  this requires `impl UnboxDatum for Inet` in pgrx
-    // term_set_fn!(term_set_inet, pgrx::Inet, false);
+    // term_set_fn!(term_set_inet, pgrx::Inet);
 
     macro_rules! range_term_fn {
         ($func_name:ident, $value_type:ty) => {

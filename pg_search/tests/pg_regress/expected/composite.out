@@ -2170,8 +2170,8 @@ SELECT id, name, category
 FROM smoke_test
 WHERE id @@@ pdb.all() AND category IN ('Electronics', 'Footwear')
 ORDER BY id;
-                                                                                                                    QUERY PLAN                                                                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
@@ -2179,7 +2179,7 @@ ORDER BY id;
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"Electronics","is_datetime":false},{"field":"category","value":"Footwear","is_datetime":false}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"Electronics"},{"field":"category","value":"Footwear"}]}}]}}
 (8 rows)
 
 SELECT id, name, category
@@ -2335,8 +2335,8 @@ ORDER BY id;
 -- pdb.term() on composite field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name FROM smoke_test WHERE name @@@ pdb.term('running') ORDER BY id;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
+                                         QUERY PLAN                                          
+---------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
@@ -2344,7 +2344,7 @@ SELECT id, name FROM smoke_test WHERE name @@@ pdb.term('running') ORDER BY id;
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"name","value":"running","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"name","value":"running"}}}}
 (8 rows)
 
 SELECT id, name FROM smoke_test WHERE name @@@ pdb.term('running') ORDER BY id;
@@ -2490,8 +2490,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name FROM smoke_test
 WHERE name @@@ pdb.term('running') AND description @@@ pdb.match('lightweight')
 ORDER BY id;
-                                                                                                                                                          QUERY PLAN                                                                                                                                                          
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                QUERY PLAN                                                                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
@@ -2499,7 +2499,7 @@ ORDER BY id;
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"name","value":"running","is_datetime":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"lightweight","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"name","value":"running"}}}},{"with_index":{"query":{"match":{"field":"description","value":"lightweight","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}]}}
 (8 rows)
 
 SELECT id, name FROM smoke_test
@@ -2513,8 +2513,8 @@ ORDER BY id;
 -- pdb.term() with different composite fields (category uses pdb.literal - case sensitive)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name FROM smoke_test WHERE category @@@ pdb.term('Footwear') ORDER BY id;
-                                                      QUERY PLAN                                                      
-----------------------------------------------------------------------------------------------------------------------
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
@@ -2522,7 +2522,7 @@ SELECT id, name FROM smoke_test WHERE category @@@ pdb.term('Footwear') ORDER BY
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"Footwear","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"Footwear"}}}}
 (8 rows)
 
 SELECT id, name FROM smoke_test WHERE category @@@ pdb.term('Footwear') ORDER BY id;
@@ -2542,8 +2542,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test WHERE name @@@ pdb.term('shoes')
 ORDER BY score DESC, id LIMIT 3;
-                                                  QUERY PLAN                                                   
----------------------------------------------------------------------------------------------------------------
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
@@ -2552,7 +2552,7 @@ ORDER BY score DESC, id LIMIT 3;
          Scores: true
             TopK Order By: pdb.score() desc, id asc
             TopK Limit: 3
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"name","value":"shoes","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"name","value":"shoes"}}}}
 (9 rows)
 
 SELECT id, name, pdb.score(id) as score
@@ -2621,8 +2621,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test WHERE name @@@ pdb.term('wireless') OR description @@@ pdb.match('keyboard')
 ORDER BY score DESC, id LIMIT 2;
-                                                                                                                                                          QUERY PLAN                                                                                                                                                          
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                QUERY PLAN                                                                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
@@ -2631,7 +2631,7 @@ ORDER BY score DESC, id LIMIT 2;
          Scores: true
             TopK Order By: pdb.score() desc, id asc
             TopK Limit: 2
-         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"term":{"field":"name","value":"wireless","is_datetime":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}]}}
+         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"term":{"field":"name","value":"wireless"}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}]}}
 (9 rows)
 
 SELECT id, name, pdb.score(id) as score

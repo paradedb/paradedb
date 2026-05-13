@@ -753,8 +753,8 @@ SELECT title, author, is_published
 FROM union_test_b
 WHERE is_published = true AND author @@@ 'Author 1'
 ORDER BY author, title;
-                                                                                                                              QUERY PLAN                                                                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                    QUERY PLAN                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: union_test_a.author, union_test_a.title
    ->  Unique
@@ -768,7 +768,7 @@ ORDER BY author, title;
                            Exec Method: ColumnarExecState
                            Fast Fields: author, is_published, title
                            Scores: false
-                           Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_published","value":true,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"author","query_string":"Author 1","lenient":null,"conjunction_mode":null}}}}]}}
+                           Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_published","value":true}},{"with_index":{"query":{"parse_with_field":{"field":"author","query_string":"Author 1","lenient":null,"conjunction_mode":null}}}}]}}
                ->  Sort
                      Sort Key: union_test_b.title, union_test_b.author, union_test_b.is_published
                      ->  Custom Scan (ParadeDB Base Scan) on union_test_b
@@ -777,7 +777,7 @@ ORDER BY author, title;
                            Exec Method: ColumnarExecState
                            Fast Fields: author, is_published, title
                            Scores: false
-                           Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_published","value":true,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"author","query_string":"Author 1","lenient":null,"conjunction_mode":null}}}}]}}
+                           Tantivy Query: {"boolean":{"must":[{"term":{"field":"is_published","value":true}},{"with_index":{"query":{"parse_with_field":{"field":"author","query_string":"Author 1","lenient":null,"conjunction_mode":null}}}}]}}
 (23 rows)
 
 SELECT title, author, is_published

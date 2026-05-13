@@ -44,8 +44,8 @@ AND NOT EXISTS (
 )
 ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
-                                                         QUERY PLAN                                                          
------------------------------------------------------------------------------------------------------------------------------
+                                               QUERY PLAN                                                
+---------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: (pdb.score(s.id)) DESC, s.id
@@ -56,7 +56,7 @@ LIMIT 5;
                      Index: score_aj_items_idx
                      Exec Method: NormalScanExecState
                      Scores: true
-                     Tantivy Query: {"with_index":{"query":{"term":{"field":"state","value":"active","is_datetime":false}}}}
+                     Tantivy Query: {"with_index":{"query":{"term":{"field":"state","value":"active"}}}}
                ->  Materialize
                      ->  Seq Scan on score_aj_entries
                            Filter: (user_id = 'user1'::text)
@@ -97,8 +97,8 @@ AND EXISTS (
 )
 ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
-                                                         QUERY PLAN                                                          
------------------------------------------------------------------------------------------------------------------------------
+                                               QUERY PLAN                                                
+---------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: (pdb.score(s.id)) DESC, s.id
@@ -109,7 +109,7 @@ LIMIT 5;
                      Index: score_aj_items_idx
                      Exec Method: NormalScanExecState
                      Scores: true
-                     Tantivy Query: {"with_index":{"query":{"term":{"field":"state","value":"active","is_datetime":false}}}}
+                     Tantivy Query: {"with_index":{"query":{"term":{"field":"state","value":"active"}}}}
                ->  Materialize
                      ->  Seq Scan on score_aj_entries
                            Filter: (user_id = 'user1'::text)
@@ -158,8 +158,8 @@ AND NOT EXISTS (
 )
 ORDER BY pdb.score(s.id) DESC, id
 LIMIT 5;
-                                                                                                                                                                                                                                                                                                     QUERY PLAN                                                                                                                                                                                                                                                                                                     
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: (pdb.score(s.id)) DESC, s.id
@@ -170,7 +170,7 @@ LIMIT 5;
                      Index: score_aj_items_idx
                      Exec Method: NormalScanExecState
                      Scores: true
-                     Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":[{"term":{"field":"state","value":"active","is_datetime":false}}]}}}},{"with_index":{"query":{"boolean":{"should":[{"disjunction_max":{"disjuncts":[{"boost":{"query":{"match":{"field":"title","value":"Item","tokenizer":null,"distance":1,"transposition_cost_one":null,"prefix":false,"conjunction_mode":true}},"factor":2.0}},{"match":{"field":"title","value":"Item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":false,"conjunction_mode":true}}],"tie_breaker":0.75}}]}}}}]}}
+                     Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":[{"term":{"field":"state","value":"active"}}]}}}},{"with_index":{"query":{"boolean":{"should":[{"disjunction_max":{"disjuncts":[{"boost":{"query":{"match":{"field":"title","value":"Item","tokenizer":null,"distance":1,"transposition_cost_one":null,"prefix":false,"conjunction_mode":true}},"factor":2.0}},{"match":{"field":"title","value":"Item","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":false,"conjunction_mode":true}}],"tie_breaker":0.75}}]}}}}]}}
                ->  Materialize
                      ->  Seq Scan on score_aj_entries
                            Filter: (user_id = 'user1'::text)

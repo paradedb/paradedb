@@ -433,8 +433,8 @@ SELECT title, author, pdb.score(id)
 FROM score_test
 WHERE content @@@ 'technology' AND rating >= 4 AND is_featured = true
 ORDER BY title, author, pdb.score(id) DESC;
-                                                                                                                                                            QUERY PLAN                                                                                                                                                             
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                  QUERY PLAN                                                                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: title, author, (pdb.score(id)) DESC
    ->  Custom Scan (ParadeDB Base Scan) on score_test
@@ -443,7 +443,7 @@ ORDER BY title, author, pdb.score(id) DESC;
          Exec Method: ColumnarExecState
          Fast Fields: author, id, title
          Scores: true
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null}},{"term":{"field":"is_featured","value":true,"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"technology","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4},"upper_bound":null}},{"term":{"field":"is_featured","value":true}}]}}
 (9 rows)
 
 SELECT title, author, pdb.score(id)

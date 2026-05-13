@@ -26,8 +26,8 @@ SELECT description, rating FROM mock_items
 WHERE category === 'electronics'
 ORDER BY upper(description) DESC
     LIMIT 5;
-                                                       QUERY PLAN                                                        
--------------------------------------------------------------------------------------------------------------------------
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
@@ -36,7 +36,7 @@ ORDER BY upper(description) DESC
          Scores: false
             TopK Order By: description desc
             TopK Limit: 5
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"electronics","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"electronics"}}}}
 (9 rows)
 
 SELECT description, rating FROM mock_items
@@ -62,8 +62,8 @@ SELECT description, rating FROM mock_items
 WHERE category === 'electronics'
 ORDER BY trim(description) DESC
     LIMIT 5;
-                                                       QUERY PLAN                                                        
--------------------------------------------------------------------------------------------------------------------------
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
@@ -72,7 +72,7 @@ ORDER BY trim(description) DESC
          Scores: false
             TopK Order By: description desc
             TopK Limit: 5
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"electronics","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"electronics"}}}}
 (9 rows)
 
 SELECT description, rating FROM mock_items
@@ -99,8 +99,8 @@ WHERE description === 'sleek running shoes'
 ORDER BY upper(description) DESC
     LIMIT 5;
 WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
-                                                                QUERY PLAN                                                                
-------------------------------------------------------------------------------------------------------------------------------------------
+                                                      QUERY PLAN                                                      
+----------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: (upper(description)) DESC
@@ -109,7 +109,7 @@ WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). 
                Index: plain_idx
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"sleek running shoes","is_datetime":false}}}}
+               Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"sleek running shoes"}}}}
 (9 rows)
 
 DROP INDEX plain_idx;
@@ -122,8 +122,8 @@ SELECT description, rating FROM mock_items
 WHERE description === 'sleek running shoes'
 ORDER BY lower(description) DESC
     LIMIT 5;
-                                                             QUERY PLAN                                                             
-------------------------------------------------------------------------------------------------------------------------------------
+                                                   QUERY PLAN                                                   
+----------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
@@ -132,7 +132,7 @@ ORDER BY lower(description) DESC
          Scores: false
             TopK Order By: description desc
             TopK Limit: 5
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"sleek running shoes","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"sleek running shoes"}}}}
 (9 rows)
 
 SELECT description, rating FROM mock_items
@@ -154,8 +154,8 @@ SELECT description, rating FROM mock_items
 WHERE description === 'sleek running shoes'
 ORDER BY lower(description) ASC, rating DESC
     LIMIT 5;
-                                                             QUERY PLAN                                                             
-------------------------------------------------------------------------------------------------------------------------------------
+                                                   QUERY PLAN                                                   
+----------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
@@ -164,7 +164,7 @@ ORDER BY lower(description) ASC, rating DESC
          Scores: false
             TopK Order By: description asc, rating desc
             TopK Limit: 5
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"sleek running shoes","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"sleek running shoes"}}}}
 (9 rows)
 
 SELECT description, rating FROM mock_items
@@ -186,8 +186,8 @@ SELECT description, rating FROM mock_items
 WHERE category === 'electronics'
 ORDER BY upper(description) ASC, rating DESC
     LIMIT 5;
-                                                       QUERY PLAN                                                        
--------------------------------------------------------------------------------------------------------------------------
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on mock_items
          Table: mock_items
@@ -196,7 +196,7 @@ ORDER BY upper(description) ASC, rating DESC
          Scores: false
             TopK Order By: description asc, rating desc
             TopK Limit: 5
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"electronics","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"electronics"}}}}
 (9 rows)
 
 SELECT description, rating FROM mock_items

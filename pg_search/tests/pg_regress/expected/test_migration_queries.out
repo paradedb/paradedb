@@ -232,8 +232,8 @@ SELECT * FROM products WHERE description @@@ pdb.parse('running AND shoes') ORDE
 -- term (===)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM products WHERE category === 'electronics' ORDER BY id;
-                                                       QUERY PLAN                                                        
--------------------------------------------------------------------------------------------------------------------------
+                                             QUERY PLAN                                              
+-----------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -241,7 +241,7 @@ SELECT * FROM products WHERE category === 'electronics' ORDER BY id;
          Index: search_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"electronics","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"electronics"}}}}
 (8 rows)
 
 SELECT * FROM products WHERE category === 'electronics' ORDER BY id;
@@ -255,8 +255,8 @@ SELECT * FROM products WHERE category === 'electronics' ORDER BY id;
 -- terms
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM products WHERE category === 'electronics' OR category === 'footwear' ORDER BY id;
-                                                                                                                   QUERY PLAN                                                                                                                   
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                               QUERY PLAN                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -264,7 +264,7 @@ SELECT * FROM products WHERE category === 'electronics' OR category === 'footwea
          Index: search_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"term":{"field":"category","value":"electronics","is_datetime":false}}}},{"with_index":{"query":{"term":{"field":"category","value":"footwear","is_datetime":false}}}}]}}
+         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"term":{"field":"category","value":"electronics"}}}},{"with_index":{"query":{"term":{"field":"category","value":"footwear"}}}}]}}
 (8 rows)
 
 SELECT * FROM products WHERE category === 'electronics' OR category === 'footwear' ORDER BY id;
@@ -452,8 +452,8 @@ WHERE description ||| 'shoes'
   AND NOT (price >= 100)
   AND rating = 5
 ORDER BY id;
-                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                      QUERY PLAN                                                                                                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -461,7 +461,7 @@ ORDER BY id;
          Index: search_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":"100"}}},{"term":{"field":"rating","value":5,"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":"100"}}},{"term":{"field":"rating","value":5}}]}}
 (8 rows)
 
 SELECT * FROM products
@@ -485,8 +485,8 @@ WHERE id @@@ paradedb.boolean(
 AND NOT (price >= 100)
 AND rating = 5
 ORDER BY id;
-                                                                                                                                                                                                                                   QUERY PLAN                                                                                                                                                                                                                                   
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                               
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -494,7 +494,7 @@ ORDER BY id;
          Index: search_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":[{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}],"should":[{"term":{"field":"category","value":"footwear","is_datetime":false}}]}}}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":"100"}}},{"term":{"field":"rating","value":5,"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"boolean":{"must":[{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}],"should":[{"term":{"field":"category","value":"footwear"}}]}}}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"excluded":"100"}}},{"term":{"field":"rating","value":5}}]}}
 (8 rows)
 
 SELECT * FROM products
@@ -547,8 +547,8 @@ WHERE id @@@ paradedb.const_score(
   score => 1.5,
   query => paradedb.term('category', 'electronics')
 ) ORDER BY id;
-                                                                          QUERY PLAN                                                                           
----------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                QUERY PLAN                                                                 
+-------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -556,7 +556,7 @@ WHERE id @@@ paradedb.const_score(
          Index: search_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"term":{"field":"category","value":"electronics","is_datetime":false}},"score":1.5}}}}
+         Tantivy Query: {"with_index":{"query":{"const_score":{"query":{"term":{"field":"category","value":"electronics"}},"score":1.5}}}}
 (8 rows)
 
 SELECT * FROM products
@@ -581,8 +581,8 @@ WHERE id @@@ paradedb.disjunction_max(
   ],
   tie_breaker => 0.5
 ) ORDER BY id;
-                                                                                                                                                            QUERY PLAN                                                                                                                                                             
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                  QUERY PLAN                                                                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on products
@@ -590,7 +590,7 @@ WHERE id @@@ paradedb.disjunction_max(
          Index: search_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"disjunction_max":{"disjuncts":[{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}},{"term":{"field":"category","value":"footwear","is_datetime":false}}],"tie_breaker":0.5}}}}
+         Tantivy Query: {"with_index":{"query":{"disjunction_max":{"disjuncts":[{"match":{"field":"description","value":"shoes","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}},{"term":{"field":"category","value":"footwear"}}],"tie_breaker":0.5}}}}
 (8 rows)
 
 SELECT * FROM products

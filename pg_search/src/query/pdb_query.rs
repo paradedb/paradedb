@@ -993,7 +993,7 @@ fn range_term(
     // Range fields are indexed as JSON with specific element types:
     // - INT4RANGEOID, INT8RANGEOID: indexed as i32/i64 → convert to I64
     // - NUMRANGEOID: indexed as hex-encoded sortable bytes (see SortableDecimal) → convert to hex string
-    // - Date/time ranges: handled by is_datetime flag
+    // - Date/time ranges: handling is determined by examining the schema
     let value = convert_value_for_range_field(value.clone(), &search_field.field_type());
 
     let range_field = RangeField::new(search_field.field(), search_field.is_datetime());

@@ -280,9 +280,30 @@ fn collect(
             // the parent stage. The receive math collapses to task 0 of
             // the parent group, so the destination proc is
             // `proc_for_task(n_workers, 0)`.
-            (_, true) => FragmentRouting::Coalesce {
+            ("NetworkCoalesceExec", true) => FragmentRouting::Coalesce {
                 dest_proc: proc_for_task(n_workers, 0),
             },
+            // Any other nested boundary kind is unknown territory. Fall
+            // through to a hard error rather than silently routing to
+            // task 0 of `proc_for_task`, which would over-count or drop
+            // batches for a shape we haven't reasoned about. Surface as
+            // error so plan-walk drift is visible.
+            (other, true) => {
+                #[cfg(not(test))]
+                pgrx::error!(
+                    "mpp worker_fragments: unsupported nested boundary kind {other} \
+                     (stage_id={stage_id}). Only NetworkShuffleExec, NetworkBroadcastExec, \
+                     and NetworkCoalesceExec are recognised; routing this shape would silently \
+                     mis-route batches."
+                );
+                #[cfg(test)]
+                panic!(
+                    "mpp worker_fragments: unsupported nested boundary kind {other} \
+                     (stage_id={stage_id}). Only NetworkShuffleExec, NetworkBroadcastExec, \
+                     and NetworkCoalesceExec are recognised; routing this shape would silently \
+                     mis-route batches."
+                );
+            }
         };
         #[cfg(not(test))]
         {

@@ -109,7 +109,9 @@ impl MppFrameHeader {
 
     /// Build an `Eof` header for the given `(stage_id, partition)`. Carries no
     /// payload; receivers route it to the sub-buffer's source-done counter.
-    /// Consumed by M2's per-channel EOF signalling; exercised in tests today.
+    /// Emitted by [`MppSender::send_eof_traced`] after a producer fragment's
+    /// per-partition stream exhausts (or errors), and consumed by the matching
+    /// sub-buffer's `notify_source_done`.
     #[allow(dead_code)]
     pub fn eof(stage_id: u32, partition: u32) -> Self {
         Self {
@@ -1350,11 +1352,12 @@ mod tests {
 
     #[test]
     fn frame_rejects_bad_magic() {
+        // Explicit non-zero, non-magic prefix. Don't rely on the
+        // happenstance that 0u32 != MPP_FRAME_MAGIC.
         let mut bad = vec![0u8; MPP_FRAME_HEADER_SIZE];
-        // Magic is the first 4 bytes; zeroing them is enough.
+        bad[0..4].copy_from_slice(&0xCAFEBABE_u32.to_le_bytes());
         let err = decode_frame(&bad).expect_err("bad magic must fail");
         assert!(format!("{err}").contains("bad frame magic"));
-        // And a non-zero garbage prefix also fails.
         bad[0..4].copy_from_slice(&0xDEADBEEF_u32.to_le_bytes());
         let err = decode_frame(&bad).expect_err("bad magic must fail");
         assert!(format!("{err}").contains("bad frame magic"));

@@ -109,7 +109,7 @@ pub unsafe fn term_with_operator(
     value: AnyElement,
 ) -> anyhow::Result<SearchQueryInput> {
     macro_rules! make_query {
-        ($operator:expr, $field:expr, $eq_func_name:ident, $value_type:ty, $anyelement:expr, $is_datetime:literal) => {
+        ($operator:expr, $field:expr, $eq_func_name:ident, $value_type:ty, $anyelement:expr) => {
             match $operator.as_str() {
                 "=" => Ok(SearchQueryInput::FieldedQuery { field: $field, query: $eq_func_name(<$value_type>::from_datum($anyelement.datum(), false).unwrap())}),
                 "<>" => Ok(
@@ -120,10 +120,10 @@ pub unsafe fn term_with_operator(
                         must_not: vec![SearchQueryInput::FieldedQuery { field: $field, query: $eq_func_name(<$value_type>::from_datum($anyelement.datum(), false).unwrap())}]
                     }
                 ),
-                ">" => generic_range_query(Bound::Excluded($anyelement), Bound::Unbounded, $is_datetime).map(|query| SearchQueryInput::FieldedQuery { field: $field, query }),
-                ">=" => generic_range_query(Bound::Included($anyelement), Bound::Unbounded, $is_datetime).map(|query| SearchQueryInput::FieldedQuery { field: $field, query }),
-                "<" => generic_range_query(Bound::Unbounded, Bound::Excluded($anyelement), $is_datetime).map(|query| SearchQueryInput::FieldedQuery { field: $field, query }),
-                "<=" => generic_range_query(Bound::Unbounded, Bound::Included($anyelement), $is_datetime).map(|query| SearchQueryInput::FieldedQuery { field: $field, query }),
+                ">" => generic_range_query(Bound::Excluded($anyelement), Bound::Unbounded).map(|query| SearchQueryInput::FieldedQuery { field: $field, query }),
+                ">=" => generic_range_query(Bound::Included($anyelement), Bound::Unbounded).map(|query| SearchQueryInput::FieldedQuery { field: $field, query }),
+                "<" => generic_range_query(Bound::Unbounded, Bound::Excluded($anyelement)).map(|query| SearchQueryInput::FieldedQuery { field: $field, query }),
+                "<=" => generic_range_query(Bound::Unbounded, Bound::Included($anyelement)).map(|query| SearchQueryInput::FieldedQuery { field: $field, query }),
                 other => panic!("unsupported operator: {other}"),
             }
         };
@@ -132,27 +132,27 @@ pub unsafe fn term_with_operator(
     use crate::api::builder_fns::*;
     use crate::query::pdb_query::pdb;
     match value.oid() {
-        pg_sys::CHAROID => make_query!(operator, field, term_i8, i8, value, false),
-        pg_sys::INT2OID => make_query!(operator, field, term_i16, i16, value, false),
-        pg_sys::INT4OID => make_query!(operator, field, term_i32, i32, value, false),
-        pg_sys::INT8OID => make_query!(operator, field, term_i64, i64, value, false),
-        pg_sys::FLOAT4OID => make_query!(operator, field, term_f32, f32, value, false),
-        pg_sys::FLOAT8OID => make_query!(operator, field, term_f64, f64, value, false),
-        pg_sys::BOOLOID => make_query!(operator, field, term_bool, bool, value, false),
-        pg_sys::NUMERICOID => make_query!(operator, field, numeric, AnyNumeric, value, false),
+        pg_sys::CHAROID => make_query!(operator, field, term_i8, i8, value),
+        pg_sys::INT2OID => make_query!(operator, field, term_i16, i16, value),
+        pg_sys::INT4OID => make_query!(operator, field, term_i32, i32, value),
+        pg_sys::INT8OID => make_query!(operator, field, term_i64, i64, value),
+        pg_sys::FLOAT4OID => make_query!(operator, field, term_f32, f32, value),
+        pg_sys::FLOAT8OID => make_query!(operator, field, term_f64, f64, value),
+        pg_sys::BOOLOID => make_query!(operator, field, term_bool, bool, value),
+        pg_sys::NUMERICOID => make_query!(operator, field, numeric, AnyNumeric, value),
 
-        pg_sys::TEXTOID => make_query!(operator, field, term_str, String, value, false),
-        pg_sys::VARCHAROID => make_query!(operator, field, term_str, String, value, false),
-        pg_sys::UUIDOID => make_query!(operator, field, uuid, pgrx::datum::Uuid, value, false),
+        pg_sys::TEXTOID => make_query!(operator, field, term_str, String, value),
+        pg_sys::VARCHAROID => make_query!(operator, field, term_str, String, value),
+        pg_sys::UUIDOID => make_query!(operator, field, uuid, pgrx::datum::Uuid, value),
 
-        pg_sys::DATEOID => make_query!(operator, field, date, pgrx::datum::Date, value, true),
-        pg_sys::TIMEOID => make_query!(operator, field, time, pgrx::datum::Time, value, true),
-        pg_sys::TIMETZOID => make_query!(operator, field, time_with_time_zone, pgrx::datum::TimeWithTimeZone, value, true),
-        pg_sys::TIMESTAMPOID => make_query!(operator, field, timestamp, pgrx::datum::Timestamp, value, true),
-        pg_sys::TIMESTAMPTZOID => make_query!(operator, field, timestamp_with_time_zone, pgrx::datum::TimestampWithTimeZone, value, true),
+        pg_sys::DATEOID => make_query!(operator, field, date, pgrx::datum::Date, value),
+        pg_sys::TIMEOID => make_query!(operator, field, time, pgrx::datum::Time, value),
+        pg_sys::TIMETZOID => make_query!(operator, field, time_with_time_zone, pgrx::datum::TimeWithTimeZone, value),
+        pg_sys::TIMESTAMPOID => make_query!(operator, field, timestamp, pgrx::datum::Timestamp, value),
+        pg_sys::TIMESTAMPTZOID => make_query!(operator, field, timestamp_with_time_zone, pgrx::datum::TimestampWithTimeZone, value),
 
         other if is_citext_oid(other) => {
-            make_query!(operator, field, term_str, String, value, false)
+            make_query!(operator, field, term_str, String, value)
         }
         other => panic!("unsupported type: {other:?}"),
     }

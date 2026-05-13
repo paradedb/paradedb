@@ -212,7 +212,6 @@ mod pdb {
                     RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n as i64)),
                     RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n as i64)),
                 },
-                is_datetime: false,
             },
         }
     }
@@ -234,7 +233,6 @@ mod pdb {
                     RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n)),
                     RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n)),
                 },
-                is_datetime: false,
             },
         }
     }
@@ -266,7 +264,6 @@ mod pdb {
                         Bound::Excluded(OwnedValue::Str(n.normalize().to_string()))
                     }
                 },
-                is_datetime: false,
             },
         }
     }
@@ -318,7 +315,6 @@ mod pdb {
                                     .into(),
                             ),
                         },
-                        is_datetime: true,
                     },
                 }
             }
@@ -332,7 +328,6 @@ mod pdb {
     pub unsafe fn generic_range_query(
         lower: Bound<AnyElement>,
         upper: Bound<AnyElement>,
-        is_datetime: bool,
     ) -> anyhow::Result<pdb::Query> {
         let query = match (lower, upper) {
             (Bound::Included(s), Bound::Included(e)) => pdb::Query::Range {
@@ -342,7 +337,6 @@ mod pdb {
                 upper_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(
                     e,
                 )?)),
-                is_datetime,
             },
             (Bound::Included(s), Bound::Excluded(e)) => pdb::Query::Range {
                 lower_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(
@@ -351,14 +345,12 @@ mod pdb {
                 upper_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(
                     e,
                 )?)),
-                is_datetime,
             },
             (Bound::Included(s), Bound::Unbounded) => pdb::Query::Range {
                 lower_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(
                     s,
                 )?)),
                 upper_bound: Bound::Unbounded,
-                is_datetime,
             },
             (Bound::Excluded(s), Bound::Excluded(e)) => pdb::Query::Range {
                 lower_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(
@@ -367,7 +359,6 @@ mod pdb {
                 upper_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(
                     e,
                 )?)),
-                is_datetime,
             },
             (Bound::Excluded(s), Bound::Included(e)) => pdb::Query::Range {
                 lower_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(
@@ -376,33 +367,28 @@ mod pdb {
                 upper_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(
                     e,
                 )?)),
-                is_datetime,
             },
             (Bound::Excluded(s), Bound::Unbounded) => pdb::Query::Range {
                 lower_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(
                     s,
                 )?)),
                 upper_bound: Bound::Unbounded,
-                is_datetime,
             },
             (Bound::Unbounded, Bound::Unbounded) => pdb::Query::Range {
                 lower_bound: Bound::Unbounded,
                 upper_bound: Bound::Unbounded,
-                is_datetime,
             },
             (Bound::Unbounded, Bound::Included(e)) => pdb::Query::Range {
                 lower_bound: Bound::Unbounded,
                 upper_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(
                     e,
                 )?)),
-                is_datetime,
             },
             (Bound::Unbounded, Bound::Excluded(e)) => pdb::Query::Range {
                 lower_bound: Bound::Unbounded,
                 upper_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(
                     e,
                 )?)),
-                is_datetime,
             },
         };
 
@@ -523,7 +509,7 @@ mod pdb {
     // term_set_fn!(term_set_inet, pgrx::Inet, false);
 
     macro_rules! range_term_fn {
-        ($func_name:ident, $value_type:ty, $is_datetime:expr) => {
+        ($func_name:ident, $value_type:ty) => {
             #[builder_fn]
             #[pg_extern(immutable, parallel_safe, name = "range_term")]
             pub fn $func_name(term: $value_type) -> pdb::Query {
@@ -531,25 +517,23 @@ mod pdb {
                     value: TantivyValue::try_from(term)
                         .expect("term should be a valid TantivyValue representation")
                         .tantivy_schema_value(),
-                    is_datetime: $is_datetime,
                 }
             }
         };
     }
 
-    range_term_fn!(range_term_i8, i8, false);
-    range_term_fn!(range_term_i16, i16, false);
-    range_term_fn!(range_term_i32, i32, false);
-    range_term_fn!(range_term_i64, i64, false);
-    range_term_fn!(range_term_f32, f32, false);
-    range_term_fn!(range_term_f64, f64, false);
-    range_term_fn!(range_term_numeric, pgrx::AnyNumeric, false);
-    range_term_fn!(range_term_date, pgrx::datum::Date, true);
-    range_term_fn!(range_term_timestamp, pgrx::datum::Timestamp, true);
+    range_term_fn!(range_term_i8, i8);
+    range_term_fn!(range_term_i16, i16);
+    range_term_fn!(range_term_i32, i32);
+    range_term_fn!(range_term_i64, i64);
+    range_term_fn!(range_term_f32, f32);
+    range_term_fn!(range_term_f64, f64);
+    range_term_fn!(range_term_numeric, pgrx::AnyNumeric);
+    range_term_fn!(range_term_date, pgrx::datum::Date);
+    range_term_fn!(range_term_timestamp, pgrx::datum::Timestamp);
     range_term_fn!(
         range_term_timestamp_with_time_zone,
-        pgrx::datum::TimestampWithTimeZone,
-        true
+        pgrx::datum::TimestampWithTimeZone
     );
 
     pub use paradedb::RangeRelation;
@@ -577,7 +561,7 @@ mod pdb {
     }
 
     macro_rules! range_term_range_fn {
-        ($func_name:ident, $value_type:ty, $is_datetime:expr, $default:expr) => {
+        ($func_name:ident, $value_type:ty, $default:expr) => {
             #[builder_fn]
             #[pg_extern(immutable, parallel_safe, name = "range_term")]
             pub fn $func_name(
@@ -623,17 +607,14 @@ mod pdb {
                     RangeRelation::Intersects => pdb::Query::RangeIntersects {
                         lower_bound,
                         upper_bound,
-                        is_datetime: $is_datetime,
                     },
                     RangeRelation::Contains => pdb::Query::RangeContains {
                         lower_bound,
                         upper_bound,
-                        is_datetime: $is_datetime,
                     },
                     RangeRelation::Within => pdb::Query::RangeWithin {
                         lower_bound,
                         upper_bound,
-                        is_datetime: $is_datetime,
                     },
                 }
             }
@@ -643,37 +624,31 @@ mod pdb {
     range_term_range_fn!(
         range_term_range_int4range,
         pgrx::Range<i32>,
-        false,
         OwnedValue::I64(0)
     );
     range_term_range_fn!(
         range_term_range_int8range,
         pgrx::Range<i64>,
-        false,
         OwnedValue::I64(0)
     );
     range_term_range_fn!(
         range_term_range_numrange,
         pgrx::Range<pgrx::AnyNumeric>,
-        false,
         OwnedValue::F64(0.0)
     );
     range_term_range_fn!(
         range_term_range_daterange,
         pgrx::Range<pgrx::datum::Date>,
-        true,
         OwnedValue::Date(tantivy::DateTime::from_timestamp_micros(0))
     );
     range_term_range_fn!(
         range_term_range_tsrange,
         pgrx::Range<pgrx::datum::Timestamp>,
-        true,
         OwnedValue::Date(tantivy::DateTime::from_timestamp_micros(0))
     );
     range_term_range_fn!(
         range_term_range_tstzrange,
         pgrx::Range<pgrx::datum::TimestampWithTimeZone>,
-        true,
         OwnedValue::Date(tantivy::DateTime::from_timestamp_micros(0))
     );
 

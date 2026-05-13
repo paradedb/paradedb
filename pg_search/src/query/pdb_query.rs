@@ -263,8 +263,6 @@ pub mod pdb {
                 deserialize_with = "deserialize_bound"
             )]
             upper_bound: Bound<OwnedValue>,
-            #[serde(default)]
-            is_datetime: bool,
         },
         RangeContains {
             #[serde(
@@ -277,8 +275,6 @@ pub mod pdb {
                 deserialize_with = "deserialize_bound"
             )]
             upper_bound: Bound<OwnedValue>,
-            #[serde(default)]
-            is_datetime: bool,
         },
         RangeIntersects {
             #[serde(
@@ -291,13 +287,9 @@ pub mod pdb {
                 deserialize_with = "deserialize_bound"
             )]
             upper_bound: Bound<OwnedValue>,
-            #[serde(default)]
-            is_datetime: bool,
         },
         RangeTerm {
             value: OwnedValue,
-            #[serde(default)]
-            is_datetime: bool,
         },
         RangeWithin {
             #[serde(
@@ -310,8 +302,6 @@ pub mod pdb {
                 deserialize_with = "deserialize_bound"
             )]
             upper_bound: Bound<OwnedValue>,
-            #[serde(default)]
-            is_datetime: bool,
         },
         Regex {
             pattern: String,
@@ -458,6 +448,10 @@ impl pdb::Query {
         parser: &QueryParserCtor,
         searcher: &Searcher,
     ) -> anyhow::Result<Box<dyn TantivyQuery>> {
+        let search_field = schema
+            .search_field(field.root())
+            .ok_or(QueryError::NonIndexedField(field.clone()))?;
+
         let query: Box<dyn TantivyQuery> = match self {
             pdb::Query::All => Box::new(AllQuery),
             pdb::Query::Empty => Box::new(EmptyQuery),
@@ -575,26 +569,26 @@ impl pdb::Query {
             pdb::Query::Range {
                 lower_bound,
                 upper_bound,
-                is_datetime,
-            } => range(&field, schema, lower_bound, upper_bound, is_datetime)?,
+            } => range(&field, schema, lower_bound, upper_bound)?,
             pdb::Query::RangeContains {
                 lower_bound,
                 upper_bound,
-                is_datetime,
-            } => range_contains(&field, schema, lower_bound, upper_bound, is_datetime)?,
+            } => range_contains(&field, schema, lower_bound, upper_bound)?,
             pdb::Query::RangeIntersects {
                 lower_bound,
                 upper_bound,
-                is_datetime,
-            } => range_intersects(&field, schema, lower_bound, upper_bound, is_datetime)?,
-            pdb::Query::RangeTerm { value, is_datetime } => {
-                range_term(&field, schema, &value, is_datetime)?
-            }
+            } => range_intersects(&field, schema, lower_bound, upper_bound)?,
+            pdb::Query::RangeTerm { value } => range_term(&field, schema, &value)?,
             pdb::Query::RangeWithin {
                 lower_bound,
                 upper_bound,
-                is_datetime,
-            } => range_within(&field, schema, lower_bound, upper_bound, is_datetime)?,
+            } => range_within(
+                &field,
+                schema,
+                lower_bound,
+                upper_bound,
+                search_field.is_datetime(),
+            )?,
             pdb::Query::Regex { pattern } => regex(&field, schema, &pattern)?,
             pdb::Query::RegexPhrase {
                 regexes,
@@ -1007,7 +1001,6 @@ fn range_term(
     field: &FieldName,
     schema: &SearchIndexSchema,
     value: &OwnedValue,
-    is_datetime: bool,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
@@ -1020,7 +1013,7 @@ fn range_term(
     // - Date/time ranges: handled by is_datetime flag
     let value = convert_value_for_range_field(value.clone(), &search_field.field_type());
 
-    let range_field = RangeField::new(search_field.field(), is_datetime);
+    let range_field = RangeField::new(search_field.field(), search_field.is_datetime());
 
     let satisfies_lower_bound = BooleanQuery::new(vec![
         (
@@ -1119,13 +1112,12 @@ fn range_intersects(
     schema: &SearchIndexSchema,
     lower_bound: Bound<OwnedValue>,
     upper_bound: Bound<OwnedValue>,
-    is_datetime: bool,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let typeoid = search_field.field_type().typeoid();
-    let is_datetime = search_field.is_datetime() || is_datetime;
+    let is_datetime = search_field.is_datetime();
 
     let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
     let range_field = RangeField::new(search_field.field(), is_datetime);
@@ -1276,13 +1268,12 @@ fn range_contains(
     schema: &SearchIndexSchema,
     lower_bound: Bound<OwnedValue>,
     upper_bound: Bound<OwnedValue>,
-    is_datetime: bool,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let typeoid = search_field.field_type().typeoid();
-    let is_datetime = search_field.is_datetime() || is_datetime;
+    let is_datetime = search_field.is_datetime();
     let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
     let range_field = RangeField::new(search_field.field(), is_datetime);
 
@@ -1435,14 +1426,13 @@ fn range(
     schema: &SearchIndexSchema,
     lower_bound: Bound<OwnedValue>,
     upper_bound: Bound<OwnedValue>,
-    is_datetime: bool,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
     let typeoid = search_field.field_type().typeoid();
-    let is_datetime = search_field.is_datetime() || is_datetime;
+    let is_datetime = search_field.is_datetime();
     let search_field_type = search_field.field_type();
 
     // Handle NUMERIC field types with special storage strategies

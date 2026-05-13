@@ -259,7 +259,6 @@ impl<'a> FilterAnalyzer<'a> {
             query: pdb::Query::Range {
                 lower_bound: lower,
                 upper_bound: upper,
-                is_datetime: false,
             },
         }
     }

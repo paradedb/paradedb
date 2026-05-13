@@ -71,16 +71,16 @@ use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, Pla
 use datafusion::physical_planner::{ExtensionPlanner, PhysicalPlanner};
 use pgrx::pg_sys;
 
-use crate::index::fast_fields_helper::FFHelper;
+use crate::index::fast_fields_helper::{for_each_segment, FFHelper};
 use crate::postgres::customscan::joinscan::build::{JoinType, RelNode};
 use crate::postgres::customscan::joinscan::CtidColumn;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
-use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::UnsafeSendStream;
 use crate::scan::table_provider::{PgSearchTableProvider, VisibilitySourceMetadata};
 use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
 use arrow_select::filter::filter_record_batch;
+use tantivy::DocId;
 
 // ---------------------------------------------------------------------------
 // Logical Node
@@ -956,68 +956,47 @@ impl ExecutionPlan for VisibilityFilterExec {
 // Deferred ctid materialization
 // ---------------------------------------------------------------------------
 
+/// Reusable buffers for per-segment ctid materialization.
 #[derive(Default)]
 struct DeferredCtidMaterializationState {
-    requests: Vec<(u32, usize, u32)>,
-    segment_doc_ids: Vec<u32>,
-    segment_ctids: Vec<Option<u64>>,
     resolved_ctids: Vec<Option<u64>>,
+    segment_doc_ids: Vec<DocId>,
+    segment_ctids: Vec<Option<u64>>,
 }
 
 /// Resolves packed DocAddresses (UInt64) to real ctids via FFHelper.
 ///
 /// Each packed value encodes (segment_ord, doc_id). The FFHelper's ctid()
 /// column is used to look up the real ctid for each document.
-///
-/// TODO: This request-partitioning pattern is duplicated in `materialize_deferred_column`
-/// in `tantivy_lookup_exec.rs`. Both should be unified and optimized with Arrow
-/// kernels where possible.
 fn materialize_deferred_ctid(
     ffhelper: &FFHelper,
     doc_addr_array: &UInt64Array,
     state: &mut DeferredCtidMaterializationState,
 ) -> Result<ArrayRef> {
     let num_rows = doc_addr_array.len();
-    state.requests.clear();
+    let packed_iter = (0..num_rows)
+        .filter(|&i| !doc_addr_array.is_null(i))
+        .map(|i| (i, doc_addr_array.value(i)));
+
     state.resolved_ctids.clear();
     state.resolved_ctids.resize(num_rows, None);
 
-    // Sort by segment so each fast-field column can be batch-read with a single
-    // `as_u64s` call per segment.
-    for i in 0..num_rows {
-        if !doc_addr_array.is_null(i) {
-            let (seg_ord, doc_id) = unpack_doc_address(doc_addr_array.value(i));
-            state.requests.push((seg_ord, i, doc_id));
-        }
-    }
-    state.requests.sort_unstable_by_key(|request| request.0);
-
-    let mut offset = 0;
-    while offset < state.requests.len() {
-        let seg_ord = state.requests[offset].0;
-        let mut end = offset + 1;
-        while end < state.requests.len() && state.requests[end].0 == seg_ord {
-            end += 1;
-        }
-
-        let rows = &state.requests[offset..end];
+    let num_segments = ffhelper.num_segments();
+    for_each_segment(num_segments, packed_iter, |seg_ord, rows| {
         state.segment_doc_ids.clear();
-        state
-            .segment_doc_ids
-            .extend(rows.iter().map(|(_, _, doc_id)| *doc_id));
-        if state.segment_ctids.len() < rows.len() {
-            state.segment_ctids.resize(rows.len(), None);
-        }
-        let segment_ctids = &mut state.segment_ctids[..rows.len()];
-        segment_ctids.fill(None);
-        let ctid_col = ffhelper.ctid(seg_ord);
-        ctid_col.as_u64s(&state.segment_doc_ids, segment_ctids);
+        state.segment_doc_ids.extend(rows.iter().map(|(_, id)| *id));
 
-        for ((_, row_idx, _), maybe_ctid) in rows.iter().zip(segment_ctids.iter()) {
-            state.resolved_ctids[*row_idx] = *maybe_ctid;
+        state.segment_ctids.clear();
+        state.segment_ctids.resize(rows.len(), None);
+        ffhelper
+            .ctid(seg_ord)
+            .as_u64s(&state.segment_doc_ids, &mut state.segment_ctids);
+
+        for ((row_idx, _), value) in rows.into_iter().zip(state.segment_ctids.iter()) {
+            state.resolved_ctids[row_idx] = *value;
         }
-        offset = end;
-    }
+        Ok(())
+    })?;
 
     Ok(uint64_array_from_options(&state.resolved_ctids))
 }

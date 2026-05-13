@@ -21,6 +21,7 @@ use std::sync::{Arc, OnceLock};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::types_arrow::date_time_to_ts_nanos;
+use crate::scan::deferred_encode::unpack_doc_address;
 use crate::schema::SearchFieldType;
 
 use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
@@ -135,6 +136,10 @@ impl FFHelper {
                 .get_or_init(|| FFType::new(ff_readers, &column.0))
                 .value(doc_address.doc_id),
         )
+    }
+
+    pub fn num_segments(&self) -> usize {
+        self.segment_caches.len()
     }
 }
 
@@ -426,6 +431,34 @@ pub fn build_arrow_schema(which_fast_fields: &[WhichFastField]) -> arrow_schema:
         .map(|wff| Field::new(wff.name(), wff.arrow_data_type(), true))
         .collect();
     Arc::new(Schema::new(fields))
+}
+
+/// Partitions packed doc addresses by segment ordinal and invokes `process`
+/// once per segment (in sorted segment order) with the segment ordinal and
+/// its `(row_index, doc_id)` pairs.
+///
+/// The `packed_iter` argument yields `(row_index, packed_doc_address)`
+pub fn for_each_segment<F>(
+    num_segments: usize,
+    packed_iter: impl Iterator<Item = (usize, u64)>,
+    mut process: F,
+) -> Result<()>
+where
+    F: FnMut(SegmentOrdinal, Vec<(usize, DocId)>) -> Result<()>,
+{
+    let mut by_seg: Vec<Vec<(usize, DocId)>> = vec![Vec::new(); num_segments];
+    for (row_idx, packed) in packed_iter {
+        let (seg_ord, doc_id) = unpack_doc_address(packed);
+        by_seg[seg_ord as usize].push((row_idx, doc_id));
+    }
+    for (seg_ord, rows) in by_seg.into_iter().enumerate() {
+        if rows.is_empty() {
+            continue;
+        }
+
+        process(seg_ord as SegmentOrdinal, rows)?;
+    }
+    Ok(())
 }
 
 pub(crate) const NULL_TERM_ORDINAL: TermOrdinal = u64::MAX;

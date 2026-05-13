@@ -13,7 +13,7 @@ inputs:
     description: "Git ref or short SHA to report in benchmarks"
     required: true
   github_app_id:
-    description: "GitHub App client ID to authenticate with"
+    description: "GitHub App ID to authenticate with"
     required: true
   github_app_private_key:
     description: "GitHub App private key to authenticate with"
@@ -100,45 +100,25 @@ runs:
         with open(f"pg_search_tps.json", "w")  as o: json.dump(tps, o)
         with open(f"pg_search_other.json", "w") as o: json.dump(other, o)
 
-    - name: Determine Whether Benchmark Publishing Is Available
-      id: publish-auth
-      shell: bash
-      run: |
-        if [ -n "${{ inputs.github_app_id }}" ] && [ -n "${{ inputs.github_app_private_key }}" ]; then
-          echo "enabled=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "enabled=false" >> "$GITHUB_OUTPUT"
-        fi
-
     - name: Generate GitHub App Token
       id: app-token
-      if: steps.publish-auth.outputs.enabled == 'true'
       uses: actions/create-github-app-token@v3
       with:
         client-id: ${{ inputs.github_app_id }}
         private-key: ${{ inputs.github_app_private_key }}
 
-    - name: Explain Why Benchmark Publication Is Skipped
-      if: steps.publish-auth.outputs.enabled != 'true'
-      shell: bash
-      run: |
-        echo "::notice::Skipping benchmark publication and PR comments because GitHub App credentials are unavailable in this workflow context. This is expected for pull_request runs from forks."
-
     # Necessary to avoid "destination path is not empty" error
     - name: Cleanup Previous Benchmark Publish Working Directory
-      if: steps.app-token.outputs.token != ''
       shell: bash
       run: rm -rf ./benchmark-data-repository
 
     # we sleep for a random number of seconds to hopefully avoid conflicting with other concurrent
     # benchmark-action publish actions running in other jobs
     - name: Sleep before publish
-      if: steps.app-token.outputs.token != ''
       shell: bash
       run: echo $(( 1 + RANDOM % ( 61 - 1 + 1 ) ))
 
     - name: Publish TPS Metrics
-      if: steps.app-token.outputs.token != ''
       uses: benchmark-action/github-action-benchmark@v1
       with:
         name: "pg_search ${{ inputs.test_file }} Performance - TPS"
@@ -157,19 +137,16 @@ runs:
 
     # Necessary to avoid "destination path is not empty" error
     - name: Cleanup Previous Benchmark Publish Working Directory
-      if: steps.app-token.outputs.token != ''
       shell: bash
       run: rm -rf ./benchmark-data-repository
 
     # we sleep for a random number of seconds to hopefully avoid conflicting with other concurrent
     # benchmark-action publish actions running in other jobs
     - name: Sleep before publish
-      if: steps.app-token.outputs.token != ''
       shell: bash
       run: echo $(( 1 + RANDOM % ( 61 - 1 + 1 ) ))
 
     - name: Publish Other Metrics
-      if: steps.app-token.outputs.token != ''
       uses: benchmark-action/github-action-benchmark@v1
       with:
         name: "pg_search ${{ inputs.test_file }} Performance - Other Metrics"

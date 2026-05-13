@@ -86,6 +86,17 @@ ORDER BY f.category;
 
 SET paradedb.enable_mpp TO on;
 
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.category,
+       COUNT(*) AS row_count,
+       SUM(p.size_bytes) AS total_bytes,
+       MIN(p.size_bytes) AS min_bytes,
+       MAX(p.size_bytes) AS max_bytes
+FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+GROUP BY f.category
+ORDER BY f.category;
+
 SELECT f.category,
        COUNT(*) AS row_count,
        SUM(p.size_bytes) AS total_bytes,
@@ -111,6 +122,14 @@ LIMIT 10;
 
 SET paradedb.enable_mpp TO on;
 
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.category, f.title, COUNT(*) AS pages_per_file
+FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+GROUP BY f.category, f.title
+ORDER BY f.category, f.title
+LIMIT 10;
+
 SELECT f.category, f.title, COUNT(*) AS pages_per_file
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
@@ -134,6 +153,15 @@ LIMIT 3;
 
 SET paradedb.enable_mpp TO on;
 
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.category, COUNT(*) AS c, SUM(p.size_bytes) AS s
+FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+GROUP BY f.category
+HAVING COUNT(*) > 100
+ORDER BY s DESC
+LIMIT 3;
+
 SELECT f.category, COUNT(*) AS c, SUM(p.size_bytes) AS s
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section'
@@ -145,7 +173,8 @@ LIMIT 3;
 -- =====================================================================
 -- Scenario 4: Scalar COUNT(*) — falls back to serial (planner caps the
 -- task_count for scalar aggregates), but confirms MPP-on doesn't break
--- the serial fallback path.
+-- the serial fallback path. The EXPLAIN under enable_mpp=on documents
+-- that the scalar shape does not produce a multi-stage MPP plan.
 -- =====================================================================
 
 SET paradedb.enable_mpp TO off;
@@ -155,6 +184,11 @@ FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
 WHERE f.content @@@ 'Section';
 
 SET paradedb.enable_mpp TO on;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT COUNT(*)
+FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section';
 
 SELECT COUNT(*)
 FROM mpp_postagg_files f JOIN mpp_postagg_pages p ON f.id = p.file_id
@@ -200,6 +234,15 @@ GROUP BY c.name
 ORDER BY c.name;
 
 SET paradedb.enable_mpp TO on;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT c.name, COUNT(*) AS row_count, SUM(p.size_bytes) AS total_bytes
+FROM mpp_postagg_files f
+JOIN mpp_postagg_pages p ON f.id = p.file_id
+JOIN mpp_postagg_categories c ON f.category = c.name
+WHERE f.content @@@ 'Section'
+GROUP BY c.name
+ORDER BY c.name;
 
 SELECT c.name, COUNT(*) AS row_count, SUM(p.size_bytes) AS total_bytes
 FROM mpp_postagg_files f

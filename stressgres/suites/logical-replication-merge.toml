@@ -1,3 +1,8 @@
+# Reproduces the FSM race condition from https://github.com/paradedb/paradedb/issues/4935,
+# fixed in https://github.com/paradedb/paradedb/pull/5067. Without the fix this suite
+# crashes the subscriber within minutes (SIGSEGV or SegmentMetaEntryHeader: UnexpectedEnd);
+# with the fix it runs indefinitely.
+
 [[server]]
 name = "Publisher"
 [server.style.Automatic]

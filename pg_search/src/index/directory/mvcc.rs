@@ -729,9 +729,17 @@ pub fn index_memory_segment(
             }
 
             // We have a completely valid tuple to index: fetch and deform it.
-            let mut should_free = false;
-            let htup =
-                pg_sys::ExecFetchSlotHeapTuple(heap_fetch_state.slot(), true, &mut should_free);
+            //
+            // NOTE: We intentionally pass `false` (don't materialize) to keep the
+            // buffer pin held by the BufferHeapTupleTableSlot. This pin blocks
+            // VACUUM's LockBufferForCleanup, which prevents it from removing the
+            // heap tuple and deleting its TOAST chunks while we read them below.
+            // See: https://github.com/paradedb/paradedb/issues/5076
+            let htup = pg_sys::ExecFetchSlotHeapTuple(
+                heap_fetch_state.slot(),
+                false,
+                std::ptr::null_mut(),
+            );
 
             heap_deform_tuple(
                 htup,
@@ -739,6 +747,21 @@ pub fn index_memory_segment(
                 values.as_mut_ptr(),
                 isnull.as_mut_ptr(),
             );
+
+            // Eagerly detoast all variable-length (varlena) datums while the
+            // buffer pin is still held. Without this, the lazy detoasting in
+            // row_to_search_document can race with VACUUM deleting TOAST chunks
+            // after we release the pin (the "missing chunk number 0" crash).
+            // pg_detoast_datum is a no-op for already-inline / non-TOASTed data.
+            for i in 0..heaptupdesc.len() {
+                if !isnull[i] {
+                    let att = heaptupdesc.get(i).expect("valid attribute");
+                    if att.attlen == -1 {
+                        values[i] =
+                            pg_sys::Datum::from(pg_sys::pg_detoast_datum(values[i].cast_mut_ptr()));
+                    }
+                }
+            }
 
             let expr_results = expression_state.evaluate(heap_fetch_state.slot());
 
@@ -792,9 +815,8 @@ pub fn index_memory_segment(
                 unreachable!("No limits configured: should not finalize.")
             })?;
 
-            if should_free {
-                pg_sys::heap_freetuple(htup);
-            }
+            // Buffer pin is released when the slot is reused by the next
+            // table_index_fetch_tuple call, or when HeapFetchState is dropped.
         }
     }
 

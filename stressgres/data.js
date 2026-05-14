@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778786841709,
+  "lastUpdate": 1778786877130,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -714,6 +714,78 @@ window.BENCHMARK_DATA = {
             "value": 100.37184113968937,
             "unit": "median tps",
             "extra": "avg tps: 124.44286416859633, max tps: 830.6986341653057, count: 55163"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "balavignesh449@gmail.com",
+            "name": "S Bala Vignesh",
+            "username": "SBALAVIGNESH123"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d0039460372b22539b33262920b0194c694b7205",
+          "message": "fix: use fixed-length updates in stressgres to avoid TOAST and expose FSM race (#5080)\n\nThe old UPDATE pattern in the logical-replication stressgres suite\nappended txid_current() to the message column every iteration, growing\nit past the TOAST threshold (~2KB). This caused the suite to hit the\nunrelated TOAST visibility race (#5076) before the FSM segment metadata\nrace (#4935) could surface.\n\nChanged to fixed-length updates that keep the first search term and\nappend a small txid-derived number, staying well under the TOAST\nthreshold. This way the suite can run long enough to exercise the FSM\npath.\n\nRelated: #5067 (FSM race fix), #5076 (TOAST bug)",
+          "timestamp": "2026-05-14T14:57:31-04:00",
+          "tree_id": "96511f40645bb3416046b0914f9758c60c159a20",
+          "url": "https://github.com/paradedb/paradedb/commit/d0039460372b22539b33262920b0194c694b7205"
+        },
+        "date": 1778786814543,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 129.01337921871118,
+            "unit": "median tps",
+            "extra": "avg tps: 129.61991709130268, max tps: 168.35689128865548, count: 55303"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 477.34370865531577,
+            "unit": "median tps",
+            "extra": "avg tps: 480.33551126884964, max tps: 703.8999025056401, count: 55303"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3214.150426611533,
+            "unit": "median tps",
+            "extra": "avg tps: 3209.2826226814896, max tps: 3343.8759385548146, count: 55303"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 398.6828122040063,
+            "unit": "median tps",
+            "extra": "avg tps: 403.30708338187804, max tps: 543.8435818843527, count: 55303"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2936.2325598663915,
+            "unit": "median tps",
+            "extra": "avg tps: 2954.0328962152644, max tps: 3010.0783602752267, count: 110606"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 480.32472664134843,
+            "unit": "median tps",
+            "extra": "avg tps: 482.9586806003716, max tps: 668.3171158833676, count: 55303"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2077.1875581959375,
+            "unit": "median tps",
+            "extra": "avg tps: 2067.4246929176866, max tps: 2083.312264477782, count: 55303"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 98.67930754576892,
+            "unit": "median tps",
+            "extra": "avg tps: 96.687512913416, max tps: 274.00908723736916, count: 55303"
           }
         ]
       }

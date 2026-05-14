@@ -151,11 +151,18 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
     /// Return a Vec of all the items in this linked list
     pub unsafe fn list(&self, many: Option<usize>) -> Vec<T> {
         let mut items = vec![];
-        let (mut blockno, mut buffer) = self.get_start_blockno();
+        // TEST: Read start_blockno then DROP the header lock immediately
+        // and sleep to widen the race window. This gives atomically()+commit()
+        // time to recycle the old blocks while we're about to iterate them.
+        let mut blockno = {
+            let buffer = self.bman.get_buffer(self.header_blockno);
+            buffer.page().contents::<LinkedListData>().start_blockno
+        }; // header lock DROPPED here
+        pg_sys::pg_usleep(100_000); // 100ms — widen the race window
         let mut found = 0;
 
         'outer: while blockno != pg_sys::InvalidBlockNumber {
-            buffer = self.bman.get_buffer_exchange(blockno, buffer);
+            let buffer = self.bman.get_buffer(blockno);
             let page = buffer.page();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
@@ -310,9 +317,14 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
 
     /// Visit each entry, without mutating entries or the list structure.
     pub unsafe fn for_each(&mut self, mut f: impl FnMut(&mut BufferManager, T)) {
-        let (mut blockno, mut buffer) = self.get_start_blockno();
+        // TEST: Same race window widening as list() — see comment there.
+        let mut blockno = {
+            let buffer = self.bman().get_buffer(self.header_blockno);
+            buffer.page().contents::<LinkedListData>().start_blockno
+        }; // header lock DROPPED here
+        pg_sys::pg_usleep(100_000); // 100ms — widen the race window
         while blockno != pg_sys::InvalidBlockNumber {
-            buffer = self.bman().get_buffer_exchange(blockno, buffer);
+            let buffer = self.bman().get_buffer(blockno);
             let page = buffer.page();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();

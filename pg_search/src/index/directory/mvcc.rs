@@ -698,7 +698,7 @@ pub fn index_memory_segment(
                     continue 'next_ctid;
                 }
 
-                let htsv_result = {
+                let mut htsv_result = {
                     let buffer = (*heap_fetch_state.buffer_slot()).buffer;
                     let _lock = BorrowedBuffer::from_pg(buffer);
                     HeapTupleSatisfiesVacuum(
@@ -707,6 +707,24 @@ pub fn index_memory_segment(
                         buffer,
                     )
                 };
+
+                if htsv_result == HTSV_Result::HEAPTUPLE_RECENTLY_DEAD {
+                    // Our `oldest_xmin` might be stale compared to a concurrent VACUUM.
+                    // If VACUUM saw this tuple as DEAD and deleted its TOAST chunks, we
+                    // must also see it as DEAD, otherwise we'll crash trying to read them.
+                    let fresh_oldest_xmin =
+                        unsafe { pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr()) };
+                    if fresh_oldest_xmin != oldest_xmin {
+                        let buffer = (*heap_fetch_state.buffer_slot()).buffer;
+                        let _lock = BorrowedBuffer::from_pg(buffer);
+                        htsv_result = HeapTupleSatisfiesVacuum(
+                            (*heap_fetch_state.buffer_slot()).base.tuple,
+                            fresh_oldest_xmin,
+                            buffer,
+                        );
+                    }
+                }
+
                 if htsv_result == HTSV_Result::HEAPTUPLE_DEAD {
                     // This copy of the tuple is no longer visible to any transaction. Are there
                     // more in the HOT chain?

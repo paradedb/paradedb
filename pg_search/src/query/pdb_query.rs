@@ -56,7 +56,9 @@ pub mod pdb {
         deserialize_bound, deserialize_bound_date_aware, serialize_bound,
         serialize_bound_date_aware,
     };
-    use crate::query::{deserialize_date_aware_owned_value, serialize_date_aware_owned_value};
+    use crate::query::{
+        deserialize_as_date_aware_owned_value, serialize_as_date_aware_owned_value,
+    };
     use pgrx::PostgresType;
     use serde::{Deserialize, Serialize};
     use std::collections::Bound;
@@ -294,8 +296,8 @@ pub mod pdb {
         },
         RangeTerm {
             #[serde(
-                serialize_with = "serialize_date_aware_owned_value",
-                deserialize_with = "deserialize_date_aware_owned_value"
+                serialize_with = "serialize_as_date_aware_owned_value",
+                deserialize_with = "deserialize_as_date_aware_owned_value"
             )]
             value: OwnedValue,
         },
@@ -321,8 +323,8 @@ pub mod pdb {
         },
         Term {
             #[serde(
-                serialize_with = "serialize_date_aware_owned_value",
-                deserialize_with = "deserialize_date_aware_owned_value"
+                serialize_with = "serialize_as_date_aware_owned_value",
+                deserialize_with = "deserialize_as_date_aware_owned_value"
             )]
             value: OwnedValue,
         },

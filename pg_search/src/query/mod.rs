@@ -224,6 +224,9 @@ where
     deserializer.deserialize_map(Visitor)
 }
 
+/// For locations where legacy-style json queries could have uses `is_datetime` to denote that the
+/// provided value should be treated as a datetime, we "rewrite" those to use the new tagged format
+/// and remove the `is_datetime` field.
 fn rewrite_is_datetime_values_to_tagged_dates(value: &mut serde_json::Value) {
     let is_datetime = value["is_datetime"].as_bool().unwrap_or(false);
     if is_datetime {
@@ -672,7 +675,7 @@ impl SearchQueryInput {
 #[derive(Deserialize)]
 struct TermInputWire {
     field: FieldName,
-    #[serde(deserialize_with = "deserialize_date_aware_owned_value")]
+    #[serde(deserialize_with = "deserialize_as_date_aware_owned_value")]
     value: OwnedValue,
     /// When true, `value` will be interpreted as a Date instead of as a String
     #[serde(default)]
@@ -683,7 +686,7 @@ struct TermInputWire {
 #[serde(try_from = "TermInputWire")]
 pub struct TermInput {
     pub field: FieldName,
-    #[serde(serialize_with = "serialize_date_aware_owned_value")]
+    #[serde(serialize_with = "serialize_as_date_aware_owned_value")]
     pub value: OwnedValue,
 }
 impl TryFrom<TermInputWire> for TermInput {
@@ -1444,7 +1447,7 @@ impl From<DateAwareOwnedValue> for OwnedValue {
     }
 }
 
-pub(crate) fn serialize_date_aware_owned_value<S>(
+pub(crate) fn serialize_as_date_aware_owned_value<S>(
     value: &OwnedValue,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
@@ -1455,7 +1458,7 @@ where
     date_aware.serialize(serializer)
 }
 
-pub(crate) fn deserialize_date_aware_owned_value<'de, D>(
+pub(crate) fn deserialize_as_date_aware_owned_value<'de, D>(
     deserializer: D,
 ) -> Result<OwnedValue, D::Error>
 where

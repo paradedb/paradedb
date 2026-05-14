@@ -1373,23 +1373,24 @@ impl From<OwnedValue> for DateAwareOwnedValue {
         }
     }
 }
-impl From<DateAwareOwnedValue> for OwnedValue {
-    fn from(value: DateAwareOwnedValue) -> OwnedValue {
+impl TryFrom<DateAwareOwnedValue> for OwnedValue {
+    type Error = anyhow::Error;
+
+    fn try_from(value: DateAwareOwnedValue) -> Result<OwnedValue, Self::Error> {
         match value {
             DateAwareOwnedValue::Date {
                 date: OwnedValue::Str(s),
             } => {
-                let dt = TantivyDateTime::try_from(s.as_str())
-                    .expect("The Date string should always be valid");
-                OwnedValue::Date(dt.0)
+                let dt = TantivyDateTime::try_from(s.as_str())?;
+                Ok(OwnedValue::Date(dt.0))
             }
             DateAwareOwnedValue::Date {
                 date: OwnedValue::Date(d),
-            } => OwnedValue::Date(d),
+            } => Ok(OwnedValue::Date(d)),
             DateAwareOwnedValue::Date { date: _ } => {
-                panic!("DateAwareOwnedValue::Date should never contain a non-date value")
+                Err(anyhow::anyhow!("Non-date value provided for date field"))
             }
-            DateAwareOwnedValue::Other(owned) => owned,
+            DateAwareOwnedValue::Other(owned) => Ok(owned),
         }
     }
 }
@@ -1410,7 +1411,7 @@ where
     D: Deserializer<'de>,
 {
     let date_aware = DateAwareOwnedValue::deserialize(deserializer)?;
-    Ok(OwnedValue::from(date_aware))
+    OwnedValue::try_from(date_aware).map_err(serde::de::Error::custom)
 }
 
 /// Convert a string-encoded numeric value to the appropriate type based on field type.

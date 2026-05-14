@@ -293,7 +293,10 @@ pub mod pdb {
             upper_bound: Bound<OwnedValue>,
         },
         RangeTerm {
-            // TODO: Maybe serialize as DateAwareOwnedValue
+            #[serde(
+                serialize_with = "serialize_date_aware_owned_value",
+                deserialize_with = "deserialize_date_aware_owned_value"
+            )]
             value: OwnedValue,
         },
         RangeWithin {

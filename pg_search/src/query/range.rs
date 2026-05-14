@@ -205,8 +205,12 @@ where
 {
     let date_aware_bound: Bound<DateAwareOwnedValue> = deserialize_bound(deserializer)?;
     let owned_value_bound = match date_aware_bound {
-        Bound::Included(val) => Bound::Included(OwnedValue::from(val)),
-        Bound::Excluded(val) => Bound::Excluded(OwnedValue::from(val)),
+        Bound::Included(val) => {
+            Bound::Included(OwnedValue::try_from(val).map_err(serde::de::Error::custom)?)
+        }
+        Bound::Excluded(val) => {
+            Bound::Excluded(OwnedValue::try_from(val).map_err(serde::de::Error::custom)?)
+        }
         Bound::Unbounded => Bound::Unbounded,
     };
     Ok(owned_value_bound)

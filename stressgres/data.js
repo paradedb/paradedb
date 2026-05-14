@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778786995635,
+  "lastUpdate": 1778787028246,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2306,6 +2306,138 @@ window.BENCHMARK_DATA = {
             "value": 57.4921875,
             "unit": "median mem",
             "extra": "avg mem: 57.067889273072886, max mem: 70.43359375, count: 55303"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "balavignesh449@gmail.com",
+            "name": "S Bala Vignesh",
+            "username": "SBALAVIGNESH123"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b597b183d25a561cf8c81d81decc7f07b7866e55",
+          "message": "fix: hold header shared lock during LinkedItemList iteration to prevent FSM race (#4935) (#5067)\n\n## Problem\n\nLinkedItemList read-only iteration methods (list(), is_empty(),\nor_each(), lookup()/lookup_ex()) were releasing the header shared lock\nbefore iterating through the linked list blocks. This allowed\nAtomicGuard::commit() to:\n\n1. Swap the header pointer to a new list\n2. Immediately recycle old blocks to the FSM with\nReadNextFullTransactionId()\n3. The next transaction pops a recycled block via RBM_ZERO_AND_LOCK,\nzeroing it\n4. A concurrent reader still traversing the old list hits the\nzeroed/repurposed block\n5. **SIGSEGV** or SegmentMetaEntryHeader: UnexpectedEnd deserialization\nerror\n\nThis manifests as periodic crashes and durable index corruption under\nsustained write traffic, particularly on logical replication subscribers\nat high apply rates (~395 commits/sec). Correlates strongly with\nautovacuum events that trigger garbage_collect_index().\n\n## Root Cause\n\nThe race window exists because or_each(), list(), is_empty(), and\nlookup_ex() call get_start_blockno() which acquires a shared lock on the\nheader, reads start_blockno, then immediately releases the header lock\nwhen exchanging to the first data block. After that point, \u0007tomically()\ncan take an exclusive header lock and proceed with the swap+recycle\nwhile the reader is deep in the old list.\n\n**This was already a known pattern in the codebase** — emove_item() and\nupdate_item() in the same file both hold the header shared lock for\ntheir entire operation with this comment:\n\n\\\\\\\rust\n// Acquire and hold a shared lock on the header for the entire\noperation, preventing the\n// list from being swapped out from under us by atomically between our\nread locks and\n// our write locks.\nlet header_lock = self.bman.get_buffer(self.header_blockno);\n\\\\\\\n\nThe read-only methods simply weren't given the same treatment.\n\n## Fix\n\nHold a shared lock on the header for the entire duration of iteration in\nall 4 methods, matching the existing emove_item()/update_item() pattern:\n\n- **list()** — hold header_lock from start to end of iteration\n- **is_empty()** — same\n- **\for_each()** — same\n- **lookup_ex()** — conditionally: only when \blockno is None (top-level\ncall). When \blockno is Some, the caller ( emove_item/update_item)\nalready holds the header lock\n\nRead start_blockno directly from the already-held header_lock instead of\ncalling get_start_blockno(), avoiding a double shared-lock acquisition\non the same block (which would trigger a panic under the \block_tracker\ndebug feature).\n\n## Why This Is Safe\n\n- **No deadlock**: Header block is always locked first, content blocks\nin ascending order — consistent lock ordering\n- **No reader-reader blocking**: Multiple readers hold shared locks\nconcurrently (shared locks are compatible)\n- **Writer waits for readers**: \u0007tomically() takes an exclusive header\nlock, which blocks until all shared locks are released — correct\nserialization\n- **Minimal performance impact**: The header lock was already acquired;\nwe just hold it slightly longer\n\n## Verification\n\n- \rustfmt --check passes\n- Pattern matches the proven emove_item()/update_item() implementation\nin the same file\n- Full cargo check requires pgrx setup (PostgreSQL extension); the\nchange is limited to lock lifetime management with no new APIs\n\nCloses #4935",
+          "timestamp": "2026-05-14T15:00:05-04:00",
+          "tree_id": "46e474245958de09c21d0198195343d8a87fb72d",
+          "url": "https://github.com/paradedb/paradedb/commit/b597b183d25a561cf8c81d81decc7f07b7866e55"
+        },
+        "date": 1778786997768,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.266409,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.412112170784164, max cpu: 19.277107, count: 55260"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 67.11328125,
+            "unit": "median mem",
+            "extra": "avg mem: 66.91932724280673, max mem: 78.2421875, count: 55260"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.565489658207007, max cpu: 18.550726, count: 55260"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 65.796875,
+            "unit": "median mem",
+            "extra": "avg mem: 65.57855033308451, max mem: 76.921875, count: 55260"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.710168283509179, max cpu: 9.320388, count: 55260"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 35.392050081433226, max mem: 37.76171875, count: 55260"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.685141779379805, max cpu: 9.356726, count: 55260"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 63.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 63.59846224099711, max mem: 75.26171875, count: 55260"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.663654606270549, max cpu: 9.320388, count: 110520"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 51.05078125,
+            "unit": "median mem",
+            "extra": "avg mem: 52.60004499327045, max mem: 70.82421875, count: 110520"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1785,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1783.3216974303293, max block_count: 3161.0, count: 55260"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 14.296941730003619, max segment_count: 30.0, count: 55260"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.477819127258756, max cpu: 14.257426, count: 55260"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 65.3828125,
+            "unit": "median mem",
+            "extra": "avg mem: 65.26416026228284, max mem: 76.609375, count: 55260"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.562913899041248, max cpu: 4.7666335, count: 55260"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 54.0859375,
+            "unit": "median mem",
+            "extra": "avg mem: 53.4024417950371, max mem: 64.734375, count: 55260"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.0559913254571995, max cpu: 4.7151275, count: 55260"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 56.484375,
+            "unit": "median mem",
+            "extra": "avg mem: 56.23099127985885, max mem: 69.64453125, count: 55260"
           }
         ]
       }

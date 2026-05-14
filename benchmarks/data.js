@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778797555946,
+  "lastUpdate": 1778800330600,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'stackoverflow' (100k rows)": [
@@ -11960,6 +11960,723 @@ window.BENCHMARK_DATA = {
             "range": "±0.045 ms",
             "unit": "mean ms",
             "extra": "cold_query_ms=39.359; query=SELECT * FROM stackoverflow_posts WHERE body ||| 'javascript' AND tags ||| 'python' ORDER BY tags LIMIT 10"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d99908a1f58307567dd34698345b3fc836be6135",
+          "message": "feat(antithesis): add singleton drivers for logical-replication suites (#5087)\n\n## Summary\n\nAdds OSS Antithesis singleton drivers for the two CI\n`logical-replication` suites that previously had no singleton\n(`single-server`, `bulk-updates`, `wide-table`, `background-merge`, and\n`vanilla-postgres` already had one).\n\nMirrors the enterprise pattern used for `physical-logical-replication`:\n- A **vanilla Postgres 18** publisher pod (with `wal_level=logical`)\nthat lives outside the CNPG cluster, reflecting real-world\nlogical-replication topologies where the upstream primary is not under\nour control.\n- Subscriber points at `paradedb-rw` (the CNPG primary, which has\n`pg_search`).\n\n## Changes\n- `docker/manifests/antithesis-paradedb.yaml` — add\n`logical-replication-publisher` Service + Deployment (vanilla Postgres\n18 with `wal_level=logical`), reusing the existing `paradedb-superuser`\nsecret.\n- `stressgres/suites/logical-replication.toml`,\n`stressgres/suites/logical-replication-merge.toml` — drop `CREATE\nEXTENSION pg_search` from the **Publisher** setup. Only the Subscriber\nuses `pg_search`; the line was cosmetic and incompatible with a vanilla\nPostgres publisher (the line in the Subscriber setup is unchanged).\n-\n`stressgres/suites/antithesis/singleton_driver_logical-replication.sh`,\n`singleton_driver_logical-replication-merge.sh` — new drivers that\nperform per-block `sed -z` rewrites of the `[server.style.Automatic]`\nblocks into `[server.style.With]` connection strings (Publisher →\n`logical-replication-publisher:5432`, Subscriber → `paradedb-rw:5432`).\n- `.github/workflows/antithesis-trigger-test-run.yml` — add\n`logical-replication-publisher` to\n`container_faults_stop_exclusion_patterns` and\n`container_faults_kill_exclusion_patterns`, matching enterprise. Network\nfaults to/from the publisher are intentionally still injected.\n\n## Why\nWithout these, the FSM race repro in `logical-replication-merge.toml`\n(issue #4935, fixed by #5067) and the broader logical-replication\ncoverage in `logical-replication.toml` were running in\n`benchmark-pg_search-stressgres` but had no Antithesis fault-injection\nequivalent — that's the half of the matrix where the bugs originally\nsurfaced.\n\n## Test plan\n- [x] Antithesis trigger workflow picks up both new singleton drivers\nfrom `/opt/antithesis/test/v1/quickstart/`\n- [x] Publisher pod (`logical-replication-publisher`) starts with\n`wal_level=logical` and is reachable from the stressgres-runner pod\n- [x] Subscriber's `CREATE SUBSCRIPTION ... CONNECTION\n'@Publisher_CONNSTR@'` resolves to the publisher pod after the `sed`\nrewrite\n- [x] `logical-replication-merge.toml` still reproduces the FSM race\nwhen run against a build without #5067\n- [x] `benchmark-pg_search-stressgres` (local Stressgres, not\nAntithesis) still runs both suites unchanged",
+          "timestamp": "2026-05-14T18:54:16-04:00",
+          "tree_id": "8c7a6dab334db43248e88e7a4ebc75fd5840e446",
+          "url": "https://github.com/paradedb/paradedb/commit/d99908a1f58307567dd34698345b3fc836be6135"
+        },
+        "date": 1778800304742,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "aggregate_join_count",
+            "value": 25.032021699999998,
+            "range": "±0.092 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=148.878; query=SET paradedb.enable_aggregate_custom_scan TO off; SELECT COUNT(*) FROM stackoverflow_posts p JOIN comments c ON p.id = c.post_id WHERE p.body ||| 'code'"
+          },
+          {
+            "name": "aggregate_join_count - alternative 1",
+            "value": 29.584999400000004,
+            "range": "±0.150 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=749.814; query=SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(*) FROM stackoverflow_posts p JOIN comments c ON p.id = c.post_id WHERE p.body ||| 'code'"
+          },
+          {
+            "name": "aggregate_join_count - alternative 2",
+            "value": 29.8910029,
+            "range": "±0.172 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=595.487; query=SET statement_timeout TO '600s'; SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SET paradedb.enable_mpp TO on; SELECT COUNT(*) FROM stackoverflow_posts p JOIN comments c ON p.id = c.post_id WHERE p.body ||| 'code'"
+          },
+          {
+            "name": "aggregate_join_groupby",
+            "value": 67.25114939999999,
+            "range": "±0.077 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=168.886; query=SET paradedb.enable_aggregate_custom_scan TO off; SELECT p.title, COUNT(*), SUM(c.score) FROM stackoverflow_posts p JOIN comments c ON p.id = c.post_id WHERE p.body ||| 'code' GROUP BY p.title ORDER BY p.title"
+          },
+          {
+            "name": "aggregate_join_groupby - alternative 1",
+            "value": 64.429157,
+            "range": "±0.247 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=805.445; query=SET work_mem TO '8GB'; SET paradedb.enable_aggregate_custom_scan TO on; SELECT p.title, COUNT(*), SUM(c.score) FROM stackoverflow_posts p JOIN comments c ON p.id = c.post_id WHERE p.body ||| 'code' GROUP BY p.title ORDER BY p.title"
+          },
+          {
+            "name": "aggregate_join_groupby - alternative 2",
+            "value": 430.64777489999994,
+            "range": "±1.603 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=688.968; query=SET statement_timeout TO '600s'; SET work_mem TO '8GB'; SET paradedb.enable_aggregate_custom_scan TO on; SET paradedb.enable_mpp TO on; SELECT p.title, COUNT(*), SUM(c.score) FROM stackoverflow_posts p JOIN comments c ON p.id = c.post_id WHERE p.body ||| 'code' GROUP BY p.title ORDER BY p.title"
+          },
+          {
+            "name": "aggregate_join_multi",
+            "value": 26.0532291,
+            "range": "±0.081 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=150.412; query=SET paradedb.enable_aggregate_custom_scan TO off; SELECT COUNT(*), MIN(c.score), MAX(c.score) FROM stackoverflow_posts p JOIN comments c ON p.id = c.post_id WHERE p.body ||| 'code'"
+          },
+          {
+            "name": "aggregate_join_multi - alternative 1",
+            "value": 31.814043299999998,
+            "range": "±0.184 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=752.835; query=SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(*), MIN(c.score), MAX(c.score) FROM stackoverflow_posts p JOIN comments c ON p.id = c.post_id WHERE p.body ||| 'code'"
+          },
+          {
+            "name": "aggregate_join_multi - alternative 2",
+            "value": 31.950401499999998,
+            "range": "±0.167 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=611.216; query=SET statement_timeout TO '600s'; SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SET paradedb.enable_mpp TO on; SELECT COUNT(*), MIN(c.score), MAX(c.score) FROM stackoverflow_posts p JOIN comments c ON p.id = c.post_id WHERE p.body ||| 'code'"
+          },
+          {
+            "name": "aggregate_join_topk_count",
+            "value": 53.00645860000001,
+            "range": "±0.150 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=154.120; query=SET paradedb.enable_aggregate_custom_scan TO off; SELECT p.title, COUNT(*) FROM stackoverflow_posts p JOIN comments c ON p.id = c.post_id WHERE p.body ||| 'code' GROUP BY p.title ORDER BY COUNT(*) DESC LIMIT 10"
+          },
+          {
+            "name": "aggregate_join_topk_count - alternative 1",
+            "value": 52.2891626,
+            "range": "±0.115 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=737.339; query=SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SELECT p.title, COUNT(*) FROM stackoverflow_posts p JOIN comments c ON p.id = c.post_id WHERE p.body ||| 'code' GROUP BY p.title ORDER BY COUNT(*) DESC LIMIT 10"
+          },
+          {
+            "name": "aggregate_join_topk_count - alternative 2",
+            "value": 421.4843153999999,
+            "range": "±0.609 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=684.858; query=SET statement_timeout TO '600s'; SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SET paradedb.enable_mpp TO on; SELECT p.title, COUNT(*) FROM stackoverflow_posts p JOIN comments c ON p.id = c.post_id WHERE p.body ||| 'code' GROUP BY p.title ORDER BY COUNT(*) DESC LIMIT 10"
+          },
+          {
+            "name": "aggregate_sort",
+            "value": 59.9108252,
+            "range": "±0.293 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=161.147; query=SET paradedb.enable_join_custom_scan TO off; SELECT p.id, p.title, MAX(c.creation_date) as last_activity FROM stackoverflow_posts p JOIN comments c ON p.id = c.post_id WHERE p.body ||| 'code' GROUP BY p.id, p.title ORDER BY last_activity DESC LIMIT 10"
+          },
+          {
+            "name": "aggregate_sort - alternative 1",
+            "value": 61.19154189999999,
+            "range": "±0.211 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=167.719; query=SET paradedb.enable_join_custom_scan TO on; SELECT p.id, p.title, MAX(c.creation_date) as last_activity FROM stackoverflow_posts p JOIN comments c ON p.id = c.post_id WHERE p.body ||| 'code' GROUP BY p.id, p.title ORDER BY last_activity DESC LIMIT 10"
+          },
+          {
+            "name": "aggregate_topk_count",
+            "value": 38.8034141,
+            "range": "±0.144 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=309.769; query=SET paradedb.enable_aggregate_custom_scan TO off; SELECT p.title, COUNT(*) FROM stackoverflow_posts p WHERE p.body ||| 'code' GROUP BY p.title ORDER BY COUNT(*) DESC LIMIT 10"
+          },
+          {
+            "name": "aggregate_topk_count - alternative 1",
+            "value": 28.184972899999998,
+            "range": "±0.201 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=414.249; query=SET work_mem TO '8GB'; SET paradedb.enable_aggregate_custom_scan TO on; SELECT p.title, COUNT(*) FROM stackoverflow_posts p WHERE p.body ||| 'code' GROUP BY p.title ORDER BY COUNT(*) DESC LIMIT 10"
+          },
+          {
+            "name": "bucket-expr-filter",
+            "value": 4.1775891000000005,
+            "range": "±0.019 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=363.183; query=SELECT date_trunc('year', creation_date) as year, COUNT(*) FROM stackoverflow_posts WHERE body ||| 'javascript' GROUP BY year ORDER BY year"
+          },
+          {
+            "name": "bucket-expr-filter - alternative 1",
+            "value": 4.280850900000001,
+            "range": "±0.014 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=365.277; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT date_trunc('year', creation_date) as year, COUNT(*) FROM stackoverflow_posts WHERE body ||| 'javascript' GROUP BY year ORDER BY year"
+          },
+          {
+            "name": "bucket-numeric-filter",
+            "value": 4.4101286,
+            "range": "±0.016 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=411.696; query=SELECT post_type_id, COUNT(*) FROM stackoverflow_posts WHERE body ||| 'javascript' GROUP BY post_type_id ORDER BY post_type_id"
+          },
+          {
+            "name": "bucket-numeric-filter - alternative 1",
+            "value": 6.823600400000001,
+            "range": "±0.107 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=68.775; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT post_type_id, COUNT(*) FROM stackoverflow_posts WHERE body ||| 'javascript' GROUP BY post_type_id"
+          },
+          {
+            "name": "bucket-numeric-filter - alternative 2",
+            "value": 6.869760199999999,
+            "range": "±0.144 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=68.216; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT post_type_id, COUNT(post_type_id) FROM stackoverflow_posts WHERE body ||| 'javascript' GROUP BY post_type_id"
+          },
+          {
+            "name": "bucket-numeric-filter - alternative 3",
+            "value": 6.431682800000002,
+            "range": "±0.098 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=37.895; query=SELECT post_type_id, pdb.agg('{\"value_count\": {\"field\": \"post_type_id\"}}', false) FROM stackoverflow_posts WHERE body ||| 'javascript' GROUP BY post_type_id"
+          },
+          {
+            "name": "bucket-numeric-nofilter",
+            "value": 22.541375699999996,
+            "range": "±0.176 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=225.677; query=SELECT post_type_id, COUNT(*) FROM stackoverflow_posts WHERE id @@@ pdb.all() GROUP BY post_type_id ORDER BY post_type_id"
+          },
+          {
+            "name": "bucket-numeric-nofilter - alternative 1",
+            "value": 8.358188499999999,
+            "range": "±0.236 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=53.894; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT post_type_id, COUNT(*) FROM stackoverflow_posts WHERE id @@@ pdb.all() GROUP BY post_type_id"
+          },
+          {
+            "name": "bucket-numeric-nofilter - alternative 2",
+            "value": 8.4630337,
+            "range": "±0.057 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=54.597; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT post_type_id, COUNT(post_type_id) FROM stackoverflow_posts WHERE id @@@ pdb.all() GROUP BY post_type_id"
+          },
+          {
+            "name": "bucket-numeric-nofilter - alternative 3",
+            "value": 6.143896,
+            "range": "±0.078 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=31.964; query=SELECT post_type_id, pdb.agg('{\"value_count\": {\"field\": \"post_type_id\"}}', false) FROM stackoverflow_posts WHERE id @@@ pdb.all() GROUP BY post_type_id"
+          },
+          {
+            "name": "bucket-string-filter",
+            "value": 87.16841630000002,
+            "range": "±0.164 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=238.866; query=SELECT name, COUNT(*) FROM badges WHERE name ||| 'Question' GROUP BY name ORDER BY name"
+          },
+          {
+            "name": "bucket-string-filter - alternative 1",
+            "value": 72.8232579,
+            "range": "±0.328 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=165.771; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT name, COUNT(*) FROM badges WHERE name ||| 'Question' GROUP BY name"
+          },
+          {
+            "name": "bucket-string-filter - alternative 2",
+            "value": 76.0442909,
+            "range": "±0.144 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=163.004; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT name, COUNT(name) FROM badges WHERE name ||| 'Question' GROUP BY name"
+          },
+          {
+            "name": "bucket-string-filter - alternative 3",
+            "value": 11.041309799999999,
+            "range": "±0.240 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=46.124; query=SELECT name, pdb.agg('{\"value_count\": {\"field\": \"name\"}}', false) FROM badges WHERE name ||| 'Question' GROUP BY name"
+          },
+          {
+            "name": "bucket-string-nofilter",
+            "value": 210.5262164,
+            "range": "±0.544 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=347.357; query=SELECT name, COUNT(*) FROM badges WHERE id @@@ pdb.all() GROUP BY name ORDER BY name"
+          },
+          {
+            "name": "bucket-string-nofilter - alternative 1",
+            "value": 258.13756,
+            "range": "±0.477 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=344.280; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT name, COUNT(*) FROM badges WHERE id @@@ pdb.all() GROUP BY name"
+          },
+          {
+            "name": "bucket-string-nofilter - alternative 2",
+            "value": 283.8980465,
+            "range": "±0.223 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=375.052; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT name, COUNT(name) FROM badges WHERE id @@@ pdb.all() GROUP BY name"
+          },
+          {
+            "name": "bucket-string-nofilter - alternative 3",
+            "value": 58.4312206,
+            "range": "±0.287 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=92.131; query=SELECT name, pdb.agg('{\"value_count\": {\"field\": \"name\"}}', false) FROM badges WHERE id @@@ pdb.all() GROUP BY name"
+          },
+          {
+            "name": "cardinality",
+            "value": 4.274666600000001,
+            "range": "±0.021 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=399.884; query=SELECT COUNT(DISTINCT post_type_id) FROM stackoverflow_posts WHERE body ||| 'javascript'"
+          },
+          {
+            "name": "cardinality - alternative 1",
+            "value": 4.3833711,
+            "range": "±0.019 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=414.119; query=SELECT COUNT(*) FROM (SELECT post_type_id FROM stackoverflow_posts WHERE body ||| 'javascript' GROUP BY post_type_id ORDER BY post_type_id)"
+          },
+          {
+            "name": "cardinality - alternative 2",
+            "value": 6.833416899999999,
+            "range": "±0.085 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=66.353; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(*) FROM (SELECT post_type_id FROM stackoverflow_posts WHERE body ||| 'javascript' GROUP BY post_type_id)"
+          },
+          {
+            "name": "cardinality - alternative 3",
+            "value": 6.7804117,
+            "range": "±0.084 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=68.665; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(post_type_id) FROM stackoverflow_posts WHERE body ||| 'javascript'"
+          },
+          {
+            "name": "cardinality - alternative 4",
+            "value": 6.274729500000001,
+            "range": "±0.076 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=39.339; query=SELECT pdb.agg('{\"value_count\": {\"field\": \"post_type_id\"}}', false) FROM stackoverflow_posts WHERE body ||| 'javascript'"
+          },
+          {
+            "name": "cardinality - alternative 5",
+            "value": 8.1304756,
+            "range": "±0.014 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=406.533; query=SET work_mem TO '4GB'; SELECT tags, COUNT(*), MIN(score), MAX(score), SUM(score) FROM stackoverflow_posts WHERE body ||| 'javascript' GROUP BY tags"
+          },
+          {
+            "name": "cardinality - alternative 6",
+            "value": 12.510266,
+            "range": "±0.044 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=73.279; query=SET paradedb.enable_aggregate_custom_scan TO on; SET work_mem = '4GB'; SELECT tags, COUNT(tags), MIN(score), MAX(score), SUM(score) FROM stackoverflow_posts WHERE body ||| 'javascript' GROUP BY tags"
+          },
+          {
+            "name": "cardinality - alternative 7",
+            "value": 20.179731,
+            "range": "±0.277 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=56.580; query=SET work_mem = '4GB'; SELECT tags, pdb.agg('{\"value_count\": {\"field\": \"tags\"}}', false) as count, pdb.agg('{\"min\": {\"field\": \"score\"}}', false) as min, pdb.agg('{\"max\": {\"field\": \"score\"}}', false) as max, pdb.agg('{\"sum\": {\"field\": \"score\"}}', false) as sum FROM stackoverflow_posts WHERE body ||| 'javascript' GROUP BY tags"
+          },
+          {
+            "name": "count-filter",
+            "value": 6.201755199999999,
+            "range": "±0.025 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=569.935; query=SELECT COUNT(*) FROM stackoverflow_posts WHERE body ||| 'error'"
+          },
+          {
+            "name": "count-filter - alternative 1",
+            "value": 7.0174578,
+            "range": "±0.054 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=61.679; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(*) FROM stackoverflow_posts WHERE body ||| 'error'"
+          },
+          {
+            "name": "count-filter - alternative 2",
+            "value": 6.9443948,
+            "range": "±0.081 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=64.016; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(ctid) FROM stackoverflow_posts WHERE body ||| 'error'"
+          },
+          {
+            "name": "count-filter - alternative 3",
+            "value": 6.2589051,
+            "range": "±0.058 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=38.790; query=SELECT pdb.agg('{\"value_count\": {\"field\": \"ctid\"}}', false) FROM stackoverflow_posts WHERE body ||| 'error'"
+          },
+          {
+            "name": "count-nofilter",
+            "value": 35.968015199999996,
+            "range": "±0.116 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=397.634; query=SELECT COUNT(*) FROM stackoverflow_posts WHERE id @@@ pdb.all()"
+          },
+          {
+            "name": "count-nofilter - alternative 1",
+            "value": 7.5033118000000005,
+            "range": "±0.081 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=55.519; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(*) FROM stackoverflow_posts WHERE id @@@ pdb.all()"
+          },
+          {
+            "name": "count-nofilter - alternative 2",
+            "value": 7.4317069,
+            "range": "±0.067 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=52.195; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(ctid) FROM stackoverflow_posts WHERE id @@@ pdb.all()"
+          },
+          {
+            "name": "count-nofilter - alternative 3",
+            "value": 5.0909037,
+            "range": "±0.068 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=32.782; query=SELECT pdb.agg('{\"value_count\": {\"field\": \"ctid\"}}', false) FROM stackoverflow_posts WHERE id @@@ pdb.all()"
+          },
+          {
+            "name": "distinct_parent_sort",
+            "value": 44.064800000000005,
+            "range": "±0.276 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=132.731; query=SET paradedb.enable_join_custom_scan TO off; SELECT DISTINCT u.id, u.display_name, u.about_me FROM users u JOIN stackoverflow_posts p ON u.id = p.owner_user_id JOIN comments c ON p.id = c.post_id WHERE c.score > 0 AND u.id @@@ pdb.all() AND u.reputation > 100 ORDER BY u.display_name ASC LIMIT 50"
+          },
+          {
+            "name": "distinct_parent_sort - alternative 1",
+            "value": 77.23177960000001,
+            "range": "±1.023 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=505.022; query=SET work_mem TO '8GB'; SET paradedb.enable_join_custom_scan TO on; SELECT DISTINCT u.id, u.display_name, u.about_me FROM users u JOIN stackoverflow_posts p ON u.id = p.owner_user_id JOIN comments c ON p.id = c.post_id WHERE c.score > 0 AND u.id @@@ pdb.all() AND u.reputation > 100 ORDER BY u.display_name ASC LIMIT 50"
+          },
+          {
+            "name": "filtered-highcard",
+            "value": 2.9741778,
+            "range": "±0.014 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=77.227; query=SELECT * FROM stackoverflow_posts WHERE body ||| 'javascript' AND tags ||| 'python' AND creation_date >= '2012-01-01T00:00:00Z' LIMIT 10"
+          },
+          {
+            "name": "filtered-lowcard",
+            "value": 2.9177769,
+            "range": "±0.012 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=73.474; query=SELECT * FROM stackoverflow_posts WHERE body ||| 'javascript' AND tags ||| 'python' AND post_type_id < 3 LIMIT 10"
+          },
+          {
+            "name": "foreign_filter_local_sort",
+            "value": 17.5584035,
+            "range": "±0.226 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=87.013; query=SET paradedb.enable_join_custom_scan TO off; SELECT p.id, p.title, p.creation_date, u.display_name as user_display_name, u.about_me as user_about_me FROM stackoverflow_posts p JOIN users u ON p.owner_user_id = u.id WHERE u.id @@@ pdb.all() AND u.reputation > 100 AND p.title ||| 'error' ORDER BY p.creation_date DESC LIMIT 20"
+          },
+          {
+            "name": "foreign_filter_local_sort - alternative 1",
+            "value": 14.0578068,
+            "range": "±0.059 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=346.955; query=SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT p.id, p.title, p.creation_date, u.display_name as user_display_name, u.about_me as user_about_me FROM stackoverflow_posts p JOIN users u ON p.owner_user_id = u.id WHERE u.id @@@ pdb.all() AND u.reputation > 100 AND p.title ||| 'error' ORDER BY p.creation_date DESC LIMIT 20"
+          },
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 11.3221291,
+            "range": "±0.081 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=107.705; query=SET paradedb.enable_join_custom_scan TO off; SELECT * FROM users JOIN stackoverflow_posts ON users.id = stackoverflow_posts.owner_user_id JOIN comments ON comments.post_id = stackoverflow_posts.id WHERE users.id @@@ pdb.all() AND users.reputation > 100 AND stackoverflow_posts.title ||| 'error' AND comments.text ||| 'question' LIMIT 5"
+          },
+          {
+            "name": "hierarchical_content-no-scores-large - alternative 1",
+            "value": 39.651224,
+            "range": "±0.043 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=434.168; query=SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT * FROM users JOIN stackoverflow_posts ON users.id = stackoverflow_posts.owner_user_id JOIN comments ON comments.post_id = stackoverflow_posts.id WHERE users.id @@@ pdb.all() AND users.reputation > 100 AND stackoverflow_posts.title ||| 'error' AND comments.text ||| 'question' LIMIT 5"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 11.1679424,
+            "range": "±0.161 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=156.838; query=SET paradedb.enable_join_custom_scan TO off; SELECT users.id, stackoverflow_posts.id, comments.id FROM users JOIN stackoverflow_posts ON users.id = stackoverflow_posts.owner_user_id JOIN comments ON comments.post_id = stackoverflow_posts.id WHERE users.id @@@ pdb.all() AND users.reputation > 100 AND stackoverflow_posts.title ||| 'error' AND comments.text ||| 'question' LIMIT 5"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small - alternative 1",
+            "value": 38.638138000000005,
+            "range": "±0.093 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=429.099; query=SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT users.id, stackoverflow_posts.id, comments.id FROM users JOIN stackoverflow_posts ON users.id = stackoverflow_posts.owner_user_id JOIN comments ON comments.post_id = stackoverflow_posts.id WHERE users.id @@@ pdb.all() AND users.reputation > 100 AND stackoverflow_posts.title ||| 'error' AND comments.text ||| 'question' LIMIT 5"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 28.2715123,
+            "range": "±0.047 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=240.539; query=SET paradedb.enable_join_custom_scan TO off; SELECT *, pdb.score(users.id) + pdb.score(stackoverflow_posts.id) + pdb.score(comments.id) AS pdb_score FROM users JOIN stackoverflow_posts ON users.id = stackoverflow_posts.owner_user_id JOIN comments ON comments.post_id = stackoverflow_posts.id WHERE users.about_me ||| 'java' AND stackoverflow_posts.title ||| 'error' AND comments.text ||| 'question' ORDER BY pdb_score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 28.063207,
+            "range": "±0.131 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=297.375; query=WITH topk AS ( SELECT users.id AS user_id, stackoverflow_posts.id AS post_id, comments.id AS comment_id, pdb.score(users.id) + pdb.score(stackoverflow_posts.id) + pdb.score(comments.id) AS pdb_score FROM users JOIN stackoverflow_posts ON users.id = stackoverflow_posts.owner_user_id JOIN comments ON comments.post_id = stackoverflow_posts.id WHERE users.about_me ||| 'java' AND stackoverflow_posts.title ||| 'error' AND comments.text ||| 'question' ORDER BY pdb_score DESC LIMIT 1000 ) SELECT u.*, p.*, c.*, topk.pdb_score FROM topk JOIN users u ON topk.user_id = u.id JOIN stackoverflow_posts p ON topk.post_id = p.id JOIN comments c ON topk.comment_id = c.id WHERE topk.user_id = u.id AND topk.post_id = p.id AND topk.comment_id = c.id ORDER BY topk.pdb_score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 2",
+            "value": 31.407575400000002,
+            "range": "±0.055 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=240.496; query=SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT *, pdb.score(users.id) + pdb.score(stackoverflow_posts.id) + pdb.score(comments.id) AS pdb_score FROM users JOIN stackoverflow_posts ON users.id = stackoverflow_posts.owner_user_id JOIN comments ON comments.post_id = stackoverflow_posts.id WHERE users.about_me ||| 'java' AND stackoverflow_posts.title ||| 'error' AND comments.text ||| 'question' ORDER BY pdb_score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 23.8227951,
+            "range": "±0.268 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=259.038; query=SET paradedb.enable_join_custom_scan TO off; SELECT users.id, stackoverflow_posts.id, comments.id, pdb.score(users.id) + pdb.score(stackoverflow_posts.id) + pdb.score(comments.id) AS pdb_score FROM users JOIN stackoverflow_posts ON users.id = stackoverflow_posts.owner_user_id JOIN comments ON comments.post_id = stackoverflow_posts.id WHERE users.id @@@ pdb.all() AND users.reputation > 100 AND stackoverflow_posts.title ||| 'error' AND comments.text ||| 'question' ORDER BY pdb_score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-small - alternative 1",
+            "value": 26.9624035,
+            "range": "±0.286 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=253.549; query=SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT users.id, stackoverflow_posts.id, comments.id, pdb.score(users.id) + pdb.score(stackoverflow_posts.id) + pdb.score(comments.id) AS pdb_score FROM users JOIN stackoverflow_posts ON users.id = stackoverflow_posts.owner_user_id JOIN comments ON comments.post_id = stackoverflow_posts.id WHERE users.id @@@ pdb.all() AND users.reputation > 100 AND stackoverflow_posts.title ||| 'error' AND comments.text ||| 'question' ORDER BY pdb_score DESC LIMIT 1000"
+          },
+          {
+            "name": "highlighting",
+            "value": 3.6745028999999994,
+            "range": "±0.006 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=57.580; query=SELECT id, pdb.snippet(body), pdb.snippet(tags) FROM stackoverflow_posts WHERE body ||| 'javascript' AND tags ||| 'python' LIMIT 10"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 6.028603599999999,
+            "range": "±0.052 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=30.756; query=SELECT * FROM comments WHERE id @@@ pdb.all() AND user_display_name >= (SELECT value FROM stackoverflow_schema_metadata WHERE name = 'comments-user-display-name-max') ORDER BY user_display_name LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 6.0286519,
+            "range": "±0.108 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=34.748; query=SELECT * FROM comments WHERE id @@@ pdb.all() AND user_display_name >= (SELECT value FROM stackoverflow_schema_metadata WHERE name = 'comments-user-display-name-median') ORDER BY user_display_name LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 6.0022483000000015,
+            "range": "±0.099 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=35.271; query=SELECT * FROM comments WHERE id @@@ pdb.all() AND user_display_name >= (SELECT value FROM stackoverflow_schema_metadata WHERE name = 'comments-user-display-name-min') ORDER BY user_display_name LIMIT 100"
+          },
+          {
+            "name": "permissioned_search",
+            "value": 34.1910026,
+            "range": "±0.073 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=188.549; query=SET paradedb.enable_join_custom_scan TO off; SELECT p.id, p.title, pdb.score(p.id) as relevance FROM stackoverflow_posts p JOIN users u ON p.owner_user_id = u.id WHERE p.title ||| 'how using get create' AND u.id @@@ pdb.all() AND u.reputation > 100 ORDER BY relevance DESC LIMIT 10"
+          },
+          {
+            "name": "regex-and-heap",
+            "value": 14.7916821,
+            "range": "±0.038 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=540.907; query=SELECT COUNT(*) FROM stackoverflow_posts WHERE (tags @@@ pdb.regex('java.*') AND tags ILIKE '%script%')"
+          },
+          {
+            "name": "semi_join_filter",
+            "value": 11.1521305,
+            "range": "±0.105 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=96.538; query=SET paradedb.enable_columnar_sort TO off; SET paradedb.enable_join_custom_scan TO off; SELECT p.id, p.title, p.creation_date FROM stackoverflow_posts p WHERE p.owner_user_id IN ( SELECT id FROM users WHERE about_me ||| 'java' AND display_name ||| 'David John Alex' ) ORDER BY p.title ASC LIMIT 25"
+          },
+          {
+            "name": "semi_join_filter - alternative 1",
+            "value": 16.0760296,
+            "range": "±0.057 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=324.031; query=SET work_mem TO '4GB'; SET paradedb.enable_columnar_sort TO off; SET paradedb.enable_join_custom_scan TO on; SELECT p.id, p.title, p.creation_date FROM stackoverflow_posts p WHERE p.owner_user_id IN ( SELECT id FROM users WHERE about_me ||| 'java' AND display_name ||| 'David John Alex' ) ORDER BY p.title ASC LIMIT 25"
+          },
+          {
+            "name": "semi_join_filter - alternative 2",
+            "value": 11.1593934,
+            "range": "±0.040 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=99.261; query=SET paradedb.enable_columnar_sort TO on; SET paradedb.enable_join_custom_scan TO off; SELECT p.id, p.title, p.creation_date FROM stackoverflow_posts p WHERE p.owner_user_id IN ( SELECT id FROM users WHERE about_me ||| 'java' AND display_name ||| 'David John Alex' ) ORDER BY p.title ASC LIMIT 25"
+          },
+          {
+            "name": "semi_join_filter - alternative 3",
+            "value": 11.5669148,
+            "range": "±0.074 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=149.358; query=SET paradedb.enable_columnar_sort TO off; SET paradedb.enable_join_custom_scan TO off; SELECT p.id, p.title, p.creation_date FROM stackoverflow_posts p WHERE p.owner_user_id @@@ pdb.term_set(( SELECT array_agg(id) FROM users WHERE about_me ||| 'java' AND display_name ||| 'David John Alex' )) ORDER BY p.title ASC LIMIT 25"
+          },
+          {
+            "name": "semi_join_filter - alternative 4",
+            "value": 19.401174899999997,
+            "range": "±0.095 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=311.890; query=SET work_mem TO '4GB'; SET paradedb.enable_columnar_sort TO on; SET paradedb.enable_join_custom_scan TO on; SELECT p.id, p.title, p.creation_date FROM stackoverflow_posts p WHERE p.owner_user_id IN ( SELECT id FROM users WHERE about_me ||| 'java' AND display_name ||| 'David John Alex' ) ORDER BY p.title ASC LIMIT 25"
+          },
+          {
+            "name": "top_k-agg-avg",
+            "value": 6.6274872,
+            "range": "±0.140 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=78.220; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT id, title, tags, score, creation_date, AVG(score) OVER () FROM stackoverflow_posts WHERE body ||| 'javascript' ORDER BY creation_date DESC LIMIT 10"
+          },
+          {
+            "name": "top_k-agg-bucket-string",
+            "value": 6.6324355,
+            "range": "±0.088 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=76.894; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT id, title, tags, post_type_id, creation_date, COUNT(owner_display_name) OVER () FROM stackoverflow_posts WHERE body ||| 'javascript' ORDER BY creation_date DESC LIMIT 10"
+          },
+          {
+            "name": "top_k-agg-count",
+            "value": 6.6449681,
+            "range": "±0.148 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=76.313; query=SELECT id, title, tags, post_type_id, creation_date, COUNT(*) OVER () FROM stackoverflow_posts WHERE body ||| 'javascript' ORDER BY creation_date DESC LIMIT 10"
+          },
+          {
+            "name": "top_k-compound",
+            "value": 6.496103700000001,
+            "range": "±0.107 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=37.870; query=SELECT * FROM stackoverflow_posts WHERE body ||| 'javascript' AND tags ||| 'python' ORDER BY score, creation_date LIMIT 10"
+          },
+          {
+            "name": "top_k-numeric-highcard",
+            "value": 6.5055098000000005,
+            "range": "±0.078 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=37.840; query=SELECT * FROM stackoverflow_posts WHERE body ||| 'javascript' AND tags ||| 'python' ORDER BY creation_date LIMIT 10"
+          },
+          {
+            "name": "top_k-numeric-lowcard",
+            "value": 6.456229599999999,
+            "range": "±0.034 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=39.563; query=SELECT * FROM stackoverflow_posts WHERE body ||| 'javascript' AND tags ||| 'python' ORDER BY post_type_id LIMIT 10"
+          },
+          {
+            "name": "top_k-score-asc-high-selectivity",
+            "value": 7.7483778999999995,
+            "range": "±0.063 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=74.135; query=SELECT *, pdb.score(id) FROM stackoverflow_posts WHERE body ||| 'help' ORDER BY pdb.score(id) LIMIT 10"
+          },
+          {
+            "name": "top_k-score-asc-high-selectivity - alternative 1",
+            "value": 3.3354551999999997,
+            "range": "±0.008 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=69.755; query=SET max_parallel_workers_per_gather=0; SELECT *, pdb.score(id) FROM stackoverflow_posts WHERE body ||| 'help' ORDER BY pdb.score(id) LIMIT 10"
+          },
+          {
+            "name": "top_k-score-asc-medium-selectivity",
+            "value": 7.822744500000001,
+            "range": "±0.082 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=73.189; query=SELECT *, pdb.score(id) FROM stackoverflow_posts WHERE body ||| 'why' ORDER BY pdb.score(id) LIMIT 10"
+          },
+          {
+            "name": "top_k-score-asc-medium-selectivity - alternative 1",
+            "value": 3.2484481,
+            "range": "±0.017 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=67.653; query=SET max_parallel_workers_per_gather=0; SELECT *, pdb.score(id) FROM stackoverflow_posts WHERE body ||| 'why' ORDER BY pdb.score(id) LIMIT 10"
+          },
+          {
+            "name": "top_k-score-asc",
+            "value": 7.6042311,
+            "range": "±0.023 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=65.224; query=SELECT *, pdb.score(id) FROM stackoverflow_posts WHERE body ||| 'javascript' ORDER BY pdb.score(id) LIMIT 10"
+          },
+          {
+            "name": "top_k-score-asc - alternative 1",
+            "value": 3.0170263000000004,
+            "range": "±0.011 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=67.578; query=SET max_parallel_workers_per_gather=0; SELECT *, pdb.score(id) FROM stackoverflow_posts WHERE body ||| 'javascript' ORDER BY pdb.score(id) LIMIT 10"
+          },
+          {
+            "name": "top_k-score-desc-high-selectivity",
+            "value": 7.718287299999998,
+            "range": "±0.063 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=75.284; query=SELECT *, pdb.score(id) FROM stackoverflow_posts WHERE body ||| 'help' ORDER BY pdb.score(id) DESC LIMIT 10"
+          },
+          {
+            "name": "top_k-score-desc-high-selectivity - alternative 1",
+            "value": 2.8883305,
+            "range": "±0.013 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=66.632; query=SET max_parallel_workers_per_gather=0; SELECT *, pdb.score(id) FROM stackoverflow_posts WHERE body ||| 'help' ORDER BY pdb.score(id) DESC LIMIT 10"
+          },
+          {
+            "name": "top_k-score-desc-medium-selectivity",
+            "value": 7.658271400000001,
+            "range": "±0.068 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=72.864; query=SELECT *, pdb.score(id) FROM stackoverflow_posts WHERE body ||| 'why' ORDER BY pdb.score(id) DESC LIMIT 10"
+          },
+          {
+            "name": "top_k-score-desc-medium-selectivity - alternative 1",
+            "value": 2.7845006,
+            "range": "±0.009 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=64.342; query=SET max_parallel_workers_per_gather=0; SELECT *, pdb.score(id) FROM stackoverflow_posts WHERE body ||| 'why' ORDER BY pdb.score(id) DESC LIMIT 10"
+          },
+          {
+            "name": "top_k-score-desc",
+            "value": 7.552164899999999,
+            "range": "±0.050 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=65.580; query=SELECT *, pdb.score(id) FROM stackoverflow_posts WHERE body ||| 'javascript' ORDER BY pdb.score(id) DESC LIMIT 10"
+          },
+          {
+            "name": "top_k-score-desc - alternative 1",
+            "value": 2.6796526,
+            "range": "±0.014 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=65.464; query=SET max_parallel_workers_per_gather=0; SELECT *, pdb.score(id) FROM stackoverflow_posts WHERE body ||| 'javascript' ORDER BY pdb.score(id) DESC LIMIT 10"
+          },
+          {
+            "name": "top_k-score-multi-term-asc",
+            "value": 10.6424893,
+            "range": "±0.044 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=92.879; query=SELECT *, pdb.score(id) FROM stackoverflow_posts WHERE body ||| 'javascript python react angular typescript' ORDER BY pdb.score(id) LIMIT 10"
+          },
+          {
+            "name": "top_k-score-multi-term-asc - alternative 1",
+            "value": 8.9860429,
+            "range": "±0.018 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=107.903; query=SET max_parallel_workers_per_gather=0; SELECT *, pdb.score(id) FROM stackoverflow_posts WHERE body ||| 'javascript python react angular typescript' ORDER BY pdb.score(id) LIMIT 10"
+          },
+          {
+            "name": "top_k-score-multi-term-desc",
+            "value": 10.649091599999998,
+            "range": "±0.068 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=93.240; query=SELECT *, pdb.score(id) FROM stackoverflow_posts WHERE body ||| 'javascript python react angular typescript' ORDER BY pdb.score(id) DESC LIMIT 10"
+          },
+          {
+            "name": "top_k-score-multi-term-desc - alternative 1",
+            "value": 8.8413307,
+            "range": "±0.012 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=122.635; query=SET max_parallel_workers_per_gather=0; SELECT *, pdb.score(id) FROM stackoverflow_posts WHERE body ||| 'javascript python react angular typescript' ORDER BY pdb.score(id) DESC LIMIT 10"
+          },
+          {
+            "name": "top_k-string",
+            "value": 6.4953989,
+            "range": "±0.047 ms",
+            "unit": "mean ms",
+            "extra": "cold_query_ms=37.494; query=SELECT * FROM stackoverflow_posts WHERE body ||| 'javascript' AND tags ||| 'python' ORDER BY tags LIMIT 10"
           }
         ]
       }

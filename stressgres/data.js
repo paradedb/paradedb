@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778801058782,
+  "lastUpdate": 1778801091272,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2918,6 +2918,138 @@ window.BENCHMARK_DATA = {
             "value": 57.44140625,
             "unit": "median mem",
             "extra": "avg mem: 56.31210914862454, max mem: 69.328125, count: 55218"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d99908a1f58307567dd34698345b3fc836be6135",
+          "message": "feat(antithesis): add singleton drivers for logical-replication suites (#5087)\n\n## Summary\n\nAdds OSS Antithesis singleton drivers for the two CI\n`logical-replication` suites that previously had no singleton\n(`single-server`, `bulk-updates`, `wide-table`, `background-merge`, and\n`vanilla-postgres` already had one).\n\nMirrors the enterprise pattern used for `physical-logical-replication`:\n- A **vanilla Postgres 18** publisher pod (with `wal_level=logical`)\nthat lives outside the CNPG cluster, reflecting real-world\nlogical-replication topologies where the upstream primary is not under\nour control.\n- Subscriber points at `paradedb-rw` (the CNPG primary, which has\n`pg_search`).\n\n## Changes\n- `docker/manifests/antithesis-paradedb.yaml` — add\n`logical-replication-publisher` Service + Deployment (vanilla Postgres\n18 with `wal_level=logical`), reusing the existing `paradedb-superuser`\nsecret.\n- `stressgres/suites/logical-replication.toml`,\n`stressgres/suites/logical-replication-merge.toml` — drop `CREATE\nEXTENSION pg_search` from the **Publisher** setup. Only the Subscriber\nuses `pg_search`; the line was cosmetic and incompatible with a vanilla\nPostgres publisher (the line in the Subscriber setup is unchanged).\n-\n`stressgres/suites/antithesis/singleton_driver_logical-replication.sh`,\n`singleton_driver_logical-replication-merge.sh` — new drivers that\nperform per-block `sed -z` rewrites of the `[server.style.Automatic]`\nblocks into `[server.style.With]` connection strings (Publisher →\n`logical-replication-publisher:5432`, Subscriber → `paradedb-rw:5432`).\n- `.github/workflows/antithesis-trigger-test-run.yml` — add\n`logical-replication-publisher` to\n`container_faults_stop_exclusion_patterns` and\n`container_faults_kill_exclusion_patterns`, matching enterprise. Network\nfaults to/from the publisher are intentionally still injected.\n\n## Why\nWithout these, the FSM race repro in `logical-replication-merge.toml`\n(issue #4935, fixed by #5067) and the broader logical-replication\ncoverage in `logical-replication.toml` were running in\n`benchmark-pg_search-stressgres` but had no Antithesis fault-injection\nequivalent — that's the half of the matrix where the bugs originally\nsurfaced.\n\n## Test plan\n- [x] Antithesis trigger workflow picks up both new singleton drivers\nfrom `/opt/antithesis/test/v1/quickstart/`\n- [x] Publisher pod (`logical-replication-publisher`) starts with\n`wal_level=logical` and is reachable from the stressgres-runner pod\n- [x] Subscriber's `CREATE SUBSCRIPTION ... CONNECTION\n'@Publisher_CONNSTR@'` resolves to the publisher pod after the `sed`\nrewrite\n- [x] `logical-replication-merge.toml` still reproduces the FSM race\nwhen run against a build without #5067\n- [x] `benchmark-pg_search-stressgres` (local Stressgres, not\nAntithesis) still runs both suites unchanged",
+          "timestamp": "2026-05-14T18:54:16-04:00",
+          "tree_id": "8c7a6dab334db43248e88e7a4ebc75fd5840e446",
+          "url": "https://github.com/paradedb/paradedb/commit/d99908a1f58307567dd34698345b3fc836be6135"
+        },
+        "date": 1778801060859,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.257474,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.121336882421177, max cpu: 24.072216, count: 55026"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 67.0703125,
+            "unit": "median mem",
+            "extra": "avg mem: 66.99224343946499, max mem: 78.25, count: 55026"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.553868875962391, max cpu: 18.916256, count: 55026"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 65.87890625,
+            "unit": "median mem",
+            "extra": "avg mem: 65.78806112678552, max mem: 77.1328125, count: 55026"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.659852817381757, max cpu: 9.320388, count: 55026"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.484375,
+            "unit": "median mem",
+            "extra": "avg mem: 35.29357215793443, max mem: 37.171875, count: 55026"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6029185298735165, max cpu: 9.29332, count: 55026"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 64.25390625,
+            "unit": "median mem",
+            "extra": "avg mem: 63.71599221277214, max mem: 75.6484375, count: 55026"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.708184204078254, max cpu: 9.467456, count: 110052"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 52.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 54.559237408793116, max mem: 74.08203125, count: 110052"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1788,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1789.28860902119, max block_count: 3170.0, count: 55026"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 12,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 12.099280340202814, max segment_count: 33.0, count: 55026"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.595714048856729, max cpu: 18.514948, count: 55026"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 65.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 65.73447488176043, max mem: 77.02734375, count: 55026"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.751844216045366, max cpu: 9.365853, count: 55026"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 54.84375,
+            "unit": "median mem",
+            "extra": "avg mem: 54.60135975493403, max mem: 65.62890625, count: 55026"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.34503516882518, max cpu: 4.738401, count: 55026"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 57.88671875,
+            "unit": "median mem",
+            "extra": "avg mem: 57.91009023007306, max mem: 70.79296875, count: 55026"
           }
         ]
       }

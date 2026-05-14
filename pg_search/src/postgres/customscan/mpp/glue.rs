@@ -288,13 +288,11 @@ pub unsafe fn worker_setup(
 
     let mesh = Arc::new(MppMesh::new(proc_idx, total_procs, inbound_drains));
 
-    // For MppParticipantConfig, expose worker-only counts (N producer workers).
     let worker_count = total_procs.saturating_sub(1).max(1);
     Ok(MppWorkerState {
         outbound_senders,
         plan_bytes,
         participant_config: MppParticipantConfig {
-            participant_index: worker_number as u32,
             total_workers: worker_count,
         },
         mesh,

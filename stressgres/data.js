@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778790547532,
+  "lastUpdate": 1778790580830,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3822,6 +3822,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 82.32806118917422, max segment_count: 132.0, count: 57788"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "652b0952a7f3be58ea4b9fa80a863426cf03185c",
+          "message": "chore(stressgres): remove dormant suites not wired into CI (#5085)\n\n## Summary\n\n- Removes 8 Stressgres suites that have not been touched since\nStressgres was added (#3821), are not referenced by any CI workflow or\ndriver script, and use the legacy `[setup_primary]` schema rather than\nthe current `[[server]]` schema.\n- No CI workflow changes; the 6 suites currently exercised by\n`benchmark-pg_search-stressgres.yml` (`single-server`, `bulk-updates`,\n`wide-table`, `background-merge`, `logical-replication`,\n`logical-replication-merge`) and `vanilla-postgres.toml` (used by the\nantithesis singleton driver) are kept.\n\n### Removed\n- `large-inserts.toml`\n- `lr.toml` — predecessor of `logical-replication.toml`\n- `lr-graphable.toml`\n- `lr-large-inserts.toml`\n- `lr-no-pg_search.toml`\n- `many-updates.toml` — conceptually useful (MVCC correctness with\n`assert(count, expected)` under concurrency), but on legacy schema; if\nwe want this coverage in CI it should be a deliberate port, not a\nrevival of dead config\n- `read-write.toml` — contained placeholder `<password>` literal, not\nCI-runnable\n- `topk-crash.toml`\n\n### Why now\nCompanion to #5080 (which adjusts `logical-replication.toml` to expose\nthe FSM race instead of being masked by the TOAST bug already covered by\n`logical-replication-merge.toml`). Each CI suite should own a distinct\nrepro; dormant files muddy that mapping.\n\n## Test plan\n- [x] `benchmark-pg_search-stressgres` workflow still kicks off for all\n6 in-CI suites\n- [x] Antithesis `singleton_driver_vanilla-postgres.sh` still resolves\nits suite path",
+          "timestamp": "2026-05-14T15:45:37-04:00",
+          "tree_id": "090e72f7bbb9817642fb0c7495c2b12e0eed2fe7",
+          "url": "https://github.com/paradedb/paradedb/commit/652b0952a7f3be58ea4b9fa80a863426cf03185c"
+        },
+        "date": 1778790549147,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.62503953965039, max cpu: 42.899704, count: 57762"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 235.51434252839238, max mem: 237.1484375, count: 57762"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.451520511391653, max cpu: 33.267326, count: 57762"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 177.75,
+            "unit": "median mem",
+            "extra": "avg mem: 177.6740535245923, max mem: 178.40625, count: 57762"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34595,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33820.53377653129, max block_count: 36588.0, count: 57762"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.96823170942834, max segment_count: 134.0, count: 57762"
           }
         ]
       }

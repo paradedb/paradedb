@@ -22,8 +22,8 @@
 //!   payload with `(stage_id, partition)`, so one underlying queue can carry frames for many
 //!   logical channels at once. That's what the multi-stage natural-shape path needs.
 //! - [`encode_frame_into`] / [`decode_frame`] serialize a `RecordBatch` with a header prefix via
-//!   Arrow IPC. [`encode_batch`] / [`decode_batch`] are test-only header-less wrappers for codec
-//!   round-trip tests.
+//!   Arrow IPC. They're the only codec entry points; tests round-trip through the same path so
+//!   the wire format under test always matches production.
 //! - [`DrainBuffer`] is the local per-participant queue that the drain thread
 //!   writes into and the DataFusion consumer reads from. It decouples
 //!   consumer-side backpressure from producer-side backpressure: the drain thread
@@ -173,19 +173,6 @@ impl MppFrameHeader {
     }
 }
 
-/// Serialize one `RecordBatch` as a self-contained Arrow IPC Stream message,
-/// header-less. Test-only; production code paths go through
-/// [`encode_frame_into`] so the wire format always carries an [`MppFrameHeader`].
-#[cfg(test)]
-pub fn encode_batch(batch: &RecordBatch) -> Result<Vec<u8>, DataFusionError> {
-    let mut buf = Vec::with_capacity(1024);
-    let mut writer = StreamWriter::try_new(&mut buf, batch.schema_ref())?;
-    writer.write(batch)?;
-    writer.finish()?;
-    drop(writer);
-    Ok(buf)
-}
-
 /// Serialize `batch` into `buf` with a 16-byte [`MppFrameHeader`] prefix
 /// addressing it to `(stage_id, partition)`. Wire format:
 ///
@@ -226,17 +213,6 @@ pub fn encode_eof_frame_into(
     buf.resize(MPP_FRAME_HEADER_SIZE, 0);
     MppFrameHeader::eof(stage_id, partition).write_to(&mut buf[..MPP_FRAME_HEADER_SIZE]);
     Ok(())
-}
-
-/// Inverse of [`encode_batch`]. Expects exactly one batch per message,
-/// header-less. Test-only.
-#[cfg(test)]
-pub fn decode_batch(bytes: &[u8]) -> Result<RecordBatch, DataFusionError> {
-    let mut reader = StreamReader::try_new(bytes, None)?;
-    let batch = reader.next().ok_or_else(|| {
-        DataFusionError::Execution("mpp: empty arrow-ipc stream in decode_batch".into())
-    })??;
-    Ok(batch)
 }
 
 /// Inverse of [`encode_frame_into`]. Parses the 16-byte header and, for `Batch` frames, decodes
@@ -718,7 +694,7 @@ impl MppSender {
 /// All fields accumulate; callers zero or reuse as needed.
 #[derive(Default, Debug, Clone)]
 pub struct SendBatchStats {
-    /// Cumulative time spent inside `encode_batch` (Arrow IPC serialization).
+    /// Cumulative time spent inside `encode_frame_into` (header + Arrow IPC serialization).
     pub encode: Duration,
     /// Cumulative wall time in the send-retry spin after the first failed
     /// `try_send_bytes`. Zero if the first try succeeded.
@@ -1193,8 +1169,10 @@ mod tests {
     #[test]
     fn codec_round_trips_a_batch() {
         let orig = sample_batch(128);
-        let bytes = encode_batch(&orig).expect("encode");
-        let decoded = decode_batch(&bytes).expect("decode");
+        let mut buf = Vec::with_capacity(1024);
+        encode_frame_into(MppFrameHeader::batch(0, 0), &orig, &mut buf).expect("encode");
+        let (_header, decoded) = decode_frame(&buf).expect("decode");
+        let decoded = decoded.expect("Batch frame must carry a payload");
         assert_eq!(orig.schema(), decoded.schema());
         assert_eq!(orig.num_rows(), decoded.num_rows());
         assert_eq!(orig.num_columns(), decoded.num_columns());
@@ -1292,10 +1270,12 @@ mod tests {
 
     #[test]
     fn codec_round_trips_many_batch_sizes() {
+        let mut buf = Vec::with_capacity(1024);
         for rows in [0, 1, 7, 64, 1024] {
             let orig = sample_batch(rows);
-            let bytes = encode_batch(&orig).expect("encode");
-            let decoded = decode_batch(&bytes).expect("decode");
+            encode_frame_into(MppFrameHeader::batch(0, 0), &orig, &mut buf).expect("encode");
+            let (_header, decoded) = decode_frame(&buf).expect("decode");
+            let decoded = decoded.expect("Batch frame must carry a payload");
             assert_eq!(orig.num_rows(), decoded.num_rows());
         }
     }
@@ -1566,8 +1546,11 @@ mod tests {
         // separately. Real queries encode inside the hot path per batch.
         let enc_start = Instant::now();
         let mut enc_bytes = 0usize;
+        let mut enc_buf = Vec::with_capacity(1024);
         for _ in 0..batches {
-            enc_bytes += encode_batch(&template).expect("encode").len();
+            encode_frame_into(MppFrameHeader::batch(0, 0), &template, &mut enc_buf)
+                .expect("encode");
+            enc_bytes += enc_buf.len();
         }
         let enc_elapsed = enc_start.elapsed();
 

@@ -699,17 +699,17 @@ impl MppSender {
 #[derive(Default, Debug, Clone)]
 pub(super) struct SendBatchStats {
     /// Cumulative time spent inside `encode_frame_into` (header + Arrow IPC serialization).
-    pub encode: Duration,
+    pub(super) encode: Duration,
     /// Cumulative wall time in the send-retry spin after the first failed
     /// `try_send_bytes`. Zero if the first try succeeded.
-    pub send_wait: Duration,
+    pub(super) send_wait: Duration,
     /// Cumulative time spent in `try_drain_pass` while spinning on a
     /// full outbound. A subset of `send_wait`; the remainder is the
     /// `tokio::task::yield_now()` await + the (small) cost of
     /// `try_send_bytes` itself.
-    pub coop_drain_in_spin: Duration,
+    pub(super) coop_drain_in_spin: Duration,
     /// Count of `try_send_bytes` calls that returned `Ok(false)` (full).
-    pub spin_iters: u64,
+    pub(super) spin_iters: u64,
 }
 
 /// High-level receiver: pulls bytes via the underlying channel and decodes them
@@ -763,18 +763,18 @@ pub(super) enum RecvBatchOutcome {
 #[cfg(test)]
 struct DrainConfig {
     /// Receivers to drain. Ownership moves into the spawned thread.
-    pub receivers: Vec<MppReceiver>,
+    receivers: Vec<MppReceiver>,
     /// Destination buffer.
-    pub buffer: Arc<DrainBuffer>,
+    buffer: Arc<DrainBuffer>,
     /// How long to sleep when every receiver is empty but some are still
     /// attached. Tuning: small values reduce end-of-batch latency but raise
     /// CPU; 1 ms is a safe default until we integrate with WaitLatch.
-    pub idle_sleep: Duration,
+    idle_sleep: Duration,
 }
 
 #[cfg(test)]
 impl DrainConfig {
-    pub fn new(receivers: Vec<MppReceiver>, buffer: Arc<DrainBuffer>) -> Self {
+    fn new(receivers: Vec<MppReceiver>, buffer: Arc<DrainBuffer>) -> Self {
         Self {
             receivers,
             buffer,

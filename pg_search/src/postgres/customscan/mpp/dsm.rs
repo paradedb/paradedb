@@ -73,16 +73,16 @@ const MPP_DSM_MAX_BYTES: usize = 16 * 1024 * 1024 * 1024;
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct MppDsmHeader {
-    pub magic: u32,
-    pub header_version: u32,
+    pub(super) magic: u32,
+    pub(super) header_version: u32,
     /// Total participant count. Leader is `proc_idx = 0`; workers are
     /// `proc_idx = ParallelWorkerNumber + 1`. The shm_mq grid is `n_procs × n_procs`.
     pub n_procs: u32,
-    pub _pad: u32,
-    pub queue_bytes: u64,
-    pub plan_offset: u64,
-    pub plan_len: u64,
-    pub queues_offset: u64,
+    pub(super) _pad: u32,
+    pub(super) queue_bytes: u64,
+    pub(super) plan_offset: u64,
+    pub(super) plan_len: u64,
+    pub(super) queues_offset: u64,
     pub region_total: u64,
 }
 
@@ -101,7 +101,7 @@ impl MppDsmHeader {
         }
     }
 
-    pub fn validate(&self, region_total: u64) -> Result<(), &'static str> {
+    pub(super) fn validate(&self, region_total: u64) -> Result<(), &'static str> {
         if self.magic != MPP_DSM_MAGIC {
             return Err("mpp: DSM header magic mismatch");
         }
@@ -132,7 +132,7 @@ impl MppDsmHeader {
     /// Every process attaches as sender for its row (`slot(this, *)`) and as
     /// receiver for its column (`slot(*, this)`). Self-loops (`slot(k, k)`)
     /// are present in the grid but rarely used at runtime.
-    pub fn slot_offset(&self, sender_proc: u32, receiver_proc: u32) -> u64 {
+    pub(super) fn slot_offset(&self, sender_proc: u32, receiver_proc: u32) -> u64 {
         debug_assert!(sender_proc < self.n_procs);
         debug_assert!(receiver_proc < self.n_procs);
         let slot = (sender_proc as u64) * (self.n_procs as u64) + (receiver_proc as u64);
@@ -142,7 +142,7 @@ impl MppDsmHeader {
 
 /// Pure-math layout for [`compute_dsm_layout`].
 #[derive(Debug, Clone, Copy)]
-pub struct DsmLayout {
+pub(super) struct DsmLayout {
     pub n_procs: u32,
     pub queue_bytes: usize,
     pub plan_offset: usize,
@@ -207,7 +207,7 @@ pub(super) fn compute_dsm_layout(
 /// `inbound_receivers` each have `n_procs - 1` entries; the index gymnastics
 /// to translate `proc_idx` ↔ slice index are handled by
 /// [`MppMesh::inbound_drain`] in the runtime.
-pub struct ProcAttach {
+pub(super) struct ProcAttach {
     /// `outbound_senders[i]` writes to `slot(this_proc, peer_proc(i))` where
     /// `peer_proc(i) = i if i < this_proc else i + 1` (skipping the self-loop).
     pub(super) outbound_senders: Vec<ShmMqSender>,
@@ -241,7 +241,7 @@ pub(super) fn peer_proc_for_index(this_proc: u32, peer_idx: u32) -> u32 {
 /// - `coordinate` must point to the start of a DSM region of size `>= layout.region_total`.
 /// - `seg` must be the leader's `dsm_segment*`.
 /// - The region must be uninitialized (the leader is the first writer).
-pub unsafe fn leader_init(
+pub(super) unsafe fn leader_init(
     coordinate: *mut c_void,
     seg: *mut pg_sys::dsm_segment,
     layout: &DsmLayout,
@@ -348,7 +348,7 @@ unsafe fn attach_proc_row_and_column(
 /// - `seg` may be NULL. `initialize_worker_custom_scan` doesn't surface the segment pointer, and
 ///   `shm_mq_attach` handles NULL by skipping its on-detach callback (cleanup falls back to
 ///   process exit, safe for parallel-worker lifetimes).
-pub unsafe fn worker_attach(
+pub(super) unsafe fn worker_attach(
     coordinate: *mut c_void,
     region_total: u64,
     proc_idx: u32,

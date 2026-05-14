@@ -81,7 +81,7 @@ impl ShmMqSender {
     /// - `mq` must point to a shm_mq region that has been `shm_mq_create`'d
     ///   at its address with the expected size and has had
     ///   `shm_mq_set_receiver` called by the peer.
-    pub unsafe fn attach(seg: *mut pg_sys::dsm_segment, mq: *mut pg_sys::shm_mq) -> Self {
+    pub(super) unsafe fn attach(seg: *mut pg_sys::dsm_segment, mq: *mut pg_sys::shm_mq) -> Self {
         unsafe {
             Self {
                 inner: MessageQueueSender::new(seg, mq),
@@ -155,7 +155,10 @@ impl ShmMqReceiver {
     /// - `mq` must point to a shm_mq previously initialized by `shm_mq_create`.
     /// - `seg` may be NULL on workers.
     /// - No other participant has already set itself as receiver for `mq`.
-    pub unsafe fn attach_existing(seg: *mut pg_sys::dsm_segment, mq: *mut pg_sys::shm_mq) -> Self {
+    pub(super) unsafe fn attach_existing(
+        seg: *mut pg_sys::dsm_segment,
+        mq: *mut pg_sys::shm_mq,
+    ) -> Self {
         unsafe {
             pg_sys::shm_mq_set_receiver(mq, pg_sys::MyProc);
             let handle = pg_sys::shm_mq_attach(mq, seg, std::ptr::null_mut());

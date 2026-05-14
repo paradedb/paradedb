@@ -80,7 +80,7 @@ pub struct MppMesh {
     /// (`sender_proc == this_proc`); workers route those frames through an in-proc channel via
     /// `outbound_senders[this_proc]` instead. The natural-shape gather installs drains for every
     /// `sender_proc != this_proc`.
-    pub inbound_drains: Vec<Option<Arc<DrainHandle>>>,
+    pub(super) inbound_drains: Vec<Option<Arc<DrainHandle>>>,
 }
 
 impl MppMesh {
@@ -99,14 +99,14 @@ impl MppMesh {
 
     /// Look up the drain that owns frames coming from `sender_proc`. Returns `None` if no drain
     /// is installed (out-of-range or the self-loop slot, which the single-stage gather skips).
-    pub fn inbound_drain(&self, sender_proc: u32) -> Option<&Arc<DrainHandle>> {
+    pub(super) fn inbound_drain(&self, sender_proc: u32) -> Option<&Arc<DrainHandle>> {
         let idx = sender_proc as usize;
         self.inbound_drains.get(idx).and_then(|slot| slot.as_ref())
     }
 
     /// Number of worker procs (= `n_procs - 1`, since the leader is proc 0).
     /// Used as the modulus in [`proc_for_task`].
-    pub fn n_workers(&self) -> u32 {
+    pub(super) fn n_workers(&self) -> u32 {
         self.n_procs.saturating_sub(1).max(1)
     }
 
@@ -119,7 +119,7 @@ impl MppMesh {
     /// Returns the first error if any drain's `try_drain_pass` errors; otherwise `Ok(())` after
     /// all drains have been polled. Drains that have already detached are skipped silently (their
     /// slot is still `Some`, but their inner `coop_receivers` Vec entry is `None`).
-    pub fn drain_all_inbound(&self) -> Result<(), DataFusionError> {
+    pub(super) fn drain_all_inbound(&self) -> Result<(), DataFusionError> {
         for drain in self.inbound_drains.iter().flatten() {
             drain.try_drain_pass()?;
         }

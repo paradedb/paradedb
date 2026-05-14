@@ -65,6 +65,14 @@ ActiveRecord::Base.connection.add_bm25_index(
 )
 ```
 
+```ts Drizzle
+import { indexing } from "drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(mockItems.id, mockItems.description, mockItems.rating);
+```
+
 </CodeGroup>
 
 To enable columnar indexing for text and JSON fields, cast the field to a [tokenizer](/documentation/tokenizers/overview) with `columnar` set to `true`.
@@ -133,6 +141,21 @@ ActiveRecord::Base.connection.add_bm25_index(
   key_field: :id,
   name: :search_idx
 )
+```
+
+```ts Drizzle
+import { indexing, tokenizer } from "drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(
+    mockItems.id,
+    indexing.bm25Field(
+      mockItems.description,
+      tokenizer.unicodeWords({ columnar: true }),
+    ),
+    mockItems.rating,
+  );
 ```
 
 </CodeGroup>

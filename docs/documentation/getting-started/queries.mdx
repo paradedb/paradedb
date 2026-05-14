@@ -465,6 +465,22 @@ rows = relation.to_a
 facets = relation.aggregates
 ```
 
+```ts Drizzle
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+    agg: search.agg({ value_count: { field: "id" } }).over(),
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "running shoes"))
+  .orderBy(mockItems.rating)
+  .limit(5);
+```
+
 </CodeGroup>
 
 ```ini Expected Response

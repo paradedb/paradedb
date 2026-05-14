@@ -67,6 +67,21 @@ result = MockItem.facets_agg(
 )
 ```
 
+```ts Drizzle
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    electronicsCount: search
+      .agg({ value_count: { field: "id" } })
+      .filter(search.term(mockItems.category, "electronics")),
+    footwearCount: search
+      .agg({ value_count: { field: "id" } })
+      .filter(search.term(mockItems.category, "footwear")),
+  })
+  .from(mockItems);
+```
+
 </CodeGroup>
 
 <Note>

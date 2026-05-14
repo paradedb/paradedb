@@ -257,6 +257,17 @@ MockItem.search(:description)
         .facets_agg(exact: false, agg: ParadeDB::Aggregations.value_count(:id))
 ```
 
+```ts Drizzle
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({ value_count: { field: "id" } }, false),
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "running shoes"));
+```
+
 </CodeGroup>
 
 Disabling this check can improve query times by 2-4x in some cases (at the expense of correctness).

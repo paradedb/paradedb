@@ -60,6 +60,12 @@ ActiveRecord::Base.connection.add_bm25_index(
 )
 ```
 
+```ts Drizzle
+import { indexing } from "drizzle-paradedb";
+
+indexing.bm25Index("search_idx").on(mockItems.id, mockItems.metadata);
+```
+
 </CodeGroup>
 
 A single `metadata` JSON may look like:
@@ -131,6 +137,17 @@ ActiveRecord::Base.connection.add_bm25_index(
 )
 ```
 
+```ts Drizzle
+import { indexing, tokenizer } from "drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(
+    mockItems.id,
+    indexing.bm25Field(mockItems.metadata, tokenizer.ngram(2, 3)),
+  );
+```
+
 </CodeGroup>
 
 Instead of indexing the entire JSON, sub-fields of the JSON can be indexed individually. This allows for configuring separate tokenizers
@@ -197,6 +214,20 @@ ActiveRecord::Base.connection.add_bm25_index(
   key_field: :id,
   name: :search_idx
 )
+```
+
+```ts Drizzle
+import { indexing, tokenizer } from "drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(
+    mockItems.id,
+    indexing.bm25Field(
+      indexing.jsonText(mockItems.metadata, "color"),
+      tokenizer.ngram(2, 3),
+    ),
+  );
 ```
 
 </CodeGroup>

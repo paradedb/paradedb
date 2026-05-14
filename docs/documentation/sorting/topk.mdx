@@ -229,6 +229,22 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```ts Drizzle
+import { sql } from "drizzle-orm";
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "sleek running shoes"))
+  .orderBy(sql`lower(${mockItems.description})`)
+  .limit(5);
+```
+
 </CodeGroup>
 
 ## Sorting by JSON

@@ -72,6 +72,28 @@ rows = relation.to_a
 aggregates = relation.aggregates
 ```
 
+```ts Drizzle
+import { and, desc } from "drizzle-orm";
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    agg: search.agg({ value_count: { field: "id" } }).over(),
+  })
+  .from(mockItems)
+  .where(
+    and(
+      search.all(mockItems.id),
+      search.term(mockItems.category, "electronics"),
+    ),
+  )
+  .orderBy(desc(mockItems.rating))
+  .limit(3);
+```
+
 </CodeGroup>
 
 ```ini Expected Response

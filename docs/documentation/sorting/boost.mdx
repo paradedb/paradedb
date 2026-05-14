@@ -145,6 +145,23 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```ts Drizzle
+import { desc } from "drizzle-orm";
+import { search } from "drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    category: mockItems.category,
+    score: search.score(mockItems.id),
+  })
+  .from(mockItems)
+  .where(search.boost(search.regex(mockItems.description, "key.*"), 2))
+  .orderBy(desc(search.score(mockItems.id)))
+  .limit(5);
+```
+
 </CodeGroup>
 
 Boost can be used in conjunction with other type casts, like [fuzzy](/documentation/full-text/fuzzy):

@@ -228,6 +228,7 @@ const POSSIBLE_DATE_KEYS: [&str; 3] = ["lower_bound", "upper_bound", "value"];
 fn rewrite_is_datetime_values_to_tagged_dates(value: &mut serde_json::Value) {
     let is_datetime = value["is_datetime"].as_bool().unwrap_or(false);
     if is_datetime {
+        value.as_object_mut().unwrap().remove("is_datetime");
         for key in POSSIBLE_DATE_KEYS {
             if let Some(s) = value[key].as_str() {
                 value[key] = serde_json::json!({
@@ -662,6 +663,10 @@ impl SearchQueryInput {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TermInput {
     pub field: FieldName,
+    #[serde(
+        serialize_with = "serialize_date_aware_owned_value",
+        deserialize_with = "deserialize_date_aware_owned_value"
+    )]
     pub value: OwnedValue,
 }
 
@@ -1345,6 +1350,61 @@ impl SearchQueryInput {
             planstate,
         )
     }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+enum DateAwareOwnedValue {
+    // hold the OwnedValue so we can get its serialization behavior instead of tantivy::DateTime's
+    Date { date: OwnedValue },
+    Other(OwnedValue),
+}
+impl From<OwnedValue> for DateAwareOwnedValue {
+    fn from(value: OwnedValue) -> Self {
+        match value {
+            OwnedValue::Date(_) => Self::Date { date: value },
+            _ => Self::Other(value),
+        }
+    }
+}
+impl From<DateAwareOwnedValue> for OwnedValue {
+    fn from(value: DateAwareOwnedValue) -> OwnedValue {
+        match value {
+            DateAwareOwnedValue::Date {
+                date: OwnedValue::Str(s),
+            } => {
+                let dt = TantivyDateTime::try_from(s.as_str())
+                    .expect("The Date string should always be valid");
+                OwnedValue::Date(dt.0)
+            }
+            DateAwareOwnedValue::Date {
+                date: OwnedValue::Date(d),
+            } => OwnedValue::Date(d),
+            DateAwareOwnedValue::Date { date: _ } => {
+                panic!("DateAwareOwnedValue::Date should never contain a non-date value")
+            }
+            DateAwareOwnedValue::Other(owned) => owned,
+        }
+    }
+}
+
+pub fn serialize_date_aware_owned_value<S>(
+    value: &OwnedValue,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let date_aware = DateAwareOwnedValue::from(value.clone());
+    date_aware.serialize(serializer)
+}
+
+pub fn deserialize_date_aware_owned_value<'de, D>(deserializer: D) -> Result<OwnedValue, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let date_aware = DateAwareOwnedValue::deserialize(deserializer)?;
+    Ok(OwnedValue::from(date_aware))
 }
 
 /// Convert a string-encoded numeric value to the appropriate type based on field type.

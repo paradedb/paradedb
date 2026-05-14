@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::query::{value_to_json_term, TantivyDateTime};
+use crate::query::{value_to_json_term, DateAwareOwnedValue};
 use crate::schema::IndexRecordOption;
 use anyhow::Result;
 use serde::de::Error as SerdeError;
@@ -143,42 +143,6 @@ impl RangeField {
 
     fn as_range_term(&self, value: &OwnedValue, path: Option<&str>) -> Result<Term> {
         value_to_json_term(self.field, value, path, EXPAND_DOTS, self.is_datetime)
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(untagged)]
-enum DateAwareOwnedValue {
-    // hold the OwnedValue so we can get its serialization behavior instead of tantivy::DateTime's
-    Date { date: OwnedValue },
-    Other(OwnedValue),
-}
-impl From<OwnedValue> for DateAwareOwnedValue {
-    fn from(value: OwnedValue) -> Self {
-        match value {
-            OwnedValue::Date(_) => Self::Date { date: value },
-            _ => Self::Other(value),
-        }
-    }
-}
-impl From<DateAwareOwnedValue> for OwnedValue {
-    fn from(value: DateAwareOwnedValue) -> OwnedValue {
-        match value {
-            DateAwareOwnedValue::Date {
-                date: OwnedValue::Str(s),
-            } => {
-                let dt = TantivyDateTime::try_from(s.as_str())
-                    .expect("The Date string should always be valid");
-                OwnedValue::Date(dt.0)
-            }
-            DateAwareOwnedValue::Date {
-                date: OwnedValue::Date(d),
-            } => OwnedValue::Date(d),
-            DateAwareOwnedValue::Date { date: _ } => {
-                panic!("DateAwareOwnedValue::Date should never contain a non-date value")
-            }
-            DateAwareOwnedValue::Other(owned) => owned,
-        }
     }
 }
 

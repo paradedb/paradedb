@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778797922236,
+  "lastUpdate": 1778798590886,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3310,6 +3310,42 @@ window.BENCHMARK_DATA = {
             "value": 5.555363464279229,
             "unit": "median tps",
             "extra": "avg tps: 4.980421325578402, max tps: 6.216536358685152, count: 57762"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "21bdc9a753582039cc25a38cb07111026c0fd378",
+          "message": "feat: Crash recovery via WAL (#4901)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nPorts WAL integration over to community, which gives `pg_search` crash\nrecovery.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-05-14T14:59:53-07:00",
+          "tree_id": "7580b5f2bfcc1a95ed1b62c4628f2ec6129b7c00",
+          "url": "https://github.com/paradedb/paradedb/commit/21bdc9a753582039cc25a38cb07111026c0fd378"
+        },
+        "date": 1778798560687,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.867127882789328,
+            "unit": "median tps",
+            "extra": "avg tps: 6.7356997920890755, max tps: 10.292129127108055, count: 57916"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.596630837075229,
+            "unit": "median tps",
+            "extra": "avg tps: 5.015657679035947, max tps: 6.258931941371654, count: 57916"
           }
         ]
       }

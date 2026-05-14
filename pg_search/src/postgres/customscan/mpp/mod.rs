@@ -29,34 +29,56 @@ pub mod dsm;
 pub mod glue;
 pub mod mesh;
 pub mod runtime;
+pub mod task_estimator;
 pub mod transport;
 pub mod worker;
+pub mod worker_fragments;
 
 use serde::{Deserialize, Serialize};
 
 /// Describes this participant's position in an MPP query. Held by
 /// [`glue::MppLeaderState`] / [`glue::MppWorkerState`] so the AggregateScan
-/// worker path can size the in-process planner via `total_participants`.
+/// worker path can size the in-process planner via `total_workers`.
 /// The DF-D fork's `WorkerResolver` derives task identity from its own indexing,
 /// so this is a diagnostic / sizing hand-off — not a `SessionConfig`
 /// extension.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MppParticipantConfig {
-    /// 0-based index of this participant. The leader is always index 0.
+    /// 0-based worker index (`ParallelWorkerNumber`). Workers only — the
+    /// leader has no `MppParticipantConfig` since it doesn't run a worker
+    /// fragment in the single-stage gather path.
     pub participant_index: u32,
-    /// Total number of participants (leader + workers).
-    pub total_participants: u32,
+    /// Number of producer workers in the mesh (= `n_procs - 1`; the leader
+    /// is consumer-only in the single-stage gather path).
+    pub total_workers: u32,
 }
 
 /// Emit a runtime trace when `paradedb.mpp_debug` is on.
 ///
 /// Routed through `pgrx::warning!` so the line appears in the Postgres server log
-/// (and in CI benchmark logs). No-op when the GUC is off.
+/// (and in CI benchmark logs). No-op when the GUC is off, and no-op in `cargo
+/// test` builds: `pgrx::warning!` expands to a call into PG's `ereport`
+/// machinery (`CurrentMemoryContext`, `PG_exception_stack`,
+/// `error_context_stack`, `CopyErrorData`), which the plain `cargo test
+/// --no-default-features` link line does not provide. Production builds
+/// (`cargo pgrx install`, the cdylib) link against PG and resolve these at
+/// load time, so gating only the `#[cfg(test)]` lib-test build is enough.
+#[cfg(not(test))]
 #[macro_export]
 macro_rules! mpp_log {
     ($($arg:tt)*) => {
         if $crate::gucs::mpp_debug() {
             pgrx::warning!($($arg)*);
         }
+    };
+}
+
+/// `cargo test` variant: no-op. `format_args!` is invoked solely to silence
+/// "unused variable" / "unused import" warnings at the call sites.
+#[cfg(test)]
+#[macro_export]
+macro_rules! mpp_log {
+    ($($arg:tt)*) => {
+        { let _ = format_args!($($arg)*); }
     };
 }

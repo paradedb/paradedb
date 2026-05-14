@@ -15,32 +15,39 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! N×K DSM layout for the coordinator/worker MPP architecture.
+//! Multiplexed N×N DSM layout for the natural-shape MPP architecture.
 //!
 //! Each MPP query allocates a single DSM region containing:
 //!
 //! ```text
-//!   +--- MppDsmHeader (repr C, 56 bytes, MAXALIGN-padded) ----+
-//!   |    magic, version, n_workers, n_partitions, queue_bytes |
-//!   |    plan_offset, plan_len, queues_offset, region_total   |
-//!   +---------------------------------------------------------+
-//!   | plan bytes (bincode-serialized worker fragment)         |
-//!   +---------------------------------------------------------+
-//!   | padding to MAXALIGN                                     |
-//!   +---------------------------------------------------------+
-//!   | shm_mq queue array: n_workers × n_partitions slots      |
-//!   |   slot(w, p) = queues_offset                            |
-//!   |             + (w * n_partitions + p) * queue_bytes      |
-//!   +---------------------------------------------------------+
+//!   +--- MppDsmHeader (repr C, MAXALIGN-padded) -------------+
+//!   |    magic, version, n_procs, queue_bytes               |
+//!   |    plan_offset, plan_len, queues_offset, region_total |
+//!   |    cache_per_slot, cache_offsets, n_cache_sources     |
+//!   +-------------------------------------------------------+
+//!   | plan bytes (bincode-serialized worker fragment)       |
+//!   +-------------------------------------------------------+
+//!   | padding to MAXALIGN                                   |
+//!   +-------------------------------------------------------+
+//!   | shm_mq queue array: n_procs × n_procs slots           |
+//!   |   slot(sender, receiver) = queues_offset              |
+//!   |     + (sender * n_procs + receiver) * queue_bytes     |
+//!   +-------------------------------------------------------+
 //! ```
 //!
-//! - `n_workers` is the number of producer-side participants (== leader-as-
-//!   worker-0 + parallel workers). Leader is index 0.
-//! - `n_partitions` is the consumer-side partition count for the single
-//!   network boundary the DF-D fork's planner emits under
-//!   `in_process_mode=on`. Multi-stage / multi-boundary layouts are tracked
-//!   on the natural-shape follow-up (PR #5060) and would generalise the
-//!   `worker × partition` slot indexing to a richer grid.
+//! - `n_procs` is the total participant count (1 leader + N parallel workers).
+//!   Leader is `proc_idx = 0`; workers are `proc_idx = ParallelWorkerNumber + 1`.
+//! - Every process attaches as **sender** to its row (`slot(this, *)`) and as
+//!   **receiver** to its column (`slot(*, this)`). The grid is uniform and
+//!   independent of plan shape: a single multiplexed queue per process-pair
+//!   carries frames for any number of logical `(stage_id, partition)`
+//!   channels, demultiplexed on the receive side via the [`MppFrameHeader`]
+//!   prefix introduced in M1.a.
+//! - Self-loop slots (`slot(k, k)`) are reserved in the layout and
+//!   `shm_mq_create`'d by the leader so the slot-offset math stays a simple
+//!   row-major index, but no process attaches as sender or receiver to its
+//!   own self-loop. In-process traffic stays off the mesh; M2 may decide
+//!   to put it on a bypass channel rather than wake the self-loop slots.
 
 use std::ffi::c_void;
 use std::mem::size_of;
@@ -52,7 +59,9 @@ use crate::postgres::customscan::mpp::mesh::{
 };
 
 pub const MPP_DSM_MAGIC: u32 = 0x4D50_5052; // "MPPR" (RPC variant)
-pub const MPP_DSM_HEADER_VERSION: u32 = 1;
+/// V2: switched from `n_workers × n_partitions` grid to multiplexed
+/// `n_procs × n_procs` grid (M1.b of the natural-shape track).
+pub const MPP_DSM_HEADER_VERSION: u32 = 2;
 
 /// Absolute cap on DSM region size. 16 GiB is two orders of magnitude beyond
 /// any realistic workload; the cap fails early on a pathologically oversized
@@ -61,18 +70,17 @@ pub const MPP_DSM_MAX_BYTES: usize = 16 * 1024 * 1024 * 1024;
 
 /// C-repr header at offset 0 of the DSM region.
 ///
-/// Field ordering keeps every member naturally aligned: six `u32`s (24 bytes
-/// including the explicit `_pad0`) followed by nine `u64`s (72 bytes). 96
-/// bytes total with no internal padding on every supported target.
+/// Field ordering: four `u32`s (16 bytes), eight `u64`s (64 bytes). 80 bytes
+/// total with no internal padding on every supported target.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct MppDsmHeader {
     pub magic: u32,
     pub header_version: u32,
-    pub n_workers: u32,
-    pub n_partitions: u32,
+    /// Total participant count. Leader is `proc_idx = 0`; workers are
+    /// `proc_idx = ParallelWorkerNumber + 1`. The shm_mq grid is `n_procs × n_procs`.
+    pub n_procs: u32,
     pub n_cache_sources: u32,
-    pub _pad0: u32,
     pub queue_bytes: u64,
     pub plan_offset: u64,
     pub plan_len: u64,
@@ -89,10 +97,8 @@ impl MppDsmHeader {
         Self {
             magic: MPP_DSM_MAGIC,
             header_version: MPP_DSM_HEADER_VERSION,
-            n_workers: layout.n_workers,
-            n_partitions: layout.n_partitions,
+            n_procs: layout.n_procs,
             n_cache_sources: layout.n_cache_sources,
-            _pad0: 0,
             queue_bytes: layout.queue_bytes as u64,
             plan_offset: layout.plan_offset as u64,
             plan_len: layout.plan_len as u64,
@@ -112,8 +118,8 @@ impl MppDsmHeader {
         if self.header_version != MPP_DSM_HEADER_VERSION {
             return Err("mpp: DSM header version mismatch");
         }
-        if self.n_workers == 0 || self.n_partitions == 0 {
-            return Err("mpp: header n_workers/n_partitions must both be > 0");
+        if self.n_procs == 0 {
+            return Err("mpp: header n_procs must be > 0");
         }
         if self.region_total != region_total {
             return Err("mpp: DSM region_total in header disagrees with attached size");
@@ -131,20 +137,30 @@ impl MppDsmHeader {
         Ok(())
     }
 
-    /// Byte offset (relative to DSM base) of the queue at `(worker, partition)`.
-    pub fn slot_offset(&self, worker: u32, partition: u32) -> u64 {
-        debug_assert!(worker < self.n_workers);
-        debug_assert!(partition < self.n_partitions);
-        let slot = (worker as u64) * (self.n_partitions as u64) + (partition as u64);
+    /// Byte offset (relative to DSM base) of the queue at `(sender_proc, receiver_proc)`.
+    ///
+    /// Every process attaches as sender for its row (`slot(this, *)`) and as
+    /// receiver for its column (`slot(*, this)`). Self-loops (`slot(k, k)`)
+    /// are present in the grid but rarely used at runtime.
+    pub fn slot_offset(&self, sender_proc: u32, receiver_proc: u32) -> u64 {
+        debug_assert!(sender_proc < self.n_procs);
+        debug_assert!(receiver_proc < self.n_procs);
+        let slot = (sender_proc as u64) * (self.n_procs as u64) + (receiver_proc as u64);
         self.queues_offset + slot * self.queue_bytes
     }
 
-    /// Byte offset of the build-side cache slot at `(source, worker)`.
+    /// Byte offset of the build-side cache slot at `(source, worker)`. The
+    /// build-cache region is sized as `n_cache_sources × (n_procs - 1)` to
+    /// match the worker-only producer count (leader does not write the cache).
+    /// `compute_dsm_layout` requires `n_procs >= 2`, so `n_procs - 1` is
+    /// always a valid worker count.
     #[cfg(test)]
     pub fn cache_data_slot_offset(&self, source: u32, worker: u32) -> u64 {
         debug_assert!(source < self.n_cache_sources);
-        debug_assert!(worker < self.n_workers);
-        let slot = (source as u64) * (self.n_workers as u64) + (worker as u64);
+        debug_assert!(self.n_procs >= 2);
+        let worker_slots = self.n_procs - 1;
+        debug_assert!(worker < worker_slots);
+        let slot = (source as u64) * (worker_slots as u64) + (worker as u64);
         self.cache_data_offset + slot * self.cache_per_slot
     }
 }
@@ -152,8 +168,7 @@ impl MppDsmHeader {
 /// Pure-math layout for [`compute_dsm_layout`].
 #[derive(Debug, Clone, Copy)]
 pub struct DsmLayout {
-    pub n_workers: u32,
-    pub n_partitions: u32,
+    pub n_procs: u32,
     pub n_cache_sources: u32,
     pub queue_bytes: usize,
     pub cache_per_slot: usize,
@@ -168,23 +183,31 @@ pub struct DsmLayout {
 
 /// Compute the DSM region size and field offsets for one MPP query.
 ///
+/// `n_procs` is the total participant count (1 leader + N workers). The
+/// shm_mq grid is `n_procs × n_procs`; each process attaches as sender to its
+/// row and receiver to its column.
+///
 /// `n_cache_sources` is the number of non-partitioning sources to allocate
 /// build-side cache slots for. `cache_per_slot` is the bytes reserved for
 /// each (source, worker) pair (worst-case per-worker IPC payload). Pass 0
-/// for both if no cache is needed.
+/// for both if no cache is needed. The cache region is sized using
+/// worker-only slots (`n_procs - 1`) since the leader does not write the
+/// build-side cache.
 pub fn compute_dsm_layout(
-    n_workers: u32,
-    n_partitions: u32,
+    n_procs: u32,
     queue_bytes: usize,
     plan_len: usize,
     n_cache_sources: u32,
     cache_per_slot: usize,
 ) -> Result<DsmLayout, &'static str> {
-    if n_workers == 0 {
-        return Err("mpp: n_workers must be > 0");
-    }
-    if n_partitions == 0 {
-        return Err("mpp: n_partitions must be > 0");
+    // Require at least one leader + one worker. `mpp_is_active` enforces a
+    // stricter `n_procs >= 3` (leader + ≥2 workers for meaningful
+    // parallelism); the looser bound here keeps DSM layout math valid for
+    // any plausible runtime configuration without burning a special case
+    // into `cache_data_slot_offset` / `MppBuildCache` for the n_procs=1
+    // edge.
+    if n_procs < 2 {
+        return Err("mpp: n_procs must be >= 2 (leader + at least one worker)");
     }
     let queue_bytes = aligned_queue_bytes(queue_bytes);
     if queue_bytes == 0 {
@@ -198,9 +221,9 @@ pub fn compute_dsm_layout(
         .ok_or("mpp: plan offset+len overflow")?;
     let queues_offset =
         align_up_maxalign_checked(plan_end).ok_or("mpp: queues alignment overflow")?;
-    let total_slots = (n_workers as usize)
-        .checked_mul(n_partitions as usize)
-        .ok_or("mpp: n_workers × n_partitions overflow")?;
+    let total_slots = (n_procs as usize)
+        .checked_mul(n_procs as usize)
+        .ok_or("mpp: n_procs × n_procs overflow")?;
     let queues_bytes = total_slots
         .checked_mul(queue_bytes)
         .ok_or("mpp: queues bytes overflow")?;
@@ -210,8 +233,13 @@ pub fn compute_dsm_layout(
 
     // Build-side cache region. Layout:
     //   completion: n_cache_sources × u32  (atomic counter)
-    //   lengths:    n_cache_sources × n_workers × u32  (actual bytes written)
-    //   data:       n_cache_sources × n_workers × cache_per_slot
+    //   lengths:    n_cache_sources × worker_slots × u32  (actual bytes written)
+    //   data:       n_cache_sources × worker_slots × cache_per_slot
+    //
+    // `worker_slots = n_procs - 1` because the leader is consumer-only for
+    // the build-side cache; only workers all-gather into it. n_procs >= 2 is
+    // enforced above, so subtraction is safe.
+    let worker_slots = (n_procs as usize) - 1;
     let cache_completion_offset =
         align_up_maxalign_checked(queues_end).ok_or("mpp: cache completion alignment overflow")?;
     let cache_completion_size = (n_cache_sources as usize)
@@ -224,7 +252,7 @@ pub fn compute_dsm_layout(
     )
     .ok_or("mpp: cache lengths alignment overflow")?;
     let cache_lengths_size = (n_cache_sources as usize)
-        .checked_mul(n_workers as usize)
+        .checked_mul(worker_slots)
         .and_then(|x| x.checked_mul(size_of::<u32>()))
         .ok_or("mpp: cache lengths size overflow")?;
     let cache_data_offset = align_up_maxalign_checked(
@@ -234,7 +262,7 @@ pub fn compute_dsm_layout(
     )
     .ok_or("mpp: cache data alignment overflow")?;
     let cache_data_size = (n_cache_sources as usize)
-        .checked_mul(n_workers as usize)
+        .checked_mul(worker_slots)
         .and_then(|x| x.checked_mul(cache_per_slot))
         .ok_or("mpp: cache data size overflow")?;
     let region_total = cache_data_offset
@@ -244,8 +272,7 @@ pub fn compute_dsm_layout(
         return Err("mpp: DSM region exceeds MPP_DSM_MAX_BYTES");
     }
     Ok(DsmLayout {
-        n_workers,
-        n_partitions,
+        n_procs,
         n_cache_sources,
         queue_bytes,
         cache_per_slot,
@@ -263,7 +290,7 @@ pub fn compute_dsm_layout(
 ///
 /// Held on every participant's customscan state. Workers use it to write their
 /// own slice and read back peer slices via the all-gather barrier; the leader
-/// holds it inert (no slot reserved for it; consumer-only this iteration).
+/// holds it inert (consumer-only for the cache — leader doesn't write a slice).
 ///
 /// `Send + Sync` is asserted because the underlying DSM mapping is shared
 /// memory accessed by multiple processes; access is coordinated via atomic
@@ -271,6 +298,8 @@ pub fn compute_dsm_layout(
 #[derive(Debug)]
 pub struct MppBuildCache {
     base: *mut u8,
+    /// Number of worker slots in the cache. Equals `n_procs - 1` since the
+    /// leader is consumer-only for the cache.
     pub n_workers: u32,
     pub n_sources: u32,
     pub cache_per_slot: usize,
@@ -291,7 +320,8 @@ impl MppBuildCache {
     pub unsafe fn from_header(base: *mut u8, header: &MppDsmHeader) -> Self {
         Self {
             base,
-            n_workers: header.n_workers,
+            // Workers-only — leader is consumer-only for the build cache.
+            n_workers: header.n_procs.saturating_sub(1).max(1),
             n_sources: header.n_cache_sources,
             cache_per_slot: header.cache_per_slot as usize,
             completion_offset: header.cache_completion_offset as usize,
@@ -370,41 +400,62 @@ impl MppBuildCache {
 
     /// Spin until all `n_workers` have signalled completion for `source`.
     /// Yields to PG via `check_for_interrupts!` so `statement_timeout` works.
+    /// `check_for_interrupts!` pulls in PG runtime symbols and is gated out of
+    /// `cargo test` builds; the lib tests in this file never reach
+    /// `wait_complete`, but the gate keeps the symbol off the test-binary link
+    /// line even if the linker fails to DCE the function.
     pub fn wait_complete(&self, source: u32) {
         let counter = unsafe { &*self.completion_ptr(source) };
         loop {
             if counter.load(std::sync::atomic::Ordering::Acquire) >= self.n_workers {
                 return;
             }
+            #[cfg(not(test))]
             pgrx::check_for_interrupts!();
             std::hint::spin_loop();
         }
     }
 }
 
-/// Leader-side return: handles to all senders + receivers for participant 0.
-pub struct LeaderAttach {
-    /// Senders this participant uses to push rows to consumer partitions.
-    /// `outbound_senders[p]` writes to `slot(0, p)`.
+/// Per-participant return: handles for the process's row (senders) and
+/// column (receivers) in the multiplexed `n_procs × n_procs` grid.
+///
+/// Self-loop slots (`slot(this_proc, this_proc)`) are skipped to avoid two
+/// `shm_mq_attach` calls + two `on_dsm_detach` callbacks per process for a
+/// queue nothing reads. As a consequence, `outbound_senders` and
+/// `inbound_receivers` each have `n_procs - 1` entries; the index gymnastics
+/// to translate `proc_idx` ↔ slice index are handled by
+/// [`MppMesh::inbound_drain`] in the runtime.
+pub struct ProcAttach {
+    /// `outbound_senders[i]` writes to `slot(this_proc, peer_proc(i))` where
+    /// `peer_proc(i) = i if i < this_proc else i + 1` (skipping the self-loop).
     pub outbound_senders: Vec<ShmMqSender>,
-    /// Receivers this participant reads from (one per producer worker for
-    /// each consumer partition the leader owns). The leader IS the consumer,
-    /// so it owns ALL `n_partitions` columns of the queue grid; for each
-    /// consumer partition `p` it has `n_workers` inbound queues from the
-    /// producers.
+    /// `inbound_receivers[i]` reads from `slot(peer_proc(i), this_proc)`,
+    /// same skip-self-loop mapping as `outbound_senders`.
     pub inbound_receivers: Vec<ShmMqReceiver>,
 }
 
-/// Worker-side return: just the senders. Workers don't consume; everything
-/// flows toward the leader.
-pub struct WorkerAttach {
-    /// `outbound_senders[p]` writes to `slot(this_worker, p)`.
-    pub outbound_senders: Vec<ShmMqSender>,
+/// Translate a peer index (`0..n_procs - 1`) into a process index
+/// (`0..n_procs`) by skipping the self-loop slot.
+#[inline]
+pub fn peer_proc_for_index(this_proc: u32, peer_idx: u32) -> u32 {
+    if peer_idx < this_proc {
+        peer_idx
+    } else {
+        peer_idx + 1
+    }
 }
 
-/// Initialize the DSM region as the leader. Writes the header, copies plan
-/// bytes, calls `shm_mq_create` on every queue slot, and attaches the leader's
-/// senders + all inbound receivers.
+/// Initialize the DSM region as the leader (`proc_idx = 0`). Writes the
+/// header, copies the plan bytes, calls `shm_mq_create` on every queue slot,
+/// and attaches the leader's row + column handles.
+///
+/// In the multiplexed `n_procs × n_procs` grid, every process — leader
+/// included — is a full participant: sender for its row, receiver for its
+/// column. The leader is responsible for the one-time `shm_mq_create` on
+/// every queue (workers cannot, since the region is uninitialized at their
+/// attach time), then performs its own `set_sender` / `set_receiver` calls
+/// on its row and column slots.
 ///
 /// # Safety
 /// - `coordinate` must point to the start of a DSM region of size
@@ -416,7 +467,7 @@ pub unsafe fn leader_init(
     seg: *mut pg_sys::dsm_segment,
     layout: &DsmLayout,
     plan_bytes: &[u8],
-) -> Result<LeaderAttach, String> {
+) -> Result<ProcAttach, String> {
     if coordinate.is_null() {
         return Err("mpp: leader_init given null coordinate".into());
     }
@@ -446,30 +497,74 @@ pub unsafe fn leader_init(
         );
     }
 
-    // Create every shm_mq slot. Each slot is `queue_bytes` aligned bytes; we
-    // pass the address to `shm_mq_create` which initializes the ring buffer.
-    // The leader is a consumer-only participant (leader-as-worker-0 is
-    // deferred), so it attaches as receiver to every slot but as sender to
-    // none — workers attach to their own row in `worker_attach`.
-    let mut inbound_receivers =
-        Vec::with_capacity((layout.n_workers as usize) * (layout.n_partitions as usize));
-    for w in 0..layout.n_workers {
-        for p in 0..layout.n_partitions {
-            let off = (w as usize) * (layout.n_partitions as usize) + (p as usize);
-            let mq_addr = unsafe { base.add(layout.queues_offset + off * layout.queue_bytes) };
-            let mq = unsafe { pg_sys::shm_mq_create(mq_addr.cast(), layout.queue_bytes) };
-            inbound_receivers.push(unsafe { ShmMqReceiver::attach_existing(seg, mq) });
+    // One-time create of every shm_mq slot. Workers cannot do this — the
+    // region is uninitialized at their attach time — so the leader runs
+    // `shm_mq_create` for all `n_procs²` slots even though it only attaches
+    // to its own row and column below.
+    let header = MppDsmHeader::from_layout(layout);
+    let n_procs = layout.n_procs;
+    for s in 0..n_procs {
+        for r in 0..n_procs {
+            let off = header.slot_offset(s, r) as usize;
+            let mq_addr = unsafe { base.add(off) };
+            unsafe { pg_sys::shm_mq_create(mq_addr.cast(), layout.queue_bytes) };
         }
     }
 
-    Ok(LeaderAttach {
-        outbound_senders: Vec::new(),
-        inbound_receivers,
-    })
+    Ok(unsafe { attach_proc_row_and_column(base, &header, 0, seg) })
 }
 
-/// Attach to the leader-initialized DSM region as worker `worker_index` (1-based:
-/// PG's `ParallelWorkerNumber + 1`, since participant 0 is the leader).
+/// Attach to the leader-initialized DSM region as `proc_idx` (`0 = leader`,
+/// `1..N = parallel workers`).
+///
+/// Workers use this from `initialize_worker_custom_scan` via `worker_attach`;
+/// the leader uses it inline at the end of `leader_init`. Each process
+/// attaches as sender to its row and receiver to its column of the
+/// `n_procs × n_procs` grid, including the self-loop at `(this, this)`.
+///
+/// # Safety
+/// - `base` must point to a DSM region whose header has been validated.
+/// - `header.slot_offset(s, r)` must already point at a slot initialized by
+///   `shm_mq_create` (the leader does this in `leader_init`).
+/// - `seg` may be NULL on workers — `shm_mq_attach` skips its on-detach
+///   callback when so.
+unsafe fn attach_proc_row_and_column(
+    base: *mut u8,
+    header: &MppDsmHeader,
+    this_proc: u32,
+    seg: *mut pg_sys::dsm_segment,
+) -> ProcAttach {
+    let n_procs = header.n_procs;
+    let peer_count = (n_procs - 1) as usize; // n_procs >= 2 is layout invariant
+    let mut outbound_senders = Vec::with_capacity(peer_count);
+    let mut inbound_receivers = Vec::with_capacity(peer_count);
+
+    // Senders: this process's row, skipping the self-loop slot(this, this).
+    for peer_idx in 0..(n_procs - 1) {
+        let r = peer_proc_for_index(this_proc, peer_idx);
+        let off = header.slot_offset(this_proc, r) as usize;
+        let mq_addr = unsafe { base.add(off) };
+        let mq = mq_addr.cast::<pg_sys::shm_mq>();
+        outbound_senders.push(unsafe { ShmMqSender::attach(seg, mq) });
+    }
+
+    // Receivers: this process's column, skipping the self-loop slot(this, this).
+    for peer_idx in 0..(n_procs - 1) {
+        let s = peer_proc_for_index(this_proc, peer_idx);
+        let off = header.slot_offset(s, this_proc) as usize;
+        let mq_addr = unsafe { base.add(off) };
+        let mq = mq_addr.cast::<pg_sys::shm_mq>();
+        inbound_receivers.push(unsafe { ShmMqReceiver::attach_existing(seg, mq) });
+    }
+
+    ProcAttach {
+        outbound_senders,
+        inbound_receivers,
+    }
+}
+
+/// Attach to the leader-initialized DSM region as `proc_idx` (1-based for
+/// workers: PG's `ParallelWorkerNumber + 1`).
 ///
 /// # Safety
 /// - `coordinate` must be the DSM region pointer the leader initialized.
@@ -481,9 +576,9 @@ pub unsafe fn leader_init(
 pub unsafe fn worker_attach(
     coordinate: *mut c_void,
     region_total: u64,
-    worker_index: u32,
+    proc_idx: u32,
     seg: *mut pg_sys::dsm_segment,
-) -> Result<(MppDsmHeader, Vec<u8>, WorkerAttach), String> {
+) -> Result<(MppDsmHeader, Vec<u8>, ProcAttach), String> {
     if coordinate.is_null() {
         return Err("mpp: worker_attach given null coordinate".into());
     }
@@ -492,10 +587,15 @@ pub unsafe fn worker_attach(
     header
         .validate(region_total)
         .map_err(|e| format!("mpp: worker DSM validate: {e}"))?;
-    if worker_index >= header.n_workers {
+    if proc_idx == 0 {
+        return Err(
+            "mpp: worker_attach must be called with proc_idx >= 1 (proc 0 is leader)".into(),
+        );
+    }
+    if proc_idx >= header.n_procs {
         return Err(format!(
-            "mpp: worker_index {worker_index} not in 0..{}",
-            header.n_workers
+            "mpp: proc_idx {proc_idx} not in 1..{}",
+            header.n_procs
         ));
     }
 
@@ -508,19 +608,8 @@ pub unsafe fn worker_attach(
         .to_vec()
     };
 
-    // Attach as sender to every (worker_index, p) slot. `ShmMqSender::attach`
-    // already calls `shm_mq_set_sender(mq, MyProc)` internally — calling it
-    // a second time here trips PG's `Assert("mq->mq_sender == NULL")` and
-    // aborts the worker.
-    let mut outbound_senders = Vec::with_capacity(header.n_partitions as usize);
-    for p in 0..header.n_partitions {
-        let off = header.slot_offset(worker_index, p) as usize;
-        let mq_addr = unsafe { base.add(off) };
-        let mq = mq_addr.cast::<pg_sys::shm_mq>();
-        outbound_senders.push(unsafe { ShmMqSender::attach(seg, mq) });
-    }
-
-    Ok((header, plan_bytes, WorkerAttach { outbound_senders }))
+    let attach = unsafe { attach_proc_row_and_column(base, &header, proc_idx, seg) };
+    Ok((header, plan_bytes, attach))
 }
 
 #[cfg(test)]
@@ -529,57 +618,55 @@ mod tests {
 
     #[test]
     fn compute_dsm_layout_works() {
-        let l = compute_dsm_layout(4, 1, 64 * 1024, 1024, 0, 0).unwrap();
-        assert_eq!(l.n_workers, 4);
-        assert_eq!(l.n_partitions, 1);
-        // No cache reserved → cache regions all sit at queues_end (after MAXALIGN).
+        let l = compute_dsm_layout(4, 64 * 1024, 1024, 0, 0).unwrap();
+        assert_eq!(l.n_procs, 4);
+        // Grid is n_procs × n_procs = 16 slots.
         let aligned = aligned_queue_bytes(64 * 1024);
-        let queues_size = 4 * aligned;
+        let queues_size = 16 * aligned;
         assert!(l.region_total >= l.queues_offset + queues_size);
     }
 
     #[test]
     fn compute_dsm_layout_with_cache() {
-        let l = compute_dsm_layout(4, 1, 64 * 1024, 1024, 2, 1024 * 1024).unwrap();
-        let cache_data_size = 2 * 4 * 1024 * 1024; // 2 sources × 4 workers × 1 MiB
+        // n_procs=4 → 3 worker slots in the cache (leader excluded).
+        let l = compute_dsm_layout(4, 64 * 1024, 1024, 2, 1024 * 1024).unwrap();
+        let cache_data_size = 2 * 3 * 1024 * 1024; // 2 sources × 3 worker slots × 1 MiB
         assert_eq!(l.region_total, l.cache_data_offset + cache_data_size);
     }
 
     #[test]
-    fn compute_dsm_layout_rejects_zero_workers() {
-        assert!(compute_dsm_layout(0, 1, 64 * 1024, 0, 0, 0).is_err());
-    }
-
-    #[test]
-    fn compute_dsm_layout_rejects_zero_partitions() {
-        assert!(compute_dsm_layout(2, 0, 64 * 1024, 0, 0, 0).is_err());
+    fn compute_dsm_layout_rejects_zero_procs() {
+        assert!(compute_dsm_layout(0, 64 * 1024, 0, 0, 0).is_err());
     }
 
     #[test]
     fn compute_dsm_layout_rejects_oversize() {
-        assert!(compute_dsm_layout(u32::MAX, u32::MAX, 64 * 1024, 0, 0, 0).is_err());
+        assert!(compute_dsm_layout(u32::MAX, 64 * 1024, 0, 0, 0).is_err());
     }
 
     #[test]
-    fn header_slot_offset_is_row_major() {
-        let l = compute_dsm_layout(3, 4, 64 * 1024, 0, 0, 0).unwrap();
+    fn header_slot_offset_is_row_major_over_n_procs() {
+        // 4 procs → 4×4 = 16 slots, row-major over (sender, receiver).
+        let l = compute_dsm_layout(4, 64 * 1024, 0, 0, 0).unwrap();
         let h = MppDsmHeader::from_layout(&l);
         let aligned = h.queue_bytes;
         assert_eq!(h.slot_offset(0, 0), h.queues_offset);
         assert_eq!(h.slot_offset(0, 1), h.queues_offset + aligned);
         assert_eq!(h.slot_offset(1, 0), h.queues_offset + 4 * aligned);
-        assert_eq!(h.slot_offset(2, 3), h.queues_offset + 11 * aligned);
+        // Self-loop on proc 3: (3,3) → row 3, col 3 → slot 15.
+        assert_eq!(h.slot_offset(3, 3), h.queues_offset + 15 * aligned);
     }
 
     #[test]
     fn header_cache_offsets() {
-        let l = compute_dsm_layout(3, 1, 64 * 1024, 0, 2, 1024).unwrap();
+        // n_procs=4 → 3 worker slots in the cache.
+        let l = compute_dsm_layout(4, 64 * 1024, 0, 2, 1024).unwrap();
         let h = MppDsmHeader::from_layout(&l);
         // (source=0, worker=0) is the first slot.
         assert_eq!(h.cache_data_slot_offset(0, 0), h.cache_data_offset);
         // (source=0, worker=1) is one slot later.
         assert_eq!(h.cache_data_slot_offset(0, 1), h.cache_data_offset + 1024);
-        // (source=1, worker=0) is n_workers slots in.
+        // (source=1, worker=0) is `worker_slots` slots in.
         assert_eq!(
             h.cache_data_slot_offset(1, 0),
             h.cache_data_offset + 3 * 1024
@@ -588,14 +675,29 @@ mod tests {
 
     #[test]
     fn header_validate_accepts_self() {
-        let l = compute_dsm_layout(2, 2, 64 * 1024, 0, 0, 0).unwrap();
+        let l = compute_dsm_layout(2, 64 * 1024, 0, 0, 0).unwrap();
         let h = MppDsmHeader::from_layout(&l);
         assert!(h.validate(l.region_total as u64).is_ok());
     }
 
     #[test]
+    fn header_validate_rejects_wrong_version() {
+        // Bumping `MPP_DSM_HEADER_VERSION` without rejecting old-version
+        // headers would let an attached worker silently read the wrong
+        // layout. This test pins the version gate so v1 → v2 (and any
+        // future bump) actually trips `validate`.
+        let l = compute_dsm_layout(2, 64 * 1024, 0, 0, 0).unwrap();
+        let mut h = MppDsmHeader::from_layout(&l);
+        h.header_version = MPP_DSM_HEADER_VERSION.wrapping_sub(1);
+        let err = h
+            .validate(l.region_total as u64)
+            .expect_err("wrong version must fail");
+        assert!(err.contains("DSM header version mismatch"), "got: {err}");
+    }
+
+    #[test]
     fn header_validate_rejects_size_mismatch() {
-        let l = compute_dsm_layout(2, 2, 64 * 1024, 0, 0, 0).unwrap();
+        let l = compute_dsm_layout(2, 64 * 1024, 0, 0, 0).unwrap();
         let h = MppDsmHeader::from_layout(&l);
         assert!(h.validate(l.region_total as u64 + 1).is_err());
     }

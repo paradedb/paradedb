@@ -41,13 +41,25 @@ use crate::gucs::{
     mpp_worker_count as gucs_mpp_worker_count,
 };
 use crate::postgres::customscan::mpp::dsm::{
-    compute_dsm_layout, leader_init, worker_attach, MppBuildCache,
+    compute_dsm_layout, leader_init, peer_proc_for_index, worker_attach, MppBuildCache,
 };
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 use crate::postgres::customscan::mpp::transport::{
-    DrainBuffer, DrainHandle, MppReceiver, MppSender,
+    in_proc_channel, BatchChannelSender, DrainHandle, MppFrameHeader, MppReceiver, MppSender,
+    SELF_LOOP_CAPACITY,
 };
 use crate::postgres::customscan::mpp::MppParticipantConfig;
+
+/// Stage id stamped onto frames in the natural-shape single-stage gather.
+/// All worker→leader traffic in M1's single-stage path carries this stage id.
+/// M2 introduces multi-stage pipelines and replaces this constant with
+/// plan-driven stage ids derived from each `NetworkBoundary.input_stage.num`.
+const NATURAL_GATHER_STAGE_ID: u32 = 0;
+
+/// Consumer-side partition stamped on natural-shape gather frames. The
+/// natural plan emits `NetworkCoalesceExec(consumer_tc=1, input_tc=N)` at the
+/// top, so there is exactly one consumer partition on the leader.
+const NATURAL_GATHER_PARTITION: u32 = 0;
 
 /// True iff `paradedb.enable_mpp = on` and `paradedb.mpp_worker_count >= 3`.
 /// Customscan path-builders gate `parallel_workers` on this.
@@ -79,20 +91,16 @@ pub fn mpp_queue_size() -> usize {
 }
 
 /// Body of `estimate_dsm_custom_scan`. Returns total DSM bytes the leader
-/// will need for plan + N×K queue mesh + build-side cache. `N` is the *worker*
-/// count (`mpp_worker_count - 1`); the leader is a consumer-only participant
-/// in this iteration, so its slot is omitted from the mesh.
+/// will need for the plan + multiplexed `n_procs × n_procs` queue mesh +
+/// build-side cache. `n_procs` is the total participant count (leader +
+/// `producer_worker_count()` parallel workers).
 ///
 /// `n_cache_sources` is the number of non-partitioning sources the build-side
-/// all-gather cache should reserve slots for; pass 0 to skip caching.
-pub fn estimate_dsm_size(
-    plan_bytes_len: usize,
-    n_partitions: u32,
-    n_cache_sources: u32,
-) -> Result<usize, String> {
+/// all-gather cache should reserve slots for; pass 0 to skip caching. The
+/// cache region is sized using worker-only slots (leader does not write).
+pub fn estimate_dsm_size(plan_bytes_len: usize, n_cache_sources: u32) -> Result<usize, String> {
     let layout = compute_dsm_layout(
-        producer_worker_count(),
-        n_partitions,
+        n_procs(),
         mpp_queue_size(),
         plan_bytes_len,
         n_cache_sources,
@@ -102,11 +110,16 @@ pub fn estimate_dsm_size(
     Ok(layout.region_total)
 }
 
-/// Number of producer workers in the mesh: `mpp_worker_count - 1`. The leader
-/// is a consumer-only participant for now (leader-as-worker-0 deferred); its
-/// slot is omitted, so PG launches exactly this many parallel workers.
+/// Number of producer workers PG should launch as `parallel_workers`.
+/// `mpp_worker_count - 1` because participant 0 is the leader.
 pub fn producer_worker_count() -> u32 {
     mpp_worker_count().saturating_sub(1).max(1)
+}
+
+/// Total participant count: 1 leader + N producer workers. This is the
+/// dimension of the multiplexed `n_procs × n_procs` shm_mq grid.
+pub fn n_procs() -> u32 {
+    mpp_worker_count()
 }
 
 /// Returned to the leader from [`leader_setup`]. The customscan stashes this
@@ -148,10 +161,9 @@ pub unsafe fn leader_setup(
     plan_bytes: Vec<u8>,
     n_cache_sources: u32,
 ) -> Result<MppLeaderState, String> {
-    let n_workers = producer_worker_count();
+    let total_procs = n_procs();
     let layout = compute_dsm_layout(
-        n_workers,
-        n_partitions,
+        total_procs,
         mpp_queue_size(),
         plan_bytes.len(),
         n_cache_sources,
@@ -161,33 +173,41 @@ pub unsafe fn leader_setup(
 
     let attach = unsafe { leader_init(coordinate, seg, &layout, &plan_bytes) }?;
 
-    // Build per-(worker, partition) cooperative drain handles. Each handle
-    // owns one MppReceiver + one DrainBuffer; the consumer side calls
-    // `try_drain_pass` inline on the backend thread (pgrx-safe) when
-    // pulling batches.
-    let mut drains = Vec::with_capacity(attach.inbound_receivers.len());
-    for shm_recv in attach.inbound_receivers {
+    // M1.c: build the proc-pair indexed mesh. The leader is `proc_idx = 0`;
+    // its inbound queues are `slot(*, 0)` for every peer (workers 1..n_procs).
+    // `attach.inbound_receivers` is already peer-indexed (self-loop skipped),
+    // so receiver[i] corresponds to peer_proc_for_index(0, i) = i + 1.
+    //
+    // The mesh stores `inbound_drains[sender_proc]` so `runtime.rs` can look
+    // up the right drain in O(1) given a sender_proc from the natural-shape
+    // gather; the self-loop entry at index 0 is `None`.
+    //
+    // M2.b: each `DrainHandle` owns a per-`(stage_id, partition)` sub-buffer
+    // registry, so one shm_mq queue can multiplex frames from many logical
+    // channels — the sub-buffer is created lazily on first frame OR by
+    // `WorkerConnection::stream_partition` registering ahead of time.
+    let _ = n_partitions;
+    let mut inbound_drains: Vec<Option<Arc<DrainHandle>>> =
+        Vec::with_capacity(total_procs as usize);
+    inbound_drains.push(None); // self-loop slot at sender_proc = 0
+    for (peer_idx, shm_recv) in attach.inbound_receivers.into_iter().enumerate() {
+        let sender_proc = peer_proc_for_index(0, peer_idx as u32);
+        debug_assert_eq!(
+            sender_proc as usize,
+            inbound_drains.len(),
+            "peer_proc_for_index must produce sender_proc indices in order"
+        );
         let mpp_recv = MppReceiver::new(Box::new(shm_recv));
-        let buffer = DrainBuffer::new(1);
-        drains.push(Arc::new(DrainHandle::cooperative(vec![mpp_recv], buffer)));
+        inbound_drains.push(Some(Arc::new(DrainHandle::cooperative(vec![mpp_recv]))));
     }
 
-    let mesh = Arc::new(MppMesh {
-        n_workers,
-        n_partitions,
-        drains,
-    });
+    let mesh = Arc::new(MppMesh::new(0, total_procs, inbound_drains));
 
-    // Drop the leader's own producer slot senders — the leader doesn't
-    // produce in this iteration, so its slot would never receive data.
-    // Dropping them now means peer receivers observe Detached at first
-    // poll and short-circuit cleanly. (When leader-as-worker-0 lands,
-    // we'll route these into a Tokio-spawned producer subplan instead.)
+    // Drop the leader's own outbound senders — the leader doesn't yet host
+    // a producer fragment in single-stage mode.
     drop(attach.outbound_senders);
 
-    // The leader doesn't read or write the build-side cache — workers attach
-    // to it via DSM offset, and Postgres owns the DSM segment's lifetime.
-    // `n_cache_sources` is sized into the layout for the worker side.
+    // Cache region is sized into the layout for workers. Leader doesn't touch.
     let _ = n_cache_sources;
 
     Ok(MppLeaderState { mesh, pcxt })
@@ -196,9 +216,17 @@ pub unsafe fn leader_setup(
 /// Returned to a worker from [`worker_setup`]. The customscan reads the plan
 /// bytes, runs the plan, and pushes resulting batches through `outbound_senders`.
 pub struct MppWorkerState {
-    /// Per-partition outbound senders this worker writes to.
-    /// `outbound_senders[p]` writes to `slot(this_worker, p)`.
-    pub outbound_senders: Vec<MppSender>,
+    /// `outbound_senders[proc_idx]` is the sender that writes to
+    /// `slot(this_proc, proc_idx)`. The entry at `proc_idx == this_proc` is
+    /// `None` because the self-loop slot is never attached (matches the
+    /// leader's `inbound_drains` shape).
+    ///
+    /// Each fragment's per-partition output sender is keyed by
+    /// `outbound_senders[proc_for_task(n_workers, consumer_task)]`. Each
+    /// `MppSender` wraps an `Arc<dyn BatchChannelSender>` so callers can
+    /// `clone_with_header` to multiplex `(stage_id, partition)` channels
+    /// onto one shm_mq queue.
+    pub outbound_senders: Vec<Option<MppSender>>,
     /// Worker fragment plan bytes, copied out of DSM. Caller deserializes via
     /// the `PgSearchExtensionCodec` to get an `Arc<dyn ExecutionPlan>`.
     pub plan_bytes: Vec<u8>,
@@ -206,6 +234,13 @@ pub struct MppWorkerState {
     /// Build-side all-gather cache. The worker writes its 1/N slice for each
     /// non-partitioning source, then reads back peer slices after the barrier.
     pub build_cache: Option<Arc<MppBuildCache>>,
+    /// Worker's MppMesh — same shape as the leader's. `inbound_drains[sender_proc]`
+    /// pulls frames from `slot(sender_proc, this_proc)`. Workers consume from
+    /// peers when running consumer fragments (e.g. a `FinalPartitioned`
+    /// aggregate above a `NetworkShuffleExec` peer-mesh). Read by
+    /// M2.d.3's multi-fragment dispatcher in `aggregatescan::exec_mpp_worker`.
+    #[allow(dead_code)]
+    pub mesh: Arc<MppMesh>,
 }
 
 /// Body of `initialize_worker_custom_scan`. Reads the header, attaches as
@@ -225,18 +260,75 @@ pub unsafe fn worker_setup(
     if worker_number < 0 {
         return Err("mpp: worker_number < 0".into());
     }
-    // Leader is consumer-only, so all parallel workers map directly to mesh
-    // slots: ParallelWorkerNumber 0..N-1 maps to slot 0..N-1.
-    let worker_index = worker_number as u32;
+    // M1.b: leader is now `proc_idx = 0`, workers are `1..n_procs`. Worker N
+    // maps from PG's `ParallelWorkerNumber = N` to `proc_idx = N + 1`.
+    let proc_idx = (worker_number as u32) + 1;
 
     let (header, plan_bytes, attach) =
-        unsafe { worker_attach(coordinate, region_total, worker_index, seg) }?;
+        unsafe { worker_attach(coordinate, region_total, proc_idx, seg) }?;
+    let total_procs = header.n_procs;
 
-    let outbound_senders = attach
-        .outbound_senders
-        .into_iter()
-        .map(|s| MppSender::new(Box::new(s)))
-        .collect();
+    // M2.d: build per-proc-indexed outbound senders. Each MppSender wraps the
+    // queue's `Arc<dyn BatchChannelSender>` so per-(stage_id, partition)
+    // clones can multiplex over the same shm_mq slot. The slot at
+    // proc_idx==this_proc is `None` because self-loops are never attached
+    // (`compute_dsm_layout` reserves the bytes but `worker_attach` skips
+    // them).
+    let mut outbound_senders: Vec<Option<MppSender>> = (0..total_procs).map(|_| None).collect();
+    for (peer_idx, shm_send) in attach.outbound_senders.into_iter().enumerate() {
+        let target_proc = peer_proc_for_index(proc_idx, peer_idx as u32);
+        debug_assert!(target_proc != proc_idx);
+        debug_assert!(target_proc < total_procs);
+        let shared: Arc<dyn crate::postgres::customscan::mpp::transport::BatchChannelSender> =
+            Arc::new(shm_send);
+        // Default header: the per-fragment dispatcher in
+        // `aggregatescan::exec_mpp_worker` immediately `clone_with_header`s
+        // these to the right `(stage_id, partition)` per output partition,
+        // so the default placeholder header is never observed on the wire.
+        outbound_senders[target_proc as usize] = Some(MppSender::with_header(
+            Arc::clone(&shared),
+            MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION),
+        ));
+    }
+    debug_assert_eq!(
+        outbound_senders.iter().filter(|s| s.is_some()).count(),
+        (total_procs as usize).saturating_sub(1),
+        "worker outbound senders: expected {} non-self-loop entries before self-loop install",
+        total_procs.saturating_sub(1)
+    );
+
+    // M2.d: build the worker's MppMesh. Inbound drains pull frames from each
+    // peer proc's `slot(peer_proc, this_proc)` queue; per-(stage_id, partition)
+    // sub-buffers (M2.b) demux frames into the right consumer fragment.
+    let mut inbound_drains: Vec<Option<Arc<DrainHandle>>> =
+        (0..total_procs).map(|_| None).collect();
+    for (peer_idx, shm_recv) in attach.inbound_receivers.into_iter().enumerate() {
+        let sender_proc = peer_proc_for_index(proc_idx, peer_idx as u32);
+        debug_assert!(sender_proc != proc_idx);
+        let mpp_recv = MppReceiver::new(Box::new(shm_recv));
+        inbound_drains[sender_proc as usize] =
+            Some(Arc::new(DrainHandle::cooperative(vec![mpp_recv])));
+    }
+    // M2.d.3: install a self-loop in-proc channel for `slot(this_proc, this_proc)`.
+    // Peer-mesh hash routing can land producer-side and consumer-side tasks
+    // for the same `(stage, partition)` on the same worker, in which case the
+    // shm_mq grid's unattached diagonal would surface as "outbound_senders[this_proc]
+    // is None". The in-proc channel keeps frame routing uniform from the
+    // dispatcher's perspective: senders push, the DrainHandle reads via the
+    // same `BatchChannelReceiver` contract as shm_mq, and the M2.b sub-buffer
+    // registry demuxes per `(stage_id, partition)`.
+    let (self_tx, self_rx) = in_proc_channel(SELF_LOOP_CAPACITY);
+    let self_tx_arc: Arc<dyn BatchChannelSender> = Arc::new(self_tx);
+    outbound_senders[proc_idx as usize] = Some(MppSender::with_header(
+        Arc::clone(&self_tx_arc),
+        MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION),
+    ));
+    inbound_drains[proc_idx as usize] =
+        Some(Arc::new(DrainHandle::cooperative(vec![MppReceiver::new(
+            Box::new(self_rx),
+        )])));
+
+    let mesh = Arc::new(MppMesh::new(proc_idx, total_procs, inbound_drains));
 
     let build_cache = if header.n_cache_sources > 0 {
         Some(Arc::new(unsafe {
@@ -246,13 +338,16 @@ pub unsafe fn worker_setup(
         None
     };
 
+    // For MppParticipantConfig, expose worker-only counts (N producer workers).
+    let worker_count = total_procs.saturating_sub(1).max(1);
     Ok(MppWorkerState {
         outbound_senders,
         plan_bytes,
         participant_config: MppParticipantConfig {
-            participant_index: worker_index,
-            total_participants: header.n_workers,
+            participant_index: worker_number as u32,
+            total_workers: worker_count,
         },
         build_cache,
+        mesh,
     })
 }

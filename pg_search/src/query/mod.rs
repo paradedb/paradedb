@@ -674,6 +674,7 @@ struct TermInputWire {
     field: FieldName,
     #[serde(deserialize_with = "deserialize_date_aware_owned_value")]
     value: OwnedValue,
+    /// When true, `value` will be interpreted as a Date instead of as a String
     #[serde(default)]
     is_datetime: bool,
 }
@@ -1443,7 +1444,7 @@ impl From<DateAwareOwnedValue> for OwnedValue {
     }
 }
 
-pub fn serialize_date_aware_owned_value<S>(
+pub(crate) fn serialize_date_aware_owned_value<S>(
     value: &OwnedValue,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
@@ -1454,7 +1455,9 @@ where
     date_aware.serialize(serializer)
 }
 
-pub fn deserialize_date_aware_owned_value<'de, D>(deserializer: D) -> Result<OwnedValue, D::Error>
+pub(crate) fn deserialize_date_aware_owned_value<'de, D>(
+    deserializer: D,
+) -> Result<OwnedValue, D::Error>
 where
     D: Deserializer<'de>,
 {

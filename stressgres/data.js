@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778786809834,
+  "lastUpdate": 1778786841709,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2922,6 +2922,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 82.15093980736975, max segment_count: 129.0, count: 57831"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "36623265+daniel3303@users.noreply.github.com",
+            "name": "Daniel Oliveira",
+            "username": "daniel3303"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b9c06c5f75ca94cf815eb57c71c46180e84b8038",
+          "message": "fix(mlt): quote key_field identifier in internal SPI lookup (#5078)\n\n## Summary\n\n- `pdb.more_like_this(key_value)` raises `ERROR: column \"id\" does not\nexist` whenever the index's `key_field` column is a mixed-case\nPostgreSQL identifier (e.g. `\"Id\"`, `\"DocumentId\"`). Direct `@@@`-on-LHS\nsearches (`\"Content\" @@@ 'foo'`) are unaffected because they don't go\nthrough the internal SPI lookup. Repro in #5065.\n- Root cause: `pg_search/src/query/more_like_this.rs:152-157` builds the\nSPI `SELECT * FROM <ns>.<rel> WHERE <key_field> = $1` with `<ns>` and\n`<rel>` already routed through `pgrx::spi::quote_identifier`, but\ninterpolates `<key_field>` verbatim via `Display`. PostgreSQL folds the\nunquoted reference to lowercase, so a column named `\"Id\"` is looked up\nas `id` and the SPI call fails before MLT ever runs.\n- Fix: send the key field through\n`pgrx::spi::quote_identifier(key_field_name.root())`, matching how the\nnamespace and relation names are already quoted on the lines immediately\nabove. `.root()` strips the JSON sub-path (`key_field` is always a\ntop-level column).\n\n## Scope\n\nThe linked issue also lists JSON `term` filters (`@@@\n'{\"term\":{\"field\":\"Category\",…}}'::jsonb`) as failing on mixed-case\ncolumns. That path does **not** go through SPI — `term()` in\n`pg_search/src/query/pdb_query.rs:792` resolves the field via\n`schema.search_field(field.root())`, a pure Tantivy schema lookup — so\nit isn't fixed here and I couldn't find a corresponding\nunquoted-identifier hazard. If it reproduces on `0.23.x` it's a separate\nbug; tracking it on its own issue is cleaner than bundling a speculative\nfix.\n\n## Test plan\n\n- [x] `cargo test -p tests --test mlt --\nmlt_mixed_case_key_field_issue5065` — new regression test: `\"Id\"` /\n`\"Content\"` table, `key_field='Id'`, asserts `pdb.more_like_this(1)`\nreturns rows. Fails on `main` with `column \"id\" does not exist`, passes\nwith this change.\n- [x] `cargo test -p tests --test mlt` — existing\n`mlt_enables_scoring_issue1747`, `mlt_datetime_key`,\n`mlt_scoring_nested` still pass.\n- [x] `cargo pgrx regress -p pg_search --auto -- pg18 more_like_this` —\ngolden output unchanged (`quote_identifier(\"id\")` is a no-op for\nalready-lowercase identifiers).\n- [x] Manual repro from #5065 (`CREATE TABLE items (\"Id\" int primary\nkey, \"Content\" text); … pdb.more_like_this(1)`) returns rows instead of\nerroring.\n\nCloses #5065.",
+          "timestamp": "2026-05-14T14:45:18-04:00",
+          "tree_id": "812b4a66ffce7bc074cb919986f1de3b6474813f",
+          "url": "https://github.com/paradedb/paradedb/commit/b9c06c5f75ca94cf815eb57c71c46180e84b8038"
+        },
+        "date": 1778786811528,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.166023,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.400243833815164, max cpu: 42.899704, count: 57549"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.8671875,
+            "unit": "median mem",
+            "extra": "avg mem: 235.68721315205303, max mem: 237.33984375, count: 57549"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.371934542168017, max cpu: 33.300297, count: 57549"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 177.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 177.45154543573736, max mem: 178.4921875, count: 57549"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34942,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33944.608299014755, max block_count: 36771.0, count: 57549"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 82.11225216771794, max segment_count: 132.0, count: 57549"
           }
         ]
       }

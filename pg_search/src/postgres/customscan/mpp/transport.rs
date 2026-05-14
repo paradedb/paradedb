@@ -38,6 +38,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 #[cfg(test)]
 use std::thread;
+#[cfg(test)]
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -776,12 +777,9 @@ pub enum RecvBatchOutcome {
     Error(DataFusionError),
 }
 
-/// Configuration for [`spawn_drain_thread`].
-///
-/// Only used by the thread-backed drain path, which is test-only: pgrx panics
-/// on any pg FFI call (including `shm_mq_receive`) from a non-backend thread,
-/// so production uses [`DrainHandle::cooperative`] — see the notes on
-/// `DrainHandle::spawn` for details.
+/// Configuration for [`spawn_drain_thread`]. Test-only: pgrx panics on any pg FFI call
+/// (including `shm_mq_receive`) from a non-backend thread, so production never spawns a drain
+/// thread — see [`DrainHandle::cooperative`] for the cooperative path.
 #[cfg(test)]
 pub struct DrainConfig {
     /// Receivers to drain. Ownership moves into the spawned thread.
@@ -816,6 +814,38 @@ pub fn spawn_drain_thread(config: DrainConfig) -> JoinHandle<Result<(), DataFusi
     thread::spawn(move || drain_loop(config))
 }
 
+/// Test-only RAII wrapper: owns the drain thread's `JoinHandle` and the buffer it writes into.
+/// `Drop` cancels the buffer (unblocking the consumer) and joins the thread, so the thread can
+/// never outlive the test scope even on a panic. Production code never spawns a drain thread —
+/// see [`DrainHandle`] for the cooperative variant that runs inline on the backend thread.
+#[cfg(test)]
+pub struct ThreadedDrainHandle {
+    buffer: Arc<DrainBuffer>,
+    join: Mutex<Option<JoinHandle<Result<(), DataFusionError>>>>,
+}
+
+#[cfg(test)]
+impl ThreadedDrainHandle {
+    pub fn spawn(config: DrainConfig) -> Self {
+        let buffer = Arc::clone(&config.buffer);
+        let join = spawn_drain_thread(config);
+        Self {
+            buffer,
+            join: Mutex::new(Some(join)),
+        }
+    }
+}
+
+#[cfg(test)]
+impl Drop for ThreadedDrainHandle {
+    fn drop(&mut self) {
+        self.buffer.cancel();
+        if let Some(join) = self.join.lock().unwrap().take() {
+            let _ = join.join();
+        }
+    }
+}
+
 /// Per-`(stage_id, partition)` sub-buffer registry owned by a cooperative [`DrainHandle`]. The
 /// handle serves one sender_proc, whose shm_mq queue carries frames for many logical channels,
 /// each tagged by the [`MppFrameHeader`] prefix. `try_drain_pass` looks up the right sub-buffer
@@ -833,79 +863,37 @@ struct SubBufferRegistry {
     detached: bool,
 }
 
-/// RAII wrapper around a drain thread's `JoinHandle` and a per-`(stage_id, partition)`
-/// sub-buffer registry.
+/// Per-sender-proc drain: stashes the receivers and polls them inline from the cooperative spin
+/// (no background thread), demuxing each frame into a per-`(stage_id, partition)` sub-buffer.
 ///
-/// On drop, the handle cancels every sub-buffer (unblocking any waiting consumer) and joins the
-/// test-only thread if one is attached. The drain thread can therefore never outlive the query's
-/// DSM segment: if `ExecEndCustomScan` panics after dropping the handle, the thread is already
-/// torn down and can't touch the freed shm_mq memory. Owning cancel + join in `Drop` (rather
-/// than expecting callers to clean up on every error path) keeps that guarantee unconditional.
+/// Inline polling is the production requirement: pgrx's `check_active_thread` guard panics on any
+/// pg FFI call (including `shm_mq_receive`) from a non-backend thread, so the drain work has to
+/// run on the backend thread. Tests that need a true thread-backed drain use
+/// [`ThreadedDrainHandle`] instead.
+///
+/// On drop, the handle cancels every sub-buffer so any consumer blocked on `try_pop` unblocks
+/// with `Eof` — the drain can therefore never outlive its query, even on a panicked teardown.
 pub struct DrainHandle {
-    /// Cooperative variant's per-(stage_id, partition) sub-buffer registry. Populated lazily on
-    /// first frame for a channel, or up-front by callers (e.g.
-    /// `WorkerConnection::stream_partition`) that need a buffer to wait on before any frame
-    /// arrives.
+    /// Per-(stage_id, partition) sub-buffer registry. Populated lazily on first frame for a
+    /// channel, or up-front by callers (e.g. `WorkerConnection::stream_partition`) that need a
+    /// buffer to wait on before any frame arrives.
     sub_buffers: Mutex<SubBufferRegistry>,
-    /// Thread-backed (test-only) variant's single shared buffer. The `drain_loop` writes to it
-    /// directly; tests read via `Arc::clone` of the same buffer they constructed in
-    /// `DrainConfig`. The cooperative path keeps this `None` and routes everything through
-    /// `sub_buffers`.
-    legacy_buffer: Option<Arc<DrainBuffer>>,
-    /// Background-thread variant: `Some(JoinHandle)`. In-proc tests still use
-    /// this path — their `InProcReceiver` is an `std::sync::mpsc` wrapper, not
-    /// a pg FFI call, so the drain thread is safe. Wrapped in `Mutex` so
-    /// `shutdown(&self)` can take the handle without needing `&mut self` —
-    /// this lets cooperative senders hold `Arc<DrainHandle>` shares.
-    join: Mutex<Option<JoinHandle<Result<(), DataFusionError>>>>,
-    /// Cooperative variant: the receivers are owned by the handle and polled
-    /// inline from `DrainGatherStream::poll_next` via [`Self::try_drain_pass`].
-    /// Production uses this variant because any pg FFI call
-    /// (`shm_mq_receive` included) from a non-backend thread panics pgrx's
-    /// `check_active_thread` guard. `None` when the handle was spawned
-    /// instead of constructed cooperatively.
-    ///
-    /// `Send` bound on `MppReceiver` is preserved — the receivers move
-    /// thread-once at construction then are only accessed from the backend
-    /// thread; the `Mutex` is just for interior mutability, not
-    /// cross-thread coordination.
-    coop_receivers: Mutex<Option<Vec<Option<MppReceiver>>>>,
+    /// Receivers owned by the handle and polled inline from `DrainGatherStream::poll_next` via
+    /// [`Self::try_drain_pass`]. The `Send` bound on `MppReceiver` is preserved — the receivers
+    /// move thread-once at construction then are only accessed from the backend thread; the
+    /// `Mutex` is just for interior mutability, not cross-thread coordination.
+    coop_receivers: Mutex<Vec<Option<MppReceiver>>>,
 }
 
 impl DrainHandle {
-    /// Spawn a drain thread and wrap the join handle together with the buffer
-    /// it drains into. Test-only: pgrx's `check_active_thread` panics on any
-    /// pg FFI call (including `shm_mq_receive`) from a non-backend thread, so
-    /// a real mesh receiver can never drain from a std::thread worker.
-    /// Production paths must use [`Self::cooperative`] instead.
-    #[cfg(test)]
-    pub fn spawn(config: DrainConfig) -> Self {
-        let buffer = Arc::clone(&config.buffer);
-        let join = spawn_drain_thread(config);
-        Self {
-            sub_buffers: Mutex::new(SubBufferRegistry::default()),
-            legacy_buffer: Some(buffer),
-            join: Mutex::new(Some(join)),
-            coop_receivers: Mutex::new(None),
-        }
-    }
-
-    /// Construct a cooperative drain handle: the receivers are stashed in the
-    /// handle and drained inline from `DrainGatherStream::poll_next` (see
-    /// [`Self::try_drain_pass`]). No background thread. This is the correct
-    /// variant for production pg backend workers — the drain work runs on
-    /// the backend thread, so any pg FFI inside `shm_mq_receive` is safe.
-    ///
-    /// Sub-buffers are populated lazily by `try_drain_pass` when a frame
-    /// arrives, or up-front by [`Self::register_channel`] when a consumer
-    /// needs a buffer to wait on before any frame has come in.
+    /// Construct a cooperative drain handle. Sub-buffers are populated lazily by
+    /// [`Self::try_drain_pass`] when a frame arrives, or up-front by [`Self::register_channel`]
+    /// when a consumer needs a buffer to wait on before any frame has come in.
     pub fn cooperative(receivers: Vec<MppReceiver>) -> Self {
         let wrapped = receivers.into_iter().map(Some).collect();
         Self {
             sub_buffers: Mutex::new(SubBufferRegistry::default()),
-            legacy_buffer: None,
-            join: Mutex::new(None),
-            coop_receivers: Mutex::new(Some(wrapped)),
+            coop_receivers: Mutex::new(wrapped),
         }
     }
 
@@ -1009,11 +997,7 @@ impl DrainHandle {
         // indefinitely on one source and starve its own outbound.
         const MAX_BATCHES_PER_SOURCE_PER_PASS: usize = 256;
 
-        let mut guard = self.coop_receivers.lock().unwrap();
-        let Some(slots) = guard.as_mut() else {
-            // Thread-backed handle — caller should read from buffer directly.
-            return Ok(());
-        };
+        let mut slots = self.coop_receivers.lock().unwrap();
         for slot in slots.iter_mut() {
             let Some(rx) = slot.as_ref() else {
                 continue;
@@ -1046,35 +1030,12 @@ impl DrainHandle {
         }
         Ok(())
     }
-
-    fn join_inner(&self) -> Result<(), DataFusionError> {
-        let join_opt = self.join.lock().unwrap().take();
-        if let Some(join) = join_opt {
-            match join.join() {
-                Ok(res) => res,
-                Err(panic) => Err(DataFusionError::Execution(format!(
-                    "mpp: drain thread panicked: {panic:?}"
-                ))),
-            }
-        } else {
-            Ok(())
-        }
-    }
 }
 
 impl Drop for DrainHandle {
     fn drop(&mut self) {
-        let has_join = self.join.lock().unwrap().is_some();
-        if has_join {
-            // Cancel and join even on the panic path. Swallow any error here because Drop can't
-            // fail; callers who care should use `shutdown()` to observe the thread's result.
-            if let Some(buf) = &self.legacy_buffer {
-                buf.cancel();
-            }
-            let _ = self.join_inner();
-        }
-        // Cooperative path: unblock any consumer blocked on a sub-buffer when the handle is torn
-        // down before EOF flows naturally (e.g. a query error en route to ExecEndCustomScan).
+        // Unblock any consumer blocked on a sub-buffer when the handle is torn down before EOF
+        // flows naturally (e.g. a query error en route to ExecEndCustomScan).
         self.cancel_sub_buffers();
     }
 }
@@ -1440,7 +1401,8 @@ mod tests {
         let sender = MppSender::new(Arc::new(tx));
         let receiver = MppReceiver::new(Box::new(rx));
         let buffer = DrainBuffer::new(1);
-        let handle = DrainHandle::spawn(DrainConfig::new(vec![receiver], StdArc::clone(&buffer)));
+        let handle =
+            ThreadedDrainHandle::spawn(DrainConfig::new(vec![receiver], StdArc::clone(&buffer)));
 
         sender.send_batch(&sample_batch(2)).unwrap();
         std::mem::drop(sender); // detach
@@ -1461,7 +1423,8 @@ mod tests {
         let _sender_kept_alive = MppSender::new(Arc::new(tx));
         let receiver = MppReceiver::new(Box::new(rx));
         let buffer = DrainBuffer::new(1);
-        let handle = DrainHandle::spawn(DrainConfig::new(vec![receiver], StdArc::clone(&buffer)));
+        let handle =
+            ThreadedDrainHandle::spawn(DrainConfig::new(vec![receiver], StdArc::clone(&buffer)));
 
         // Simulate consumer path error: drop the handle without calling
         // shutdown(). The drain thread must exit before drop returns.
@@ -1470,7 +1433,7 @@ mod tests {
         let elapsed = start.elapsed();
         assert!(
             elapsed < Duration::from_secs(2),
-            "DrainHandle::drop took too long: {elapsed:?}"
+            "ThreadedDrainHandle::drop took too long: {elapsed:?}"
         );
         // Consumer observes EOF because cancel was called.
         assert!(matches!(buffer.pop_front(), DrainItem::Eof));

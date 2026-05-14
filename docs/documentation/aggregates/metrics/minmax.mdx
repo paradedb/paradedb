@@ -77,135 +77,26 @@ See the [Tantivy documentation](https://docs.rs/tantivy/latest/tantivy/aggregati
 
 With `paradedb.enable_aggregate_custom_scan` enabled, the following query is equivalent to the above and is executed in the same way.
 
-<CodeGroup>
 ```sql SQL
 SELECT MIN(rating) FROM mock_items
 WHERE id @@@ pdb.all();
 ```
 
-```python Django
-from django.db.models import Min
-from paradedb import All, ParadeDB
-
-MockItem.objects.filter(
-    id=ParadeDB(All())
-).aggregate(min_rating=Min('rating'))
-```
-
-```python SQLAlchemy
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
-from paradedb.sqlalchemy import search
-
-stmt = (
-    select(func.min(MockItem.rating))
-    .select_from(MockItem)
-    .where(search.all(MockItem.id))
-)
-
-with Session(engine) as session:
-    session.execute(stmt).all()
-```
-
-```ruby Rails
-MockItem.search(:id).match_all.minimum(:rating)
-```
-
-</CodeGroup>
-
 By default, `MIN` ignores null values. Use `COALESCE` to include them in the final result:
 
-<CodeGroup>
 ```sql SQL
 SELECT MIN(COALESCE(rating, 0)) FROM mock_items
 WHERE id @@@ pdb.all();
 ```
 
-```python Django
-from django.db.models import Min, Value
-from django.db.models.functions import Coalesce
-from paradedb import All, ParadeDB
-
-MockItem.objects.filter(
-    id=ParadeDB(All())
-).aggregate(min_rating=Min(Coalesce('rating', Value(0))))
-```
-
-```python SQLAlchemy
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
-from paradedb.sqlalchemy import search
-
-stmt = (
-    select(func.min(func.coalesce(MockItem.rating, 0)))
-    .select_from(MockItem)
-    .where(search.all(MockItem.id))
-)
-
-with Session(engine) as session:
-    session.execute(stmt).all()
-```
-
-```ruby Rails
-rating = MockItem.arel_table[:rating]
-coalesced_rating = Arel::Nodes::NamedFunction.new("COALESCE", [rating, Arel::Nodes.build_quoted(0)])
-
-MockItem.search(:id).match_all.minimum(coalesced_rating)
-```
-
-</CodeGroup>
-
 ## Max
 
 The `max` aggregation returns the largest value in a field.
 
-<CodeGroup>
 ```sql SQL
 SELECT pdb.agg('{"max": {"field": "rating"}}') FROM mock_items
 WHERE id @@@ pdb.all();
 ```
-
-```python Django
-from paradedb import Agg, All, ParadeDB
-
-MockItem.objects.filter(
-    id=ParadeDB(All())
-).aggregate(agg=Agg('{"max": {"field": "rating"}}'))
-```
-
-```python SQLAlchemy
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-from paradedb.sqlalchemy import facets, pdb, search
-
-stmt = (
-    select(pdb.agg(facets.max(field="rating")))
-    .select_from(MockItem)
-    .where(search.all(MockItem.id))
-)
-
-with Session(engine) as session:
-    session.execute(stmt).all()
-```
-
-```ruby Rails
-MockItem.search(:id)
-        .match_all
-        .facets_agg(agg: ParadeDB::Aggregations.max(:rating))
-```
-
-```ts Drizzle
-import { search } from "drizzle-paradedb";
-
-await db
-  .select({
-    agg: search.agg({ max: { field: "rating" } }),
-  })
-  .from(mockItems)
-  .where(search.all(mockItems.id));
-```
-
-</CodeGroup>
 
 ```ini Expected Response
       agg
@@ -218,80 +109,14 @@ await db
 
 With `paradedb.enable_aggregate_custom_scan` enabled, the following query is equivalent to the above and is executed in the same way.
 
-<CodeGroup>
 ```sql SQL
 SELECT MAX(rating) FROM mock_items
 WHERE id @@@ pdb.all();
 ```
 
-```python Django
-from django.db.models import Max
-from paradedb import All, ParadeDB
-
-MockItem.objects.filter(
-    id=ParadeDB(All())
-).aggregate(max_rating=Max('rating'))
-```
-
-```python SQLAlchemy
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
-from paradedb.sqlalchemy import search
-
-stmt = (
-    select(func.max(MockItem.rating))
-    .select_from(MockItem)
-    .where(search.all(MockItem.id))
-)
-
-with Session(engine) as session:
-    session.execute(stmt).all()
-```
-
-```ruby Rails
-MockItem.search(:id).match_all.maximum(:rating)
-```
-
-</CodeGroup>
-
 By default, `MAX` ignores null values. Use `COALESCE` to include them in the final result:
 
-<CodeGroup>
 ```sql SQL
 SELECT MAX(COALESCE(rating, 0)) FROM mock_items
 WHERE id @@@ pdb.all();
 ```
-
-```python Django
-from django.db.models import Max, Value
-from django.db.models.functions import Coalesce
-from paradedb import All, ParadeDB
-
-MockItem.objects.filter(
-    id=ParadeDB(All())
-).aggregate(max_rating=Max(Coalesce('rating', Value(0))))
-```
-
-```python SQLAlchemy
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
-from paradedb.sqlalchemy import search
-
-stmt = (
-    select(func.max(func.coalesce(MockItem.rating, 0)))
-    .select_from(MockItem)
-    .where(search.all(MockItem.id))
-)
-
-with Session(engine) as session:
-    session.execute(stmt).all()
-```
-
-```ruby Rails
-rating = MockItem.arel_table[:rating]
-coalesced_rating = Arel::Nodes::NamedFunction.new("COALESCE", [rating, Arel::Nodes.build_quoted(0)])
-
-MockItem.search(:id).match_all.maximum(coalesced_rating)
-```
-
-</CodeGroup>

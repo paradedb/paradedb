@@ -1167,22 +1167,6 @@ mod tests {
     }
 
     #[test]
-    fn codec_round_trips_a_batch() {
-        let orig = sample_batch(128);
-        let mut buf = Vec::with_capacity(1024);
-        encode_frame_into(MppFrameHeader::batch(0, 0), &orig, &mut buf).expect("encode");
-        let (_header, decoded) = decode_frame(&buf).expect("decode");
-        let decoded = decoded.expect("Batch frame must carry a payload");
-        assert_eq!(orig.schema(), decoded.schema());
-        assert_eq!(orig.num_rows(), decoded.num_rows());
-        assert_eq!(orig.num_columns(), decoded.num_columns());
-        // Equality across the whole batch
-        for col in 0..orig.num_columns() {
-            assert_eq!(orig.column(col).as_ref(), decoded.column(col).as_ref());
-        }
-    }
-
-    #[test]
     fn frame_round_trips_a_batch_with_header() {
         let orig = sample_batch(64);
         let header = MppFrameHeader::batch(7, 3);
@@ -1192,9 +1176,13 @@ mod tests {
         let (parsed, batch_opt) = decode_frame(&buf).expect("decode_frame");
         assert_eq!(parsed, header);
         assert_eq!(parsed.kind().unwrap(), MppFrameKind::Batch);
-        let batch = batch_opt.expect("Batch frame must carry a payload");
-        assert_eq!(batch.num_rows(), 64);
-        assert_eq!(batch.schema(), orig.schema());
+        let decoded = batch_opt.expect("Batch frame must carry a payload");
+        assert_eq!(decoded.num_rows(), 64);
+        assert_eq!(decoded.schema(), orig.schema());
+        assert_eq!(decoded.num_columns(), orig.num_columns());
+        for col in 0..orig.num_columns() {
+            assert_eq!(orig.column(col).as_ref(), decoded.column(col).as_ref());
+        }
     }
 
     #[test]

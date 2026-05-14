@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778799347578,
+  "lastUpdate": 1778799994880,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6972,6 +6972,60 @@ window.BENCHMARK_DATA = {
             "value": 15.855563956591451,
             "unit": "median tps",
             "extra": "avg tps: 15.697831732992082, max tps: 18.883181782896017, count: 55633"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "21bdc9a753582039cc25a38cb07111026c0fd378",
+          "message": "feat: Crash recovery via WAL (#4901)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nPorts WAL integration over to community, which gives `pg_search` crash\nrecovery.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-05-14T14:59:53-07:00",
+          "tree_id": "7580b5f2bfcc1a95ed1b62c4628f2ec6129b7c00",
+          "url": "https://github.com/paradedb/paradedb/commit/21bdc9a753582039cc25a38cb07111026c0fd378"
+        },
+        "date": 1778799961941,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 30.006405977141064,
+            "unit": "median tps",
+            "extra": "avg tps: 30.02862726436292, max tps: 32.811108689367735, count: 55542"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 245.20126879462342,
+            "unit": "median tps",
+            "extra": "avg tps: 270.40644978476007, max tps: 2713.2780058049257, count: 55542"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 610.6074601626152,
+            "unit": "median tps",
+            "extra": "avg tps: 598.9979047274052, max tps: 699.404352179078, count: 55542"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 158.4055819789134,
+            "unit": "median tps",
+            "extra": "avg tps: 173.82327741809985, max tps: 914.9812598465181, count: 111084"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 16.657817970759876,
+            "unit": "median tps",
+            "extra": "avg tps: 16.73506484940348, max tps: 21.89891299708589, count: 55542"
           }
         ]
       }

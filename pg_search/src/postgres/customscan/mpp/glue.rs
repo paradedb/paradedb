@@ -48,7 +48,6 @@ use crate::postgres::customscan::mpp::transport::{
     in_proc_channel, BatchChannelSender, DrainHandle, MppFrameHeader, MppReceiver, MppSender,
     SELF_LOOP_CAPACITY,
 };
-use crate::postgres::customscan::mpp::MppParticipantConfig;
 
 /// Default stage id stamped on outbound sender headers before the per-fragment dispatcher
 /// rewrites them. Worker senders get `clone_with_header` immediately after `worker_setup`, so
@@ -109,8 +108,7 @@ pub(super) fn n_procs() -> u32 {
 /// state and consults it during `exec_custom_scan`.
 ///
 /// The leader is consumer-only: it gathers fragments from worker procs but doesn't host a
-/// producer fragment itself. Its outbound senders are dropped inside `leader_setup`, and it
-/// carries no `MppParticipantConfig`.
+/// producer fragment itself. Its outbound senders are dropped inside `leader_setup`.
 pub struct MppLeaderState {
     /// Runtime mesh handle. Install on the leader's `SessionContext` via
     /// `with_extension(Arc::clone(&mesh))` so `ShmMqWorkerTransport` can find
@@ -221,7 +219,6 @@ pub struct MppWorkerState {
     /// Worker fragment plan bytes, copied out of DSM. Caller deserializes via the
     /// `PgSearchExtensionCodec` to get an `Arc<dyn ExecutionPlan>`.
     pub plan_bytes: Vec<u8>,
-    pub participant_config: MppParticipantConfig,
     /// Worker's MppMesh, same shape as the leader's. `inbound_drains[sender_proc]` pulls frames
     /// from `slot(sender_proc, this_proc)`. Workers consume from peers when running consumer
     /// fragments (e.g. a `FinalPartitioned` aggregate above a `NetworkShuffleExec` peer-mesh).
@@ -284,13 +281,9 @@ pub unsafe fn worker_setup(
 
     let mesh = Arc::new(MppMesh::new(proc_idx, total_procs, inbound_drains));
 
-    let worker_count = total_procs.saturating_sub(1).max(1);
     Ok(MppWorkerState {
         outbound_senders,
         plan_bytes,
-        participant_config: MppParticipantConfig {
-            total_workers: worker_count,
-        },
         mesh,
     })
 }

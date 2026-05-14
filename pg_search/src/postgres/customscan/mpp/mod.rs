@@ -34,17 +34,6 @@ pub mod transport;
 pub mod worker;
 pub mod worker_fragments;
 
-use serde::{Deserialize, Serialize};
-
-/// Sizing hand-off for the AggregateScan worker path. The DF-D fork's `WorkerResolver` derives
-/// task identity from its own indexing, so the only thing the worker needs from here is the
-/// producer-worker count.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct MppParticipantConfig {
-    /// Number of producer workers in the mesh (= `n_procs - 1`; the leader is consumer-only).
-    pub total_workers: u32,
-}
-
 /// Emit a runtime trace when `paradedb.mpp_debug` is on.
 ///
 /// Routed through `pgrx::warning!` so the line lands in the Postgres server log (and CI bench

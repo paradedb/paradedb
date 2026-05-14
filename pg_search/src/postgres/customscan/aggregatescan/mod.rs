@@ -1066,7 +1066,7 @@ impl AggregateScan {
         // mode (custom WorkerTransport registered) it clamps the Shuffle's
         // consumer_task_count to 1, which disables `NetworkShuffleExec`'s
         // per-task hash scaling. So producer output = target_partitions =
-        // n_workers (matching `build_mpp_leader_session_context`).
+        // n_workers (matching `build_mpp_session_context`).
         let n_workers = producer_worker_count();
         df_state.mpp_n_partitions = n_workers.max(1);
     }
@@ -1078,7 +1078,7 @@ impl AggregateScan {
     /// `create_physical_plan` over the leader's logical plan, returns a
     /// `DistributedExec` whose `NetworkShuffleExec`s pull batches from the
     /// shm_mq mesh at execute time.
-    fn build_mpp_leader_session_context(mesh: Arc<MppMesh>) -> datafusion::prelude::SessionContext {
+    fn build_mpp_session_context(mesh: Arc<MppMesh>) -> datafusion::prelude::SessionContext {
         let serial = create_aggregate_session_context();
         // Workers are procs 1..n_procs; leader is proc 0. The producer
         // count is therefore `n_procs - 1`.
@@ -1149,7 +1149,7 @@ impl AggregateScan {
             // through the constructor is the only safe way to build an `MppMesh` outside
             // `glue::leader_setup`.
             let stub_mesh = Arc::new(MppMesh::new(0, mpp_worker_count(), Vec::new()));
-            Self::build_mpp_leader_session_context(stub_mesh)
+            Self::build_mpp_session_context(stub_mesh)
         } else {
             create_aggregate_session_context()
         };
@@ -1246,11 +1246,10 @@ impl AggregateScan {
             unreachable!("exec_mpp_worker called outside Worker state");
         };
         let plan_bytes = worker.plan_bytes.clone();
-        // Worker count from the participant config: matches the leader's mesh.n_workers and is
-        // what NetworkShuffleExec uses to size its hash partitioning.
-        let n_workers = worker.participant_config.total_workers;
         // Worker mesh + total proc count for the dispatcher. The mesh's `ShmMqWorkerTransport`
-        // gets wired into the session below.
+        // gets wired into the session below. n_workers is rederived from total_procs at the
+        // dispatcher; both forms (participant_config.total_workers, n_procs-1) agree by
+        // construction in `worker_setup`.
         let worker_mesh = Arc::clone(&worker.mesh);
         let this_proc = worker.mesh.this_proc;
         let total_procs = worker.mesh.n_procs;
@@ -1268,9 +1267,10 @@ impl AggregateScan {
         };
         df_state.runtime = Some(runtime);
         let runtime = df_state.runtime.as_ref().unwrap();
-        // Use a bare SessionContext for plan deserialization; the workers
-        // need the same `with_distributed_planner` config the leader had so
-        // the resulting physical plan exposes the matching NetworkShuffleExec.
+        // Use a bare SessionContext for plan deserialization. The distributed planner config
+        // (worker resolver, transport, estimators, codec) is mirrored from the leader via
+        // `build_mpp_session_context` below — both procs have to agree on stage shape or
+        // `find_worker_assignments` won't line up.
         let ctx = create_aggregate_session_context();
 
         // Build per-source canonical segment ID sets. For the partitioning
@@ -1305,41 +1305,11 @@ impl AggregateScan {
             Err(e) => pgrx::error!("mpp worker: deserialize_logical_plan failed: {e}"),
         };
 
-        // Build state with the DF-D fork's distributed planner so create_physical_plan
-        // produces a DistributedExec wrapping NetworkShuffleExec. The
-        // target_partitions, task-estimator, broadcast-joins and codec
-        // overrides must mirror the leader (see
-        // `build_mpp_leader_session_context`); otherwise the worker re-plans
-        // a different shape and `find_worker_fragment` returns None.
-        let n_workers_us = n_workers as usize;
-        let cfg = ctx
-            .copied_config()
-            .with_target_partitions(n_workers_us.max(2));
-        let state_builder = SessionStateBuilder::new()
-            .with_default_features()
-            .with_config(cfg)
-            .with_distributed_worker_resolver(MppWorkerResolver::new(n_workers_us))
-            // Route nested boundaries through the worker's `MppMesh` via `ShmMqWorkerTransport`.
-            // Workers running a consumer-side fragment (e.g. `FinalPartitioned` above a
-            // `NetworkShuffleExec` peer-mesh) call `WorkerTransport::open` here. The returned
-            // `ShmMqWorkerConnection` pulls from the worker's inbound drain for the producer's
-            // proc and demuxes on `(stage_id, partition)` via the sub-buffer registry.
-            .with_distributed_worker_transport(ShmMqWorkerTransport::new(Arc::clone(&worker_mesh)))
-            .with_distributed_in_process_mode(true)
-            .expect("with_distributed_in_process_mode")
-            // Same estimator chain as the leader (see `build_mpp_leader_session_context`). The
-            // build-side one-task estimator must precede the default leaf estimator so that
-            // worker physical plans match the leader's: `proc_for_task` is a pure function of
-            // `task_idx % n_workers`, so byte-identical stage numbering is what keeps
-            // producer/consumer addressing consistent across procs.
-            .with_distributed_task_estimator(BroadcastBuildSideOneTaskEstimator)
-            .with_distributed_task_estimator(n_workers_us)
-            .with_distributed_broadcast_joins(true)
-            .expect("with_distributed_broadcast_joins")
-            .with_distributed_user_codec(PgSearchPhysicalCodecStub)
-            .with_distributed_planner();
-        let session_state = state_builder.build();
-        let session = datafusion::prelude::SessionContext::new_with_state(session_state);
+        // Build the worker's distributed session context. Reuses the same builder the leader
+        // runs so both procs agree on stage shape, task estimator chain, target_partitions,
+        // and codec — without that, `find_worker_assignments` returns no fragments for this
+        // worker because the worker's plan numbers stages differently from the leader's.
+        let session = Self::build_mpp_session_context(Arc::clone(&worker_mesh));
 
         let physical_plan =
             runtime.block_on(async { session.state().create_physical_plan(&logical).await });
@@ -2020,7 +1990,7 @@ impl AggregateScan {
                             );
                         }
                     }
-                    Self::build_mpp_leader_session_context(Arc::clone(&leader.mesh))
+                    Self::build_mpp_session_context(Arc::clone(&leader.mesh))
                 }
                 _ => create_aggregate_session_context(),
             };

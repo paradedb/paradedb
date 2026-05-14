@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::query::value_to_json_term;
+use crate::query::{value_to_json_term, TantivyDateTime};
 use crate::schema::IndexRecordOption;
 use anyhow::Result;
 use serde::de::Error as SerdeError;
@@ -146,6 +146,58 @@ impl RangeField {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+enum DateAwareOwnedValue {
+    // hold the OwnedValue so we can get its serialization behavior instead of tantivy::DateTime's
+    Date { date: OwnedValue },
+    Other(OwnedValue),
+}
+impl From<OwnedValue> for DateAwareOwnedValue {
+    fn from(value: OwnedValue) -> Self {
+        match value {
+            OwnedValue::Date(_) => Self::Date { date: value },
+            _ => Self::Other(value),
+        }
+    }
+}
+impl From<DateAwareOwnedValue> for OwnedValue {
+    fn from(value: DateAwareOwnedValue) -> OwnedValue {
+        match value {
+            DateAwareOwnedValue::Date {
+                date: OwnedValue::Str(s),
+            } => {
+                let dt = TantivyDateTime::try_from(s.as_str())
+                    .expect("The Date string should always be valid");
+                OwnedValue::Date(dt.0)
+            }
+            DateAwareOwnedValue::Date {
+                date: OwnedValue::Date(d),
+            } => OwnedValue::Date(d),
+            DateAwareOwnedValue::Date { date: _ } => {
+                panic!("DateAwareOwnedValue::Date should never contain a non-date value")
+            }
+            DateAwareOwnedValue::Other(owned) => owned,
+        }
+    }
+}
+
+pub fn serialize_bound_date_aware<S>(
+    bound: &Bound<OwnedValue>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let date_aware_bound = match bound {
+        Bound::Included(val) => Bound::Included(DateAwareOwnedValue::from(val.clone())),
+        Bound::Excluded(val) => Bound::Excluded(DateAwareOwnedValue::from(val.clone())),
+        Bound::Unbounded => Bound::Unbounded,
+    };
+
+    serialize_bound(&date_aware_bound, serializer)
+}
+
 /// Custom serialization function for `Bound<T>`.
 /// The goal of this function is to serialize `Bound<T>` with **lowercase keys**.
 /// By default, Rust would serialize the `Bound` enum using its variant names,
@@ -181,6 +233,19 @@ where
             UnboundedBound.serialize(serializer)
         }
     }
+}
+
+pub fn deserialize_bound_date_aware<'de, D>(deserializer: D) -> Result<Bound<OwnedValue>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let date_aware_bound: Bound<DateAwareOwnedValue> = deserialize_bound(deserializer)?;
+    let owned_value_bound = match date_aware_bound {
+        Bound::Included(val) => Bound::Included(OwnedValue::from(val)),
+        Bound::Excluded(val) => Bound::Excluded(OwnedValue::from(val)),
+        Bound::Unbounded => Bound::Unbounded,
+    };
+    Ok(owned_value_bound)
 }
 
 /// Custom deserialization function for `Bound<T>`.

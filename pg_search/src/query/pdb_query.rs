@@ -52,7 +52,10 @@ pub fn to_search_query_input(field: FieldName, query: pdb::Query) -> SearchQuery
 #[pg_schema]
 pub mod pdb {
     use crate::query::proximity::{ProximityClause, ProximityDistance};
-    use crate::query::range::{deserialize_bound, serialize_bound};
+    use crate::query::range::{
+        deserialize_bound, deserialize_bound_date_aware, serialize_bound,
+        serialize_bound_date_aware,
+    };
     use pgrx::PostgresType;
     use serde::{Deserialize, Serialize};
     use std::collections::Bound;
@@ -254,52 +257,53 @@ pub mod pdb {
         },
         Range {
             #[serde(
-                serialize_with = "serialize_bound",
-                deserialize_with = "deserialize_bound"
+                serialize_with = "serialize_bound_date_aware",
+                deserialize_with = "deserialize_bound_date_aware"
             )]
             lower_bound: Bound<OwnedValue>,
             #[serde(
-                serialize_with = "serialize_bound",
-                deserialize_with = "deserialize_bound"
+                serialize_with = "serialize_bound_date_aware",
+                deserialize_with = "deserialize_bound_date_aware"
             )]
             upper_bound: Bound<OwnedValue>,
         },
         RangeContains {
             #[serde(
-                serialize_with = "serialize_bound",
-                deserialize_with = "deserialize_bound"
+                serialize_with = "serialize_bound_date_aware",
+                deserialize_with = "deserialize_bound_date_aware"
             )]
             lower_bound: Bound<OwnedValue>,
             #[serde(
-                serialize_with = "serialize_bound",
-                deserialize_with = "deserialize_bound"
+                serialize_with = "serialize_bound_date_aware",
+                deserialize_with = "deserialize_bound_date_aware"
             )]
             upper_bound: Bound<OwnedValue>,
         },
         RangeIntersects {
             #[serde(
-                serialize_with = "serialize_bound",
-                deserialize_with = "deserialize_bound"
+                serialize_with = "serialize_bound_date_aware",
+                deserialize_with = "deserialize_bound_date_aware"
             )]
             lower_bound: Bound<OwnedValue>,
             #[serde(
-                serialize_with = "serialize_bound",
-                deserialize_with = "deserialize_bound"
+                serialize_with = "serialize_bound_date_aware",
+                deserialize_with = "deserialize_bound_date_aware"
             )]
             upper_bound: Bound<OwnedValue>,
         },
         RangeTerm {
+            // TODO: Maybe serialize as DateAwareOwnedValue
             value: OwnedValue,
         },
         RangeWithin {
             #[serde(
-                serialize_with = "serialize_bound",
-                deserialize_with = "deserialize_bound"
+                serialize_with = "serialize_bound_date_aware",
+                deserialize_with = "deserialize_bound_date_aware"
             )]
             lower_bound: Bound<OwnedValue>,
             #[serde(
-                serialize_with = "serialize_bound",
-                deserialize_with = "deserialize_bound"
+                serialize_with = "serialize_bound_date_aware",
+                deserialize_with = "deserialize_bound_date_aware"
             )]
             upper_bound: Bound<OwnedValue>,
         },

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778798625646,
+  "lastUpdate": 1778799315578,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4802,6 +4802,54 @@ window.BENCHMARK_DATA = {
             "value": 5.402638853836446,
             "unit": "median tps",
             "extra": "avg tps: 5.402829388058415, max tps: 6.846793619503152, count: 56388"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "21bdc9a753582039cc25a38cb07111026c0fd378",
+          "message": "feat: Crash recovery via WAL (#4901)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nPorts WAL integration over to community, which gives `pg_search` crash\nrecovery.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-05-14T14:59:53-07:00",
+          "tree_id": "7580b5f2bfcc1a95ed1b62c4628f2ec6129b7c00",
+          "url": "https://github.com/paradedb/paradedb/commit/21bdc9a753582039cc25a38cb07111026c0fd378"
+        },
+        "date": 1778799283029,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1051.7720831217446,
+            "unit": "median tps",
+            "extra": "avg tps: 1047.4599734408482, max tps: 1112.2508285713216, count: 56394"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1277.699305970814,
+            "unit": "median tps",
+            "extra": "avg tps: 1252.539524535723, max tps: 1288.5424100502823, count: 56394"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1667.8994797170885,
+            "unit": "median tps",
+            "extra": "avg tps: 1637.061481683245, max tps: 1860.8562079043645, count: 56394"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.270532282763347,
+            "unit": "median tps",
+            "extra": "avg tps: 5.3221353426732945, max tps: 7.381559464422096, count: 56394"
           }
         ]
       }

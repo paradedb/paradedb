@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778720817421,
+  "lastUpdate": 1778720849164,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7338,6 +7338,186 @@ window.BENCHMARK_DATA = {
             "value": 33.265625,
             "unit": "median mem",
             "extra": "avg mem: 32.59773190112138, max mem: 33.6875, count: 53907"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "035982deb7c1e630e0d8a13e4ca1910b979b08f6",
+          "message": "ci: add logical-replication-merge stressgres suite to cover FSM race (#4935) (#5072)\n\nRe-opened from #5068 (originally from a fork, where CI could not access\nworkflow secrets — see\nhttps://github.com/paradedb/paradedb/actions/runs/25830120431/job/75892835684?pr=5068).\nSame intent, from a branch in this repo, with the FSM-race suite landing\nas its own file rather than folded into `logical-replication.toml`.\n\n## Changes\n\n- `stressgres/suites/logical-replication-merge.toml` (new): standalone\nsuite that reliably reproduces the FSM race from #4935 (fixed in #5067).\nLogical-replication subscriber with aggressive autovacuum (`naptime=1s`,\n`threshold=50`), small `layer_sizes = '10kb, 100kb, 1mb, 100mb'`,\nmultiple concurrent BM25 readers, and sustained UPDATE/INSERT/DELETE\ntraffic on the publisher. The key difference from\n`logical-replication.toml` is the writer: `message = message || ' ' ||\ntxid_current()` grows each row's terms unbounded, generating ~10× more\nmerge/GC pressure and reliably opening the race window — folding the\nsame churn into `logical-replication.toml` (which strips-then-appends,\nkeeping row size constant) did not reproduce the bug.\n- `.github/workflows/benchmark-pg_search-stressgres.yml`:\n- Comment out single-server, bulk-updates, wide-table, and\nbackground-merge so CI focuses on the two replication suites while we\niterate. To be re-enabled before final merge.\n- Run `logical-replication-merge.toml` **before**\n`logical-replication.toml`.\n\n`stressgres/suites/logical-replication.toml` is unchanged from `main`.\n\n## Expected behavior\n\n- Without #5067: SIGSEGV or `SegmentMetaEntryHeader: UnexpectedEnd`\nwithin minutes.\n- With #5067: runs the full duration without errors.\n\n## Follow-ups\n\n- Re-enable the four commented-out suites before final merge.\n- Antithesis wiring for this suite belongs in `paradedb-enterprise` next\nto the existing `physical-logical-replication` driver, since the OSS\nAntithesis manifest only stands up a single paradedb cluster.\n\nRef: #4935\nRelated: #5067\nSupersedes: #5068",
+          "timestamp": "2026-05-13T19:51:05-04:00",
+          "tree_id": "c71af69d7df60d54d1631876f7e3c7af0782c3e3",
+          "url": "https://github.com/paradedb/paradedb/commit/035982deb7c1e630e0d8a13e4ca1910b979b08f6"
+        },
+        "date": 1778720818991,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.081747298792209, max cpu: 13.806328, count: 53853"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 53.0078125,
+            "unit": "median mem",
+            "extra": "avg mem: 53.03036521294079, max mem: 58.96484375, count: 53853"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.490042551711338, max cpu: 4.619827, count: 53853"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 32.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 32.10156583662934, max mem: 33.43359375, count: 53853"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.142857,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.342089038766028, max cpu: 18.461538, count: 53853"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 55.8828125,
+            "unit": "median mem",
+            "extra": "avg mem: 55.562831051659145, max mem: 61.80859375, count: 53853"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.080209018874647, max cpu: 9.284333, count: 53853"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 52.27734375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.28694156430468, max mem: 58.22265625, count: 53853"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.621467531364052, max cpu: 9.204219, count: 53853"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 34.01171875,
+            "unit": "median mem",
+            "extra": "avg mem: 34.036072735037976, max mem: 39.24609375, count: 53853"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1132,
+            "unit": "median pages",
+            "extra": "avg pages: 1132.1565186711975, max pages: 1873.0, count: 53853"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.84375,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.844972947189571, max relation_size:MB: 14.6328125, count: 53853"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 10,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.753569903255158, max segment_count: 17.0, count: 53853"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5368624,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.7649570615362276, max cpu: 4.5801525, count: 53853"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.6015625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.924278678764413, max mem: 30.03515625, count: 53853"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.116485473221473, max cpu: 4.5933013, count: 53853"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.609375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.0038740442733, max mem: 30.08203125, count: 53853"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.551257780264088, max cpu: 23.121387, count: 53853"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 51.01171875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.060454501142, max mem: 57.03125, count: 53853"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000027220616590243348, max replication_lag:MB: 0.18209075927734375, count: 53853"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.264929663620596, max cpu: 13.753581, count: 107706"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 51.89453125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.905371305916105, max mem: 58.33203125, count: 107706"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.379002484665478, max cpu: 4.6021094, count: 53853"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 33.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 32.419595792017155, max mem: 33.171875, count: 53853"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.112222184413526, max cpu: 4.597701, count: 53853"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 33.34375,
+            "unit": "median mem",
+            "extra": "avg mem: 32.66242283681967, max mem: 33.75390625, count: 53853"
           }
         ]
       }

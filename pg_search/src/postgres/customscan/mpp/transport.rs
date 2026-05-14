@@ -397,7 +397,7 @@ pub(super) enum RecvOutcome {
 /// Non-blocking byte channel receiver. Implementations: shm_mq (production),
 /// `std::sync::mpsc` (tests). Must be `Send` because the drain thread takes
 /// ownership.
-pub(super) trait BatchChannelReceiver: Send {
+pub(super) trait BatchChannelReceiver: Send + Sync {
     fn try_recv(&self) -> RecvOutcome;
 }
 
@@ -859,9 +859,14 @@ pub struct DrainHandle {
     /// buffer to wait on before any frame arrives.
     sub_buffers: Mutex<SubBufferRegistry>,
     /// Receivers owned by the handle and polled inline from `DrainGatherStream::poll_next` via
-    /// [`Self::try_drain_pass`]. The `Send` bound on `MppReceiver` is preserved — the receivers
-    /// move thread-once at construction then are only accessed from the backend thread; the
-    /// `Mutex` is just for interior mutability, not cross-thread coordination.
+    /// [`Self::try_drain_pass`]. The `Mutex` is for interior mutability: `try_drain_pass(&self)`
+    /// marks each slot as `None` after observing `Detached` so subsequent passes skip the dead
+    /// receiver. `BatchChannelReceiver: Send + Sync` makes `Vec<Option<MppReceiver>>: Sync`
+    /// already, so the lock is no longer doubling as the `Sync` provider — replacing it with a
+    /// non-locking primitive would need either an atomic per-slot detached flag or accepting
+    /// that detached receivers get polled once per pass (fast-returning `Detached`). The lock
+    /// is uncontended in production (single backend thread) so the marginal cost is in the
+    /// type system, not the runtime.
     coop_receivers: Mutex<Vec<Option<MppReceiver>>>,
 }
 

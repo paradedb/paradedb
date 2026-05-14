@@ -153,7 +153,7 @@ impl MoreLikeThisQueryBuilder {
                                 "SELECT * FROM {}.{} WHERE {} = $1",
                                 pgrx::spi::quote_identifier(heap_relation.namespace()),
                                 pgrx::spi::quote_identifier(heap_relation.name()),
-                                key_field_name
+                                pgrx::spi::quote_identifier(key_field_name.root())
                             ),
                             None,
                             unsafe {

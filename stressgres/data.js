@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778719492772,
+  "lastUpdate": 1778720137003,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4452,6 +4452,60 @@ window.BENCHMARK_DATA = {
             "value": 16.419604456045867,
             "unit": "median tps",
             "extra": "avg tps: 16.22484919101891, max tps: 20.54662740671893, count: 55735"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "035982deb7c1e630e0d8a13e4ca1910b979b08f6",
+          "message": "ci: add logical-replication-merge stressgres suite to cover FSM race (#4935) (#5072)\n\nRe-opened from #5068 (originally from a fork, where CI could not access\nworkflow secrets — see\nhttps://github.com/paradedb/paradedb/actions/runs/25830120431/job/75892835684?pr=5068).\nSame intent, from a branch in this repo, with the FSM-race suite landing\nas its own file rather than folded into `logical-replication.toml`.\n\n## Changes\n\n- `stressgres/suites/logical-replication-merge.toml` (new): standalone\nsuite that reliably reproduces the FSM race from #4935 (fixed in #5067).\nLogical-replication subscriber with aggressive autovacuum (`naptime=1s`,\n`threshold=50`), small `layer_sizes = '10kb, 100kb, 1mb, 100mb'`,\nmultiple concurrent BM25 readers, and sustained UPDATE/INSERT/DELETE\ntraffic on the publisher. The key difference from\n`logical-replication.toml` is the writer: `message = message || ' ' ||\ntxid_current()` grows each row's terms unbounded, generating ~10× more\nmerge/GC pressure and reliably opening the race window — folding the\nsame churn into `logical-replication.toml` (which strips-then-appends,\nkeeping row size constant) did not reproduce the bug.\n- `.github/workflows/benchmark-pg_search-stressgres.yml`:\n- Comment out single-server, bulk-updates, wide-table, and\nbackground-merge so CI focuses on the two replication suites while we\niterate. To be re-enabled before final merge.\n- Run `logical-replication-merge.toml` **before**\n`logical-replication.toml`.\n\n`stressgres/suites/logical-replication.toml` is unchanged from `main`.\n\n## Expected behavior\n\n- Without #5067: SIGSEGV or `SegmentMetaEntryHeader: UnexpectedEnd`\nwithin minutes.\n- With #5067: runs the full duration without errors.\n\n## Follow-ups\n\n- Re-enable the four commented-out suites before final merge.\n- Antithesis wiring for this suite belongs in `paradedb-enterprise` next\nto the existing `physical-logical-replication` driver, since the OSS\nAntithesis manifest only stands up a single paradedb cluster.\n\nRef: #4935\nRelated: #5067\nSupersedes: #5068",
+          "timestamp": "2026-05-13T19:51:05-04:00",
+          "tree_id": "c71af69d7df60d54d1631876f7e3c7af0782c3e3",
+          "url": "https://github.com/paradedb/paradedb/commit/035982deb7c1e630e0d8a13e4ca1910b979b08f6"
+        },
+        "date": 1778720106901,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 30.43732498324333,
+            "unit": "median tps",
+            "extra": "avg tps: 30.160917795348585, max tps: 31.3157373876248, count: 55494"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 247.52801581891356,
+            "unit": "median tps",
+            "extra": "avg tps: 279.99721516078483, max tps: 3070.3172836639824, count: 55494"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 648.1929067689173,
+            "unit": "median tps",
+            "extra": "avg tps: 636.1226101311144, max tps: 992.0698151873142, count: 55494"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 166.06798546255982,
+            "unit": "median tps",
+            "extra": "avg tps: 183.60105150712613, max tps: 1093.8135805437287, count: 110988"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 16.427897933565,
+            "unit": "median tps",
+            "extra": "avg tps: 16.40893877839354, max tps: 20.983589825544115, count: 55494"
           }
         ]
       }

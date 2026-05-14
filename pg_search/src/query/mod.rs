@@ -666,14 +666,41 @@ impl SearchQueryInput {
     }
 }
 
+/// TermInputWire needs to exist in order to support the correct handling of is_datetime from the
+/// legacy api. We deserialize TermInput as TermInputWire, the try to convert it to TermInput.
+/// Serialization does not require special handling
+#[derive(Deserialize)]
+struct TermInputWire {
+    field: FieldName,
+    #[serde(deserialize_with = "deserialize_date_aware_owned_value")]
+    value: OwnedValue,
+    #[serde(default)]
+    is_datetime: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(try_from = "TermInputWire")]
 pub struct TermInput {
     pub field: FieldName,
-    #[serde(
-        serialize_with = "serialize_date_aware_owned_value",
-        deserialize_with = "deserialize_date_aware_owned_value"
-    )]
+    #[serde(serialize_with = "serialize_date_aware_owned_value")]
     pub value: OwnedValue,
+}
+impl TryFrom<TermInputWire> for TermInput {
+    type Error = anyhow::Error;
+
+    fn try_from(value: TermInputWire) -> std::result::Result<Self, Self::Error> {
+        let field = value.field;
+        match (value.value, value.is_datetime) {
+            (OwnedValue::Str(s), true) => {
+                let dt = TantivyDateTime::try_from(s.as_str())?;
+                Ok(TermInput {
+                    field,
+                    value: OwnedValue::Date(dt.0),
+                })
+            }
+            (value, _) => Ok(TermInput { field, value }),
+        }
+    }
 }
 
 /// Serialize a [`SearchQueryInput`] node to a Postgres [`pg_sys::Const`] node, palloc'd

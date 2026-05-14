@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778789042512,
+  "lastUpdate": 1778789094952,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5964,6 +5964,60 @@ window.BENCHMARK_DATA = {
             "value": 16.4943241547232,
             "unit": "median tps",
             "extra": "avg tps: 16.44598864912953, max tps: 20.668313641907535, count: 55653"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "balavignesh449@gmail.com",
+            "name": "S Bala Vignesh",
+            "username": "SBALAVIGNESH123"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b597b183d25a561cf8c81d81decc7f07b7866e55",
+          "message": "fix: hold header shared lock during LinkedItemList iteration to prevent FSM race (#4935) (#5067)\n\n## Problem\n\nLinkedItemList read-only iteration methods (list(), is_empty(),\nor_each(), lookup()/lookup_ex()) were releasing the header shared lock\nbefore iterating through the linked list blocks. This allowed\nAtomicGuard::commit() to:\n\n1. Swap the header pointer to a new list\n2. Immediately recycle old blocks to the FSM with\nReadNextFullTransactionId()\n3. The next transaction pops a recycled block via RBM_ZERO_AND_LOCK,\nzeroing it\n4. A concurrent reader still traversing the old list hits the\nzeroed/repurposed block\n5. **SIGSEGV** or SegmentMetaEntryHeader: UnexpectedEnd deserialization\nerror\n\nThis manifests as periodic crashes and durable index corruption under\nsustained write traffic, particularly on logical replication subscribers\nat high apply rates (~395 commits/sec). Correlates strongly with\nautovacuum events that trigger garbage_collect_index().\n\n## Root Cause\n\nThe race window exists because or_each(), list(), is_empty(), and\nlookup_ex() call get_start_blockno() which acquires a shared lock on the\nheader, reads start_blockno, then immediately releases the header lock\nwhen exchanging to the first data block. After that point, \u0007tomically()\ncan take an exclusive header lock and proceed with the swap+recycle\nwhile the reader is deep in the old list.\n\n**This was already a known pattern in the codebase** — emove_item() and\nupdate_item() in the same file both hold the header shared lock for\ntheir entire operation with this comment:\n\n\\\\\\\rust\n// Acquire and hold a shared lock on the header for the entire\noperation, preventing the\n// list from being swapped out from under us by atomically between our\nread locks and\n// our write locks.\nlet header_lock = self.bman.get_buffer(self.header_blockno);\n\\\\\\\n\nThe read-only methods simply weren't given the same treatment.\n\n## Fix\n\nHold a shared lock on the header for the entire duration of iteration in\nall 4 methods, matching the existing emove_item()/update_item() pattern:\n\n- **list()** — hold header_lock from start to end of iteration\n- **is_empty()** — same\n- **\for_each()** — same\n- **lookup_ex()** — conditionally: only when \blockno is None (top-level\ncall). When \blockno is Some, the caller ( emove_item/update_item)\nalready holds the header lock\n\nRead start_blockno directly from the already-held header_lock instead of\ncalling get_start_blockno(), avoiding a double shared-lock acquisition\non the same block (which would trigger a panic under the \block_tracker\ndebug feature).\n\n## Why This Is Safe\n\n- **No deadlock**: Header block is always locked first, content blocks\nin ascending order — consistent lock ordering\n- **No reader-reader blocking**: Multiple readers hold shared locks\nconcurrently (shared locks are compatible)\n- **Writer waits for readers**: \u0007tomically() takes an exclusive header\nlock, which blocks until all shared locks are released — correct\nserialization\n- **Minimal performance impact**: The header lock was already acquired;\nwe just hold it slightly longer\n\n## Verification\n\n- \rustfmt --check passes\n- Pattern matches the proven emove_item()/update_item() implementation\nin the same file\n- Full cargo check requires pgrx setup (PostgreSQL extension); the\nchange is limited to lock lifetime management with no new APIs\n\nCloses #4935",
+          "timestamp": "2026-05-14T15:00:05-04:00",
+          "tree_id": "46e474245958de09c21d0198195343d8a87fb72d",
+          "url": "https://github.com/paradedb/paradedb/commit/b597b183d25a561cf8c81d81decc7f07b7866e55"
+        },
+        "date": 1778789063951,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 30.920374254358205,
+            "unit": "median tps",
+            "extra": "avg tps: 30.779514758283096, max tps: 34.51590096419388, count: 55579"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 248.4172711065372,
+            "unit": "median tps",
+            "extra": "avg tps: 283.28460771445276, max tps: 3292.3879502828286, count: 55579"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 645.4885568648756,
+            "unit": "median tps",
+            "extra": "avg tps: 632.8176525951947, max tps: 1363.2642544614528, count: 55579"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 169.94294493654266,
+            "unit": "median tps",
+            "extra": "avg tps: 183.90600437448893, max tps: 935.6421124689451, count: 111158"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 16.309364923923184,
+            "unit": "median tps",
+            "extra": "avg tps: 16.19479225998637, max tps: 21.074136071060302, count: 55579"
           }
         ]
       }

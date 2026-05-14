@@ -202,7 +202,6 @@ pub struct MppWorkerState {
     /// from `slot(sender_proc, this_proc)`. Workers consume from peers when running consumer
     /// fragments (e.g. a `FinalPartitioned` aggregate above a `NetworkShuffleExec` peer-mesh).
     /// Read by the multi-fragment dispatcher in `aggregatescan::exec_mpp_worker`.
-    #[allow(dead_code)]
     pub mesh: Arc<MppMesh>,
 }
 

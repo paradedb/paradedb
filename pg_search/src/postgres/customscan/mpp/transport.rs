@@ -109,7 +109,6 @@ impl MppFrameHeader {
     /// route it to the sub-buffer's source-done counter. Emitted by
     /// [`MppSender::send_eof_traced`] after a producer fragment's per-partition stream exhausts
     /// (or errors), and consumed by the matching sub-buffer's `notify_source_done`.
-    #[allow(dead_code)]
     pub fn eof(stage_id: u32, partition: u32) -> Self {
         Self {
             magic: MPP_FRAME_MAGIC,
@@ -174,28 +173,16 @@ impl MppFrameHeader {
 }
 
 /// Serialize one `RecordBatch` as a self-contained Arrow IPC Stream message,
-/// header-less. Test-only allocating wrapper retained for codec round-trip
-/// tests; production code paths go through [`encode_frame_into`] so the wire
-/// format always carries an [`MppFrameHeader`].
+/// header-less. Test-only; production code paths go through
+/// [`encode_frame_into`] so the wire format always carries an [`MppFrameHeader`].
 #[cfg(test)]
 pub fn encode_batch(batch: &RecordBatch) -> Result<Vec<u8>, DataFusionError> {
     let mut buf = Vec::with_capacity(1024);
-    encode_batch_into(batch, &mut buf)?;
-    Ok(buf)
-}
-
-/// Serialize `batch` into `buf`, clearing `buf` first so the caller's
-/// already-allocated capacity is reused. Header-less; production senders call
-/// [`encode_frame_into`] which inlines the same IPC stream after a header.
-/// Retained as a public helper for codec round-trip tests and external
-/// (header-less) consumers.
-#[allow(dead_code)]
-pub fn encode_batch_into(batch: &RecordBatch, buf: &mut Vec<u8>) -> Result<(), DataFusionError> {
-    buf.clear();
-    let mut writer = StreamWriter::try_new(&mut *buf, batch.schema_ref())?;
+    let mut writer = StreamWriter::try_new(&mut buf, batch.schema_ref())?;
     writer.write(batch)?;
     writer.finish()?;
-    Ok(())
+    drop(writer);
+    Ok(buf)
 }
 
 /// Serialize `batch` into `buf` with a 16-byte [`MppFrameHeader`] prefix
@@ -535,13 +522,6 @@ impl MppSender {
         Self::with_header(channel, MppFrameHeader::batch(0, 0))
     }
 
-    /// Frame header this sender stamps onto every outgoing batch. For diagnostics; production
-    /// routing uses the header set at construction.
-    #[allow(dead_code)]
-    pub fn header(&self) -> MppFrameHeader {
-        self.header
-    }
-
     /// Build a new `MppSender` that shares this sender's underlying channel
     /// but tags every frame with `header` instead. Used by callers that know
     /// the physical plan's output partition count and need one sender per
@@ -781,8 +761,6 @@ impl MppReceiver {
 #[derive(Debug)]
 pub enum RecvBatchOutcome {
     Batch {
-        // Consumed by the per-(stage_id, partition) demux.
-        #[allow(dead_code)]
         header: MppFrameHeader,
         batch: RecordBatch,
     },
@@ -791,8 +769,6 @@ pub enum RecvBatchOutcome {
     /// signalling that this logical channel is done, so we can EOF
     /// per-channel without dropping the whole queue.
     Eof {
-        // Consumed by the per-(stage_id, partition) demux.
-        #[allow(dead_code)]
         header: MppFrameHeader,
     },
     Empty,

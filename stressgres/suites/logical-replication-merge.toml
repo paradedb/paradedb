@@ -11,7 +11,6 @@ postgresql_conf = "Publisher"
 [server.setup]
 sql = """
 DROP TABLE IF EXISTS test CASCADE;
-CREATE EXTENSION IF NOT EXISTS pg_search;
 CREATE TABLE test (
     id SERIAL8 NOT NULL PRIMARY KEY,
     message TEXT,

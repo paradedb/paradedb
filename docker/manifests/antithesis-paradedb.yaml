@@ -298,3 +298,53 @@ spec:
         - ALTER DATABASE template1 SET search_path TO public,paradedb;
 
   externalClusters:
+---
+# Vanilla Postgres publisher used by the logical-replication Stressgres suites.
+# Lives outside the CNPG cluster because real-world logical-replication
+# customers typically don't control the upstream primary. Network faults between
+# this pod and the paradedb cluster are intentionally still injected by
+# Antithesis; only container stop/kill faults on this pod are excluded (see the
+# trigger workflow).
+apiVersion: v1
+kind: Service
+metadata:
+  name: logical-replication-publisher
+  namespace: default
+spec:
+  selector:
+    app: logical-replication-publisher
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: logical-replication-publisher
+  namespace: default
+  labels:
+    app: logical-replication-publisher
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: logical-replication-publisher
+  template:
+    metadata:
+      labels:
+        app: logical-replication-publisher
+    spec:
+      containers:
+        - name: postgres
+          image: docker.io/postgres:18
+          imagePullPolicy: IfNotPresent
+          args: ["-c", "wal_level=logical"]
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: paradedb-superuser
+                  key: password
+          ports:
+            - containerPort: 5432
+              name: postgres

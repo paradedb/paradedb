@@ -42,6 +42,7 @@ use crate::gucs::{
 use crate::postgres::customscan::mpp::dsm::{
     compute_dsm_layout, leader_init, peer_proc_for_index, worker_attach,
 };
+use crate::postgres::customscan::mpp::mesh::{ShmMqReceiver, ShmMqSender};
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 use crate::postgres::customscan::mpp::transport::{
     in_proc_channel, BatchChannelSender, DrainHandle, MppFrameHeader, MppReceiver, MppSender,
@@ -125,6 +126,49 @@ pub struct MppLeaderState {
     pub pcxt: *mut pg_sys::ParallelContext,
 }
 
+/// Wrap each peer-indexed `ShmMqReceiver` into an inbound cooperative drain, returned in
+/// `sender_proc`-indexed form. Slot at index `this_proc` is `None` (no self-loop drain at this
+/// stage; the worker's self-loop is installed separately, and the leader never has one).
+fn build_inbound_drains(
+    this_proc: u32,
+    total_procs: u32,
+    peer_receivers: Vec<ShmMqReceiver>,
+) -> Vec<Option<Arc<DrainHandle>>> {
+    let mut drains: Vec<Option<Arc<DrainHandle>>> = (0..total_procs).map(|_| None).collect();
+    for (peer_idx, shm_recv) in peer_receivers.into_iter().enumerate() {
+        let sender_proc = peer_proc_for_index(this_proc, peer_idx as u32);
+        debug_assert!(sender_proc != this_proc);
+        debug_assert!(sender_proc < total_procs);
+        let mpp_recv = MppReceiver::new(Box::new(shm_recv));
+        drains[sender_proc as usize] = Some(Arc::new(DrainHandle::cooperative(vec![mpp_recv])));
+    }
+    drains
+}
+
+/// Wrap each peer-indexed `ShmMqSender` into an outbound `MppSender` keyed by `target_proc`. The
+/// per-fragment dispatcher in `aggregatescan::exec_mpp_worker` immediately `clone_with_header`s
+/// these to the right `(stage_id, partition)`, so the default placeholder header is never
+/// observed on the wire. Slot at index `this_proc` is `None`; the worker's self-loop install
+/// fills it in afterward.
+fn build_outbound_senders(
+    this_proc: u32,
+    total_procs: u32,
+    peer_senders: Vec<ShmMqSender>,
+) -> Vec<Option<MppSender>> {
+    let mut senders: Vec<Option<MppSender>> = (0..total_procs).map(|_| None).collect();
+    for (peer_idx, shm_send) in peer_senders.into_iter().enumerate() {
+        let target_proc = peer_proc_for_index(this_proc, peer_idx as u32);
+        debug_assert!(target_proc != this_proc);
+        debug_assert!(target_proc < total_procs);
+        let shared: Arc<dyn BatchChannelSender> = Arc::new(shm_send);
+        senders[target_proc as usize] = Some(MppSender::with_header(
+            shared,
+            MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION),
+        ));
+    }
+    senders
+}
+
 /// Body of `initialize_dsm_custom_scan`. Allocates the queue mesh, populates
 /// the [`MppMesh`] handle, and serializes the worker plan into DSM.
 ///
@@ -146,32 +190,12 @@ pub unsafe fn leader_setup(
         .map_err(|e| format!("mpp: leader_setup compute layout: {e}"))?;
 
     let attach = unsafe { leader_init(coordinate, seg, &layout, &plan_bytes) }?;
+    let _ = n_partitions;
 
-    // Build the proc-pair indexed mesh. The leader is `proc_idx = 0`; its inbound queues are
-    // `slot(*, 0)` for every peer (workers 1..n_procs). `attach.inbound_receivers` is
-    // peer-indexed with the self-loop skipped, so receiver[i] corresponds to
-    // peer_proc_for_index(0, i) = i + 1.
-    //
-    // The mesh stores `inbound_drains[sender_proc]` so `runtime.rs` can look up the right drain
-    // in O(1) given a sender_proc. The self-loop entry at index 0 is `None`.
-    //
     // Each `DrainHandle` owns a per-`(stage_id, partition)` sub-buffer registry, so one shm_mq
     // queue can carry frames from many logical channels. Sub-buffers are created lazily on first
     // frame, or up-front by `WorkerConnection::stream_partition`.
-    let _ = n_partitions;
-    let mut inbound_drains: Vec<Option<Arc<DrainHandle>>> =
-        Vec::with_capacity(total_procs as usize);
-    inbound_drains.push(None); // self-loop slot at sender_proc = 0
-    for (peer_idx, shm_recv) in attach.inbound_receivers.into_iter().enumerate() {
-        let sender_proc = peer_proc_for_index(0, peer_idx as u32);
-        debug_assert_eq!(
-            sender_proc as usize,
-            inbound_drains.len(),
-            "peer_proc_for_index must produce sender_proc indices in order"
-        );
-        let mpp_recv = MppReceiver::new(Box::new(shm_recv));
-        inbound_drains.push(Some(Arc::new(DrainHandle::cooperative(vec![mpp_recv]))));
-    }
+    let inbound_drains = build_inbound_drains(0, total_procs, attach.inbound_receivers);
 
     let mesh = Arc::new(MppMesh::new(0, total_procs, inbound_drains));
 
@@ -230,25 +254,9 @@ pub unsafe fn worker_setup(
         unsafe { worker_attach(coordinate, region_total, proc_idx, seg) }?;
     let total_procs = header.n_procs;
 
-    // Build per-proc-indexed outbound senders. Each MppSender wraps the queue's
-    // `Arc<dyn BatchChannelSender>` so per-(stage_id, partition) clones can multiplex over the
-    // same shm_mq slot. The slot at proc_idx==this_proc is `None`; self-loops are never attached.
-    // `compute_dsm_layout` reserves the bytes but `worker_attach` skips them.
-    let mut outbound_senders: Vec<Option<MppSender>> = (0..total_procs).map(|_| None).collect();
-    for (peer_idx, shm_send) in attach.outbound_senders.into_iter().enumerate() {
-        let target_proc = peer_proc_for_index(proc_idx, peer_idx as u32);
-        debug_assert!(target_proc != proc_idx);
-        debug_assert!(target_proc < total_procs);
-        let shared: Arc<dyn crate::postgres::customscan::mpp::transport::BatchChannelSender> =
-            Arc::new(shm_send);
-        // Default header: the per-fragment dispatcher in `aggregatescan::exec_mpp_worker`
-        // immediately `clone_with_header`s these to the right `(stage_id, partition)` per output
-        // partition, so the default placeholder header is never observed on the wire.
-        outbound_senders[target_proc as usize] = Some(MppSender::with_header(
-            Arc::clone(&shared),
-            MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION),
-        ));
-    }
+    let mut outbound_senders =
+        build_outbound_senders(proc_idx, total_procs, attach.outbound_senders);
+    let mut inbound_drains = build_inbound_drains(proc_idx, total_procs, attach.inbound_receivers);
     debug_assert_eq!(
         outbound_senders.iter().filter(|s| s.is_some()).count(),
         (total_procs as usize).saturating_sub(1),
@@ -256,18 +264,6 @@ pub unsafe fn worker_setup(
         total_procs.saturating_sub(1)
     );
 
-    // Build the worker's MppMesh. Inbound drains pull frames from each peer proc's
-    // `slot(peer_proc, this_proc)` queue, and per-(stage_id, partition) sub-buffers demux them
-    // into the right consumer fragment.
-    let mut inbound_drains: Vec<Option<Arc<DrainHandle>>> =
-        (0..total_procs).map(|_| None).collect();
-    for (peer_idx, shm_recv) in attach.inbound_receivers.into_iter().enumerate() {
-        let sender_proc = peer_proc_for_index(proc_idx, peer_idx as u32);
-        debug_assert!(sender_proc != proc_idx);
-        let mpp_recv = MppReceiver::new(Box::new(shm_recv));
-        inbound_drains[sender_proc as usize] =
-            Some(Arc::new(DrainHandle::cooperative(vec![mpp_recv])));
-    }
     // Install a self-loop in-proc channel for `slot(this_proc, this_proc)`. Peer-mesh hash
     // routing can land producer-side and consumer-side tasks for the same `(stage, partition)`
     // on the same worker. Without this, the shm_mq grid's unattached diagonal would surface as
@@ -278,7 +274,7 @@ pub unsafe fn worker_setup(
     let (self_tx, self_rx) = in_proc_channel(SELF_LOOP_CAPACITY);
     let self_tx_arc: Arc<dyn BatchChannelSender> = Arc::new(self_tx);
     outbound_senders[proc_idx as usize] = Some(MppSender::with_header(
-        Arc::clone(&self_tx_arc),
+        self_tx_arc,
         MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION),
     ));
     inbound_drains[proc_idx as usize] =

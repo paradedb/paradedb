@@ -422,7 +422,7 @@ pub enum RecvOutcome {
 /// Non-blocking byte channel receiver. Implementations: shm_mq (production),
 /// `std::sync::mpsc` (tests). Must be `Send` because the drain thread takes
 /// ownership.
-pub trait BatchChannelReceiver: Send {
+pub trait BatchChannelReceiver: Send + Sync {
     fn try_recv(&self) -> RecvOutcome;
 }
 
@@ -865,16 +865,15 @@ pub struct DrainHandle {
     /// `check_active_thread` guard. `None` when the handle was spawned
     /// instead of constructed cooperatively.
     ///
-    /// The `Mutex` is load-bearing for `Sync`: `BatchChannelReceiver` is
-    /// `Send`-only, so `MppReceiver: !Sync` and a bare
-    /// `Vec<Option<MppReceiver>>` would be `!Sync`. `DrainHandle: Sync` is
-    /// required because callers wrap it in `Arc<DrainHandle>` and upcast
-    /// through `Arc<dyn CooperativeDrainSet>` (which is `Send + Sync`).
-    /// Receivers are still only *accessed* from the backend thread —
-    /// `try_drain_pass` doesn't race — the `Mutex` is what makes the bound
-    /// expressible. Tightening `BatchChannelReceiver` to `Send + Sync` would
-    /// let this drop the `Mutex`; both impls (`ShmMqReceiver`, `InProcReceiver`)
-    /// look safe to share by reference, but that's a separate change.
+    /// The `Mutex` is for interior mutability: `try_drain_pass(&self)` marks each slot as
+    /// `None` after observing `Detached` so subsequent passes skip the dead receiver.
+    /// `BatchChannelReceiver: Send + Sync` (with `unsafe impl Sync for ShmMqReceiver` and the
+    /// in-proc receiver's inner `Mutex<Receiver>`) makes `Vec<Option<MppReceiver>>: Sync`
+    /// already, so the lock is no longer doubling as the `Sync` provider — replacing it with
+    /// a non-locking primitive would need either an atomic per-slot detached flag or accepting
+    /// that detached receivers get polled once per pass (fast-returning `Detached`). The lock
+    /// is uncontended in production (single backend thread) so the marginal cost is in the
+    /// type system, not the runtime.
     coop_receivers: Mutex<Option<Vec<Option<MppReceiver>>>>,
 }
 

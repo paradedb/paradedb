@@ -148,6 +148,14 @@ pub struct ShmMqReceiver {
 // or CFI calls).
 unsafe impl Send for ShmMqReceiver {}
 
+// SAFETY: production invariant is that only the backend thread calls `try_recv` (the cooperative
+// drain runs inline on `DrainGatherStream::poll_next`; pgrx's `check_active_thread` would panic
+// on a non-backend caller anyway). `shm_mq_receive(nowait=true)` is therefore not reentered
+// concurrently on the same handle. We need `Sync` to satisfy the `BatchChannelReceiver: Send +
+// Sync` bound, which lets `DrainHandle: Sync` come from the concrete types instead of from the
+// `Mutex<Option<Vec<…>>>` wrapper on `coop_receivers` having to provide it.
+unsafe impl Sync for ShmMqReceiver {}
+
 impl ShmMqReceiver {
     /// Attach as receiver to an *already-created* shm_mq.
     ///

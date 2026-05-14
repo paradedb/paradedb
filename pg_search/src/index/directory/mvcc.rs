@@ -713,7 +713,7 @@ pub fn index_memory_segment(
                     // If VACUUM saw this tuple as DEAD and deleted its TOAST chunks, we
                     // must also see it as DEAD, otherwise we'll crash trying to read them.
                     let fresh_oldest_xmin =
-                        unsafe { pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr()) };
+                        pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr());
                     if fresh_oldest_xmin != oldest_xmin {
                         let buffer = (*heap_fetch_state.buffer_slot()).buffer;
                         let _lock = BorrowedBuffer::from_pg(buffer);

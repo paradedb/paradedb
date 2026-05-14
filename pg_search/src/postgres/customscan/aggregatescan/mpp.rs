@@ -20,8 +20,8 @@
 //! Holds [`AggregateScan::exec_mpp_worker`], the body of `exec_custom_scan` when a parallel
 //! worker is running an MPP fragment. The leader's path stays in `mod.rs`; this file isolates
 //! the worker dispatcher's logical-plan deserialization, distributed-physical-plan build,
-//! fragment discovery, and `join_all`-driven async dispatch so `mod.rs` doesn't have to scroll
-//! past ~330 LOC of MPP-specific machinery to find the next non-MPP method.
+//! fragment discovery, and `join_all`-driven async dispatch so `mod.rs` keeps its focus on the
+//! leader-side trait impl and the serial Tantivy paths.
 
 use std::sync::Arc;
 

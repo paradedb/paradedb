@@ -16,7 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use super::block::{BM25PageSpecialData, LinkedList, LinkedListData, MVCCEntry, PgItem};
-use super::buffer::{init_new_buffer, BufferManager, BufferMut};
+use super::buffer::{init_new_buffer, Buffer, BufferManager, BufferMut};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::fsm::FreeSpaceManager;
 use anyhow::Result;
@@ -148,14 +148,36 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
         )
     }
 
+    /// Acquires a shared lock on the header and returns both the header buffer and the
+    /// start blockno. The caller MUST hold the returned header buffer for the duration of
+    /// any iteration — dropping it early allows `atomically()` + `commit()` to recycle
+    /// blocks mid-traversal, causing SIGSEGV or deserialization errors.
+    unsafe fn get_header_and_start_blockno(&self) -> (Buffer, pg_sys::BlockNumber) {
+        let header_buffer = self.bman.get_buffer(self.header_blockno);
+        let start_blockno = header_buffer
+            .page()
+            .contents::<LinkedListData>()
+            .start_blockno;
+        (header_buffer, start_blockno)
+    }
+
     /// Return a Vec of all the items in this linked list
     pub unsafe fn list(&self, many: Option<usize>) -> Vec<T> {
         let mut items = vec![];
-        let (mut blockno, mut buffer) = self.get_start_blockno();
+        // Acquire and hold a shared lock on the header for the entire iteration, preventing
+        // the list from being swapped out from under us by `atomically()` + `commit()` which
+        // would recycle old blocks to the FSM while we are still traversing them.
+        //
+        // This intentionally serializes against exclusive header locks (atomically/commit/
+        // retain/garbage_collect). The tradeoff is a longer stall on GC/merge for wide lists,
+        // but correctness requires it — the old per-block hand-over-hand locking via
+        // get_buffer_exchange() was insufficient because it released the header lock before
+        // iteration began, allowing the list to be swapped out mid-traversal.
+        let (_header_lock, mut blockno) = self.get_header_and_start_blockno();
         let mut found = 0;
 
         'outer: while blockno != pg_sys::InvalidBlockNumber {
-            buffer = self.bman.get_buffer_exchange(blockno, buffer);
+            let buffer = self.bman.get_buffer(blockno);
             let page = buffer.page();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
@@ -179,10 +201,11 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
     }
 
     pub unsafe fn is_empty(&self) -> bool {
-        let (mut blockno, mut buffer) = self.get_start_blockno();
+        // Hold header lock for iteration safety. See comment in `list()`.
+        let (_header_lock, mut blockno) = self.get_header_and_start_blockno();
 
         while blockno != pg_sys::InvalidBlockNumber {
-            buffer = self.bman.get_buffer_exchange(blockno, buffer);
+            let buffer = self.bman.get_buffer(blockno);
             let page = buffer.page();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
@@ -310,9 +333,10 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
 
     /// Visit each entry, without mutating entries or the list structure.
     pub unsafe fn for_each(&mut self, mut f: impl FnMut(&mut BufferManager, T)) {
-        let (mut blockno, mut buffer) = self.get_start_blockno();
+        // Hold header lock for iteration safety. See comment in `list()`.
+        let (_header_lock, mut blockno) = self.get_header_and_start_blockno();
         while blockno != pg_sys::InvalidBlockNumber {
-            buffer = self.bman().get_buffer_exchange(blockno, buffer);
+            let buffer = self.bman().get_buffer(blockno);
             let page = buffer.page();
             let mut offsetno = pg_sys::FirstOffsetNumber;
             let max_offset = page.max_offset_number();
@@ -456,7 +480,16 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
         cmp: Cmp,
         blockno: Option<pg_sys::BlockNumber>,
     ) -> Result<(T, pg_sys::BlockNumber, pg_sys::OffsetNumber)> {
-        let mut blockno = blockno.unwrap_or_else(|| self.get_start_blockno().0);
+        // When blockno is None, we're the top-level caller and need to hold the header lock
+        // for iteration safety (see comment in `list()`). When blockno is Some, the caller
+        // (e.g. remove_item/update_item) already holds the header lock.
+        let (_header_lock, start) = if blockno.is_none() {
+            let (hdr, start) = self.get_header_and_start_blockno();
+            (Some(hdr), start)
+        } else {
+            (None, pg_sys::InvalidBlockNumber)
+        };
+        let mut blockno = blockno.unwrap_or(start);
         while blockno != pg_sys::InvalidBlockNumber {
             let buffer = self.bman.get_buffer(blockno);
             let page = buffer.page();

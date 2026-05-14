@@ -138,7 +138,6 @@ pub unsafe fn leader_setup(
     coordinate: *mut c_void,
     seg: *mut pg_sys::dsm_segment,
     pcxt: *mut pg_sys::ParallelContext,
-    n_partitions: u32,
     plan_bytes: Vec<u8>,
 ) -> Result<MppLeaderState, String> {
     let total_procs = n_procs();
@@ -158,7 +157,6 @@ pub unsafe fn leader_setup(
     // Each `DrainHandle` owns a per-`(stage_id, partition)` sub-buffer registry, so one shm_mq
     // queue can carry frames from many logical channels. Sub-buffers are created lazily on first
     // frame, or up-front by `WorkerConnection::stream_partition`.
-    let _ = n_partitions;
     let mut inbound_drains: Vec<Option<Arc<DrainHandle>>> =
         Vec::with_capacity(total_procs as usize);
     inbound_drains.push(None); // self-loop slot at sender_proc = 0

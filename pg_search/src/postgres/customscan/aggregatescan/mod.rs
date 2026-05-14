@@ -735,7 +735,6 @@ impl ParallelQueryCapable for AggregateScan {
         let Some(plan_bytes) = df_state.mpp_plan_bytes.take() else {
             return;
         };
-        let n_partitions = df_state.mpp_n_partitions;
         let seg = unsafe { (*pcxt).seg };
 
         // Capture manifests + size the ParallelScanState block.
@@ -790,14 +789,13 @@ impl ParallelQueryCapable for AggregateScan {
         // Init the MPP region.
         let mpp_coordinate =
             unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut std::os::raw::c_void };
-        let leader =
-            match unsafe { leader_setup(mpp_coordinate, seg, pcxt, n_partitions, plan_bytes) } {
-                Ok(l) => l,
-                Err(e) => {
-                    pgrx::warning!("mpp: leader_setup failed: {e}; falling back to serial");
-                    return;
-                }
-            };
+        let leader = match unsafe { leader_setup(mpp_coordinate, seg, pcxt, plan_bytes) } {
+            Ok(l) => l,
+            Err(e) => {
+                pgrx::warning!("mpp: leader_setup failed: {e}; falling back to serial");
+                return;
+            }
+        };
         let df_state = state
             .custom_state_mut()
             .datafusion_state

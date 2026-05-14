@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778788333374,
+  "lastUpdate": 1778788365867,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5122,6 +5122,108 @@ window.BENCHMARK_DATA = {
             "value": 164.10546875,
             "unit": "median mem",
             "extra": "avg mem: 182.4257484372492, max mem: 222.53125, count: 56071"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "balavignesh449@gmail.com",
+            "name": "S Bala Vignesh",
+            "username": "SBALAVIGNESH123"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d0039460372b22539b33262920b0194c694b7205",
+          "message": "fix: use fixed-length updates in stressgres to avoid TOAST and expose FSM race (#5080)\n\nThe old UPDATE pattern in the logical-replication stressgres suite\nappended txid_current() to the message column every iteration, growing\nit past the TOAST threshold (~2KB). This caused the suite to hit the\nunrelated TOAST visibility race (#5076) before the FSM segment metadata\nrace (#4935) could surface.\n\nChanged to fixed-length updates that keep the first search term and\nappend a small txid-derived number, staying well under the TOAST\nthreshold. This way the suite can run long enough to exercise the FSM\npath.\n\nRelated: #5067 (FSM race fix), #5076 (TOAST bug)",
+          "timestamp": "2026-05-14T14:57:31-04:00",
+          "tree_id": "96511f40645bb3416046b0914f9758c60c159a20",
+          "url": "https://github.com/paradedb/paradedb/commit/d0039460372b22539b33262920b0194c694b7205"
+        },
+        "date": 1778788335465,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.0546398373113561, max background_merging: 2.0, count: 56058"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.737488647469511, max cpu: 9.648242, count: 56058"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.875,
+            "unit": "median mem",
+            "extra": "avg mem: 25.870038969125726, max mem: 25.8828125, count: 56058"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.99093139134679, max cpu: 15.177865, count: 56058"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 185.23828125,
+            "unit": "median mem",
+            "extra": "avg mem: 180.16594294636803, max mem: 191.078125, count: 56058"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 61379,
+            "unit": "median block_count",
+            "extra": "avg block_count: 61140.793035784365, max block_count: 61379.0, count: 56058"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.70444896357344, max segment_count: 57.0, count: 56058"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.05215652641243, max cpu: 32.526623, count: 56058"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 202.6953125,
+            "unit": "median mem",
+            "extra": "avg mem: 201.35288116771915, max mem: 214.01953125, count: 56058"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.697041251363043, max cpu: 27.906979, count: 56058"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 187.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 175.6515895088569, max mem: 192.109375, count: 56058"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.806663073397168, max cpu: 33.267326, count: 56058"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 164.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 182.3082445023458, max mem: 222.58203125, count: 56058"
           }
         ]
       }

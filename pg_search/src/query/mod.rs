@@ -224,16 +224,22 @@ where
     deserializer.deserialize_map(Visitor)
 }
 
-const POSSIBLE_DATE_KEYS: [&str; 3] = ["lower_bound", "upper_bound", "value"];
 fn rewrite_is_datetime_values_to_tagged_dates(value: &mut serde_json::Value) {
     let is_datetime = value["is_datetime"].as_bool().unwrap_or(false);
     if is_datetime {
         value.as_object_mut().unwrap().remove("is_datetime");
-        for key in POSSIBLE_DATE_KEYS {
-            if let Some(s) = value[key].as_str() {
-                value[key] = serde_json::json!({
-                    "date": s
-                });
+        if let Some(s) = value["value"].as_str() {
+            value["value"] = serde_json::json!({
+                "date": s
+            });
+        }
+        for bound_key in ["lower_bound", "upper_bound"] {
+            for inclusion_key in ["included", "excluded"] {
+                if let Some(s) = value[bound_key][inclusion_key].as_str() {
+                    value[bound_key][inclusion_key] = serde_json::json!({
+                            "date": s
+                    });
+                }
             }
         }
     }

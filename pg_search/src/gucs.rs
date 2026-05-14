@@ -217,8 +217,7 @@ static TERM_SET_GALLOP_MAX_DENSITY: GucSetting<f64> = GucSetting::<f64>::new(1.0
 /// backend where per-`dict.get` zstd block decompress dominates per-K
 /// cost on unique columns. Matches
 /// `tantivy::query::TermSetStrategyConfig::default()`.
-static TERM_SET_BITSET_MAX_DENSITY_UNIQUE: GucSetting<f64> =
-    GucSetting::<f64>::new(1.0 / 2000.0);
+static TERM_SET_BITSET_MAX_DENSITY_UNIQUE: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 2000.0);
 
 /// First-column `BitsetFromPostings` density gate for non-unique
 /// columns (`D >= 2`, e.g. foreign-key shape). Bitset is admitted when
@@ -227,8 +226,7 @@ static TERM_SET_BITSET_MAX_DENSITY_UNIQUE: GucSetting<f64> =
 /// dictionary lookups amortize the zstd block decompress across
 /// multiple keys per block on non-unique columns. Matches
 /// `tantivy::query::TermSetStrategyConfig::default()`.
-static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> =
-    GucSetting::<f64>::new(1.0 / 200.0);
+static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 200.0);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.

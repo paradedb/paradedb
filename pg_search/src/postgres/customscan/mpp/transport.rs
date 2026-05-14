@@ -36,8 +36,6 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-#[cfg(test)]
-use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -172,19 +170,6 @@ impl MppFrameHeader {
     }
 }
 
-/// Serialize one `RecordBatch` as a self-contained Arrow IPC Stream message,
-/// header-less. Test-only; production code paths go through
-/// [`encode_frame_into`] so the wire format always carries an [`MppFrameHeader`].
-#[cfg(test)]
-pub fn encode_batch(batch: &RecordBatch) -> Result<Vec<u8>, DataFusionError> {
-    let mut buf = Vec::with_capacity(1024);
-    let mut writer = StreamWriter::try_new(&mut buf, batch.schema_ref())?;
-    writer.write(batch)?;
-    writer.finish()?;
-    drop(writer);
-    Ok(buf)
-}
-
 /// Serialize `batch` into `buf` with a 16-byte [`MppFrameHeader`] prefix
 /// addressing it to `(stage_id, partition)`. Wire format:
 ///
@@ -225,17 +210,6 @@ pub fn encode_eof_frame_into(
     buf.resize(MPP_FRAME_HEADER_SIZE, 0);
     MppFrameHeader::eof(stage_id, partition).write_to(&mut buf[..MPP_FRAME_HEADER_SIZE]);
     Ok(())
-}
-
-/// Inverse of [`encode_batch`]. Expects exactly one batch per message,
-/// header-less. Test-only.
-#[cfg(test)]
-pub fn decode_batch(bytes: &[u8]) -> Result<RecordBatch, DataFusionError> {
-    let mut reader = StreamReader::try_new(bytes, None)?;
-    let batch = reader.next().ok_or_else(|| {
-        DataFusionError::Execution("mpp: empty arrow-ipc stream in decode_batch".into())
-    })??;
-    Ok(batch)
 }
 
 /// Inverse of [`encode_frame_into`]. Parses the 16-byte header and, for `Batch` frames, decodes
@@ -346,39 +320,6 @@ impl DrainBuffer {
         let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
         guard.cancelled = true;
         self.cond.notify_all();
-    }
-
-    /// Block until a batch is available, EOF is reached, or the buffer is
-    /// cancelled.
-    ///
-    /// INVARIANT: any already-buffered batch is returned *before* honoring
-    /// either cancellation or all-sources-done. Reordering the queue pop ahead
-    /// of the cancel/eof check would silently drop buffered data on an
-    /// otherwise-clean shutdown; the
-    /// `drain_buffer_drains_buffered_before_eof` test locks this in.
-    #[cfg(test)]
-    pub fn pop_front(&self) -> DrainItem {
-        let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
-        loop {
-            if let Some(batch) = guard.queue.pop_front() {
-                return DrainItem::Batch(batch);
-            }
-            if guard.cancelled || guard.sources_done >= guard.num_sources {
-                return DrainItem::Eof;
-            }
-            guard = self.cond.wait(guard).expect("DrainBuffer mutex poisoned");
-        }
-    }
-
-    /// True if `cancel` has been called. The test-only `drain_loop` and its
-    /// tests consult this; the cooperative production path watches the flag
-    /// through `notify_source_done` fan-out instead.
-    #[cfg(test)]
-    pub fn is_cancelled(&self) -> bool {
-        self.inner
-            .lock()
-            .expect("DrainBuffer mutex poisoned")
-            .cancelled
     }
 
     /// Non-blocking variant. Returns the front item, or `DrainItem::Eof` if
@@ -515,13 +456,6 @@ impl MppSender {
         }
     }
 
-    /// Construct a sender with the default `(stage_id=0, partition=0)` header.
-    /// Used by tests where the header carries no actionable routing info.
-    #[cfg(test)]
-    pub fn new(channel: Arc<dyn BatchChannelSender>) -> Self {
-        Self::with_header(channel, MppFrameHeader::batch(0, 0))
-    }
-
     /// Build a new `MppSender` that shares this sender's underlying channel
     /// but tags every frame with `header` instead. Used by callers that know
     /// the physical plan's output partition count and need one sender per
@@ -543,22 +477,6 @@ impl MppSender {
     pub fn with_cooperative_drain(mut self, drain: Arc<dyn CooperativeDrainSet>) -> Self {
         self.cooperative_drain = Some(drain);
         self
-    }
-
-    /// Test-only stats-less wrapper around [`Self::send_batch_traced`].
-    /// Production call sites (`ShuffleStream::process_batch`) always pass
-    /// a `SendBatchStats` so per-peer wall-time shows up in the EOF trace.
-    /// Wraps the async send in a tiny current-thread Tokio runtime so test
-    /// `#[test]` functions don't have to be `#[tokio::test]` and the
-    /// existing OS-thread-spawning test harnesses don't have to plumb an
-    /// async runtime themselves.
-    #[cfg(test)]
-    pub fn send_batch(&self, batch: &RecordBatch) -> Result<(), DataFusionError> {
-        let mut stats = SendBatchStats::default();
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .expect("test tokio runtime build");
-        rt.block_on(self.send_batch_traced(batch, &mut stats))
     }
 
     /// `send_batch` variant that accumulates per-call timings and spin
@@ -776,46 +694,6 @@ pub enum RecvBatchOutcome {
     Error(DataFusionError),
 }
 
-/// Configuration for [`spawn_drain_thread`].
-///
-/// Only used by the thread-backed drain path, which is test-only: pgrx panics
-/// on any pg FFI call (including `shm_mq_receive`) from a non-backend thread,
-/// so production uses [`DrainHandle::cooperative`] — see the notes on
-/// `DrainHandle::spawn` for details.
-#[cfg(test)]
-pub struct DrainConfig {
-    /// Receivers to drain. Ownership moves into the spawned thread.
-    pub receivers: Vec<MppReceiver>,
-    /// Destination buffer.
-    pub buffer: Arc<DrainBuffer>,
-    /// How long to sleep when every receiver is empty but some are still
-    /// attached. Tuning: small values reduce end-of-batch latency but raise
-    /// CPU; 1 ms is a safe default until we integrate with WaitLatch.
-    pub idle_sleep: Duration,
-}
-
-#[cfg(test)]
-impl DrainConfig {
-    pub fn new(receivers: Vec<MppReceiver>, buffer: Arc<DrainBuffer>) -> Self {
-        Self {
-            receivers,
-            buffer,
-            idle_sleep: Duration::from_millis(1),
-        }
-    }
-}
-
-/// Spawn the dedicated drain thread.
-///
-/// Test-only: the thread round-robins through every receiver with non-blocking
-/// `try_recv`, pushes decoded batches into `buffer`, and marks each source
-/// done as soon as it observes a detach or decode error. When every source is
-/// done, the thread exits.
-#[cfg(test)]
-pub fn spawn_drain_thread(config: DrainConfig) -> JoinHandle<Result<(), DataFusionError>> {
-    thread::spawn(move || drain_loop(config))
-}
-
 /// Per-`(stage_id, partition)` sub-buffer registry owned by a cooperative [`DrainHandle`]. The
 /// handle serves one sender_proc, whose shm_mq queue carries frames for many logical channels,
 /// each tagged by the [`MppFrameHeader`] prefix. `try_drain_pass` looks up the right sub-buffer
@@ -878,23 +756,6 @@ pub struct DrainHandle {
 }
 
 impl DrainHandle {
-    /// Spawn a drain thread and wrap the join handle together with the buffer
-    /// it drains into. Test-only: pgrx's `check_active_thread` panics on any
-    /// pg FFI call (including `shm_mq_receive`) from a non-backend thread, so
-    /// a real mesh receiver can never drain from a std::thread worker.
-    /// Production paths must use [`Self::cooperative`] instead.
-    #[cfg(test)]
-    pub fn spawn(config: DrainConfig) -> Self {
-        let buffer = Arc::clone(&config.buffer);
-        let join = spawn_drain_thread(config);
-        Self {
-            sub_buffers: Mutex::new(SubBufferRegistry::default()),
-            legacy_buffer: Some(buffer),
-            join: Mutex::new(Some(join)),
-            coop_receivers: Mutex::new(None),
-        }
-    }
-
     /// Construct a cooperative drain handle: the receivers are stashed in the
     /// handle and drained inline from `DrainGatherStream::poll_next` (see
     /// [`Self::try_drain_pass`]). No background thread. This is the correct
@@ -1083,73 +944,6 @@ impl Drop for DrainHandle {
         self.cancel_sub_buffers();
     }
 }
-
-/// Test-only thread-backed drain. Writes every observed frame into a single shared
-/// [`DrainBuffer`] with `num_sources = N`. Per-channel `Eof` frames are treated as "this source
-/// is done" rather than "this logical channel within the source is done"; sufficient for unit
-/// tests that don't exercise per-channel demux. Production drains route through
-/// [`DrainHandle::try_drain_pass`] (cooperative variant), which keys on the frame header. Tests
-/// that need to validate production demux must use [`DrainHandle::cooperative`] and call
-/// `try_drain_pass` directly.
-#[cfg(test)]
-fn drain_loop(config: DrainConfig) -> Result<(), DataFusionError> {
-    let DrainConfig {
-        receivers,
-        buffer,
-        idle_sleep,
-    } = config;
-
-    let mut done = vec![false; receivers.len()];
-    loop {
-        // Observe cancellation before each pass so a `DrainHandle::drop` with
-        // live peer senders tears down cleanly. Without this check, the drain
-        // thread would spin `try_recv` forever because no source has detached.
-        if buffer.is_cancelled() {
-            return Ok(());
-        }
-
-        let mut got_any = false;
-        let mut all_done = true;
-        for (i, rx) in receivers.iter().enumerate() {
-            if done[i] {
-                continue;
-            }
-            all_done = false;
-            match rx.try_recv_batch() {
-                RecvBatchOutcome::Batch { header: _, batch } => {
-                    got_any = true;
-                    buffer.push_batch(batch);
-                }
-                RecvBatchOutcome::Eof { header: _ } => {
-                    // Per-channel Eof frame: single-channel positional design
-                    // treats it as a source-done signal. See `try_drain_pass`.
-                    done[i] = true;
-                    buffer.notify_source_done();
-                }
-                RecvBatchOutcome::Empty => {}
-                RecvBatchOutcome::Detached => {
-                    done[i] = true;
-                    buffer.notify_source_done();
-                }
-                RecvBatchOutcome::Error(e) => {
-                    // Treat a decode error as a fatal detach for this source
-                    // so the consumer can observe EOF and abort the query.
-                    done[i] = true;
-                    buffer.notify_source_done();
-                    return Err(e);
-                }
-            }
-        }
-
-        if all_done {
-            return Ok(());
-        }
-        if !got_any {
-            thread::sleep(idle_sleep);
-        }
-    }
-}
-
 /// SPSC channel pair for two use cases:
 /// - Unit tests (bounded capacity, exercising backpressure).
 /// - Production self-loop slots: when a worker's fragment emits a partition destined for its OWN
@@ -1223,6 +1017,187 @@ mod tests {
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use std::sync::Arc as StdArc;
     use std::thread;
+
+    use std::thread::JoinHandle;
+
+    /// Serialize one `RecordBatch` as a self-contained Arrow IPC stream message, header-less.
+    /// Used by the codec round-trip tests that don't care about routing.
+    fn encode_batch(batch: &RecordBatch) -> Result<Vec<u8>, DataFusionError> {
+        let mut buf = Vec::with_capacity(1024);
+        let mut writer = StreamWriter::try_new(&mut buf, batch.schema_ref())?;
+        writer.write(batch)?;
+        writer.finish()?;
+        drop(writer);
+        Ok(buf)
+    }
+
+    /// Inverse of `encode_batch`. Expects exactly one batch per message, header-less.
+    fn decode_batch(bytes: &[u8]) -> Result<RecordBatch, DataFusionError> {
+        let mut reader = StreamReader::try_new(bytes, None)?;
+        let batch = reader.next().ok_or_else(|| {
+            DataFusionError::Execution("mpp: empty arrow-ipc stream in decode_batch".into())
+        })??;
+        Ok(batch)
+    }
+
+    impl DrainBuffer {
+        /// Block until a batch is available, EOF is reached, or the buffer is cancelled.
+        ///
+        /// INVARIANT: any already-buffered batch is returned *before* honoring either
+        /// cancellation or all-sources-done. The `drain_buffer_drains_buffered_before_eof` test
+        /// locks this in.
+        fn pop_front(&self) -> DrainItem {
+            let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
+            loop {
+                if let Some(batch) = guard.queue.pop_front() {
+                    return DrainItem::Batch(batch);
+                }
+                if guard.cancelled || guard.sources_done >= guard.num_sources {
+                    return DrainItem::Eof;
+                }
+                guard = self.cond.wait(guard).expect("DrainBuffer mutex poisoned");
+            }
+        }
+
+        /// True if `cancel` has been called. The local `drain_loop` consults this; the
+        /// cooperative production path watches the flag through `notify_source_done` fan-out
+        /// instead.
+        fn is_cancelled(&self) -> bool {
+            self.inner
+                .lock()
+                .expect("DrainBuffer mutex poisoned")
+                .cancelled
+        }
+    }
+
+    impl MppSender {
+        /// Construct a sender with the default `(stage_id=0, partition=0)` header. Used where
+        /// the header carries no actionable routing info.
+        fn new(channel: Arc<dyn BatchChannelSender>) -> Self {
+            Self::with_header(channel, MppFrameHeader::batch(0, 0))
+        }
+
+        /// Stats-less wrapper around `send_batch_traced`. Production call sites
+        /// (`ShuffleStream::process_batch`) always pass a `SendBatchStats` so per-peer
+        /// wall-time shows up in the EOF trace. Wraps the async send in a tiny current-thread
+        /// Tokio runtime so `#[test]` functions don't have to be `#[tokio::test]` and the
+        /// OS-thread-spawning test harnesses don't have to plumb an async runtime themselves.
+        fn send_batch(&self, batch: &RecordBatch) -> Result<(), DataFusionError> {
+            let mut stats = SendBatchStats::default();
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .expect("test tokio runtime build");
+            rt.block_on(self.send_batch_traced(batch, &mut stats))
+        }
+    }
+
+    /// Configuration for `spawn_drain_thread`. Only used by the thread-backed drain path: pgrx
+    /// panics on any pg FFI call (including `shm_mq_receive`) from a non-backend thread, so
+    /// production uses [`DrainHandle::cooperative`] instead.
+    struct DrainConfig {
+        receivers: Vec<MppReceiver>,
+        buffer: Arc<DrainBuffer>,
+        idle_sleep: Duration,
+    }
+
+    impl DrainConfig {
+        fn new(receivers: Vec<MppReceiver>, buffer: Arc<DrainBuffer>) -> Self {
+            Self {
+                receivers,
+                buffer,
+                idle_sleep: Duration::from_millis(1),
+            }
+        }
+    }
+
+    /// Spawn the dedicated drain thread. The thread round-robins through every receiver with
+    /// non-blocking `try_recv`, pushes decoded batches into `buffer`, and marks each source done
+    /// as soon as it observes a detach or decode error.
+    fn spawn_drain_thread(config: DrainConfig) -> JoinHandle<Result<(), DataFusionError>> {
+        thread::spawn(move || drain_loop(config))
+    }
+
+    impl DrainHandle {
+        /// Spawn a drain thread and wrap the join handle together with the buffer it drains
+        /// into. pgrx's `check_active_thread` panics on any pg FFI call (`shm_mq_receive`
+        /// included) from a non-backend thread, so a real mesh receiver can never drain from
+        /// a std::thread worker. Production paths must use [`Self::cooperative`] instead.
+        fn spawn(config: DrainConfig) -> Self {
+            let buffer = Arc::clone(&config.buffer);
+            let join = spawn_drain_thread(config);
+            Self {
+                sub_buffers: Mutex::new(SubBufferRegistry::default()),
+                legacy_buffer: Some(buffer),
+                join: Mutex::new(Some(join)),
+                coop_receivers: Mutex::new(None),
+            }
+        }
+    }
+
+    /// Test-only thread-backed drain. Writes every observed frame into a single shared
+    /// [`DrainBuffer`] with `num_sources = N`. Per-channel `Eof` frames are treated as "this source
+    /// is done" rather than "this logical channel within the source is done"; sufficient for unit
+    /// tests that don't exercise per-channel demux. Production drains route through
+    /// [`DrainHandle::try_drain_pass`] (cooperative variant), which keys on the frame header. Tests
+    /// that need to validate production demux must use [`DrainHandle::cooperative`] and call
+    /// `try_drain_pass` directly.
+    fn drain_loop(config: DrainConfig) -> Result<(), DataFusionError> {
+        let DrainConfig {
+            receivers,
+            buffer,
+            idle_sleep,
+        } = config;
+
+        let mut done = vec![false; receivers.len()];
+        loop {
+            // Observe cancellation before each pass so a `DrainHandle::drop` with
+            // live peer senders tears down cleanly. Without this check, the drain
+            // thread would spin `try_recv` forever because no source has detached.
+            if buffer.is_cancelled() {
+                return Ok(());
+            }
+
+            let mut got_any = false;
+            let mut all_done = true;
+            for (i, rx) in receivers.iter().enumerate() {
+                if done[i] {
+                    continue;
+                }
+                all_done = false;
+                match rx.try_recv_batch() {
+                    RecvBatchOutcome::Batch { header: _, batch } => {
+                        got_any = true;
+                        buffer.push_batch(batch);
+                    }
+                    RecvBatchOutcome::Eof { header: _ } => {
+                        // Per-channel Eof frame: single-channel positional design
+                        // treats it as a source-done signal. See `try_drain_pass`.
+                        done[i] = true;
+                        buffer.notify_source_done();
+                    }
+                    RecvBatchOutcome::Empty => {}
+                    RecvBatchOutcome::Detached => {
+                        done[i] = true;
+                        buffer.notify_source_done();
+                    }
+                    RecvBatchOutcome::Error(e) => {
+                        // Treat a decode error as a fatal detach for this source
+                        // so the consumer can observe EOF and abort the query.
+                        done[i] = true;
+                        buffer.notify_source_done();
+                        return Err(e);
+                    }
+                }
+            }
+
+            if all_done {
+                return Ok(());
+            }
+            if !got_any {
+                thread::sleep(idle_sleep);
+            }
+        }
+    }
 
     fn sample_batch(rows: i32) -> RecordBatch {
         let schema = StdArc::new(Schema::new(vec![

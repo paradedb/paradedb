@@ -230,25 +230,11 @@ fn collect(
             // `input_task_count`. Surface it as an error so a future planner change that hits
             // this shape doesn't silently produce wrong answers.
             ("NetworkBroadcastExec", false) => {
-                // `pgrx::error!` pulls PG runtime symbols (`CopyErrorData`, `PG_exception_stack`,
-                // `CurrentMemoryContext`, `error_context_stack`) via the ereport machinery.
-                // Reaching it from the `#[cfg(test)]` block at the bottom of this file would
-                // force the test binary to link against postgres, which
-                // `cargo test --features pgNN --no-default-features` doesn't. Plain `panic!` in
-                // test builds, same `!` return type as `pgrx::error!`, so the match arm still
-                // type-checks.
-                #[cfg(not(test))]
-                pgrx::error!(
+                crate::postgres::customscan::mpp::fail_loud(format!(
                     "mpp worker_fragments: top-level NetworkBroadcastExec is unsupported \
                      (stage_id={stage_id}). The natural-shape AggregateScan plan does not \
                      produce this shape; route via a NetworkCoalesceExec gather instead."
-                );
-                #[cfg(test)]
-                panic!(
-                    "mpp worker_fragments: top-level NetworkBroadcastExec is unsupported \
-                     (stage_id={stage_id}). The natural-shape AggregateScan plan does not \
-                     produce this shape; route via a NetworkCoalesceExec gather instead."
-                );
+                ))
             }
             // Top-level boundary (gather to leader): consumer is leader proc 0.
             (_, false) => FragmentRouting::Coalesce { dest_proc: 0 },
@@ -273,22 +259,12 @@ fn collect(
             // rather than silently routing to task 0 of `proc_for_task`, which would over-count
             // or drop batches for a shape we haven't reasoned about. Surface as error so
             // plan-walk drift is visible.
-            (other, true) => {
-                #[cfg(not(test))]
-                pgrx::error!(
-                    "mpp worker_fragments: unsupported nested boundary kind {other} \
-                     (stage_id={stage_id}). Only NetworkShuffleExec, NetworkBroadcastExec, \
-                     and NetworkCoalesceExec are recognised; routing this shape would silently \
-                     mis-route batches."
-                );
-                #[cfg(test)]
-                panic!(
-                    "mpp worker_fragments: unsupported nested boundary kind {other} \
-                     (stage_id={stage_id}). Only NetworkShuffleExec, NetworkBroadcastExec, \
-                     and NetworkCoalesceExec are recognised; routing this shape would silently \
-                     mis-route batches."
-                );
-            }
+            (other, true) => crate::postgres::customscan::mpp::fail_loud(format!(
+                "mpp worker_fragments: unsupported nested boundary kind {other} \
+                 (stage_id={stage_id}). Only NetworkShuffleExec, NetworkBroadcastExec, \
+                 and NetworkCoalesceExec are recognised; routing this shape would silently \
+                 mis-route batches."
+            )),
         };
         #[cfg(not(test))]
         {

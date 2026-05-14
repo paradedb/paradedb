@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778786877130,
+  "lastUpdate": 1778786909527,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2102,6 +2102,138 @@ window.BENCHMARK_DATA = {
             "value": 56.85546875,
             "unit": "median mem",
             "extra": "avg mem: 55.85959883946214, max mem: 69.671875, count: 55163"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "balavignesh449@gmail.com",
+            "name": "S Bala Vignesh",
+            "username": "SBALAVIGNESH123"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d0039460372b22539b33262920b0194c694b7205",
+          "message": "fix: use fixed-length updates in stressgres to avoid TOAST and expose FSM race (#5080)\n\nThe old UPDATE pattern in the logical-replication stressgres suite\nappended txid_current() to the message column every iteration, growing\nit past the TOAST threshold (~2KB). This caused the suite to hit the\nunrelated TOAST visibility race (#5076) before the FSM segment metadata\nrace (#4935) could surface.\n\nChanged to fixed-length updates that keep the first search term and\nappend a small txid-derived number, staying well under the TOAST\nthreshold. This way the suite can run long enough to exercise the FSM\npath.\n\nRelated: #5067 (FSM race fix), #5076 (TOAST bug)",
+          "timestamp": "2026-05-14T14:57:31-04:00",
+          "tree_id": "96511f40645bb3416046b0914f9758c60c159a20",
+          "url": "https://github.com/paradedb/paradedb/commit/d0039460372b22539b33262920b0194c694b7205"
+        },
+        "date": 1778786878737,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.284333,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.790715129734707, max cpu: 23.575638, count: 55303"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 67.44921875,
+            "unit": "median mem",
+            "extra": "avg mem: 67.05933180049003, max mem: 78.4765625, count: 55303"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.756091047122363, max cpu: 18.640776, count: 55303"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 65.91015625,
+            "unit": "median mem",
+            "extra": "avg mem: 65.60312124229246, max mem: 76.95703125, count: 55303"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.678978912642785, max cpu: 9.356726, count: 55303"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 35.600475166356254, max mem: 37.55859375, count: 55303"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.754225481794006, max cpu: 9.365853, count: 55303"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 64.28125,
+            "unit": "median mem",
+            "extra": "avg mem: 63.85048802167152, max mem: 75.72265625, count: 55303"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.654093572285794, max cpu: 9.329447, count: 110606"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 59.96875,
+            "unit": "median mem",
+            "extra": "avg mem: 56.29830095112381, max mem: 71.30078125, count: 110606"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1813,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1808.1032855360468, max block_count: 3199.0, count: 55303"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 19,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 17.831274976041083, max segment_count: 30.0, count: 55303"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.757748302399663, max cpu: 18.677044, count: 55303"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 65.80078125,
+            "unit": "median mem",
+            "extra": "avg mem: 65.44874649374808, max mem: 76.875, count: 55303"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.582073816488372, max cpu: 4.743083, count: 55303"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 54.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 53.997862344719096, max mem: 65.30859375, count: 55303"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.205093707707399, max cpu: 4.7244096, count: 55303"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 57.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 57.067889273072886, max mem: 70.43359375, count: 55303"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778719460911,
+  "lastUpdate": 1778719492772,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3922,6 +3922,108 @@ window.BENCHMARK_DATA = {
             "value": 164.15625,
             "unit": "median mem",
             "extra": "avg mem: 182.5581407369714, max mem: 222.51171875, count: 56376"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "035982deb7c1e630e0d8a13e4ca1910b979b08f6",
+          "message": "ci: add logical-replication-merge stressgres suite to cover FSM race (#4935) (#5072)\n\nRe-opened from #5068 (originally from a fork, where CI could not access\nworkflow secrets — see\nhttps://github.com/paradedb/paradedb/actions/runs/25830120431/job/75892835684?pr=5068).\nSame intent, from a branch in this repo, with the FSM-race suite landing\nas its own file rather than folded into `logical-replication.toml`.\n\n## Changes\n\n- `stressgres/suites/logical-replication-merge.toml` (new): standalone\nsuite that reliably reproduces the FSM race from #4935 (fixed in #5067).\nLogical-replication subscriber with aggressive autovacuum (`naptime=1s`,\n`threshold=50`), small `layer_sizes = '10kb, 100kb, 1mb, 100mb'`,\nmultiple concurrent BM25 readers, and sustained UPDATE/INSERT/DELETE\ntraffic on the publisher. The key difference from\n`logical-replication.toml` is the writer: `message = message || ' ' ||\ntxid_current()` grows each row's terms unbounded, generating ~10× more\nmerge/GC pressure and reliably opening the race window — folding the\nsame churn into `logical-replication.toml` (which strips-then-appends,\nkeeping row size constant) did not reproduce the bug.\n- `.github/workflows/benchmark-pg_search-stressgres.yml`:\n- Comment out single-server, bulk-updates, wide-table, and\nbackground-merge so CI focuses on the two replication suites while we\niterate. To be re-enabled before final merge.\n- Run `logical-replication-merge.toml` **before**\n`logical-replication.toml`.\n\n`stressgres/suites/logical-replication.toml` is unchanged from `main`.\n\n## Expected behavior\n\n- Without #5067: SIGSEGV or `SegmentMetaEntryHeader: UnexpectedEnd`\nwithin minutes.\n- With #5067: runs the full duration without errors.\n\n## Follow-ups\n\n- Re-enable the four commented-out suites before final merge.\n- Antithesis wiring for this suite belongs in `paradedb-enterprise` next\nto the existing `physical-logical-replication` driver, since the OSS\nAntithesis manifest only stands up a single paradedb cluster.\n\nRef: #4935\nRelated: #5067\nSupersedes: #5068",
+          "timestamp": "2026-05-13T19:51:05-04:00",
+          "tree_id": "c71af69d7df60d54d1631876f7e3c7af0782c3e3",
+          "url": "https://github.com/paradedb/paradedb/commit/035982deb7c1e630e0d8a13e4ca1910b979b08f6"
+        },
+        "date": 1778719462435,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07210225862496898, max background_merging: 2.0, count: 56406"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7630970407991216, max cpu: 9.687184, count: 56406"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 29.25,
+            "unit": "median mem",
+            "extra": "avg mem: 29.301639148539163, max mem: 29.37109375, count: 56406"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.955518908689095, max cpu: 23.692005, count: 56406"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 186.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 179.73536981050333, max mem: 187.8984375, count: 56406"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51426,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51292.21586356062, max block_count: 51426.0, count: 56406"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.741055916037304, max segment_count: 56.0, count: 56406"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.602344239256405, max cpu: 28.543112, count: 56406"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 161.86328125,
+            "unit": "median mem",
+            "extra": "avg mem: 144.09573629689217, max mem: 169.91796875, count: 56406"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.79178050083662, max cpu: 28.290766, count: 56406"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 190.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 186.11946638821667, max mem: 190.9765625, count: 56406"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.414635,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.812196613590505, max cpu: 33.300297, count: 56406"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 163.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 182.3445331752163, max mem: 222.1328125, count: 56406"
           }
         ]
       }

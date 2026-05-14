@@ -203,16 +203,7 @@ where
                             .unwrap();
                     Ok((field, field_query_input))
                 } else {
-                    let is_datetime = value["is_datetime"].as_bool().unwrap_or(false);
-                    if is_datetime {
-                        if let Some(obj) = value.as_object_mut() {
-                            for key in ["lower_bound", "upper_bound", "value"] {
-                                if let Some(entry) = obj.get_mut(key) {
-                                    rewrite_string_as_tagged_date(entry);
-                                }
-                            }
-                        }
-                    }
+                    rewrite_is_datetime_values_to_tagged_dates(&mut value);
 
                     let mut reconstructed = serde_json::Map::new();
                     reconstructed.insert(key, value);
@@ -233,11 +224,17 @@ where
     deserializer.deserialize_map(Visitor)
 }
 
-fn rewrite_string_as_tagged_date(val: &mut serde_json::Value) {
-    if let serde_json::Value::String(s) = val {
-        *val = serde_json::json!({
-            "date": s
-        });
+const POSSIBLE_DATE_KEYS: [&str; 3] = ["lower_bound", "upper_bound", "value"];
+fn rewrite_is_datetime_values_to_tagged_dates(value: &mut serde_json::Value) {
+    let is_datetime = value["is_datetime"].as_bool().unwrap_or(false);
+    if is_datetime {
+        for key in POSSIBLE_DATE_KEYS {
+            if let Some(s) = value[key].as_str() {
+                value[key] = serde_json::json!({
+                    "date": s
+                });
+            }
+        }
     }
 }
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778788450078,
+  "lastUpdate": 1778788885505,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7414,6 +7414,54 @@ window.BENCHMARK_DATA = {
             "value": 275.0943576662008,
             "unit": "median tps",
             "extra": "avg tps: 271.50947759560665, max tps: 557.714023582793, count: 107706"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "36623265+daniel3303@users.noreply.github.com",
+            "name": "Daniel Oliveira",
+            "username": "daniel3303"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b9c06c5f75ca94cf815eb57c71c46180e84b8038",
+          "message": "fix(mlt): quote key_field identifier in internal SPI lookup (#5078)\n\n## Summary\n\n- `pdb.more_like_this(key_value)` raises `ERROR: column \"id\" does not\nexist` whenever the index's `key_field` column is a mixed-case\nPostgreSQL identifier (e.g. `\"Id\"`, `\"DocumentId\"`). Direct `@@@`-on-LHS\nsearches (`\"Content\" @@@ 'foo'`) are unaffected because they don't go\nthrough the internal SPI lookup. Repro in #5065.\n- Root cause: `pg_search/src/query/more_like_this.rs:152-157` builds the\nSPI `SELECT * FROM <ns>.<rel> WHERE <key_field> = $1` with `<ns>` and\n`<rel>` already routed through `pgrx::spi::quote_identifier`, but\ninterpolates `<key_field>` verbatim via `Display`. PostgreSQL folds the\nunquoted reference to lowercase, so a column named `\"Id\"` is looked up\nas `id` and the SPI call fails before MLT ever runs.\n- Fix: send the key field through\n`pgrx::spi::quote_identifier(key_field_name.root())`, matching how the\nnamespace and relation names are already quoted on the lines immediately\nabove. `.root()` strips the JSON sub-path (`key_field` is always a\ntop-level column).\n\n## Scope\n\nThe linked issue also lists JSON `term` filters (`@@@\n'{\"term\":{\"field\":\"Category\",…}}'::jsonb`) as failing on mixed-case\ncolumns. That path does **not** go through SPI — `term()` in\n`pg_search/src/query/pdb_query.rs:792` resolves the field via\n`schema.search_field(field.root())`, a pure Tantivy schema lookup — so\nit isn't fixed here and I couldn't find a corresponding\nunquoted-identifier hazard. If it reproduces on `0.23.x` it's a separate\nbug; tracking it on its own issue is cleaner than bundling a speculative\nfix.\n\n## Test plan\n\n- [x] `cargo test -p tests --test mlt --\nmlt_mixed_case_key_field_issue5065` — new regression test: `\"Id\"` /\n`\"Content\"` table, `key_field='Id'`, asserts `pdb.more_like_this(1)`\nreturns rows. Fails on `main` with `column \"id\" does not exist`, passes\nwith this change.\n- [x] `cargo test -p tests --test mlt` — existing\n`mlt_enables_scoring_issue1747`, `mlt_datetime_key`,\n`mlt_scoring_nested` still pass.\n- [x] `cargo pgrx regress -p pg_search --auto -- pg18 more_like_this` —\ngolden output unchanged (`quote_identifier(\"id\")` is a no-op for\nalready-lowercase identifiers).\n- [x] Manual repro from #5065 (`CREATE TABLE items (\"Id\" int primary\nkey, \"Content\" text); … pdb.more_like_this(1)`) returns rows instead of\nerroring.\n\nCloses #5065.",
+          "timestamp": "2026-05-14T14:45:18-04:00",
+          "tree_id": "812b4a66ffce7bc074cb919986f1de3b6474813f",
+          "url": "https://github.com/paradedb/paradedb/commit/b9c06c5f75ca94cf815eb57c71c46180e84b8038"
+        },
+        "date": 1778788855202,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 606.9098362591045,
+            "unit": "median tps",
+            "extra": "avg tps: 608.3753253302652, max tps: 775.6821930967739, count: 53860"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 634.7505314209125,
+            "unit": "median tps",
+            "extra": "avg tps: 637.0449470370172, max tps: 795.223894926151, count: 53860"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 89.35731503719748,
+            "unit": "median tps",
+            "extra": "avg tps: 89.58344241850413, max tps: 97.26909767143509, count: 53860"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 275.2500801879538,
+            "unit": "median tps",
+            "extra": "avg tps: 267.14663182869276, max tps: 578.5988609925361, count: 107720"
           }
         ]
       }

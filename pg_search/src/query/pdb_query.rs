@@ -740,7 +740,6 @@ fn term_set(
         .expect("field should exist in schema");
     let field_type = search_field.field_entry().field_type();
     let tantivy_field = search_field.field();
-    let is_date_time = search_field.is_datetime();
     let search_field_type = search_field.field_type();
 
     // Convert terms based on field type (uses same logic as term())
@@ -756,7 +755,7 @@ fn term_set(
                 &term,
                 field_type,
                 field.path().as_deref(),
-                is_date_time,
+                search_field.is_datetime(),
             )
             .expect("could not convert argument to search term")
         }),

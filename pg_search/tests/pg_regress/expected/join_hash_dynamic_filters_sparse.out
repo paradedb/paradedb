@@ -314,7 +314,7 @@ LIMIT 10;
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=1, dynamic_filter_pushdown=linear, query="all", metrics=[output_rows=601, output_bytes=9.4 KB, output_batches=1, rows_pruned=0, rows_scanned=601]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, dynamic_filter_pushdown=true, query="all", metrics=[output_rows=301, output_bytes=4.7 KB, output_batches=1, rows_pruned=0, rows_scanned=301]
+           :           PgSearchScan: segments=1, dynamic_filters=1, dynamic_filter_pushdown=linear, query="all", metrics=[output_rows=301, output_bytes=4.7 KB, output_batches=1, rows_pruned=0, rows_scanned=301]
 (21 rows)
 
 SET paradedb.term_set_gallop_enabled = OFF;

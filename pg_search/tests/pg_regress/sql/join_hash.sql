@@ -59,11 +59,11 @@ LIMIT 10;
 -- dynamic_filter_pushdown=... EXPLAIN token reports the chosen strategy.
 --
 -- The test asserts BOTH dispatch outcomes:
---   2a. With default gallop_max_density (1/100), K/N is too dense for gallop
---       on this small corpus → linear strategy, EXPLAIN says
---       dynamic_filter_pushdown=linear.
---   2b. With paradedb.term_set_gallop_max_density set high enough to admit
---       this corpus, gallop fires → EXPLAIN says
+--   2a. With paradedb.term_set_gallop_max_density tightened to 1/100,
+--       K/N = 0.75 is too dense for gallop on this small corpus → linear
+--       strategy, EXPLAIN says dynamic_filter_pushdown=linear.
+--   2b. With paradedb.term_set_gallop_max_density at 1.0 (which is also
+--       the default — see gucs.rs), gallop fires → EXPLAIN says
 --       dynamic_filter_pushdown=gallop.
 
 DROP TABLE IF EXISTS hash_sorted_t1 CASCADE;
@@ -93,8 +93,12 @@ WITH (
 ANALYZE hash_sorted_t1;
 ANALYZE hash_sorted_t2;
 
--- TEST 2a: default density. K/N = 0.75 ≥ 1/100, so gallop is rejected and
--- the planner lands on the LinearScan terminal.
+-- TEST 2a: tightened density. K/N = 0.75 > 1/100, so gallop is rejected and
+-- the planner lands on the LinearScan terminal. The current default
+-- gallop_max_density is 1.0 (admit on any sorted segment), so we have to
+-- explicitly tighten it to exercise the gallop-rejected branch.
+SET paradedb.term_set_gallop_max_density = 0.01;
+
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT t1.val, t2.val
 FROM hash_sorted_t1 t1
@@ -110,9 +114,12 @@ WHERE t1.val @@@ 'val'
 ORDER BY t1.id ASC
 LIMIT 10;
 
+RESET paradedb.term_set_gallop_max_density;
+
 -- TEST 2b: density = 1.0 (admit any K < N). Same data, same query — gallop
--- now fires because K/N = 0.75 < 1.0. This is the path the DemandScience
--- workload would take in production once corpus size makes K/N << 1/100.
+-- now fires because K/N = 0.75 < 1.0. 1.0 is the production default; we
+-- restore it explicitly here for clarity even though the RESET above
+-- would have the same effect.
 SET paradedb.term_set_gallop_max_density = 1.0;
 
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)

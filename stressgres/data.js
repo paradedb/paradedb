@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778789807938,
+  "lastUpdate": 1778789847135,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -858,6 +858,78 @@ window.BENCHMARK_DATA = {
             "value": 78.5884302249875,
             "unit": "median tps",
             "extra": "avg tps: 95.16167508658148, max tps: 819.5619605233395, count: 55260"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "652b0952a7f3be58ea4b9fa80a863426cf03185c",
+          "message": "chore(stressgres): remove dormant suites not wired into CI (#5085)\n\n## Summary\n\n- Removes 8 Stressgres suites that have not been touched since\nStressgres was added (#3821), are not referenced by any CI workflow or\ndriver script, and use the legacy `[setup_primary]` schema rather than\nthe current `[[server]]` schema.\n- No CI workflow changes; the 6 suites currently exercised by\n`benchmark-pg_search-stressgres.yml` (`single-server`, `bulk-updates`,\n`wide-table`, `background-merge`, `logical-replication`,\n`logical-replication-merge`) and `vanilla-postgres.toml` (used by the\nantithesis singleton driver) are kept.\n\n### Removed\n- `large-inserts.toml`\n- `lr.toml` — predecessor of `logical-replication.toml`\n- `lr-graphable.toml`\n- `lr-large-inserts.toml`\n- `lr-no-pg_search.toml`\n- `many-updates.toml` — conceptually useful (MVCC correctness with\n`assert(count, expected)` under concurrency), but on legacy schema; if\nwe want this coverage in CI it should be a deliberate port, not a\nrevival of dead config\n- `read-write.toml` — contained placeholder `<password>` literal, not\nCI-runnable\n- `topk-crash.toml`\n\n### Why now\nCompanion to #5080 (which adjusts `logical-replication.toml` to expose\nthe FSM race instead of being masked by the TOAST bug already covered by\n`logical-replication-merge.toml`). Each CI suite should own a distinct\nrepro; dormant files muddy that mapping.\n\n## Test plan\n- [x] `benchmark-pg_search-stressgres` workflow still kicks off for all\n6 in-CI suites\n- [x] Antithesis `singleton_driver_vanilla-postgres.sh` still resolves\nits suite path",
+          "timestamp": "2026-05-14T15:45:37-04:00",
+          "tree_id": "090e72f7bbb9817642fb0c7495c2b12e0eed2fe7",
+          "url": "https://github.com/paradedb/paradedb/commit/652b0952a7f3be58ea4b9fa80a863426cf03185c"
+        },
+        "date": 1778789688769,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 137.39281684252595,
+            "unit": "median tps",
+            "extra": "avg tps: 136.56424819890483, max tps: 150.073196376318, count: 55172"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 509.21697996736725,
+            "unit": "median tps",
+            "extra": "avg tps: 505.5163331458471, max tps: 634.2768942124453, count: 55172"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3219.48434629824,
+            "unit": "median tps",
+            "extra": "avg tps: 3210.943109568813, max tps: 3243.6775312895675, count: 55172"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 427.8223792293773,
+            "unit": "median tps",
+            "extra": "avg tps: 424.97874702169304, max tps: 481.4808965713553, count: 55172"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2980.789965838484,
+            "unit": "median tps",
+            "extra": "avg tps: 2987.024858281625, max tps: 3043.3900699600126, count: 110344"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 522.9684181884832,
+            "unit": "median tps",
+            "extra": "avg tps: 518.923244424194, max tps: 635.7488722298729, count: 55172"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2061.2555904638602,
+            "unit": "median tps",
+            "extra": "avg tps: 2044.6522453111265, max tps: 2072.105999251957, count: 55172"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 113.55780564806703,
+            "unit": "median tps",
+            "extra": "avg tps: 138.4911083612354, max tps: 284.8266843866841, count: 55172"
           }
         ]
       }

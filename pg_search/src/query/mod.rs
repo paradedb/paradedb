@@ -1358,39 +1358,60 @@ impl SearchQueryInput {
     }
 }
 
+fn serialize_date_aware_owned_value_date<S>(
+    value: &tantivy::DateTime,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let ov = OwnedValue::Date(*value);
+    ov.serialize(serializer)
+}
+fn deserialize_date_aware_owned_value_date<'de, D>(
+    deserializer: D,
+) -> Result<tantivy::DateTime, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match OwnedValue::deserialize(deserializer)? {
+        OwnedValue::Date(dt) => Ok(dt),
+        OwnedValue::Str(s) => TantivyDateTime::try_from(s.as_str())
+            .map(|t| t.0)
+            .map_err(serde::de::Error::custom),
+        _ => Err(serde::de::Error::invalid_value(
+            serde::de::Unexpected::Other("a non-datetime value"),
+            &"a datetime value",
+        )),
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(untagged)]
 enum DateAwareOwnedValue {
-    // hold the OwnedValue so we can get its serialization behavior instead of tantivy::DateTime's
-    Date { date: OwnedValue },
+    Date {
+        // serde through OwnedValue so we get the same datetime serialization
+        #[serde(
+            serialize_with = "serialize_date_aware_owned_value_date",
+            deserialize_with = "deserialize_date_aware_owned_value_date"
+        )]
+        date: tantivy::DateTime,
+    },
     Other(OwnedValue),
 }
 impl From<OwnedValue> for DateAwareOwnedValue {
     fn from(value: OwnedValue) -> Self {
         match value {
-            OwnedValue::Date(_) => Self::Date { date: value },
+            OwnedValue::Date(date) => Self::Date { date },
             _ => Self::Other(value),
         }
     }
 }
-impl TryFrom<DateAwareOwnedValue> for OwnedValue {
-    type Error = anyhow::Error;
-
-    fn try_from(value: DateAwareOwnedValue) -> Result<OwnedValue, Self::Error> {
+impl From<DateAwareOwnedValue> for OwnedValue {
+    fn from(value: DateAwareOwnedValue) -> OwnedValue {
         match value {
-            DateAwareOwnedValue::Date {
-                date: OwnedValue::Str(s),
-            } => {
-                let dt = TantivyDateTime::try_from(s.as_str())?;
-                Ok(OwnedValue::Date(dt.0))
-            }
-            DateAwareOwnedValue::Date {
-                date: OwnedValue::Date(d),
-            } => Ok(OwnedValue::Date(d)),
-            DateAwareOwnedValue::Date { date: _ } => {
-                Err(anyhow::anyhow!("Non-date value provided for date field"))
-            }
-            DateAwareOwnedValue::Other(owned) => Ok(owned),
+            DateAwareOwnedValue::Date { date } => OwnedValue::Date(date),
+            DateAwareOwnedValue::Other(owned) => owned,
         }
     }
 }
@@ -1411,7 +1432,7 @@ where
     D: Deserializer<'de>,
 {
     let date_aware = DateAwareOwnedValue::deserialize(deserializer)?;
-    OwnedValue::try_from(date_aware).map_err(serde::de::Error::custom)
+    Ok(OwnedValue::from(date_aware))
 }
 
 /// Convert a string-encoded numeric value to the appropriate type based on field type.

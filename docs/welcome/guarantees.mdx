@@ -4,10 +4,13 @@ description: ParadeDB ensures ACID compliance, concurrency, data integrity, and 
 canonical: https://docs.paradedb.com/welcome/guarantees
 ---
 
-### ACID
+### ACI(D)
 
 All reads and writes go through Postgres’ transaction engine. This means that inserts, updates, and deletes to indexed columns are atomic, consistent, and respect Postgres' [isolation levels](https://www.postgresql.org/docs/current/transaction-iso.html).
-As of `0.24.0`, transactions are also durable, meaning they are write-ahead (WAL) logged and will survive crashes.
+
+Durability — the "D" in ACID — means that once a transaction is committed, its changes will survive crashes or failovers. In PostgreSQL, this guarantee is provided by the write-ahead log (WAL), which ensures that all changes are safely recorded before being applied to disk.
+
+[ParadeDB Community](https://github.com/paradedb/paradedb) does **not** write to the WAL, and therefore does not guarantee durability in the face of crashes. For production use cases that require full durability, [ParadeDB Enterprise](/deploy/enterprise) — a closed-source fork of ParadeDB for enterprise customers — includes full WAL integration.
 
 ### Concurrency
 

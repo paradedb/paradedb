@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778792629783,
+  "lastUpdate": 1778792665150,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10698,6 +10698,186 @@ window.BENCHMARK_DATA = {
             "value": 32.83203125,
             "unit": "median mem",
             "extra": "avg mem: 32.12852501090912, max mem: 32.9375, count: 53854"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "652b0952a7f3be58ea4b9fa80a863426cf03185c",
+          "message": "chore(stressgres): remove dormant suites not wired into CI (#5085)\n\n## Summary\n\n- Removes 8 Stressgres suites that have not been touched since\nStressgres was added (#3821), are not referenced by any CI workflow or\ndriver script, and use the legacy `[setup_primary]` schema rather than\nthe current `[[server]]` schema.\n- No CI workflow changes; the 6 suites currently exercised by\n`benchmark-pg_search-stressgres.yml` (`single-server`, `bulk-updates`,\n`wide-table`, `background-merge`, `logical-replication`,\n`logical-replication-merge`) and `vanilla-postgres.toml` (used by the\nantithesis singleton driver) are kept.\n\n### Removed\n- `large-inserts.toml`\n- `lr.toml` — predecessor of `logical-replication.toml`\n- `lr-graphable.toml`\n- `lr-large-inserts.toml`\n- `lr-no-pg_search.toml`\n- `many-updates.toml` — conceptually useful (MVCC correctness with\n`assert(count, expected)` under concurrency), but on legacy schema; if\nwe want this coverage in CI it should be a deliberate port, not a\nrevival of dead config\n- `read-write.toml` — contained placeholder `<password>` literal, not\nCI-runnable\n- `topk-crash.toml`\n\n### Why now\nCompanion to #5080 (which adjusts `logical-replication.toml` to expose\nthe FSM race instead of being masked by the TOAST bug already covered by\n`logical-replication-merge.toml`). Each CI suite should own a distinct\nrepro; dormant files muddy that mapping.\n\n## Test plan\n- [x] `benchmark-pg_search-stressgres` workflow still kicks off for all\n6 in-CI suites\n- [x] Antithesis `singleton_driver_vanilla-postgres.sh` still resolves\nits suite path",
+          "timestamp": "2026-05-14T15:45:37-04:00",
+          "tree_id": "090e72f7bbb9817642fb0c7495c2b12e0eed2fe7",
+          "url": "https://github.com/paradedb/paradedb/commit/652b0952a7f3be58ea4b9fa80a863426cf03185c"
+        },
+        "date": 1778792631705,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.0675756210946155, max cpu: 9.275363, count: 53870"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 53.1328125,
+            "unit": "median mem",
+            "extra": "avg mem: 53.135238914284386, max mem: 59.03515625, count: 53870"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.46079145620146, max cpu: 4.58891, count: 53870"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 32.04296875,
+            "unit": "median mem",
+            "extra": "avg mem: 31.326078623886207, max mem: 32.32421875, count: 53870"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.116809,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.7211704764018165, max cpu: 18.461538, count: 53870"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 55.96484375,
+            "unit": "median mem",
+            "extra": "avg mem: 55.63185794505291, max mem: 61.92578125, count: 53870"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.088227265746156, max cpu: 9.266409, count: 53870"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 52.27734375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.25836823603119, max mem: 58.1796875, count: 53870"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.622492382768815, max cpu: 9.195402, count: 53870"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 34.03125,
+            "unit": "median mem",
+            "extra": "avg mem: 33.99163952280954, max mem: 39.0859375, count: 53870"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1118,
+            "unit": "median pages",
+            "extra": "avg pages: 1115.9302209021719, max pages: 1855.0, count: 53870"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.734375,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.718204850798218, max relation_size:MB: 14.4921875, count: 53870"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.055541117505104, max segment_count: 13.0, count: 53870"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.288567152151915, max cpu: 4.6153846, count: 53870"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.46049727642937, max mem: 29.55078125, count: 53870"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.512721107362955, max cpu: 4.6065254, count: 53870"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.1328125,
+            "unit": "median mem",
+            "extra": "avg mem: 28.419054045038983, max mem: 29.484375, count: 53870"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.146690856494597, max cpu: 22.900763, count: 53870"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 51.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.161940130754594, max mem: 57.07421875, count: 53870"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.00003479765854320877, max replication_lag:MB: 0.31896209716796875, count: 53870"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.338102041503427, max cpu: 13.899614, count: 107740"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 51.9140625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.85302362748283, max mem: 58.1015625, count: 107740"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.4915020219304616, max cpu: 4.6021094, count: 53870"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 32.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 32.26220364128921, max mem: 33.328125, count: 53870"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5454545,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.2556883986337555, max cpu: 4.6065254, count: 53870"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 33.05078125,
+            "unit": "median mem",
+            "extra": "avg mem: 32.34186133863932, max mem: 33.16796875, count: 53870"
           }
         ]
       }

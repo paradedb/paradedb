@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778788205759,
+  "lastUpdate": 1778788237813,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6578,6 +6578,114 @@ window.BENCHMARK_DATA = {
             "value": 173.765625,
             "unit": "median mem",
             "extra": "avg mem: 171.35421608079253, max mem: 174.75390625, count: 55494"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "36623265+daniel3303@users.noreply.github.com",
+            "name": "Daniel Oliveira",
+            "username": "daniel3303"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b9c06c5f75ca94cf815eb57c71c46180e84b8038",
+          "message": "fix(mlt): quote key_field identifier in internal SPI lookup (#5078)\n\n## Summary\n\n- `pdb.more_like_this(key_value)` raises `ERROR: column \"id\" does not\nexist` whenever the index's `key_field` column is a mixed-case\nPostgreSQL identifier (e.g. `\"Id\"`, `\"DocumentId\"`). Direct `@@@`-on-LHS\nsearches (`\"Content\" @@@ 'foo'`) are unaffected because they don't go\nthrough the internal SPI lookup. Repro in #5065.\n- Root cause: `pg_search/src/query/more_like_this.rs:152-157` builds the\nSPI `SELECT * FROM <ns>.<rel> WHERE <key_field> = $1` with `<ns>` and\n`<rel>` already routed through `pgrx::spi::quote_identifier`, but\ninterpolates `<key_field>` verbatim via `Display`. PostgreSQL folds the\nunquoted reference to lowercase, so a column named `\"Id\"` is looked up\nas `id` and the SPI call fails before MLT ever runs.\n- Fix: send the key field through\n`pgrx::spi::quote_identifier(key_field_name.root())`, matching how the\nnamespace and relation names are already quoted on the lines immediately\nabove. `.root()` strips the JSON sub-path (`key_field` is always a\ntop-level column).\n\n## Scope\n\nThe linked issue also lists JSON `term` filters (`@@@\n'{\"term\":{\"field\":\"Category\",…}}'::jsonb`) as failing on mixed-case\ncolumns. That path does **not** go through SPI — `term()` in\n`pg_search/src/query/pdb_query.rs:792` resolves the field via\n`schema.search_field(field.root())`, a pure Tantivy schema lookup — so\nit isn't fixed here and I couldn't find a corresponding\nunquoted-identifier hazard. If it reproduces on `0.23.x` it's a separate\nbug; tracking it on its own issue is cleaner than bundling a speculative\nfix.\n\n## Test plan\n\n- [x] `cargo test -p tests --test mlt --\nmlt_mixed_case_key_field_issue5065` — new regression test: `\"Id\"` /\n`\"Content\"` table, `key_field='Id'`, asserts `pdb.more_like_this(1)`\nreturns rows. Fails on `main` with `column \"id\" does not exist`, passes\nwith this change.\n- [x] `cargo test -p tests --test mlt` — existing\n`mlt_enables_scoring_issue1747`, `mlt_datetime_key`,\n`mlt_scoring_nested` still pass.\n- [x] `cargo pgrx regress -p pg_search --auto -- pg18 more_like_this` —\ngolden output unchanged (`quote_identifier(\"id\")` is a no-op for\nalready-lowercase identifiers).\n- [x] Manual repro from #5065 (`CREATE TABLE items (\"Id\" int primary\nkey, \"Content\" text); … pdb.more_like_this(1)`) returns rows instead of\nerroring.\n\nCloses #5065.",
+          "timestamp": "2026-05-14T14:45:18-04:00",
+          "tree_id": "812b4a66ffce7bc074cb919986f1de3b6474813f",
+          "url": "https://github.com/paradedb/paradedb/commit/b9c06c5f75ca94cf815eb57c71c46180e84b8038"
+        },
+        "date": 1778788207494,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.839973004471233, max cpu: 46.28737, count: 55509"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 178.89453125,
+            "unit": "median mem",
+            "extra": "avg mem: 176.8456074549848, max mem: 179.08984375, count: 55509"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.708383136090712, max cpu: 28.042841, count: 55509"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 119.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 118.67777234040877, max mem: 120.1484375, count: 55509"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.1576999264611585, max cpu: 18.731707, count: 55509"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 172.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 146.52505400306708, max mem: 180.71875, count: 55509"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16548,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16857.340593417284, max block_count: 31551.0, count: 55509"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.267633514426484, max cpu: 4.6647234, count: 55509"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 109.25,
+            "unit": "median mem",
+            "extra": "avg mem: 95.80017514051775, max mem: 136.75390625, count: 55509"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 25.42991226647931, max segment_count: 37.0, count: 55509"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.257474,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.070541565048964, max cpu: 32.495163, count: 111018"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 181.015625,
+            "unit": "median mem",
+            "extra": "avg mem: 163.55263184376633, max mem: 184.3828125, count: 111018"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.754426643546875, max cpu: 27.745665, count: 55509"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 173.9375,
+            "unit": "median mem",
+            "extra": "avg mem: 171.2731489769677, max mem: 174.74609375, count: 55509"
           }
         ]
       }

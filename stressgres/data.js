@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778798590886,
+  "lastUpdate": 1778798625646,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4122,6 +4122,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.96823170942834, max segment_count: 134.0, count: 57762"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "21bdc9a753582039cc25a38cb07111026c0fd378",
+          "message": "feat: Crash recovery via WAL (#4901)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nPorts WAL integration over to community, which gives `pg_search` crash\nrecovery.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-05-14T14:59:53-07:00",
+          "tree_id": "7580b5f2bfcc1a95ed1b62c4628f2ec6129b7c00",
+          "url": "https://github.com/paradedb/paradedb/commit/21bdc9a753582039cc25a38cb07111026c0fd378"
+        },
+        "date": 1778798592482,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.729577064515652, max cpu: 42.899704, count: 57916"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.98046875,
+            "unit": "median mem",
+            "extra": "avg mem: 235.77589296891188, max mem: 237.52734375, count: 57916"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.386974823808412, max cpu: 33.366436, count: 57916"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 177.89453125,
+            "unit": "median mem",
+            "extra": "avg mem: 177.71920634518096, max mem: 178.69921875, count: 57916"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34579,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33874.113371089166, max block_count: 36626.0, count: 57916"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 82.15822915947234, max segment_count: 133.0, count: 57916"
           }
         ]
       }

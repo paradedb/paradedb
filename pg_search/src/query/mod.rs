@@ -203,6 +203,17 @@ where
                             .unwrap();
                     Ok((field, field_query_input))
                 } else {
+                    let is_datetime = value["is_datetime"].as_bool().unwrap_or(false);
+                    if is_datetime {
+                        if let Some(obj) = value.as_object_mut() {
+                            for key in ["lower_bound", "upper_bound", "value"] {
+                                if let Some(entry) = obj.get_mut(key) {
+                                    rewrite_string_as_tagged_date(entry);
+                                }
+                            }
+                        }
+                    }
+
                     let mut reconstructed = serde_json::Map::new();
                     reconstructed.insert(key, value);
 
@@ -220,6 +231,14 @@ where
         }
     }
     deserializer.deserialize_map(Visitor)
+}
+
+fn rewrite_string_as_tagged_date(val: &mut serde_json::Value) {
+    if let serde_json::Value::String(s) = val {
+        *val = serde_json::json!({
+            "date": s
+        });
+    }
 }
 
 impl SearchQueryInput {

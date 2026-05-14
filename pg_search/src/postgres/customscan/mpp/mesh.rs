@@ -37,7 +37,7 @@ use datafusion::common::DataFusionError;
 /// MAXALIGN-aligned; this rounds the user request down so every slot in a
 /// queue array is the same size and slot indexing is a simple multiply.
 #[inline]
-pub fn aligned_queue_bytes(queue_bytes: usize) -> usize {
+pub(super) fn aligned_queue_bytes(queue_bytes: usize) -> usize {
     const MAXIMUM_ALIGNOF: usize = pg_sys::MAXIMUM_ALIGNOF as usize;
     queue_bytes & !(MAXIMUM_ALIGNOF - 1)
 }
@@ -46,7 +46,7 @@ pub fn aligned_queue_bytes(queue_bytes: usize) -> usize {
 /// on overflow. Used by [`super::dsm::compute_dsm_layout`] to keep section
 /// boundaries inside the DSM region MAXALIGN-aligned.
 #[inline]
-pub fn align_up_maxalign_checked(n: usize) -> Option<usize> {
+pub(super) fn align_up_maxalign_checked(n: usize) -> Option<usize> {
     const MAXIMUM_ALIGNOF: usize = pg_sys::MAXIMUM_ALIGNOF as usize;
     let mask = MAXIMUM_ALIGNOF - 1;
     n.checked_add(mask).map(|x| x & !mask)
@@ -60,7 +60,7 @@ pub fn align_up_maxalign_checked(n: usize) -> Option<usize> {
 /// dedicated parallel-worker backend. The blocking `shm_mq_send(nowait=false)`
 /// path uses `WaitLatch` + `CHECK_FOR_INTERRUPTS` — both process-global
 /// Postgres primitives, not thread-safe off a backend thread.
-pub struct ShmMqSender {
+pub(super) struct ShmMqSender {
     inner: MessageQueueSender,
     attach_thread: std::thread::ThreadId,
 }
@@ -138,7 +138,7 @@ impl BatchChannelSender for ShmMqSender {
 /// shm_mq-backed `BatchChannelReceiver`. The leader creates the shm_mq via
 /// `shm_mq_create` during DSM init; this attaches as receiver to an already-
 /// initialized queue.
-pub struct ShmMqReceiver {
+pub(super) struct ShmMqReceiver {
     inner: MessageQueueReceiver,
 }
 

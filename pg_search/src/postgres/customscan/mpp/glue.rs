@@ -79,7 +79,7 @@ pub fn mpp_worker_count() -> u32 {
 }
 
 /// Per-edge queue size from the GUC.
-pub fn mpp_queue_size() -> usize {
+pub(super) fn mpp_queue_size() -> usize {
     gucs_mpp_queue_size()
 }
 
@@ -100,7 +100,7 @@ pub fn producer_worker_count() -> u32 {
 
 /// Total participant count: 1 leader + N producer workers. This is the
 /// dimension of the multiplexed `n_procs × n_procs` shm_mq grid.
-pub fn n_procs() -> u32 {
+pub(super) fn n_procs() -> u32 {
     mpp_worker_count()
 }
 

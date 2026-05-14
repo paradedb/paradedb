@@ -56,16 +56,16 @@ use crate::postgres::customscan::mpp::mesh::{
     align_up_maxalign_checked, aligned_queue_bytes, ShmMqReceiver, ShmMqSender,
 };
 
-pub const MPP_DSM_MAGIC: u32 = 0x4D50_5052; // "MPPR" (RPC variant)
+const MPP_DSM_MAGIC: u32 = 0x4D50_5052; // "MPPR" (RPC variant)
 /// Bumped on any wire-incompatible change to the DSM header layout or to the slot-offset math,
 /// so attaching workers reject mismatched leaders loudly rather than reading garbage. Validated
 /// in [`MppDsmHeader::validate`].
-pub const MPP_DSM_HEADER_VERSION: u32 = 3;
+const MPP_DSM_HEADER_VERSION: u32 = 3;
 
 /// Absolute cap on DSM region size. 16 GiB is two orders of magnitude beyond
 /// any realistic workload; the cap fails early on a pathologically oversized
 /// request rather than asking PG for ~`usize::MAX` bytes.
-pub const MPP_DSM_MAX_BYTES: usize = 16 * 1024 * 1024 * 1024;
+const MPP_DSM_MAX_BYTES: usize = 16 * 1024 * 1024 * 1024;
 
 /// C-repr header at offset 0 of the DSM region.
 ///
@@ -156,7 +156,7 @@ pub struct DsmLayout {
 /// `n_procs` is the total participant count (1 leader + N workers). The
 /// shm_mq grid is `n_procs × n_procs`; each process attaches as sender to its
 /// row and receiver to its column.
-pub fn compute_dsm_layout(
+pub(super) fn compute_dsm_layout(
     n_procs: u32,
     queue_bytes: usize,
     plan_len: usize,
@@ -210,16 +210,16 @@ pub fn compute_dsm_layout(
 pub struct ProcAttach {
     /// `outbound_senders[i]` writes to `slot(this_proc, peer_proc(i))` where
     /// `peer_proc(i) = i if i < this_proc else i + 1` (skipping the self-loop).
-    pub outbound_senders: Vec<ShmMqSender>,
+    pub(super) outbound_senders: Vec<ShmMqSender>,
     /// `inbound_receivers[i]` reads from `slot(peer_proc(i), this_proc)`,
     /// same skip-self-loop mapping as `outbound_senders`.
-    pub inbound_receivers: Vec<ShmMqReceiver>,
+    pub(super) inbound_receivers: Vec<ShmMqReceiver>,
 }
 
 /// Translate a peer index (`0..n_procs - 1`) into a process index
 /// (`0..n_procs`) by skipping the self-loop slot.
 #[inline]
-pub fn peer_proc_for_index(this_proc: u32, peer_idx: u32) -> u32 {
+pub(super) fn peer_proc_for_index(this_proc: u32, peer_idx: u32) -> u32 {
     if peer_idx < this_proc {
         peer_idx
     } else {

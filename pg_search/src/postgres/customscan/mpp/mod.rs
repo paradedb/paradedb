@@ -58,3 +58,21 @@ macro_rules! mpp_log {
         { let _ = format_args!($($arg)*); }
     };
 }
+
+/// Fatal MPP-internal invariant breach. Same `!` return type as `pgrx::error!` /
+/// `panic!`, so it can sit in any `match` arm or expression position.
+///
+/// In production this calls `pgrx::error!`, which aborts the transaction via PG's ereport
+/// machinery. In `cargo test` the lib-test binary doesn't link against postgres, so we fall
+/// back to `panic!` with the same message. Either way the call site stays readable —
+/// `fail_loud(format!(...))` — instead of carrying a `#[cfg(not(test))] pgrx::error!` /
+/// `#[cfg(test)] panic!` arm pair at every fatal MPP invariant breach.
+#[cfg(not(test))]
+pub fn fail_loud(msg: String) -> ! {
+    pgrx::error!("{}", msg);
+}
+
+#[cfg(test)]
+pub fn fail_loud(msg: String) -> ! {
+    panic!("{}", msg);
+}

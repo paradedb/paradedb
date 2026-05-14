@@ -865,10 +865,16 @@ pub struct DrainHandle {
     /// `check_active_thread` guard. `None` when the handle was spawned
     /// instead of constructed cooperatively.
     ///
-    /// `Send` bound on `MppReceiver` is preserved — the receivers move
-    /// thread-once at construction then are only accessed from the backend
-    /// thread; the `Mutex` is just for interior mutability, not
-    /// cross-thread coordination.
+    /// The `Mutex` is load-bearing for `Sync`: `BatchChannelReceiver` is
+    /// `Send`-only, so `MppReceiver: !Sync` and a bare
+    /// `Vec<Option<MppReceiver>>` would be `!Sync`. `DrainHandle: Sync` is
+    /// required because callers wrap it in `Arc<DrainHandle>` and upcast
+    /// through `Arc<dyn CooperativeDrainSet>` (which is `Send + Sync`).
+    /// Receivers are still only *accessed* from the backend thread —
+    /// `try_drain_pass` doesn't race — the `Mutex` is what makes the bound
+    /// expressible. Tightening `BatchChannelReceiver` to `Send + Sync` would
+    /// let this drop the `Mutex`; both impls (`ShmMqReceiver`, `InProcReceiver`)
+    /// look safe to share by reference, but that's a separate change.
     coop_receivers: Mutex<Option<Vec<Option<MppReceiver>>>>,
 }
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778801761529,
+  "lastUpdate": 1778801794400,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4422,6 +4422,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 82.15822915947234, max segment_count: 133.0, count: 57916"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d99908a1f58307567dd34698345b3fc836be6135",
+          "message": "feat(antithesis): add singleton drivers for logical-replication suites (#5087)\n\n## Summary\n\nAdds OSS Antithesis singleton drivers for the two CI\n`logical-replication` suites that previously had no singleton\n(`single-server`, `bulk-updates`, `wide-table`, `background-merge`, and\n`vanilla-postgres` already had one).\n\nMirrors the enterprise pattern used for `physical-logical-replication`:\n- A **vanilla Postgres 18** publisher pod (with `wal_level=logical`)\nthat lives outside the CNPG cluster, reflecting real-world\nlogical-replication topologies where the upstream primary is not under\nour control.\n- Subscriber points at `paradedb-rw` (the CNPG primary, which has\n`pg_search`).\n\n## Changes\n- `docker/manifests/antithesis-paradedb.yaml` — add\n`logical-replication-publisher` Service + Deployment (vanilla Postgres\n18 with `wal_level=logical`), reusing the existing `paradedb-superuser`\nsecret.\n- `stressgres/suites/logical-replication.toml`,\n`stressgres/suites/logical-replication-merge.toml` — drop `CREATE\nEXTENSION pg_search` from the **Publisher** setup. Only the Subscriber\nuses `pg_search`; the line was cosmetic and incompatible with a vanilla\nPostgres publisher (the line in the Subscriber setup is unchanged).\n-\n`stressgres/suites/antithesis/singleton_driver_logical-replication.sh`,\n`singleton_driver_logical-replication-merge.sh` — new drivers that\nperform per-block `sed -z` rewrites of the `[server.style.Automatic]`\nblocks into `[server.style.With]` connection strings (Publisher →\n`logical-replication-publisher:5432`, Subscriber → `paradedb-rw:5432`).\n- `.github/workflows/antithesis-trigger-test-run.yml` — add\n`logical-replication-publisher` to\n`container_faults_stop_exclusion_patterns` and\n`container_faults_kill_exclusion_patterns`, matching enterprise. Network\nfaults to/from the publisher are intentionally still injected.\n\n## Why\nWithout these, the FSM race repro in `logical-replication-merge.toml`\n(issue #4935, fixed by #5067) and the broader logical-replication\ncoverage in `logical-replication.toml` were running in\n`benchmark-pg_search-stressgres` but had no Antithesis fault-injection\nequivalent — that's the half of the matrix where the bugs originally\nsurfaced.\n\n## Test plan\n- [x] Antithesis trigger workflow picks up both new singleton drivers\nfrom `/opt/antithesis/test/v1/quickstart/`\n- [x] Publisher pod (`logical-replication-publisher`) starts with\n`wal_level=logical` and is reachable from the stressgres-runner pod\n- [x] Subscriber's `CREATE SUBSCRIPTION ... CONNECTION\n'@Publisher_CONNSTR@'` resolves to the publisher pod after the `sed`\nrewrite\n- [x] `logical-replication-merge.toml` still reproduces the FSM race\nwhen run against a build without #5067\n- [x] `benchmark-pg_search-stressgres` (local Stressgres, not\nAntithesis) still runs both suites unchanged",
+          "timestamp": "2026-05-14T18:54:16-04:00",
+          "tree_id": "8c7a6dab334db43248e88e7a4ebc75fd5840e446",
+          "url": "https://github.com/paradedb/paradedb/commit/d99908a1f58307567dd34698345b3fc836be6135"
+        },
+        "date": 1778801763185,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.446608089099144, max cpu: 43.548386, count: 57839"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 236.0078125,
+            "unit": "median mem",
+            "extra": "avg mem: 235.82522821971335, max mem: 237.6484375, count: 57839"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.376473187044944, max cpu: 33.3996, count: 57839"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 178.04296875,
+            "unit": "median mem",
+            "extra": "avg mem: 177.82702786776656, max mem: 178.56640625, count: 57839"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 35102,
+            "unit": "median block_count",
+            "extra": "avg block_count: 34076.36961219938, max block_count: 36820.0, count: 57839"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 80,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 82.50156468818618, max segment_count: 134.0, count: 57839"
           }
         ]
       }

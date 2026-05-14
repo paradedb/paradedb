@@ -17,17 +17,14 @@
 
 //! MPP worker fragment runner.
 //!
-//! "Worker" matches the DF-D fork's terminology — every distributed task is
-//! a `WorkerConnection` on the receive side, and the fragment runner is
-//! that worker's push side.
+//! "Worker" matches the DF-D fork's terminology. Every distributed task is a `WorkerConnection`
+//! on the receive side, and the fragment runner is that worker's push side.
 //!
-//! - [`run_worker_fragment`] — PG-parallel-worker push loop. Runs the
-//!   `n_partitions` output partitions of `plan` concurrently; each batch
-//!   yielded by partition `p` is encoded and pushed through
-//!   `outbound_senders[p]`. Returns when every output stream is exhausted.
-//!   The leader is consumer-only in this iteration (see
-//!   [`crate::postgres::customscan::mpp::glue::producer_worker_count`]);
-//!   leader-as-worker-0 is a deferred follow-up.
+//! - [`run_worker_fragment`]: PG-parallel-worker push loop. Runs the `n_partitions` output
+//!   partitions of `plan` concurrently; each batch yielded by partition `p` is encoded and pushed
+//!   through `outbound_senders[p]`. Returns when every output stream is exhausted. Only producer
+//!   workers call this; the leader is consumer-only (see
+//!   [`crate::postgres::customscan::mpp::glue::producer_worker_count`]).
 
 use std::sync::Arc;
 
@@ -67,23 +64,51 @@ pub async fn run_worker_fragment(
         let ctx = Arc::clone(&ctx);
         let sender = Arc::clone(sender);
         futures.push(async move {
-            let mut stream = plan.execute(partition, ctx)?;
             let mut stats = SendBatchStats::default();
-            while let Some(batch) = stream.next().await {
-                let batch = batch?;
-                if batch.num_rows() == 0 {
-                    continue;
+            // Run the partition stream to exhaustion; capture either the
+            // first error or Ok(()) so we can still emit the per-channel
+            // EOF below regardless of how the stream ended.
+            let stream_result: Result<(), DataFusionError> = async {
+                let mut stream = plan.execute(partition, ctx)?;
+                while let Some(batch) = stream.next().await {
+                    let batch = batch?;
+                    if batch.num_rows() == 0 {
+                        continue;
+                    }
+                    sender
+                        .as_ref()
+                        .send_batch_traced(&batch, &mut stats)
+                        .await?;
                 }
-                sender
-                    .as_ref()
-                    .send_batch_traced(&batch, &mut stats)
-                    .await?;
+                Ok(())
             }
-            Ok::<(), DataFusionError>(())
+            .await;
+            // Signal channel EOF so the consumer's per-(stage_id, partition) sub-buffer transitions
+            // to Eof. Don't rely on the shared shm_mq queue detaching: multiple fragments multiplex
+            // over the same queue, so dropping this partition's sender doesn't close it.
+            //
+            // CORRECTNESS: send EOF even when the stream errored. Skip it; a producer-side error
+            // (say a mid-scan I/O failure) leaves the consumer's sub-buffer stuck at
+            // `sources_done == 0` and the leader's `select_all` blocks forever. The deadlock
+            // detector only fires under `paradedb.mpp_debug = on`; otherwise the hang is silent.
+            let eof_result = sender.as_ref().send_eof_traced(&mut stats).await;
+            // Propagate the stream's error first; otherwise surface any EOF send error so failure
+            // modes don't silently disappear.
+            stream_result.and(eof_result)
         });
     }
-    futures::future::try_join_all(futures).await?;
-    // Drop senders so peers observe Detached on their next try_recv.
+    // `join_all`, not `try_join_all`. Fail-fast `try_join_all` would cancel sibling partitions
+    // mid-`await` on the first `Err`, and a cancelled sibling never reaches its
+    // `send_eof_traced`. The consumer's sub-buffer for that channel would stay at
+    // `sources_done == 0` and the leader's `select_all` would block forever unless the backend
+    // tore down and the shm_mq queue detached. `join_all` drives every partition through its EOF
+    // send before we propagate the first error.
+    let results = futures::future::join_all(futures).await;
+    // Drop senders so peers observe `Detached` on their next try_recv even if a partition's EOF
+    // send itself errored.
     drop(senders);
+    for r in results {
+        r?;
+    }
     Ok(())
 }

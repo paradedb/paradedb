@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778788885505,
+  "lastUpdate": 1778788917658,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9078,6 +9078,186 @@ window.BENCHMARK_DATA = {
             "value": 33.34375,
             "unit": "median mem",
             "extra": "avg mem: 32.66242283681967, max mem: 33.75390625, count: 53853"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "36623265+daniel3303@users.noreply.github.com",
+            "name": "Daniel Oliveira",
+            "username": "daniel3303"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b9c06c5f75ca94cf815eb57c71c46180e84b8038",
+          "message": "fix(mlt): quote key_field identifier in internal SPI lookup (#5078)\n\n## Summary\n\n- `pdb.more_like_this(key_value)` raises `ERROR: column \"id\" does not\nexist` whenever the index's `key_field` column is a mixed-case\nPostgreSQL identifier (e.g. `\"Id\"`, `\"DocumentId\"`). Direct `@@@`-on-LHS\nsearches (`\"Content\" @@@ 'foo'`) are unaffected because they don't go\nthrough the internal SPI lookup. Repro in #5065.\n- Root cause: `pg_search/src/query/more_like_this.rs:152-157` builds the\nSPI `SELECT * FROM <ns>.<rel> WHERE <key_field> = $1` with `<ns>` and\n`<rel>` already routed through `pgrx::spi::quote_identifier`, but\ninterpolates `<key_field>` verbatim via `Display`. PostgreSQL folds the\nunquoted reference to lowercase, so a column named `\"Id\"` is looked up\nas `id` and the SPI call fails before MLT ever runs.\n- Fix: send the key field through\n`pgrx::spi::quote_identifier(key_field_name.root())`, matching how the\nnamespace and relation names are already quoted on the lines immediately\nabove. `.root()` strips the JSON sub-path (`key_field` is always a\ntop-level column).\n\n## Scope\n\nThe linked issue also lists JSON `term` filters (`@@@\n'{\"term\":{\"field\":\"Category\",…}}'::jsonb`) as failing on mixed-case\ncolumns. That path does **not** go through SPI — `term()` in\n`pg_search/src/query/pdb_query.rs:792` resolves the field via\n`schema.search_field(field.root())`, a pure Tantivy schema lookup — so\nit isn't fixed here and I couldn't find a corresponding\nunquoted-identifier hazard. If it reproduces on `0.23.x` it's a separate\nbug; tracking it on its own issue is cleaner than bundling a speculative\nfix.\n\n## Test plan\n\n- [x] `cargo test -p tests --test mlt --\nmlt_mixed_case_key_field_issue5065` — new regression test: `\"Id\"` /\n`\"Content\"` table, `key_field='Id'`, asserts `pdb.more_like_this(1)`\nreturns rows. Fails on `main` with `column \"id\" does not exist`, passes\nwith this change.\n- [x] `cargo test -p tests --test mlt` — existing\n`mlt_enables_scoring_issue1747`, `mlt_datetime_key`,\n`mlt_scoring_nested` still pass.\n- [x] `cargo pgrx regress -p pg_search --auto -- pg18 more_like_this` —\ngolden output unchanged (`quote_identifier(\"id\")` is a no-op for\nalready-lowercase identifiers).\n- [x] Manual repro from #5065 (`CREATE TABLE items (\"Id\" int primary\nkey, \"Content\" text); … pdb.more_like_this(1)`) returns rows instead of\nerroring.\n\nCloses #5065.",
+          "timestamp": "2026-05-14T14:45:18-04:00",
+          "tree_id": "812b4a66ffce7bc074cb919986f1de3b6474813f",
+          "url": "https://github.com/paradedb/paradedb/commit/b9c06c5f75ca94cf815eb57c71c46180e84b8038"
+        },
+        "date": 1778788887117,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.047711540903169, max cpu: 9.402546, count: 53860"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 52.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.85444780159209, max mem: 58.93359375, count: 53860"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.9291705984804612, max cpu: 4.610951, count: 53860"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 32.453125,
+            "unit": "median mem",
+            "extra": "avg mem: 31.77339550744987, max mem: 33.18359375, count: 53860"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.151573,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.261153963461654, max cpu: 18.461538, count: 53860"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 55.5546875,
+            "unit": "median mem",
+            "extra": "avg mem: 55.309295946667284, max mem: 61.71484375, count: 53860"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.07798161104245, max cpu: 9.302325, count: 53860"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 52.1640625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.25051943116413, max mem: 58.3671875, count: 53860"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.645844990827023, max cpu: 9.221902, count: 53860"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 34.10546875,
+            "unit": "median mem",
+            "extra": "avg mem: 34.14847775192629, max mem: 39.34765625, count: 53860"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1121,
+            "unit": "median pages",
+            "extra": "avg pages: 1129.589974006684, max pages: 1890.0, count: 53860"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.7578125,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.82492167192722, max relation_size:MB: 14.765625, count: 53860"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.781433345711102, max segment_count: 17.0, count: 53860"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.22253345243212, max cpu: 4.6153846, count: 53860"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.22265625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.55854871135815, max mem: 29.69921875, count: 53860"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5454545,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.78078782469151, max cpu: 4.610951, count: 53860"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.21875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.594308014992574, max mem: 29.74609375, count: 53860"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.6065254,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.5857090811865575, max cpu: 27.480915, count: 53860"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 51.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.63217463388879, max mem: 57.765625, count: 53860"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000024277934610201796, max replication_lag:MB: 0.063232421875, count: 53860"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.300384641976074, max cpu: 13.806328, count: 107720"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 51.53125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.61655115693465, max mem: 57.95703125, count: 107720"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.494382,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.4808595238927817, max cpu: 4.628737, count: 53860"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 32.9140625,
+            "unit": "median mem",
+            "extra": "avg mem: 32.136263431813965, max mem: 32.96875, count: 53860"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.991236802854422, max cpu: 4.619827, count: 53860"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 33.203125,
+            "unit": "median mem",
+            "extra": "avg mem: 32.510448312175086, max mem: 33.62890625, count: 53860"
           }
         ]
       }

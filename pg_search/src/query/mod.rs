@@ -1222,7 +1222,6 @@ impl SearchQueryInput {
                             .ok_or_else(|| QueryError::NonIndexedField(field.clone()))
                             .expect("could not find search field");
                         let field_type = search_field.field_entry().field_type();
-                        let is_datetime = search_field.is_datetime();
 
                         // Convert string numeric values to appropriate types for JSON fields
                         let value = convert_for_field_type(&value, field_type);
@@ -1232,7 +1231,7 @@ impl SearchQueryInput {
                             &value,
                             field_type,
                             field.path().as_deref(),
-                            is_datetime,
+                            search_field.is_datetime(),
                         )
                         .expect("could not convert argument to search term")
                     },

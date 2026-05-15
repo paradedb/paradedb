@@ -21,8 +21,8 @@ WHERE 'dog' = ANY(description)
 AND id @@@ pdb.all()
 ORDER BY id
 LIMIT 10;
-                                                                            QUERY PLAN                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on pushdown
          Table: pushdown
@@ -31,7 +31,7 @@ LIMIT 10;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 10
-         Tantivy Query: {"boolean":{"must":[{"term":{"field":"description","value":"dog","is_datetime":false}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"term":{"field":"description","value":"dog"}},{"with_index":{"query":{"all":{"field":"id"}}}}]}}
 (9 rows)
 
 SELECT * FROM pushdown

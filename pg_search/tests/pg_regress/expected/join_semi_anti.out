@@ -77,7 +77,7 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[table_a]
            :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}
+           :           PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1"}}
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
@@ -144,7 +144,7 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[table_a]
            :       HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(a_id@0, id@1)]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"term_set":{"terms":[{"field":"group_id","value":"group_3","is_datetime":false},{"field":"group_id","value":"group_4","is_datetime":false}]}}
+           :           PgSearchScan: segments=1, query={"term_set":{"terms":[{"field":"group_id","value":"group_3"},{"field":"group_id","value":"group_4"}]}}
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
 (17 rows)
@@ -248,8 +248,8 @@ WHERE (id, category) IN (
 AND id @@@ pdb.all()
 ORDER BY id ASC
 LIMIT 10;
-                                                        QUERY PLAN                                                         
----------------------------------------------------------------------------------------------------------------------------
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: table_a.id, table_a.category
    ->  Custom Scan (ParadeDB Join Scan)
@@ -264,7 +264,7 @@ LIMIT 10;
            :     VisibilityFilterExec: tables=[table_a]
            :       HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1), (category@1, category@2)]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}
+           :           PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1"}}
            :         CooperativeExec
            :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"all":{"field":"id"}}}}
 (17 rows)
@@ -324,7 +324,7 @@ LIMIT 10;
            :       VisibilityFilterExec: tables=[table_a]
            :         HashJoinExec: mode=CollectLeft, join_type=RightSemi, on=[(a_id@0, id@1)]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1","is_datetime":false}}
+           :             PgSearchScan: segments=1, query={"term":{"field":"group_id","value":"group_1"}}
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"id","query_string":"category:\"target_category\"","lenient":null,"conjunction_mode":null}}}}
 (18 rows)

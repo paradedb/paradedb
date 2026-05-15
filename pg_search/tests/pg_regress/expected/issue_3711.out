@@ -5,14 +5,14 @@ INSERT INTO ints (i, j) VALUES (1, 2), (2, 3), (3, 4);
 CREATE INDEX idx_ints ON ints USING bm25 (id, ((i * 2)::pdb.alias('another_name'))) with (key_field = 'id');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM ints WHERE (i * 2) = 2 AND id @@@ pdb.all();
-                                                                       QUERY PLAN                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                             QUERY PLAN                                                              
+-------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on ints
    Table: ints
    Index: idx_ints
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"another_name","value":2,"is_datetime":false}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"another_name","value":2}}]}}
 (6 rows)
 
 SELECT * FROM ints WHERE (i * 2) = 2 AND id @@@ pdb.all();
@@ -33,14 +33,14 @@ $$;
 CREATE INDEX idx_ints ON ints USING bm25 (id, (add_two_numbers(i, j)::pdb.alias('another_name'))) with (key_field = 'id');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM ints WHERE add_two_numbers(i, j) = 5 AND id @@@ pdb.all();
-                                                                       QUERY PLAN                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                             QUERY PLAN                                                              
+-------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on ints
    Table: ints
    Index: idx_ints
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"another_name","value":5,"is_datetime":false}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"another_name","value":5}}]}}
 (6 rows)
 
 SELECT * FROM ints WHERE add_two_numbers(i, j) = 5 AND id @@@ pdb.all();
@@ -58,14 +58,14 @@ CREATE INDEX idx_ints ON ints
   ) with (key_field = 'id');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM ints WHERE i * 2 = 4 AND i + j = 5 AND id @@@ pdb.all();
-                                                                                                QUERY PLAN                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                            QUERY PLAN                                                                             
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on ints
    Table: ints
    Index: idx_ints
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"doubled","value":4,"is_datetime":false}},{"term":{"field":"sum","value":5,"is_datetime":false}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"doubled","value":4}},{"term":{"field":"sum","value":5}}]}}
 (6 rows)
 
 SELECT * FROM ints WHERE i * 2 = 4 AND i + j = 5 AND id @@@ pdb.all();

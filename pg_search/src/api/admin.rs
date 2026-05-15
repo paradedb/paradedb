@@ -372,7 +372,6 @@ fn find_ctid(index: PgRelation, ctid: pg_sys::ItemPointerData) -> Result<Option<
         field: "ctid".into(),
         query: pdb_query::Query::Term {
             value: ctid_u64.into(),
-            is_datetime: false,
         },
     };
     let search_index = SearchIndexReader::open(&index, query, false, MvccSatisfies::Snapshot)?;

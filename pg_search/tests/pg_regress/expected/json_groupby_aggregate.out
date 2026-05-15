@@ -589,12 +589,12 @@ WHERE id @@@ paradedb.term('data.type', 'product')
   AND id @@@ paradedb.exists('data.brand')
 GROUP BY data->>'category', data->>'brand'
 ORDER BY category, brand;
-                                                                                                                           QUERY PLAN                                                                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_mixed
    Output: (data ->> 'category'::text), (data ->> 'brand'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_mixed
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"data.type","value":"product","is_datetime":false}}}},{"with_index":{"query":{"exists":{"field":"data.category"}}}},{"with_index":{"query":{"exists":{"field":"data.brand"}}}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"data.type","value":"product"}}}},{"with_index":{"query":{"exists":{"field":"data.category"}}}},{"with_index":{"query":{"exists":{"field":"data.brand"}}}}]}}
      Applies to Aggregates: COUNT(*)
      Group By: data.category, data.brand
      Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"data.brand","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"data.category","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
@@ -624,12 +624,12 @@ WHERE id @@@ paradedb.term('data.type', 'user')
   AND id @@@ paradedb.exists('data.profile.location.country')
 GROUP BY data->'profile'->'location'->>'country'
 ORDER BY country;
-                                                                                                    QUERY PLAN                                                                                                    
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                          QUERY PLAN                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_mixed
    Output: (((data -> 'profile'::text) -> 'location'::text) ->> 'country'::text), pdb.agg_fn('COUNT(*)'::text)
    Index: idx_json_mixed
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"data.type","value":"user","is_datetime":false}}}},{"with_index":{"query":{"exists":{"field":"data.profile.location.country"}}}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"data.type","value":"user"}}}},{"with_index":{"query":{"exists":{"field":"data.profile.location.country"}}}}]}}
      Applies to Aggregates: COUNT(*)
      Group By: data.profile.location.country
      Aggregate Definition: {"grouped":{"terms":{"field":"data.profile.location.country","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}

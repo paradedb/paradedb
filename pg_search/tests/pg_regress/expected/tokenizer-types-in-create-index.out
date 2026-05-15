@@ -436,131 +436,131 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHER
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE t === 'test';
-                                             QUERY PLAN                                              
------------------------------------------------------------------------------------------------------
+                                   QUERY PLAN                                    
+---------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on tok_in_ci
    Index: idxtok_in_ci
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"t","value":"test","is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"t","value":"test"}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.chinese_compatible('alias=chinese_compatible')) === 'test';
-                                                      QUERY PLAN                                                      
-----------------------------------------------------------------------------------------------------------------------
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on tok_in_ci
    Index: idxtok_in_ci
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"chinese_compatible","value":"test","is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"chinese_compatible","value":"test"}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.whitespace('alias=whitespace')) === 'test';
-                                                  QUERY PLAN                                                  
---------------------------------------------------------------------------------------------------------------
+                                        QUERY PLAN                                        
+------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on tok_in_ci
    Index: idxtok_in_ci
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"whitespace","value":"test","is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"whitespace","value":"test"}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.simple('stemmer=english', 'alias=stemmed')) === 'test';
-                                                QUERY PLAN                                                 
------------------------------------------------------------------------------------------------------------
+                                      QUERY PLAN                                       
+---------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on tok_in_ci
    Index: idxtok_in_ci
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"stemmed","value":"test","is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"stemmed","value":"test"}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.simple('alias=simple')) === 'test';
-                                                QUERY PLAN                                                
-----------------------------------------------------------------------------------------------------------
+                                      QUERY PLAN                                      
+--------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on tok_in_ci
    Index: idxtok_in_ci
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"simple","value":"test","is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"simple","value":"test"}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.regex_pattern('is|a', 'alias=regex')) === 'test';
-                                               QUERY PLAN                                                
----------------------------------------------------------------------------------------------------------
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on tok_in_ci
    Index: idxtok_in_ci
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"regex","value":"test","is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"regex","value":"test"}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.ngram(3, 5, 'alias=ngram')) === 'test';
-                                               QUERY PLAN                                                
----------------------------------------------------------------------------------------------------------
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on tok_in_ci
    Index: idxtok_in_ci
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"ngram","value":"test","is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"ngram","value":"test"}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(korean, 'alias=lindera_korean')) === 'test';
-                                                    QUERY PLAN                                                    
-------------------------------------------------------------------------------------------------------------------
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on tok_in_ci
    Index: idxtok_in_ci
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"lindera_korean","value":"test","is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"lindera_korean","value":"test"}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(japanese, 'alias=lindera_japanese')) === 'test';
-                                                     QUERY PLAN                                                     
---------------------------------------------------------------------------------------------------------------------
+                                           QUERY PLAN                                           
+------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on tok_in_ci
    Index: idxtok_in_ci
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"lindera_japanese","value":"test","is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"lindera_japanese","value":"test"}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.lindera(chinese, 'alias=lindera_chinese')) === 'test';
-                                                    QUERY PLAN                                                     
--------------------------------------------------------------------------------------------------------------------
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on tok_in_ci
    Index: idxtok_in_ci
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"lindera_chinese","value":"test","is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"lindera_chinese","value":"test"}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.jieba('alias=jieba')) === 'test';
-                                               QUERY PLAN                                                
----------------------------------------------------------------------------------------------------------
+                                     QUERY PLAN                                      
+-------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on tok_in_ci
    Index: idxtok_in_ci
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"jieba","value":"test","is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"jieba","value":"test"}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.literal('alias=literal')) === 'test';
-                                                QUERY PLAN                                                 
------------------------------------------------------------------------------------------------------------
+                                      QUERY PLAN                                       
+---------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on tok_in_ci
    Index: idxtok_in_ci
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"literal","value":"test","is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"literal","value":"test"}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (5 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT count(*) FROM tok_in_ci WHERE (t::pdb.source_code('alias=source_code')) === 'test';
-                                                  QUERY PLAN                                                   
----------------------------------------------------------------------------------------------------------------
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan) on tok_in_ci
    Index: idxtok_in_ci
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"source_code","value":"test","is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"source_code","value":"test"}}}}
      Applies to Aggregates: COUNT(*)
      Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
 (5 rows)

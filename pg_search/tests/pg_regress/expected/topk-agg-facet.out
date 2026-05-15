@@ -148,7 +148,7 @@ LIMIT 3;
          Scores: false
             TopK Order By: rating desc
             TopK Limit: 3
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"laptop","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"laptop"}}}}
 (11 rows)
 
 SELECT 

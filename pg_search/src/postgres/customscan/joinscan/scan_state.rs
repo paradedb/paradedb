@@ -250,6 +250,27 @@ pub struct JoinScanState {
     /// Dropping manifests early would release the pins and allow segment recycling
     /// before workers can open them.
     pub source_manifests: Vec<SearchIndexManifest>,
+
+    /// MPP-specific state. `Some` only when `paradedb.enable_mpp = on` and the query qualifies.
+    /// On the leader this carries the runtime mesh; on workers it carries the worker's outbound
+    /// senders, mesh, and plan bytes copied out of DSM.
+    pub mpp: Option<MppExecState>,
+    /// Serialized logical-plan bytes that the leader writes into DSM and workers read back.
+    /// Stashed in `begin_custom_scan` when MPP is active; consumed by `estimate_dsm` /
+    /// `initialize_dsm`.
+    pub mpp_plan_bytes: Option<Vec<u8>>,
+    /// MPP producer-partition count. Sized by `producer_worker_count()` at plan time.
+    pub mpp_n_partitions: u32,
+    /// Which entry in `plan.sources()` is the partitioning source. Stamped into the DSM header
+    /// by the leader; read back by workers in `exec_mpp_worker` to key `index_segment_ids`.
+    pub mpp_partitioning_source_idx: Option<usize>,
+}
+
+/// Per-query MPP state for JoinScan. Same shape as `aggregatescan::scan_state::MppExecState`.
+#[allow(dead_code)]
+pub enum MppExecState {
+    Leader(crate::postgres::customscan::mpp::glue::MppLeaderState),
+    Worker(crate::postgres::customscan::mpp::glue::MppWorkerState),
 }
 
 impl JoinScanState {

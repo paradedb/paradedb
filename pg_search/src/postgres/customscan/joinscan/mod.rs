@@ -139,6 +139,7 @@
 //! - [`explain`]: EXPLAIN output formatting.
 
 pub mod build;
+pub mod mpp;
 pub mod planner;
 pub mod planning;
 pub mod predicate;
@@ -176,12 +177,17 @@ use crate::postgres::customscan::builders::custom_state::{
 use crate::postgres::customscan::dsm::ParallelQueryCapable;
 use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_fields;
+use crate::postgres::customscan::joinscan::scan_state::MppExecState;
 use crate::postgres::customscan::limit_offset::LimitOffset;
+use crate::postgres::customscan::mpp::glue::{
+    estimate_dsm_size, leader_setup, mpp_is_active, producer_worker_count, worker_setup,
+};
 use crate::postgres::customscan::parallel::compute_nworkers;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
 use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::ParallelScanArgs;
 use crate::postgres::ParallelScanState;
 use crate::scan::codec::{deserialize_logical_plan_with_runtime, serialize_logical_plan};
 use crate::DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE;
@@ -194,6 +200,38 @@ use std::ffi::{c_void, CStr};
 
 #[derive(Default)]
 pub struct JoinScan;
+
+/// JoinScan-specific MPP DSM header. Sits between the ParallelScanState block and the MPP
+/// region in the customscan's DSM coordinate, telling workers where the MPP region begins and
+/// which source they're partitioning over. Same shape as `aggregatescan`'s
+/// `MppAggDsmHeader`; can be unified in a follow-up.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct MppJoinDsmHeader {
+    mpp_offset: u64,
+    partitioning_source_idx: u64,
+}
+
+const MPP_JOIN_DSM_HEADER_SIZE: usize = std::mem::size_of::<MppJoinDsmHeader>();
+
+fn mpp_join_align(n: usize) -> usize {
+    let a = pg_sys::MAXIMUM_ALIGNOF as usize;
+    n.next_multiple_of(a)
+}
+
+fn mpp_join_pscan_offset() -> usize {
+    mpp_join_align(MPP_JOIN_DSM_HEADER_SIZE)
+}
+
+unsafe fn mpp_join_read_header(coordinate: *const std::os::raw::c_void) -> MppJoinDsmHeader {
+    unsafe { *(coordinate as *const MppJoinDsmHeader) }
+}
+
+unsafe fn mpp_join_write_header(coordinate: *mut std::os::raw::c_void, header: MppJoinDsmHeader) {
+    unsafe {
+        *(coordinate as *mut MppJoinDsmHeader) = header;
+    }
+}
 
 /// Output of [`JoinScan::try_build_join_custom_path`] when activation succeeds.
 struct BuiltJoinPath {
@@ -651,7 +689,11 @@ impl JoinScan {
             (src.scan_info.segment_count, src.scan_info.estimate)
         };
 
-        let nworkers = if consider_parallel {
+        let nworkers = if mpp_is_active() {
+            // MPP needs exactly `producer_worker_count()` workers to match the n_procs x n_procs
+            // mesh dimensions. Override the heuristic-based parallel-worker count.
+            producer_worker_count() as usize
+        } else if consider_parallel {
             let declares_sorted_output = !join_clause.order_by.is_empty();
             compute_nworkers(
                 declares_sorted_output,
@@ -760,21 +802,52 @@ impl ParallelQueryCapable for JoinScan {
             .map(SearchIndexManifest::segment_count)
             .collect();
 
-        ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false)
+        let pscan_size = ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false);
+
+        // MPP: reserve a JoinScan header + the multiplexed N×N shm_mq grid past the
+        // ParallelScanState block. Layout: [MppJoinDsmHeader | ParallelScanState | MPP region].
+        // Workers read mpp_offset out of the header to skip past the ParallelScanState block.
+        let Some(plan_bytes_len) = state
+            .custom_state()
+            .mpp_plan_bytes
+            .as_ref()
+            .map(|b| b.len())
+        else {
+            return pscan_size as pg_sys::Size;
+        };
+        let mpp_offset = mpp_join_align(mpp_join_pscan_offset() + pscan_size);
+        let mpp_size = match estimate_dsm_size(plan_bytes_len) {
+            Ok(sz) => sz,
+            Err(e) => {
+                pgrx::warning!("mpp join: estimate_dsm failed: {e}; falling back to serial");
+                return pscan_size as pg_sys::Size;
+            }
+        };
+        (mpp_offset + mpp_size) as pg_sys::Size
     }
 
     fn initialize_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
-        _pcxt: *mut pg_sys::ParallelContext,
+        pcxt: *mut pg_sys::ParallelContext,
         coordinate: *mut c_void,
     ) {
-        let pscan_state = coordinate.cast::<ParallelScanState>();
-        assert!(!pscan_state.is_null(), "coordinate is null");
-
         Self::ensure_source_manifests(state);
 
         let join_clause = state.custom_state().join_clause.clone();
         let partitioning_idx = join_clause.partitioning_source_index();
+        let mpp_active = mpp_is_active() && state.custom_state().mpp_plan_bytes.is_some();
+
+        // Compute layout: when MPP active, header at offset 0, ParallelScanState at
+        // mpp_join_pscan_offset(), MPP region right after. When MPP inactive, ParallelScanState
+        // sits at offset 0 and we leave the rest of the coordinate untouched.
+        let pscan_offset = if mpp_active {
+            mpp_join_pscan_offset()
+        } else {
+            0
+        };
+        let pscan_state =
+            unsafe { (coordinate as *mut u8).add(pscan_offset) as *mut ParallelScanState };
+        assert!(!pscan_state.is_null(), "coordinate is null");
 
         unsafe {
             let all_sources: Vec<&[tantivy::SegmentReader]> = state
@@ -783,7 +856,7 @@ impl ParallelQueryCapable for JoinScan {
                 .iter()
                 .map(|manifest| manifest.segment_readers())
                 .collect();
-            let args = crate::postgres::ParallelScanArgs {
+            let args = ParallelScanArgs {
                 all_sources,
                 partitioning_source_idx: partitioning_idx,
                 query: vec![], // JoinScan passes query via PrivateData, not shared state
@@ -793,11 +866,48 @@ impl ParallelQueryCapable for JoinScan {
         }
 
         // Read the canonical non-partitioning segment ID sets from shared memory.
-        // The leader uses these in exec_custom_scan to populate the execution codec.
         let non_partitioning_segments = unsafe { (*pscan_state).non_partitioning_segment_ids() };
-
         state.custom_state_mut().parallel_state = Some(pscan_state);
         state.custom_state_mut().non_partitioning_segments = non_partitioning_segments;
+
+        if !mpp_active {
+            return;
+        }
+
+        // MPP: write the JoinScan DSM header, then call `leader_setup` over the MPP region.
+        let plan_bytes = match state.custom_state_mut().mpp_plan_bytes.take() {
+            Some(b) => b,
+            None => return,
+        };
+        let all_nsegments: Vec<usize> = state
+            .custom_state()
+            .source_manifests
+            .iter()
+            .map(SearchIndexManifest::segment_count)
+            .collect();
+        let pscan_size = ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false);
+        let mpp_offset = mpp_join_align(pscan_offset + pscan_size);
+        unsafe {
+            mpp_join_write_header(
+                coordinate,
+                MppJoinDsmHeader {
+                    mpp_offset: mpp_offset as u64,
+                    partitioning_source_idx: partitioning_idx as u64,
+                },
+            )
+        };
+
+        let mpp_coordinate = unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut c_void };
+        let seg = unsafe { (*pcxt).seg };
+        let n_partitions = state.custom_state().mpp_n_partitions;
+        match unsafe { leader_setup(mpp_coordinate, seg, pcxt, n_partitions, plan_bytes) } {
+            Ok(leader) => {
+                state.custom_state_mut().mpp = Some(MppExecState::Leader(leader));
+            }
+            Err(e) => {
+                pgrx::warning!("mpp join: leader_setup failed: {e}; falling back to serial");
+            }
+        }
     }
 
     fn reinitialize_dsm_custom_scan(
@@ -817,26 +927,58 @@ impl ParallelQueryCapable for JoinScan {
         _toc: *mut pg_sys::shm_toc,
         coordinate: *mut c_void,
     ) {
-        let pscan_state = coordinate.cast::<ParallelScanState>();
+        // Worker layout follows the leader: if MPP is active the leader stamped a
+        // `MppJoinDsmHeader` at offset 0 and put the ParallelScanState at
+        // `mpp_join_pscan_offset()`. If MPP is off the ParallelScanState sits at offset 0.
+        let mpp_active = mpp_is_active();
+        let pscan_offset = if mpp_active {
+            mpp_join_pscan_offset()
+        } else {
+            0
+        };
+        let pscan_state =
+            unsafe { (coordinate as *mut u8).add(pscan_offset) as *mut ParallelScanState };
         assert!(!pscan_state.is_null(), "coordinate is null");
 
         state.custom_state_mut().parallel_state = Some(pscan_state);
 
         // Workers must wait for the leader to finish populating the segment pool.
-        unsafe {
-            (*pscan_state).wait_for_initialization();
-        }
+        unsafe { (*pscan_state).wait_for_initialization() };
 
-        // Read the canonical non-partitioning segment ID sets that the leader wrote to
-        // shared memory.  These are used in exec_custom_scan to ensure every worker opens
-        // each replicated source with MvccSatisfies::ParallelWorker, which pins the
-        // visible segment list to exactly what the leader snapshotted.
         let non_partitioning_segments = unsafe { (*pscan_state).non_partitioning_segment_ids() };
         state.custom_state_mut().non_partitioning_segments = non_partitioning_segments;
 
-        // We don't need to deserialize query from parallel state for JoinScan
-        // because the full plan (including query) is serialized in PrivateData
-        // and available to the worker via the plan.
+        if !mpp_active {
+            return;
+        }
+
+        // MPP worker: read the header to find where the MPP region starts + which source we're
+        // partitioning over. Hand the MPP region to `worker_setup`.
+        let header = unsafe { mpp_join_read_header(coordinate) };
+        let mpp_offset = header.mpp_offset as usize;
+        state.custom_state_mut().mpp_partitioning_source_idx =
+            Some(header.partitioning_source_idx as usize);
+        let mpp_coordinate = unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut c_void };
+        let region_total = unsafe {
+            (*mpp_coordinate.cast::<crate::postgres::customscan::mpp::dsm::MppDsmHeader>())
+                .region_total
+        };
+        let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
+        match unsafe {
+            worker_setup(
+                mpp_coordinate,
+                region_total,
+                worker_number,
+                std::ptr::null_mut(),
+            )
+        } {
+            Ok(worker) => {
+                state.custom_state_mut().mpp = Some(MppExecState::Worker(worker));
+            }
+            Err(e) => {
+                pgrx::warning!("mpp join: worker_setup failed: {e}; falling back to serial");
+            }
+        }
     }
 }
 
@@ -1279,6 +1421,19 @@ impl CustomScan for JoinScan {
                 state.custom_state_mut().result_slot = Some(state.csstate.ss.ps.ps_ResultTupleSlot);
                 state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
             }
+            // MPP: stash the leader's serialized logical plan so estimate_dsm / initialize_dsm
+            // can write it into the DSM region. Only the leader runs this branch
+            // (`ParallelWorkerNumber == -1`); workers read the bytes back from DSM in
+            // initialize_worker_custom_scan via `worker_setup`.
+            if mpp_is_active() && unsafe { pg_sys::ParallelWorkerNumber } == -1 {
+                if let Some(bytes) = state.custom_state().logical_plan.clone() {
+                    state.custom_state_mut().mpp_plan_bytes = Some(bytes.to_vec());
+                    state.custom_state_mut().mpp_n_partitions = producer_worker_count().max(1);
+                    let partitioning_idx =
+                        state.custom_state().join_clause.partitioning_source_index();
+                    state.custom_state_mut().mpp_partitioning_source_idx = Some(partitioning_idx);
+                }
+            }
         }
     }
 
@@ -1287,6 +1442,11 @@ impl CustomScan for JoinScan {
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
+        // MPP worker dispatch: producer-side fragments emit nothing back to PG. Route to the
+        // MPP exec helper and return null_mut() to signal end-of-stream.
+        if matches!(state.custom_state().mpp, Some(MppExecState::Worker(_))) {
+            return JoinScan::exec_mpp_worker(state);
+        }
         unsafe {
             if state.custom_state().datafusion_stream.is_none() {
                 let runtime = tokio::runtime::Builder::new_current_thread()

@@ -39,20 +39,16 @@ pub use targetlist::TargetListEntry;
 
 use std::sync::Arc;
 
-use datafusion::execution::{SessionStateBuilder, TaskContext};
+use datafusion::execution::TaskContext;
 use datafusion::physical_plan::ExecutionPlan;
-use datafusion_distributed::{
-    display_plan_ascii, DistributedExec, DistributedExt, DistributedTaskContext,
-    SessionStateBuilderExt,
-};
+use datafusion_distributed::{display_plan_ascii, DistributedExec, DistributedTaskContext};
 
 use crate::postgres::customscan::mpp::dsm::MppDsmHeader;
 use crate::postgres::customscan::mpp::glue::{
     estimate_dsm_size, leader_setup, mpp_is_active, mpp_worker_count, producer_worker_count,
     worker_setup,
 };
-use crate::postgres::customscan::mpp::runtime::{MppMesh, MppWorkerResolver, ShmMqWorkerTransport};
-use crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator;
+use crate::postgres::customscan::mpp::runtime::MppMesh;
 
 use crate::api::agg_funcoid;
 use crate::api::SortDirection;
@@ -103,7 +99,7 @@ use crate::postgres::types::{is_datetime_type, TantivyValue};
 use crate::postgres::utils::{add_vars_to_tlist, is_unnest_func, make_text_const};
 use crate::postgres::PgSearchRelation;
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
-use crate::scan::codec::{serialize_logical_plan, PgSearchPhysicalCodecStub};
+use crate::scan::codec::serialize_logical_plan;
 use chrono::{DateTime as ChronoDateTime, Utc};
 use futures::StreamExt;
 use pgrx::{pg_sys, PgList, PgMemoryContexts, PgTupleDesc};
@@ -1059,55 +1055,14 @@ impl AggregateScan {
         df_state.mpp_n_partitions = n_workers.max(1);
     }
 
-    /// MPP leader exec helper: build a `SessionContext` that mirrors
-    /// `create_aggregate_session_context`'s rules + the DF-D fork's
-    /// `with_distributed_planner` + our `ShmMqWorkerTransport` wired to the
-    /// runtime mesh. The resulting context, when used to
-    /// `create_physical_plan` over the leader's logical plan, returns a
-    /// `DistributedExec` whose `NetworkShuffleExec`s pull batches from the
-    /// shm_mq mesh at execute time.
+    /// Build the leader's distributed session context for this AggregateScan query. Thin
+    /// wrapper over the shape-agnostic [`crate::postgres::customscan::mpp::exec_worker::
+    /// build_mpp_session_context`] that seeds with `create_aggregate_session_context()`.
     fn build_mpp_session_context(mesh: Arc<MppMesh>) -> datafusion::prelude::SessionContext {
-        let serial = create_aggregate_session_context();
-        // Workers are procs 1..n_procs; leader is proc 0. The producer
-        // count is therefore `n_procs - 1`.
-        let n_workers = mesh.n_procs.saturating_sub(1).max(1) as usize;
-        // Four-knob unlock for actually inserting NetworkShuffleExec/etc.:
-        //   1. target_partitions(N) — without this, EnforceDistribution skips
-        //      every RepartitionExec, so the annotator never sees a Shuffle.
-        //   2. distributed_task_estimator(N) — without this, leaves default to
-        //      Maximum(1) and `_distribute_plan` elides every shuffle.
-        //   3. distributed_broadcast_joins(true) — CollectLeft HashJoins
-        //      otherwise cap their stage's task_count to Maximum(1) and
-        //      propagate that cap upward, eliding shuffles above the join.
-        //   4. distributed_user_codec — the DF-D fork's prepare_plan unconditionally
-        //      encodes worker subplans for gRPC shipment; without a codec for
-        //      our custom physical execs, encoding errors before execution.
-        //      In our model the encoded bytes are never observed (workers
-        //      re-plan from the logical plan in DSM), so the codec is a stub.
-        let cfg = serial
-            .copied_config()
-            .with_target_partitions(n_workers.max(2));
-
-        let state_builder = SessionStateBuilder::new()
-            .with_default_features()
-            .with_config(cfg)
-            .with_distributed_worker_resolver(MppWorkerResolver::new(n_workers))
-            .with_distributed_worker_transport(ShmMqWorkerTransport::new(mesh))
-            .with_distributed_in_process_mode(true)
-            .expect("with_distributed_in_process_mode")
-            // Estimator chain order matters. The DF-D fork tries each estimator in registration
-            // order until one returns Some. The build-side one-task estimator has to come first.
-            // Otherwise the default `Desired(n_workers)` leaf estimator wins, the all-gather
-            // memory leaf gets task_count = n_workers, `_distribute_plan` builds
-            // `NetworkBroadcastExec` with `input_task_count = n_workers`, and the consumer's
-            // `select_all` over-counts by n_workers. See task_estimator.rs.
-            .with_distributed_task_estimator(BroadcastBuildSideOneTaskEstimator)
-            .with_distributed_task_estimator(n_workers)
-            .with_distributed_broadcast_joins(true)
-            .expect("with_distributed_broadcast_joins")
-            .with_distributed_user_codec(PgSearchPhysicalCodecStub)
-            .with_distributed_planner();
-        datafusion::prelude::SessionContext::new_with_state(state_builder.build())
+        crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context(
+            create_aggregate_session_context(),
+            mesh,
+        )
     }
 
     /// Rebuild and render the DataFusion physical plan into the explainer.

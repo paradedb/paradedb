@@ -22,7 +22,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::query::PostgresPointer;
 
 use pgrx::FromDatum;
-use pgrx::{pg_sys, PgMemoryContexts};
+use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
 use serde::{Deserialize, Serialize};
 use tantivy::schema::Field;
 use tantivy::{
@@ -182,7 +182,259 @@ impl HeapFieldFilter {
         self.expr_node.0.cast()
     }
 
+    /// Resolve InitPlan PARAM_EXEC nodes in the expression tree by replacing them with Const nodes.
+    ///
+    /// In PostgreSQL, subqueries like `(SELECT array[1, 2])` are converted to InitPlans during
+    /// planning. The InitPlan result is stored in `EState->es_param_exec_vals[paramid]` after
+    /// execution. The expression tree retains a `Param(PARAM_EXEC, paramid)` reference.
+    ///
+    /// When this expression is evaluated in a **parallel worker**, the worker's `EState` may not
+    /// have the InitPlan result available, causing `ExecEvalExpr` to pass NULL to strict functions
+    /// like `arrayoverlap`, resulting in a segfault (SIGSEGV at address 0x0).
+    ///
+    /// This method walks the expression tree and replaces each `PARAM_EXEC` whose value is already
+    /// available in the EState with a `Const` node, making the expression self-contained and safe
+    /// for evaluation in any execution context (leader or parallel worker).
+    ///
+    /// This approach mirrors PostgreSQL's own `eval_const_expressions()` pattern from the optimizer.
+    pub unsafe fn resolve_initplan_params(&mut self, estate: *mut pg_sys::EState) {
+        let expr_node = self.expr_node.0.cast::<pg_sys::Node>();
+        if expr_node.is_null() || estate.is_null() {
+            return;
+        }
+
+        // Walk the expression tree and replace PARAM_EXEC nodes in-place
+        resolve_param_exec_mutator(expr_node, estate);
+    }
+
     // The new expression-based approach handles evaluation directly
+}
+
+/// Recursively walk an expression tree and replace `Param(PARAM_EXEC)` nodes whose values
+/// are already computed (i.e., their InitPlan has been executed) with `Const` nodes.
+///
+/// This is done by using PostgreSQL's `expression_tree_walker` pattern, but since we need
+/// to mutate nodes in-place, we implement our own recursive walk for known container types.
+///
+/// # Safety
+/// - `node` must be a valid PostgreSQL expression node
+/// - `estate` must be a valid EState with `es_param_exec_vals` properly allocated
+unsafe fn resolve_param_exec_mutator(node: *mut pg_sys::Node, estate: *mut pg_sys::EState) {
+    if node.is_null() {
+        return;
+    }
+
+    match (*node).type_ {
+        // For BoolExpr (AND/OR/NOT), walk the args list and replace Param children in-place
+        pg_sys::NodeTag::T_BoolExpr => {
+            let boolexpr = node as *mut pg_sys::BoolExpr;
+            replace_params_in_list((*boolexpr).args, estate);
+        }
+
+        // For OpExpr (e.g., `field && expr`), walk the args list
+        pg_sys::NodeTag::T_OpExpr => {
+            let opexpr = node as *mut pg_sys::OpExpr;
+            replace_params_in_list((*opexpr).args, estate);
+        }
+
+        // For FuncExpr (e.g., `arrayoverlap(a, b)`), walk the args list
+        pg_sys::NodeTag::T_FuncExpr => {
+            let funcexpr = node as *mut pg_sys::FuncExpr;
+            replace_params_in_list((*funcexpr).args, estate);
+        }
+
+        // For ScalarArrayOpExpr (e.g., `field = ANY(array_expr)`), walk the args
+        pg_sys::NodeTag::T_ScalarArrayOpExpr => {
+            let saopexpr = node as *mut pg_sys::ScalarArrayOpExpr;
+            replace_params_in_list((*saopexpr).args, estate);
+        }
+
+        // CoalesceExpr (e.g., `COALESCE(field, '{}')`) has an args list
+        pg_sys::NodeTag::T_CoalesceExpr => {
+            let coalesce = node as *mut pg_sys::CoalesceExpr;
+            replace_params_in_list((*coalesce).args, estate);
+        }
+
+        // RelabelType wraps a single expression (type coercion)
+        pg_sys::NodeTag::T_RelabelType => {
+            let relabel = node as *mut pg_sys::RelabelType;
+            let arg = (*relabel).arg as *mut pg_sys::Node;
+            if !arg.is_null() && (*arg).type_ == pg_sys::NodeTag::T_Param {
+                if let Some(const_node) = try_resolve_param(arg as *mut pg_sys::Param, estate) {
+                    (*relabel).arg = const_node.cast();
+                }
+            } else {
+                resolve_param_exec_mutator(arg, estate);
+            }
+        }
+
+        // CoerceViaIO wraps a single expression (I/O coercion)
+        pg_sys::NodeTag::T_CoerceViaIO => {
+            let coerce = node as *mut pg_sys::CoerceViaIO;
+            let arg = (*coerce).arg as *mut pg_sys::Node;
+            if !arg.is_null() && (*arg).type_ == pg_sys::NodeTag::T_Param {
+                if let Some(const_node) = try_resolve_param(arg as *mut pg_sys::Param, estate) {
+                    (*coerce).arg = const_node.cast();
+                }
+            } else {
+                resolve_param_exec_mutator(arg, estate);
+            }
+        }
+
+        // NullTest wraps a single expression
+        pg_sys::NodeTag::T_NullTest => {
+            let nulltest = node as *mut pg_sys::NullTest;
+            let arg = (*nulltest).arg as *mut pg_sys::Node;
+            if !arg.is_null() && (*arg).type_ == pg_sys::NodeTag::T_Param {
+                if let Some(const_node) = try_resolve_param(arg as *mut pg_sys::Param, estate) {
+                    (*nulltest).arg = const_node.cast();
+                }
+            } else {
+                resolve_param_exec_mutator(arg, estate);
+            }
+        }
+
+        // Leaf nodes — nothing to recurse into
+        pg_sys::NodeTag::T_Var | pg_sys::NodeTag::T_Const | pg_sys::NodeTag::T_Param => {
+            // Param at the root can't be replaced (the caller doesn't own the pointer).
+            // This is fine because top-level Params don't occur in HeapFieldFilter expressions.
+        }
+
+        // For other node types, delegate to PostgreSQL's expression_tree_walker
+        // which knows how to iterate most expression node types
+        _ => {
+            pg_sys::expression_tree_walker(
+                node,
+                Some(resolve_param_walker_callback),
+                estate.cast(),
+            );
+        }
+    }
+}
+
+/// Callback for `expression_tree_walker` — resolves PARAM_EXEC nodes encountered during
+/// a generic tree walk. This handles node types not explicitly covered above.
+#[pg_guard]
+unsafe extern "C-unwind" fn resolve_param_walker_callback(
+    node: *mut pg_sys::Node,
+    context: *mut core::ffi::c_void,
+) -> bool {
+    if node.is_null() {
+        return false;
+    }
+
+    // We can't replace nodes during expression_tree_walker (it's read-only),
+    // so we delegate to our mutating function for container nodes
+    let estate = context as *mut pg_sys::EState;
+    resolve_param_exec_mutator(node, estate);
+
+    // Return false to continue walking (true would abort the walk)
+    false
+}
+
+/// Walk a PostgreSQL List of expression nodes, replacing any `Param(PARAM_EXEC)` nodes
+/// with `Const` nodes containing the pre-evaluated InitPlan result.
+unsafe fn replace_params_in_list(list: *mut pg_sys::List, estate: *mut pg_sys::EState) {
+    if list.is_null() {
+        return;
+    }
+
+    let len = (*list).length as usize;
+    for i in 0..len {
+        let arg = pg_sys::list_nth(list, i as _) as *mut pg_sys::Node;
+        if arg.is_null() {
+            continue;
+        }
+
+        if (*arg).type_ == pg_sys::NodeTag::T_Param {
+            if let Some(const_node) = try_resolve_param(arg as *mut pg_sys::Param, estate) {
+                // Replace the list cell's value with the new Const node
+                let cell_ptr = (*list).elements.add(i);
+                (*cell_ptr).ptr_value = const_node.cast();
+            }
+        } else {
+            // Recurse into non-Param children
+            resolve_param_exec_mutator(arg, estate);
+        }
+    }
+}
+
+/// Attempt to resolve a `Param(PARAM_EXEC)` node into a `Const` node using the EState's
+/// pre-computed InitPlan results.
+///
+/// Returns `Some(const_node)` if the param was successfully resolved, `None` otherwise
+/// (e.g., if the param is not PARAM_EXEC, or the InitPlan hasn't been executed yet).
+///
+/// Uses `pg_sys::makeConst` to construct a properly-typed Const node, matching the
+/// pattern used throughout the codebase (see `projections.rs`).
+unsafe fn try_resolve_param(
+    param: *mut pg_sys::Param,
+    estate: *mut pg_sys::EState,
+) -> Option<*mut pg_sys::Const> {
+    if param.is_null() || estate.is_null() {
+        return None;
+    }
+
+    // Only resolve PARAM_EXEC parameters (internal executor params from InitPlans/SubPlans)
+    if (*param).paramkind != pg_sys::ParamKind::PARAM_EXEC {
+        return None;
+    }
+
+    let param_id = (*param).paramid as usize;
+    let param_exec_vals = (*estate).es_param_exec_vals;
+    if param_exec_vals.is_null() {
+        return None;
+    }
+
+    let param_data = &*param_exec_vals.add(param_id);
+
+    // Check if the InitPlan has been executed (execPlan == NULL means result is available).
+    // When execPlan is non-NULL, it means the SubPlan hasn't been executed yet.
+    if !param_data.execPlan.is_null() {
+        return None;
+    }
+
+    // Get type metadata for the Const node
+    let mut typlen: i16 = 0;
+    let mut typbyval: bool = false;
+    pg_sys::get_typlenbyval((*param).paramtype, &mut typlen, &mut typbyval);
+
+    // For pass-by-reference non-NULL values, make a copy so the Const owns its data.
+    // pgrx does not expose datumCopy, so we replicate its logic here.
+    let const_value = if param_data.isnull || typbyval {
+        param_data.value
+    } else if typlen == -1 {
+        // varlena type: pg_detoast_datum returns a palloc'd copy (or the original if not toasted)
+        let detoasted =
+            pg_sys::pg_detoast_datum(param_data.value.cast_mut_ptr::<pg_sys::varlena>());
+        pg_sys::Datum::from(detoasted)
+    } else {
+        // Fixed-length pass-by-reference type: palloc + memcpy
+        let len = if typlen > 0 {
+            typlen as usize
+        } else {
+            // typlen == -2 means cstring
+            core::ffi::CStr::from_ptr(param_data.value.cast_mut_ptr::<core::ffi::c_char>())
+                .to_bytes_with_nul()
+                .len()
+        };
+        let dst = pg_sys::palloc(len);
+        core::ptr::copy_nonoverlapping(param_data.value.cast_mut_ptr::<u8>(), dst.cast(), len);
+        pg_sys::Datum::from(dst)
+    };
+
+    // Build a properly-typed Const node using the PostgreSQL API
+    let const_node = pg_sys::makeConst(
+        (*param).paramtype,
+        (*param).paramtypmod,
+        (*param).paramcollid,
+        typlen as i32, // constlen: i16 → i32 (matches PostgreSQL's `int constlen`)
+        const_value,
+        param_data.isnull,
+        typbyval,
+    );
+
+    Some(const_node)
 }
 
 /// Tantivy query that combines indexed search with heap field filtering

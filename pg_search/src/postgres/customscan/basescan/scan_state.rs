@@ -507,6 +507,10 @@ impl SolvePostgresExpressions for BaseScanState {
         self.search_query_input
             .solve_postgres_expressions(expr_context);
     }
+
+    unsafe fn resolve_heap_filter_params(&mut self, estate: *mut pg_sys::EState) {
+        self.search_query_input.resolve_heap_filter_params(estate);
+    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]

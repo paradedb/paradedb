@@ -19,7 +19,9 @@ use crate::api::tokenizers::type_is_tokenizer;
 use crate::nodecast;
 use crate::postgres::catalog::is_citext_oid;
 use crate::postgres::catalog::{facet_encoded_str_to_ltree_text, is_ltree_oid};
-use crate::postgres::datetime::{datetime_components_to_tantivy_date, MICROSECONDS_IN_SECOND};
+use crate::postgres::datetime::{
+    datetime_components_to_tantivy_date, PostgresDateTime, MICROSECONDS_IN_SECOND,
+};
 use crate::postgres::jsonb_support::jsonb_datum_to_serde_json_value;
 use crate::postgres::range::RangeToTantivyValue;
 use crate::schema::{AnyEnum, SearchField};
@@ -946,19 +948,12 @@ impl TantivyValue {
             .collect()
     }
 
-    #[allow(static_mut_refs)]
     pub unsafe fn try_from_timestamp_date(datum: Datum) -> Result<Self, TantivyValueError> {
-        use crate::postgres::datetime::micros_to_tantivy_datetime;
-        static mut EPOCH_TS: Option<pg_sys::Timestamp> = None;
-        let epoch_ts = unsafe { EPOCH_TS.get_or_insert_with(|| pg_sys::SetEpochTimestamp()) };
-
         // Valid micros range maps into `MIN_SAFE_TANTIVY_NANOS` to `MAX_SAFE_TANTIVY_NANOS`
         let val = pgrx::datum::Timestamp::from_datum(datum, false)
             .ok_or(TantivyValueError::DatumDeref)?;
-        let micros = val.into_inner().checked_sub(*epoch_ts).ok_or(
-            TantivyValueError::DateTimeConversionError(DateTimeConversionError::OutOfRange),
-        )?;
-        let tantivy_date = micros_to_tantivy_datetime(micros)?;
+        let pg_dt = PostgresDateTime::from(val);
+        let tantivy_date = tantivy::DateTime::try_from(pg_dt)?;
 
         Ok(TantivyValue(OwnedValue::Date(tantivy_date)))
     }
@@ -979,12 +974,9 @@ impl TantivyValue {
     pub unsafe fn try_from_timestamptz_date(datum: Datum) -> Result<Self, TantivyValueError> {
         let val = pgrx::datum::TimestampWithTimeZone::from_datum(datum, false)
             .ok_or(TantivyValueError::DatumDeref)?;
-        let val = val.to_utc();
-        let (v_h, v_m, v_s, v_ms) = val.to_hms_micro();
-        Ok(TantivyValue(datetime_components_to_tantivy_date(
-            Some((val.year(), val.month(), val.day())),
-            (v_h, v_m, v_s, v_ms),
-        )?))
+        let pg_dt = PostgresDateTime::from(val);
+        let tantivy_date = tantivy::DateTime::try_from(pg_dt)?;
+        Ok(TantivyValue(OwnedValue::Date(tantivy_date)))
     }
 
     pub unsafe fn try_from_timestamptz_array_date(
@@ -1207,22 +1199,13 @@ impl TryFrom<TantivyValue> for pgrx::datum::Timestamp {
         match value.0 {
             // Legacy indexes stored timestamps as Date
             OwnedValue::Date(val) => {
-                let prim_dt = val.into_primitive();
-                let (h, m, s, micro) = prim_dt.as_hms_micro();
-                Ok(pgrx::datum::Timestamp::new(
-                    prim_dt.year(),
-                    prim_dt.month().into(),
-                    prim_dt.day(),
-                    h,
-                    m,
-                    s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
-                )?)
+                let pg_dt = PostgresDateTime::try_from(val)?;
+                Ok(pgrx::datum::Timestamp::from(pg_dt))
             }
-            OwnedValue::I64(val) => Ok(pgrx::datum::Timestamp::try_from(val).map_err(|err| {
-                TantivyValueError::UnsupportedIntoConversion(format!(
-                    "Invalid raw i64 value for timestamp: {err:?}"
-                ))
-            })?),
+            OwnedValue::I64(val) => {
+                let pg_dt = PostgresDateTime::try_from_raw(val)?;
+                Ok(pg_dt.into())
+            }
             _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "timestamp".to_string(),
             )),
@@ -1278,26 +1261,12 @@ impl TryFrom<TantivyValue> for pgrx::datum::TimestampWithTimeZone {
         match value.0 {
             // Legacy indexes stored TIMESTAMP WITH TIMEZONE as Date. New indexes use I64
             OwnedValue::Date(val) => {
-                let prim_dt = val.into_primitive();
-                let (h, m, s, micro) = prim_dt.as_hms_micro();
-                Ok(pgrx::datum::TimestampWithTimeZone::with_timezone(
-                    prim_dt.year(),
-                    prim_dt.month().into(),
-                    prim_dt.day(),
-                    h,
-                    m,
-                    s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
-                    "UTC",
-                )?)
+                let pg_dt = PostgresDateTime::try_from(val)?;
+                Ok(pg_dt.into())
             }
             OwnedValue::I64(val) => {
-                // try to convert from the raw i64 value.
-                let twtz = pgrx::datum::TimestampWithTimeZone::try_from(val).map_err(|err| {
-                    TantivyValueError::UnsupportedIntoConversion(format!(
-                        "Invalid raw i64 value for TimestampWithTimeZone: {err:?}"
-                    ))
-                })?;
-                Ok(twtz)
+                let pg_dt = PostgresDateTime::try_from_raw(val)?;
+                Ok(pg_dt.into())
             }
             _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "timestamptz".to_string(),

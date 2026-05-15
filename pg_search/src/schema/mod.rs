@@ -22,6 +22,7 @@ pub mod range;
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::catalog::is_citext_oid;
+use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::options::{BM25IndexOptions, SortByDirection, SortByField};
 pub use crate::postgres::utils::{convert_pg_date_string, FieldSource};
 use crate::postgres::utils::{resolve_base_type, ExtractedFieldAttribute};
@@ -32,7 +33,6 @@ use pgrx::pg_sys::BuiltinOid;
 use std::cell::{Ref, RefCell};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
-use std::str::FromStr;
 use tantivy::index::{IndexSortByField, Order};
 
 use crate::api::tokenizers::{type_is_alias, type_is_tokenizer, Typmod};
@@ -808,12 +808,12 @@ impl SearchField {
             {
                 match self.field_type.typeoid() {
                     PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID) => {
-                        let ts = pgrx::datum::Timestamp::from_str(&s)?;
-                        *value = OwnedValue::I64(ts.into_inner());
+                        let pg_dt = PostgresDateTime::try_from_timestamp_str(&s)?;
+                        *value = OwnedValue::I64(pg_dt.into_inner());
                     }
                     PgOid::BuiltIn(BuiltinOid::TIMESTAMPTZOID) => {
-                        let ts = pgrx::datum::TimestampWithTimeZone::from_str(&s)?;
-                        *value = OwnedValue::I64(ts.into_inner());
+                        let pg_dt = PostgresDateTime::try_from_timestamptz_str(&s)?;
+                        *value = OwnedValue::I64(pg_dt.into_inner());
                     }
                     _ => unreachable!(),
                 }

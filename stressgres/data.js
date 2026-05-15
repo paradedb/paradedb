@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778864339624,
+  "lastUpdate": 1778864372089,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14288,6 +14288,164 @@ window.BENCHMARK_DATA = {
             "value": 24.655676796120055,
             "unit": "median tps",
             "extra": "avg tps: 31.917299385443343, max tps: 132.95967659006453, count: 55035"
+          }
+        ]
+      }
+    ],
+    "pg_search logical-replication-merge.toml Performance - Other Metrics": [
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2edacebe4a7e52eb67081dbb73b4d712f13625aa",
+          "message": "chore: Remove unnecessary propogation of `is_datetime` (#5071)\n\n## What\nThis PR removes the extensive propagation of `is_datetime` in the code\nsurrounding decisions about `Term` handling. Specifically, by removing\nthe `is_datetime` fields and working backwards from there.\n\n## Why\nThere were two reasons `is_datetime` value was so widely propagated:\n1) This arm in `Query::apply_fuzzy_data` required it.\n    ```rust\n    pdb::Query::Term {\n        value: OwnedValue::Str(value),\n         is_datetime,\n    } if !*is_datetime => {\n        *self = pdb::Query::FuzzyTerm {\n            value: value.to_string(),\n            distance: Some(new_fuzzy_data.distance),\ntransposition_cost_one: Some(new_fuzzy_data.transposition_cost_one),\n            prefix: Some(new_fuzzy_data.prefix)\n        }\n    }\n    ```\nHowever, the only way it would be possible to hit arm with an\n`is_datetime` of `true` that is for the user to set it in the query JSON\ndirectly via something like:\n    ```sql\nWHERE description @@@ '{\"term\":\n{\"value\":\"shoes\",\"is_datetime\":true}}'::pdb.query::pdb.fuzzy(2);\n    ```\n    Removing `is_datetime` means that that route is no longer possible.\n    \nEvery instance where `Query::Term` is constructed in the code with a\nstring `value` sets it to false. At every other place that we need to\ndetermine if the term should be considered as a datetime, we can inspect\nthe schema.\n\n    Hence, this is safe to remove.\n2) Determining if a field in a json string should be treated as a\ndatetime. This can be address by determining that at deserialization\ntime.\n\n## How\nRemove all `is_datetime` properties across term-handling. For the\nremaining places we need to determine whether or not to handle the term\nas a datetime, outside of json parsing and targeting json fields,\ninspect the schema.\n\nFor JSON handling, make it so we handle this at deserialization time. \n- For all `Query` enum members that take an `OwnedValue`, serde them as\na `DateAwareOwnedValue` and convert/to from `OwnedValue` accordingly.\n`DateAwareOwnedValue` produced a tagged serialization.\n- For fielded queries, \"rewrite\" the json during deserialization to have\nthis tagged structure if there's an `is_datetime` field present.\n- For `TermInput`, serialize it as above. Deserialize it through\n`TermInputWire`, which handles the `is_datetime` logic.\n\n\n## Tests\n- All unit and integration tests pass.\n- All changed regression test outputs are either whitespace or the\nchange of `\"is_datetime\"` to the tagged format in the query explain\nJSON. No actual regressions.\n- Add new regression tests for range json queries and term_set json\nqueries using both legacy and v2 query styles.",
+          "timestamp": "2026-05-15T09:31:13-06:00",
+          "tree_id": "fe5785b74dd5316bd7bb64e113866096c52eae11",
+          "url": "https://github.com/paradedb/paradedb/commit/2edacebe4a7e52eb67081dbb73b4d712f13625aa"
+        },
+        "date": 1778864341470,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 22.988506,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.618198695982134, max cpu: 32.65306, count: 55035"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 155.921875,
+            "unit": "median mem",
+            "extra": "avg mem: 147.7705160636413, max mem: 160.8671875, count: 55035"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5315846624143825, max cpu: 4.655674, count: 55035"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 31.71484375,
+            "unit": "median mem",
+            "extra": "avg mem: 31.496951300876717, max mem: 33.33984375, count: 55035"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 23.054754,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.03637019288333, max cpu: 32.589718, count: 55035"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 156.3046875,
+            "unit": "median mem",
+            "extra": "avg mem: 148.00009283864813, max mem: 161.97265625, count: 55035"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.696480618109656, max cpu: 9.302325, count: 55035"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 41.88671875,
+            "unit": "median mem",
+            "extra": "avg mem: 40.40693507540656, max mem: 44.13671875, count: 55035"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 3482,
+            "unit": "median pages",
+            "extra": "avg pages: 3105.97201780685, max pages: 3707.0, count: 55035"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 27.203125,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 24.265406531071136, max relation_size:MB: 28.9609375, count: 55035"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 23,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 27.342781866085218, max segment_count: 60.0, count: 55035"
+          },
+          {
+            "name": "Insert value - Publisher - cpu",
+            "value": 4.6153846,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.5705256081448744, max cpu: 4.6511626, count: 55035"
+          },
+          {
+            "name": "Insert value - Publisher - mem",
+            "value": 33.41796875,
+            "unit": "median mem",
+            "extra": "avg mem: 33.32356398201145, max mem: 35.484375, count: 55035"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 18.268316,
+            "unit": "median cpu",
+            "extra": "avg cpu: 14.79899363024115, max cpu: 32.463768, count: 55035"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 150.80078125,
+            "unit": "median mem",
+            "extra": "avg mem: 141.63669014604343, max mem: 158.3125, count: 55035"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 2.2275390625,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: -16.44736961455558, max replication_lag:MB: 49.73676300048828, count: 19071"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 22.988506,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.035661589523798, max cpu: 32.589718, count: 55035"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 157.34375,
+            "unit": "median mem",
+            "extra": "avg mem: 149.57538271100208, max mem: 163.58984375, count: 55035"
+          },
+          {
+            "name": "Update 1..50 - Publisher - cpu",
+            "value": 9.266409,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.73500376412696, max cpu: 32.621357, count: 55035"
+          },
+          {
+            "name": "Update 1..50 - Publisher - mem",
+            "value": 156.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 150.66744898133007, max mem: 156.671875, count: 55035"
+          },
+          {
+            "name": "Update 51..100 - Publisher - cpu",
+            "value": 9.266409,
+            "unit": "median cpu",
+            "extra": "avg cpu: 11.834045163077352, max cpu: 32.463768, count: 55035"
+          },
+          {
+            "name": "Update 51..100 - Publisher - mem",
+            "value": 156.54296875,
+            "unit": "median mem",
+            "extra": "avg mem: 150.7551935700009, max mem: 156.6640625, count: 55035"
           }
         ]
       }

@@ -180,9 +180,11 @@ use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_f
 use crate::postgres::customscan::joinscan::scan_state::MppExecState;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::glue::{
-    estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, producer_worker_count, pscan_offset,
-    read_custom_scan_header, worker_setup, write_custom_scan_header, CustomScanMppHeader,
+    estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, mpp_worker_count,
+    producer_worker_count, pscan_offset, read_custom_scan_header, worker_setup,
+    write_custom_scan_header, CustomScanMppHeader,
 };
+use crate::postgres::customscan::mpp::runtime::MppMesh;
 use crate::postgres::customscan::parallel::compute_nworkers;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
 use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
@@ -195,9 +197,11 @@ use crate::DEFAULT_PARAMETERIZED_LIMIT_ESTIMATE;
 use datafusion::physical_plan::displayable;
 use datafusion::physical_plan::metrics::MetricValue;
 use datafusion::physical_plan::{DisplayFormatType, ExecutionPlan};
+use datafusion_distributed::{display_plan_ascii, DistributedExec};
 use futures::StreamExt;
 use pgrx::{pg_guard, pg_sys, PgList};
 use std::ffi::{c_void, CStr};
+use std::sync::Arc;
 
 #[derive(Default)]
 pub struct JoinScan;
@@ -1053,6 +1057,18 @@ impl JoinScan {
     }
 }
 
+impl JoinScan {
+    /// Build the leader's distributed session context for this JoinScan query. Thin wrapper
+    /// over the shared [`crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context`]
+    /// that seeds with `create_datafusion_session_context(SessionContextProfile::Join)`.
+    fn build_mpp_session_context(mesh: Arc<MppMesh>) -> datafusion::prelude::SessionContext {
+        crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context(
+            create_datafusion_session_context(SessionContextProfile::Join),
+            mesh,
+        )
+    }
+}
+
 impl CustomScan for JoinScan {
     const NAME: &'static CStr = c"ParadeDB Join Scan";
     type Args = JoinPathlistHookArgs;
@@ -1338,11 +1354,18 @@ impl CustomScan for JoinScan {
                 );
                 return;
             }
-            // For plain EXPLAIN, reconstruct the plan using the same session
-            // configuration that execution uses so `VisibilityFilterExec`
-            // appears in the displayed plan, matching EXPLAIN ANALYZE.
+            // For plain EXPLAIN, reconstruct the plan using the same session configuration
+            // that execution uses so `VisibilityFilterExec` appears in the displayed plan,
+            // matching EXPLAIN ANALYZE. When MPP is active, use a drain-less stub mesh so the
+            // distributed planner runs and the displayed plan shows `DistributedExec` + stages.
+            // `ShmMqWorkerTransport::open()` doesn't run during EXPLAIN, so the stub is safe.
             let expr_context = crate::postgres::utils::ExprContextGuard::new();
-            let ctx = create_datafusion_session_context(SessionContextProfile::Join);
+            let ctx = if mpp_is_active() {
+                let stub_mesh = Arc::new(MppMesh::new(0, mpp_worker_count(), Vec::new()));
+                Self::build_mpp_session_context(stub_mesh)
+            } else {
+                create_datafusion_session_context(SessionContextProfile::Join)
+            };
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .build()
                 .expect("Failed to create tokio runtime");
@@ -1359,9 +1382,19 @@ impl CustomScan for JoinScan {
             let physical_plan = runtime
                 .block_on(build_physical_plan(&ctx, logical_plan))
                 .expect("Failed to create execution plan");
-            let displayable = displayable(physical_plan.as_ref());
             explainer.add_text("DataFusion Physical Plan", "");
-            for line in displayable.indent(false).to_string().lines() {
+            let rendered = if physical_plan
+                .as_any()
+                .downcast_ref::<DistributedExec>()
+                .is_some()
+            {
+                display_plan_ascii(physical_plan.as_ref(), false)
+            } else {
+                displayable(physical_plan.as_ref())
+                    .indent(false)
+                    .to_string()
+            };
+            for line in rendered.lines() {
                 explainer.add_text("  ", line);
             }
         }
@@ -1447,7 +1480,29 @@ impl CustomScan for JoinScan {
                 let index_segment_ids =
                     Self::build_index_segment_ids(state, &join_clause, &plan_sources);
 
-                let ctx = create_datafusion_session_context(SessionContextProfile::Join);
+                // Leader session context: when MPP is active and we're the leader, layer the
+                // DF-D fork's distributed-planner knobs over the Join profile so the resulting
+                // physical plan is a `DistributedExec`. Without this, the leader builds a serial
+                // plan and the worker fragments would have nothing to consume from.
+                let ctx = match state.custom_state().mpp.as_ref() {
+                    Some(MppExecState::Leader(leader)) => {
+                        let pcxt = leader.pcxt;
+                        if !pcxt.is_null() {
+                            let launched = (*pcxt).nworkers_launched as u32;
+                            let expected = producer_worker_count();
+                            if launched < expected {
+                                pgrx::error!(
+                                    "mpp join: PG launched {launched} of {expected} requested \
+                                     parallel workers; missing slots would hang the query. Retry, \
+                                     or raise `max_parallel_workers` / \
+                                     `max_parallel_workers_per_gather` so PG can launch the full set."
+                                );
+                            }
+                        }
+                        Self::build_mpp_session_context(Arc::clone(&leader.mesh))
+                    }
+                    _ => create_datafusion_session_context(SessionContextProfile::Join),
+                };
                 let logical_plan = deserialize_logical_plan_with_runtime(
                     &plan_bytes,
                     &ctx.task_ctx(),

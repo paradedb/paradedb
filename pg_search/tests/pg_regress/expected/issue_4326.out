@@ -20,8 +20,8 @@ WHERE "test_table"."col_uuid_1" = '00000000-0000-0000-0000-000000000001'
   AND (test_table.id @@@ pdb.all())
 ORDER BY "test_table"."col_ts_1" DESC, "test_table"."id" DESC
 LIMIT 25 OFFSET 0;
-                                                                                                                            QUERY PLAN                                                                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                        QUERY PLAN                                                                                                         
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on test_table
          Table: test_table
@@ -30,7 +30,7 @@ LIMIT 25 OFFSET 0;
          Scores: false
             TopK Order By: col_ts_1 desc, id desc
             TopK Limit: 25
-         Tantivy Query: {"boolean":{"must":[{"term":{"field":"col_bool_1","value":true,"is_datetime":false}},{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"col_uuid_1","value":"00000000-0000-0000-0000-000000000001","is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"term":{"field":"col_bool_1","value":true}},{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"col_uuid_1","value":"00000000-0000-0000-0000-000000000001"}}]}}
 (9 rows)
 
 SELECT *, pdb.agg('{"value_count":{"field":"id"}}') OVER () AS agg

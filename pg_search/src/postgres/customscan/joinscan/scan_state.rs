@@ -267,7 +267,6 @@ pub struct JoinScanState {
 }
 
 /// Per-query MPP state for JoinScan. Same shape as `aggregatescan::scan_state::MppExecState`.
-#[allow(dead_code)]
 pub enum MppExecState {
     Leader(crate::postgres::customscan::mpp::glue::MppLeaderState),
     Worker(crate::postgres::customscan::mpp::glue::MppWorkerState),

@@ -105,8 +105,13 @@ pub(crate) fn build_mpp_session_context(
         .copied_config()
         .with_target_partitions(n_workers.max(2));
 
-    let state_builder = SessionStateBuilder::new()
-        .with_default_features()
+    // Start from the seed's existing state so the customscan's query planner (`PgSearchQueryPlanner`),
+    // optimizer rules, and registered extensions all carry over. JoinScan relies on this for
+    // `VisibilityFilterNode` -> `VisibilityFilterExec` translation; AggregateScan's plan happens
+    // not to use any custom logical nodes but inheriting the planner is still the correct
+    // default. We then override `with_config` (bumps `target_partitions`) and layer the
+    // distributed-planner knobs on top.
+    let state_builder = SessionStateBuilder::new_from_existing(seed.state())
         .with_config(cfg)
         .with_distributed_worker_resolver(MppWorkerResolver::new(n_workers))
         .with_distributed_worker_transport(ShmMqWorkerTransport::new(mesh))

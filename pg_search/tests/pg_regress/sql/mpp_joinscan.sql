@@ -1,0 +1,118 @@
+-- =====================================================================
+-- End-to-end MPP exercise on JoinScan.
+--
+-- Same dataset shape as mpp_aggregate.sql but the queries don't
+-- aggregate — they project columns through a JOIN under a LIMIT,
+-- which is what JoinScan activates on. Two passes: serial baseline
+-- (enable_mpp = off) and MPP path (enable_mpp = on). Results must
+-- match across the two passes; the EXPLAIN trees differ.
+-- =====================================================================
+
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.enable_join_custom_scan TO on;
+
+SET paradedb.mpp_worker_count TO 4;
+SET max_parallel_workers_per_gather TO 4;
+SET max_parallel_workers TO 8;
+-- Force parallel even on this tiny dataset; otherwise the cost-based
+-- planner picks the serial JoinScan and MPP never activates.
+SET min_parallel_table_scan_size TO 0;
+SET parallel_setup_cost TO 0;
+SET parallel_tuple_cost TO 0;
+
+-- =====================================================================
+-- Test data (mirrors mpp_aggregate.sql)
+-- =====================================================================
+
+CREATE TABLE mpp_join_files (
+    id SERIAL PRIMARY KEY,
+    title TEXT,
+    content TEXT
+);
+CREATE TABLE mpp_join_pages (
+    id SERIAL PRIMARY KEY,
+    file_id INTEGER,
+    page_text TEXT,
+    size_bytes INTEGER
+);
+
+INSERT INTO mpp_join_files (title, content)
+SELECT 'file-' || g, 'Section ' || g || ' has content for testing'
+FROM generate_series(1, 200) AS g;
+
+INSERT INTO mpp_join_pages (file_id, page_text, size_bytes)
+SELECT (g % 200) + 1,
+       'Page text for page ' || g,
+       (g * 17) % 4096
+FROM generate_series(1, 1000) AS g;
+
+CREATE INDEX mpp_join_files_idx ON mpp_join_files
+USING bm25 (id, title, content)
+WITH (
+    key_field='id',
+    text_fields='{"title": {"fast": true}, "content": {}}'
+);
+
+CREATE INDEX mpp_join_pages_idx ON mpp_join_pages
+USING bm25 (id, file_id, page_text, size_bytes)
+WITH (
+    key_field='id',
+    numeric_fields='{"file_id": {"fast": true}, "size_bytes": {"fast": true}}',
+    text_fields='{"page_text": {}}'
+);
+
+ANALYZE mpp_join_files;
+ANALYZE mpp_join_pages;
+
+-- =====================================================================
+-- Pass 1: serial baseline (enable_mpp = off)
+--
+-- The non-MPP JoinScan path produces the correctness baseline for
+-- pass 2.
+-- =====================================================================
+
+SET paradedb.enable_mpp TO off;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+-- =====================================================================
+-- Pass 2: MPP path (enable_mpp = on). Same query, same results.
+-- EXPLAIN tree should switch to a `Gather -> Parallel Custom Scan`
+-- shape, exercising the JoinScan MPP wiring (DSM init, shm_mq mesh,
+-- fragment dispatch, leader-side NetworkCoalesceExec gather).
+-- =====================================================================
+
+SET paradedb.enable_mpp TO on;
+
+EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+SELECT f.title, p.size_bytes
+FROM mpp_join_files f JOIN mpp_join_pages p ON f.id = p.file_id
+WHERE f.content @@@ 'Section'
+ORDER BY f.title, p.size_bytes
+LIMIT 10;
+
+-- =====================================================================
+-- Cleanup
+-- =====================================================================
+
+DROP TABLE mpp_join_pages;
+DROP TABLE mpp_join_files;

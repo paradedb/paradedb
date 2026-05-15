@@ -1113,21 +1113,13 @@ SELECT COUNT(*), SUM(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop' AND p.price > 500;
-<<<<<<< HEAD
-                           QUERY PLAN                            
------------------------------------------------------------------
-=======
-                                                                                                                                       QUERY PLAN                                                                                                                                        
+                                                                                                                                      QUERY PLAN                                                                                                                                        
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
->>>>>>> 2edacebe4 (chore: Remove unnecessary propogation of `is_datetime` (#5071))
  Custom Scan (ParadeDB Aggregate Scan)
    Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text)
    Backend: DataFusion
    Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
    Aggregates: COUNT(*), SUM(price)
-<<<<<<< HEAD
-(5 rows)
-=======
    DataFusion Physical Plan: 
      : AggregateExec: mode=Single, gby=[], aggr=[agg_0, agg_1]
      :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[price@1]
@@ -1136,7 +1128,6 @@ WHERE p.description @@@ 'laptop' AND p.price > 500;
      :     CooperativeExec
      :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (12 rows)
->>>>>>> 2edacebe4 (chore: Remove unnecessary propogation of `is_datetime` (#5071))
 
 SELECT COUNT(*), SUM(p.price)
 FROM agg_join_products p

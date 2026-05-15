@@ -712,6 +712,13 @@ pub fn index_memory_segment(
                     // Our `oldest_xmin` might be stale compared to a concurrent VACUUM.
                     // If VACUUM saw this tuple as DEAD and deleted its TOAST chunks, we
                     // must also see it as DEAD, otherwise we'll crash trying to read them.
+                    //
+                    // A single re-check is sufficient (no loop needed) because
+                    // `GetOldestNonRemovableTransactionId` returns the current global
+                    // XID horizon. If the tuple is still RECENTLY_DEAD under this fresh
+                    // horizon, then no concurrent VACUUM could have considered it DEAD
+                    // (VACUUM uses the same or an older horizon), so its TOAST data is
+                    // guaranteed to still exist.
                     let fresh_oldest_xmin =
                         pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr());
                     if fresh_oldest_xmin != oldest_xmin {
@@ -833,8 +840,12 @@ pub fn index_memory_segment(
                 unreachable!("No limits configured: should not finalize.")
             })?;
 
-            // Buffer pin is released when the slot is reused by the next
-            // table_index_fetch_tuple call, or when HeapFetchState is dropped.
+            // Eagerly release the buffer pin now that all datum values have
+            // been detoasted into palloc'd memory. Without this, the pin would
+            // stay held until the next table_index_fetch_tuple call (which
+            // replaces the slot contents) or until HeapFetchState is dropped at
+            // end-of-query, unnecessarily blocking VACUUM on this buffer.
+            pg_sys::ExecClearTuple(heap_fetch_state.slot());
         }
     }
 

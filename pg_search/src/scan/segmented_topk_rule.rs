@@ -160,7 +160,7 @@ fn resolve_physical_index(col: &Column, schema: &datafusion::arrow::datatypes::S
             // This should not normally happen; a missing name suggests a
             // plan-construction bug where the SortExec column does not exist
             // in the lookup child schema.
-            pgrx::warning!(
+            pgrx::debug2!(
                 "SegmentedTopK: column '{}' not found in input schema; using logical index {} as fallback",
                 col_name,
                 logical_idx

@@ -237,7 +237,7 @@ fn rewrite_is_datetime_values_to_tagged_dates(value: &mut serde_json::Value) {
             });
         }
         for bound_key in ["lower_bound", "upper_bound"] {
-            for inclusion_key in ["included", "excluded"] {
+            for inclusion_key in ["included", "excluded", "Included", "Excluded"] {
                 if let Some(s) = value[bound_key][inclusion_key].as_str() {
                     value[bound_key][inclusion_key] = serde_json::json!({
                             "date": s

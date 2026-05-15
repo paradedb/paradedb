@@ -899,8 +899,7 @@ impl ParallelQueryCapable for JoinScan {
 
         let mpp_coordinate = unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut c_void };
         let seg = unsafe { (*pcxt).seg };
-        let n_partitions = state.custom_state().mpp_n_partitions;
-        match unsafe { leader_setup(mpp_coordinate, seg, pcxt, n_partitions, plan_bytes) } {
+        match unsafe { leader_setup(mpp_coordinate, seg, pcxt, plan_bytes) } {
             Ok(leader) => {
                 state.custom_state_mut().mpp = Some(MppExecState::Leader(leader));
             }

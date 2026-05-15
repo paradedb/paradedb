@@ -180,7 +180,6 @@ pub unsafe fn leader_setup(
     coordinate: *mut c_void,
     seg: *mut pg_sys::dsm_segment,
     pcxt: *mut pg_sys::ParallelContext,
-    n_partitions: u32,
     plan_bytes: Vec<u8>,
 ) -> Result<MppLeaderState, String> {
     let total_procs = n_procs();
@@ -188,7 +187,6 @@ pub unsafe fn leader_setup(
         .map_err(|e| format!("mpp: leader_setup compute layout: {e}"))?;
 
     let attach = unsafe { leader_init(coordinate, seg, &layout, &plan_bytes) }?;
-    let _ = n_partitions;
 
     // Each `DrainHandle` owns a per-`(stage_id, partition)` channel buffer registry, so one shm_mq
     // queue can carry frames from many logical channels. Channel buffers are created lazily on first

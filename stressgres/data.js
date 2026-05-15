@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778862964309,
+  "lastUpdate": 1778862996623,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10262,6 +10262,114 @@ window.BENCHMARK_DATA = {
             "value": 174,
             "unit": "median mem",
             "extra": "avg mem: 171.4648923390472, max mem: 175.046875, count: 55552"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2edacebe4a7e52eb67081dbb73b4d712f13625aa",
+          "message": "chore: Remove unnecessary propogation of `is_datetime` (#5071)\n\n## What\nThis PR removes the extensive propagation of `is_datetime` in the code\nsurrounding decisions about `Term` handling. Specifically, by removing\nthe `is_datetime` fields and working backwards from there.\n\n## Why\nThere were two reasons `is_datetime` value was so widely propagated:\n1) This arm in `Query::apply_fuzzy_data` required it.\n    ```rust\n    pdb::Query::Term {\n        value: OwnedValue::Str(value),\n         is_datetime,\n    } if !*is_datetime => {\n        *self = pdb::Query::FuzzyTerm {\n            value: value.to_string(),\n            distance: Some(new_fuzzy_data.distance),\ntransposition_cost_one: Some(new_fuzzy_data.transposition_cost_one),\n            prefix: Some(new_fuzzy_data.prefix)\n        }\n    }\n    ```\nHowever, the only way it would be possible to hit arm with an\n`is_datetime` of `true` that is for the user to set it in the query JSON\ndirectly via something like:\n    ```sql\nWHERE description @@@ '{\"term\":\n{\"value\":\"shoes\",\"is_datetime\":true}}'::pdb.query::pdb.fuzzy(2);\n    ```\n    Removing `is_datetime` means that that route is no longer possible.\n    \nEvery instance where `Query::Term` is constructed in the code with a\nstring `value` sets it to false. At every other place that we need to\ndetermine if the term should be considered as a datetime, we can inspect\nthe schema.\n\n    Hence, this is safe to remove.\n2) Determining if a field in a json string should be treated as a\ndatetime. This can be address by determining that at deserialization\ntime.\n\n## How\nRemove all `is_datetime` properties across term-handling. For the\nremaining places we need to determine whether or not to handle the term\nas a datetime, outside of json parsing and targeting json fields,\ninspect the schema.\n\nFor JSON handling, make it so we handle this at deserialization time. \n- For all `Query` enum members that take an `OwnedValue`, serde them as\na `DateAwareOwnedValue` and convert/to from `OwnedValue` accordingly.\n`DateAwareOwnedValue` produced a tagged serialization.\n- For fielded queries, \"rewrite\" the json during deserialization to have\nthis tagged structure if there's an `is_datetime` field present.\n- For `TermInput`, serialize it as above. Deserialize it through\n`TermInputWire`, which handles the `is_datetime` logic.\n\n\n## Tests\n- All unit and integration tests pass.\n- All changed regression test outputs are either whitespace or the\nchange of `\"is_datetime\"` to the tagged format in the query explain\nJSON. No actual regressions.\n- Add new regression tests for range json queries and term_set json\nqueries using both legacy and v2 query styles.",
+          "timestamp": "2026-05-15T09:31:13-06:00",
+          "tree_id": "fe5785b74dd5316bd7bb64e113866096c52eae11",
+          "url": "https://github.com/paradedb/paradedb/commit/2edacebe4a7e52eb67081dbb73b4d712f13625aa"
+        },
+        "date": 1778862966103,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.967757416770088, max cpu: 46.242775, count: 55605"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 178.9375,
+            "unit": "median mem",
+            "extra": "avg mem: 177.18820924377303, max mem: 179.52734375, count: 55605"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.633980126612257, max cpu: 27.934044, count: 55605"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 120.6171875,
+            "unit": "median mem",
+            "extra": "avg mem: 119.43201579500494, max mem: 120.7890625, count: 55605"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.211619832231029, max cpu: 18.658894, count: 55605"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 176.05078125,
+            "unit": "median mem",
+            "extra": "avg mem: 148.40422673039745, max mem: 180.890625, count: 55605"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16503,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16805.89696969697, max block_count: 31317.0, count: 55605"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.120974805046781, max cpu: 4.7197638, count: 55605"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 111.40234375,
+            "unit": "median mem",
+            "extra": "avg mem: 97.47989213818451, max mem: 138.5390625, count: 55605"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 25.484632676917542, max segment_count: 40.0, count: 55605"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.257474,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.228466743245656, max cpu: 28.042841, count: 111210"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 181.875,
+            "unit": "median mem",
+            "extra": "avg mem: 164.40804302530123, max mem: 182.74609375, count: 111210"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.031273815980912, max cpu: 27.799229, count: 55605"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 174.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 172.31807033146748, max mem: 175.6171875, count: 55605"
           }
         ]
       }

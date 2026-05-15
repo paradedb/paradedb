@@ -33,7 +33,7 @@ use crate::api::operator::searchqueryinput_typoid;
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::customscan::explain::{format_for_explain, ExplainFormat};
-use crate::postgres::datetime::micros_to_tantivy_datetime;
+use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::utils::convert_pg_date_string;
 use crate::query::more_like_this::MoreLikeThisQuery;
 use crate::query::pdb_query::pdb;
@@ -42,7 +42,6 @@ use crate::schema::SearchFieldType;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
 use core::panic;
-use pgrx::datetime::support::DateTimeConversionError;
 use pgrx::{
     pg_sys, varlena_to_byte_slice, FromDatum, IntoDatum, PgBuiltInOids, PgOid, PostgresType,
 };
@@ -50,7 +49,6 @@ use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::{Debug, Formatter};
 use std::ops::Bound;
-use std::str::FromStr;
 use tantivy::query::{
     AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
     Query as TantivyQuery, QueryParser, TermSetQuery,
@@ -1584,14 +1582,14 @@ pub fn value_to_term(
             (OwnedValue::Str(text), FieldType::I64(_), SearchFieldType::I64(oid))
                 if *oid == pg_sys::TIMESTAMPOID =>
             {
-                let ts = pgrx::datum::Timestamp::from_str(text)?;
-                return Ok(Term::from_field_i64(field, ts.into_inner()));
+                let pg_dt = PostgresDateTime::try_from_timestamp_str(text.as_str())?;
+                return Ok(Term::from_field_i64(field, pg_dt.into_inner()));
             }
             (OwnedValue::Str(text), FieldType::I64(_), SearchFieldType::I64(oid))
                 if *oid == pg_sys::TIMESTAMPTZOID =>
             {
-                let ts = pgrx::datum::TimestampWithTimeZone::from_str(text)?;
-                return Ok(Term::from_field_i64(field, ts.into_inner()));
+                let pg_dt = PostgresDateTime::try_from_timestamptz_str(text.as_str())?;
+                return Ok(Term::from_field_i64(field, pg_dt.into_inner()));
             }
             // Got a timestamp/timestamptz value that was converted to an i64, but this is a legacy index that
             // uses Date, so we need to convert it.
@@ -1600,11 +1598,8 @@ pub fn value_to_term(
             (OwnedValue::I64(pg_micros), FieldType::Date(_), SearchFieldType::Date(oid))
                 if *oid == pg_sys::TIMESTAMPOID || *oid == pg_sys::TIMESTAMPTZOID =>
             {
-                let epoch_ts = unsafe { pg_sys::SetEpochTimestamp() };
-                let unix_micros = pg_micros
-                    .checked_sub(epoch_ts)
-                    .ok_or(DateTimeConversionError::OutOfRange)?;
-                let dt = micros_to_tantivy_datetime(unix_micros)?;
+                let pg_dt = PostgresDateTime::try_from_raw(*pg_micros)?;
+                let dt: tantivy::DateTime = pg_dt.try_into()?;
                 return Ok(Term::from_field_date(
                     field,
                     dt.truncate(DATE_TIME_PRECISION_INDEXED),

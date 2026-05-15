@@ -416,21 +416,6 @@ mod pdb {
     }
 
     macro_rules! term_fn {
-        // Should be used for value types that are always datetime.
-        ($func_name:ident, $value_type:ty, always_datetime) => {
-            #[builder_fn]
-            #[pg_extern(immutable, parallel_safe, name = "term")]
-            pub fn $func_name(value: $value_type) -> pdb::Query {
-                let tantivy_value = TantivyValue::try_from(value)
-                    .expect("value should be a valid TantivyValue representation")
-                    .tantivy_schema_value();
-                pdb::Query::Term {
-                    value: tantivy_value,
-                    is_datetime: true,
-                }
-            }
-        };
-
         // All other types use this
         ($func_name:ident, $value_type:ty) => {
             #[builder_fn]
@@ -458,13 +443,9 @@ mod pdb {
     term_fn!(term_bool, bool);
     term_fn!(date, pgrx::datum::Date);
     term_fn!(time, pgrx::datum::Time);
-    term_fn!(timestamp, pgrx::datum::Timestamp, always_datetime);
+    term_fn!(timestamp, pgrx::datum::Timestamp);
     term_fn!(time_with_time_zone, pgrx::datum::TimeWithTimeZone);
-    term_fn!(
-        timestamp_with_time_zone,
-        pgrx::datum::TimestampWithTimeZone,
-        always_datetime
-    );
+    term_fn!(timestamp_with_time_zone, pgrx::datum::TimestampWithTimeZone);
     term_fn!(numeric, pgrx::AnyNumeric);
     term_fn!(uuid, pgrx::Uuid);
     term_fn!(inet, pgrx::Inet);

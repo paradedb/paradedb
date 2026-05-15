@@ -45,8 +45,9 @@ use datafusion_distributed::{display_plan_ascii, DistributedExec, DistributedTas
 
 use crate::postgres::customscan::mpp::dsm::MppDsmHeader;
 use crate::postgres::customscan::mpp::glue::{
-    estimate_dsm_size, leader_setup, mpp_is_active, mpp_worker_count, producer_worker_count,
-    worker_setup,
+    estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, mpp_worker_count,
+    producer_worker_count, pscan_offset, read_custom_scan_header, worker_setup,
+    write_custom_scan_header, CustomScanMppHeader,
 };
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 
@@ -625,53 +626,6 @@ impl CustomScan for AggregateScan {
     }
 }
 
-/// MPP DSM hook impl. The query's serialized worker-fragment plan bytes are
-/// stashed on the customscan state by `begin_custom_scan` so estimate +
-/// initialize see the same bytes; without that we'd have to re-build the
-/// plan twice. The serialization itself happens via the
-/// `PgSearchExtensionCodec` and the DF-D fork's `DistributedCodec` so
-/// `NetworkShuffleExec` round-trips through the worker side.
-/// DSM layout used by AggregateScan in MPP mode:
-///
-/// ```text
-/// [0 .. 8)                     u64 mpp_offset            (offset to MPP region)
-/// [8 .. 16)                    u64 partitioning_source_idx
-/// [pscan_offset .. mpp_offset) ParallelScanState (variable size)
-/// [mpp_offset .. total)        MPP region (header + queues + plan_bytes)
-/// ```
-///
-/// Workers don't carry the source manifests the leader saw, so the
-/// MPP-region offset and the partitioning-source index are stamped into
-/// the first 16 bytes by the leader and read back by workers — neither
-/// has to be re-derived.
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct MppAggDsmHeader {
-    mpp_offset: u64,
-    partitioning_source_idx: u64,
-}
-
-const MPP_AGG_DSM_HEADER_SIZE: usize = std::mem::size_of::<MppAggDsmHeader>();
-
-fn mpp_align(n: usize) -> usize {
-    let a = pg_sys::MAXIMUM_ALIGNOF as usize;
-    n.next_multiple_of(a)
-}
-
-fn mpp_agg_pscan_offset() -> usize {
-    mpp_align(MPP_AGG_DSM_HEADER_SIZE)
-}
-
-unsafe fn mpp_agg_read_header(coordinate: *const std::os::raw::c_void) -> MppAggDsmHeader {
-    unsafe { *(coordinate as *const MppAggDsmHeader) }
-}
-
-unsafe fn mpp_agg_write_header(coordinate: *mut std::os::raw::c_void, header: MppAggDsmHeader) {
-    unsafe {
-        *(coordinate as *mut MppAggDsmHeader) = header;
-    }
-}
-
 impl ParallelQueryCapable for AggregateScan {
     fn estimate_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
@@ -695,7 +649,7 @@ impl ParallelQueryCapable for AggregateScan {
             .collect();
         let partitioning_idx = Self::partitioning_source_idx(state);
         let pscan_size = ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false);
-        let mpp_offset = mpp_align(mpp_agg_pscan_offset() + pscan_size);
+        let mpp_offset = mpp_align(pscan_offset() + pscan_size);
 
         let mpp_size = match estimate_dsm_size(plan_bytes_len) {
             Ok(sz) => sz,
@@ -731,16 +685,16 @@ impl ParallelQueryCapable for AggregateScan {
             .map(|m| m.segment_count())
             .collect();
         let pscan_size = ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false);
-        let pscan_offset = mpp_agg_pscan_offset();
+        let pscan_offset = pscan_offset();
         let mpp_offset = mpp_align(pscan_offset + pscan_size);
 
         // Stamp the MPP-region offset and partitioning-source index into
         // the DSM header so workers can skip past the ParallelScanState
         // block and key index_segment_ids the same way as the leader.
         unsafe {
-            mpp_agg_write_header(
+            write_custom_scan_header(
                 coordinate,
-                MppAggDsmHeader {
+                CustomScanMppHeader {
                     mpp_offset: mpp_offset as u64,
                     partitioning_source_idx: partitioning_idx as u64,
                 },
@@ -794,7 +748,7 @@ impl ParallelQueryCapable for AggregateScan {
         coordinate: *mut std::os::raw::c_void,
     ) {
         // Reset the ParallelScanState header so a re-execution re-claims segments.
-        let pscan_offset = mpp_agg_pscan_offset();
+        let pscan_offset = pscan_offset();
         let pscan_state =
             unsafe { (coordinate as *mut u8).add(pscan_offset) as *mut ParallelScanState };
         if !pscan_state.is_null() {
@@ -813,9 +767,9 @@ impl ParallelQueryCapable for AggregateScan {
 
         // Read the MPP-region offset + partitioning-source index from the
         // DSM header.
-        let header = unsafe { mpp_agg_read_header(coordinate) };
+        let header = unsafe { read_custom_scan_header(coordinate) };
         let mpp_offset = header.mpp_offset as usize;
-        let pscan_offset = mpp_agg_pscan_offset();
+        let pscan_offset = pscan_offset();
         state.custom_state_mut().mpp_partitioning_source_idx =
             Some(header.partitioning_source_idx as usize);
 

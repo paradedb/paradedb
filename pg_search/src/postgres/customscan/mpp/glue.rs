@@ -78,6 +78,68 @@ pub fn mpp_worker_count() -> u32 {
     gucs_mpp_worker_count().max(3) as u32
 }
 
+/// Customscan-side header at offset 0 of the DSM coordinate that the leader hands to
+/// `leader_setup` / workers see in `initialize_worker_custom_scan`. Tells workers where the
+/// MPP region begins (past the customscan's `ParallelScanState` block) and which entry in
+/// `plan.sources()` is the partitioning source.
+///
+/// DSM layout used by every customscan opting into MPP:
+///
+/// ```text
+/// [0 .. 8)                       u64 mpp_offset            (offset to MPP region)
+/// [8 .. 16)                      u64 partitioning_source_idx
+/// [pscan_offset .. mpp_offset)   ParallelScanState (variable size)
+/// [mpp_offset .. total)          MPP region (MppDsmHeader + queues + plan_bytes)
+/// ```
+///
+/// Workers don't carry the source manifests the leader saw, so these two `u64`s let them skip
+/// past the `ParallelScanState` block and key `index_segment_ids` the same way as the leader.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct CustomScanMppHeader {
+    pub mpp_offset: u64,
+    pub partitioning_source_idx: u64,
+}
+
+const CUSTOM_SCAN_MPP_HEADER_SIZE: usize = std::mem::size_of::<CustomScanMppHeader>();
+
+/// Round `n` up to the nearest `MAXIMUM_ALIGNOF` boundary. Used to align section boundaries
+/// inside the customscan's DSM coordinate so the `ParallelScanState` block and the MPP region
+/// each start on aligned bytes.
+pub fn mpp_align(n: usize) -> usize {
+    let a = pg_sys::MAXIMUM_ALIGNOF as usize;
+    n.next_multiple_of(a)
+}
+
+/// Byte offset of the `ParallelScanState` block within the customscan's DSM coordinate. Lives
+/// right after the [`CustomScanMppHeader`], MAXALIGN-padded.
+pub fn pscan_offset() -> usize {
+    mpp_align(CUSTOM_SCAN_MPP_HEADER_SIZE)
+}
+
+/// Read the [`CustomScanMppHeader`] stamped by the leader at offset 0 of the DSM coordinate.
+///
+/// # Safety
+/// `coordinate` must point at a DSM coordinate that the leader populated via
+/// [`write_custom_scan_header`]. Callers in `initialize_worker_custom_scan` get this pointer
+/// from PG and are responsible for confirming it's the expected layout.
+pub unsafe fn read_custom_scan_header(coordinate: *const c_void) -> CustomScanMppHeader {
+    unsafe { *(coordinate as *const CustomScanMppHeader) }
+}
+
+/// Stamp the [`CustomScanMppHeader`] at offset 0 of the DSM coordinate so workers can read
+/// `mpp_offset` and `partitioning_source_idx` without re-deriving them from manifests.
+///
+/// # Safety
+/// `coordinate` must point at the leader's DSM coordinate from `initialize_dsm_custom_scan`,
+/// with at least `size_of::<CustomScanMppHeader>()` bytes writable. The customscan's
+/// `estimate_dsm_custom_scan` is responsible for reserving the space.
+pub unsafe fn write_custom_scan_header(coordinate: *mut c_void, header: CustomScanMppHeader) {
+    unsafe {
+        *(coordinate as *mut CustomScanMppHeader) = header;
+    }
+}
+
 /// Per-edge queue size from the GUC.
 pub(super) fn mpp_queue_size() -> usize {
     gucs_mpp_queue_size()

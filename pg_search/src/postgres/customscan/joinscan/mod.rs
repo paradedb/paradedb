@@ -180,7 +180,8 @@ use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_f
 use crate::postgres::customscan::joinscan::scan_state::MppExecState;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::glue::{
-    estimate_dsm_size, leader_setup, mpp_is_active, producer_worker_count, worker_setup,
+    estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, producer_worker_count, pscan_offset,
+    read_custom_scan_header, worker_setup, write_custom_scan_header, CustomScanMppHeader,
 };
 use crate::postgres::customscan::parallel::compute_nworkers;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
@@ -200,38 +201,6 @@ use std::ffi::{c_void, CStr};
 
 #[derive(Default)]
 pub struct JoinScan;
-
-/// JoinScan-specific MPP DSM header. Sits between the ParallelScanState block and the MPP
-/// region in the customscan's DSM coordinate, telling workers where the MPP region begins and
-/// which source they're partitioning over. Same shape as `aggregatescan`'s
-/// `MppAggDsmHeader`; can be unified in a follow-up.
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct MppJoinDsmHeader {
-    mpp_offset: u64,
-    partitioning_source_idx: u64,
-}
-
-const MPP_JOIN_DSM_HEADER_SIZE: usize = std::mem::size_of::<MppJoinDsmHeader>();
-
-fn mpp_join_align(n: usize) -> usize {
-    let a = pg_sys::MAXIMUM_ALIGNOF as usize;
-    n.next_multiple_of(a)
-}
-
-fn mpp_join_pscan_offset() -> usize {
-    mpp_join_align(MPP_JOIN_DSM_HEADER_SIZE)
-}
-
-unsafe fn mpp_join_read_header(coordinate: *const std::os::raw::c_void) -> MppJoinDsmHeader {
-    unsafe { *(coordinate as *const MppJoinDsmHeader) }
-}
-
-unsafe fn mpp_join_write_header(coordinate: *mut std::os::raw::c_void, header: MppJoinDsmHeader) {
-    unsafe {
-        *(coordinate as *mut MppJoinDsmHeader) = header;
-    }
-}
 
 /// Output of [`JoinScan::try_build_join_custom_path`] when activation succeeds.
 struct BuiltJoinPath {
@@ -815,7 +784,7 @@ impl ParallelQueryCapable for JoinScan {
         else {
             return pscan_size as pg_sys::Size;
         };
-        let mpp_offset = mpp_join_align(mpp_join_pscan_offset() + pscan_size);
+        let mpp_offset = mpp_align(pscan_offset() + pscan_size);
         let mpp_size = match estimate_dsm_size(plan_bytes_len) {
             Ok(sz) => sz,
             Err(e) => {
@@ -838,13 +807,9 @@ impl ParallelQueryCapable for JoinScan {
         let mpp_active = mpp_is_active() && state.custom_state().mpp_plan_bytes.is_some();
 
         // Compute layout: when MPP active, header at offset 0, ParallelScanState at
-        // mpp_join_pscan_offset(), MPP region right after. When MPP inactive, ParallelScanState
+        // pscan_offset(), MPP region right after. When MPP inactive, ParallelScanState
         // sits at offset 0 and we leave the rest of the coordinate untouched.
-        let pscan_offset = if mpp_active {
-            mpp_join_pscan_offset()
-        } else {
-            0
-        };
+        let pscan_offset = if mpp_active { pscan_offset() } else { 0 };
         let pscan_state =
             unsafe { (coordinate as *mut u8).add(pscan_offset) as *mut ParallelScanState };
         assert!(!pscan_state.is_null(), "coordinate is null");
@@ -886,11 +851,11 @@ impl ParallelQueryCapable for JoinScan {
             .map(SearchIndexManifest::segment_count)
             .collect();
         let pscan_size = ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false);
-        let mpp_offset = mpp_join_align(pscan_offset + pscan_size);
+        let mpp_offset = mpp_align(pscan_offset + pscan_size);
         unsafe {
-            mpp_join_write_header(
+            write_custom_scan_header(
                 coordinate,
-                MppJoinDsmHeader {
+                CustomScanMppHeader {
                     mpp_offset: mpp_offset as u64,
                     partitioning_source_idx: partitioning_idx as u64,
                 },
@@ -928,13 +893,9 @@ impl ParallelQueryCapable for JoinScan {
     ) {
         // Worker layout follows the leader: if MPP is active the leader stamped a
         // `MppJoinDsmHeader` at offset 0 and put the ParallelScanState at
-        // `mpp_join_pscan_offset()`. If MPP is off the ParallelScanState sits at offset 0.
+        // `pscan_offset()`. If MPP is off the ParallelScanState sits at offset 0.
         let mpp_active = mpp_is_active();
-        let pscan_offset = if mpp_active {
-            mpp_join_pscan_offset()
-        } else {
-            0
-        };
+        let pscan_offset = if mpp_active { pscan_offset() } else { 0 };
         let pscan_state =
             unsafe { (coordinate as *mut u8).add(pscan_offset) as *mut ParallelScanState };
         assert!(!pscan_state.is_null(), "coordinate is null");
@@ -953,7 +914,7 @@ impl ParallelQueryCapable for JoinScan {
 
         // MPP worker: read the header to find where the MPP region starts + which source we're
         // partitioning over. Hand the MPP region to `worker_setup`.
-        let header = unsafe { mpp_join_read_header(coordinate) };
+        let header = unsafe { read_custom_scan_header(coordinate) };
         let mpp_offset = header.mpp_offset as usize;
         state.custom_state_mut().mpp_partitioning_source_idx =
             Some(header.partitioning_source_idx as usize);

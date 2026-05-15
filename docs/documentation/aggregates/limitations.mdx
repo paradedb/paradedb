@@ -61,7 +61,7 @@ MockItem.search(:id).match_all.where(rating: 5).count
 
 ```ts Drizzle
 import { and, count, eq } from "drizzle-orm";
-import { search } from "drizzle-paradedb";
+import { search } from "@paradedb/drizzle-paradedb";
 
 // Not pushed down — no ParadeDB operator
 await db

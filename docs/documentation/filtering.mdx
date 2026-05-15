@@ -46,7 +46,7 @@ MockItem.search(:description)
 
 ```ts Drizzle
 import { and, gt } from "drizzle-orm";
-import { search } from "drizzle-paradedb";
+import { search } from "@paradedb/drizzle-paradedb";
 
 await db
   .select({
@@ -178,7 +178,7 @@ MockItem.search(:description)
 
 ```ts Drizzle
 import { and, eq } from "drizzle-orm";
-import { search } from "drizzle-paradedb";
+import { search } from "@paradedb/drizzle-paradedb";
 
 await db
   .select({
@@ -246,7 +246,7 @@ MockItem.search(:description)
 
 ```ts Drizzle
 import { and, inArray } from "drizzle-orm";
-import { search } from "drizzle-paradedb";
+import { search } from "@paradedb/drizzle-paradedb";
 
 await db
   .select({

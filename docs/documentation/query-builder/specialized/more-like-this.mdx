@@ -48,7 +48,7 @@ MockItem.more_like_this(3)
 ```
 
 ```ts Drizzle
-import { search } from "drizzle-paradedb";
+import { search } from "@paradedb/drizzle-paradedb";
 
 await db
   .select({
@@ -124,7 +124,7 @@ MockItem.more_like_this(3, fields: [:description])
 ```
 
 ```ts Drizzle
-import { search } from "drizzle-paradedb";
+import { search } from "@paradedb/drizzle-paradedb";
 
 await db
   .select({
@@ -212,7 +212,7 @@ MockItem.more_like_this({ description: "Sleek running shoes", category: "footwea
 ```
 
 ```ts Drizzle
-import { search } from "drizzle-paradedb";
+import { search } from "@paradedb/drizzle-paradedb";
 
 await db
   .select({
@@ -281,7 +281,7 @@ MockItem.more_like_this(3, min_term_freq: 2)
 ```
 
 ```ts Drizzle
-import { search } from "drizzle-paradedb";
+import { search } from "@paradedb/drizzle-paradedb";
 
 await db
   .select({
@@ -341,7 +341,7 @@ MockItem.more_like_this(3, min_doc_freq: 3)
 ```
 
 ```ts Drizzle
-import { search } from "drizzle-paradedb";
+import { search } from "@paradedb/drizzle-paradedb";
 
 await db
   .select({
@@ -403,7 +403,7 @@ MockItem.more_like_this(3, max_query_terms: 10)
 ```
 
 ```ts Drizzle
-import { search } from "drizzle-paradedb";
+import { search } from "@paradedb/drizzle-paradedb";
 
 await db
   .select({
@@ -462,7 +462,7 @@ MockItem.more_like_this(3, min_word_length: 5)
 ```
 
 ```ts Drizzle
-import { search } from "drizzle-paradedb";
+import { search } from "@paradedb/drizzle-paradedb";
 
 await db
   .select({
@@ -520,7 +520,7 @@ MockItem.more_like_this(3, stopwords: %w[the a])
 ```
 
 ```ts Drizzle
-import { search } from "drizzle-paradedb";
+import { search } from "@paradedb/drizzle-paradedb";
 
 await db
   .select({

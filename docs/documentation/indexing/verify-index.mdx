@@ -38,7 +38,7 @@ ParadeDB.paradedb_verify_index("search_idx")
 ```
 
 ```ts Drizzle
-import { diagnostics } from "drizzle-paradedb";
+import { diagnostics } from "@paradedb/drizzle-paradedb";
 
 await db.execute(diagnostics.verifyIndex("search_idx"));
 ```
@@ -97,7 +97,7 @@ ParadeDB.paradedb_verify_index(
 ```
 
 ```ts Drizzle
-import { diagnostics } from "drizzle-paradedb";
+import { diagnostics } from "@paradedb/drizzle-paradedb";
 
 await db.execute(
   diagnostics.verifyIndex("search_idx", {
@@ -162,7 +162,7 @@ ParadeDB.paradedb_verify_index(
 ```
 
 ```ts Drizzle
-import { diagnostics } from "drizzle-paradedb";
+import { diagnostics } from "@paradedb/drizzle-paradedb";
 
 await db.execute(
   diagnostics.verifyIndex("search_idx", {
@@ -216,7 +216,7 @@ ParadeDB.paradedb_verify_index(
 ```
 
 ```ts Drizzle
-import { diagnostics } from "drizzle-paradedb";
+import { diagnostics } from "@paradedb/drizzle-paradedb";
 
 await db.execute(
   diagnostics.verifyIndex("search_idx", {
@@ -276,7 +276,7 @@ ParadeDB.paradedb_verify_index(
 ```
 
 ```ts Drizzle
-import { diagnostics } from "drizzle-paradedb";
+import { diagnostics } from "@paradedb/drizzle-paradedb";
 
 await db.execute(
   diagnostics.verifyIndex("search_idx", {
@@ -322,7 +322,7 @@ ParadeDB.paradedb_verify_index(
 ```
 
 ```ts Drizzle
-import { diagnostics } from "drizzle-paradedb";
+import { diagnostics } from "@paradedb/drizzle-paradedb";
 
 await db.execute(
   diagnostics.verifyIndex("search_idx", {
@@ -366,7 +366,7 @@ ParadeDB.paradedb_index_segments("search_idx")
 ```
 
 ```ts Drizzle
-import { diagnostics } from "drizzle-paradedb";
+import { diagnostics } from "@paradedb/drizzle-paradedb";
 
 await db.execute(diagnostics.indexSegments("search_idx"));
 ```
@@ -457,7 +457,7 @@ ParadeDB.paradedb_verify_index(
 ```
 
 ```ts Drizzle
-import { diagnostics } from "drizzle-paradedb";
+import { diagnostics } from "@paradedb/drizzle-paradedb";
 
 const segments = await db.execute(diagnostics.indexSegments("search_idx"));
 const evenSegments = segments
@@ -550,7 +550,7 @@ ParadeDB.paradedb_verify_index(
 ```
 
 ```ts Drizzle
-import { diagnostics } from "drizzle-paradedb";
+import { diagnostics } from "@paradedb/drizzle-paradedb";
 
 const segments = await db.execute(diagnostics.indexSegments("search_idx"));
 
@@ -592,7 +592,7 @@ ParadeDB.paradedb_verify_all_indexes()
 ```
 
 ```ts Drizzle
-import { diagnostics } from "drizzle-paradedb";
+import { diagnostics } from "@paradedb/drizzle-paradedb";
 
 await db.execute(diagnostics.verifyAllIndexes());
 ```
@@ -675,7 +675,7 @@ ParadeDB.paradedb_verify_all_indexes(
 ```
 
 ```ts Drizzle
-import { diagnostics } from "drizzle-paradedb";
+import { diagnostics } from "@paradedb/drizzle-paradedb";
 
 // Verify indexes in the 'public' schema only
 await db.execute(
@@ -729,7 +729,7 @@ ParadeDB.paradedb_indexes()
 ```
 
 ```ts Drizzle
-import { diagnostics } from "drizzle-paradedb";
+import { diagnostics } from "@paradedb/drizzle-paradedb";
 
 await db.execute(diagnostics.indexes());
 ```

@@ -61,7 +61,7 @@ ActiveRecord::Base.connection.add_bm25_index(
 ```
 
 ```ts Drizzle
-import { indexing } from "drizzle-paradedb";
+import { indexing } from "@paradedb/drizzle-paradedb";
 
 indexing.bm25Index("search_idx").on(mockItems.id, mockItems.metadata);
 ```
@@ -138,7 +138,7 @@ ActiveRecord::Base.connection.add_bm25_index(
 ```
 
 ```ts Drizzle
-import { indexing, tokenizer } from "drizzle-paradedb";
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
 
 indexing
   .bm25Index("search_idx")
@@ -217,7 +217,7 @@ ActiveRecord::Base.connection.add_bm25_index(
 ```
 
 ```ts Drizzle
-import { indexing, tokenizer } from "drizzle-paradedb";
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
 
 indexing
   .bm25Index("search_idx")

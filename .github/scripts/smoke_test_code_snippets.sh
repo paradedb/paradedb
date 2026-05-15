@@ -20,10 +20,12 @@ PARADEDB_PASSWORD="${PARADEDB_PASSWORD:-}"
 PYTHON_ENV_DIR="$(mktemp -d -t paradedb-docs-python.XXXXXX)"
 PYTHON_BIN="$PYTHON_ENV_DIR/bin/python"
 RUBY_GEM_HOME="$(mktemp -d -t paradedb-docs-ruby.XXXXXX)"
+DRIZZLE_ENV_DIR="$(mktemp -d -t paradedb-docs-drizzle.XXXXXX)"
 
 cleanup() {
   rm -rf "$PYTHON_ENV_DIR"
   rm -rf "$RUBY_GEM_HOME"
+  rm -rf "$DRIZZLE_ENV_DIR"
 }
 
 trap cleanup EXIT
@@ -235,44 +237,42 @@ fi
 drizzle_pass_count=0
 drizzle_fail_count=0
 if [[ $LANGUAGES =~ "drizzle" ]]; then
-  if [[ ! -d "${REPO_ROOT}/../drizzle-paradedb" ]]; then
-    echo "${RED}[FAIL]${RESET} Drizzle repo not found: ${REPO_ROOT}/../drizzle-paradedb" >&2
-    drizzle_fail_count=$((drizzle_fail_count + 1))
-  else
-    echo "Installing and building local drizzle-paradedb..."
-    pnpm --dir "${REPO_ROOT}/../drizzle-paradedb" install --frozen-lockfile
-    pnpm --dir "${REPO_ROOT}/../drizzle-paradedb" build
+  echo "Installing @paradedb/drizzle-paradedb from npm..."
+  npm --prefix "$DRIZZLE_ENV_DIR" install --silent \
+    "@paradedb/drizzle-paradedb" \
+    "drizzle-orm" \
+    "postgres" \
+    "tsx"
 
-    while IFS= read -r snippet_file; do
-      rel_snippet="${snippet_file#"$REPO_ROOT"/}"
+  while IFS= read -r snippet_file; do
+    rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
-      run_psql_file "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql"
-      drop_snippet_indexes
+    run_psql_file "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql"
+    drop_snippet_indexes
 
-      if ! grep -Fq 'bm25Index' "$snippet_file"; then
-        create_snippet_indexes
-      fi
+    if ! grep -Fq 'bm25Index' "$snippet_file"; then
+      create_snippet_indexes
+    fi
 
-      if {
-        cat "${SCRIPT_DIR}/drizzle_snippet_harness.ts"
-        cat <<TS
+    if {
+      cat "${SCRIPT_DIR}/drizzle_snippet_harness.ts"
+      cat <<TS
 // Source: $rel_snippet
 TS
-        cat "$snippet_file"
-        cat <<'TS'
+      cat "$snippet_file"
+      cat <<'TS'
 
 await client.end();
 TS
-      } | pnpm --dir "${REPO_ROOT}/../drizzle-paradedb" exec tsx - >/dev/null; then
-        echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
-        drizzle_pass_count=$((drizzle_pass_count + 1))
-      else
-        exit_if_interrupted "$?"
-        echo "${RED}[FAIL]${RESET} $rel_snippet" >&2
-        drizzle_fail_count=$((drizzle_fail_count + 1))
-      fi
-    done < <(find "${VERIFY_DIR}/drizzle" -type f -name '*.ts' | LC_ALL=C sort)
-  fi
+    } | (cd "$DRIZZLE_ENV_DIR" && npm exec -- tsx -) >/dev/null; then
+      echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
+      drizzle_pass_count=$((drizzle_pass_count + 1))
+    else
+      exit_if_interrupted "$?"
+      echo "${RED}[FAIL]${RESET} $rel_snippet" >&2
+      drizzle_fail_count=$((drizzle_fail_count + 1))
+    fi
+  done < <(find "${VERIFY_DIR}/drizzle" -type f -name '*.ts' | LC_ALL=C sort)
 fi
 
 echo "SQL passed: $sql_pass_count failed: $sql_fail_count"

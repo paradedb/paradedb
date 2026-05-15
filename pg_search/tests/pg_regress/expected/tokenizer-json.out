@@ -85,14 +85,14 @@ SELECT * FROM index_json WHERE j->'key1' ### 'value1';
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' === 'value1';
-                                                 QUERY PLAN                                                 
-------------------------------------------------------------------------------------------------------------
+                                       QUERY PLAN                                       
+----------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"j.key1","value":"value1","is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"j.key1","value":"value1"}}}}
 (6 rows)
 
 SELECT * FROM index_json WHERE j->'key1' === 'value1';
@@ -170,14 +170,14 @@ SELECT * FROM index_json WHERE jb->'key2' ### 'value2';
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' === 'value2';
-                                                 QUERY PLAN                                                  
--------------------------------------------------------------------------------------------------------------
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"jb.key2","value":"value2","is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"jb.key2","value":"value2"}}}}
 (6 rows)
 
 SELECT * FROM index_json WHERE jb->'key2' === 'value2';
@@ -253,14 +253,14 @@ ERROR:  field 'j' was tokenized with 'Some("ngram_mingram:2_maxgram:3_prefixonly
 SELECT * FROM index_json WHERE j->'key1' ### 'value1';
 ERROR:  field 'j' was tokenized with 'Some("ngram_mingram:2_maxgram:3_prefixonly:false")' which does not support this query type
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' === 'value1';
-                                                 QUERY PLAN                                                 
-------------------------------------------------------------------------------------------------------------
+                                       QUERY PLAN                                       
+----------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"j.key1","value":"value1","is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"j.key1","value":"value1"}}}}
 (6 rows)
 
 SELECT * FROM index_json WHERE j->'key1' === 'value1';
@@ -337,14 +337,14 @@ SELECT * FROM index_json WHERE jb->'key2' ### 'value2';
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE jb->'key2' === 'value2';
-                                                 QUERY PLAN                                                  
--------------------------------------------------------------------------------------------------------------
+                                       QUERY PLAN                                        
+-----------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on index_json
    Table: index_json
    Index: idxindex_json
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"jb.key2","value":"value2","is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"jb.key2","value":"value2"}}}}
 (6 rows)
 
 SELECT * FROM index_json WHERE jb->'key2' === 'value2';

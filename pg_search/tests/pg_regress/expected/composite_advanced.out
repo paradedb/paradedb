@@ -802,15 +802,15 @@ SELECT COUNT(*) AS b_last FROM dual_comp_test WHERE id @@@ pdb.parse('b0400:last
 -- pdb.term() on composite field from type A
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS term_a FROM dual_comp_test WHERE a0001 @@@ pdb.term('first_a');
-                                                    QUERY PLAN                                                    
-------------------------------------------------------------------------------------------------------------------
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
  Aggregate
    ->  Custom Scan (ParadeDB Base Scan) on dual_comp_test
          Table: dual_comp_test
          Index: idx_dual_comp
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"a0001","value":"first_a","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"a0001","value":"first_a"}}}}
 (7 rows)
 
 SELECT COUNT(*) AS term_a FROM dual_comp_test WHERE a0001 @@@ pdb.term('first_a');
@@ -822,15 +822,15 @@ SELECT COUNT(*) AS term_a FROM dual_comp_test WHERE a0001 @@@ pdb.term('first_a'
 -- pdb.term() on composite field from type B
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS term_b FROM dual_comp_test WHERE b0001 @@@ pdb.term('first_b');
-                                                    QUERY PLAN                                                    
-------------------------------------------------------------------------------------------------------------------
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
  Aggregate
    ->  Custom Scan (ParadeDB Base Scan) on dual_comp_test
          Table: dual_comp_test
          Index: idx_dual_comp
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"b0001","value":"first_b","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"b0001","value":"first_b"}}}}
 (7 rows)
 
 SELECT COUNT(*) AS term_b FROM dual_comp_test WHERE b0001 @@@ pdb.term('first_b');
@@ -882,15 +882,15 @@ SELECT COUNT(*) AS regex_b FROM dual_comp_test WHERE b0400 @@@ pdb.regex('last.*
 -- Test pdb functions on MVCC test table composite field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS mvcc_term FROM mvcc_test WHERE content @@@ pdb.term('unique_gamma_three');
-                                                          QUERY PLAN                                                           
--------------------------------------------------------------------------------------------------------------------------------
+                                                QUERY PLAN                                                 
+-----------------------------------------------------------------------------------------------------------
  Aggregate
    ->  Custom Scan (ParadeDB Base Scan) on mvcc_test
          Table: mvcc_test
          Index: idx_mvcc
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"content","value":"unique_gamma_three","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"content","value":"unique_gamma_three"}}}}
 (7 rows)
 
 SELECT COUNT(*) AS mvcc_term FROM mvcc_test WHERE content @@@ pdb.term('unique_gamma_three');
@@ -940,15 +940,15 @@ SELECT COUNT(*) AS mvcc_regex FROM mvcc_test WHERE content @@@ pdb.regex('unique
 -- Test pdb functions on parallel test table composite fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS parallel_term FROM parallel_test WHERE f1 @@@ pdb.term('field1_100');
-                                                    QUERY PLAN                                                    
-------------------------------------------------------------------------------------------------------------------
+                                          QUERY PLAN                                          
+----------------------------------------------------------------------------------------------
  Aggregate
    ->  Custom Scan (ParadeDB Base Scan) on parallel_test
          Table: parallel_test
          Index: idx_parallel
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"f1","value":"field1_100","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"f1","value":"field1_100"}}}}
 (7 rows)
 
 SELECT COUNT(*) AS parallel_term FROM parallel_test WHERE f1 @@@ pdb.term('field1_100');
@@ -979,15 +979,15 @@ SELECT COUNT(*) AS parallel_match FROM parallel_test WHERE f2 @@@ pdb.match('fie
 -- Test pdb functions on fast fields table
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS fast_term FROM fast_test_50 WHERE t01 @@@ pdb.term('first_text');
-                                                    QUERY PLAN                                                     
--------------------------------------------------------------------------------------------------------------------
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
  Aggregate
    ->  Custom Scan (ParadeDB Base Scan) on fast_test_50
          Table: fast_test_50
          Index: idx_fast_50
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"t01","value":"first_text","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"t01","value":"first_text"}}}}
 (7 rows)
 
 SELECT COUNT(*) AS fast_term FROM fast_test_50 WHERE t01 @@@ pdb.term('first_text');
@@ -1023,8 +1023,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, t01, pdb.score(id) as score
 FROM fast_test_50 WHERE t01 @@@ pdb.term('first_text')
 ORDER BY score DESC, id LIMIT 2;
-                                                    QUERY PLAN                                                     
--------------------------------------------------------------------------------------------------------------------
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on fast_test_50
          Table: fast_test_50
@@ -1033,7 +1033,7 @@ ORDER BY score DESC, id LIMIT 2;
          Scores: true
             TopK Order By: pdb.score() desc, id asc
             TopK Limit: 2
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"t01","value":"first_text","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"t01","value":"first_text"}}}}
 (9 rows)
 
 SELECT id, t01, pdb.score(id) as score
@@ -1075,8 +1075,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, pdb.score(id) as score
 FROM parallel_test WHERE f1 @@@ pdb.term('field1_1000')
 ORDER BY score DESC, id LIMIT 1;
-                                                    QUERY PLAN                                                     
--------------------------------------------------------------------------------------------------------------------
+                                          QUERY PLAN                                           
+-----------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on parallel_test
          Table: parallel_test
@@ -1085,7 +1085,7 @@ ORDER BY score DESC, id LIMIT 1;
          Scores: true
             TopK Order By: pdb.score() desc, id asc
             TopK Limit: 1
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"f1","value":"field1_1000","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"f1","value":"field1_1000"}}}}
 (9 rows)
 
 SELECT id, pdb.score(id) as score

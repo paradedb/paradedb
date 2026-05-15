@@ -29,8 +29,8 @@ SELECT * FROM numeric_pushdown
 WHERE id @@@ paradedb.all()
 AND numeric_col = 1
 ORDER BY id LIMIT 10;
-                                                                  QUERY PLAN                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on numeric_pushdown
          Table: numeric_pushdown
@@ -39,7 +39,7 @@ ORDER BY id LIMIT 10;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 10
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"numeric_col","value":"1","is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"numeric_col","value":"1"}}]}}
 (9 rows)
 
 SELECT * FROM numeric_pushdown
@@ -65,8 +65,8 @@ SELECT * FROM numeric_pushdown
 WHERE id @@@ paradedb.all()
 AND numeric_col > 1
 ORDER BY id LIMIT 10;
-                                                                                      QUERY PLAN                                                                                      
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                            QUERY PLAN                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on numeric_pushdown
          Table: numeric_pushdown
@@ -75,7 +75,7 @@ ORDER BY id LIMIT 10;
          Scores: false
             TopK Order By: id asc
             TopK Limit: 10
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"numeric_col","lower_bound":{"excluded":"1"},"upper_bound":null,"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"numeric_col","lower_bound":{"excluded":"1"},"upper_bound":null}}]}}
 (9 rows)
 
 SELECT * FROM numeric_pushdown
@@ -211,8 +211,8 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric = -42
 ORDER BY id;
-                                                                  QUERY PLAN                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_numeric_types
@@ -220,7 +220,7 @@ ORDER BY id;
          Index: json_numeric_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"data.num","value":"-42","is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"data.num","value":"-42"}}]}}
 (8 rows)
 
 SELECT id, data->>'num' as value
@@ -240,8 +240,8 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric = 9223372036854775808
 ORDER BY id;
-                                                                          QUERY PLAN                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                QUERY PLAN                                                                
+------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_numeric_types
@@ -249,7 +249,7 @@ ORDER BY id;
          Index: json_numeric_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"data.num","value":"9223372036854775808","is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"data.num","value":"9223372036854775808"}}]}}
 (8 rows)
 
 SELECT id, data->>'num' as value
@@ -269,8 +269,8 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric = 3.14159
 ORDER BY id;
-                                                                    QUERY PLAN                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_numeric_types
@@ -278,7 +278,7 @@ ORDER BY id;
          Index: json_numeric_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"data.num","value":"3.14159","is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"data.num","value":"3.14159"}}]}}
 (8 rows)
 
 SELECT id, data->>'num' as value
@@ -299,8 +299,8 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric = 100
 ORDER BY id;
-                                                                  QUERY PLAN                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_numeric_types
@@ -308,7 +308,7 @@ ORDER BY id;
          Index: json_numeric_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"data.num","value":"100","is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"data.num","value":"100"}}]}}
 (8 rows)
 
 SELECT id, data->>'num' as value, jsonb_typeof(data->'num') as json_type
@@ -891,8 +891,8 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric IN (-42, -1, 42)
 ORDER BY id;
-                                                                                                                                QUERY PLAN                                                                                                                                
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_numeric_types
@@ -900,7 +900,7 @@ ORDER BY id;
          Index: json_numeric_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term_set":{"terms":[{"field":"data.num","value":"-42","is_datetime":false},{"field":"data.num","value":"-1","is_datetime":false},{"field":"data.num","value":"42","is_datetime":false}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term_set":{"terms":[{"field":"data.num","value":"-42"},{"field":"data.num","value":"-1"},{"field":"data.num","value":"42"}]}}]}}
 (8 rows)
 
 SELECT id, data->>'num' as value
@@ -966,8 +966,8 @@ FROM json_numeric_types
 WHERE id @@@ paradedb.all()
 AND (data->>'num')::numeric IN (100, 999)
 ORDER BY id;
-                                                                                                     QUERY PLAN                                                                                                      
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                 QUERY PLAN                                                                                  
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_numeric_types
@@ -975,7 +975,7 @@ ORDER BY id;
          Index: json_numeric_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term_set":{"terms":[{"field":"data.num","value":"100","is_datetime":false},{"field":"data.num","value":"999","is_datetime":false}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term_set":{"terms":[{"field":"data.num","value":"100"},{"field":"data.num","value":"999"}]}}]}}
 (8 rows)
 
 SELECT id, data->>'num' as value, jsonb_typeof(data->'num') as json_type
@@ -1456,8 +1456,8 @@ FROM json_scientific_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::numeric = 1e6
 ORDER BY id;
-                                                                     QUERY PLAN                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_scientific_test
@@ -1465,7 +1465,7 @@ ORDER BY id;
          Index: json_sci_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"data.value","value":"1000000","is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"data.value","value":"1000000"}}]}}
 (8 rows)
 
 SELECT id, data->>'value' as value
@@ -1485,8 +1485,8 @@ FROM json_scientific_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::numeric = 1.5e6
 ORDER BY id;
-                                                                     QUERY PLAN                                                                     
-----------------------------------------------------------------------------------------------------------------------------------------------------
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_scientific_test
@@ -1494,7 +1494,7 @@ ORDER BY id;
          Index: json_sci_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"data.value","value":"1500000","is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"data.value","value":"1500000"}}]}}
 (8 rows)
 
 SELECT id, data->>'value' as value
@@ -1514,8 +1514,8 @@ FROM json_scientific_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::numeric >= 1e5 AND (data->>'value')::numeric <= 2e6
 ORDER BY id;
-                                                                                                                                              QUERY PLAN                                                                                                                                               
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                          QUERY PLAN                                                                                                                           
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_scientific_test
@@ -1523,7 +1523,7 @@ ORDER BY id;
          Index: json_sci_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"data.value","lower_bound":{"included":"100000"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"data.value","lower_bound":null,"upper_bound":{"included":"2000000"},"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"data.value","lower_bound":{"included":"100000"},"upper_bound":null}},{"range":{"field":"data.value","lower_bound":null,"upper_bound":{"included":"2000000"}}}]}}
 (8 rows)
 
 SELECT id, data->>'value' as value
@@ -1544,8 +1544,8 @@ FROM json_scientific_test
 WHERE id @@@ paradedb.all()
 AND (data->>'value')::numeric < 1e0
 ORDER BY id;
-                                                                                     QUERY PLAN                                                                                      
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_scientific_test
@@ -1553,7 +1553,7 @@ ORDER BY id;
          Index: json_sci_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"data.value","lower_bound":null,"upper_bound":{"excluded":"1"},"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"data.value","lower_bound":null,"upper_bound":{"excluded":"1"}}}]}}
 (8 rows)
 
 SELECT id, data->>'value' as value
@@ -1610,8 +1610,8 @@ FROM numeric_scientific_test
 WHERE id @@@ paradedb.all()
 AND value = 1e6
 ORDER BY id;
-                                                                  QUERY PLAN                                                                   
------------------------------------------------------------------------------------------------------------------------------------------------
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on numeric_scientific_test
@@ -1620,7 +1620,7 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Fast Fields: id, value
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"value","value":"1000000","is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"value","value":"1000000"}}]}}
 (9 rows)
 
 SELECT id, value
@@ -1640,8 +1640,8 @@ FROM numeric_scientific_test
 WHERE id @@@ paradedb.all()
 AND value >= 1e2 AND value <= 1e4
 ORDER BY id;
-                                                                                                                                       QUERY PLAN                                                                                                                                       
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                   QUERY PLAN                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on numeric_scientific_test
@@ -1650,7 +1650,7 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Fast Fields: id, value
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"value","lower_bound":{"included":"100"},"upper_bound":null,"is_datetime":false}},{"range":{"field":"value","lower_bound":null,"upper_bound":{"included":"10000"},"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"range":{"field":"value","lower_bound":{"included":"100"},"upper_bound":null}},{"range":{"field":"value","lower_bound":null,"upper_bound":{"included":"10000"}}}]}}
 (9 rows)
 
 SELECT id, value

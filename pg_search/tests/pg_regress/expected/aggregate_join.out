@@ -1113,21 +1113,14 @@ SELECT COUNT(*), SUM(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop' AND p.price > 500;
-                                                                                                                                      QUERY PLAN                                                                                                                                        
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                           QUERY PLAN                            
+-----------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
    Output: pdb.agg_fn('COUNT(*)'::text), pdb.agg_fn('SUM'::text)
    Backend: DataFusion
    Indexes: agg_join_products_idx (p), agg_join_tags_idx (t)
    Aggregates: COUNT(*), SUM(price)
-   DataFusion Physical Plan: 
-     : AggregateExec: mode=Single, gby=[], aggr=[agg_0, agg_1]
-     :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@0, product_id@0)], projection=[price@1]
-     :     CooperativeExec
-     :       PgSearchScan: segments=1, query={"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"price","lower_bound":{"excluded":500.0},"upper_bound":null}}]}}
-     :     CooperativeExec
-     :       PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(12 rows)
+(5 rows)
 
 SELECT COUNT(*), SUM(p.price)
 FROM agg_join_products p

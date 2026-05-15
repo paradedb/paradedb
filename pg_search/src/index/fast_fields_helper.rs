@@ -20,13 +20,13 @@ use std::sync::{Arc, OnceLock};
 
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::types::TantivyValue;
-use crate::postgres::types_arrow::date_time_to_ts_nanos;
+use crate::postgres::types_arrow::datetime_to_pg_micros;
 use crate::scan::deferred_encode::unpack_doc_address;
 use crate::schema::SearchFieldType;
 
 use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
 use arrow_array::builder::{
-    BooleanBuilder, Float64Builder, Int64Builder, TimestampNanosecondBuilder, UInt64Builder,
+    BooleanBuilder, Float64Builder, Int64Builder, TimestampMicrosecondBuilder, UInt64Builder,
 };
 use arrow_array::{ArrayRef, UInt64Array};
 use arrow_buffer::Buffer;
@@ -308,7 +308,7 @@ impl FFType {
                 F64  => identity => Float64Builder,
                 U64  => identity => UInt64Builder,
                 Bool => identity => BooleanBuilder,
-                Date => date_time_to_ts_nanos => TimestampNanosecondBuilder,
+                Date => datetime_to_pg_micros => TimestampMicrosecondBuilder,
             ),
         }
     }

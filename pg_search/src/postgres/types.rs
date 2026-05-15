@@ -66,6 +66,13 @@ impl TantivyValue {
         self.0.clone()
     }
 
+    pub fn as_valid_datetime_repr(&self) -> Option<&Self> {
+        match self.0 {
+            OwnedValue::Date(_) | OwnedValue::I64(_) => Some(self),
+            _ => None,
+        }
+    }
+
     pub unsafe fn try_into_datum(self, oid: PgOid) -> Result<Option<Datum>, TantivyValueError> {
         if matches!(self.0, OwnedValue::Null) {
             return Ok(None);

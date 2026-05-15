@@ -30,7 +30,7 @@ mod pdb {
     use pgrx::aggregate::Aggregate;
     use pgrx::datum::RangeBound;
     use pgrx::{default, pg_extern, pg_sys, AnyElement, AnyNumeric, Internal, Range};
-    use tantivy::schema::{OwnedValue, Value};
+    use tantivy::schema::OwnedValue;
 
     #[pg_extern(immutable, parallel_safe, name = "all")]
     pub fn pdb_all() -> pdb::Query {
@@ -280,38 +280,38 @@ mod pdb {
                         lower_bound: match lower {
                             RangeBound::Infinite => Bound::Unbounded,
                             RangeBound::Inclusive(n) => Bound::Included(
-                                (&TantivyValue::try_from(n)
+                                TantivyValue::try_from(n)
                                     .expect("n should be a valid TantivyValue representation")
-                                    .tantivy_schema_value())
-                                    .as_datetime()
-                                    .expect("OwnedValue should be a valid datetime value")
+                                    .as_valid_datetime_repr()
+                                    .expect("TantivyValue should be a valid datetime value")
+                                    .tantivy_schema_value()
                                     .into(),
                             ),
                             RangeBound::Exclusive(n) => Bound::Excluded(
-                                (&TantivyValue::try_from(n)
+                                TantivyValue::try_from(n)
                                     .expect("n should be a valid TantivyValue representation")
-                                    .tantivy_schema_value())
-                                    .as_datetime()
-                                    .expect("OwnedValue should be a valid datetime value")
+                                    .as_valid_datetime_repr()
+                                    .expect("TantivyValue should be a valid datetime value")
+                                    .tantivy_schema_value()
                                     .into(),
                             ),
                         },
                         upper_bound: match upper {
                             RangeBound::Infinite => Bound::Unbounded,
                             RangeBound::Inclusive(n) => Bound::Included(
-                                (&TantivyValue::try_from(n)
+                                TantivyValue::try_from(n)
                                     .expect("n should be a valid TantivyValue representation")
-                                    .tantivy_schema_value())
-                                    .as_datetime()
-                                    .expect("OwnedValue should be a valid datetime value")
+                                    .as_valid_datetime_repr()
+                                    .expect("TantivyValue should be a valid datetime value")
+                                    .tantivy_schema_value()
                                     .into(),
                             ),
                             RangeBound::Exclusive(n) => Bound::Excluded(
-                                (&TantivyValue::try_from(n)
+                                TantivyValue::try_from(n)
                                     .expect("n should be a valid TantivyValue representation")
-                                    .tantivy_schema_value())
-                                    .as_datetime()
-                                    .expect("OwnedValue should be a valid datetime value")
+                                    .as_valid_datetime_repr()
+                                    .expect("TantivyValue should be a valid datetime value")
+                                    .tantivy_schema_value()
                                     .into(),
                             ),
                         },

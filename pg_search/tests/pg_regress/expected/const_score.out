@@ -219,69 +219,69 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WH
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.const(3);
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                  QUERY PLAN                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes","is_datetime":false}},"score":{"Const":3.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes"}},"score":{"Const":3.0}}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.const(3.14159);
-                                                                               QUERY PLAN                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                     QUERY PLAN                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes","is_datetime":false}},"score":{"Const":3.140625}}}}}
+   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes"}},"score":{"Const":3.140625}}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.const(0.5);
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                  QUERY PLAN                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes","is_datetime":false}},"score":{"Const":0.5}}}}}
+   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes"}},"score":{"Const":0.5}}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.const(0);
-                                                                            QUERY PLAN                                                                             
--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                  QUERY PLAN                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes","is_datetime":false}},"score":{"Const":0.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes"}},"score":{"Const":0.0}}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description === 'shoes'::pdb.const(-100);
-                                                                              QUERY PLAN                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes","is_datetime":false}},"score":{"Const":-100.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes"}},"score":{"Const":-100.0}}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ pdb.term('shoes')::pdb.const(-100);
-                                                                              QUERY PLAN                                                                              
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes","is_datetime":false}},"score":{"Const":-100.0}}}}}
+   Tantivy Query: {"with_index":{"query":{"score_adjusted":{"field":"description","query":{"term":{"value":"shoes"}},"score":{"Const":-100.0}}}}}
 (6 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM regress.mock_items WHERE description @@@ ('running' ##3## 'shoes')::pdb.const(3);
@@ -349,9 +349,9 @@ SELECT 'foo'::pdb.const(3);
 (1 row)
 
 SELECT pdb.term('foo')::pdb.const(3);
-                                              term                                               
--------------------------------------------------------------------------------------------------
- {"score_adjusted":{"query":{"term":{"value":"foo","is_datetime":false}},"score":{"Const":3.0}}}
+                                    term                                     
+-----------------------------------------------------------------------------
+ {"score_adjusted":{"query":{"term":{"value":"foo"}},"score":{"Const":3.0}}}
 (1 row)
 
 SELECT ARRAY['foo', 'bar']::pdb.const(3);

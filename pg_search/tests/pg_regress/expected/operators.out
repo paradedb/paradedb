@@ -179,14 +179,14 @@ SELECT * FROM mock_items WHERE lower(description) ### 'running shoes' ORDER BY i
 -- === (term equality)
 --
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE description === 'shoes';
-                                                   QUERY PLAN                                                   
-----------------------------------------------------------------------------------------------------------------
+                                         QUERY PLAN                                         
+--------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"shoes","is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"shoes"}}}}
 (6 rows)
 
 SELECT * FROM mock_items WHERE description === 'shoes' ORDER BY id;
@@ -198,14 +198,14 @@ SELECT * FROM mock_items WHERE description === 'shoes' ORDER BY id;
 (3 rows)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM mock_items WHERE lower(description) === 'shoes';
-                                                      QUERY PLAN                                                      
-----------------------------------------------------------------------------------------------------------------------
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on mock_items
    Table: mock_items
    Index: idxregress_mock_items
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"term":{"field":"description_lower","value":"shoes","is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"term":{"field":"description_lower","value":"shoes"}}}}
 (6 rows)
 
 SELECT * FROM mock_items WHERE lower(description) === 'shoes' ORDER BY id;

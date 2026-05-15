@@ -2,9 +2,8 @@ use std::any::Any;
 use std::sync::Arc;
 
 use crate::index::fast_fields_helper::{
-    ords_to_bytes_array, ords_to_string_array, CanonicalColumn, FFHelper, FFType,
+    for_each_segment, ords_to_bytes_array, ords_to_string_array, CanonicalColumn, FFHelper, FFType,
 };
-use crate::scan::deferred_encode::unpack_doc_address;
 use crate::scan::execution_plan::UnsafeSendStream;
 
 use arrow_array::{new_null_array, Array, ArrayRef, RecordBatch, UInt64Array, UnionArray};
@@ -285,6 +284,11 @@ impl ExecutionPlan for TantivyLookupExec {
     }
 }
 
+enum DeferredColumnKind {
+    Text { ff_index: usize },
+    Bytes { ff_index: usize },
+}
+
 fn enrich_batch(
     batch: RecordBatch,
     decoders: &[DecoderInfo],
@@ -315,18 +319,192 @@ fn enrich_batch(
                 ))
             })?;
 
+        let ffcolumn = if decoder.is_bytes {
+            DeferredColumnKind::Bytes {
+                ff_index: decoder.canonical.ff_index,
+            }
+        } else {
+            DeferredColumnKind::Text {
+                ff_index: decoder.canonical.ff_index,
+            }
+        };
+
         // Replace the raw UnionArray with the decoded String/Binary array
-        output_columns[decoder.col_idx] = materialize_deferred_column(
-            ffhelper,
-            union_array,
-            decoder.canonical.ff_index,
-            decoder.is_bytes,
-            num_rows,
-        )?;
+        output_columns[decoder.col_idx] =
+            materialize_deferred_column(ffhelper, &ffcolumn, union_array, num_rows)?;
     }
 
     RecordBatch::try_new(schema.clone(), output_columns)
         .map_err(|e| DataFusionError::ArrowError(Box::new(e), None))
+}
+
+type OrdsBySegment = Vec<Vec<(usize, Option<TermOrdinal>)>>;
+
+/// Resolves State 0 (packed doc addresses) to term ordinals, grouped by segment.
+///
+/// Union states: 0 = packed (segment_ord, doc_id), 1 = pre-resolved (segment_ord, term_ord),
+/// 2 = already-materialized string/bytes.
+///
+/// Returns the same shape as State 1: a vector indexed by segment ordinal,
+/// of `(row_index, Option<TermOrdinal>)` pair vectors.
+fn resolve_doc_addresses_to_term_ords(
+    ffhelper: &FFHelper,
+    ffcolumn: &DeferredColumnKind,
+    union_array: &UnionArray,
+    offsets: &[i32],
+    state_0_rows: &[usize],
+) -> Result<OrdsBySegment> {
+    let num_segments = ffhelper.num_segments();
+    let mut ords_by_seg: OrdsBySegment = vec![Vec::new(); num_segments];
+    if state_0_rows.is_empty() {
+        return Ok(ords_by_seg);
+    }
+
+    let doc_address_child = union_array
+        .child(0)
+        .as_any()
+        .downcast_ref::<UInt64Array>()
+        .ok_or_else(|| {
+            DataFusionError::Execution(
+                "expected UInt64Array for doc_address child in deferred union".into(),
+            )
+        })?;
+    let packed_iter = state_0_rows
+        .iter()
+        .map(|&row| (row, doc_address_child.value(offsets[row] as usize)));
+
+    for_each_segment(num_segments, packed_iter, |seg_ord, rows| {
+        let ids: Vec<DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
+        let mut term_ords: Vec<Option<TermOrdinal>> = vec![None; ids.len()];
+
+        match ffcolumn {
+            DeferredColumnKind::Bytes { ff_index } => {
+                if let FFType::Bytes(bytes_col) = ffhelper.column(seg_ord, *ff_index) {
+                    bytes_col.ords().first_vals(&ids, &mut term_ords);
+                }
+            }
+            DeferredColumnKind::Text { ff_index } => {
+                if let FFType::Text(str_col) = ffhelper.column(seg_ord, *ff_index) {
+                    str_col.ords().first_vals(&ids, &mut term_ords);
+                }
+            }
+        };
+
+        let entry = &mut ords_by_seg[seg_ord as usize];
+        for ((row_idx, _), ord) in rows.into_iter().zip(term_ords) {
+            entry.push((row_idx, ord));
+        }
+        Ok(())
+    })?;
+
+    Ok(ords_by_seg)
+}
+
+/// Extracts State 1 — the union variant carrying pre-resolved (segment_ord, term_ord) pairs —
+/// from the dense union's StructArray child, grouped by segment.
+fn extract_term_ords(
+    ffhelper: &FFHelper,
+    union_array: &UnionArray,
+    offsets: &[i32],
+    state_1_rows: &[usize],
+) -> Result<OrdsBySegment> {
+    let num_segments = ffhelper.num_segments();
+    let mut ords_by_seg: OrdsBySegment = vec![Vec::new(); num_segments];
+    if state_1_rows.is_empty() {
+        return Ok(ords_by_seg);
+    }
+
+    let term_ord_child = union_array
+        .child(1)
+        .as_any()
+        .downcast_ref::<StructArray>()
+        .ok_or_else(|| {
+            DataFusionError::Execution(
+                "expected StructArray for term_ord child in deferred union".into(),
+            )
+        })?;
+    let seg_ord_array = term_ord_child
+        .column(0)
+        .as_any()
+        .downcast_ref::<UInt32Array>()
+        .ok_or_else(|| {
+            DataFusionError::Execution("expected UInt32Array for seg_ord column".into())
+        })?;
+    let ord_array = term_ord_child
+        .column(1)
+        .as_any()
+        .downcast_ref::<UInt64Array>()
+        .ok_or_else(|| {
+            DataFusionError::Execution("expected UInt64Array for term_ord column".into())
+        })?;
+
+    for &row in state_1_rows {
+        let ci = offsets[row] as usize;
+        let seg_ord = seg_ord_array.value(ci);
+        let term_ord = if ord_array.is_null(ci) {
+            None
+        } else {
+            Some(ord_array.value(ci))
+        };
+        ords_by_seg[seg_ord as usize].push((row, term_ord));
+    }
+
+    Ok(ords_by_seg)
+}
+
+/// Decodes term ordinals into string/bytes arrays and records their positions
+/// in `segment_arrays` and `indices` for later interleaving.
+fn decode_term_ordinals(
+    ffhelper: &FFHelper,
+    ffcolumn: &DeferredColumnKind,
+    ords_by_seg: OrdsBySegment,
+    segment_arrays: &mut Vec<ArrayRef>,
+    indices: &mut [(usize, usize)],
+) -> Result<()> {
+    for (seg_ord, rows) in ords_by_seg.into_iter().enumerate() {
+        if rows.is_empty() {
+            continue;
+        }
+        let ords: Vec<Option<TermOrdinal>> = rows.iter().map(|(_, ord)| *ord).collect();
+        let ords_array = UInt64Array::from(ords);
+
+        // Perform a bulk dictionary lookup for the entire segment.
+        let array: Result<ArrayRef> = match ffcolumn {
+            DeferredColumnKind::Bytes { ff_index } => {
+                if let FFType::Bytes(bytes_col) =
+                    ffhelper.column(seg_ord as SegmentOrdinal, *ff_index)
+                {
+                    ords_to_bytes_array(bytes_col.clone(), &ords_array)
+                } else {
+                    Err(DataFusionError::Execution(format!(
+                        "Expected Bytes column for index {}",
+                        ff_index
+                    )))
+                }
+            }
+            DeferredColumnKind::Text { ff_index } => {
+                if let FFType::Text(str_col) = ffhelper.column(seg_ord as SegmentOrdinal, *ff_index)
+                {
+                    ords_to_string_array(str_col.clone(), &ords_array)
+                } else {
+                    Err(DataFusionError::Execution(format!(
+                        "Expected Text column for index {}",
+                        ff_index
+                    )))
+                }
+            }
+        };
+
+        segment_arrays.push(array?);
+        let array_idx = segment_arrays.len() - 1;
+
+        // Map the sorted, segment-local results back to their original row indices
+        // in the global `RecordBatch` for interleaving.
+        for (idx_within_segment, (original_row_idx, _)) in rows.into_iter().enumerate() {
+            indices[original_row_idx] = (array_idx, idx_within_segment);
+        }
+    }
+    Ok(())
 }
 
 /// Materializes deferred union values into their original text or bytes representation.
@@ -339,9 +517,8 @@ fn enrich_batch(
 /// original input row order.
 fn materialize_deferred_column(
     ffhelper: &FFHelper,
+    ffcolumn: &DeferredColumnKind,
     union_array: &UnionArray,
-    ff_index: usize,
-    is_bytes: bool,
     num_rows: usize,
 ) -> Result<ArrayRef> {
     // Dense union: each child is compact (contains only its type's rows).
@@ -363,164 +540,47 @@ fn materialize_deferred_column(
         }
     }
 
-    // 1. Group requests by segment ordinal to process one segment at a time.
-    let mut state_0_by_seg: crate::api::HashMap<SegmentOrdinal, Vec<(usize, DocId)>> =
-        crate::api::HashMap::default();
-    if !state_0_rows.is_empty() {
-        let doc_address_child = union_array
-            .child(0)
-            .as_any()
-            .downcast_ref::<UInt64Array>()
-            .ok_or_else(|| {
-                DataFusionError::Execution(
-                    "expected UInt64Array for doc_address child in deferred union".into(),
-                )
-            })?;
-        for &row in &state_0_rows {
-            let packed = doc_address_child.value(offsets[row] as usize);
-            let (seg_ord, doc_id) = unpack_doc_address(packed);
-            state_0_by_seg
-                .entry(seg_ord)
-                .or_default()
-                .push((row, doc_id));
-        }
-    }
-
-    let mut state_1_by_seg: crate::api::HashMap<SegmentOrdinal, Vec<(usize, Option<TermOrdinal>)>> =
-        crate::api::HashMap::default();
-    if !state_1_rows.is_empty() {
-        let term_ord_child = union_array
-            .child(1)
-            .as_any()
-            .downcast_ref::<StructArray>()
-            .ok_or_else(|| {
-                DataFusionError::Execution(
-                    "expected StructArray for term_ord child in deferred union".into(),
-                )
-            })?;
-        let seg_ord_array = term_ord_child
-            .column(0)
-            .as_any()
-            .downcast_ref::<UInt32Array>()
-            .ok_or_else(|| {
-                DataFusionError::Execution("expected UInt32Array for seg_ord column".into())
-            })?;
-        let ord_array = term_ord_child
-            .column(1)
-            .as_any()
-            .downcast_ref::<UInt64Array>()
-            .ok_or_else(|| {
-                DataFusionError::Execution("expected UInt64Array for term_ord column".into())
-            })?;
-
-        for &row in &state_1_rows {
-            let ci = offsets[row] as usize;
-            let seg_ord = seg_ord_array.value(ci);
-            let term_ord = if ord_array.is_null(ci) {
-                None
-            } else {
-                Some(ord_array.value(ci))
-            };
-            state_1_by_seg
-                .entry(seg_ord)
-                .or_default()
-                .push((row, term_ord));
-        }
-    }
-
     let mut segment_arrays: Vec<ArrayRef> = Vec::new();
     let mut indices: Vec<(usize, usize)> = vec![(0, 0); num_rows];
 
-    // Map pre-materialized rows (State 2) directly from the compact child.
+    // Step 1. Resolve State 0 (packed doc addresses) and State 1 (pre-resolved term
+    // ordinals) into a unified collection of term ordinals grouped by segment
+    let mut resolved_term_ords = resolve_doc_addresses_to_term_ords(
+        ffhelper,
+        ffcolumn,
+        union_array,
+        offsets,
+        &state_0_rows,
+    )?;
+    let preresolved_term_ords = extract_term_ords(ffhelper, union_array, offsets, &state_1_rows)?;
+    // Merge State 0 (now resolved to term ords) and State 1 into a single collection.
+    for (seg_ord, rows) in preresolved_term_ords.into_iter().enumerate() {
+        resolved_term_ords[seg_ord].extend(rows);
+    }
+
+    // Step 2. Dictionary-decode the term ordinals all into string/bytes arrays.
+    decode_term_ordinals(
+        ffhelper,
+        ffcolumn,
+        resolved_term_ords,
+        &mut segment_arrays,
+        &mut indices,
+    )?;
+
+    // Step 3. Map pre-materialized rows (State 2) directly from the compact child.
     if !state_2_rows.is_empty() {
         let materialized_child = union_array.child(2);
         segment_arrays.push(materialized_child.clone());
-        let array_idx = 0;
+        let array_idx = segment_arrays.len() - 1;
         for &row_idx in &state_2_rows {
             indices[row_idx] = (array_idx, offsets[row_idx] as usize);
         }
     }
 
-    // Helper closure to handle Step 3 and Step 4 cleanly for both State 0 and State 1
-    let mut process_ordinals =
-        |seg_ord: SegmentOrdinal, rows: Vec<(usize, Option<TermOrdinal>)>| -> Result<()> {
-            let ords: Vec<Option<TermOrdinal>> = rows.iter().map(|(_, ord)| *ord).collect();
-            let ords_array = UInt64Array::from(ords);
-
-            // 3. Perform a bulk dictionary lookup for the entire segment.
-            let array = if is_bytes {
-                if let FFType::Bytes(bytes_col) = ffhelper.column(seg_ord, ff_index) {
-                    ords_to_bytes_array(bytes_col.clone(), &ords_array)
-                } else {
-                    return Err(DataFusionError::Execution(format!(
-                        "Expected Bytes column for index {}",
-                        ff_index
-                    )));
-                }
-            } else if let FFType::Text(str_col) = ffhelper.column(seg_ord, ff_index) {
-                ords_to_string_array(str_col.clone(), &ords_array)
-            } else {
-                return Err(DataFusionError::Execution(format!(
-                    "Expected Text column for index {}",
-                    ff_index
-                )));
-            }?;
-
-            segment_arrays.push(array);
-            let array_idx = segment_arrays.len() - 1;
-
-            // 4. Map the sorted, segment-local results back to their original row indices
-            // in the global `RecordBatch` for interleaving.
-            for (idx_within_segment, (original_row_idx, _)) in rows.into_iter().enumerate() {
-                indices[original_row_idx] = (array_idx, idx_within_segment);
-            }
-            Ok(())
-        };
-
-    // Sort seg_ords to ensure deterministic behavior across executions.
-    let mut seg_ords_0: Vec<SegmentOrdinal> = state_0_by_seg.keys().copied().collect();
-    seg_ords_0.sort_unstable();
-
-    for seg_ord in seg_ords_0 {
-        let rows = state_0_by_seg.remove(&seg_ord).ok_or_else(|| {
-            DataFusionError::Execution(format!("Segment {} missing from state 0 map", seg_ord))
-        })?;
-
-        let ids: Vec<DocId> = rows.iter().map(|(_, doc_id)| *doc_id).collect();
-        let mut term_ords: Vec<Option<TermOrdinal>> = vec![None; ids.len()];
-
-        if is_bytes {
-            if let FFType::Bytes(bytes_col) = ffhelper.column(seg_ord, ff_index) {
-                bytes_col.ords().first_vals(&ids, &mut term_ords);
-            }
-        } else if let FFType::Text(str_col) = ffhelper.column(seg_ord, ff_index) {
-            str_col.ords().first_vals(&ids, &mut term_ords);
-        }
-
-        let rows_with_ords: Vec<_> = rows
-            .into_iter()
-            .zip(term_ords)
-            .map(|((row_idx, _), ord)| (row_idx, ord))
-            .collect();
-
-        process_ordinals(seg_ord, rows_with_ords)?;
-    }
-
-    let mut seg_ords_1: Vec<SegmentOrdinal> = state_1_by_seg.keys().copied().collect();
-    seg_ords_1.sort_unstable();
-
-    for seg_ord in seg_ords_1 {
-        let rows = state_1_by_seg.remove(&seg_ord).ok_or_else(|| {
-            DataFusionError::Execution(format!("Segment {} missing from state 1 map", seg_ord))
-        })?;
-
-        process_ordinals(seg_ord, rows)?;
-    }
-
     if segment_arrays.is_empty() {
         // All rows were somehow unhandled — return a null array of the right type.
         return Ok(new_null_array(
-            &if is_bytes {
+            &if matches!(ffcolumn, DeferredColumnKind::Bytes { ff_index: _ }) {
                 DataType::BinaryView
             } else {
                 DataType::Utf8View
@@ -529,7 +589,7 @@ fn materialize_deferred_column(
         ));
     }
 
-    // 5. Use Arrow's interleave to perform zero-copy (for views) reassembly of the
+    // Step 4. Use Arrow's interleave to perform zero-copy (for views) reassembly of the
     // segment arrays into the final array matching the original row order.
     let segment_arrays_refs: Vec<&dyn arrow_array::Array> =
         segment_arrays.iter().map(|a| a.as_ref()).collect();

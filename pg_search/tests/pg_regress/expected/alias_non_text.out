@@ -22,14 +22,14 @@ INSERT INTO dates (d) VALUES ('2025-01-01');
 CREATE INDEX idx_dates ON dates USING bm25 (id, (get_day_of_week(d)::pdb.alias('d'))) with (key_field = 'id');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM dates WHERE get_day_of_week(d) = 3 AND id @@@ pdb.all();
-                                                                  QUERY PLAN                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on dates
    Table: dates
    Index: idx_dates
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"d","value":3,"is_datetime":false}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"d","value":3}}]}}
 (6 rows)
 
 SELECT * FROM dates WHERE get_day_of_week(d) = 3 AND id @@@ pdb.all();
@@ -82,14 +82,14 @@ SELECT * FROM ints WHERE (i * 3) = 1 AND id @@@ pdb.all();
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM ints WHERE (i * 2) = 1 AND id @@@ pdb.all();
-                                                                  QUERY PLAN                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on ints
    Table: ints
    Index: idx_ints
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"i","value":1,"is_datetime":false}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"i","value":1}}]}}
 (6 rows)
 
 DROP TABLE ints;
@@ -119,14 +119,14 @@ SELECT * FROM ints WHERE i - j = 1 AND id @@@ pdb.all() ORDER BY id;
 -- This SHOULD use the indexed abs() expression (uses term query)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM ints WHERE abs(i - j) = 1 AND id @@@ pdb.all();
-                                                                       QUERY PLAN                                                                        
----------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                             QUERY PLAN                                                              
+-------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on ints
    Table: ints
    Index: idx_ints
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"another_name","value":1,"is_datetime":false}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term":{"field":"another_name","value":1}}]}}
 (6 rows)
 
 SELECT * FROM ints WHERE abs(i - j) = 1 AND id @@@ pdb.all() ORDER BY id;

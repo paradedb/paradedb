@@ -438,8 +438,8 @@ SELECT text_field1, num_field1, num_field2
 FROM exec_method_test
 WHERE text_field1 @@@ 'Text' AND num_field1 > 10
 ORDER BY text_field1, num_field1, num_field2;
-                                                                                                                                       QUERY PLAN                                                                                                                                       
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                             QUERY PLAN                                                                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: text_field1, num_field1, num_field2
    ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
@@ -448,7 +448,7 @@ ORDER BY text_field1, num_field1, num_field2;
          Exec Method: ColumnarExecState
          Fast Fields: num_field1, num_field2, text_field1
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"num_field1","lower_bound":{"excluded":10},"upper_bound":null,"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"num_field1","lower_bound":{"excluded":10},"upper_bound":null}}]}}
 (9 rows)
 
 SELECT text_field1, num_field1, num_field2
@@ -505,8 +505,8 @@ SELECT text_field1, text_field2, num_field1, bool_field
 FROM exec_method_test
 WHERE text_field1 @@@ 'Text' AND bool_field = true
 ORDER BY text_field1, text_field2, num_field1, bool_field;
-                                                                                                                    QUERY PLAN                                                                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                          QUERY PLAN                                                                                                           
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: text_field1, text_field2, num_field1, bool_field
    ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
@@ -515,7 +515,7 @@ ORDER BY text_field1, text_field2, num_field1, bool_field;
          Exec Method: ColumnarExecState
          Fast Fields: bool_field, num_field1, text_field1, text_field2
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"bool_field","value":true,"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"term":{"field":"bool_field","value":true}}]}}
 (9 rows)
 
 SELECT text_field1, text_field2, num_field1, bool_field
@@ -634,8 +634,8 @@ SELECT num_field1, num_field2
 FROM exec_method_test
 WHERE num_field1 > 25 and text_field1 @@@ 'Text'
 ORDER BY num_field1, num_field2;
-                                                                                                                                       QUERY PLAN                                                                                                                                       
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                             QUERY PLAN                                                                                                                             
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: num_field1, num_field2
    ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
@@ -644,7 +644,7 @@ ORDER BY num_field1, num_field2;
          Exec Method: ColumnarExecState
          Fast Fields: num_field1, num_field2
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"range":{"field":"num_field1","lower_bound":{"excluded":25},"upper_bound":null,"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"range":{"field":"num_field1","lower_bound":{"excluded":25},"upper_bound":null}},{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}}]}}
 (9 rows)
 
 SELECT num_field1, num_field2
@@ -842,8 +842,8 @@ WHERE text_field1 @@@ 'Text'
   AND num_field1 BETWEEN 10 AND 40
   AND bool_field = true
 ORDER BY text_field1, text_field2, num_field1, bool_field;
-                                                                                                                                                                                                                                                                                             QUERY PLAN                                                                                                                                                                                                                                                                                             
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                               QUERY PLAN                                                                                                                                                                                                                                                               
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: text_field1, text_field2, num_field1, bool_field
    ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
@@ -852,7 +852,7 @@ ORDER BY text_field1, text_field2, num_field1, bool_field;
          Exec Method: ColumnarExecState
          Fast Fields: bool_field, num_field1, text_field1, text_field2
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"text_field2","query_string":"Sample","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"num_field1","lower_bound":{"included":10},"upper_bound":null,"is_datetime":false}},{"range":{"field":"num_field1","lower_bound":null,"upper_bound":{"included":40},"is_datetime":false}},{"term":{"field":"bool_field","value":true,"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"with_index":{"query":{"parse_with_field":{"field":"text_field2","query_string":"Sample","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"num_field1","lower_bound":{"included":10},"upper_bound":null}},{"range":{"field":"num_field1","lower_bound":null,"upper_bound":{"included":40}}},{"term":{"field":"bool_field","value":true}}]}}
 (9 rows)
 
 SELECT text_field1, text_field2, num_field1, bool_field
@@ -892,8 +892,8 @@ FROM (
 ) t
 WHERE t.num_field1 < 30
 ORDER BY t.text_field1, t.num_field1;
-                                                                                                                                                                                          QUERY PLAN                                                                                                                                                                                          
-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                      QUERY PLAN                                                                                                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: exec_method_test.text_field1, exec_method_test.num_field1
    ->  Custom Scan (ParadeDB Base Scan) on exec_method_test
@@ -902,7 +902,7 @@ ORDER BY t.text_field1, t.num_field1;
          Exec Method: ColumnarExecState
          Fast Fields: num_field1, text_field1
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"num_field1","lower_bound":{"excluded":10},"upper_bound":null,"is_datetime":false}},{"range":{"field":"num_field1","lower_bound":null,"upper_bound":{"excluded":30},"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse_with_field":{"field":"text_field1","query_string":"Text","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"num_field1","lower_bound":{"excluded":10},"upper_bound":null}},{"range":{"field":"num_field1","lower_bound":null,"upper_bound":{"excluded":30}}}]}}
 (9 rows)
 
 SELECT t.text_field1, t.num_field1

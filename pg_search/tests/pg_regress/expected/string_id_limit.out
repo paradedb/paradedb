@@ -49,8 +49,8 @@ SELECT * FROM comments
 WHERE id @@@ paradedb.term('customer_id', 'customer_1')
 ORDER BY id desc
 LIMIT 2;
-                                                        QUERY PLAN                                                         
----------------------------------------------------------------------------------------------------------------------------
+                                              QUERY PLAN                                               
+-------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on comments
          Table: comments
@@ -59,7 +59,7 @@ LIMIT 2;
          Scores: false
             TopK Order By: id desc
             TopK Limit: 2
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"customer_id","value":"customer_1","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"customer_id","value":"customer_1"}}}}
 (9 rows)
 
 -- Select w/o limit, returns correctly ordered results,
@@ -79,8 +79,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM comments
 WHERE id @@@ paradedb.term('customer_id', 'customer_1')
 ORDER BY id DESC;
-                                                        QUERY PLAN                                                         
----------------------------------------------------------------------------------------------------------------------------
+                                              QUERY PLAN                                               
+-------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id DESC
    ->  Custom Scan (ParadeDB Base Scan) on comments
@@ -88,6 +88,6 @@ ORDER BY id DESC;
          Index: comments_search
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"customer_id","value":"customer_1","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"customer_id","value":"customer_1"}}}}
 (8 rows)
 

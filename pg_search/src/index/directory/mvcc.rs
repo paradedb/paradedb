@@ -698,7 +698,7 @@ pub fn index_memory_segment(
                     continue 'next_ctid;
                 }
 
-                let htsv_result = {
+                let mut htsv_result = {
                     let buffer = (*heap_fetch_state.buffer_slot()).buffer;
                     let _lock = BorrowedBuffer::from_pg(buffer);
                     HeapTupleSatisfiesVacuum(
@@ -707,6 +707,31 @@ pub fn index_memory_segment(
                         buffer,
                     )
                 };
+
+                if htsv_result == HTSV_Result::HEAPTUPLE_RECENTLY_DEAD {
+                    // Our `oldest_xmin` might be stale compared to a concurrent VACUUM.
+                    // If VACUUM saw this tuple as DEAD and deleted its TOAST chunks, we
+                    // must also see it as DEAD, otherwise we'll crash trying to read them.
+                    //
+                    // A single re-check is sufficient (no loop needed) because
+                    // `GetOldestNonRemovableTransactionId` returns the current global
+                    // XID horizon. If the tuple is still RECENTLY_DEAD under this fresh
+                    // horizon, then no concurrent VACUUM could have considered it DEAD
+                    // (VACUUM uses the same or an older horizon), so its TOAST data is
+                    // guaranteed to still exist.
+                    let fresh_oldest_xmin =
+                        pg_sys::GetOldestNonRemovableTransactionId(heaprel.as_ptr());
+                    if fresh_oldest_xmin != oldest_xmin {
+                        let buffer = (*heap_fetch_state.buffer_slot()).buffer;
+                        let _lock = BorrowedBuffer::from_pg(buffer);
+                        htsv_result = HeapTupleSatisfiesVacuum(
+                            (*heap_fetch_state.buffer_slot()).base.tuple,
+                            fresh_oldest_xmin,
+                            buffer,
+                        );
+                    }
+                }
+
                 if htsv_result == HTSV_Result::HEAPTUPLE_DEAD {
                     // This copy of the tuple is no longer visible to any transaction. Are there
                     // more in the HOT chain?
@@ -729,9 +754,17 @@ pub fn index_memory_segment(
             }
 
             // We have a completely valid tuple to index: fetch and deform it.
-            let mut should_free = false;
-            let htup =
-                pg_sys::ExecFetchSlotHeapTuple(heap_fetch_state.slot(), true, &mut should_free);
+            //
+            // NOTE: We intentionally pass `false` (don't materialize) to keep the
+            // buffer pin held by the BufferHeapTupleTableSlot. This pin blocks
+            // VACUUM's LockBufferForCleanup, which prevents it from removing the
+            // heap tuple and deleting its TOAST chunks while we read them below.
+            // See: https://github.com/paradedb/paradedb/issues/5076
+            let htup = pg_sys::ExecFetchSlotHeapTuple(
+                heap_fetch_state.slot(),
+                false,
+                std::ptr::null_mut(),
+            );
 
             heap_deform_tuple(
                 htup,
@@ -739,6 +772,21 @@ pub fn index_memory_segment(
                 values.as_mut_ptr(),
                 isnull.as_mut_ptr(),
             );
+
+            // Eagerly detoast all variable-length (varlena) datums while the
+            // buffer pin is still held. Without this, the lazy detoasting in
+            // row_to_search_document can race with VACUUM deleting TOAST chunks
+            // after we release the pin (the "missing chunk number 0" crash).
+            // pg_detoast_datum is a no-op for already-inline / non-TOASTed data.
+            for i in 0..heaptupdesc.len() {
+                if !isnull[i] {
+                    let att = heaptupdesc.get(i).expect("valid attribute");
+                    if att.attlen == -1 {
+                        values[i] =
+                            pg_sys::Datum::from(pg_sys::pg_detoast_datum(values[i].cast_mut_ptr()));
+                    }
+                }
+            }
 
             let expr_results = expression_state.evaluate(heap_fetch_state.slot());
 
@@ -792,9 +840,12 @@ pub fn index_memory_segment(
                 unreachable!("No limits configured: should not finalize.")
             })?;
 
-            if should_free {
-                pg_sys::heap_freetuple(htup);
-            }
+            // Eagerly release the buffer pin now that all datum values have
+            // been detoasted into palloc'd memory. Without this, the pin would
+            // stay held until the next table_index_fetch_tuple call (which
+            // replaces the slot contents) or until HeapFetchState is dropped at
+            // end-of-query, unnecessarily blocking VACUUM on this buffer.
+            pg_sys::ExecClearTuple(heap_fetch_state.slot());
         }
     }
 

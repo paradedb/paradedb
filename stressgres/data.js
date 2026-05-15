@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778860487605,
+  "lastUpdate": 1778860857445,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1146,6 +1146,78 @@ window.BENCHMARK_DATA = {
             "value": 92.4141578859538,
             "unit": "median tps",
             "extra": "avg tps: 118.24703096194769, max tps: 854.1985567461185, count: 55134"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2edacebe4a7e52eb67081dbb73b4d712f13625aa",
+          "message": "chore: Remove unnecessary propogation of `is_datetime` (#5071)\n\n## What\nThis PR removes the extensive propagation of `is_datetime` in the code\nsurrounding decisions about `Term` handling. Specifically, by removing\nthe `is_datetime` fields and working backwards from there.\n\n## Why\nThere were two reasons `is_datetime` value was so widely propagated:\n1) This arm in `Query::apply_fuzzy_data` required it.\n    ```rust\n    pdb::Query::Term {\n        value: OwnedValue::Str(value),\n         is_datetime,\n    } if !*is_datetime => {\n        *self = pdb::Query::FuzzyTerm {\n            value: value.to_string(),\n            distance: Some(new_fuzzy_data.distance),\ntransposition_cost_one: Some(new_fuzzy_data.transposition_cost_one),\n            prefix: Some(new_fuzzy_data.prefix)\n        }\n    }\n    ```\nHowever, the only way it would be possible to hit arm with an\n`is_datetime` of `true` that is for the user to set it in the query JSON\ndirectly via something like:\n    ```sql\nWHERE description @@@ '{\"term\":\n{\"value\":\"shoes\",\"is_datetime\":true}}'::pdb.query::pdb.fuzzy(2);\n    ```\n    Removing `is_datetime` means that that route is no longer possible.\n    \nEvery instance where `Query::Term` is constructed in the code with a\nstring `value` sets it to false. At every other place that we need to\ndetermine if the term should be considered as a datetime, we can inspect\nthe schema.\n\n    Hence, this is safe to remove.\n2) Determining if a field in a json string should be treated as a\ndatetime. This can be address by determining that at deserialization\ntime.\n\n## How\nRemove all `is_datetime` properties across term-handling. For the\nremaining places we need to determine whether or not to handle the term\nas a datetime, outside of json parsing and targeting json fields,\ninspect the schema.\n\nFor JSON handling, make it so we handle this at deserialization time. \n- For all `Query` enum members that take an `OwnedValue`, serde them as\na `DateAwareOwnedValue` and convert/to from `OwnedValue` accordingly.\n`DateAwareOwnedValue` produced a tagged serialization.\n- For fielded queries, \"rewrite\" the json during deserialization to have\nthis tagged structure if there's an `is_datetime` field present.\n- For `TermInput`, serialize it as above. Deserialize it through\n`TermInputWire`, which handles the `is_datetime` logic.\n\n\n## Tests\n- All unit and integration tests pass.\n- All changed regression test outputs are either whitespace or the\nchange of `\"is_datetime\"` to the tagged format in the query explain\nJSON. No actual regressions.\n- Add new regression tests for range json queries and term_set json\nqueries using both legacy and v2 query styles.",
+          "timestamp": "2026-05-15T09:31:13-06:00",
+          "tree_id": "fe5785b74dd5316bd7bb64e113866096c52eae11",
+          "url": "https://github.com/paradedb/paradedb/commit/2edacebe4a7e52eb67081dbb73b4d712f13625aa"
+        },
+        "date": 1778860825796,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 136.73124913886846,
+            "unit": "median tps",
+            "extra": "avg tps: 136.73937038856104, max tps: 145.21357142417122, count: 55147"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 505.9713123644305,
+            "unit": "median tps",
+            "extra": "avg tps: 503.7761286890327, max tps: 591.3679564583023, count: 55147"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3239.4371941711793,
+            "unit": "median tps",
+            "extra": "avg tps: 3218.129224161997, max tps: 3248.029378101317, count: 55147"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 430.2403194106685,
+            "unit": "median tps",
+            "extra": "avg tps: 428.0760954509594, max tps: 489.5051152235601, count: 55147"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2723.6953628697543,
+            "unit": "median tps",
+            "extra": "avg tps: 2728.2775778815258, max tps: 2810.463059202735, count: 110294"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 509.61330236432104,
+            "unit": "median tps",
+            "extra": "avg tps: 507.3910061478132, max tps: 583.1031928289094, count: 55147"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1908.8927388343336,
+            "unit": "median tps",
+            "extra": "avg tps: 1894.2656640735934, max tps: 1917.5062974300483, count: 55147"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 57.50224360302179,
+            "unit": "median tps",
+            "extra": "avg tps: 58.32677557751769, max tps: 214.62695581496322, count: 55147"
           }
         ]
       }

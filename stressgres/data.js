@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778860857445,
+  "lastUpdate": 1778860892015,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3326,6 +3326,138 @@ window.BENCHMARK_DATA = {
             "value": 57.55859375,
             "unit": "median mem",
             "extra": "avg mem: 57.11222303274749, max mem: 69.6328125, count: 55134"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2edacebe4a7e52eb67081dbb73b4d712f13625aa",
+          "message": "chore: Remove unnecessary propogation of `is_datetime` (#5071)\n\n## What\nThis PR removes the extensive propagation of `is_datetime` in the code\nsurrounding decisions about `Term` handling. Specifically, by removing\nthe `is_datetime` fields and working backwards from there.\n\n## Why\nThere were two reasons `is_datetime` value was so widely propagated:\n1) This arm in `Query::apply_fuzzy_data` required it.\n    ```rust\n    pdb::Query::Term {\n        value: OwnedValue::Str(value),\n         is_datetime,\n    } if !*is_datetime => {\n        *self = pdb::Query::FuzzyTerm {\n            value: value.to_string(),\n            distance: Some(new_fuzzy_data.distance),\ntransposition_cost_one: Some(new_fuzzy_data.transposition_cost_one),\n            prefix: Some(new_fuzzy_data.prefix)\n        }\n    }\n    ```\nHowever, the only way it would be possible to hit arm with an\n`is_datetime` of `true` that is for the user to set it in the query JSON\ndirectly via something like:\n    ```sql\nWHERE description @@@ '{\"term\":\n{\"value\":\"shoes\",\"is_datetime\":true}}'::pdb.query::pdb.fuzzy(2);\n    ```\n    Removing `is_datetime` means that that route is no longer possible.\n    \nEvery instance where `Query::Term` is constructed in the code with a\nstring `value` sets it to false. At every other place that we need to\ndetermine if the term should be considered as a datetime, we can inspect\nthe schema.\n\n    Hence, this is safe to remove.\n2) Determining if a field in a json string should be treated as a\ndatetime. This can be address by determining that at deserialization\ntime.\n\n## How\nRemove all `is_datetime` properties across term-handling. For the\nremaining places we need to determine whether or not to handle the term\nas a datetime, outside of json parsing and targeting json fields,\ninspect the schema.\n\nFor JSON handling, make it so we handle this at deserialization time. \n- For all `Query` enum members that take an `OwnedValue`, serde them as\na `DateAwareOwnedValue` and convert/to from `OwnedValue` accordingly.\n`DateAwareOwnedValue` produced a tagged serialization.\n- For fielded queries, \"rewrite\" the json during deserialization to have\nthis tagged structure if there's an `is_datetime` field present.\n- For `TermInput`, serialize it as above. Deserialize it through\n`TermInputWire`, which handles the `is_datetime` logic.\n\n\n## Tests\n- All unit and integration tests pass.\n- All changed regression test outputs are either whitespace or the\nchange of `\"is_datetime\"` to the tagged format in the query explain\nJSON. No actual regressions.\n- Add new regression tests for range json queries and term_set json\nqueries using both legacy and v2 query styles.",
+          "timestamp": "2026-05-15T09:31:13-06:00",
+          "tree_id": "fe5785b74dd5316bd7bb64e113866096c52eae11",
+          "url": "https://github.com/paradedb/paradedb/commit/2edacebe4a7e52eb67081dbb73b4d712f13625aa"
+        },
+        "date": 1778860859807,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.266409,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.244937146158925, max cpu: 24.024025, count: 55147"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 66.9921875,
+            "unit": "median mem",
+            "extra": "avg mem: 66.81184139096415, max mem: 77.99609375, count: 55147"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.641616750524486, max cpu: 15.311005, count: 55147"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 65.796875,
+            "unit": "median mem",
+            "extra": "avg mem: 65.51218844633435, max mem: 76.6171875, count: 55147"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.741033236289971, max cpu: 9.504951, count: 55147"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.9921875,
+            "unit": "median mem",
+            "extra": "avg mem: 35.74180067875406, max mem: 37.67578125, count: 55147"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.638075252917715, max cpu: 9.302325, count: 55147"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 64.3203125,
+            "unit": "median mem",
+            "extra": "avg mem: 63.75407100850907, max mem: 75.33984375, count: 55147"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.637796404692894, max cpu: 9.533267, count: 110294"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 51.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.821917053794856, max mem: 71.66015625, count: 110294"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1779,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1765.6327452082617, max block_count: 3117.0, count: 55147"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.711897292690445, max segment_count: 30.0, count: 55147"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.565346091562681, max cpu: 18.768328, count: 55147"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 65.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 65.34440393403086, max mem: 76.44140625, count: 55147"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.522082666703896, max cpu: 9.329447, count: 55147"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 54.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 54.182668524013096, max mem: 65.02734375, count: 55147"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 3.7735848,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.8302480971079733, max cpu: 4.660194, count: 55147"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 59.18359375,
+            "unit": "median mem",
+            "extra": "avg mem: 57.832832871688396, max mem: 71.0625, count: 55147"
           }
         ]
       }

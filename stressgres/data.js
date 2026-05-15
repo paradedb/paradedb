@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778803842565,
+  "lastUpdate": 1778803877652,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12378,6 +12378,186 @@ window.BENCHMARK_DATA = {
             "value": 32.9921875,
             "unit": "median mem",
             "extra": "avg mem: 32.32203886989957, max mem: 33.15625, count: 53868"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d99908a1f58307567dd34698345b3fc836be6135",
+          "message": "feat(antithesis): add singleton drivers for logical-replication suites (#5087)\n\n## Summary\n\nAdds OSS Antithesis singleton drivers for the two CI\n`logical-replication` suites that previously had no singleton\n(`single-server`, `bulk-updates`, `wide-table`, `background-merge`, and\n`vanilla-postgres` already had one).\n\nMirrors the enterprise pattern used for `physical-logical-replication`:\n- A **vanilla Postgres 18** publisher pod (with `wal_level=logical`)\nthat lives outside the CNPG cluster, reflecting real-world\nlogical-replication topologies where the upstream primary is not under\nour control.\n- Subscriber points at `paradedb-rw` (the CNPG primary, which has\n`pg_search`).\n\n## Changes\n- `docker/manifests/antithesis-paradedb.yaml` — add\n`logical-replication-publisher` Service + Deployment (vanilla Postgres\n18 with `wal_level=logical`), reusing the existing `paradedb-superuser`\nsecret.\n- `stressgres/suites/logical-replication.toml`,\n`stressgres/suites/logical-replication-merge.toml` — drop `CREATE\nEXTENSION pg_search` from the **Publisher** setup. Only the Subscriber\nuses `pg_search`; the line was cosmetic and incompatible with a vanilla\nPostgres publisher (the line in the Subscriber setup is unchanged).\n-\n`stressgres/suites/antithesis/singleton_driver_logical-replication.sh`,\n`singleton_driver_logical-replication-merge.sh` — new drivers that\nperform per-block `sed -z` rewrites of the `[server.style.Automatic]`\nblocks into `[server.style.With]` connection strings (Publisher →\n`logical-replication-publisher:5432`, Subscriber → `paradedb-rw:5432`).\n- `.github/workflows/antithesis-trigger-test-run.yml` — add\n`logical-replication-publisher` to\n`container_faults_stop_exclusion_patterns` and\n`container_faults_kill_exclusion_patterns`, matching enterprise. Network\nfaults to/from the publisher are intentionally still injected.\n\n## Why\nWithout these, the FSM race repro in `logical-replication-merge.toml`\n(issue #4935, fixed by #5067) and the broader logical-replication\ncoverage in `logical-replication.toml` were running in\n`benchmark-pg_search-stressgres` but had no Antithesis fault-injection\nequivalent — that's the half of the matrix where the bugs originally\nsurfaced.\n\n## Test plan\n- [x] Antithesis trigger workflow picks up both new singleton drivers\nfrom `/opt/antithesis/test/v1/quickstart/`\n- [x] Publisher pod (`logical-replication-publisher`) starts with\n`wal_level=logical` and is reachable from the stressgres-runner pod\n- [x] Subscriber's `CREATE SUBSCRIPTION ... CONNECTION\n'@Publisher_CONNSTR@'` resolves to the publisher pod after the `sed`\nrewrite\n- [x] `logical-replication-merge.toml` still reproduces the FSM race\nwhen run against a build without #5067\n- [x] `benchmark-pg_search-stressgres` (local Stressgres, not\nAntithesis) still runs both suites unchanged",
+          "timestamp": "2026-05-14T18:54:16-04:00",
+          "tree_id": "8c7a6dab334db43248e88e7a4ebc75fd5840e446",
+          "url": "https://github.com/paradedb/paradedb/commit/d99908a1f58307567dd34698345b3fc836be6135"
+        },
+        "date": 1778803844321,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.055622691767608, max cpu: 9.284333, count: 53878"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 53.06640625,
+            "unit": "median mem",
+            "extra": "avg mem: 53.09201155272096, max mem: 58.921875, count: 53878"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5584044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.027860820851554, max cpu: 4.610951, count: 53878"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 29.8984375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.202233083308585, max mem: 30.34765625, count: 53878"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.142857,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.322599297442848, max cpu: 18.461538, count: 53878"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 55.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 55.53070493174394, max mem: 61.62109375, count: 53878"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.073312114210744, max cpu: 9.284333, count: 53878"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 52.125,
+            "unit": "median mem",
+            "extra": "avg mem: 52.1740646257517, max mem: 58.04296875, count: 53878"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.655208964307286, max cpu: 9.239654, count: 53878"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 33.1640625,
+            "unit": "median mem",
+            "extra": "avg mem: 33.1941181784541, max mem: 38.125, count: 53878"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1088,
+            "unit": "median pages",
+            "extra": "avg pages: 1087.967129440588, max pages: 1814.0, count: 53878"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.5,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.49974334375812, max relation_size:MB: 14.171875, count: 53878"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.208916440847842, max segment_count: 20.0, count: 53878"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.6589385186826866, max cpu: 4.6021094, count: 53878"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.15234375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.409559487986748, max mem: 29.55078125, count: 53878"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.344290110958144, max cpu: 4.58891, count: 53878"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.424835029487916, max mem: 29.5390625, count: 53878"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.502423798528388, max cpu: 23.188406, count: 53878"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 51.5625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.637476103418834, max mem: 57.51171875, count: 53878"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.0000405474607236198, max replication_lag:MB: 0.31899261474609375, count: 53878"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.256194703650474, max cpu: 13.766731, count: 107756"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 51.7109375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.8023479768528, max mem: 57.93359375, count: 107756"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.445348401510888, max cpu: 4.624277, count: 53878"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 30.86328125,
+            "unit": "median mem",
+            "extra": "avg mem: 30.143274214428896, max mem: 31.2734375, count: 53878"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.759046789051599, max cpu: 9.17782, count: 53878"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 30.94140625,
+            "unit": "median mem",
+            "extra": "avg mem: 30.211653092403207, max mem: 31.0546875, count: 53878"
           }
         ]
       }

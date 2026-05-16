@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778918714381,
+  "lastUpdate": 1778921198327,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search 'stackoverflow' (100k rows)": [
@@ -46894,6 +46894,240 @@ window.BENCHMARK_DATA = {
             "value": 56.087879,
             "unit": "median ms",
             "extra": "cold_query_ms=173.255; query=SELECT * FROM stackoverflow_posts WHERE body ||| 'javascript' AND tags ||| 'python' ORDER BY tags LIMIT 10"
+          }
+        ]
+      }
+    ],
+    "pg_search 'docs' (25M rows)": [
+      {
+        "commit": {
+          "author": {
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy",
+            "email": "mithun.cy@gmail.com"
+          },
+          "committer": {
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy",
+            "email": "mithun.cy@gmail.com"
+          },
+          "id": "cb13f6e1f9e9306fd03e604e10b346db52db69d0",
+          "message": "INSTR-4902: sub-phase timing in execute_aggregate + drop broken artifact upload (baseline)",
+          "timestamp": "2026-05-16T07:20:03Z",
+          "url": "https://github.com/paradedb/paradedb/commit/cb13f6e1f9e9306fd03e604e10b346db52db69d0"
+        },
+        "date": 1778921167117,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "aggregate_join_count",
+            "value": 3360.0485900000003,
+            "unit": "median ms",
+            "extra": "cold_query_ms=10042.193; query=SET paradedb.enable_aggregate_custom_scan TO off; SELECT COUNT(*) FROM files f JOIN pages p ON f.id = p.\"fileId\" WHERE f.content ||| 'Section'"
+          },
+          {
+            "name": "aggregate_join_count - alternative 1",
+            "value": 8485.838434500001,
+            "unit": "median ms",
+            "extra": "cold_query_ms=10416.413; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(*) FROM files f JOIN pages p ON f.id = p.\"fileId\" WHERE f.content ||| 'Section'"
+          },
+          {
+            "name": "aggregate_join_groupby",
+            "value": 13564.27968,
+            "unit": "median ms",
+            "extra": "cold_query_ms=20117.120; query=SET paradedb.enable_aggregate_custom_scan TO off; SELECT f.title, COUNT(*), SUM(p.\"sizeInBytes\") FROM files f JOIN pages p ON f.id = p.\"fileId\" WHERE f.content ||| 'Section' GROUP BY f.title ORDER BY f.title"
+          },
+          {
+            "name": "aggregate_join_groupby - alternative 1",
+            "value": 19476.720549499998,
+            "unit": "median ms",
+            "extra": "cold_query_ms=21598.222; query=SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SELECT f.title, COUNT(*), SUM(p.\"sizeInBytes\") FROM files f JOIN pages p ON f.id = p.\"fileId\" WHERE f.content ||| 'Section' GROUP BY f.title ORDER BY f.title"
+          },
+          {
+            "name": "aggregate_join_multi",
+            "value": 3666.2877555,
+            "unit": "median ms",
+            "extra": "cold_query_ms=10379.629; query=SET paradedb.enable_aggregate_custom_scan TO off; SELECT COUNT(*), MIN(p.\"sizeInBytes\"), MAX(p.\"sizeInBytes\") FROM files f JOIN pages p ON f.id = p.\"fileId\" WHERE f.content ||| 'Section'"
+          },
+          {
+            "name": "aggregate_join_multi - alternative 1",
+            "value": 8740.020595,
+            "unit": "median ms",
+            "extra": "cold_query_ms=10654.924; query=SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(*), MIN(p.\"sizeInBytes\"), MAX(p.\"sizeInBytes\") FROM files f JOIN pages p ON f.id = p.\"fileId\" WHERE f.content ||| 'Section'"
+          },
+          {
+            "name": "aggregate_join_topk_count",
+            "value": 21928.0563575,
+            "unit": "median ms",
+            "extra": "cold_query_ms=32720.312; query=SET paradedb.enable_aggregate_custom_scan TO off; SELECT f.title, COUNT(*) FROM files f JOIN pages p ON f.id = p.\"fileId\" WHERE f.content ||| 'Section' GROUP BY f.title ORDER BY COUNT(*) DESC LIMIT 10"
+          },
+          {
+            "name": "aggregate_join_topk_count - alternative 1",
+            "value": 12951.357973999999,
+            "unit": "median ms",
+            "extra": "cold_query_ms=14865.856; query=SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SELECT f.title, COUNT(*) FROM files f JOIN pages p ON f.id = p.\"fileId\" WHERE f.content ||| 'Section' GROUP BY f.title ORDER BY COUNT(*) DESC LIMIT 10"
+          },
+          {
+            "name": "aggregate_sort",
+            "value": 13250.1461575,
+            "unit": "median ms",
+            "extra": "cold_query_ms=20015.984; query=SET paradedb.enable_join_custom_scan TO off; SELECT f.id, f.title, MAX(p.\"createdAt\") as last_activity FROM files f JOIN pages p ON f.id = p.\"fileId\" WHERE f.content ||| 'Section' GROUP BY f.id, f.title ORDER BY last_activity DESC LIMIT 10"
+          },
+          {
+            "name": "aggregate_sort - alternative 1",
+            "value": 13312.474281499999,
+            "unit": "median ms",
+            "extra": "cold_query_ms=19988.898; query=SET paradedb.enable_join_custom_scan TO on; SELECT f.id, f.title, MAX(p.\"createdAt\") as last_activity FROM files f JOIN pages p ON f.id = p.\"fileId\" WHERE f.content ||| 'Section' GROUP BY f.id, f.title ORDER BY last_activity DESC LIMIT 10"
+          },
+          {
+            "name": "aggregate_topk_count",
+            "value": 2184.4314675,
+            "unit": "median ms",
+            "extra": "cold_query_ms=3242.686; query=SET paradedb.enable_aggregate_custom_scan TO off; SELECT f.title, COUNT(*) FROM files f WHERE f.content ||| 'Section' GROUP BY f.title ORDER BY COUNT(*) DESC LIMIT 10"
+          },
+          {
+            "name": "aggregate_topk_count - alternative 1",
+            "value": 1468.7621255000001,
+            "unit": "median ms",
+            "extra": "cold_query_ms=2203.661; query=SET work_mem TO '4GB'; SET paradedb.enable_aggregate_custom_scan TO on; SELECT f.title, COUNT(*) FROM files f WHERE f.content ||| 'Section' GROUP BY f.title ORDER BY COUNT(*) DESC LIMIT 10"
+          },
+          {
+            "name": "distinct_parent_sort",
+            "value": 215.2941685,
+            "unit": "median ms",
+            "extra": "cold_query_ms=1253.047; query=SET paradedb.enable_join_custom_scan TO off; SELECT DISTINCT d.id, d.title, d.parents FROM documents d JOIN files f ON d.id = f.\"documentId\" JOIN pages p ON f.id = p.\"fileId\" WHERE p.\"sizeInBytes\" > 5000 AND d.parents ||| 'parent group' ORDER BY d.title ASC LIMIT 50"
+          },
+          {
+            "name": "distinct_parent_sort - alternative 1",
+            "value": 3069.8893735,
+            "unit": "median ms",
+            "extra": "cold_query_ms=3905.216; query=SET work_mem TO '64MB'; SET paradedb.enable_join_custom_scan TO on; SELECT DISTINCT d.id, d.title, d.parents FROM documents d JOIN files f ON d.id = f.\"documentId\" JOIN pages p ON f.id = p.\"fileId\" WHERE p.\"sizeInBytes\" > 5000 AND d.parents ||| 'parent group' ORDER BY d.title ASC LIMIT 50"
+          },
+          {
+            "name": "foreign_filter_local_sort",
+            "value": 11.17973,
+            "unit": "median ms",
+            "extra": "cold_query_ms=141.979; query=SET paradedb.enable_join_custom_scan TO off; SELECT f.id, f.title, f.\"createdAt\", d.title as document_title, d.parents as document_parents FROM files f JOIN documents d ON f.\"documentId\" = d.id WHERE d.parents ||| 'parent group' AND f.title ||| 'collab12' ORDER BY f.\"createdAt\" DESC LIMIT 20"
+          },
+          {
+            "name": "foreign_filter_local_sort - alternative 1",
+            "value": 62.169718,
+            "unit": "median ms",
+            "extra": "cold_query_ms=549.022; query=SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT f.id, f.title, f.\"createdAt\", d.title as document_title, d.parents as document_parents FROM files f JOIN documents d ON f.\"documentId\" = d.id WHERE d.parents ||| 'parent group' AND f.title ||| 'collab12' ORDER BY f.\"createdAt\" DESC LIMIT 20"
+          },
+          {
+            "name": "hierarchical_content-no-scores-large",
+            "value": 13.022812,
+            "unit": "median ms",
+            "extra": "cold_query_ms=162.895; query=SET paradedb.enable_join_custom_scan TO off; SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents ||| 'parent group' AND files.title ||| 'collab12' AND pages.\"content\" ||| 'Single Number Reach' LIMIT 5"
+          },
+          {
+            "name": "hierarchical_content-no-scores-large - alternative 1",
+            "value": 1871.7128874999999,
+            "unit": "median ms",
+            "extra": "cold_query_ms=3105.401; query=SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT * FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents ||| 'parent group' AND files.title ||| 'collab12' AND pages.\"content\" ||| 'Single Number Reach' LIMIT 5"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small",
+            "value": 13.9584165,
+            "unit": "median ms",
+            "extra": "cold_query_ms=233.908; query=SET paradedb.enable_join_custom_scan TO off; SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents ||| 'parent group' AND files.title ||| 'collab12' AND pages.\"content\" ||| 'Single Number Reach' LIMIT 5"
+          },
+          {
+            "name": "hierarchical_content-no-scores-small - alternative 1",
+            "value": 1863.529894,
+            "unit": "median ms",
+            "extra": "cold_query_ms=3079.477; query=SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT documents.id, files.id, pages.id FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents ||| 'parent group' AND files.title ||| 'collab12' AND pages.\"content\" ||| 'Single Number Reach' LIMIT 5"
+          },
+          {
+            "name": "hierarchical_content-scores-large",
+            "value": 23.427310499999997,
+            "unit": "median ms",
+            "extra": "cold_query_ms=211.902; query=SET paradedb.enable_join_custom_scan TO off; SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents ||| 'project alpha' AND files.title ||| 'collab12' AND pages.\"content\" ||| 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 1",
+            "value": 25.293636499999998,
+            "unit": "median ms",
+            "extra": "cold_query_ms=300.649; query=WITH topk AS ( SELECT documents.id AS doc_id, files.id AS file_id, pages.id AS page_id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents ||| 'project alpha' AND files.title ||| 'collab12' AND pages.\"content\" ||| 'Single Number Reach' ORDER BY score DESC LIMIT 1000 ) SELECT d.*, f.*, p.*, topk.score FROM topk JOIN documents d ON topk.doc_id = d.id JOIN files f ON topk.file_id = f.id JOIN pages p ON topk.page_id = p.id WHERE topk.doc_id = d.id AND topk.file_id = f.id AND topk.page_id = p.id ORDER BY topk.score DESC"
+          },
+          {
+            "name": "hierarchical_content-scores-large - alternative 2",
+            "value": 27.325909,
+            "unit": "median ms",
+            "extra": "cold_query_ms=225.111; query=SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT *, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents ||| 'project alpha' AND files.title ||| 'collab12' AND pages.\"content\" ||| 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-small",
+            "value": 24.101242499999998,
+            "unit": "median ms",
+            "extra": "cold_query_ms=284.839; query=SET paradedb.enable_join_custom_scan TO off; SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents ||| 'parent group' AND files.title ||| 'collab12' AND pages.\"content\" ||| 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "hierarchical_content-scores-small - alternative 1",
+            "value": 28.065812,
+            "unit": "median ms",
+            "extra": "cold_query_ms=295.386; query=SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT documents.id, files.id, pages.id, pdb.score(documents.id) + pdb.score(files.id) + pdb.score(pages.id) AS score FROM documents JOIN files ON documents.id = files.\"documentId\" JOIN pages ON pages.\"fileId\" = files.id WHERE documents.parents ||| 'parent group' AND files.title ||| 'collab12' AND pages.\"content\" ||| 'Single Number Reach' ORDER BY score DESC LIMIT 1000"
+          },
+          {
+            "name": "paging-string-max",
+            "value": 12.1644025,
+            "unit": "median ms",
+            "extra": "cold_query_ms=117.616; query=SELECT * FROM pages WHERE id @@@ pdb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-max') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-median",
+            "value": 36.8061705,
+            "unit": "median ms",
+            "extra": "cold_query_ms=170.673; query=SELECT * FROM pages WHERE id @@@ pdb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-median') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "paging-string-min",
+            "value": 53.590781,
+            "unit": "median ms",
+            "extra": "cold_query_ms=192.114; query=SELECT * FROM pages WHERE id @@@ pdb.all() AND id >= (SELECT value FROM docs_schema_metadata WHERE name = 'pages-row-id-min') ORDER BY id LIMIT 100"
+          },
+          {
+            "name": "permissioned_search",
+            "value": 11.2083965,
+            "unit": "median ms",
+            "extra": "cold_query_ms=142.743; query=SET paradedb.enable_join_custom_scan TO off; SELECT f.id, f.title, pdb.score(f.id) as relevance FROM files f JOIN documents d ON f.\"documentId\" = d.id WHERE f.title ||| 'File' AND d.parents ||| 'parent group' ORDER BY relevance DESC LIMIT 10"
+          },
+          {
+            "name": "permissioned_search - alternative 1",
+            "value": 147.55452400000001,
+            "unit": "median ms",
+            "extra": "cold_query_ms=690.390; query=SET work_mem TO '4GB'; SET paradedb.enable_join_custom_scan TO on; SELECT f.id, f.title, pdb.score(f.id) as relevance FROM files f JOIN documents d ON f.\"documentId\" = d.id WHERE f.title ||| 'File' AND d.parents ||| 'parent group' ORDER BY relevance DESC LIMIT 10"
+          },
+          {
+            "name": "semi_join_filter",
+            "value": 407.95957350000003,
+            "unit": "median ms",
+            "extra": "cold_query_ms=2269.957; query=SET paradedb.enable_columnar_sort TO off; SET paradedb.enable_join_custom_scan TO off; SELECT f.id, f.title, f.\"createdAt\" FROM files f WHERE f.\"documentId\" IN ( SELECT id FROM documents WHERE parents ||| 'PROJECT_ALPHA' AND title ||| 'Document Title 1' ) ORDER BY f.title ASC LIMIT 25"
+          },
+          {
+            "name": "semi_join_filter - alternative 1",
+            "value": 302.93683350000003,
+            "unit": "median ms",
+            "extra": "cold_query_ms=950.616; query=SET work_mem TO '4GB'; SET paradedb.enable_columnar_sort TO off; SET paradedb.enable_join_custom_scan TO on; SELECT f.id, f.title, f.\"createdAt\" FROM files f WHERE f.\"documentId\" IN ( SELECT id FROM documents WHERE parents ||| 'PROJECT_ALPHA' AND title ||| 'Document Title 1' ) ORDER BY f.title ASC LIMIT 25"
+          },
+          {
+            "name": "semi_join_filter - alternative 2",
+            "value": 409.3483005,
+            "unit": "median ms",
+            "extra": "cold_query_ms=2289.334; query=SET paradedb.enable_columnar_sort TO on; SET paradedb.enable_join_custom_scan TO off; SELECT f.id, f.title, f.\"createdAt\" FROM files f WHERE f.\"documentId\" IN ( SELECT id FROM documents WHERE parents ||| 'PROJECT_ALPHA' AND title ||| 'Document Title 1' ) ORDER BY f.title ASC LIMIT 25"
+          },
+          {
+            "name": "semi_join_filter - alternative 3",
+            "value": 1784.7304215,
+            "unit": "median ms",
+            "extra": "cold_query_ms=2236.079; query=SET paradedb.enable_columnar_sort TO off; SET paradedb.enable_join_custom_scan TO off; SELECT f.id, f.title, f.\"createdAt\" FROM files f WHERE f.\"documentId\" @@@ pdb.term_set(( SELECT array_agg(id) FROM documents WHERE parents ||| 'PROJECT_ALPHA' AND title ||| 'Document Title 1' )) ORDER BY f.title ASC LIMIT 25"
+          },
+          {
+            "name": "semi_join_filter - alternative 4",
+            "value": 446.2732685,
+            "unit": "median ms",
+            "extra": "cold_query_ms=1081.035; query=SET work_mem TO '4GB'; SET paradedb.enable_columnar_sort TO on; SET paradedb.enable_join_custom_scan TO on; SELECT f.id, f.title, f.\"createdAt\" FROM files f WHERE f.\"documentId\" IN ( SELECT id FROM documents WHERE parents ||| 'PROJECT_ALPHA' AND title ||| 'Document Title 1' ) ORDER BY f.title ASC LIMIT 25"
           }
         ]
       }

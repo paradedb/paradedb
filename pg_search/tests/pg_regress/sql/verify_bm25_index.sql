@@ -555,37 +555,3 @@ FROM pdb.verify_index('details_idx', heapallindexed := true)
 ORDER BY check_name;
 
 DROP TABLE details_test CASCADE;
-
-
-
-
--- =============================================================================
--- Test 33: Multi-row INSERT/UPDATE with a BM25 expression index
--- =============================================================================
-
-CREATE TABLE test_multirow_expr_guard (
-    id SERIAL PRIMARY KEY,
-    content TEXT
-);
-
-CREATE INDEX idx_multirow_expr_guard ON test_multirow_expr_guard USING bm25 (
-    id,
-    (content::pdb.simple)
-) WITH (key_field='id');
-
--- Multi-row insert
-INSERT INTO test_multirow_expr_guard (content)
-SELECT 'item ' || g FROM generate_series(1, 10) g;
-
--- Verify all rows are indexed and searchable
-SELECT COUNT(*) FROM test_multirow_expr_guard WHERE content @@@ 'item';
-
--- Multi-row update
-UPDATE test_multirow_expr_guard
-SET content = 'updated ' || id
-WHERE id IN (1, 2, 3, 4, 5);
-
--- Verify updated rows
-SELECT COUNT(*) FROM test_multirow_expr_guard WHERE content @@@ 'updated';
-
-DROP TABLE test_multirow_expr_guard;

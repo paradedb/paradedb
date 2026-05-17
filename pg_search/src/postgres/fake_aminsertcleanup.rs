@@ -81,7 +81,12 @@ use std::collections::hash_map::Entry;
 /// Pushed onto [`EXECUTOR_RUN_STACK`] by [`FrameGuard::new`] and popped by [`FrameGuard::drop`].
 /// Starts empty; `aminsert` calls populate it via [`push_insert_state`].
 struct InsertFrame {
-    active: HashMap<pg_sys::Oid, InsertState>,
+    active: HashMap<pg_sys::Oid, InsertFrameEntry>,
+}
+
+struct InsertFrameEntry {
+    index_info: *mut pg_sys::IndexInfo,
+    insert_state: InsertState,
 }
 
 /// The executor hook nesting stack.
@@ -89,6 +94,27 @@ struct InsertFrame {
 /// Each live [`FrameGuard`] corresponds to exactly one element in this `Vec`.
 /// **Only [`FrameGuard`] is allowed to push or pop this stack.**
 static mut EXECUTOR_RUN_STACK: Vec<InsertFrame> = Vec::new();
+
+/// Whether the transaction-local abort cleanup callback has been registered.
+static mut ABORT_CALLBACK_REGISTERED: bool = false;
+
+unsafe fn ensure_abort_callback_registered() {
+    if ABORT_CALLBACK_REGISTERED {
+        return;
+    }
+
+    ABORT_CALLBACK_REGISTERED = true;
+    pgrx::register_xact_callback(pgrx::PgXactCallbackEvent::Abort, || unsafe {
+        // If a Postgres ERROR unwinds through FrameGuard::drop, drop every frame without running
+        // insertcleanup. Postgres will roll back all storage changes, so there is nothing to
+        // commit. clear() drops each InsertFrame via normal Drop impls, which is safe here.
+        EXECUTOR_RUN_STACK.clear();
+        ABORT_CALLBACK_REGISTERED = false;
+    });
+    pgrx::register_xact_callback(pgrx::PgXactCallbackEvent::Commit, || unsafe {
+        ABORT_CALLBACK_REGISTERED = false;
+    });
+}
 
 // ---------------------------------------------------------------------------
 // RAII frame guard
@@ -108,19 +134,6 @@ impl FrameGuard {
     /// # Safety
     /// Must be called from within a Postgres executor hook (main thread, valid memory context).
     unsafe fn new() -> Self {
-        // Register the abort callback the first time we touch the stack in this transaction so
-        // that a Postgres ERROR during cleanup cannot leak frames across transactions.
-        // `is_empty()` prevents re-registering on every nested hook call.
-        if EXECUTOR_RUN_STACK.is_empty() {
-            pgrx::register_xact_callback(pgrx::PgXactCallbackEvent::Abort, || {
-                // We are already inside a Postgres error unwind.  Drop every frame without
-                // running insertcleanup — Postgres will roll back all storage changes, so there
-                // is nothing to commit.  clear() drops each InsertFrame (and its InsertStates)
-                // via their normal Drop impls, which is safe here.
-                EXECUTOR_RUN_STACK.clear();
-            });
-        }
-
         EXECUTOR_RUN_STACK.push(InsertFrame {
             active: HashMap::default(),
         });
@@ -145,13 +158,21 @@ impl Drop for FrameGuard {
                 .pop()
                 .expect("FrameGuard::drop: stack underflow — frame was never pushed");
 
-            for (_, mut insert_state) in frame.active {
+            for (_, mut entry) in frame.active {
+                // The pg15/pg16 shim stores a sentinel in ii_AmCache because the real InsertState
+                // lives in this frame. Once the frame is cleaned up, clear the sentinel so a later
+                // ExecutorRun with the same IndexInfo creates a fresh state instead of looking for
+                // one in an empty frame.
+                if let Some(index_info) = entry.index_info.as_mut() {
+                    index_info.ii_AmCache = std::ptr::null_mut();
+                }
+
                 // Replace the mode with Completed *before* calling insertcleanup.  If
                 // insertcleanup panics partway through, the xact-abort callback will clear the
                 // remaining frames; having Completed in place prevents a double-cleanup if the
                 // same state were somehow encountered again (it won't be, but this is defensive).
-                let mode = std::mem::replace(&mut insert_state.mode, InsertMode::Completed);
-                insertcleanup(&insert_state, mode);
+                let mode = std::mem::replace(&mut entry.insert_state.mode, InsertMode::Completed);
+                insertcleanup(&entry.insert_state, mode);
             }
         }
     }
@@ -176,6 +197,7 @@ pub unsafe fn get_insert_state(indexrelid: pg_sys::Oid) -> Option<&'static mut I
         )
         .active
         .get_mut(&indexrelid)
+        .map(|entry| &mut entry.insert_state)
 }
 
 /// Insert `insert_state` into the current (top) frame.
@@ -196,14 +218,19 @@ pub unsafe fn get_insert_state(indexrelid: pg_sys::Oid) -> Option<&'static mut I
 /// # Safety
 /// Must be called from within a live executor hook invocation.
 #[inline]
-pub unsafe fn push_insert_state(insert_state: InsertState) {
+pub unsafe fn push_insert_state(index_info: *mut pg_sys::IndexInfo, insert_state: InsertState) {
+    ensure_abort_callback_registered();
+
     let frame = EXECUTOR_RUN_STACK.last_mut().expect(
         "push_insert_state: called outside of an executor hook — EXECUTOR_RUN_STACK is empty",
     );
 
     match frame.active.entry(insert_state.indexrelid) {
         Entry::Vacant(slot) => {
-            slot.insert(insert_state);
+            slot.insert(InsertFrameEntry {
+                index_info,
+                insert_state,
+            });
         }
         Entry::Occupied(_) => unreachable!(
             "push_insert_state: duplicate indexrelid {:?} in the same executor frame. \

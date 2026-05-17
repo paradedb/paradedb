@@ -145,7 +145,7 @@ unsafe fn init_insert_state(
         let state = InsertState::new(&index_relation)
             .expect("should be able to open new SearchIndex for writing");
 
-        push_insert_state(state);
+        push_insert_state(index_info, state);
         index_info.ii_AmCache = &true as *const _ as *mut _; // a pointer to `true` to indicate that we've set up the InsertState
     }
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779051348825,
+  "lastUpdate": 1779052017364,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4270,6 +4270,42 @@ window.BENCHMARK_DATA = {
             "value": 5.480759538087903,
             "unit": "median tps",
             "extra": "avg tps: 4.912715537381725, max tps: 6.1070553577604905, count: 57573"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "pandeynihal232@gmail.com",
+            "name": "Nihal Pandey",
+            "username": "Nihal-Pandey-2302"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c6cdb20edf693ee0cbe0a70563bc3fd728e87f6d",
+          "message": "fix: handle nested ExecutorRun in fake_aminsertcleanup (#4843) (#4924)\n\nFixes #4843\n\n## Problem\n\n`executor_run_hook` unconditionally pushed a new `None` entry onto\n`EXECUTOR_RUN_STACK` for every `ExecutorRun`. When an index expression\n(e.g., `bingo.cansmiles`) triggered a nested `ExecutorRun` during\nmulti-row insert on PG16, the outer `InsertState` was shadowed by a new\n`None` at the top of the stack. `get_insert_state` then saw `None` and\nhit `unreachable!`.\n\nThis only affected PG16 (and PG15/PG17 which use\n`fake_aminsertcleanup`). PG18+ uses native `aminsertcleanup` and was not\naffected.\n\n## Root Cause\n\nThe fake `aminsertcleanup` mechanism assumed a 1:1 mapping between\n`ExecutorRun` and `ExecutorFinish`. Nested executor calls — from\nSPI-executing functions in expression indexes — break this assumption by\npushing a second stack slot while the first is still active.\n\n## Fix\n\n- Add a `depth: u32` counter to `ExecutorRunEntry`\n- In `executor_run_hook_pg15_17` / `pg18`: if the top stack entry is\nalready `Some(...)`, increment `depth` instead of pushing a new slot\n- In `executor_finish_hook`: if `depth &gt; 0`, decrement and return\nwithout popping or cleaning up\n- Only at `depth == 0` (outermost finish) do we call\n`aminsertcleanup_stack()` and finalize\n- Make `aminsertcleanup_stack` tolerant of empty stack (abort callback\nmay have already cleared it)\n\n## Also\n\n- Adds `#[allow(clippy::needless_update)]` to\n`finalize_clause_into_path` because `pg_sys::CustomPath` has\nversion-dependent fields (e.g., `custom_restrictinfo`) that are safely\nfilled by `..Default::default()`.\n\n## Testing\n\n- `cargo pgrx test pg16`: 185 passed, 0 failed\n- `cargo clippy -p pg_search --no-default-features --features pg16 -- -D\nwarnings`: clean\n- Manual multi-row insert with expression index: passes\n- **Note**: The exact repro requires the `bingo` extension which\ntriggers nested `ExecutorRun` via internal C++ APIs during expression\nevaluation. I attempted to reproduce with a minimal C extension using\n`SPI_exec` and `SPI_cursor_open`, but these do not trigger the same\n`ExecutorRun_hook` nesting path as `bingo`. The issue reporter\n(@Pandaaaa906) has the only known repro environment and has been asked\nto validate this fix.\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-05-17T16:25:31-04:00",
+          "tree_id": "3ed85f659600a9935e91556208a6ea468231aca7",
+          "url": "https://github.com/paradedb/paradedb/commit/c6cdb20edf693ee0cbe0a70563bc3fd728e87f6d"
+        },
+        "date": 1779051986866,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.857398370451954,
+            "unit": "median tps",
+            "extra": "avg tps: 6.688923713410237, max tps: 10.137579127265203, count: 57748"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.549681587514879,
+            "unit": "median tps",
+            "extra": "avg tps: 4.994282700782047, max tps: 6.259774769646291, count: 57748"
           }
         ]
       }

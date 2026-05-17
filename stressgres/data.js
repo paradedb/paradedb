@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779052738040,
+  "lastUpdate": 1779052770639,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7972,6 +7972,108 @@ window.BENCHMARK_DATA = {
             "value": 164.29296875,
             "unit": "median mem",
             "extra": "avg mem: 182.24196116328199, max mem: 222.7578125, count: 56332"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "pandeynihal232@gmail.com",
+            "name": "Nihal Pandey",
+            "username": "Nihal-Pandey-2302"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c6cdb20edf693ee0cbe0a70563bc3fd728e87f6d",
+          "message": "fix: handle nested ExecutorRun in fake_aminsertcleanup (#4843) (#4924)\n\nFixes #4843\n\n## Problem\n\n`executor_run_hook` unconditionally pushed a new `None` entry onto\n`EXECUTOR_RUN_STACK` for every `ExecutorRun`. When an index expression\n(e.g., `bingo.cansmiles`) triggered a nested `ExecutorRun` during\nmulti-row insert on PG16, the outer `InsertState` was shadowed by a new\n`None` at the top of the stack. `get_insert_state` then saw `None` and\nhit `unreachable!`.\n\nThis only affected PG16 (and PG15/PG17 which use\n`fake_aminsertcleanup`). PG18+ uses native `aminsertcleanup` and was not\naffected.\n\n## Root Cause\n\nThe fake `aminsertcleanup` mechanism assumed a 1:1 mapping between\n`ExecutorRun` and `ExecutorFinish`. Nested executor calls — from\nSPI-executing functions in expression indexes — break this assumption by\npushing a second stack slot while the first is still active.\n\n## Fix\n\n- Add a `depth: u32` counter to `ExecutorRunEntry`\n- In `executor_run_hook_pg15_17` / `pg18`: if the top stack entry is\nalready `Some(...)`, increment `depth` instead of pushing a new slot\n- In `executor_finish_hook`: if `depth &gt; 0`, decrement and return\nwithout popping or cleaning up\n- Only at `depth == 0` (outermost finish) do we call\n`aminsertcleanup_stack()` and finalize\n- Make `aminsertcleanup_stack` tolerant of empty stack (abort callback\nmay have already cleared it)\n\n## Also\n\n- Adds `#[allow(clippy::needless_update)]` to\n`finalize_clause_into_path` because `pg_sys::CustomPath` has\nversion-dependent fields (e.g., `custom_restrictinfo`) that are safely\nfilled by `..Default::default()`.\n\n## Testing\n\n- `cargo pgrx test pg16`: 185 passed, 0 failed\n- `cargo clippy -p pg_search --no-default-features --features pg16 -- -D\nwarnings`: clean\n- Manual multi-row insert with expression index: passes\n- **Note**: The exact repro requires the `bingo` extension which\ntriggers nested `ExecutorRun` via internal C++ APIs during expression\nevaluation. I attempted to reproduce with a minimal C extension using\n`SPI_exec` and `SPI_cursor_open`, but these do not trigger the same\n`ExecutorRun_hook` nesting path as `bingo`. The issue reporter\n(@Pandaaaa906) has the only known repro environment and has been asked\nto validate this fix.\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-05-17T16:25:31-04:00",
+          "tree_id": "3ed85f659600a9935e91556208a6ea468231aca7",
+          "url": "https://github.com/paradedb/paradedb/commit/c6cdb20edf693ee0cbe0a70563bc3fd728e87f6d"
+        },
+        "date": 1779052739557,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07278757511456643, max background_merging: 2.0, count: 56081"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.80302979519121, max cpu: 9.7165985, count: 56081"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.171875,
+            "unit": "median mem",
+            "extra": "avg mem: 26.216857996135055, max mem: 26.29296875, count: 56081"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.034937673421226, max cpu: 28.125, count: 56081"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 194.0625,
+            "unit": "median mem",
+            "extra": "avg mem: 192.11503770773524, max mem: 194.34375, count: 56081"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51434,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51297.98805299478, max block_count: 51434.0, count: 56081"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.80490718781762, max segment_count: 56.0, count: 56081"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.612620221178421, max cpu: 28.374382, count: 56081"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 148.5625,
+            "unit": "median mem",
+            "extra": "avg mem: 133.04748516654482, max mem: 162.51953125, count: 56081"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.755946995305404, max cpu: 28.402367, count: 56081"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 187.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 177.75229000519337, max mem: 189.6953125, count: 56081"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.92988258740909, max cpu: 33.905144, count: 56081"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 164.40625,
+            "unit": "median mem",
+            "extra": "avg mem: 182.55461115952818, max mem: 222.80859375, count: 56081"
           }
         ]
       }

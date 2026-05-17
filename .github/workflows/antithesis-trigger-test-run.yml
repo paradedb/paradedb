@@ -52,9 +52,7 @@ jobs:
   #   `antithesis-proptests` => proptests, anything else => skip
   #
   # For pull_request triggers, also removes the triggering label up front so it
-  # can be re-applied to re-run. Doing it here (rather than as a step in the
-  # long build job) makes internal PRs see the label removed within seconds
-  # instead of after the ~40-minute .deb build.
+  # can be re-applied to re-run.
   setup:
     name: Resolve Workloads
     runs-on: ubuntu-latest

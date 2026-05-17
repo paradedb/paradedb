@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779054095757,
+  "lastUpdate": 1779054130237,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14898,6 +14898,186 @@ window.BENCHMARK_DATA = {
             "value": 30.86328125,
             "unit": "median mem",
             "extra": "avg mem: 30.149484945107233, max mem: 30.90234375, count: 53855"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "pandeynihal232@gmail.com",
+            "name": "Nihal Pandey",
+            "username": "Nihal-Pandey-2302"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c6cdb20edf693ee0cbe0a70563bc3fd728e87f6d",
+          "message": "fix: handle nested ExecutorRun in fake_aminsertcleanup (#4843) (#4924)\n\nFixes #4843\n\n## Problem\n\n`executor_run_hook` unconditionally pushed a new `None` entry onto\n`EXECUTOR_RUN_STACK` for every `ExecutorRun`. When an index expression\n(e.g., `bingo.cansmiles`) triggered a nested `ExecutorRun` during\nmulti-row insert on PG16, the outer `InsertState` was shadowed by a new\n`None` at the top of the stack. `get_insert_state` then saw `None` and\nhit `unreachable!`.\n\nThis only affected PG16 (and PG15/PG17 which use\n`fake_aminsertcleanup`). PG18+ uses native `aminsertcleanup` and was not\naffected.\n\n## Root Cause\n\nThe fake `aminsertcleanup` mechanism assumed a 1:1 mapping between\n`ExecutorRun` and `ExecutorFinish`. Nested executor calls — from\nSPI-executing functions in expression indexes — break this assumption by\npushing a second stack slot while the first is still active.\n\n## Fix\n\n- Add a `depth: u32` counter to `ExecutorRunEntry`\n- In `executor_run_hook_pg15_17` / `pg18`: if the top stack entry is\nalready `Some(...)`, increment `depth` instead of pushing a new slot\n- In `executor_finish_hook`: if `depth &gt; 0`, decrement and return\nwithout popping or cleaning up\n- Only at `depth == 0` (outermost finish) do we call\n`aminsertcleanup_stack()` and finalize\n- Make `aminsertcleanup_stack` tolerant of empty stack (abort callback\nmay have already cleared it)\n\n## Also\n\n- Adds `#[allow(clippy::needless_update)]` to\n`finalize_clause_into_path` because `pg_sys::CustomPath` has\nversion-dependent fields (e.g., `custom_restrictinfo`) that are safely\nfilled by `..Default::default()`.\n\n## Testing\n\n- `cargo pgrx test pg16`: 185 passed, 0 failed\n- `cargo clippy -p pg_search --no-default-features --features pg16 -- -D\nwarnings`: clean\n- Manual multi-row insert with expression index: passes\n- **Note**: The exact repro requires the `bingo` extension which\ntriggers nested `ExecutorRun` via internal C++ APIs during expression\nevaluation. I attempted to reproduce with a minimal C extension using\n`SPI_exec` and `SPI_cursor_open`, but these do not trigger the same\n`ExecutorRun_hook` nesting path as `bingo`. The issue reporter\n(@Pandaaaa906) has the only known repro environment and has been asked\nto validate this fix.\n\n---------\n\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-05-17T16:25:31-04:00",
+          "tree_id": "3ed85f659600a9935e91556208a6ea468231aca7",
+          "url": "https://github.com/paradedb/paradedb/commit/c6cdb20edf693ee0cbe0a70563bc3fd728e87f6d"
+        },
+        "date": 1779054097291,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.107349880936007, max cpu: 9.29332, count: 53879"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 53.203125,
+            "unit": "median mem",
+            "extra": "avg mem: 53.222233065062454, max mem: 59.16796875, count: 53879"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.499487576715625, max cpu: 4.6153846, count: 53879"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 29.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.224601581205107, max mem: 30.30859375, count: 53879"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.134158,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.87819393106982, max cpu: 18.443804, count: 53879"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 56.29296875,
+            "unit": "median mem",
+            "extra": "avg mem: 56.00493147840532, max mem: 62.2578125, count: 53879"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.075351258057739, max cpu: 9.347614, count: 53879"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 52.63671875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.64736028879526, max mem: 58.57421875, count: 53879"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.618017198310124, max cpu: 9.284333, count: 53879"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 34.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 34.32384747536146, max mem: 39.5390625, count: 53879"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1122,
+            "unit": "median pages",
+            "extra": "avg pages: 1123.0089274114218, max pages: 1871.0, count: 53879"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.765625,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.773507535403404, max relation_size:MB: 14.6171875, count: 53879"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 7.870970136787988, max segment_count: 17.0, count: 53879"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.41195531187297, max cpu: 4.597701, count: 53879"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.16796875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.378809026939994, max mem: 29.51953125, count: 53879"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.396740652117914, max cpu: 4.619827, count: 53879"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.22265625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.502821353751, max mem: 29.5625, count: 53879"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.39916459375644, max cpu: 27.42857, count: 53879"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 51.33203125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.37521423873402, max mem: 57.3203125, count: 53879"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.00003724638153134512, max replication_lag:MB: 0.31896209716796875, count: 53879"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.228445853224855, max cpu: 13.714285, count: 107758"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 51.70703125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.73480684873745, max mem: 57.8046875, count: 107758"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.4839705965830445, max cpu: 4.6153846, count: 53879"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 30.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 30.19994933670818, max mem: 31.25, count: 53879"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.4026914953671006, max cpu: 4.610951, count: 53879"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 30.8515625,
+            "unit": "median mem",
+            "extra": "avg mem: 30.096260326959484, max mem: 30.90234375, count: 53879"
           }
         ]
       }

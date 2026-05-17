@@ -619,6 +619,7 @@ impl JoinScan {
     /// `pg_sys::CustomPath` struct.
     ///
     /// Returns `None` if ORDER BY extraction fails.
+    #[allow(clippy::needless_update)]
     unsafe fn finalize_clause_into_path(
         root: *mut pg_sys::PlannerInfo,
         rel: *mut pg_sys::RelOptInfo,

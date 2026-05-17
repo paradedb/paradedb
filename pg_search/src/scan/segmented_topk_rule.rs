@@ -141,8 +141,8 @@ fn try_inject_at_sort(plan: Arc<dyn ExecutionPlan>) -> Result<Arc<dyn ExecutionP
 ///   - If the column name appears **more than once** (self-join with duplicate
 ///     field names), fall back to `col.index()` directly. DataFusion already
 ///     assigned the correct physical index when it built the SortExec.
-///   - If the name is not found at all, emit a warning and fall back to
-///     `col.index()` as a last resort.
+///   - If the name is not found at all, log a debug diagnostic and fall back
+///     to `col.index()` as a last resort.
 fn resolve_physical_index(col: &Column, schema: &datafusion::arrow::datatypes::SchemaRef) -> usize {
     let col_name = col.name();
     let logical_idx = col.index();

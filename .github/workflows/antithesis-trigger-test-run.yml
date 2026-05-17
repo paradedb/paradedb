@@ -45,6 +45,25 @@ env:
   PG_VERSION: "18"
 
 jobs:
+  # Remove the triggering label as soon as the workflow starts, so it can be
+  # re-applied to re-run. Runs in its own job (rather than as a step in the long
+  # build job) so internal PRs see the label removed within seconds instead of
+  # after the ~40-minute .deb build.
+  remove-trigger-label:
+    name: Remove Trigger Label
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && contains(fromJSON('["antithesis","antithesis-stressgres","antithesis-proptests"]'), github.event.label.name)
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Remove Label
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr edit ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --remove-label "${{ github.event.label.name }}"
+
   # Resolve which workload(s) to run based on the trigger:
   # - schedule: all
   # - workflow_dispatch: from `inputs.workload` (default all)
@@ -249,19 +268,6 @@ jobs:
         workload: ${{ fromJSON(needs.setup.outputs.workloads) }}
 
     steps:
-      # The job can be triggered manually by attaching the `antithesis`,
-      # `antithesis-stressgres`, or `antithesis-proptests` label to a PR. This
-      # step removes the triggering label once the job has started so it can be
-      # applied again if needed.
-      - name: Maybe Remove Label
-        if: github.event_name == 'pull_request' && contains(fromJSON('["antithesis","antithesis-stressgres","antithesis-proptests"]'), github.event.label.name)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh pr edit ${{ github.event.pull_request.number }} \
-            --repo ${{ github.repository }} \
-            --remove-label "${{ github.event.label.name }}" || true
-
       - name: Checkout Git Repository
         uses: actions/checkout@v6
         with:

@@ -32,21 +32,30 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      should_run: ${{ github.event_name != 'pull_request' || steps.filter.outputs.relevant == 'true' }}
+      should_run: ${{ github.event_name != 'pull_request' || steps.filter.outputs.workflow == 'true' || steps.filter.outputs.upgrade_action == 'true' || steps.filter.outputs.pg_search == 'true' || steps.filter.outputs.tests == 'true' || steps.filter.outputs.tokenizers == 'true' || steps.filter.outputs.cargo_toml == 'true' }}
     steps:
       - name: Detect File Changes
         uses: dorny/paths-filter@v4
         id: filter
         if: github.event_name == 'pull_request'
         with:
+          # dorny applies negated patterns per filter. Split the native paths:
+          # include list into OR-able filters, and use "every" so exclusions
+          # like !pg_search/README.md mean "pg_search/** AND not README".
+          predicate-quantifier: every
           filters: |
-            relevant:
+            workflow:
               - ".github/workflows/test-pg_search-upgrade.yml"
+            upgrade_action:
               - ".github/actions/test-pg_search-upgrade/**"
+            pg_search:
               - "pg_search/**"
               - "!pg_search/README.md"
+            tests:
               - "tests/**"
+            tokenizers:
               - "tokenizers/**"
+            cargo_toml:
               - "Cargo.toml"
 
   # Resolves the immediately preceding released version on the upgrade path

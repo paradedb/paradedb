@@ -48,21 +48,24 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      should_run: ${{ github.event_name != 'pull_request' || steps.filter.outputs.relevant == 'true' }}
+      should_run: ${{ github.event_name != 'pull_request' || steps.filter.outputs.workflow == 'true' || steps.filter.outputs.docker == 'true' }}
     steps:
       - name: Detect File Changes
         uses: dorny/paths-filter@v4
         id: filter
         if: github.event_name == 'pull_request'
         with:
+          # dorny applies negated patterns per filter. Split the native paths:
+          # include list into OR-able filters, and use "every" so exclusions
+          # mean "docker/** AND not docker/manifests/** or stressgres".
+          predicate-quantifier: every
           filters: |
-            relevant:
+            workflow:
               - ".github/workflows/test-pg_search-docker.yml"
+            docker:
               - "docker/**"
+              - "!docker/manifests/**"
               - "!docker/Dockerfile.stressgres"
-              - "pg_search/**"
-              - "!pg_search/README.md"
-              - "tokenizers/**"
 
   test-paradedb:
     name: Test ${{ matrix.flavor }} Docker Image (${{ matrix.arch }})

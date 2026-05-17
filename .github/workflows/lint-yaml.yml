@@ -39,6 +39,8 @@ jobs:
             relevant:
               - "**/*.yml"
               - "**/*.yaml"
+              - ".github/scripts/check_gate_needs.py"
+              - ".github/scripts/check_workflow_filters.py"
               - ".github/workflows/lint-yaml.yml"
 
   lint-yaml:
@@ -74,6 +76,9 @@ jobs:
 
       - name: Check gated workflows declare complete needs lists
         run: python3 .github/scripts/check_gate_needs.py
+
+      - name: Check dorny path filters handle negations safely
+        run: python3 .github/scripts/check_workflow_filters.py
 
   # Required for branch protection — GitHub lacks "required when present" for
   # status checks so this gate always runs and reports pass/fail. Standard pattern:

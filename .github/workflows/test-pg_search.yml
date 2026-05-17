@@ -35,21 +35,30 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      should_run: ${{ github.event_name != 'pull_request' || steps.filter.outputs.relevant == 'true' }}
+      should_run: ${{ github.event_name != 'pull_request' || steps.filter.outputs.cargo_toml == 'true' || steps.filter.outputs.cargo_lock == 'true' || steps.filter.outputs.workflow == 'true' || steps.filter.outputs.pg_search == 'true' || steps.filter.outputs.tests == 'true' || steps.filter.outputs.tokenizers == 'true' }}
     steps:
       - name: Detect File Changes
         uses: dorny/paths-filter@v4
         id: filter
         if: github.event_name == 'pull_request'
         with:
+          # dorny applies negated patterns per filter. Split the native paths:
+          # include list into OR-able filters, and use "every" so exclusions
+          # like !pg_search/README.md mean "pg_search/** AND not README".
+          predicate-quantifier: every
           filters: |
-            relevant:
+            cargo_toml:
               - "Cargo.toml"
+            cargo_lock:
               - "Cargo.lock"
+            workflow:
               - ".github/workflows/test-pg_search.yml"
+            pg_search:
               - "pg_search/**"
               - "!pg_search/README.md"
+            tests:
               - "tests/**"
+            tokenizers:
               - "tokenizers/**"
 
   set-matrix:

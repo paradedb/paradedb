@@ -32,17 +32,23 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      should_run: ${{ github.event_name != 'pull_request' || steps.filter.outputs.relevant == 'true' }}
+      should_run: ${{ github.event_name != 'pull_request' || steps.filter.outputs.workflow == 'true' || steps.filter.outputs.migration_check == 'true' || steps.filter.outputs.pg_search == 'true' }}
     steps:
       - name: Detect File Changes
         uses: dorny/paths-filter@v4
         id: filter
         if: github.event_name == 'pull_request'
         with:
+          # dorny applies negated patterns per filter. Split the native paths:
+          # include list into OR-able filters, and use "every" so exclusions
+          # like !pg_search/README.md mean "pg_search/** AND not README".
+          predicate-quantifier: every
           filters: |
-            relevant:
+            workflow:
               - ".github/workflows/schemabot-generate-diff.yml"
+            migration_check:
               - ".github/scripts/check_migration_diff.py"
+            pg_search:
               - "pg_search/**"
               - "!pg_search/README.md"
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779058273525,
+  "lastUpdate": 1779058305901,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11486,6 +11486,114 @@ window.BENCHMARK_DATA = {
             "value": 174.5859375,
             "unit": "median mem",
             "extra": "avg mem: 172.10446086651044, max mem: 175.29296875, count: 55686"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "pandeynihal232@gmail.com",
+            "name": "Nihal Pandey",
+            "username": "Nihal-Pandey-2302"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "887c56c0934f8015e5cad5f11cf6aaa140d16a5e",
+          "message": "fix: joinscan duplicate sort keys (#4763)\n\nCloses #4567 \n\n### The Problem\nWhen running a self-join query that orders by both sides of a duplicated\nfield name (e.g., `ORDER BY a.ord ASC, b.ord ASC`), `JoinScan` was\ndropping one of the sort requirements and returning incorrectly sorted\nrows.\n\nInspecting the `EXPLAIN` plan revealed that `SegmentedTopKExec` was only\nsorting on a single physical column index: `[ord@1 ASC]`, completely\ndropping `a`’s side (`ord@3`).\n\n### The Cause\nIn `late_materialization.rs`, when mapping logical schemas to Tantivy\ndeferred fields, the code was executing `active_deferred.dedup_by(|a, b|\na.name == b.name);`. Because a self-join maps identical names (`a.ord`\nand `b.ord` both resolve to the string `\"ord\"`), the engine falsely\nconcluded they were the exact same column and deduplicated them.\nConsequently, the execution planner stripped the second sort requirement\nand `TantivyLookupExec` refused to materialize it.\n\n### The Fix\n- Removed the brittle name-based `dedup_by` logic in\n`late_materialization.rs`.\n- Rewrote the physical projection node to trace and map every Union\ncolumn specifically by its exact 1-to-1 physical index (`col.index()`).\n- Updated structural logic inside `segmented_topk_rule.rs`,\n`tantivy_lookup_exec.rs`, and `pre_filter.rs` to respect raw physical\nindices dynamically rather than relying on explicit string-name\n`index_of(col.name())` lookups.\n\n### Validation\nThe previously ignored integration test now passes flawlessly:\n`test joinscan_self_join_duplicate_name_sort_matches_fallback ... ok`\n\nThe `EXPLAIN` plan now properly respects both sides of the join:\n`TantivyLookupExec: decode=[ord, ord]`\n`SegmentedTopKExec: expr=[ord@3 ASC NULLS LAST, ord@1 ASC NULLS LAST],\nk=3`\n\nRan `cargo clippy -p pg_search -- -D warnings` and `cargo pgrx regress`\nlocally with 0 errors.\n\n---------\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-05-17T17:46:15-04:00",
+          "tree_id": "6cd5ca557cb8acb66706188de893c13bb91db39d",
+          "url": "https://github.com/paradedb/paradedb/commit/887c56c0934f8015e5cad5f11cf6aaa140d16a5e"
+        },
+        "date": 1779058275127,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.622696,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.61759310629776, max cpu: 46.242775, count: 55650"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 159.9375,
+            "unit": "median mem",
+            "extra": "avg mem: 144.54939633872416, max mem: 179.1796875, count: 55650"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.70532653994668, max cpu: 28.09756, count: 55650"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 121.1015625,
+            "unit": "median mem",
+            "extra": "avg mem: 119.91263856132076, max mem: 121.24609375, count: 55650"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.168493496674712, max cpu: 18.86051, count: 55650"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 161.6640625,
+            "unit": "median mem",
+            "extra": "avg mem: 145.05381247192273, max mem: 180.8828125, count: 55650"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16403,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16701.605552560646, max block_count: 31202.0, count: 55650"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.4554328192325108, max cpu: 4.729064, count: 55650"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 105.62109375,
+            "unit": "median mem",
+            "extra": "avg mem: 95.39268362533693, max mem: 137.63671875, count: 55650"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 25.323611859838277, max segment_count: 38.0, count: 55650"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.275363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.280326095106663, max cpu: 32.526623, count: 111300"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 182.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 163.17636427448338, max mem: 183.51171875, count: 111300"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.899614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.696042786784883, max cpu: 27.988338, count: 55650"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 174.93359375,
+            "unit": "median mem",
+            "extra": "avg mem: 172.3312408748877, max mem: 175.4296875, count: 55650"
           }
         ]
       }

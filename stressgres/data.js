@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779058955978,
+  "lastUpdate": 1779058988868,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15738,6 +15738,186 @@ window.BENCHMARK_DATA = {
             "value": 30.8515625,
             "unit": "median mem",
             "extra": "avg mem: 30.096260326959484, max mem: 30.90234375, count: 53879"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "pandeynihal232@gmail.com",
+            "name": "Nihal Pandey",
+            "username": "Nihal-Pandey-2302"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "887c56c0934f8015e5cad5f11cf6aaa140d16a5e",
+          "message": "fix: joinscan duplicate sort keys (#4763)\n\nCloses #4567 \n\n### The Problem\nWhen running a self-join query that orders by both sides of a duplicated\nfield name (e.g., `ORDER BY a.ord ASC, b.ord ASC`), `JoinScan` was\ndropping one of the sort requirements and returning incorrectly sorted\nrows.\n\nInspecting the `EXPLAIN` plan revealed that `SegmentedTopKExec` was only\nsorting on a single physical column index: `[ord@1 ASC]`, completely\ndropping `a`’s side (`ord@3`).\n\n### The Cause\nIn `late_materialization.rs`, when mapping logical schemas to Tantivy\ndeferred fields, the code was executing `active_deferred.dedup_by(|a, b|\na.name == b.name);`. Because a self-join maps identical names (`a.ord`\nand `b.ord` both resolve to the string `\"ord\"`), the engine falsely\nconcluded they were the exact same column and deduplicated them.\nConsequently, the execution planner stripped the second sort requirement\nand `TantivyLookupExec` refused to materialize it.\n\n### The Fix\n- Removed the brittle name-based `dedup_by` logic in\n`late_materialization.rs`.\n- Rewrote the physical projection node to trace and map every Union\ncolumn specifically by its exact 1-to-1 physical index (`col.index()`).\n- Updated structural logic inside `segmented_topk_rule.rs`,\n`tantivy_lookup_exec.rs`, and `pre_filter.rs` to respect raw physical\nindices dynamically rather than relying on explicit string-name\n`index_of(col.name())` lookups.\n\n### Validation\nThe previously ignored integration test now passes flawlessly:\n`test joinscan_self_join_duplicate_name_sort_matches_fallback ... ok`\n\nThe `EXPLAIN` plan now properly respects both sides of the join:\n`TantivyLookupExec: decode=[ord, ord]`\n`SegmentedTopKExec: expr=[ord@3 ASC NULLS LAST, ord@1 ASC NULLS LAST],\nk=3`\n\nRan `cargo clippy -p pg_search -- -D warnings` and `cargo pgrx regress`\nlocally with 0 errors.\n\n---------\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-05-17T17:46:15-04:00",
+          "tree_id": "6cd5ca557cb8acb66706188de893c13bb91db39d",
+          "url": "https://github.com/paradedb/paradedb/commit/887c56c0934f8015e5cad5f11cf6aaa140d16a5e"
+        },
+        "date": 1779058957614,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.089954656228684, max cpu: 9.284333, count: 53888"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 52.4765625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.51845566846979, max mem: 58.4375, count: 53888"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.549763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.743515509644267, max cpu: 4.5933013, count: 53888"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 29.88671875,
+            "unit": "median mem",
+            "extra": "avg mem: 29.08918976047543, max mem: 30.1875, count: 53888"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.142857,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.483260279218227, max cpu: 18.408438, count: 53888"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 55.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 55.3593877579424, max mem: 61.51171875, count: 53888"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.043132656446736, max cpu: 9.365853, count: 53888"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 52.48828125,
+            "unit": "median mem",
+            "extra": "avg mem: 52.534263628961924, max mem: 58.48828125, count: 53888"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.646098566249567, max cpu: 9.213051, count: 53888"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 33.4140625,
+            "unit": "median mem",
+            "extra": "avg mem: 33.435161019730735, max mem: 38.6171875, count: 53888"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1105,
+            "unit": "median pages",
+            "extra": "avg pages: 1104.767684827791, max pages: 1839.0, count: 53888"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.6328125,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.630997537717118, max relation_size:MB: 14.3671875, count: 53888"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.568735154394298, max segment_count: 17.0, count: 53888"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.448212715784076, max cpu: 4.6021094, count: 53888"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.36981135932397, max mem: 29.5625, count: 53888"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.549763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.124602921379165, max cpu: 4.6021094, count: 53888"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.00390625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.273472729318215, max mem: 29.33203125, count: 53888"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.504602993992327, max cpu: 27.612656, count: 53888"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 50.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.44989115155508, max mem: 56.28515625, count: 53888"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000016994261118691777, max replication_lag:MB: 0.1188812255859375, count: 53888"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.302017214125522, max cpu: 13.819577, count: 107776"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 51.1484375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.189953475553466, max mem: 57.3984375, count: 107776"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.81536921520355, max cpu: 4.58891, count: 53888"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 30.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.981245389743542, max mem: 31.08984375, count: 53888"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.062146906766203, max cpu: 4.6376815, count: 53888"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 30.7421875,
+            "unit": "median mem",
+            "extra": "avg mem: 30.031329592163377, max mem: 30.7734375, count: 53888"
           }
         ]
       }

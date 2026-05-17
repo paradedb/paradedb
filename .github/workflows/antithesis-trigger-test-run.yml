@@ -45,30 +45,16 @@ env:
   PG_VERSION: "18"
 
 jobs:
-  # Remove the triggering label as soon as the workflow starts, so it can be
-  # re-applied to re-run. Runs in its own job (rather than as a step in the long
-  # build job) so internal PRs see the label removed within seconds instead of
-  # after the ~40-minute .deb build.
-  remove-trigger-label:
-    name: Remove Trigger Label
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' && contains(fromJSON('["antithesis","antithesis-stressgres","antithesis-proptests"]'), github.event.label.name)
-    permissions:
-      pull-requests: write
-    steps:
-      - name: Remove Label
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh pr edit ${{ github.event.pull_request.number }} \
-            --repo ${{ github.repository }} \
-            --remove-label "${{ github.event.label.name }}"
-
   # Resolve which workload(s) to run based on the trigger:
   # - schedule: all
   # - workflow_dispatch: from `inputs.workload` (default all)
   # - pull_request labeled: `antithesis` => all, `antithesis-stressgres` => stressgres,
   #   `antithesis-proptests` => proptests, anything else => skip
+  #
+  # For pull_request triggers, also removes the triggering label up front so it
+  # can be re-applied to re-run. Doing it here (rather than as a step in the
+  # long build job) makes internal PRs see the label removed within seconds
+  # instead of after the ~40-minute .deb build.
   setup:
     name: Resolve Workloads
     runs-on: ubuntu-latest
@@ -76,9 +62,20 @@ jobs:
       (github.event_name == 'schedule' && github.repository == 'paradedb/paradedb-enterprise')
       || github.event_name == 'workflow_dispatch'
       || (github.event_name == 'pull_request' && contains(fromJSON('["antithesis","antithesis-stressgres","antithesis-proptests"]'), github.event.label.name))
+    permissions:
+      pull-requests: write
     outputs:
       workloads: ${{ steps.compute.outputs.workloads }}
     steps:
+      - name: Remove Trigger Label
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr edit ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --remove-label "${{ github.event.label.name }}"
+
       - id: compute
         env:
           EVENT: ${{ github.event_name }}

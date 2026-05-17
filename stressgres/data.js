@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779058305901,
+  "lastUpdate": 1779058955978,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12454,6 +12454,54 @@ window.BENCHMARK_DATA = {
             "value": 285.79437361587355,
             "unit": "median tps",
             "extra": "avg tps: 278.2844977627287, max tps: 630.9927726644577, count: 107758"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "pandeynihal232@gmail.com",
+            "name": "Nihal Pandey",
+            "username": "Nihal-Pandey-2302"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "887c56c0934f8015e5cad5f11cf6aaa140d16a5e",
+          "message": "fix: joinscan duplicate sort keys (#4763)\n\nCloses #4567 \n\n### The Problem\nWhen running a self-join query that orders by both sides of a duplicated\nfield name (e.g., `ORDER BY a.ord ASC, b.ord ASC`), `JoinScan` was\ndropping one of the sort requirements and returning incorrectly sorted\nrows.\n\nInspecting the `EXPLAIN` plan revealed that `SegmentedTopKExec` was only\nsorting on a single physical column index: `[ord@1 ASC]`, completely\ndropping `a`’s side (`ord@3`).\n\n### The Cause\nIn `late_materialization.rs`, when mapping logical schemas to Tantivy\ndeferred fields, the code was executing `active_deferred.dedup_by(|a, b|\na.name == b.name);`. Because a self-join maps identical names (`a.ord`\nand `b.ord` both resolve to the string `\"ord\"`), the engine falsely\nconcluded they were the exact same column and deduplicated them.\nConsequently, the execution planner stripped the second sort requirement\nand `TantivyLookupExec` refused to materialize it.\n\n### The Fix\n- Removed the brittle name-based `dedup_by` logic in\n`late_materialization.rs`.\n- Rewrote the physical projection node to trace and map every Union\ncolumn specifically by its exact 1-to-1 physical index (`col.index()`).\n- Updated structural logic inside `segmented_topk_rule.rs`,\n`tantivy_lookup_exec.rs`, and `pre_filter.rs` to respect raw physical\nindices dynamically rather than relying on explicit string-name\n`index_of(col.name())` lookups.\n\n### Validation\nThe previously ignored integration test now passes flawlessly:\n`test joinscan_self_join_duplicate_name_sort_matches_fallback ... ok`\n\nThe `EXPLAIN` plan now properly respects both sides of the join:\n`TantivyLookupExec: decode=[ord, ord]`\n`SegmentedTopKExec: expr=[ord@3 ASC NULLS LAST, ord@1 ASC NULLS LAST],\nk=3`\n\nRan `cargo clippy -p pg_search -- -D warnings` and `cargo pgrx regress`\nlocally with 0 errors.\n\n---------\n\nCo-authored-by: Mithun Chicklore Yogendra <mithun.cy@gmail.com>\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-05-17T17:46:15-04:00",
+          "tree_id": "6cd5ca557cb8acb66706188de893c13bb91db39d",
+          "url": "https://github.com/paradedb/paradedb/commit/887c56c0934f8015e5cad5f11cf6aaa140d16a5e"
+        },
+        "date": 1779058923025,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 591.5739897577355,
+            "unit": "median tps",
+            "extra": "avg tps: 594.4359514344685, max tps: 772.887408878756, count: 53888"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 613.9037274523776,
+            "unit": "median tps",
+            "extra": "avg tps: 617.7682715593968, max tps: 831.2827309703323, count: 53888"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 91.2394385923366,
+            "unit": "median tps",
+            "extra": "avg tps: 91.26459181063676, max tps: 99.74435872896679, count: 53888"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 277.86772210951125,
+            "unit": "median tps",
+            "extra": "avg tps: 270.9673959622111, max tps: 502.61053117612147, count: 107776"
           }
         ]
       }

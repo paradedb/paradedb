@@ -1,0 +1,28 @@
+CREATE EXTENSION IF NOT EXISTS pg_search;
+ERROR:  pg_search must be loaded via shared_preload_libraries. Add 'pg_search' to shared_preload_libraries in postgresql.conf and restart Postgres.
+SET paradedb.enable_aggregate_custom_scan TO on;
+DROP TABLE IF EXISTS mock_items;
+CREATE TABLE mock_items (
+    id SERIAL PRIMARY KEY,
+    metadata JSONB
+);
+CREATE INDEX mock_items_idx
+ON mock_items
+USING bm25 (id, metadata)
+WITH (key_field = 'id');
+ERROR:  access method "bm25" does not exist
+INSERT INTO mock_items (metadata) VALUES
+('{"color": "red"}'),
+('{"color": "blue"}'),
+('{"size": "large"}'),
+('{"color": "green"}');
+SELECT COUNT(metadata->>'color')
+FROM mock_items
+WHERE id @@@ paradedb.all();
+ERROR:  schema "paradedb" does not exist at character 63
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT COUNT(metadata->>'color')
+FROM mock_items
+WHERE id @@@ paradedb.all();
+ERROR:  schema "paradedb" does not exist at character 117
+RESET paradedb.enable_aggregate_custom_scan;

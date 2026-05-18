@@ -1200,7 +1200,7 @@ impl TryFrom<TantivyValue> for pgrx::datum::Timestamp {
             // Legacy indexes stored timestamps as Date
             OwnedValue::Date(val) => {
                 let pg_dt = PostgresDateTime::try_from(val)?;
-                Ok(pgrx::datum::Timestamp::from(pg_dt))
+                Ok(pg_dt.into())
             }
             OwnedValue::I64(val) => {
                 let pg_dt = PostgresDateTime::try_from_raw(val)?;

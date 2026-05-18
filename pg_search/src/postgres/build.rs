@@ -187,10 +187,10 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
     }
 
     let datetime_configs = options.datetime_config();
-    for (field_name, config) in datetime_configs.iter().flatten() {
-        validate_field_config(field_name, &key_field_name, config, options, |t| {
-            matches!(t, SearchFieldType::Date(_))
-        });
+    if datetime_configs.iter().flatten().next().is_some() {
+        panic!(
+            "As of v0.24.0, \"datetime_fields\" should be removed, as it's no longer necessary."
+        );
     }
 }
 

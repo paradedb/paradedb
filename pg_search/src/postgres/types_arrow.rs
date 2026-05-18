@@ -644,7 +644,8 @@ mod tests {
     use super::*;
 
     use crate::postgres::datetime::{
-        unix_micros_to_pg_micros, MAX_SAFE_TANTIVY_MICROS, MIN_SAFE_TANTIVY_MICROS,
+        unix_micros_to_pg_micros, MAX_PG_MICROS, MAX_SAFE_TANTIVY_UNIX_MICROS, MIN_PG_MICROS,
+        MIN_SAFE_TANTIVY_UNIX_MICROS,
     };
 
     use std::sync::Arc;
@@ -715,7 +716,9 @@ mod tests {
             }
         });
     }
-    fn do_test_arrow_int64_as_timestamp_to_datum(pg_micros: i64) {
+
+    /// include_non_migrated_types is a temporary filter while we migrate timiestamp representations
+    fn do_test_arrow_int64_as_timestamp_to_datum(pg_micros: i64, include_non_migrated_types: bool) {
         let create_ts_array = |v: i64| {
             let mut builder = Int64Builder::with_capacity(1);
             builder.append_value(v);
@@ -738,43 +741,50 @@ mod tests {
             Timestamp::from(pg_dt)
         });
 
-        // Test DATEOID
-        let oid_date = PgOid::from(PgBuiltInOids::DATEOID.value());
-        test_conversion_roundtrip(pg_micros, create_ts_array, oid_date, |_| {
-            Date::new(ts.year(), ts.month(), ts.day()).unwrap()
-        });
+        if include_non_migrated_types {
+            // Test DATEOID
+            let oid_date = PgOid::from(PgBuiltInOids::DATEOID.value());
+            test_conversion_roundtrip(pg_micros, create_ts_array, oid_date, |_| {
+                Date::new(ts.year(), ts.month(), ts.day()).unwrap()
+            });
 
-        // Test TIMEOID
-        let oid_time = PgOid::from(PgBuiltInOids::TIMEOID.value());
-        test_conversion_roundtrip(pg_micros, create_ts_array, oid_time, |_| {
-            Time::new(ts.hour(), ts.minute(), ts.second()).unwrap()
-        });
+            // Test TIMEOID
+            let oid_time = PgOid::from(PgBuiltInOids::TIMEOID.value());
+            test_conversion_roundtrip(pg_micros, create_ts_array, oid_time, |_| {
+                Time::new(ts.hour(), ts.minute(), ts.second()).unwrap()
+            });
 
-        // Test TIMETZOID
-        let oid_timetz = PgOid::from(PgBuiltInOids::TIMETZOID.value());
-        test_conversion_roundtrip(pg_micros, create_ts_array, oid_timetz, |_| {
-            TimeWithTimeZone::with_timezone(ts.hour(), ts.minute(), ts.second(), "UTC").unwrap()
-        });
+            // Test TIMETZOID
+            let oid_timetz = PgOid::from(PgBuiltInOids::TIMETZOID.value());
+            test_conversion_roundtrip(pg_micros, create_ts_array, oid_timetz, |_| {
+                TimeWithTimeZone::with_timezone(ts.hour(), ts.minute(), ts.second(), "UTC").unwrap()
+            });
+        }
     }
 
     #[pg_test]
     fn test_arrow_int64_as_timestamp_to_datum_bounds() {
         // test safe bounds for tantivy DateTime represntations
-        do_test_arrow_int64_as_timestamp_to_datum(unix_micros_to_pg_micros(
-            MIN_SAFE_TANTIVY_MICROS,
-        ));
-        do_test_arrow_int64_as_timestamp_to_datum(unix_micros_to_pg_micros(
-            MAX_SAFE_TANTIVY_MICROS,
-        ));
+        do_test_arrow_int64_as_timestamp_to_datum(
+            unix_micros_to_pg_micros(MIN_SAFE_TANTIVY_UNIX_MICROS),
+            true,
+        );
+        do_test_arrow_int64_as_timestamp_to_datum(
+            unix_micros_to_pg_micros(MAX_SAFE_TANTIVY_UNIX_MICROS),
+            true,
+        );
         // Test postgres int64s i64 bounds
-        //do_test_arrow_int64_as_timestamp_to_datum(i64::MIN);
-        //do_test_arrow_int64_as_timestamp_to_datum(i64::MAX);
+        do_test_arrow_int64_as_timestamp_to_datum(MIN_PG_MICROS, false);
+        do_test_arrow_int64_as_timestamp_to_datum(MAX_PG_MICROS, false);
     }
 
     #[pg_test]
     fn test_arrow_int64_as_timestamp_to_datum() {
-        proptest!(|(unix_micros in MIN_SAFE_TANTIVY_MICROS..=MAX_SAFE_TANTIVY_MICROS)| {
-            do_test_arrow_int64_as_timestamp_to_datum(unix_micros_to_pg_micros(unix_micros));
+        let safe_tantivy_range: std::ops::RangeInclusive<i64> =
+            unix_micros_to_pg_micros(MIN_SAFE_TANTIVY_UNIX_MICROS)
+                ..=unix_micros_to_pg_micros(MAX_SAFE_TANTIVY_UNIX_MICROS);
+        proptest!(|(pg_micros in MIN_PG_MICROS..=MAX_PG_MICROS)| {
+            do_test_arrow_int64_as_timestamp_to_datum(pg_micros, safe_tantivy_range.contains(&pg_micros));
         });
     }
 
@@ -947,13 +957,13 @@ mod tests {
     #[pg_test]
     fn test_arrow_timestamp_to_datum_bounds() {
         // Test tantivy DateTime safe bounds
-        do_test_arrow_timestamp_to_datum(unix_micros_to_pg_micros(MIN_SAFE_TANTIVY_MICROS));
-        do_test_arrow_timestamp_to_datum(unix_micros_to_pg_micros(MAX_SAFE_TANTIVY_MICROS));
+        do_test_arrow_timestamp_to_datum(unix_micros_to_pg_micros(MIN_SAFE_TANTIVY_UNIX_MICROS));
+        do_test_arrow_timestamp_to_datum(unix_micros_to_pg_micros(MAX_SAFE_TANTIVY_UNIX_MICROS));
     }
 
     #[pg_test]
     fn test_arrow_timestamp_to_datum() {
-        proptest!(|(unix_micros in MIN_SAFE_TANTIVY_MICROS..=MAX_SAFE_TANTIVY_MICROS)| {
+        proptest!(|(unix_micros in MIN_SAFE_TANTIVY_UNIX_MICROS..=MAX_SAFE_TANTIVY_UNIX_MICROS)| {
             do_test_arrow_timestamp_to_datum(unix_micros_to_pg_micros(unix_micros));
         });
     }

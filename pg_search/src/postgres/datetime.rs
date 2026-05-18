@@ -32,24 +32,36 @@ pub fn pg_micros_to_unix_micros(pg_micros: i64) -> i64 {
         .unwrap()
 }
 
-#[cfg(test)]
+#[allow(dead_code)]
 pub fn unix_micros_to_pg_micros(unix_micros: i64) -> i64 {
     unix_micros
         .checked_sub(PG_EPOCH_DIFF_FROM_UNIX_EPHOCH_MICROS)
         .unwrap()
 }
 
-/// The minimum nanoseconds from 1970-01-01 00:00:00 UTC that can be safely
+/// The minimum microseconds from 1970-01-01 00:00:00 UTC that can be safely
 /// converted between Postgres types and Tantivy without underflowing i64 when floored to the
 /// day.
 #[allow(dead_code)]
-pub const MIN_SAFE_TANTIVY_MICROS: i64 = (i64::MIN / 1_000_000_000 / 86_400) * 86_400 * 1_000_000;
+pub const MIN_SAFE_TANTIVY_UNIX_MICROS: i64 =
+    (i64::MIN / 1_000_000_000 / 86_400) * 86_400 * 1_000_000;
 
-/// The maximum nanoseconds from 1970-01-01 00:00:00 UTC that can be safely
+/// The maximum microseconds from 1970-01-01 00:00:00 UTC that can be safely
 /// converted between Postgres types and Tantivy without overflowing i64 when floored to the
 /// day.
 #[allow(dead_code)]
-pub const MAX_SAFE_TANTIVY_MICROS: i64 = (i64::MAX / 1_000_000_000 / 86_400) * 86_400 * 1_000_000;
+pub const MAX_SAFE_TANTIVY_UNIX_MICROS: i64 =
+    (i64::MAX / 1_000_000_000 / 86_400) * 86_400 * 1_000_000;
+
+/// The minimum value storable by pgrx::datum::Timestamp. This has been copied here, for use in
+/// tests, from pgrx source, which does not export it.
+#[allow(dead_code)]
+pub const MIN_PG_MICROS: i64 = -211_813_488_000_000_000;
+
+/// The maximum value storable by pgrx::datum::Timestamp. This has been copied here, for use in
+/// tests, from pgrx source, which does not export it.
+#[allow(dead_code)]
+pub const MAX_PG_MICROS: i64 = 9_223_371_331_200_000_000 - 1;
 
 #[inline]
 pub fn micros_to_tantivy_datetime(

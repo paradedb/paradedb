@@ -165,7 +165,9 @@ impl TryFrom<PostgresDateTime> for tantivy::DateTime {
             .into_inner()
             .checked_add(PG_EPOCH_DIFF_FROM_UNIX_EPHOCH_MICROS)
             .ok_or(DateTimeConversionError::OutOfRange)?;
-        // TODO: Assert bounds about min and max safe tantivy micros
+        if !(MIN_SAFE_TANTIVY_UNIX_MICROS..=MAX_SAFE_TANTIVY_UNIX_MICROS).contains(&unix_micros) {
+            return Err(DateTimeConversionError::OutOfRange);
+        }
         Ok(tantivy::DateTime::from_timestamp_micros(unix_micros))
     }
 }
@@ -176,10 +178,18 @@ mod tests {
     use super::*;
     use pgrx::datum::{Timestamp, TimestampWithTimeZone};
     use pgrx::pg_test;
+    use proptest::*;
 
     // 2024-01-01 00:00:00 UTC
     const UNIX_MICROS_2024: i64 = 1_704_067_200_000_000;
     const PG_MICROS_2024: i64 = 757_382_400_000_000;
+
+    #[test]
+    fn safe_tantivy_micros_are_entirely_in_bounds_of_safe_pg_micros() {
+        let pg_safe_range = MIN_PG_MICROS..=MAX_PG_MICROS;
+        assert!(pg_safe_range.contains(&unix_micros_to_pg_micros(MIN_SAFE_TANTIVY_UNIX_MICROS)));
+        assert!(pg_safe_range.contains(&unix_micros_to_pg_micros(MAX_SAFE_TANTIVY_UNIX_MICROS)));
+    }
 
     #[pg_test]
     fn tantivy_datetime_to_timestamp() {
@@ -187,6 +197,41 @@ mod tests {
         let pg_dt = PostgresDateTime::try_from(tantivy_dt).unwrap();
         let ts: Timestamp = pg_dt.into();
         assert_eq!(ts.into_inner(), PG_MICROS_2024);
+    }
+
+    #[pg_test]
+    fn tantivy_datetime_to_postgres_datetime_bounds() {
+        proptest!(|(unix_micros in MIN_SAFE_TANTIVY_UNIX_MICROS..=MAX_SAFE_TANTIVY_UNIX_MICROS)| {
+            let tantivy_dt = tantivy::DateTime::from_timestamp_micros(unix_micros);
+            let pg_dt = PostgresDateTime::try_from(tantivy_dt).unwrap();
+            assert_eq!(pg_micros_to_unix_micros(pg_dt.into_inner()), unix_micros);
+        });
+    }
+
+    #[pg_test]
+    fn postgres_datetime_to_tantivy_datetime_bounds() {
+        // in bounds
+        proptest!(|(unix_micros in MIN_SAFE_TANTIVY_UNIX_MICROS..=MAX_SAFE_TANTIVY_UNIX_MICROS)| {
+            let pg_dt = PostgresDateTime::try_from_raw(unix_micros_to_pg_micros(unix_micros)).unwrap();
+            let tantivy_dt_res: Result<tantivy::DateTime, _> = pg_dt.try_into();
+            assert_eq!(tantivy_dt_res.unwrap().into_timestamp_micros(), unix_micros);
+        });
+
+        // below
+        let pg_dt = PostgresDateTime::try_from_raw(unix_micros_to_pg_micros(
+            MIN_SAFE_TANTIVY_UNIX_MICROS - 1,
+        ))
+        .unwrap();
+        let tantivy_dt_res: Result<tantivy::DateTime, _> = pg_dt.try_into();
+        assert!(tantivy_dt_res.is_err());
+
+        // above
+        let pg_dt = PostgresDateTime::try_from_raw(unix_micros_to_pg_micros(
+            MAX_SAFE_TANTIVY_UNIX_MICROS + 1,
+        ))
+        .unwrap();
+        let tantivy_dt_res: Result<tantivy::DateTime, _> = pg_dt.try_into();
+        assert!(tantivy_dt_res.is_err());
     }
 
     #[pg_test]
@@ -242,7 +287,12 @@ mod tests {
             tantivy::DateTime::try_from(PostgresDateTime::from(original_with_offset)).unwrap();
         let round_tripped: TimestampWithTimeZone =
             PostgresDateTime::try_from(tantivy_dt).unwrap().into();
-        assert_eq!(original.into_inner(), round_tripped.into_inner());
+        assert_eq!(
+            original_with_offset.into_inner(),
+            round_tripped.into_inner()
+        );
+        // verify our assertion that the inner value is in UTC
+        assert_eq!(original_with_offset.into_inner(), PG_MICROS_2024);
     }
 
     #[pg_test]

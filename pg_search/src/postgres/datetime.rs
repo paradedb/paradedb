@@ -96,7 +96,8 @@ pub fn datetime_components_to_tantivy_date(
     ))
 }
 
-/// A wrapper type for working with postgres time values. Holds a postgres timestamp
+/// A wrapper type for working with postgres time values. Holds a postgres timestamp, which is
+/// really just a wrapper around an i64 representing microseconds from the PG epoch.
 #[derive(Clone, Copy, Debug)]
 pub struct PostgresDateTime(pgrx::datum::Timestamp);
 impl PostgresDateTime {
@@ -127,8 +128,9 @@ impl From<pgrx::datum::Timestamp> for PostgresDateTime {
 }
 impl From<pgrx::datum::TimestampWithTimeZone> for PostgresDateTime {
     fn from(val: pgrx::datum::TimestampWithTimeZone) -> Self {
-        // TODO: I'm not sure this shouldn't just take the inner value
-        // I think in effect to_utc does nothing to the inner value, but I need to verify
+        // Postgres's TimestampWithTimeZone is just Timestamp with different logic for handling it when
+        // returning it to the user. The internal representation is the same i64 microseconds from
+        // the PG epoch that Timestamp, uses, so we are safe to just convert it here
         Self(val.to_utc())
     }
 }
@@ -165,5 +167,88 @@ impl TryFrom<PostgresDateTime> for tantivy::DateTime {
             .ok_or(DateTimeConversionError::OutOfRange)?;
         // TODO: Assert bounds about min and max safe tantivy micros
         Ok(tantivy::DateTime::from_timestamp_micros(unix_micros))
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use pgrx::datum::{Timestamp, TimestampWithTimeZone};
+    use pgrx::pg_test;
+
+    // 2024-01-01 00:00:00 UTC
+    const UNIX_MICROS_2024: i64 = 1_704_067_200_000_000;
+    const PG_MICROS_2024: i64 = 757_382_400_000_000;
+
+    #[pg_test]
+    fn tantivy_datetime_to_timestamp() {
+        let tantivy_dt = tantivy::DateTime::from_timestamp_micros(UNIX_MICROS_2024);
+        let pg_dt = PostgresDateTime::try_from(tantivy_dt).unwrap();
+        let ts: Timestamp = pg_dt.into();
+        assert_eq!(ts.into_inner(), PG_MICROS_2024);
+    }
+
+    #[pg_test]
+    fn tantivy_datetime_to_timestamptz() {
+        let tantivy_dt = tantivy::DateTime::from_timestamp_micros(UNIX_MICROS_2024);
+        let pg_dt = PostgresDateTime::try_from(tantivy_dt).unwrap();
+        let ts: TimestampWithTimeZone = pg_dt.into();
+        assert_eq!(ts.into_inner(), PG_MICROS_2024);
+
+        // The same UTC instant parsed from a non-zero-offset string should match.
+        let expected = TimestampWithTimeZone::from_str("2024-01-01 05:00:00+05:00").unwrap();
+        assert_eq!(ts.into_inner(), expected.into_inner());
+    }
+
+    #[pg_test]
+    fn timestamp_to_tantivy_datetime() {
+        let ts = Timestamp::try_from(PG_MICROS_2024).unwrap();
+        let pg_dt = PostgresDateTime::from(ts);
+        let tantivy_dt = tantivy::DateTime::try_from(pg_dt).unwrap();
+        assert_eq!(tantivy_dt.into_timestamp_micros(), UNIX_MICROS_2024);
+    }
+
+    #[pg_test]
+    fn timestamptz_to_tantivy_datetime() {
+        let ts = TimestampWithTimeZone::try_from(PG_MICROS_2024).unwrap();
+        let pg_dt = PostgresDateTime::from(ts);
+        let tantivy_dt = tantivy::DateTime::try_from(pg_dt).unwrap();
+        assert_eq!(tantivy_dt.into_timestamp_micros(), UNIX_MICROS_2024);
+
+        // An equivalent instant parsed from a non-zero-offset string should produce the same UTC tantivy DateTime.
+        let ts_with_offset = TimestampWithTimeZone::from_str("2024-01-01 05:00:00+05:00").unwrap();
+        let tantivy_dt_with_offset =
+            tantivy::DateTime::try_from(PostgresDateTime::from(ts_with_offset)).unwrap();
+        assert_eq!(
+            tantivy_dt_with_offset.into_timestamp_micros(),
+            UNIX_MICROS_2024
+        );
+    }
+
+    #[pg_test]
+    fn timestamp_round_trip() {
+        let original = Timestamp::try_from(PG_MICROS_2024).unwrap();
+        let tantivy_dt = tantivy::DateTime::try_from(PostgresDateTime::from(original)).unwrap();
+        let round_tripped: Timestamp = PostgresDateTime::try_from(tantivy_dt).unwrap().into();
+        assert_eq!(original.into_inner(), round_tripped.into_inner());
+    }
+
+    #[pg_test]
+    fn timestamptz_round_trip() {
+        let original = TimestampWithTimeZone::try_from(PG_MICROS_2024).unwrap();
+        let tantivy_dt = tantivy::DateTime::try_from(PostgresDateTime::from(original)).unwrap();
+        let round_tripped: TimestampWithTimeZone =
+            PostgresDateTime::try_from(tantivy_dt).unwrap().into();
+        assert_eq!(original.into_inner(), round_tripped.into_inner());
+
+        // A value parsed from a non-zero-offset string should round-trip to the same UTC instant.
+        let with_offset = TimestampWithTimeZone::from_str("2024-01-01 05:00:00+05:00").unwrap();
+        let tantivy_offset =
+            tantivy::DateTime::try_from(PostgresDateTime::from(with_offset)).unwrap();
+        let round_tripped_offset: TimestampWithTimeZone =
+            PostgresDateTime::try_from(tantivy_offset).unwrap().into();
+        assert_eq!(with_offset.into_inner(), round_tripped_offset.into_inner());
+        assert_eq!(round_tripped_offset.into_inner(), PG_MICROS_2024);
     }
 }

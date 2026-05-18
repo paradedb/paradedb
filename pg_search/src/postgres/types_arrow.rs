@@ -773,7 +773,7 @@ mod tests {
             unix_micros_to_pg_micros(MAX_SAFE_TANTIVY_UNIX_MICROS),
             true,
         );
-        // Test postgres int64s i64 bounds
+        // Test postgres valid microsecond bounds
         do_test_arrow_int64_as_timestamp_to_datum(MIN_PG_MICROS, false);
         do_test_arrow_int64_as_timestamp_to_datum(MAX_PG_MICROS, false);
     }
@@ -1370,4 +1370,6 @@ mod tests {
             "Pre-epoch timestamp should produce a datum"
         );
     }
+
+    // TODO: test tantivy date -> pg_micros -> arrow array to tantivy date round trip.
 }

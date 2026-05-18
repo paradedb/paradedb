@@ -64,7 +64,7 @@ pub const MIN_PG_MICROS: i64 = -211_813_488_000_000_000;
 pub const MAX_PG_MICROS: i64 = 9_223_371_331_200_000_000 - 1;
 
 #[inline]
-pub fn micros_to_tantivy_datetime(
+pub fn unix_micros_to_tantivy_datetime(
     micros: i64,
 ) -> Result<tantivy::DateTime, DateTimeConversionError> {
     let nanos = micros
@@ -92,7 +92,7 @@ pub fn datetime_components_to_tantivy_date(
     .and_utc();
 
     Ok(tantivy::schema::OwnedValue::Date(
-        micros_to_tantivy_datetime(naive_dt.timestamp_micros())?,
+        unix_micros_to_tantivy_datetime(naive_dt.timestamp_micros())?,
     ))
 }
 

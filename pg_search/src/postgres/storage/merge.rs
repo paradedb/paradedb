@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::HashSet;
+use crate::api::{HashMap, HashSet};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     block_number_is_valid, bm25_max_free_space, BM25PageSpecialData, LinkedList, MVCCEntry, PgItem,
@@ -250,8 +250,12 @@ impl MVCCEntry for MergeEntry {
 
     unsafe fn recyclable(&self, _: &mut BufferManager) -> bool {
         unsafe {
-            self.xmin != pg_sys::InvalidTransactionId
-                && !pg_sys::TransactionIdIsInProgress(self.xmin)
+            let xmin_done = self.xmin != pg_sys::InvalidTransactionId
+                && !pg_sys::TransactionIdIsInProgress(self.xmin);
+            // a dead backend can't be holding a live merge, even if its xmin
+            // hasn't yet been retired from the procarray
+            let pid_dead = !pg_sys::IsBackendPid(self.pid);
+            xmin_done || pid_dead
         }
     }
 }
@@ -329,10 +333,17 @@ impl MergeList {
     }
 
     pub unsafe fn list_segment_ids(&self) -> impl Iterator<Item = SegmentId> + use<'_> {
+        let mut pid_alive: HashMap<i32, bool> = HashMap::default();
         Box::new(
             self.entries
                 .list(None)
                 .into_iter()
+                // ignore entries whose backend is no longer live are stale (cancel mid-merge);
+                .filter(move |entry| {
+                    *pid_alive
+                        .entry(entry.pid)
+                        .or_insert_with(|| unsafe { pg_sys::IsBackendPid(entry.pid) })
+                })
                 .flat_map(move |merge_entry| {
                     merge_entry
                         .segment_ids(self.bman.buffer_access().rel())

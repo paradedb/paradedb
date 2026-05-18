@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779145689841,
+  "lastUpdate": 1779146378219,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6890,6 +6890,54 @@ window.BENCHMARK_DATA = {
             "value": 5.240783736642671,
             "unit": "median tps",
             "extra": "avg tps: 5.293620633971662, max tps: 6.9595892355782745, count: 56616"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "98771628b69a76e672812e2c56fc465a03fc5a58",
+          "message": "chore: Bump tantivy rev (#5106)\n\nBump the tantivy rev so we can get this fix:\nhttps://github.com/paradedb/tantivy/pull/143\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-18T16:25:35-06:00",
+          "tree_id": "9410a03ea3064dab1647eb7f4facb2824a72415a",
+          "url": "https://github.com/paradedb/paradedb/commit/98771628b69a76e672812e2c56fc465a03fc5a58"
+        },
+        "date": 1779146346926,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1095.9996391744169,
+            "unit": "median tps",
+            "extra": "avg tps: 1089.5417689371584, max tps: 1170.6127527509248, count: 55691"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 644.0319949606163,
+            "unit": "median tps",
+            "extra": "avg tps: 588.5356069709039, max tps: 1092.6196897641596, count: 55691"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1884.3002760785612,
+            "unit": "median tps",
+            "extra": "avg tps: 1828.24717677949, max tps: 2058.2603405067734, count: 55691"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.229743880365543,
+            "unit": "median tps",
+            "extra": "avg tps: 5.276687243064487, max tps: 7.338438425654569, count: 55691"
           }
         ]
       }

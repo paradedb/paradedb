@@ -1370,6 +1370,4 @@ mod tests {
             "Pre-epoch timestamp should produce a datum"
         );
     }
-
-    // TODO: test tantivy date -> pg_micros -> arrow array to tantivy date round trip.
 }

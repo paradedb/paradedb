@@ -858,11 +858,6 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
         }
         // For TIMESTAMPOID, Used only by legacy indexes as of v0.24.0.
         PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID | PgBuiltInOids::TSRANGEOID) => {
-            // Since [`pgrx::Timestamp`]s are tied to the Postgres instance's timezone,
-            // to figure out *which* timezone it's actually in, we convert to a
-            // [`pgrx::TimestampWithTimeZone`].
-            // Once the offset is known, we can create and return a [`chrono::NaiveDateTime`]
-            // with the appropriate offset.
             let t = pgrx::datum::Timestamp::from_str(date_string)
                 .expect("must be a valid postgres timestamp");
             PostgresDateTime::from(t)

@@ -95,6 +95,7 @@ use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{range_table, CreateUpperPathsHookArgs, CustomScan};
+use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::{is_datetime_type, TantivyValue};
 use crate::postgres::utils::{add_vars_to_tlist, is_unnest_func, make_text_const};
@@ -1829,10 +1830,14 @@ unsafe fn group_key_to_datum(
             ts.into_datum()
         }
         OwnedValue::Str(date_str) if expected_typoid == pg_sys::TIMESTAMPTZOID => {
-            let ts = match pgrx::datum::TimestampWithTimeZone::from_str(date_str) {
-                Ok(ts) => ts,
+            // Tantivy DateTime's are stored in utc, so we need to convert as Timestamp first, then
+            // convert to TimestampWithTimeZone, allowing postgres to do the correct timezone
+            // adjustment
+            let pg_dt = match PostgresDateTime::try_from_timestamp_str(date_str) {
+                Ok(dt) => dt,
                 Err(e) => pgrx::error!("Failed to parse datetime string '{}': {}", date_str, e),
             };
+            let ts: pgrx::datum::TimestampWithTimeZone = pg_dt.into();
             ts.into_datum()
         }
         OwnedValue::Str(date_str) => match date_str.parse::<ChronoDateTime<Utc>>() {

@@ -141,6 +141,9 @@ impl From<PostgresDateTime> for pgrx::datum::Timestamp {
 }
 impl From<PostgresDateTime> for pgrx::datum::TimestampWithTimeZone {
     fn from(value: PostgresDateTime) -> Self {
+        // Postgres's TimestampWithTimeZone is just Timestamp with different logic for handling it when
+        // returning it to the user. The internal representation is the same i64 microseconds from
+        // the PG epoch that Timestamp, uses, so we are safe to just convert it here
         pgrx::datum::TimestampWithTimeZone::try_from(value.into_inner()).expect(
             "PostgresDateTime->pgrx::datum::TimestampWithTimeZone conversion should always work",
         )

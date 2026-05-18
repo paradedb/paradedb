@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779147091152,
+  "lastUpdate": 1779147739686,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13114,6 +13114,54 @@ window.BENCHMARK_DATA = {
             "value": 277.86772210951125,
             "unit": "median tps",
             "extra": "avg tps: 270.9673959622111, max tps: 502.61053117612147, count: 107776"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "98771628b69a76e672812e2c56fc465a03fc5a58",
+          "message": "chore: Bump tantivy rev (#5106)\n\nBump the tantivy rev so we can get this fix:\nhttps://github.com/paradedb/tantivy/pull/143\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-18T16:25:35-06:00",
+          "tree_id": "9410a03ea3064dab1647eb7f4facb2824a72415a",
+          "url": "https://github.com/paradedb/paradedb/commit/98771628b69a76e672812e2c56fc465a03fc5a58"
+        },
+        "date": 1779147709021,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 591.8173658108135,
+            "unit": "median tps",
+            "extra": "avg tps: 590.2546524628917, max tps: 755.2751141353571, count: 53874"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 639.8696402732294,
+            "unit": "median tps",
+            "extra": "avg tps: 639.4726022105611, max tps: 876.3908451593685, count: 53874"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 92.40178058929243,
+            "unit": "median tps",
+            "extra": "avg tps: 92.5364552697497, max tps: 104.27042823348737, count: 53874"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 279.3046186511814,
+            "unit": "median tps",
+            "extra": "avg tps: 274.2691765760525, max tps: 564.2053295963844, count: 107748"
           }
         ]
       }

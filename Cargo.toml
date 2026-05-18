@@ -28,11 +28,7 @@ inherits = "release"
 debug = true
 
 [workspace.dependencies]
-<<<<<<< HEAD
 tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", branch = "paradedb-0.23.x", features = [
-=======
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "8f3b5817ef791a0bfade42cf1e80a08a53d08562", features = [
->>>>>>> 98771628b (chore: Bump tantivy rev (#5106))
   "columnar-zstd-compression",
   "lz4-compression",
   "quickwit",                  # for sstable support
@@ -44,8 +40,4 @@ pgrx-tests = "=0.18.0"
 tantivy-jieba = "0.18.0"
 
 [patch.crates-io]
-<<<<<<< HEAD
 tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", branch = "paradedb-0.23.x" }
-=======
-tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "8f3b5817ef791a0bfade42cf1e80a08a53d08562" }
->>>>>>> 98771628b (chore: Bump tantivy rev (#5106))

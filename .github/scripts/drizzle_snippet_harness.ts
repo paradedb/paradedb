@@ -19,7 +19,7 @@ const connectionString =
 const client = postgres(connectionString);
 const db = drizzlePostgres({ client });
 
-const int4range = pgCustomType<{ data: string; driverData: string }>({
+const int4range = pgCustomType({
   dataType() {
     return "int4range";
   },

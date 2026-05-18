@@ -841,7 +841,7 @@ pub unsafe fn row_to_search_document<'a>(
 }
 
 pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::DateTime {
-    use crate::postgres::datetime::micros_to_tantivy_datetime;
+    use crate::postgres::datetime::unix_micros_to_tantivy_datetime;
 
     match typeoid {
         PgOid::BuiltIn(PgBuiltInOids::DATEOID | PgBuiltInOids::DATERANGEOID) => {
@@ -853,7 +853,7 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
                 .expect("must be able to set date default time")
                 .and_utc()
                 .timestamp_micros();
-            micros_to_tantivy_datetime(micros)
+            unix_micros_to_tantivy_datetime(micros)
                 .expect("date exceeds Tantivy DateTime nanosecond range")
         }
         // For TIMESTAMPOID, Used only by legacy indexes as of v0.24.0.
@@ -886,7 +886,7 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
                     .expect("must be able to parse time");
             let naive_date = NaiveDate::from_ymd_opt(1970, 1, 1).expect("default date");
             let micros = naive_date.and_time(naive_time).and_utc().timestamp_micros();
-            micros_to_tantivy_datetime(micros)
+            unix_micros_to_tantivy_datetime(micros)
                 .expect("time exceeds Tantivy DateTime nanosecond range")
         }
         PgOid::BuiltIn(PgBuiltInOids::TIMETZOID) => {
@@ -899,7 +899,7 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
                     .expect("must be able to parse time with time zone");
             let naive_date = NaiveDate::from_ymd_opt(1970, 1, 1).expect("default date");
             let micros = naive_date.and_time(naive_time).and_utc().timestamp_micros();
-            micros_to_tantivy_datetime(micros)
+            unix_micros_to_tantivy_datetime(micros)
                 .expect("timetz exceeds Tantivy DateTime nanosecond range")
         }
         _ => panic!("Unsupported typeoid: {typeoid:?}"),

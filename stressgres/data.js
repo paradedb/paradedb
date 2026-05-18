@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779146411128,
+  "lastUpdate": 1779147058010,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9996,6 +9996,60 @@ window.BENCHMARK_DATA = {
             "value": 16.523443791197952,
             "unit": "median tps",
             "extra": "avg tps: 16.433259481515538, max tps: 21.917419590302497, count: 55650"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "98771628b69a76e672812e2c56fc465a03fc5a58",
+          "message": "chore: Bump tantivy rev (#5106)\n\nBump the tantivy rev so we can get this fix:\nhttps://github.com/paradedb/tantivy/pull/143\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-18T16:25:35-06:00",
+          "tree_id": "9410a03ea3064dab1647eb7f4facb2824a72415a",
+          "url": "https://github.com/paradedb/paradedb/commit/98771628b69a76e672812e2c56fc465a03fc5a58"
+        },
+        "date": 1779147025809,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.60265265429771,
+            "unit": "median tps",
+            "extra": "avg tps: 31.36209453518185, max tps: 33.752314914927375, count: 55690"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 247.54164388251525,
+            "unit": "median tps",
+            "extra": "avg tps: 277.64891009909286, max tps: 2875.66830797743, count: 55690"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 601.5477676602131,
+            "unit": "median tps",
+            "extra": "avg tps: 589.8288014210209, max tps: 1267.441765803768, count: 55690"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 163.2392733360107,
+            "unit": "median tps",
+            "extra": "avg tps: 178.70885425229244, max tps: 891.8280388120725, count: 111380"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.99193504889787,
+            "unit": "median tps",
+            "extra": "avg tps: 16.094688821151724, max tps: 21.893612398463627, count: 55690"
           }
         ]
       }

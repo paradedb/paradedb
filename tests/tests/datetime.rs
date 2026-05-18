@@ -186,10 +186,11 @@ fn datetime_wide_range(
 }
 
 #[rstest]
+// Date still uses Tantivy DateTime representation, so test those boundaries.
 #[case::future_date("DATE", "'57439-03-01'")]
 #[case::ancient_date("DATE", "'0001-01-01'")]
-#[case::future_timestamp("TIMESTAMP", "'57439-03-01 00:00:00'")]
-#[case::ancient_timestamp("TIMESTAMP", "'0001-01-01 00:00:00'")]
+// Timestamp uses postgres's internal i64 representation, so any valid postgres timestamp works, so
+// no need to test overflow
 fn datetime_overflow_reports_error(
     mut conn: PgConnection,
     #[case] col_type: &str,

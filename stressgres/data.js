@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779144989122,
+  "lastUpdate": 1779145657501,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4750,6 +4750,42 @@ window.BENCHMARK_DATA = {
             "value": 5.530901734166188,
             "unit": "median tps",
             "extra": "avg tps: 4.965316473359543, max tps: 6.214636382278821, count: 57961"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "98771628b69a76e672812e2c56fc465a03fc5a58",
+          "message": "chore: Bump tantivy rev (#5106)\n\nBump the tantivy rev so we can get this fix:\nhttps://github.com/paradedb/tantivy/pull/143\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-18T16:25:35-06:00",
+          "tree_id": "9410a03ea3064dab1647eb7f4facb2824a72415a",
+          "url": "https://github.com/paradedb/paradedb/commit/98771628b69a76e672812e2c56fc465a03fc5a58"
+        },
+        "date": 1779145626915,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.940272336799111,
+            "unit": "median tps",
+            "extra": "avg tps: 6.790031576587967, max tps: 10.269034362085238, count: 57759"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.470693310339544,
+            "unit": "median tps",
+            "extra": "avg tps: 4.912270576770806, max tps: 6.143807997155097, count: 57759"
           }
         ]
       }

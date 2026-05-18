@@ -140,7 +140,7 @@
 
 pub mod build;
 pub mod planner;
-mod planning;
+pub mod planning;
 pub mod predicate;
 pub mod privdat;
 pub mod scan_state;
@@ -528,7 +528,7 @@ impl JoinScan {
         // the current join-hook invocation from needing equi-keys.
         let root_is_semi_anti = matches!(
             &plan,
-            RelNode::Join(j) if matches!(j.join_type, build::JoinType::Semi | build::JoinType::Anti)
+            RelNode::Join(j) if matches!(j.join_type, build::JoinType::Semi | build::JoinType::Anti { .. })
         );
         if join_keys.is_empty() && !root_is_semi_anti {
             return Err(JoinDeclineReason::new(
@@ -619,6 +619,7 @@ impl JoinScan {
     /// `pg_sys::CustomPath` struct.
     ///
     /// Returns `None` if ORDER BY extraction fails.
+    #[allow(clippy::needless_update)]
     unsafe fn finalize_clause_into_path(
         root: *mut pg_sys::PlannerInfo,
         rel: *mut pg_sys::RelOptInfo,
@@ -1251,6 +1252,8 @@ impl CustomScan for JoinScan {
                 None,
                 vec![],
                 vec![],
+                None,
+                0,
             )
             .expect("Failed to deserialize logical plan");
             let physical_plan = runtime
@@ -1335,6 +1338,8 @@ impl CustomScan for JoinScan {
                     Some(planstate),
                     state.custom_state().non_partitioning_segments.clone(),
                     index_segment_ids,
+                    None,
+                    0,
                 )
                 .expect("Failed to deserialize logical plan");
 

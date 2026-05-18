@@ -13,7 +13,7 @@ inputs:
     description: "Git ref or short SHA to report in benchmarks"
     required: true
   github_app_id:
-    description: "GitHub App ID to authenticate with"
+    description: "GitHub App client ID to authenticate with"
     required: true
   github_app_private_key:
     description: "GitHub App private key to authenticate with"

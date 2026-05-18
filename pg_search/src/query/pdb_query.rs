@@ -52,7 +52,13 @@ pub fn to_search_query_input(field: FieldName, query: pdb::Query) -> SearchQuery
 #[pg_schema]
 pub mod pdb {
     use crate::query::proximity::{ProximityClause, ProximityDistance};
-    use crate::query::range::{deserialize_bound, serialize_bound};
+    use crate::query::range::{
+        deserialize_bound, deserialize_bound_date_aware, serialize_bound,
+        serialize_bound_date_aware,
+    };
+    use crate::query::{
+        deserialize_as_date_aware_owned_value, serialize_as_date_aware_owned_value,
+    };
     use pgrx::PostgresType;
     use serde::{Deserialize, Serialize};
     use std::collections::Bound;
@@ -254,64 +260,58 @@ pub mod pdb {
         },
         Range {
             #[serde(
-                serialize_with = "serialize_bound",
-                deserialize_with = "deserialize_bound"
+                serialize_with = "serialize_bound_date_aware",
+                deserialize_with = "deserialize_bound_date_aware"
             )]
             lower_bound: Bound<OwnedValue>,
             #[serde(
-                serialize_with = "serialize_bound",
-                deserialize_with = "deserialize_bound"
+                serialize_with = "serialize_bound_date_aware",
+                deserialize_with = "deserialize_bound_date_aware"
             )]
             upper_bound: Bound<OwnedValue>,
-            #[serde(default)]
-            is_datetime: bool,
         },
         RangeContains {
             #[serde(
-                serialize_with = "serialize_bound",
-                deserialize_with = "deserialize_bound"
+                serialize_with = "serialize_bound_date_aware",
+                deserialize_with = "deserialize_bound_date_aware"
             )]
             lower_bound: Bound<OwnedValue>,
             #[serde(
-                serialize_with = "serialize_bound",
-                deserialize_with = "deserialize_bound"
+                serialize_with = "serialize_bound_date_aware",
+                deserialize_with = "deserialize_bound_date_aware"
             )]
             upper_bound: Bound<OwnedValue>,
-            #[serde(default)]
-            is_datetime: bool,
         },
         RangeIntersects {
             #[serde(
-                serialize_with = "serialize_bound",
-                deserialize_with = "deserialize_bound"
+                serialize_with = "serialize_bound_date_aware",
+                deserialize_with = "deserialize_bound_date_aware"
             )]
             lower_bound: Bound<OwnedValue>,
             #[serde(
-                serialize_with = "serialize_bound",
-                deserialize_with = "deserialize_bound"
+                serialize_with = "serialize_bound_date_aware",
+                deserialize_with = "deserialize_bound_date_aware"
             )]
             upper_bound: Bound<OwnedValue>,
-            #[serde(default)]
-            is_datetime: bool,
         },
         RangeTerm {
+            #[serde(
+                serialize_with = "serialize_as_date_aware_owned_value",
+                deserialize_with = "deserialize_as_date_aware_owned_value"
+            )]
             value: OwnedValue,
-            #[serde(default)]
-            is_datetime: bool,
         },
         RangeWithin {
             #[serde(
-                serialize_with = "serialize_bound",
-                deserialize_with = "deserialize_bound"
+                serialize_with = "serialize_bound_date_aware",
+                deserialize_with = "deserialize_bound_date_aware"
             )]
             lower_bound: Bound<OwnedValue>,
             #[serde(
-                serialize_with = "serialize_bound",
-                deserialize_with = "deserialize_bound"
+                serialize_with = "serialize_bound_date_aware",
+                deserialize_with = "deserialize_bound_date_aware"
             )]
             upper_bound: Bound<OwnedValue>,
-            #[serde(default)]
-            is_datetime: bool,
         },
         Regex {
             pattern: String,
@@ -322,9 +322,11 @@ pub mod pdb {
             max_expansions: Option<u32>,
         },
         Term {
+            #[serde(
+                serialize_with = "serialize_as_date_aware_owned_value",
+                deserialize_with = "deserialize_as_date_aware_owned_value"
+            )]
             value: OwnedValue,
-            #[serde(default)]
-            is_datetime: bool,
         },
         TermSet {
             terms: Vec<OwnedValue>,
@@ -372,8 +374,7 @@ impl pdb::Query {
 
             pdb::Query::Term {
                 value: OwnedValue::Str(value),
-                is_datetime,
-            } if !*is_datetime => {
+            } => {
                 *self = pdb::Query::FuzzyTerm {
                     value: value.to_string(),
                     distance: Some(new_fuzzy_data.distance),
@@ -575,33 +576,27 @@ impl pdb::Query {
             pdb::Query::Range {
                 lower_bound,
                 upper_bound,
-                is_datetime,
-            } => range(&field, schema, lower_bound, upper_bound, is_datetime)?,
+            } => range(&field, schema, lower_bound, upper_bound)?,
             pdb::Query::RangeContains {
                 lower_bound,
                 upper_bound,
-                is_datetime,
-            } => range_contains(&field, schema, lower_bound, upper_bound, is_datetime)?,
+            } => range_contains(&field, schema, lower_bound, upper_bound)?,
             pdb::Query::RangeIntersects {
                 lower_bound,
                 upper_bound,
-                is_datetime,
-            } => range_intersects(&field, schema, lower_bound, upper_bound, is_datetime)?,
-            pdb::Query::RangeTerm { value, is_datetime } => {
-                range_term(&field, schema, &value, is_datetime)?
-            }
+            } => range_intersects(&field, schema, lower_bound, upper_bound)?,
+            pdb::Query::RangeTerm { value } => range_term(&field, schema, &value)?,
             pdb::Query::RangeWithin {
                 lower_bound,
                 upper_bound,
-                is_datetime,
-            } => range_within(&field, schema, lower_bound, upper_bound, is_datetime)?,
+            } => range_within(&field, schema, lower_bound, upper_bound)?,
             pdb::Query::Regex { pattern } => regex(&field, schema, &pattern)?,
             pdb::Query::RegexPhrase {
                 regexes,
                 slop,
                 max_expansions,
             } => regex_phrase(&field, schema, regexes, slop, max_expansions)?,
-            pdb::Query::Term { value, is_datetime } => term(field, schema, &value, is_datetime)?,
+            pdb::Query::Term { value } => term(field, schema, &value)?,
             pdb::Query::TermSet { terms } => term_set(field, schema, terms)?,
         };
 
@@ -759,7 +754,6 @@ fn term_set(
         .expect("field should exist in schema");
     let field_type = search_field.field_entry().field_type();
     let tantivy_field = search_field.field();
-    let is_date_time = search_field.is_datetime();
     let search_field_type = search_field.field_type();
 
     // Convert terms based on field type (uses same logic as term())
@@ -775,7 +769,7 @@ fn term_set(
                 &term,
                 field_type,
                 field.path().as_deref(),
-                is_date_time,
+                search_field.is_datetime(),
             )
             .expect("could not convert argument to search term")
         }),
@@ -786,14 +780,12 @@ fn term(
     field: FieldName,
     schema: &SearchIndexSchema,
     value: &OwnedValue,
-    is_datetime: bool,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let record_option = IndexRecordOption::WithFreqsAndPositions;
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
-    let is_datetime = search_field.is_datetime() || is_datetime;
     let search_field_type = search_field.field_type();
 
     // Convert value based on field type (handles NUMERIC scaling, JSON types, etc.)
@@ -804,7 +796,7 @@ fn term(
         &value,
         field_type,
         field.path().as_deref(),
-        is_datetime,
+        search_field.is_datetime(),
     )?;
 
     Ok(Box::new(TermQuery::new(term, record_option.into())))
@@ -854,16 +846,14 @@ fn range_within(
     schema: &SearchIndexSchema,
     lower_bound: Bound<OwnedValue>,
     upper_bound: Bound<OwnedValue>,
-    is_datetime: bool,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let typeoid = search_field.field_type().typeoid();
-    let is_datetime = search_field.is_datetime() || is_datetime;
     let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
 
-    let range_field = RangeField::new(search_field.field(), is_datetime);
+    let range_field = RangeField::new(search_field.field(), search_field.is_datetime());
 
     let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
     let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
@@ -1007,7 +997,6 @@ fn range_term(
     field: &FieldName,
     schema: &SearchIndexSchema,
     value: &OwnedValue,
-    is_datetime: bool,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
@@ -1017,10 +1006,10 @@ fn range_term(
     // Range fields are indexed as JSON with specific element types:
     // - INT4RANGEOID, INT8RANGEOID: indexed as i32/i64 → convert to I64
     // - NUMRANGEOID: indexed as hex-encoded sortable bytes (see SortableDecimal) → convert to hex string
-    // - Date/time ranges: handled by is_datetime flag
+    // - Date/time ranges: handling is determined by examining the schema
     let value = convert_value_for_range_field(value.clone(), &search_field.field_type());
 
-    let range_field = RangeField::new(search_field.field(), is_datetime);
+    let range_field = RangeField::new(search_field.field(), search_field.is_datetime());
 
     let satisfies_lower_bound = BooleanQuery::new(vec![
         (
@@ -1119,16 +1108,14 @@ fn range_intersects(
     schema: &SearchIndexSchema,
     lower_bound: Bound<OwnedValue>,
     upper_bound: Bound<OwnedValue>,
-    is_datetime: bool,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let typeoid = search_field.field_type().typeoid();
-    let is_datetime = search_field.is_datetime() || is_datetime;
 
     let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
-    let range_field = RangeField::new(search_field.field(), is_datetime);
+    let range_field = RangeField::new(search_field.field(), search_field.is_datetime());
 
     let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
     let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
@@ -1276,15 +1263,13 @@ fn range_contains(
     schema: &SearchIndexSchema,
     lower_bound: Bound<OwnedValue>,
     upper_bound: Bound<OwnedValue>,
-    is_datetime: bool,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let typeoid = search_field.field_type().typeoid();
-    let is_datetime = search_field.is_datetime() || is_datetime;
     let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
-    let range_field = RangeField::new(search_field.field(), is_datetime);
+    let range_field = RangeField::new(search_field.field(), search_field.is_datetime());
 
     let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
     let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
@@ -1435,14 +1420,12 @@ fn range(
     schema: &SearchIndexSchema,
     lower_bound: Bound<OwnedValue>,
     upper_bound: Bound<OwnedValue>,
-    is_datetime: bool,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
         .search_field(field.root())
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let field_type = search_field.field_entry().field_type();
     let typeoid = search_field.field_type().typeoid();
-    let is_datetime = search_field.is_datetime() || is_datetime;
     let search_field_type = search_field.field_type();
 
     // Handle NUMERIC field types with special storage strategies
@@ -1495,14 +1478,14 @@ fn range(
             &value,
             field_type,
             field.path().as_deref(),
-            is_datetime,
+            search_field.is_datetime(),
         )?),
         Bound::Excluded(value) => Bound::Excluded(value_to_term(
             search_field.field(),
             &value,
             field_type,
             field.path().as_deref(),
-            is_datetime,
+            search_field.is_datetime(),
         )?),
         Bound::Unbounded => Bound::Unbounded,
     };
@@ -1513,14 +1496,14 @@ fn range(
             &value,
             field_type,
             field.path().as_deref(),
-            is_datetime,
+            search_field.is_datetime(),
         )?),
         Bound::Excluded(value) => Bound::Excluded(value_to_term(
             search_field.field(),
             &value,
             field_type,
             field.path().as_deref(),
-            is_datetime,
+            search_field.is_datetime(),
         )?),
         Bound::Unbounded => Bound::Unbounded,
     };

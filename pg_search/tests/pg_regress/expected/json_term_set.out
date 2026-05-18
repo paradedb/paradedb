@@ -1,0 +1,101 @@
+-- TermSet queries against JSON-column datetime subpaths, exercising both
+-- supported syntaxes:
+--   * New API:    paradedb.term_set(terms => ARRAY[paradedb.term(...), ...])
+--   * Legacy API: raw JSONB '{"term_set": {"terms": [{"field": ..., "value": ..., "is_datetime": true}, ...]}}'::jsonb
+-- This locks in the OwnedValue::Date round-trip through CBOR for term_set
+-- (which the existing term_set regression tests don't cover because they use
+-- bigints/text), and the legacy is_datetime translation path for term_set.
+CREATE EXTENSION IF NOT EXISTS pg_search;
+CREATE TABLE json_term_set_test (
+    id SERIAL PRIMARY KEY,
+    metadata JSONB
+);
+INSERT INTO json_term_set_test (metadata) VALUES
+    ('{"attributes": {"tstz": "2023-05-01T08:12:34Z"}}'),
+    ('{"attributes": {"tstz": "2023-05-01T09:12:34Z"}}'),
+    ('{"attributes": {"tstz": "2023-05-01T10:12:34Z"}}');
+CREATE INDEX json_term_set_test_idx ON json_term_set_test
+USING bm25 (id, metadata)
+WITH (
+    key_field = 'id',
+    json_fields = '{"metadata": {"fast": true}}'
+);
+-- ============================================================================
+-- Datetime subpath: new API (paradedb.term_set + paradedb.term)
+-- ============================================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM json_term_set_test
+WHERE id @@@ paradedb.term_set(terms => ARRAY[
+    paradedb.term('metadata.attributes.tstz', '2023-05-01T09:12:34Z'::timestamptz),
+    paradedb.term('metadata.attributes.tstz', '2023-05-01T10:12:34Z'::timestamptz)
+])
+ORDER BY id;
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Base Scan) on json_term_set_test
+         Table: json_term_set_test
+         Index: json_term_set_test_idx
+         Exec Method: ColumnarExecState
+         Fast Fields: id
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"term_set":{"terms":[{"field":"metadata.attributes.tstz","value":{"date":"2023-05-01T09:12:34Z"}},{"field":"metadata.attributes.tstz","value":{"date":"2023-05-01T10:12:34Z"}}]}}}}
+(9 rows)
+
+SELECT id FROM json_term_set_test
+WHERE id @@@ paradedb.term_set(terms => ARRAY[
+    paradedb.term('metadata.attributes.tstz', '2023-05-01T09:12:34Z'::timestamptz),
+    paradedb.term('metadata.attributes.tstz', '2023-05-01T10:12:34Z'::timestamptz)
+])
+ORDER BY id;
+ id 
+----
+  2
+  3
+(2 rows)
+
+-- ============================================================================
+-- Datetime subpath: legacy JSONB API with is_datetime
+-- ============================================================================
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM json_term_set_test
+WHERE id @@@ '{
+    "term_set": {
+        "terms": [
+            {"field": "metadata.attributes.tstz", "value": "2023-05-01T09:12:34Z", "is_datetime": true},
+            {"field": "metadata.attributes.tstz", "value": "2023-05-01T10:12:34Z", "is_datetime": true}
+        ]
+    }
+}'::jsonb
+ORDER BY id;
+                                                                                                             QUERY PLAN                                                                                                             
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: id
+   ->  Custom Scan (ParadeDB Base Scan) on json_term_set_test
+         Table: json_term_set_test
+         Index: json_term_set_test_idx
+         Exec Method: ColumnarExecState
+         Fast Fields: id
+         Scores: false
+         Tantivy Query: {"with_index":{"query":{"term_set":{"terms":[{"field":"metadata.attributes.tstz","value":{"date":"2023-05-01T09:12:34Z"}},{"field":"metadata.attributes.tstz","value":{"date":"2023-05-01T10:12:34Z"}}]}}}}
+(9 rows)
+
+SELECT id FROM json_term_set_test
+WHERE id @@@ '{
+    "term_set": {
+        "terms": [
+            {"field": "metadata.attributes.tstz", "value": "2023-05-01T09:12:34Z", "is_datetime": true},
+            {"field": "metadata.attributes.tstz", "value": "2023-05-01T10:12:34Z", "is_datetime": true}
+        ]
+    }
+}'::jsonb
+ORDER BY id;
+ id 
+----
+  2
+  3
+(2 rows)
+
+DROP TABLE json_term_set_test;

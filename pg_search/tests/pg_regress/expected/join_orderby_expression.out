@@ -808,7 +808,7 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"technology","lenient":null,"conjunction_mode":null}}}}
                  :         CooperativeExec
-                 :           PgSearchScan: segments=1, query={"with_index":{"query":{"term":{"field":"round_type","value":"seed","is_datetime":false}}}}
+                 :           PgSearchScan: segments=1, query={"with_index":{"query":{"term":{"field":"round_type","value":"seed"}}}}
 (19 rows)
 
 SELECT c.id, c.name
@@ -867,7 +867,7 @@ WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently suppo
                      Index: funding_rounds_bm25_idx
                      Exec Method: NormalScanExecState
                      Scores: false
-                     Tantivy Query: {"with_index":{"query":{"term":{"field":"round_type","value":"seed","is_datetime":false}}}}
+                     Tantivy Query: {"with_index":{"query":{"term":{"field":"round_type","value":"seed"}}}}
 (22 rows)
 
 -- =============================================================================

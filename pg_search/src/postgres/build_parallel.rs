@@ -50,13 +50,14 @@ use std::sync::OnceLock;
 use tantivy::{SegmentMeta, TantivyDocument};
 
 /// General, immutable configuration used for the workers
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 #[repr(C)]
 struct WorkerConfig {
     heaprelid: pg_sys::Oid,
     indexrelid: pg_sys::Oid,
     concurrent: bool,
     current_xid: pg_sys::FullTransactionId,
+    need_wal: bool,
     next_xid: pg_sys::FullTransactionId,
 }
 impl ParallelStateType for WorkerConfig {}
@@ -122,6 +123,7 @@ impl ParallelBuild {
         snapshot: pg_sys::Snapshot,
         concurrent: bool,
         current_xid: pg_sys::FullTransactionId,
+        need_wal: bool,
         next_xid: pg_sys::FullTransactionId,
     ) -> Self {
         let scandesc = unsafe {
@@ -137,6 +139,7 @@ impl ParallelBuild {
                 indexrelid: indexrel.oid(),
                 concurrent,
                 current_xid,
+                need_wal,
                 next_xid,
             },
             scandesc,
@@ -197,6 +200,7 @@ impl ParallelWorker for BuildWorker<'_> {
             let table_scan_desc = pg_sys::table_beginscan_parallel(heaprel.as_ptr(), scandesc);
 
             indexrel.set_is_create_index();
+            indexrel.set_need_wal(config.need_wal);
 
             Self {
                 config: *config,
@@ -570,6 +574,7 @@ pub(super) fn build_index(
     });
 
     let current_xid = unsafe { pg_sys::GetCurrentFullTransactionId() };
+    let need_wal = indexrel.need_wal();
     let next_xid = unsafe { pg_sys::ReadNextFullTransactionId() };
     let process = ParallelBuild::new(
         &heaprel,
@@ -577,6 +582,7 @@ pub(super) fn build_index(
         snapshot.0,
         concurrent,
         current_xid,
+        need_wal,
         next_xid,
     );
     let nworkers = plan::create_index_nworkers(&heaprel, &indexrel);
@@ -653,6 +659,7 @@ pub(super) fn build_index(
                 indexrelid,
                 concurrent,
                 current_xid,
+                need_wal,
                 next_xid,
             },
             &mut coordination,

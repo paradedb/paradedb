@@ -113,7 +113,6 @@ pub enum SearchQueryInput {
         lenient: Option<bool>,
         conjunction_mode: Option<bool>,
     },
-
     TermSet {
         terms: Vec<TermInput>,
     },
@@ -204,6 +203,8 @@ where
                             .unwrap();
                     Ok((field, field_query_input))
                 } else {
+                    rewrite_is_datetime_values_to_tagged_dates(&mut value);
+
                     let mut reconstructed = serde_json::Map::new();
                     reconstructed.insert(key, value);
 
@@ -221,6 +222,30 @@ where
         }
     }
     deserializer.deserialize_map(Visitor)
+}
+
+/// For locations where legacy-style json queries could have uses `is_datetime` to denote that the
+/// provided value should be treated as a datetime, we "rewrite" those to use the new tagged format
+/// and remove the `is_datetime` field.
+fn rewrite_is_datetime_values_to_tagged_dates(value: &mut serde_json::Value) {
+    let is_datetime = value["is_datetime"].as_bool().unwrap_or(false);
+    if is_datetime {
+        value.as_object_mut().unwrap().remove("is_datetime");
+        if let Some(s) = value["value"].as_str() {
+            value["value"] = serde_json::json!({
+                "date": s
+            });
+        }
+        for bound_key in ["lower_bound", "upper_bound"] {
+            for inclusion_key in ["included", "excluded", "Included", "Excluded"] {
+                if let Some(s) = value[bound_key][inclusion_key].as_str() {
+                    value[bound_key][inclusion_key] = serde_json::json!({
+                            "date": s
+                    });
+                }
+            }
+        }
+    }
 }
 
 impl SearchQueryInput {
@@ -644,12 +669,42 @@ impl SearchQueryInput {
     }
 }
 
+/// TermInputWire needs to exist in order to support the correct handling of is_datetime from the
+/// legacy api. We deserialize TermInput as TermInputWire, the try to convert it to TermInput.
+/// Serialization does not require special handling
+#[derive(Deserialize)]
+struct TermInputWire {
+    field: FieldName,
+    #[serde(deserialize_with = "deserialize_as_date_aware_owned_value")]
+    value: OwnedValue,
+    /// When true, `value` will be interpreted as a Date instead of as a String
+    #[serde(default)]
+    is_datetime: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(try_from = "TermInputWire")]
 pub struct TermInput {
     pub field: FieldName,
+    #[serde(serialize_with = "serialize_as_date_aware_owned_value")]
     pub value: OwnedValue,
-    #[serde(default)]
-    pub is_datetime: bool,
+}
+impl TryFrom<TermInputWire> for TermInput {
+    type Error = anyhow::Error;
+
+    fn try_from(value: TermInputWire) -> std::result::Result<Self, Self::Error> {
+        let field = value.field;
+        match (value.value, value.is_datetime) {
+            (OwnedValue::Str(s), true) => {
+                let dt = TantivyDateTime::try_from(s.as_str())?;
+                Ok(TermInput {
+                    field,
+                    value: OwnedValue::Date(dt.0),
+                })
+            }
+            (value, _) => Ok(TermInput { field, value }),
+        }
+    }
 }
 
 /// Serialize a [`SearchQueryInput`] node to a Postgres [`pg_sys::Const`] node, palloc'd
@@ -1219,17 +1274,12 @@ impl SearchQueryInput {
             }
             SearchQueryInput::TermSet { terms: fields } => {
                 let query = Box::new(TermSetQuery::new(fields.into_iter().map(
-                    |TermInput {
-                         field,
-                         value,
-                         is_datetime,
-                     }| {
+                    |TermInput { field, value }| {
                         let search_field = schema
                             .search_field(field.root())
                             .ok_or_else(|| QueryError::NonIndexedField(field.clone()))
                             .expect("could not find search field");
                         let field_type = search_field.field_entry().field_type();
-                        let is_datetime = search_field.is_datetime() || is_datetime;
 
                         // Convert string numeric values to appropriate types for JSON fields
                         let value = convert_for_field_type(&value, field_type);
@@ -1239,7 +1289,7 @@ impl SearchQueryInput {
                             &value,
                             field_type,
                             field.path().as_deref(),
-                            is_datetime,
+                            search_field.is_datetime(),
                         )
                         .expect("could not convert argument to search term")
                     },
@@ -1337,6 +1387,85 @@ impl SearchQueryInput {
             planstate,
         )
     }
+}
+
+fn serialize_date_aware_owned_value_date<S>(
+    value: &tantivy::DateTime,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let ov = OwnedValue::Date(*value);
+    ov.serialize(serializer)
+}
+fn deserialize_date_aware_owned_value_date<'de, D>(
+    deserializer: D,
+) -> Result<tantivy::DateTime, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match OwnedValue::deserialize(deserializer)? {
+        OwnedValue::Date(dt) => Ok(dt),
+        OwnedValue::Str(s) => TantivyDateTime::try_from(s.as_str())
+            .map(|t| t.0)
+            .map_err(serde::de::Error::custom),
+        _ => Err(serde::de::Error::invalid_value(
+            serde::de::Unexpected::Other("a non-datetime value"),
+            &"a datetime value",
+        )),
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(untagged)]
+enum DateAwareOwnedValue {
+    Date {
+        // serde through OwnedValue so we get the same datetime serialization
+        #[serde(
+            serialize_with = "serialize_date_aware_owned_value_date",
+            deserialize_with = "deserialize_date_aware_owned_value_date"
+        )]
+        date: tantivy::DateTime,
+    },
+    Other(OwnedValue),
+}
+impl From<OwnedValue> for DateAwareOwnedValue {
+    fn from(value: OwnedValue) -> Self {
+        match value {
+            OwnedValue::Date(date) => Self::Date { date },
+            _ => Self::Other(value),
+        }
+    }
+}
+impl From<DateAwareOwnedValue> for OwnedValue {
+    fn from(value: DateAwareOwnedValue) -> OwnedValue {
+        match value {
+            DateAwareOwnedValue::Date { date } => OwnedValue::Date(date),
+            DateAwareOwnedValue::Other(owned) => owned,
+        }
+    }
+}
+
+pub(crate) fn serialize_as_date_aware_owned_value<S>(
+    value: &OwnedValue,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let date_aware = DateAwareOwnedValue::from(value.clone());
+    date_aware.serialize(serializer)
+}
+
+pub(crate) fn deserialize_as_date_aware_owned_value<'de, D>(
+    deserializer: D,
+) -> Result<OwnedValue, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let date_aware = DateAwareOwnedValue::deserialize(deserializer)?;
+    Ok(OwnedValue::from(date_aware))
 }
 
 /// Convert a string-encoded numeric value to the appropriate type based on field type.
@@ -1673,7 +1802,6 @@ mod tests {
             terms: vec![TermInput {
                 field: "test".into(),
                 value: OwnedValue::Str("value".to_string()),
-                is_datetime: false,
             }],
         }
     }

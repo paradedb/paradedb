@@ -288,7 +288,7 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
            :           PgSearchScan: segments=1, query="all"
            :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(item_id@0, id@2)]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"range":{"field":"rating","lower_bound":null,"upper_bound":{"excluded":4},"is_datetime":false}}
+           :             PgSearchScan: segments=1, query={"range":{"field":"rating","lower_bound":null,"upper_bound":{"excluded":4}}}
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless OR mouse","lenient":null,"conjunction_mode":null}}}}
 (20 rows)

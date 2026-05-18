@@ -73,15 +73,15 @@ SELECT * FROM products
 WHERE deleted_at IS NULL 
   AND category_id = 5 
   AND id @@@ paradedb.all();
-                                                                                                    QUERY PLAN                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                          QUERY PLAN                                                                                           
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.products
    Output: id, category_id, deleted_at
    Table: products
    Index: idx_products_bm25
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":"all"}},{"term":{"field":"category_id","value":5,"is_datetime":false}}]}}
+   Tantivy Query: {"boolean":{"must":[{"boolean":{"must":["all"],"must_not":[{"exists":{"field":"deleted_at"}}]}},{"with_index":{"query":"all"}},{"term":{"field":"category_id","value":5}}]}}
 (7 rows)
 
 SELECT COUNT(*) FROM products 
@@ -109,15 +109,15 @@ SELECT * FROM products
 WHERE deleted_at IS NULL 
   AND category_id = 5 
   AND id @@@ paradedb.all();
-                                                              QUERY PLAN                                                               
----------------------------------------------------------------------------------------------------------------------------------------
+                                                    QUERY PLAN                                                     
+-------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on public.products
    Output: id, category_id, deleted_at
    Table: products
    Index: idx_products_bm25_partial
    Exec Method: NormalScanExecState
    Scores: false
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"category_id","value":5,"is_datetime":false}}]}}
+   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":"all"}},{"term":{"field":"category_id","value":5}}]}}
 (7 rows)
 
 SELECT COUNT(*) FROM products 

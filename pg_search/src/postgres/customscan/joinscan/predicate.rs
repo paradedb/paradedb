@@ -178,8 +178,8 @@ pub unsafe fn transform_to_search_expr(
     // If this is a single-table expression with search predicate, extract as Predicate
     if has_search_op && rtis.len() == 1 && referenced_source_indices.len() == 1 {
         let rti = *rtis.iter().next().unwrap();
-        let plan_position = referenced_source_indices[0];
-        let source = &sources[plan_position];
+        let source = &sources[referenced_source_indices[0]];
+        let plan_position = source.plan_position;
 
         // Extract the Tantivy query for this expression
         if let Some(base_info) = find_base_info_recursive(source, rti) {

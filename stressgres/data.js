@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779058988868,
+  "lastUpdate": 1779144956409,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1362,6 +1362,78 @@ window.BENCHMARK_DATA = {
             "value": 73.72774470125871,
             "unit": "median tps",
             "extra": "avg tps: 79.87713861742674, max tps: 732.5948289061407, count: 55123"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "98771628b69a76e672812e2c56fc465a03fc5a58",
+          "message": "chore: Bump tantivy rev (#5106)\n\nBump the tantivy rev so we can get this fix:\nhttps://github.com/paradedb/tantivy/pull/143\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-18T16:25:35-06:00",
+          "tree_id": "9410a03ea3064dab1647eb7f4facb2824a72415a",
+          "url": "https://github.com/paradedb/paradedb/commit/98771628b69a76e672812e2c56fc465a03fc5a58"
+        },
+        "date": 1779144925584,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 128.20858968814812,
+            "unit": "median tps",
+            "extra": "avg tps: 128.62226525682044, max tps: 148.5506783052987, count: 55245"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 503.275237377457,
+            "unit": "median tps",
+            "extra": "avg tps: 503.2730754367964, max tps: 626.9452281840302, count: 55245"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3247.8263920844224,
+            "unit": "median tps",
+            "extra": "avg tps: 3249.384780604152, max tps: 3295.048982962537, count: 55245"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 413.728147888317,
+            "unit": "median tps",
+            "extra": "avg tps: 416.71314757192465, max tps: 497.49372610662004, count: 55245"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2750.5362258356754,
+            "unit": "median tps",
+            "extra": "avg tps: 2751.7127304843134, max tps: 2835.598805561245, count: 110490"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 501.1846926006097,
+            "unit": "median tps",
+            "extra": "avg tps: 501.48773375016503, max tps: 635.6916400454173, count: 55245"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1962.3796843470034,
+            "unit": "median tps",
+            "extra": "avg tps: 1949.0609979994865, max tps: 1969.3892240979221, count: 55245"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 51.67222202679146,
+            "unit": "median tps",
+            "extra": "avg tps: 81.64946619324856, max tps: 740.0374310932647, count: 55245"
           }
         ]
       }

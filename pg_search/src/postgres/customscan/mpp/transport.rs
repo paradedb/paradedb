@@ -393,22 +393,6 @@ pub(super) trait BatchChannelSender: Send + Sync {
     fn try_send_bytes(&self, bytes: &[u8]) -> Result<bool, DataFusionError> {
         self.send_bytes(bytes).map(|()| true)
     }
-
-    /// Async serialization lock held across multi-call sends. PG's `shm_mq_send` docs spell out
-    /// the invariant: once a send returns `SHM_MQ_WOULD_BLOCK`, the next call on the same handle
-    /// must repeat the *same* `(nbytes, data)` arguments — "changing the length or payload will
-    /// corrupt the queue." Multiple [`MppSender`] clones share one underlying
-    /// `Arc<dyn BatchChannelSender>` (the multiplexed `(stage_id, partition)` pattern), and the
-    /// cooperative-drain spin in `send_with_scratch` yields between retries. Without this lock,
-    /// task A's partial send can interleave with task B's full send, sending B's payload as a
-    /// continuation of A's length prefix and producing a garbled queue. The receiver then reads
-    /// a corrupted length and errors with "invalid message size" or "frame too short for header".
-    ///
-    /// `send_with_scratch` / `send_eof_with_scratch` / `send_request_with_scratch` acquire this
-    /// lock before the spin and hold it until the message is fully written. In-proc channels
-    /// don't need serialization (each send is atomic) but return a per-instance mutex anyway so
-    /// the call site stays uniform.
-    fn send_lock(&self) -> &tokio::sync::Mutex<()>;
 }
 
 /// Pluggable "drain everything inbound" hook for [`MppSender`]'s cooperative send spin. The
@@ -571,10 +555,16 @@ impl MppSender {
         let Some(drain) = self.cooperative_drain.as_ref() else {
             return self.channel.send_bytes(scratch);
         };
-        // Hold the channel's send lock across the entire spin. See `BatchChannelSender::send_lock`
-        // for the why — shm_mq can't tolerate two senders interleaving partial writes on the
-        // same handle, and yield_now().await would otherwise let another task in mid-send.
-        let _send_guard = self.channel.send_lock().lock().await;
+        // No yield_now inside the spin — that's what makes this safe without a per-handle lock.
+        // PG's shm_mq partial-send invariant says: once `try_send_bytes` returns WOULD_BLOCK with
+        // partial bytes on the wire, the next call on the same handle must repeat the *same*
+        // `(nbytes, data)` or the queue corrupts. With no `.await` between WOULD_BLOCK and the
+        // retry, no other tokio task on the current-thread runtime can sneak in a `try_send_bytes`
+        // with different bytes — the spin is atomic from the scheduler's POV. Skipping the lock
+        // also skips the contention that made multiplexed senders serialize through one mutex.
+        // Cross-process deadlock breaking still works: `drain.try_drain_pass` pulls peer batches
+        // out of our inbound every iteration, freeing peers' outbound slots so their sends
+        // unstall and ours eventually fits.
         let mut first_try = true;
         let t_wait_start = Instant::now();
         loop {
@@ -591,7 +581,6 @@ impl MppSender {
             let t_drain = Instant::now();
             drain.try_drain_pass()?;
             stats.coop_drain_in_spin += t_drain.elapsed();
-            tokio::task::yield_now().await;
         }
     }
 
@@ -609,32 +598,35 @@ impl MppSender {
             // back to the blocking send path.
             return self.channel.send_bytes(scratch);
         };
-        // Hold the channel's send lock across the entire spin. See `BatchChannelSender::send_lock`
-        // for the why — shm_mq can't tolerate two senders interleaving partial writes on the
-        // same handle, and yield_now().await would otherwise let another task in mid-send.
-        let _send_guard = self.channel.send_lock().lock().await;
+        // Why there's no yield_now in this spin (and no send_lock either):
+        //
+        // PG's `shm_mq_send` invariant: once a call returns SHM_MQ_WOULD_BLOCK with partial bytes
+        // on the wire, the next call on the same handle has to repeat the *same* `(nbytes, data)`
+        // or the queue corrupts. Two `MppSender` clones can share one underlying
+        // `Arc<dyn BatchChannelSender>` (that's how `(stage_id, partition)` channels multiplex
+        // onto one shm_mq), so a yield between the WOULD_BLOCK and the retry used to let another
+        // task slip in a `try_send_bytes` with different bytes. That's the "frame too short for
+        // header (12 < 16)" / "invalid message size" corruption we were hitting in CI.
+        //
+        // The earlier fix gated the spin behind a per-handle `tokio::sync::Mutex`, which was
+        // correct but serialized every multiplexed sender through one lock and tanked the
+        // aggregate_join benchmarks by ~2×. This version keeps correctness by removing the only
+        // `.await` inside the partial-send window. On the current-thread tokio runtime, with no
+        // await between WOULD_BLOCK and retry, no other tokio task can interleave a
+        // `try_send_bytes` — the spin is atomic from the scheduler's POV, so a lock is redundant.
+        //
+        // Cross-process deadlock breaking still works the same way. The two procs each spin on
+        // full outbounds; each one's `drain.try_drain_pass` pulls peer batches out of its own
+        // inbound queues, which frees the peer's outbound-to-us slots, which lets the peer's
+        // sender advance, which eventually drains our outbound and lets us advance too. Peer
+        // progress happens in a different OS process — it doesn't need us to yield to make it.
+        //
+        // Trade-off: while the spin is running, other tokio tasks on this thread (sibling
+        // producers, the local consumer draining the `DrainBuffer`) don't get a turn. In
+        // practice each spin completes within a few iterations once the peer drains its end, so
+        // the latency hit is bounded and a lot smaller than the lock contention it replaces.
         let mut first_try = true;
         let t_wait_start = Instant::now();
-        // Mental model: a current-thread Tokio runtime lives on the
-        // backend thread (DataFusion needs one to drive `Stream`s).
-        // This spin runs *inside* a Tokio task — specifically the body
-        // of `ShuffleStream::poll_next`. The deadlock the cooperative
-        // drain prevents is *cross-proc*, not same-runtime: two
-        // peers each blocking on a full outbound and never reading the
-        // other side. We break that by driving our own inbound on this
-        // same OS thread via `try_drain_pass`, which pulls peer
-        // batches that have already arrived and frees their slots so
-        // peers' writers can advance.
-        //
-        // The `tokio::task::yield_now().await` between iterations
-        // hands the runtime back to the executor each spin. Today's
-        // MPP topology is linear (`ChainExec` polls inline, no
-        // `RepartitionExec` / `CoalescePartitions` driver above the
-        // shuffle), so there are no sibling Tokio tasks ready to run
-        // and yielding is effectively a no-op cost. Once the planner
-        // grows a parallel operator above us, those siblings start
-        // making forward progress during this yield instead of
-        // starving.
         loop {
             // `pgrx::check_for_interrupts!()` pulls in PG symbols
             // (`ProcessInterrupts`, `PG_exception_stack`,
@@ -663,7 +655,6 @@ impl MppSender {
             let t_drain = Instant::now();
             drain.try_drain_pass()?;
             stats.coop_drain_in_spin += t_drain.elapsed();
-            tokio::task::yield_now().await;
         }
     }
 }
@@ -944,23 +935,11 @@ impl Drop for DrainHandle {
 /// chance of self-deadlock if the producer never yields.
 pub(super) fn in_proc_channel(capacity: usize) -> (InProcSender, InProcReceiver) {
     let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(capacity);
-    (
-        InProcSender {
-            tx,
-            send_lock: tokio::sync::Mutex::new(()),
-        },
-        InProcReceiver { rx: Mutex::new(rx) },
-    )
+    (InProcSender { tx }, InProcReceiver { rx: Mutex::new(rx) })
 }
 
 pub(super) struct InProcSender {
     tx: std::sync::mpsc::SyncSender<Vec<u8>>,
-    /// Per-instance lock so the [`BatchChannelSender::send_lock`] contract holds even when an
-    /// in-proc channel ends up in a code path that would otherwise need serialization. In-proc
-    /// `send_bytes` is already atomic (each call pushes a complete `Vec<u8>`), so the lock is
-    /// effectively a no-op here, but keeping it uniform with `ShmMqSender` avoids special-casing
-    /// the caller.
-    send_lock: tokio::sync::Mutex<()>,
 }
 
 pub(super) struct InProcReceiver {
@@ -987,10 +966,6 @@ impl BatchChannelSender for InProcSender {
                 "mpp: in-proc channel detached during try_send".into(),
             )),
         }
-    }
-
-    fn send_lock(&self) -> &tokio::sync::Mutex<()> {
-        &self.send_lock
     }
 }
 

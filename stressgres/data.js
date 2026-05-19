@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779168933852,
+  "lastUpdate": 1779169622075,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7586,6 +7586,54 @@ window.BENCHMARK_DATA = {
             "value": 5.062409800005981,
             "unit": "median tps",
             "extra": "avg tps: 5.114416216843831, max tps: 7.6936614808182595, count: 56495"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dcd52e70f8e33e214d43ac7e3bf5dfaa3daf61fd",
+          "message": "feat(mpp): wire JoinScan through the natural-shape substrate (#5092)\n\n# Ticket(s) Closed\n\n- N/A\n\n## What\n\nWires JoinScan through the natural-shape MPP path AggregateScan already\nuses, behind the same `paradedb.enable_mpp` gate. Plain joins under\nMPP-on used to silently fall back to the serial path. Now they go\nthrough the same shm_mq mesh, the same fragment dispatcher, the same\ngather to the leader.\n\nStacked on top of #5082.\n\n## Why\n\nThe `mpp/` substrate was always shape-agnostic. Transport, the DSM grid,\nthe frame header, the cooperative drain, the fragment walker — none of\nthem care whether the customscan above is an aggregate or a join. The\nonly thing tying the worker dispatcher to AggregateScan was the seed\n`SessionContext` profile (`Aggregate` vs `Join`) and where it pulled\ninputs from in typed state. So the wiring was free as long as we\nextracted the dispatcher out into a shape-generic helper first.\n\n## How\n\nPulled the dispatcher into `mpp::exec_worker`. Both customscans now\nbundle their typed inputs into `MppWorkerInputs`, hand a\nprofile-specific seed context to the shared `run_mpp_worker`, and let it\ndrive. AggregateScan's wrapper got slimmer in the process; JoinScan got\nits wrapper for free with the same shape.\n\nJoinScan picks up the standard wiring around it: the\n`producer_worker_count()` override on `nworkers` when MPP is active, the\nDSM hook branches that call `leader_setup` / `worker_setup`, the\n`exec_custom_scan` dispatch.\n\nTwo pieces of duplication that the JoinScan wiring would have made worse\ngot unified instead. The 16-byte header at offset 0 of the customscan's\nDSM coordinate (`mpp_offset` + `partitioning_source_idx`) now lives once\nin `mpp::glue` as `CustomScanMppHeader`, with the matching `mpp_align` /\n`pscan_offset` / read+write helpers. And the long-dropped `n_partitions`\nparameter on `leader_setup` that the refactor branch had carried forward\nis gone here too.\n\nThe regression test surfaced a real bug. JoinScan's logical plan carries\n`VisibilityFilterNode`, a pg_search custom logical extension that needs\n`PgSearchQueryPlanner` to translate into the matching physical exec. The\nshared session-context builder was rebuilding from\n`SessionStateBuilder::new()` and only carrying the seed's `config`,\nwhich dropped the query planner. AggregateScan happens not to use any\ncustom logical nodes, so the bug stayed invisible on the aggregate path.\nOne-line fix: `SessionStateBuilder::new_from_existing(seed.state())` so\nthe seed's planners flow through, then override config and layer the\ndistributed knobs on top.\n\n## Reviewer's guide\n\nEach link points at the post-state on this branch.\n\n1. **Generic dispatcher** —\n[`mpp/exec_worker.rs`](https://github.com/paradedb/paradedb/blob/moe/mpp-joinscan-natural-shape/pg_search/src/postgres/customscan/mpp/exec_worker.rs).\n`MppWorkerInputs`, `build_mpp_session_context`, `run_mpp_worker`. The\n`new_from_existing` fix is at the top of `build_mpp_session_context`.\n2. **Shared DSM coord helpers** —\n[`mpp/glue.rs`](https://github.com/paradedb/paradedb/blob/moe/mpp-joinscan-natural-shape/pg_search/src/postgres/customscan/mpp/glue.rs).\n`CustomScanMppHeader` + its align/offset/read/write helpers.\n3. **AggregateScan wrapper** —\n[`aggregatescan/mpp.rs`](https://github.com/paradedb/paradedb/blob/moe/mpp-joinscan-natural-shape/pg_search/src/postgres/customscan/aggregatescan/mpp.rs).\n4. **JoinScan state + planner gate + DSM hooks** —\n[`joinscan/scan_state.rs`](https://github.com/paradedb/paradedb/blob/moe/mpp-joinscan-natural-shape/pg_search/src/postgres/customscan/joinscan/scan_state.rs)\nfor the new MPP fields,\n[`joinscan/mod.rs`](https://github.com/paradedb/paradedb/blob/moe/mpp-joinscan-natural-shape/pg_search/src/postgres/customscan/joinscan/mod.rs)\nfor the `nworkers` override and the MPP branches.\n5. **JoinScan exec wrapper** —\n[`joinscan/mpp.rs`](https://github.com/paradedb/paradedb/blob/moe/mpp-joinscan-natural-shape/pg_search/src/postgres/customscan/joinscan/mpp.rs).\n6. **Regression test** —\n[`pg_search/tests/pg_regress/sql/mpp_joinscan.sql`](https://github.com/paradedb/paradedb/blob/moe/mpp-joinscan-natural-shape/pg_search/tests/pg_regress/sql/mpp_joinscan.sql).\nSame query twice, MPP off vs on.\n\n## Tests\n\n- `cargo check --tests --features pg18` clean.\n- `cargo clippy --tests --features pg18 -- -D warnings` clean.\n- `cargo test --package pg_search --lib --features pg18\npostgres::customscan::mpp` passes.\n- `cargo pgrx regress --package pg_search --resetdb --auto pg18 <test>`\npasses for `mpp_aggregate`, `mpp_aggregate_postagg`, `mpp_smoke`, and\nthe new `mpp_joinscan`.",
+          "timestamp": "2026-05-18T21:53:24-07:00",
+          "tree_id": "fa0d5f89b202c502dc90fee8733c39d6bf6abd65",
+          "url": "https://github.com/paradedb/paradedb/commit/dcd52e70f8e33e214d43ac7e3bf5dfaa3daf61fd"
+        },
+        "date": 1779169591448,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1110.35019743999,
+            "unit": "median tps",
+            "extra": "avg tps: 1095.982287104111, max tps: 1175.047619564045, count: 56488"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1228.6830197704546,
+            "unit": "median tps",
+            "extra": "avg tps: 1208.185742138339, max tps: 1242.5690820716102, count: 56488"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1071.8575248805787,
+            "unit": "median tps",
+            "extra": "avg tps: 972.7782917482813, max tps: 1386.1168654282562, count: 56488"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.184424274064181,
+            "unit": "median tps",
+            "extra": "avg tps: 5.204518007004141, max tps: 6.764483259229773, count: 56488"
           }
         ]
       }

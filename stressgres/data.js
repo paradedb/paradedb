@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779168266185,
+  "lastUpdate": 1779168300969,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -17622,6 +17622,186 @@ window.BENCHMARK_DATA = {
             "value": 31.359375,
             "unit": "median mem",
             "extra": "avg mem: 30.683435466899617, max mem: 31.7734375, count: 53874"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3b613b8d5a4b2751b6e5b334d2e00af32502fc33",
+          "message": "feat(mpp): multi-stage natural-shape AggregateScan (#5082)\n\n# Ticket(s) Closed\n\n- N/A\n\n## What\n\nAdds the multi-stage natural-shape MPP path for AggregateScan over a\nmultiplexed N×N PostgreSQL `shm_mq` mesh. Default off behind\n`paradedb.enable_mpp`.\n\nWhen the gate is on, eligible aggregate-over-join queries plan a\ndistributed pipeline: partial aggregation pinned to worker procs over a\n`HashJoin` with a broadcast build subtree, hash-shuffle of partial\ngroups by the group key, per-partition finalization, and a gather to the\nleader.\n\n## Why\n\nAggregate-over-join is the workload class where Postgres' single-node\naggregate sits on the join's hash table and finalization runs serially\nafter the build subtree finishes. The natural-shape MPP path splits that\nwork across `n_procs - 1` producer workers and pipelines partial-state\nshuffle in parallel, so the finalization barrier moves from the leader\nto the per-partition consumer side. The leader stays consumer-only,\ngathers the finalized groups, and emits to PG.\n\n`shm_mq` is the right substrate because it lives in the existing DSM\nregion the customscan already allocates for parallel state, gives\nnowait-receive semantics that play well with pgrx's\n`check_active_thread` (no blocking from non-backend threads), and\ndoesn't need a separate orchestration daemon.\n\n## How\n\nThe DSM region is a single contiguous block: header, plan bytes, then an\n`n_procs × n_procs` queue grid. Each proc attaches as **sender** on its\nrow (`slot(this, *)`) and **receiver** on its column (`slot(*, this)`).\nOne queue per directed proc-pair carries every logical channel,\ndemultiplexed on receive via a 16-byte `MppFrameHeader` prefix that tags\n`(stage_id, partition)`.\n\nThe cooperative drain runs **inline on the backend thread** from\n`DrainGatherStream::poll_next`. That's a hard requirement: pgrx's\n`check_active_thread` panics on any pg FFI call (`shm_mq_receive`\nincluded) from a non-backend thread, so the drain work cannot be moved\noff the backend thread. The same drain is poked from the sender's\ncooperative spin (`try_drain_pass`) when a peer's queue fills — that's\nwhat breaks the symmetric N×N send/receive deadlock.\n\nPer-channel sub-buffers decouple consumer-side backpressure from\nproducer-side backpressure: the drain always makes forward progress on\ninbound queues, so a stalled consumer can't propagate backpressure back\nto remote producers.\n\nCode organization: MPP code lives under\n`pg_search/src/postgres/customscan/mpp/` with a thin slice\n(`aggregatescan/mpp.rs`) holding the worker exec path. The pub surface\nfrom `mpp::transport` is exactly three names (`MppFrameHeader`,\n`MppSender`, `CooperativeDrainSet`); everything else is `pub(super)` or\nprivate.\n\n## Reviewer's guide\n\nEach link points at the post-state on this branch. Walk top-to-bottom\nfor the planning → setup → wire → exec flow.\n\n1. **Gate.**\n[`glue.rs:71`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/glue.rs#L71)\n`mpp_is_active` — true iff `enable_mpp = on` and `mpp_worker_count >= 3`\n(`>= 3` so the producer count `n_procs - 1` is at least 2, matching the\nplanner's target_partitions).\n\n2. **DSM region layout.**\n[`dsm.rs:75`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/dsm.rs#L75)\n`MppDsmHeader` and\n[`dsm.rs:159`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/dsm.rs#L159)\n`compute_dsm_layout` — header + plan bytes + `n_procs × n_procs` grid.\n\n3. **Leader sets up the mesh.**\n[`glue.rs:179`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/glue.rs#L179)\n`leader_setup` — allocates the grid via `leader_init`, builds inbound\ndrains for every peer (the leader is consumer-only, so outbound senders\nget dropped), wraps the result in `MppMesh`.\n\n4. **Worker attaches.**\n[`glue.rs:237`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/glue.rs#L237)\n`worker_setup` — symmetric attach, plus a self-loop in-proc channel for\n`slot(this, this)` so peer-mesh hash routing that lands producer and\nconsumer of the same partition on one worker stays on the uniform\n`BatchChannelReceiver` contract.\n\n5. **Wire format.**\n[`transport.rs:83`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/transport.rs#L83)\n`MppFrameHeader` — 16 bytes, `[magic, flags, stage_id, partition]`. One\nqueue carries many logical channels.\n\n6. **Cooperative drain + per-channel demux.**\n[`transport.rs:856`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/transport.rs#L856)\n`DrainHandle` owns the receivers and a `(stage_id, partition) ->\nArc<DrainBuffer>` registry. Sub-buffers are populated lazily by\n`try_drain_pass` or up-front by `WorkerConnection::stream_partition`.\n\n7. **Sender backpressure.**\n[`transport.rs:447`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/transport.rs#L447)\n`MppSender::send_batch_traced` — encode into scratch, spin on\n`try_send_bytes`; on full, call `drain.try_drain_pass()` to pull peer\ninbounds on the same thread, then `yield_now().await`, retry. Breaks the\nsymmetric stall cycle.\n\n8. **Fragment routing on the receive side.**\n[`worker_fragments.rs:72`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/worker_fragments.rs#L72)\n`FragmentRouting` — `Coalesce` (single destination), `Shuffle`\n(hash-partitioned to a consumer task), `Broadcast` (canonical-replica\nvia the one-task estimator).\n[`worker_fragments.rs:138`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/worker_fragments.rs#L138)\n`find_worker_assignments` walks the plan and collects every `(stage_id,\ntask_idx)` slot owned by this proc.\n\n9. **Worker exec.**\n[`aggregatescan/mpp.rs:57`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/aggregatescan/mpp.rs#L57)\n`exec_mpp_worker` — deserialize logical plan, build distributed physical\nplan (via the same session-context builder the leader runs, so stage\nnumbering agrees), find fragments, build per-output-partition senders,\ndispatch via `run_worker_fragment` + `join_all`.\n\n10. **Single session-context builder.**\n[`aggregatescan/mod.rs:1069`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/aggregatescan/mod.rs#L1069)\n`build_mpp_session_context` — used by leader exec, worker exec, and\nEXPLAIN's stub-mesh path. Both procs have to agree on stage shape;\nreusing the builder is how.\n\n11. **Run a fragment.**\n[`worker.rs:43`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/worker.rs#L43)\n`run_worker_fragment` — execute the fragment's plan, fan out batches to\nthe per-partition senders, send per-channel `Eof` frames at exhaustion\nso the consumer's `(stage_id, partition)` sub-buffer transitions to\n`Eof` without taking the whole shm_mq queue down.\n\n12. **fail_loud invariant guard.**\n[`mpp/mod.rs:71`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/mod.rs#L71)\n— `pgrx::error!` in prod, `panic!` in test (the lib-test binary doesn't\nlink Postgres). Used for MPP-internal invariant breaches like an\nunrecognised nested boundary kind.\n\n## Tests\n\n- `cargo check --tests --features pg18` clean.\n- `cargo clippy --tests --features pg18 -- -D warnings` clean.\n- `cargo test --package pg_search --lib --features pg18\npostgres::customscan::mpp` passes — covers the codec, drain buffer,\ndrain handle, sub-buffer registry, in-proc channel, frame round-trip,\nand an N=2 mesh 100k-batch throughput run.\n- Regression coverage lives in\n`pg_search/tests/pg_regress/sql/mpp_*.sql`.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-18T21:07:22-07:00",
+          "tree_id": "64a38d148b2d4fdc5579ec41637242230a0fb137",
+          "url": "https://github.com/paradedb/paradedb/commit/3b613b8d5a4b2751b6e5b334d2e00af32502fc33"
+        },
+        "date": 1779168267931,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.109803114808901, max cpu: 9.411765, count: 53834"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 52.82421875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.86102648883605, max mem: 58.46875, count: 53834"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.452848759387379, max cpu: 4.6376815, count: 53834"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 30.2578125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.61023833102686, max mem: 30.87109375, count: 53834"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.160305,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.62222937958026, max cpu: 18.514948, count: 53834"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 55.90234375,
+            "unit": "median mem",
+            "extra": "avg mem: 55.617469762371364, max mem: 61.50390625, count: 53834"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.115488370863614, max cpu: 9.29332, count: 53834"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 52.0859375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.11468552343779, max mem: 57.65625, count: 53834"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.692477506331631, max cpu: 9.257474, count: 53834"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 33.1484375,
+            "unit": "median mem",
+            "extra": "avg mem: 33.18963721231007, max mem: 38.09375, count: 53834"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1092,
+            "unit": "median pages",
+            "extra": "avg pages: 1091.9529665267303, max pages: 1788.0, count: 53834"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.53125,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.53088255099008, max relation_size:MB: 13.96875, count: 53834"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 12.263959579447933, max segment_count: 22.0, count: 53834"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.063203379786634, max cpu: 4.58891, count: 53834"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.443044460169222, max mem: 29.515625, count: 53834"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.4439423822607536, max cpu: 4.5933013, count: 53834"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.0859375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.453408133103615, max mem: 29.5546875, count: 53834"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.6065254,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.426608263368112, max cpu: 22.922636, count: 53834"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 50.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.79750265283092, max mem: 56.4453125, count: 53834"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000027640788743013824, max replication_lag:MB: 0.14870452880859375, count: 53834"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.29200803517158, max cpu: 13.88621, count: 107668"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 51.54296875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.585231553827505, max mem: 57.69921875, count: 107668"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.4234642574371605, max cpu: 4.5845275, count: 53834"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 30.8828125,
+            "unit": "median mem",
+            "extra": "avg mem: 30.095720249400937, max mem: 30.8828125, count: 53834"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.474520738198592, max cpu: 4.628737, count: 53834"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 31.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 30.422351145419253, max mem: 31.5, count: 53834"
           }
         ]
       }

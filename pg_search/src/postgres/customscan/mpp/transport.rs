@@ -2250,4 +2250,286 @@ mod tests {
         assert!(matches!(buf_a.try_pop(), Some(DrainItem::Eof)));
         assert!(matches!(buf_b.try_pop(), Some(DrainItem::Eof)));
     }
+
+    // ---------------------------------------------------------------------
+    // Pull-shape Request→handler dispatch tests.
+    //
+    // The cooperative drain demuxes inbound frames by kind: `Batch`/`Eof` go to channel buffers,
+    // `Request` goes to the installed `RequestHandler`. These tests exercise the handler-dispatch
+    // half — the load-bearing piece of the pull-shape protocol — through a mock handler so the
+    // production producer-service code path stays out of scope.
+    // ---------------------------------------------------------------------
+
+    /// `(sender_proc, stage_id, task_idx, partition)` captured by [`CapturingHandler`].
+    type CapturedCall = (u32, u32, u32, u32);
+
+    /// Mock handler that captures `(sender_proc, stage_id, task_idx, partition)` tuples into an
+    /// std-mpsc channel. Tests assert on the captured calls.
+    struct CapturingHandler {
+        calls: std::sync::Mutex<std::sync::mpsc::Sender<CapturedCall>>,
+        /// Optional Err to return on every call (defaults to Ok). Used by the error-propagation
+        /// test to verify the drain surfaces handler errors instead of silently swallowing.
+        force_err: std::sync::Mutex<Option<String>>,
+    }
+
+    impl CapturingHandler {
+        fn new() -> (Arc<Self>, std::sync::mpsc::Receiver<CapturedCall>) {
+            let (tx, rx) = std::sync::mpsc::channel();
+            (
+                Arc::new(Self {
+                    calls: std::sync::Mutex::new(tx),
+                    force_err: std::sync::Mutex::new(None),
+                }),
+                rx,
+            )
+        }
+
+        fn set_force_err(&self, msg: &str) {
+            *self.force_err.lock().unwrap() = Some(msg.into());
+        }
+    }
+
+    impl RequestHandler for CapturingHandler {
+        fn on_request(
+            &self,
+            sender_proc: u32,
+            stage_id: u32,
+            task_idx: u32,
+            partition: u32,
+        ) -> Result<(), DataFusionError> {
+            self.calls
+                .lock()
+                .unwrap()
+                .send((sender_proc, stage_id, task_idx, partition))
+                .ok();
+            if let Some(msg) = self.force_err.lock().unwrap().clone() {
+                return Err(DataFusionError::Internal(msg));
+            }
+            Ok(())
+        }
+    }
+
+    /// Push a Request frame straight into the wire bytes of an in-proc channel. Bypasses the
+    /// MppSender encoder so the test stays scoped to the drain side.
+    fn push_request_frame(
+        tx: &dyn BatchChannelSender,
+        stage_id: u32,
+        task_idx: u32,
+        partition: u32,
+    ) {
+        let header = MppFrameHeader::request(stage_id, task_idx, partition)
+            .expect("test request frame must construct");
+        let mut buf = vec![0u8; MPP_FRAME_HEADER_SIZE];
+        header.write_to(&mut buf);
+        tx.send_bytes(&buf)
+            .expect("in-proc channel should accept the frame");
+    }
+
+    #[test]
+    fn drain_handle_dispatches_single_request_to_handler() {
+        let (tx, rx) = in_proc_channel(8);
+        let receiver = MppReceiver::new(Box::new(rx));
+        let handle = DrainHandle::cooperative(vec![receiver], Some(7));
+        let (handler, calls) = CapturingHandler::new();
+        handle.set_request_handler(Arc::clone(&handler) as Arc<dyn RequestHandler>);
+
+        push_request_frame(
+            &tx, /*stage*/ 3, /*task*/ 5, /*partition*/ 11,
+        );
+        drop(tx);
+
+        handle.try_drain_pass().expect("dispatch should succeed");
+
+        let captured = calls
+            .recv_timeout(Duration::from_millis(100))
+            .expect("handler must have been invoked");
+        // sender_proc comes from the drain's stored `sender_proc`, not the frame.
+        assert_eq!(captured, (7, 3, 5, 11));
+        // No additional calls.
+        assert!(calls.try_recv().is_err());
+    }
+
+    #[test]
+    fn drain_handle_dispatches_multiple_requests_in_send_order() {
+        // Two Request frames pumped in one drain pass land at the handler in the same order.
+        // Locks in the "collect-then-dispatch" ordering invariant — if a future refactor moves
+        // Request handling back inline with the receiver pump, this test catches order
+        // shuffling.
+        let (tx, rx) = in_proc_channel(8);
+        let receiver = MppReceiver::new(Box::new(rx));
+        let handle = DrainHandle::cooperative(vec![receiver], Some(2));
+        let (handler, calls) = CapturingHandler::new();
+        handle.set_request_handler(Arc::clone(&handler) as Arc<dyn RequestHandler>);
+
+        push_request_frame(&tx, 1, 0, 0);
+        push_request_frame(&tx, 1, 0, 1);
+        push_request_frame(&tx, 1, 0, 2);
+        drop(tx);
+
+        handle.try_drain_pass().expect("dispatch should succeed");
+
+        let first = calls.recv_timeout(Duration::from_millis(100)).unwrap();
+        let second = calls.recv_timeout(Duration::from_millis(100)).unwrap();
+        let third = calls.recv_timeout(Duration::from_millis(100)).unwrap();
+        assert_eq!(first, (2, 1, 0, 0));
+        assert_eq!(second, (2, 1, 0, 1));
+        assert_eq!(third, (2, 1, 0, 2));
+    }
+
+    #[test]
+    fn drain_handle_drops_request_silently_when_no_handler_installed() {
+        // Production case: the service loop calls `uninstall_request_handler` at teardown but a
+        // Request frame is already in the shm_mq queue. The drain must drop the Request silently
+        // (return `Ok`) rather than raising — raising here would abort the transaction after the
+        // query completed successfully.
+        let (tx, rx) = in_proc_channel(8);
+        let receiver = MppReceiver::new(Box::new(rx));
+        let handle = DrainHandle::cooperative(vec![receiver], Some(1));
+        // Deliberately do NOT install a handler.
+
+        push_request_frame(&tx, 2, 3, 4);
+        drop(tx);
+
+        handle
+            .try_drain_pass()
+            .expect("Request with no handler must drop silently, not error");
+    }
+
+    #[test]
+    fn drain_handle_errors_on_request_when_sender_proc_unknown() {
+        // Production drains carry `sender_proc = Some(_)`. A `None` here is a configuration
+        // bug: in-proc test drains use `None`, but those should never receive Request frames.
+        // Make sure a Request slipping into such a drain surfaces loudly.
+        let (tx, rx) = in_proc_channel(8);
+        let receiver = MppReceiver::new(Box::new(rx));
+        let handle = DrainHandle::cooperative(vec![receiver], None);
+        let (handler, _calls) = CapturingHandler::new();
+        handle.set_request_handler(Arc::clone(&handler) as Arc<dyn RequestHandler>);
+
+        push_request_frame(&tx, 0, 0, 0);
+        drop(tx);
+
+        let err = handle
+            .try_drain_pass()
+            .expect_err("Request on sender_proc=None drain must error");
+        assert!(
+            err.to_string().contains("sender_proc=None"),
+            "expected sender_proc=None mention, got {err}"
+        );
+    }
+
+    #[test]
+    fn drain_handle_propagates_handler_error() {
+        // If the handler's `on_request` returns `Err`, `try_drain_pass` must surface it. The
+        // service loop checks the registry's `first_error` between drain passes, but a transport
+        // error from the handler itself (e.g., dispatcher saw an unsupported plan shape) should
+        // not be silently swallowed.
+        let (tx, rx) = in_proc_channel(8);
+        let receiver = MppReceiver::new(Box::new(rx));
+        let handle = DrainHandle::cooperative(vec![receiver], Some(1));
+        let (handler, _calls) = CapturingHandler::new();
+        handler.set_force_err("synthetic handler failure");
+        handle.set_request_handler(Arc::clone(&handler) as Arc<dyn RequestHandler>);
+
+        push_request_frame(&tx, 0, 0, 0);
+        drop(tx);
+
+        let err = handle
+            .try_drain_pass()
+            .expect_err("handler Err must propagate");
+        assert!(
+            err.to_string().contains("synthetic handler failure"),
+            "expected synthetic message, got {err}"
+        );
+    }
+
+    #[test]
+    fn drain_handle_demuxes_request_among_batch_and_eof_frames() {
+        // A drain pass that sees a mix of Batch, Eof, and Request frames must route each one
+        // correctly: Batch → channel buffer, Eof → channel buffer source-done, Request →
+        // handler. Locks in the "collect-then-dispatch" structure of `try_drain_pass`: Batch and
+        // Eof frames land in their buffers regardless of where the Request sits in the queue.
+        let (tx, rx) = in_proc_channel(16);
+        let tx_arc: Arc<dyn BatchChannelSender> = Arc::new(tx);
+        let receiver = MppReceiver::new(Box::new(rx));
+        let handle = DrainHandle::cooperative(vec![receiver], Some(4));
+        let (handler, calls) = CapturingHandler::new();
+        handle.set_request_handler(Arc::clone(&handler) as Arc<dyn RequestHandler>);
+
+        // Interleave: Batch on (s=0,p=0), Request(s=1,t=2,p=3), Batch on (s=0,p=0), Eof(s=0,p=0).
+        let s00 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(0, 0));
+        s00.send_batch(&sample_batch(2)).unwrap();
+        push_request_frame(tx_arc.as_ref(), 1, 2, 3);
+        s00.send_batch(&sample_batch(3)).unwrap();
+        let mut eof_buf = Vec::new();
+        encode_eof_frame_into(0, 0, &mut eof_buf).unwrap();
+        tx_arc.send_bytes(&eof_buf).unwrap();
+
+        let buf = handle.register_channel(0, 0);
+
+        drop(s00);
+        drop(tx_arc);
+        drain_until_detached(&handle);
+
+        // Two Batches then EOF on (0, 0).
+        match buf.try_pop() {
+            Some(DrainItem::Batch(b)) => assert_eq!(b.num_rows(), 2),
+            other => panic!("expected first batch, got {other:?}"),
+        }
+        match buf.try_pop() {
+            Some(DrainItem::Batch(b)) => assert_eq!(b.num_rows(), 3),
+            other => panic!("expected second batch, got {other:?}"),
+        }
+        assert!(matches!(buf.try_pop(), Some(DrainItem::Eof)));
+
+        // Exactly one Request dispatched.
+        let captured = calls.recv_timeout(Duration::from_millis(100)).unwrap();
+        assert_eq!(captured, (4, 1, 2, 3));
+        assert!(calls.try_recv().is_err());
+    }
+
+    // ---------------------------------------------------------------------
+    // Consumer-detach sentinel contract.
+    //
+    // The producer-side driver in `worker.rs` treats "consumer torn down mid-stream" as a clean
+    // signal — returns `Ok(())` so the registry's `first_error` slot stays empty. The signal is
+    // recognised via [`CONSUMER_DETACHED_SENTINEL`] embedded in the sender's error message.
+    // These tests lock the contract for both transport backends (shm_mq's behavior is exercised
+    // by the integration tests; here we cover the in-proc backend which is shared between unit
+    // tests and worker self-loop routing).
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn consumer_detached_helper_round_trips_the_sentinel() {
+        let err = consumer_detached_error("unit test");
+        assert!(
+            err.to_string().contains(CONSUMER_DETACHED_SENTINEL),
+            "consumer_detached_error must embed CONSUMER_DETACHED_SENTINEL; got {err}"
+        );
+    }
+
+    #[test]
+    fn in_proc_send_after_receiver_drop_returns_consumer_detached() {
+        // The in-proc backend is the self-loop sender on every worker. If a consumer drops mid
+        // -stream, the next try_send / send must produce the sentinel error so `run_partition
+        // _driver`'s `is_consumer_detached` predicate returns `true` and the driver exits Ok.
+        let (tx, rx) = in_proc_channel(4);
+        drop(rx);
+
+        let err = tx
+            .try_send_bytes(b"frame after detach")
+            .expect_err("try_send after receiver drop must error");
+        assert!(
+            err.to_string().contains(CONSUMER_DETACHED_SENTINEL),
+            "try_send sentinel missing: {err}"
+        );
+
+        let err = tx
+            .send_bytes(b"frame after detach")
+            .expect_err("blocking send after receiver drop must error");
+        assert!(
+            err.to_string().contains(CONSUMER_DETACHED_SENTINEL),
+            "send sentinel missing: {err}"
+        );
+    }
 }

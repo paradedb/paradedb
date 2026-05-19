@@ -79,6 +79,37 @@ mod tests {
     use tantivy::directory::TerminatingWrite;
 
     #[pg_test]
+    unsafe fn test_ngram_array_field_has_positions() {
+        Spi::run("CREATE TABLE t_ngram_arr (id SERIAL, tags TEXT[]);").unwrap();
+        Spi::run(
+            "CREATE INDEX t_ngram_arr_idx ON t_ngram_arr USING bm25(id, tags) \
+             WITH (key_field = 'id', text_fields = '{\"tags\": {\"tokenizer\": {\"type\": \"ngram\", \"min_gram\": 2, \"max_gram\": 3, \"prefix_only\": false}, \"record\": \"position\"}}');",
+        )
+        .unwrap();
+        Spi::run(
+            "INSERT INTO t_ngram_arr (tags) VALUES (ARRAY['hello', 'world']), (ARRAY['help', 'worldwide']);",
+        )
+        .unwrap();
+        let count: Option<i64> = Spi::get_one(
+            "SELECT COUNT(*) FROM t_ngram_arr WHERE t_ngram_arr @@@ 'tags:hel';",
+        )
+        .expect("spi should succeed");
+        assert_eq!(count, Some(2));
+
+        let count: Option<i64> = Spi::get_one(
+            "SELECT COUNT(*) FROM t_ngram_arr WHERE t_ngram_arr @@@ 'tags:wor';",
+        )
+        .expect("spi should succeed");
+        assert_eq!(count, Some(2));
+
+        let count: Option<i64> = Spi::get_one(
+            "SELECT COUNT(*) FROM t_ngram_arr WHERE t_ngram_arr @@@ 'tags:xyz';",
+        )
+        .expect("spi should succeed");
+        assert_eq!(count, Some(0));
+    }
+
+    #[pg_test]
     unsafe fn test_segment_component_read_bytes() {
         Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
         Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id')").unwrap();

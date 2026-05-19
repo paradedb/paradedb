@@ -63,11 +63,11 @@ const NATURAL_GATHER_PARTITION: u32 = 0;
 /// path-builders gate `parallel_workers` on this.
 ///
 /// `>= 3` (not `>= 2`) because the leader is consumer-only: with `mpp_worker_count = 2`,
-/// [`producer_worker_count`] returns 1, so [`crate::postgres::customscan::aggregatescan`] sizes
-/// the DSM mesh as `1 × mpp_n_partitions = 1` while `with_target_partitions(2)` (clamped by
-/// `n_workers.max(2)`) makes the planner build a 2-partition shuffle. The mesh wouldn't have a
-/// queue for the second partition. Gating at `>= 3` keeps `producer_worker_count >= 2` so mesh
-/// shape and shuffle width line up.
+/// [`producer_worker_count`] returns 1 and the DSM mesh has one producer row, while
+/// `with_target_partitions(2)` (clamped by `n_workers.max(2)` in `build_mpp_session_context`)
+/// makes the planner build a 2-partition shuffle. The mesh wouldn't have a queue for the
+/// second partition. Gating at `>= 3` keeps `producer_worker_count >= 2` so mesh shape and
+/// shuffle width line up.
 pub fn mpp_is_active() -> bool {
     enable_mpp() && gucs_mpp_worker_count() >= 3
 }
@@ -76,6 +76,68 @@ pub fn mpp_is_active() -> bool {
 /// shape matches the planner's `target_partitions` (see [`mpp_is_active`]).
 pub fn mpp_worker_count() -> u32 {
     gucs_mpp_worker_count().max(3) as u32
+}
+
+/// Customscan-side header at offset 0 of the DSM coordinate that the leader hands to
+/// `leader_setup` / workers see in `initialize_worker_custom_scan`. Tells workers where the
+/// MPP region begins (past the customscan's `ParallelScanState` block) and which entry in
+/// `plan.sources()` is the partitioning source.
+///
+/// DSM layout used by every customscan opting into MPP:
+///
+/// ```text
+/// [0 .. 8)                       u64 mpp_offset            (offset to MPP region)
+/// [8 .. 16)                      u64 partitioning_source_idx
+/// [pscan_offset .. mpp_offset)   ParallelScanState (variable size)
+/// [mpp_offset .. total)          MPP region (MppDsmHeader + queues + plan_bytes)
+/// ```
+///
+/// Workers don't carry the source manifests the leader saw, so these two `u64`s let them skip
+/// past the `ParallelScanState` block and key `index_segment_ids` the same way as the leader.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct CustomScanMppHeader {
+    pub mpp_offset: u64,
+    pub partitioning_source_idx: u64,
+}
+
+const CUSTOM_SCAN_MPP_HEADER_SIZE: usize = std::mem::size_of::<CustomScanMppHeader>();
+
+/// Round `n` up to the nearest `MAXIMUM_ALIGNOF` boundary. Used to align section boundaries
+/// inside the customscan's DSM coordinate so the `ParallelScanState` block and the MPP region
+/// each start on aligned bytes.
+pub fn mpp_align(n: usize) -> usize {
+    let a = pg_sys::MAXIMUM_ALIGNOF as usize;
+    n.next_multiple_of(a)
+}
+
+/// Byte offset of the `ParallelScanState` block within the customscan's DSM coordinate. Lives
+/// right after the [`CustomScanMppHeader`], MAXALIGN-padded.
+pub fn pscan_offset() -> usize {
+    mpp_align(CUSTOM_SCAN_MPP_HEADER_SIZE)
+}
+
+/// Read the [`CustomScanMppHeader`] stamped by the leader at offset 0 of the DSM coordinate.
+///
+/// # Safety
+/// `coordinate` must point at a DSM coordinate that the leader populated via
+/// [`write_custom_scan_header`]. Callers in `initialize_worker_custom_scan` get this pointer
+/// from PG and are responsible for confirming it's the expected layout.
+pub unsafe fn read_custom_scan_header(coordinate: *const c_void) -> CustomScanMppHeader {
+    unsafe { *(coordinate as *const CustomScanMppHeader) }
+}
+
+/// Stamp the [`CustomScanMppHeader`] at offset 0 of the DSM coordinate so workers can read
+/// `mpp_offset` and `partitioning_source_idx` without re-deriving them from manifests.
+///
+/// # Safety
+/// `coordinate` must point at the leader's DSM coordinate from `initialize_dsm_custom_scan`,
+/// with at least `size_of::<CustomScanMppHeader>()` bytes writable. The customscan's
+/// `estimate_dsm_custom_scan` is responsible for reserving the space.
+pub unsafe fn write_custom_scan_header(coordinate: *mut c_void, header: CustomScanMppHeader) {
+    unsafe {
+        *(coordinate as *mut CustomScanMppHeader) = header;
+    }
 }
 
 /// Per-edge queue size from the GUC.
@@ -180,7 +242,6 @@ pub unsafe fn leader_setup(
     coordinate: *mut c_void,
     seg: *mut pg_sys::dsm_segment,
     pcxt: *mut pg_sys::ParallelContext,
-    n_partitions: u32,
     plan_bytes: Vec<u8>,
 ) -> Result<MppLeaderState, String> {
     let total_procs = n_procs();
@@ -188,7 +249,6 @@ pub unsafe fn leader_setup(
         .map_err(|e| format!("mpp: leader_setup compute layout: {e}"))?;
 
     let attach = unsafe { leader_init(coordinate, seg, &layout, &plan_bytes) }?;
-    let _ = n_partitions;
 
     // Each `DrainHandle` owns a per-`(stage_id, partition)` channel buffer registry, so one shm_mq
     // queue can carry frames from many logical channels. Channel buffers are created lazily on first

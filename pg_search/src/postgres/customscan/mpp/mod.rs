@@ -26,6 +26,7 @@
 //! consumer-side backpressure from producer-side backpressure.
 
 pub mod dsm;
+pub mod exec_worker;
 pub mod glue;
 pub mod mesh;
 pub mod runtime;

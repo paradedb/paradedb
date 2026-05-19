@@ -39,20 +39,17 @@ pub use targetlist::TargetListEntry;
 
 use std::sync::Arc;
 
-use datafusion::execution::{SessionStateBuilder, TaskContext};
+use datafusion::execution::TaskContext;
 use datafusion::physical_plan::ExecutionPlan;
-use datafusion_distributed::{
-    display_plan_ascii, DistributedExec, DistributedExt, DistributedTaskContext,
-    SessionStateBuilderExt,
-};
+use datafusion_distributed::{display_plan_ascii, DistributedExec, DistributedTaskContext};
 
 use crate::postgres::customscan::mpp::dsm::MppDsmHeader;
 use crate::postgres::customscan::mpp::glue::{
-    estimate_dsm_size, leader_setup, mpp_is_active, mpp_worker_count, producer_worker_count,
-    worker_setup,
+    estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, mpp_worker_count,
+    producer_worker_count, pscan_offset, read_custom_scan_header, worker_setup,
+    write_custom_scan_header, CustomScanMppHeader,
 };
-use crate::postgres::customscan::mpp::runtime::{MppMesh, MppWorkerResolver, ShmMqWorkerTransport};
-use crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator;
+use crate::postgres::customscan::mpp::runtime::MppMesh;
 
 use crate::api::agg_funcoid;
 use crate::api::SortDirection;
@@ -103,7 +100,7 @@ use crate::postgres::types::{is_datetime_type, TantivyValue};
 use crate::postgres::utils::{add_vars_to_tlist, is_unnest_func, make_text_const};
 use crate::postgres::PgSearchRelation;
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
-use crate::scan::codec::{serialize_logical_plan, PgSearchPhysicalCodecStub};
+use crate::scan::codec::serialize_logical_plan;
 use chrono::{DateTime as ChronoDateTime, Utc};
 use futures::StreamExt;
 use pgrx::{pg_sys, PgList, PgMemoryContexts, PgTupleDesc};
@@ -394,7 +391,6 @@ impl CustomScan for AggregateScan {
                     group_df_indices: Vec::new(),
                     mpp: None,
                     mpp_plan_bytes: None,
-                    mpp_n_partitions: 1,
                 });
                 builder.build()
             }
@@ -629,53 +625,6 @@ impl CustomScan for AggregateScan {
     }
 }
 
-/// MPP DSM hook impl. The query's serialized worker-fragment plan bytes are
-/// stashed on the customscan state by `begin_custom_scan` so estimate +
-/// initialize see the same bytes; without that we'd have to re-build the
-/// plan twice. The serialization itself happens via the
-/// `PgSearchExtensionCodec` and the DF-D fork's `DistributedCodec` so
-/// `NetworkShuffleExec` round-trips through the worker side.
-/// DSM layout used by AggregateScan in MPP mode:
-///
-/// ```text
-/// [0 .. 8)                     u64 mpp_offset            (offset to MPP region)
-/// [8 .. 16)                    u64 partitioning_source_idx
-/// [pscan_offset .. mpp_offset) ParallelScanState (variable size)
-/// [mpp_offset .. total)        MPP region (header + queues + plan_bytes)
-/// ```
-///
-/// Workers don't carry the source manifests the leader saw, so the
-/// MPP-region offset and the partitioning-source index are stamped into
-/// the first 16 bytes by the leader and read back by workers — neither
-/// has to be re-derived.
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct MppAggDsmHeader {
-    mpp_offset: u64,
-    partitioning_source_idx: u64,
-}
-
-const MPP_AGG_DSM_HEADER_SIZE: usize = std::mem::size_of::<MppAggDsmHeader>();
-
-fn mpp_align(n: usize) -> usize {
-    let a = pg_sys::MAXIMUM_ALIGNOF as usize;
-    n.next_multiple_of(a)
-}
-
-fn mpp_agg_pscan_offset() -> usize {
-    mpp_align(MPP_AGG_DSM_HEADER_SIZE)
-}
-
-unsafe fn mpp_agg_read_header(coordinate: *const std::os::raw::c_void) -> MppAggDsmHeader {
-    unsafe { *(coordinate as *const MppAggDsmHeader) }
-}
-
-unsafe fn mpp_agg_write_header(coordinate: *mut std::os::raw::c_void, header: MppAggDsmHeader) {
-    unsafe {
-        *(coordinate as *mut MppAggDsmHeader) = header;
-    }
-}
-
 impl ParallelQueryCapable for AggregateScan {
     fn estimate_dsm_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
@@ -699,7 +648,7 @@ impl ParallelQueryCapable for AggregateScan {
             .collect();
         let partitioning_idx = Self::partitioning_source_idx(state);
         let pscan_size = ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false);
-        let mpp_offset = mpp_align(mpp_agg_pscan_offset() + pscan_size);
+        let mpp_offset = mpp_align(pscan_offset() + pscan_size);
 
         let mpp_size = match estimate_dsm_size(plan_bytes_len) {
             Ok(sz) => sz,
@@ -723,7 +672,6 @@ impl ParallelQueryCapable for AggregateScan {
         let Some(plan_bytes) = df_state.mpp_plan_bytes.take() else {
             return;
         };
-        let n_partitions = df_state.mpp_n_partitions;
         let seg = unsafe { (*pcxt).seg };
 
         // Capture manifests + size the ParallelScanState block.
@@ -736,16 +684,16 @@ impl ParallelQueryCapable for AggregateScan {
             .map(|m| m.segment_count())
             .collect();
         let pscan_size = ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false);
-        let pscan_offset = mpp_agg_pscan_offset();
+        let pscan_offset = pscan_offset();
         let mpp_offset = mpp_align(pscan_offset + pscan_size);
 
         // Stamp the MPP-region offset and partitioning-source index into
         // the DSM header so workers can skip past the ParallelScanState
         // block and key index_segment_ids the same way as the leader.
         unsafe {
-            mpp_agg_write_header(
+            write_custom_scan_header(
                 coordinate,
-                MppAggDsmHeader {
+                CustomScanMppHeader {
                     mpp_offset: mpp_offset as u64,
                     partitioning_source_idx: partitioning_idx as u64,
                 },
@@ -778,14 +726,13 @@ impl ParallelQueryCapable for AggregateScan {
         // Init the MPP region.
         let mpp_coordinate =
             unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut std::os::raw::c_void };
-        let leader =
-            match unsafe { leader_setup(mpp_coordinate, seg, pcxt, n_partitions, plan_bytes) } {
-                Ok(l) => l,
-                Err(e) => {
-                    pgrx::warning!("mpp: leader_setup failed: {e}; falling back to serial");
-                    return;
-                }
-            };
+        let leader = match unsafe { leader_setup(mpp_coordinate, seg, pcxt, plan_bytes) } {
+            Ok(l) => l,
+            Err(e) => {
+                pgrx::warning!("mpp: leader_setup failed: {e}; falling back to serial");
+                return;
+            }
+        };
         let df_state = state
             .custom_state_mut()
             .datafusion_state
@@ -800,7 +747,7 @@ impl ParallelQueryCapable for AggregateScan {
         coordinate: *mut std::os::raw::c_void,
     ) {
         // Reset the ParallelScanState header so a re-execution re-claims segments.
-        let pscan_offset = mpp_agg_pscan_offset();
+        let pscan_offset = pscan_offset();
         let pscan_state =
             unsafe { (coordinate as *mut u8).add(pscan_offset) as *mut ParallelScanState };
         if !pscan_state.is_null() {
@@ -819,9 +766,9 @@ impl ParallelQueryCapable for AggregateScan {
 
         // Read the MPP-region offset + partitioning-source index from the
         // DSM header.
-        let header = unsafe { mpp_agg_read_header(coordinate) };
+        let header = unsafe { read_custom_scan_header(coordinate) };
         let mpp_offset = header.mpp_offset as usize;
-        let pscan_offset = mpp_agg_pscan_offset();
+        let pscan_offset = pscan_offset();
         state.custom_state_mut().mpp_partitioning_source_idx =
             Some(header.partitioning_source_idx as usize);
 
@@ -1049,65 +996,16 @@ impl AggregateScan {
             }
         };
         df_state.mpp_plan_bytes = Some(bytes.to_vec());
-        // Each producer writes `target_partitions` partitions per worker.
-        // The DF-D fork's `_distribute_plan` is patched so that in in-process
-        // mode (custom WorkerTransport registered) it clamps the Shuffle's
-        // consumer_task_count to 1, which disables `NetworkShuffleExec`'s
-        // per-task hash scaling. So producer output = target_partitions =
-        // n_workers (matching `build_mpp_session_context`).
-        let n_workers = producer_worker_count();
-        df_state.mpp_n_partitions = n_workers.max(1);
     }
 
-    /// MPP leader exec helper: build a `SessionContext` that mirrors
-    /// `create_aggregate_session_context`'s rules + the DF-D fork's
-    /// `with_distributed_planner` + our `ShmMqWorkerTransport` wired to the
-    /// runtime mesh. The resulting context, when used to
-    /// `create_physical_plan` over the leader's logical plan, returns a
-    /// `DistributedExec` whose `NetworkShuffleExec`s pull batches from the
-    /// shm_mq mesh at execute time.
+    /// Build the leader's distributed session context for this AggregateScan query. Thin
+    /// wrapper over the shape-agnostic [`crate::postgres::customscan::mpp::exec_worker::
+    /// build_mpp_session_context`] that seeds with `create_aggregate_session_context()`.
     fn build_mpp_session_context(mesh: Arc<MppMesh>) -> datafusion::prelude::SessionContext {
-        let serial = create_aggregate_session_context();
-        // Workers are procs 1..n_procs; leader is proc 0. The producer
-        // count is therefore `n_procs - 1`.
-        let n_workers = mesh.n_procs.saturating_sub(1).max(1) as usize;
-        // Four-knob unlock for actually inserting NetworkShuffleExec/etc.:
-        //   1. target_partitions(N) — without this, EnforceDistribution skips
-        //      every RepartitionExec, so the annotator never sees a Shuffle.
-        //   2. distributed_task_estimator(N) — without this, leaves default to
-        //      Maximum(1) and `_distribute_plan` elides every shuffle.
-        //   3. distributed_broadcast_joins(true) — CollectLeft HashJoins
-        //      otherwise cap their stage's task_count to Maximum(1) and
-        //      propagate that cap upward, eliding shuffles above the join.
-        //   4. distributed_user_codec — the DF-D fork's prepare_plan unconditionally
-        //      encodes worker subplans for gRPC shipment; without a codec for
-        //      our custom physical execs, encoding errors before execution.
-        //      In our model the encoded bytes are never observed (workers
-        //      re-plan from the logical plan in DSM), so the codec is a stub.
-        let cfg = serial
-            .copied_config()
-            .with_target_partitions(n_workers.max(2));
-
-        let state_builder = SessionStateBuilder::new()
-            .with_default_features()
-            .with_config(cfg)
-            .with_distributed_worker_resolver(MppWorkerResolver::new(n_workers))
-            .with_distributed_worker_transport(ShmMqWorkerTransport::new(mesh))
-            .with_distributed_in_process_mode(true)
-            .expect("with_distributed_in_process_mode")
-            // Estimator chain order matters. The DF-D fork tries each estimator in registration
-            // order until one returns Some. The build-side one-task estimator has to come first.
-            // Otherwise the default `Desired(n_workers)` leaf estimator wins, the all-gather
-            // memory leaf gets task_count = n_workers, `_distribute_plan` builds
-            // `NetworkBroadcastExec` with `input_task_count = n_workers`, and the consumer's
-            // `select_all` over-counts by n_workers. See task_estimator.rs.
-            .with_distributed_task_estimator(BroadcastBuildSideOneTaskEstimator)
-            .with_distributed_task_estimator(n_workers)
-            .with_distributed_broadcast_joins(true)
-            .expect("with_distributed_broadcast_joins")
-            .with_distributed_user_codec(PgSearchPhysicalCodecStub)
-            .with_distributed_planner();
-        datafusion::prelude::SessionContext::new_with_state(state_builder.build())
+        crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context(
+            create_aggregate_session_context(),
+            mesh,
+        )
     }
 
     /// Rebuild and render the DataFusion physical plan into the explainer.

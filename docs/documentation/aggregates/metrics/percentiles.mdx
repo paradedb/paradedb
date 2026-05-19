@@ -13,6 +13,17 @@ SELECT pdb.agg('{"percentiles": {"field": "rating", "percents": [50, 95]}}') FRO
 WHERE id @@@ pdb.all();
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({ percentiles: { field: "rating", percents: [50, 95] } }),
+  })
+  .from(mockItems)
+  .where(search.all(mockItems.id));
+```
+
 ```python Django
 from paradedb import Agg, All, ParadeDB
 
@@ -40,17 +51,6 @@ with Session(engine) as session:
 MockItem.search(:id)
         .match_all
         .facets_agg(agg: ParadeDB::Aggregations.percentiles(:rating, percents: [50, 95]))
-```
-
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    agg: search.agg({ percentiles: { field: "rating", percents: [50, 95] } }),
-  })
-  .from(mockItems)
-  .where(search.all(mockItems.id));
 ```
 
 </CodeGroup>

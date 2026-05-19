@@ -13,6 +13,19 @@ FROM mock_items
 WHERE description @@@ pdb.regex('key.*');
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.regex(mockItems.description, "key.*"));
+```
+
 ```python Django
 from paradedb import ParadeDB, Regex
 
@@ -39,19 +52,6 @@ with Session(engine) as session:
 MockItem.search(:description)
         .regex("key.*")
         .select(:description, :rating, :category)
-```
-
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(search.regex(mockItems.description, "key.*"));
 ```
 
 </CodeGroup>

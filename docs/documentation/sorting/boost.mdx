@@ -20,6 +20,28 @@ ORDER BY score DESC
 LIMIT 5;
 ```
 
+```ts Drizzle
+import { desc, or } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    score: search.score(mockItems.id),
+    description: mockItems.description,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    or(
+      search.matchAny(mockItems.description, search.boost("shoes", 2)),
+      search.matchAny(mockItems.category, "footwear"),
+    ),
+  )
+  .orderBy(desc(search.score(mockItems.id)))
+  .limit(5);
+```
+
 ```python Django
 from django.db.models import Q
 from paradedb import Match, ParadeDB, Score
@@ -68,28 +90,6 @@ MockItem.search(:description)
         .limit(5)
 ```
 
-```ts Drizzle
-import { desc, or } from "drizzle-orm";
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    id: mockItems.id,
-    score: search.score(mockItems.id),
-    description: mockItems.description,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(
-    or(
-      search.matchAny(mockItems.description, search.boost("shoes", 2)),
-      search.matchAny(mockItems.category, "footwear"),
-    ),
-  )
-  .orderBy(desc(search.score(mockItems.id)))
-  .limit(5);
-```
-
 </CodeGroup>
 
 `boost` takes a numeric value, which is the multiplicative boost factor. It can be any floating point number between `-2048` and `2048`.
@@ -103,6 +103,23 @@ FROM mock_items
 WHERE description @@@ pdb.regex('key.*')::pdb.boost(2)
 ORDER BY score DESC
 LIMIT 5;
+```
+
+```ts Drizzle
+import { desc } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    category: mockItems.category,
+    score: search.score(mockItems.id),
+  })
+  .from(mockItems)
+  .where(search.boost(search.regex(mockItems.description, "key.*"), 2))
+  .orderBy(desc(search.score(mockItems.id)))
+  .limit(5);
 ```
 
 ```python Django
@@ -145,6 +162,19 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+</CodeGroup>
+
+Boost can be used in conjunction with other type casts, like [fuzzy](/documentation/full-text/fuzzy):
+
+<CodeGroup>
+```sql SQL
+SELECT id, description, category, pdb.score(id)
+FROM mock_items
+WHERE description ||| 'shose'::pdb.fuzzy(2)::pdb.boost(2)
+ORDER BY score DESC
+LIMIT 5;
+```
+
 ```ts Drizzle
 import { desc } from "drizzle-orm";
 import { search } from "@paradedb/drizzle-paradedb";
@@ -157,22 +187,14 @@ await db
     score: search.score(mockItems.id),
   })
   .from(mockItems)
-  .where(search.boost(search.regex(mockItems.description, "key.*"), 2))
+  .where(
+    search.matchAny(
+      mockItems.description,
+      search.boost(search.fuzzy("shose", 2), 2),
+    ),
+  )
   .orderBy(desc(search.score(mockItems.id)))
   .limit(5);
-```
-
-</CodeGroup>
-
-Boost can be used in conjunction with other type casts, like [fuzzy](/documentation/full-text/fuzzy):
-
-<CodeGroup>
-```sql SQL
-SELECT id, description, category, pdb.score(id)
-FROM mock_items
-WHERE description ||| 'shose'::pdb.fuzzy(2)::pdb.boost(2)
-ORDER BY score DESC
-LIMIT 5;
 ```
 
 ```python Django
@@ -215,28 +237,6 @@ MockItem.search(:description)
         .limit(5)
 ```
 
-```ts Drizzle
-import { desc } from "drizzle-orm";
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    id: mockItems.id,
-    description: mockItems.description,
-    category: mockItems.category,
-    score: search.score(mockItems.id),
-  })
-  .from(mockItems)
-  .where(
-    search.matchAny(
-      mockItems.description,
-      search.boost(search.fuzzy("shose", 2), 2),
-    ),
-  )
-  .orderBy(desc(search.score(mockItems.id)))
-  .limit(5);
-```
-
 </CodeGroup>
 
 ## Constant Scoring
@@ -253,6 +253,23 @@ FROM mock_items
 WHERE description ||| 'shoes'::pdb.const(1)
 ORDER BY score DESC
 LIMIT 5;
+```
+
+```ts Drizzle
+import { desc } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    score: search.score(mockItems.id),
+    description: mockItems.description,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, search.constant("shoes", 1)))
+  .orderBy(desc(search.score(mockItems.id)))
+  .limit(5);
 ```
 
 ```python Django
@@ -293,23 +310,6 @@ MockItem.search(:description)
         .select(:id, :description, :category)
         .order(search_score: :desc)
         .limit(5)
-```
-
-```ts Drizzle
-import { desc } from "drizzle-orm";
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    id: mockItems.id,
-    score: search.score(mockItems.id),
-    description: mockItems.description,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(search.matchAny(mockItems.description, search.constant("shoes", 1)))
-  .orderBy(desc(search.score(mockItems.id)))
-  .limit(5);
 ```
 
 </CodeGroup>

@@ -17,6 +17,17 @@ FROM mock_items
 WHERE id @@@ pdb.all();
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({ histogram: { field: "rating", interval: "1" } }),
+  })
+  .from(mockItems)
+  .where(search.all(mockItems.id));
+```
+
 ```python Django
 from paradedb import Agg, All, ParadeDB
 
@@ -44,17 +55,6 @@ with Session(engine) as session:
 MockItem.search(:id)
         .match_all
         .facets_agg(agg: ParadeDB::Aggregations.histogram(:rating, interval: 1))
-```
-
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    agg: search.agg({ histogram: { field: "rating", interval: "1" } }),
-  })
-  .from(mockItems)
-  .where(search.all(mockItems.id));
 ```
 
 </CodeGroup>

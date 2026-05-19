@@ -19,6 +19,21 @@ ORDER BY pdb.score(id) DESC
 LIMIT 5;
 ```
 
+```ts Drizzle
+import { desc } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    score: search.score(mockItems.id),
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "shoes"))
+  .orderBy(desc(search.score(mockItems.id)))
+  .limit(5);
+```
+
 ```python Django
 from paradedb import Match, ParadeDB, Score
 
@@ -54,21 +69,6 @@ MockItem.search(:description)
         .limit(5)
 ```
 
-```ts Drizzle
-import { desc } from "drizzle-orm";
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    id: mockItems.id,
-    score: search.score(mockItems.id),
-  })
-  .from(mockItems)
-  .where(search.matchAny(mockItems.description, "shoes"))
-  .orderBy(desc(search.score(mockItems.id)))
-  .limit(5);
-```
-
 </CodeGroup>
 
 In order for a field to be factored into the BM25 score, it must be present in the BM25 index. For instance,
@@ -81,6 +81,26 @@ FROM mock_items
 WHERE description ||| 'keyboard' OR rating < 2
 ORDER BY pdb.score(id) DESC
 LIMIT 5;
+```
+
+```ts Drizzle
+import { desc, lt, or } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    score: search.score(mockItems.id),
+  })
+  .from(mockItems)
+  .where(
+    or(
+      search.matchAny(mockItems.description, "keyboard"),
+      lt(mockItems.rating, 2),
+    ),
+  )
+  .orderBy(desc(search.score(mockItems.id)))
+  .limit(5);
 ```
 
 ```python Django
@@ -120,26 +140,6 @@ MockItem.search(:description)
         .limit(5)
 ```
 
-```ts Drizzle
-import { desc, lt, or } from "drizzle-orm";
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    id: mockItems.id,
-    score: search.score(mockItems.id),
-  })
-  .from(mockItems)
-  .where(
-    or(
-      search.matchAny(mockItems.description, "keyboard"),
-      lt(mockItems.rating, 2),
-    ),
-  )
-  .orderBy(desc(search.score(mockItems.id)))
-  .limit(5);
-```
-
 </CodeGroup>
 
 While BM25 scores will be returned as long as `description` is indexed, including `rating` in the BM25 index definition will allow results matching
@@ -177,6 +177,31 @@ JOIN mock_items m ON o.product_id = m.id
 WHERE o.customer_name ||| 'Johnson' AND m.description ||| 'running shoes'
 ORDER BY score DESC, o.order_id
 LIMIT 5;
+```
+
+```ts Drizzle
+import { and, desc, eq, sql } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+const score = sql`${search.score(orders.orderId)} + ${search.score(mockItems.id)}`;
+
+await db
+  .select({
+    orderId: orders.orderId,
+    customerName: orders.customerName,
+    description: mockItems.description,
+    score,
+  })
+  .from(orders)
+  .innerJoin(mockItems, eq(orders.productId, mockItems.id))
+  .where(
+    and(
+      search.matchAny(orders.customerName, "Johnson"),
+      search.matchAny(mockItems.description, "running shoes"),
+    ),
+  )
+  .orderBy(desc(score), orders.orderId)
+  .limit(5);
 ```
 
 ```python Django
@@ -248,31 +273,6 @@ Order.joins(join)
        Arel::Nodes::Ascending.new(orders[:order_id])
      )
      .limit(5)
-```
-
-```ts Drizzle
-import { and, desc, eq, sql } from "drizzle-orm";
-import { search } from "@paradedb/drizzle-paradedb";
-
-const score = sql`${search.score(orders.orderId)} + ${search.score(mockItems.id)}`;
-
-await db
-  .select({
-    orderId: orders.orderId,
-    customerName: orders.customerName,
-    description: mockItems.description,
-    score,
-  })
-  .from(orders)
-  .innerJoin(mockItems, eq(orders.productId, mockItems.id))
-  .where(
-    and(
-      search.matchAny(orders.customerName, "Johnson"),
-      search.matchAny(mockItems.description, "running shoes"),
-    ),
-  )
-  .orderBy(desc(score), orders.orderId)
-  .limit(5);
 ```
 
 </CodeGroup>

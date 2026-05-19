@@ -23,6 +23,15 @@ ON mock_items USING bm25 (id, description, category)
 WITH (key_field = 'id');
 ```
 
+```ts Drizzle
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx_v2")
+  .on(mockItems.id, mockItems.description, mockItems.category)
+  .concurrently();
+```
+
 ```python Django
 from django.db import connection
 from paradedb.indexes import BM25Index
@@ -74,15 +83,6 @@ ActiveRecord::Base.connection.add_bm25_index(
   name: :search_idx_v2,
   concurrently: true
 )
-```
-
-```ts Drizzle
-import { indexing } from "@paradedb/drizzle-paradedb";
-
-indexing
-  .bm25Index("search_idx_v2")
-  .on(mockItems.id, mockItems.description, mockItems.category)
-  .concurrently();
 ```
 
 </CodeGroup>

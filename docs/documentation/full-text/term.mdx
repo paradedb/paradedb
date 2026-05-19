@@ -25,6 +25,30 @@ FROM mock_items
 WHERE description === 'RUNNING';
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+// Term query 1
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.description, "running"));
+
+// Term query 2
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.description, "RUNNING"));
+```
+
 ```python Django
 from paradedb import ParadeDB, Term
 
@@ -71,30 +95,6 @@ MockItem.search(:description)
 MockItem.search(:description)
         .term("RUNNING")
         .select(:description, :rating, :category)
-```
-
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-// Term query 1
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(search.term(mockItems.description, "running"));
-
-// Term query 2
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(search.term(mockItems.description, "RUNNING"));
 ```
 
 </CodeGroup>
@@ -154,6 +154,19 @@ FROM mock_items
 WHERE description === ARRAY['shoes', 'running'];
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.description, ["shoes", "running"]));
+```
+
 ```python Django
 from paradedb import ParadeDB, TermSet
 
@@ -185,19 +198,6 @@ with Session(engine) as session:
 MockItem.search(:description)
         .term_set("shoes", "running")
         .select(:description, :rating, :category)
-```
-
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(search.term(mockItems.description, ["shoes", "running"]));
 ```
 
 </CodeGroup>

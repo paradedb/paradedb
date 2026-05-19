@@ -13,6 +13,22 @@ FROM mock_items
 WHERE id @@@ pdb.all();
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({
+      range: {
+        field: "rating",
+        ranges: [{ to: 3.0 }, { from: 3.0, to: 6.0 }],
+      },
+    }),
+  })
+  .from(mockItems)
+  .where(search.all(mockItems.id));
+```
+
 ```python Django
 from paradedb import Agg, All, ParadeDB
 
@@ -52,22 +68,6 @@ MockItem.search(:id)
             ranges: [{ to: 3.0 }, { from: 3.0, to: 6.0 }]
           )
         )
-```
-
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    agg: search.agg({
-      range: {
-        field: "rating",
-        ranges: [{ to: 3.0 }, { from: 3.0, to: 6.0 }],
-      },
-    }),
-  })
-  .from(mockItems)
-  .where(search.all(mockItems.id));
 ```
 
 </CodeGroup>

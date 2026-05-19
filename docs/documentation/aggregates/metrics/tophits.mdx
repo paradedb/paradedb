@@ -18,6 +18,24 @@ WHERE id @@@ pdb.all()
 GROUP BY rating;
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({
+      top_hits: {
+        size: 3,
+        sort: [{ created_at: "desc" }],
+        docvalue_fields: ["id", "created_at"],
+      },
+    }),
+  })
+  .from(mockItems)
+  .where(search.all(mockItems.id))
+  .groupBy(mockItems.rating);
+```
+
 ```python Django
 from paradedb import Agg, All, ParadeDB
 
@@ -65,24 +83,6 @@ MockItem.search(:id)
         )
 ```
 
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    agg: search.agg({
-      top_hits: {
-        size: 3,
-        sort: [{ created_at: "desc" }],
-        docvalue_fields: ["id", "created_at"],
-      },
-    }),
-  })
-  .from(mockItems)
-  .where(search.all(mockItems.id))
-  .groupBy(mockItems.rating);
-```
-
 </CodeGroup>
 
 ```ini Expected Response
@@ -110,6 +110,25 @@ SELECT pdb.agg('{"top_hits": {"size": 3, "from": 1, "sort": [{"created_at": "des
 FROM mock_items
 WHERE id @@@ pdb.all()
 GROUP BY rating;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({
+      top_hits: {
+        size: 3,
+        from: 1,
+        sort: [{ created_at: "desc" }],
+        docvalue_fields: ["id", "created_at"],
+      },
+    }),
+  })
+  .from(mockItems)
+  .where(search.all(mockItems.id))
+  .groupBy(mockItems.rating);
 ```
 
 ```python Django
@@ -161,25 +180,6 @@ MockItem.search(:id)
         )
 ```
 
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    agg: search.agg({
-      top_hits: {
-        size: 3,
-        from: 1,
-        sort: [{ created_at: "desc" }],
-        docvalue_fields: ["id", "created_at"],
-      },
-    }),
-  })
-  .from(mockItems)
-  .where(search.all(mockItems.id))
-  .groupBy(mockItems.rating);
-```
-
 </CodeGroup>
 
 If multiple fields are passed into `sort`, the additional fields are used as tiebreakers:
@@ -190,6 +190,24 @@ SELECT pdb.agg('{"top_hits": {"size": 3, "sort": [{"created_at": "desc"}, {"id":
 FROM mock_items
 WHERE id @@@ pdb.all()
 GROUP BY rating;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({
+      top_hits: {
+        size: 3,
+        sort: [{ created_at: "desc" }, { id: "asc" }],
+        docvalue_fields: ["id", "created_at"],
+      },
+    }),
+  })
+  .from(mockItems)
+  .where(search.all(mockItems.id))
+  .groupBy(mockItems.rating);
 ```
 
 ```python Django
@@ -237,24 +255,6 @@ MockItem.search(:id)
             docvalue_fields: %w[id created_at]
           )
         )
-```
-
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    agg: search.agg({
-      top_hits: {
-        size: 3,
-        sort: [{ created_at: "desc" }, { id: "asc" }],
-        docvalue_fields: ["id", "created_at"],
-      },
-    }),
-  })
-  .from(mockItems)
-  .where(search.all(mockItems.id))
-  .groupBy(mockItems.rating);
 ```
 
 </CodeGroup>

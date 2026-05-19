@@ -47,6 +47,21 @@ MockItem.more_like_this(3)
         .order(:id)
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.moreLikeThisId(mockItems.id, 3))
+  .orderBy(mockItems.id);
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -106,6 +121,21 @@ with Session(engine) as session:
 MockItem.more_like_this(3, fields: [:description])
         .select(:id, :description, :rating, :category)
         .order(:id)
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.moreLikeThisId(mockItems.id, 3, { fields: ["description"] }))
+  .orderBy(mockItems.id);
 ```
 
 </CodeGroup>
@@ -181,6 +211,26 @@ MockItem.more_like_this({ description: "Sleek running shoes", category: "footwea
         .order(:id)
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.moreLikeThisDocument(mockItems.id, {
+      description: "Sleek running shoes",
+      category: "footwear",
+    }),
+  )
+  .orderBy(mockItems.id);
+```
+
 </CodeGroup>
 
 ## Configuration Options
@@ -230,6 +280,21 @@ MockItem.more_like_this(3, min_term_freq: 2)
         .order(:id)
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.moreLikeThisId(mockItems.id, 3, { minTermFrequency: 2 }))
+  .orderBy(mockItems.id);
+```
+
 </CodeGroup>
 
 ### Document Frequency
@@ -273,6 +338,21 @@ with Session(engine) as session:
 MockItem.more_like_this(3, min_doc_freq: 3)
         .select(:id, :description, :rating, :category)
         .order(:id)
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.moreLikeThisId(mockItems.id, 3, { minDocFrequency: 3 }))
+  .orderBy(mockItems.id);
 ```
 
 </CodeGroup>
@@ -322,6 +402,21 @@ MockItem.more_like_this(3, max_query_terms: 10)
         .order(:id)
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.moreLikeThisId(mockItems.id, 3, { maxQueryTerms: 10 }))
+  .orderBy(mockItems.id);
+```
+
 </CodeGroup>
 
 ### Term Length
@@ -366,6 +461,21 @@ MockItem.more_like_this(3, min_word_length: 5)
         .order(:id)
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.moreLikeThisId(mockItems.id, 3, { minWordLength: 5 }))
+  .orderBy(mockItems.id);
+```
+
 </CodeGroup>
 
 ### Custom Stopwords
@@ -407,6 +517,21 @@ with Session(engine) as session:
 MockItem.more_like_this(3, stopwords: %w[the a])
         .select(:id, :description, :rating, :category)
         .order(:id)
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.moreLikeThisId(mockItems.id, 3, { stopwords: ["the", "a"] }))
+  .orderBy(mockItems.id);
 ```
 
 </CodeGroup>

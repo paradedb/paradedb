@@ -63,6 +63,14 @@ ActiveRecord::Base.connection.add_bm25_index(
 )
 ```
 
+```ts Drizzle
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(mockItems.id, mockItems.description, mockItems.category);
+```
+
 </CodeGroup>
 
 <Note>
@@ -95,6 +103,12 @@ with engine.begin() as conn:
 
 ```ruby Rails
 ActiveRecord::Base.connection.remove_bm25_index(:mock_items, name: :search_idx)
+```
+
+```ts Drizzle
+import { sql } from "drizzle-orm";
+
+await db.execute(sql`DROP INDEX search_idx`);
 ```
 
 </CodeGroup>
@@ -165,6 +179,18 @@ ActiveRecord::Base.connection.add_bm25_index(
   key_field: :id,
   name: :search_idx
 )
+```
+
+```ts Drizzle
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(
+    mockItems.id,
+    indexing.bm25Field(mockItems.description, tokenizer.icu()),
+    mockItems.category,
+  );
 ```
 
 </CodeGroup>
@@ -241,6 +267,23 @@ ActiveRecord::Base.connection.add_bm25_index(
   key_field: :id,
   name: :search_idx
 )
+```
+
+```ts Drizzle
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(
+    mockItems.id,
+    mockItems.description,
+    mockItems.category,
+    mockItems.rating,
+    mockItems.inStock,
+    mockItems.createdAt,
+    mockItems.metadata,
+    mockItems.weightRange,
+  );
 ```
 
 </CodeGroup>
@@ -339,6 +382,21 @@ ActiveRecord::Base.connection.add_bm25_index(
   key_field: :id,
   name: :search_idx
 )
+```
+
+```ts Drizzle
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(
+    mockItems.id,
+    indexing.bm25Field(
+      mockItems.description,
+      tokenizer.simple({ stemmer: "english" }),
+    ),
+    mockItems.category,
+  );
 ```
 
 </CodeGroup>

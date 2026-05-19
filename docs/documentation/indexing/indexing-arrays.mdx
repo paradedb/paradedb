@@ -67,6 +67,12 @@ ActiveRecord::Base.connection.add_bm25_index(
 )
 ```
 
+```ts Drizzle
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+indexing.bm25Index("search_idx").on(arrayDemo.id, arrayDemo.categories);
+```
+
 </CodeGroup>
 
 Under the hood, each element in the array is indexed as a separate entry. This means that an array is considered a
@@ -137,6 +143,17 @@ ActiveRecord::Base.connection.add_bm25_index(
   key_field: :id,
   name: :search_idx
 )
+```
+
+```ts Drizzle
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(
+    arrayDemo.id,
+    indexing.bm25Field(arrayDemo.categories, tokenizer.literal()),
+  );
 ```
 
 </CodeGroup>

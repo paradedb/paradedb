@@ -310,6 +310,7 @@ jobs:
         paradedb/django-paradedb
         paradedb/rails-paradedb
         paradedb/sqlalchemy-paradedb
+        paradedb/drizzle-paradedb
 
     steps:
       - name: Retrieve GitHub Release Version

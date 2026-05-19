@@ -68,6 +68,28 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```ts Drizzle
+import { desc, or } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    score: search.score(mockItems.id),
+    description: mockItems.description,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    or(
+      search.matchAny(mockItems.description, search.boost("shoes", 2)),
+      search.matchAny(mockItems.category, "footwear"),
+    ),
+  )
+  .orderBy(desc(search.score(mockItems.id)))
+  .limit(5);
+```
+
 </CodeGroup>
 
 `boost` takes a numeric value, which is the multiplicative boost factor. It can be any floating point number between `-2048` and `2048`.
@@ -123,6 +145,23 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```ts Drizzle
+import { desc } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    category: mockItems.category,
+    score: search.score(mockItems.id),
+  })
+  .from(mockItems)
+  .where(search.boost(search.regex(mockItems.description, "key.*"), 2))
+  .orderBy(desc(search.score(mockItems.id)))
+  .limit(5);
+```
+
 </CodeGroup>
 
 Boost can be used in conjunction with other type casts, like [fuzzy](/documentation/full-text/fuzzy):
@@ -174,6 +213,28 @@ MockItem.search(:description)
         .select(:id, :description, :category)
         .order(search_score: :desc)
         .limit(5)
+```
+
+```ts Drizzle
+import { desc } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    category: mockItems.category,
+    score: search.score(mockItems.id),
+  })
+  .from(mockItems)
+  .where(
+    search.matchAny(
+      mockItems.description,
+      search.boost(search.fuzzy("shose", 2), 2),
+    ),
+  )
+  .orderBy(desc(search.score(mockItems.id)))
+  .limit(5);
 ```
 
 </CodeGroup>
@@ -232,6 +293,23 @@ MockItem.search(:description)
         .select(:id, :description, :category)
         .order(search_score: :desc)
         .limit(5)
+```
+
+```ts Drizzle
+import { desc } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    score: search.score(mockItems.id),
+    description: mockItems.description,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, search.constant("shoes", 1)))
+  .orderBy(desc(search.score(mockItems.id)))
+  .limit(5);
 ```
 
 </CodeGroup>

@@ -87,6 +87,35 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+// Query against `description_simple`
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.matchAny(
+      search.alias(mockItems.description, "description_simple"),
+      "Sleek running shoes",
+    ),
+  );
+
+// Query against `description`
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "Sleek running shoes"));
+```
+
 </CodeGroup>
 
 <Note>

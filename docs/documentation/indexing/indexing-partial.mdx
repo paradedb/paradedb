@@ -71,6 +71,16 @@ ActiveRecord::Base.connection.add_bm25_index(
 )
 ```
 
+```ts Drizzle
+import { isNotNull } from "drizzle-orm";
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(mockItems.id, mockItems.description, mockItems.category)
+  .where(isNotNull(mockItems.description));
+```
+
 </CodeGroup>
 
 An important note: if the BM25 index has a `WHERE` condition, queries **must have the same `WHERE` condition** in order for the index to be used.

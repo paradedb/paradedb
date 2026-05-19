@@ -18,6 +18,21 @@ SELECT
 FROM mock_items;
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    electronicsCount: search
+      .agg({ value_count: { field: "id" } })
+      .filter(search.term(mockItems.category, "electronics")),
+    footwearCount: search
+      .agg({ value_count: { field: "id" } })
+      .filter(search.term(mockItems.category, "footwear")),
+  })
+  .from(mockItems);
+```
+
 ```python Django
 from django.db.models import Q
 from paradedb import Agg, ParadeDB, Term
@@ -65,21 +80,6 @@ result = MockItem.facets_agg(
     term: "footwear"
   )
 )
-```
-
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    electronicsCount: search
-      .agg({ value_count: { field: "id" } })
-      .filter(search.term(mockItems.category, "electronics")),
-    footwearCount: search
-      .agg({ value_count: { field: "id" } })
-      .filter(search.term(mockItems.category, "footwear")),
-  })
-  .from(mockItems);
 ```
 
 </CodeGroup>

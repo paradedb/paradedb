@@ -20,6 +20,23 @@ WHERE rating = 5
 AND id @@@ pdb.all();
 ```
 
+```ts Drizzle
+import { and, count, eq } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+// Not pushed down — no ParadeDB operator
+await db
+  .select({ count: count(mockItems.id) })
+  .from(mockItems)
+  .where(eq(mockItems.rating, 5));
+
+// Pushed down — ParadeDB operator triggers aggregate pushdown
+await db
+  .select({ count: count(mockItems.id) })
+  .from(mockItems)
+  .where(and(eq(mockItems.rating, 5), search.all(mockItems.id)));
+```
+
 ```python Django
 from paradedb import All, ParadeDB
 
@@ -57,23 +74,6 @@ MockItem.where(rating: 5).count
 
 # Pushed down — ParadeDB operator triggers aggregate pushdown
 MockItem.search(:id).match_all.where(rating: 5).count
-```
-
-```ts Drizzle
-import { and, count, eq } from "drizzle-orm";
-import { search } from "@paradedb/drizzle-paradedb";
-
-// Not pushed down — no ParadeDB operator
-await db
-  .select({ count: count(mockItems.id) })
-  .from(mockItems)
-  .where(eq(mockItems.rating, 5));
-
-// Pushed down — ParadeDB operator triggers aggregate pushdown
-await db
-  .select({ count: count(mockItems.id) })
-  .from(mockItems)
-  .where(and(eq(mockItems.rating, 5), search.all(mockItems.id)));
 ```
 
 </CodeGroup>

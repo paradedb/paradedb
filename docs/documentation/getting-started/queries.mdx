@@ -19,6 +19,27 @@ ORDER BY rating
 LIMIT 5;
 ```
 
+```ts Drizzle
+import { and, gt } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    and(
+      search.matchAny(mockItems.description, "running shoes"),
+      gt(mockItems.rating, 2),
+    ),
+  )
+  .orderBy(mockItems.rating)
+  .limit(5);
+```
+
 ```python Django
 from paradedb import Match, ParadeDB
 
@@ -53,27 +74,6 @@ MockItem.search(:description)
         .limit(5)
 ```
 
-```ts Drizzle
-import { and, gt } from "drizzle-orm";
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(
-    and(
-      search.matchAny(mockItems.description, "running shoes"),
-      gt(mockItems.rating, 2),
-    ),
-  )
-  .orderBy(mockItems.rating)
-  .limit(5);
-```
-
 </CodeGroup>
 
 ```ini Expected Response
@@ -97,6 +97,27 @@ FROM mock_items
 WHERE description &&& 'running shoes' AND rating > 2
 ORDER BY rating
 LIMIT 5;
+```
+
+```ts Drizzle
+import { and, gt } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    and(
+      search.matchAll(mockItems.description, "running shoes"),
+      gt(mockItems.rating, 2),
+    ),
+  )
+  .orderBy(mockItems.rating)
+  .limit(5);
 ```
 
 ```python Django
@@ -133,27 +154,6 @@ MockItem.search(:description)
         .limit(5)
 ```
 
-```ts Drizzle
-import { and, gt } from "drizzle-orm";
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(
-    and(
-      search.matchAll(mockItems.description, "running shoes"),
-      gt(mockItems.rating, 2),
-    ),
-  )
-  .orderBy(mockItems.rating)
-  .limit(5);
-```
-
 </CodeGroup>
 
 ```ini Expected Response
@@ -174,6 +174,26 @@ FROM mock_items
 WHERE description ||| 'running shoes' AND rating > 2
 ORDER BY score DESC
 LIMIT 5;
+```
+
+```ts Drizzle
+import { and, desc, gt } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    score: search.score(mockItems.id),
+  })
+  .from(mockItems)
+  .where(
+    and(
+      search.matchAny(mockItems.description, "running shoes"),
+      gt(mockItems.rating, 2),
+    ),
+  )
+  .orderBy(desc(search.score(mockItems.id)))
+  .limit(5);
 ```
 
 ```python Django
@@ -213,26 +233,6 @@ MockItem.search(:description)
         .limit(5)
 ```
 
-```ts Drizzle
-import { and, desc, gt } from "drizzle-orm";
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    score: search.score(mockItems.id),
-  })
-  .from(mockItems)
-  .where(
-    and(
-      search.matchAny(mockItems.description, "running shoes"),
-      gt(mockItems.rating, 2),
-    ),
-  )
-  .orderBy(desc(search.score(mockItems.id)))
-  .limit(5);
-```
-
 </CodeGroup>
 
 ```ini Expected Response
@@ -256,6 +256,27 @@ FROM mock_items
 WHERE description ||| 'running shoes' AND rating > 2
 ORDER BY score DESC
 LIMIT 5;
+```
+
+```ts Drizzle
+import { and, desc, gt } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    snippet: search.snippet(mockItems.description),
+    score: search.score(mockItems.id),
+  })
+  .from(mockItems)
+  .where(
+    and(
+      search.matchAny(mockItems.description, "running shoes"),
+      gt(mockItems.rating, 2),
+    ),
+  )
+  .orderBy(desc(search.score(mockItems.id)))
+  .limit(5);
 ```
 
 ```python Django
@@ -301,27 +322,6 @@ MockItem.search(:description)
         .limit(5)
 ```
 
-```ts Drizzle
-import { and, desc, gt } from "drizzle-orm";
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    snippet: search.snippet(mockItems.description),
-    score: search.score(mockItems.id),
-  })
-  .from(mockItems)
-  .where(
-    and(
-      search.matchAny(mockItems.description, "running shoes"),
-      gt(mockItems.rating, 2),
-    ),
-  )
-  .orderBy(desc(search.score(mockItems.id)))
-  .limit(5);
-```
-
 </CodeGroup>
 
 ```ini Expected Response
@@ -344,6 +344,21 @@ FROM mock_items
 WHERE description ||| 'running shoes'
 ORDER BY rating
 LIMIT 5;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "running shoes"))
+  .orderBy(mockItems.rating)
+  .limit(5);
 ```
 
 ```python Django
@@ -378,21 +393,6 @@ MockItem.search(:description)
         .limit(5)
 ```
 
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(search.matchAny(mockItems.description, "running shoes"))
-  .orderBy(mockItems.rating)
-  .limit(5);
-```
-
 </CodeGroup>
 
 ```ini Expected Response
@@ -420,6 +420,22 @@ FROM mock_items
 WHERE description ||| 'running shoes'
 ORDER BY rating
 LIMIT 5;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+    agg: search.agg({ value_count: { field: "id" } }).over(),
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "running shoes"))
+  .orderBy(mockItems.rating)
+  .limit(5);
 ```
 
 ```python Django
@@ -463,22 +479,6 @@ relation = MockItem.search(:description)
 
 rows = relation.to_a
 facets = relation.aggregates
-```
-
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-    agg: search.agg({ value_count: { field: "id" } }).over(),
-  })
-  .from(mockItems)
-  .where(search.matchAny(mockItems.description, "running shoes"))
-  .orderBy(mockItems.rating)
-  .limit(5);
 ```
 
 </CodeGroup>

@@ -42,6 +42,40 @@ WHERE description === 'shose'::pdb.fuzzy(2)
 LIMIT 5;
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+// Fuzzy match disjunction
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, search.fuzzy("runing shose", 2)))
+  .limit(5);
+
+// Fuzzy match conjunction
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+  })
+  .from(mockItems)
+  .where(search.matchAll(mockItems.description, search.fuzzy("runing shose", 2)))
+  .limit(5);
+
+// Fuzzy term
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.description, search.fuzzy("shose", 2)))
+  .limit(5);
+```
+
 ```python Django
 from paradedb import Match, ParadeDB, Term
 
@@ -112,40 +146,6 @@ MockItem.search(:description)
         .limit(5)
 ```
 
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-// Fuzzy match disjunction
-await db
-  .select({
-    id: mockItems.id,
-    description: mockItems.description,
-  })
-  .from(mockItems)
-  .where(search.matchAny(mockItems.description, search.fuzzy("runing shose", 2)))
-  .limit(5);
-
-// Fuzzy match conjunction
-await db
-  .select({
-    id: mockItems.id,
-    description: mockItems.description,
-  })
-  .from(mockItems)
-  .where(search.matchAll(mockItems.description, search.fuzzy("runing shose", 2)))
-  .limit(5);
-
-// Fuzzy term
-await db
-  .select({
-    id: mockItems.id,
-    description: mockItems.description,
-  })
-  .from(mockItems)
-  .where(search.term(mockItems.description, search.fuzzy("shose", 2)))
-  .limit(5);
-```
-
 </CodeGroup>
 
 ## How It Works
@@ -178,6 +178,19 @@ WHERE description === 'rann'::pdb.fuzzy(1, t)
 LIMIT 5;
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.description, search.fuzzy("rann", 1, true)))
+  .limit(5);
+```
+
 ```python Django
 from paradedb import ParadeDB, Term
 
@@ -208,19 +221,6 @@ MockItem.search(:description)
         .limit(5)
 ```
 
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    id: mockItems.id,
-    description: mockItems.description,
-  })
-  .from(mockItems)
-  .where(search.term(mockItems.description, search.fuzzy("rann", 1, true)))
-  .limit(5);
-```
-
 </CodeGroup>
 
 <Note>
@@ -236,6 +236,19 @@ SELECT id, description
 FROM mock_items
 WHERE description &&& 'slee rann'::pdb.fuzzy(1, t)
 LIMIT 5;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+  })
+  .from(mockItems)
+  .where(search.matchAll(mockItems.description, search.fuzzy("slee rann", 1, true)))
+  .limit(5);
 ```
 
 ```python Django
@@ -268,19 +281,6 @@ MockItem.search(:description)
         .limit(5)
 ```
 
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    id: mockItems.id,
-    description: mockItems.description,
-  })
-  .from(mockItems)
-  .where(search.matchAll(mockItems.description, search.fuzzy("slee rann", 1, true)))
-  .limit(5);
-```
-
 </CodeGroup>
 
 ## Transposition Cost
@@ -294,6 +294,19 @@ SELECT id, description
 FROM mock_items
 WHERE description === 'shose'::pdb.fuzzy(1, f, t)
 LIMIT 5;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.description, search.fuzzy("shose", 1, false, true)))
+  .limit(5);
 ```
 
 ```python Django
@@ -324,19 +337,6 @@ MockItem.search(:description)
         .term("shose", distance: 1, transposition_cost_one: true)
         .select(:id, :description)
         .limit(5)
-```
-
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    id: mockItems.id,
-    description: mockItems.description,
-  })
-  .from(mockItems)
-  .where(search.term(mockItems.description, search.fuzzy("shose", 1, false, true)))
-  .limit(5);
 ```
 
 </CodeGroup>

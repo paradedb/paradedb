@@ -28,6 +28,19 @@ WHERE description ||| 'shoes'
 LIMIT 5;
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    snippet: search.snippet(mockItems.description),
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "shoes"))
+  .limit(5);
+```
+
 ```python Django
 from paradedb import Match, ParadeDB, Snippet
 
@@ -61,19 +74,6 @@ MockItem.search(:description)
         .limit(5)
 ```
 
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    id: mockItems.id,
-    snippet: search.snippet(mockItems.description),
-  })
-  .from(mockItems)
-  .where(search.matchAny(mockItems.description, "shoes"))
-  .limit(5);
-```
-
 </CodeGroup>
 
 <ParamField body="start_tag" default="<b>">
@@ -95,6 +95,22 @@ SELECT id, pdb.snippet(description, start_tag => '<i>', end_tag => '</i>')
 FROM mock_items
 WHERE description ||| 'shoes'
 LIMIT 5;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    snippet: search.snippet(mockItems.description, {
+      startTag: "<i>",
+      endTag: "</i>",
+    }),
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "shoes"))
+  .limit(5);
 ```
 
 ```python Django
@@ -137,22 +153,6 @@ MockItem.search(:description)
         .limit(5)
 ```
 
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    id: mockItems.id,
-    snippet: search.snippet(mockItems.description, {
-      startTag: "<i>",
-      endTag: "</i>",
-    }),
-  })
-  .from(mockItems)
-  .where(search.matchAny(mockItems.description, "shoes"))
-  .limit(5);
-```
-
 </CodeGroup>
 
 ## Multiple Snippets
@@ -165,6 +165,19 @@ SELECT id, pdb.snippets(description, max_num_chars => 15)
 FROM mock_items
 WHERE description ||| 'artistic vase'
 LIMIT 5;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    snippets: search.snippets(mockItems.description, { maxNumChars: 15 }),
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "artistic vase"))
+  .limit(5);
 ```
 
 ```python Django
@@ -198,19 +211,6 @@ MockItem.search(:description)
         .with_snippets(:description, max_chars: 15)
         .select(:id)
         .limit(5)
-```
-
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    id: mockItems.id,
-    snippets: search.snippets(mockItems.description, { maxNumChars: 15 }),
-  })
-  .from(mockItems)
-  .where(search.matchAny(mockItems.description, "artistic vase"))
-  .limit(5);
 ```
 
 </CodeGroup>
@@ -259,6 +259,22 @@ WHERE description ||| 'running'
 LIMIT 5;
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    snippets: search.snippets(mockItems.description, {
+      maxNumChars: 15,
+      limit: 1,
+    }),
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "running"))
+  .limit(5);
+```
+
 ```python Django
 from paradedb import Match, ParadeDB, Snippets
 
@@ -292,22 +308,6 @@ MockItem.search(:description)
         .limit(5)
 ```
 
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    id: mockItems.id,
-    snippets: search.snippets(mockItems.description, {
-      maxNumChars: 15,
-      limit: 1,
-    }),
-  })
-  .from(mockItems)
-  .where(search.matchAny(mockItems.description, "running"))
-  .limit(5);
-```
-
 </CodeGroup>
 
 To get the second snippet (by skipping the first one):
@@ -318,6 +318,23 @@ SELECT id, pdb.snippets(description, max_num_chars => 15, "limit" => 1, "offset"
 FROM mock_items
 WHERE description ||| 'running'
 LIMIT 5;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    snippets: search.snippets(mockItems.description, {
+      maxNumChars: 15,
+      limit: 1,
+      offset: 1,
+    }),
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "running"))
+  .limit(5);
 ```
 
 ```python Django
@@ -356,23 +373,6 @@ MockItem.search(:description)
         .limit(5)
 ```
 
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    id: mockItems.id,
-    snippets: search.snippets(mockItems.description, {
-      maxNumChars: 15,
-      limit: 1,
-      offset: 1,
-    }),
-  })
-  .from(mockItems)
-  .where(search.matchAny(mockItems.description, "running"))
-  .limit(5);
-```
-
 </CodeGroup>
 
 ### Sorting Snippets
@@ -387,6 +387,22 @@ SELECT id, pdb.snippets(description, max_num_chars => 15, sort_by => 'position')
 FROM mock_items
 WHERE description ||| 'artistic vase'
 LIMIT 5;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    snippets: search.snippets(mockItems.description, {
+      maxNumChars: 15,
+      sortBy: "position",
+    }),
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "artistic vase"))
+  .limit(5);
 ```
 
 ```python Django
@@ -425,22 +441,6 @@ MockItem.search(:description)
         .limit(5)
 ```
 
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    id: mockItems.id,
-    snippets: search.snippets(mockItems.description, {
-      maxNumChars: 15,
-      sortBy: "position",
-    }),
-  })
-  .from(mockItems)
-  .where(search.matchAny(mockItems.description, "artistic vase"))
-  .limit(5);
-```
-
 </CodeGroup>
 
 ## Byte Offsets
@@ -453,6 +453,20 @@ SELECT id, pdb.snippet(description), pdb.snippet_positions(description)
 FROM mock_items
 WHERE description ||| 'shoes'
 LIMIT 5;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    snippet: search.snippet(mockItems.description),
+    snippetPositions: search.snippetPositions(mockItems.description),
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "shoes"))
+  .limit(5);
 ```
 
 ```python Django
@@ -492,20 +506,6 @@ MockItem.search(:description)
         .with_snippet_positions(:description)
         .select(:id)
         .limit(5)
-```
-
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    id: mockItems.id,
-    snippet: search.snippet(mockItems.description),
-    snippetPositions: search.snippetPositions(mockItems.description),
-  })
-  .from(mockItems)
-  .where(search.matchAny(mockItems.description, "shoes"))
-  .limit(5);
 ```
 
 </CodeGroup>

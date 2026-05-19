@@ -15,6 +15,19 @@ SELECT description, rating, category FROM mock_items
 WHERE id @@@ pdb.parse('description:(sleek shoes) AND rating:>3');
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.parse(mockItems.id, "description:(sleek shoes) AND rating:>3"));
+```
+
 ```python Django
 from paradedb import ParadeDB, Parse
 
@@ -43,19 +56,6 @@ MockItem.search(:id)
         .select(:description, :rating, :category)
 ```
 
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(search.parse(mockItems.id, "description:(sleek shoes) AND rating:>3"));
-```
-
 </CodeGroup>
 
 Please refer to the [Tantivy docs](https://docs.rs/tantivy/latest/tantivy/query/struct.QueryParser.html) for an overview of
@@ -70,6 +70,23 @@ By setting `lenient` to `true`, the query is executed on a best-effort basis. Fo
 ```sql SQL
 SELECT description, rating, category FROM mock_items
 WHERE id @@@ pdb.parse('description:(sleek shoes) AND rating:>3', lenient => true);
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.parse(mockItems.id, "description:(sleek shoes) AND rating:>3", {
+      lenient: true,
+    }),
+  );
 ```
 
 ```python Django
@@ -100,23 +117,6 @@ MockItem.search(:id)
         .select(:description, :rating, :category)
 ```
 
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(
-    search.parse(mockItems.id, "description:(sleek shoes) AND rating:>3", {
-      lenient: true,
-    }),
-  );
-```
-
 </CodeGroup>
 
 ## Conjunction Mode
@@ -128,6 +128,23 @@ For instance, the following query returns documents containing both `sleek` and 
 ```sql SQL
 SELECT description, rating, category FROM mock_items
 WHERE id @@@ pdb.parse('description:(sleek shoes)', conjunction_mode => true);
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.parse(mockItems.id, "description:(sleek shoes)", {
+      conjunctionMode: true,
+    }),
+  );
 ```
 
 ```python Django
@@ -156,23 +173,6 @@ with Session(engine) as session:
 MockItem.search(:id)
         .parse("description:(sleek shoes)", conjunction_mode: true)
         .select(:description, :rating, :category)
-```
-
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(
-    search.parse(mockItems.id, "description:(sleek shoes)", {
-      conjunctionMode: true,
-    }),
-  );
 ```
 
 </CodeGroup>

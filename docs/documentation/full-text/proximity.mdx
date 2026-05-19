@@ -17,6 +17,24 @@ FROM mock_items
 WHERE description @@@ ('sleek' ## 1 ## 'shoes');
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.proximity(
+      mockItems.description,
+      search.proxStr("sleek").within(1, "shoes"),
+    ),
+  );
+```
+
 ```python Django
 from paradedb import ParadeDB, Proximity
 
@@ -44,24 +62,6 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(
-    search.proximity(
-      mockItems.description,
-      search.proxStr("sleek").within(1, "shoes"),
-    ),
-  );
-```
-
 </CodeGroup>
 
 <Note>
@@ -77,6 +77,24 @@ To ensure that the left-hand term appears before the right-hand term, use `##>`.
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ ('sleek' ##> 1 ##> 'shoes');
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.proximity(
+      mockItems.description,
+      search.proxStr("sleek").within(1, "shoes", true),
+    ),
+  );
 ```
 
 ```python Django
@@ -107,24 +125,6 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(
-    search.proximity(
-      mockItems.description,
-      search.proxStr("sleek").within(1, "shoes", true),
-    ),
-  );
-```
-
 </CodeGroup>
 
 ## Proximity Regex
@@ -139,6 +139,24 @@ from the token `shoes`.
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ (pdb.prox_regex('sl.*') ## 1 ## 'shoes');
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.proximity(
+      mockItems.description,
+      search.proxRegex("sl.*").within(1, "shoes"),
+    ),
+  );
 ```
 
 ```python Django
@@ -169,6 +187,19 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+</CodeGroup>
+
+By default, `pdb.prox_regex` will expand to the first `50` regex matches in each document. This limit can be overridden
+by providing a second argument:
+
+<CodeGroup>
+```sql SQL
+-- Expand up to 100 regex matches
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ (pdb.prox_regex('sl.*', 100) ## 1 ## 'shoes');
+```
+
 ```ts Drizzle
 import { search } from "@paradedb/drizzle-paradedb";
 
@@ -182,22 +213,9 @@ await db
   .where(
     search.proximity(
       mockItems.description,
-      search.proxRegex("sl.*").within(1, "shoes"),
+      search.proxRegex("sl.*", 100).within(1, "shoes"),
     ),
   );
-```
-
-</CodeGroup>
-
-By default, `pdb.prox_regex` will expand to the first `50` regex matches in each document. This limit can be overridden
-by providing a second argument:
-
-<CodeGroup>
-```sql SQL
--- Expand up to 100 regex matches
-SELECT description, rating, category
-FROM mock_items
-WHERE description @@@ (pdb.prox_regex('sl.*', 100) ## 1 ## 'shoes');
 ```
 
 ```python Django
@@ -228,6 +246,20 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+</CodeGroup>
+
+## Proximity Array
+
+`pdb.prox_array` matches against an array of tokens instead of a single token. For example, the following query finds all
+documents where any of the tokens `sleek` or `white` is within `1` token of `shoes`.
+
+<CodeGroup>
+```sql SQL
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ (pdb.prox_array('sleek', 'white') ## 1 ## 'shoes');
+```
+
 ```ts Drizzle
 import { search } from "@paradedb/drizzle-paradedb";
 
@@ -241,23 +273,9 @@ await db
   .where(
     search.proximity(
       mockItems.description,
-      search.proxRegex("sl.*", 100).within(1, "shoes"),
+      search.proxArray("sleek", "white").within(1, "shoes"),
     ),
   );
-```
-
-</CodeGroup>
-
-## Proximity Array
-
-`pdb.prox_array` matches against an array of tokens instead of a single token. For example, the following query finds all
-documents where any of the tokens `sleek` or `white` is within `1` token of `shoes`.
-
-<CodeGroup>
-```sql SQL
-SELECT description, rating, category
-FROM mock_items
-WHERE description @@@ (pdb.prox_array('sleek', 'white') ## 1 ## 'shoes');
 ```
 
 ```python Django
@@ -288,6 +306,17 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+</CodeGroup>
+
+`pdb.prox_array` can also take regex:
+
+<CodeGroup>
+```sql SQL
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ (pdb.prox_array(pdb.prox_regex('sl.*'), 'white') ## 1 ## 'shoes');
+```
+
 ```ts Drizzle
 import { search } from "@paradedb/drizzle-paradedb";
 
@@ -301,20 +330,9 @@ await db
   .where(
     search.proximity(
       mockItems.description,
-      search.proxArray("sleek", "white").within(1, "shoes"),
+      search.proxArray(search.proxRegex("sl.*"), "white").within(1, "shoes"),
     ),
   );
-```
-
-</CodeGroup>
-
-`pdb.prox_array` can also take regex:
-
-<CodeGroup>
-```sql SQL
-SELECT description, rating, category
-FROM mock_items
-WHERE description @@@ (pdb.prox_array(pdb.prox_regex('sl.*'), 'white') ## 1 ## 'shoes');
 ```
 
 ```python Django
@@ -345,6 +363,19 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+</CodeGroup>
+
+## Proximity Chaining
+
+Multiple proximity clauses can be chained together:
+
+<CodeGroup>
+```sql SQL
+SELECT description, rating, category
+FROM mock_items
+WHERE description @@@ ('sleek' ## 1 ## 'running' ## 2 ## pdb.prox_array('sneakers', pdb.prox_regex('sho.*')));
+```
+
 ```ts Drizzle
 import { search } from "@paradedb/drizzle-paradedb";
 
@@ -358,22 +389,12 @@ await db
   .where(
     search.proximity(
       mockItems.description,
-      search.proxArray(search.proxRegex("sl.*"), "white").within(1, "shoes"),
+      search
+        .proxStr("sleek")
+        .within(1, "running")
+        .within(2, search.proxArray("sneakers", search.proxRegex("sho.*"))),
     ),
   );
-```
-
-</CodeGroup>
-
-## Proximity Chaining
-
-Multiple proximity clauses can be chained together:
-
-<CodeGroup>
-```sql SQL
-SELECT description, rating, category
-FROM mock_items
-WHERE description @@@ ('sleek' ## 1 ## 'running' ## 2 ## pdb.prox_array('sneakers', pdb.prox_regex('sho.*')));
 ```
 
 ```python Django
@@ -402,27 +423,6 @@ with Session(engine) as session:
 MockItem.search(:description)
         .near(ParadeDB.proximity("sleek").within(1, "running").within(2, ['sneakers', ParadeDB.regex_term('sho.*')]))
         .select(:description, :rating, :category)
-```
-
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(
-    search.proximity(
-      mockItems.description,
-      search
-        .proxStr("sleek")
-        .within(1, "running")
-        .within(2, search.proxArray("sneakers", search.proxRegex("sho.*"))),
-    ),
-  );
 ```
 
 </CodeGroup>

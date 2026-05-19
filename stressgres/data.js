@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779170300035,
+  "lastUpdate": 1779170332466,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13322,6 +13322,114 @@ window.BENCHMARK_DATA = {
             "value": 173.87890625,
             "unit": "median mem",
             "extra": "avg mem: 171.32684825970023, max mem: 174.53515625, count: 55540"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dcd52e70f8e33e214d43ac7e3bf5dfaa3daf61fd",
+          "message": "feat(mpp): wire JoinScan through the natural-shape substrate (#5092)\n\n# Ticket(s) Closed\n\n- N/A\n\n## What\n\nWires JoinScan through the natural-shape MPP path AggregateScan already\nuses, behind the same `paradedb.enable_mpp` gate. Plain joins under\nMPP-on used to silently fall back to the serial path. Now they go\nthrough the same shm_mq mesh, the same fragment dispatcher, the same\ngather to the leader.\n\nStacked on top of #5082.\n\n## Why\n\nThe `mpp/` substrate was always shape-agnostic. Transport, the DSM grid,\nthe frame header, the cooperative drain, the fragment walker — none of\nthem care whether the customscan above is an aggregate or a join. The\nonly thing tying the worker dispatcher to AggregateScan was the seed\n`SessionContext` profile (`Aggregate` vs `Join`) and where it pulled\ninputs from in typed state. So the wiring was free as long as we\nextracted the dispatcher out into a shape-generic helper first.\n\n## How\n\nPulled the dispatcher into `mpp::exec_worker`. Both customscans now\nbundle their typed inputs into `MppWorkerInputs`, hand a\nprofile-specific seed context to the shared `run_mpp_worker`, and let it\ndrive. AggregateScan's wrapper got slimmer in the process; JoinScan got\nits wrapper for free with the same shape.\n\nJoinScan picks up the standard wiring around it: the\n`producer_worker_count()` override on `nworkers` when MPP is active, the\nDSM hook branches that call `leader_setup` / `worker_setup`, the\n`exec_custom_scan` dispatch.\n\nTwo pieces of duplication that the JoinScan wiring would have made worse\ngot unified instead. The 16-byte header at offset 0 of the customscan's\nDSM coordinate (`mpp_offset` + `partitioning_source_idx`) now lives once\nin `mpp::glue` as `CustomScanMppHeader`, with the matching `mpp_align` /\n`pscan_offset` / read+write helpers. And the long-dropped `n_partitions`\nparameter on `leader_setup` that the refactor branch had carried forward\nis gone here too.\n\nThe regression test surfaced a real bug. JoinScan's logical plan carries\n`VisibilityFilterNode`, a pg_search custom logical extension that needs\n`PgSearchQueryPlanner` to translate into the matching physical exec. The\nshared session-context builder was rebuilding from\n`SessionStateBuilder::new()` and only carrying the seed's `config`,\nwhich dropped the query planner. AggregateScan happens not to use any\ncustom logical nodes, so the bug stayed invisible on the aggregate path.\nOne-line fix: `SessionStateBuilder::new_from_existing(seed.state())` so\nthe seed's planners flow through, then override config and layer the\ndistributed knobs on top.\n\n## Reviewer's guide\n\nEach link points at the post-state on this branch.\n\n1. **Generic dispatcher** —\n[`mpp/exec_worker.rs`](https://github.com/paradedb/paradedb/blob/moe/mpp-joinscan-natural-shape/pg_search/src/postgres/customscan/mpp/exec_worker.rs).\n`MppWorkerInputs`, `build_mpp_session_context`, `run_mpp_worker`. The\n`new_from_existing` fix is at the top of `build_mpp_session_context`.\n2. **Shared DSM coord helpers** —\n[`mpp/glue.rs`](https://github.com/paradedb/paradedb/blob/moe/mpp-joinscan-natural-shape/pg_search/src/postgres/customscan/mpp/glue.rs).\n`CustomScanMppHeader` + its align/offset/read/write helpers.\n3. **AggregateScan wrapper** —\n[`aggregatescan/mpp.rs`](https://github.com/paradedb/paradedb/blob/moe/mpp-joinscan-natural-shape/pg_search/src/postgres/customscan/aggregatescan/mpp.rs).\n4. **JoinScan state + planner gate + DSM hooks** —\n[`joinscan/scan_state.rs`](https://github.com/paradedb/paradedb/blob/moe/mpp-joinscan-natural-shape/pg_search/src/postgres/customscan/joinscan/scan_state.rs)\nfor the new MPP fields,\n[`joinscan/mod.rs`](https://github.com/paradedb/paradedb/blob/moe/mpp-joinscan-natural-shape/pg_search/src/postgres/customscan/joinscan/mod.rs)\nfor the `nworkers` override and the MPP branches.\n5. **JoinScan exec wrapper** —\n[`joinscan/mpp.rs`](https://github.com/paradedb/paradedb/blob/moe/mpp-joinscan-natural-shape/pg_search/src/postgres/customscan/joinscan/mpp.rs).\n6. **Regression test** —\n[`pg_search/tests/pg_regress/sql/mpp_joinscan.sql`](https://github.com/paradedb/paradedb/blob/moe/mpp-joinscan-natural-shape/pg_search/tests/pg_regress/sql/mpp_joinscan.sql).\nSame query twice, MPP off vs on.\n\n## Tests\n\n- `cargo check --tests --features pg18` clean.\n- `cargo clippy --tests --features pg18 -- -D warnings` clean.\n- `cargo test --package pg_search --lib --features pg18\npostgres::customscan::mpp` passes.\n- `cargo pgrx regress --package pg_search --resetdb --auto pg18 <test>`\npasses for `mpp_aggregate`, `mpp_aggregate_postagg`, `mpp_smoke`, and\nthe new `mpp_joinscan`.",
+          "timestamp": "2026-05-18T21:53:24-07:00",
+          "tree_id": "fa0d5f89b202c502dc90fee8733c39d6bf6abd65",
+          "url": "https://github.com/paradedb/paradedb/commit/dcd52e70f8e33e214d43ac7e3bf5dfaa3daf61fd"
+        },
+        "date": 1779170301747,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.981573973888132, max cpu: 50.671787, count: 55532"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 179.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 177.32031665019719, max mem: 179.64453125, count: 55532"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.684569762183054, max cpu: 28.015566, count: 55532"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 120.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 119.03573629281316, max mem: 120.35546875, count: 55532"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.310956341187676, max cpu: 18.991098, count: 55532"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 174.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 147.44853108342937, max mem: 180.56640625, count: 55532"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16178,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16520.731902326588, max block_count: 30730.0, count: 55532"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.9260715837551103, max cpu: 4.729064, count: 55532"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 110.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 96.49486050835554, max mem: 137.71875, count: 55532"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 25.702351797161995, max segment_count: 37.0, count: 55532"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.257474,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.236631784738393, max cpu: 28.20764, count: 111064"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 181.625,
+            "unit": "median mem",
+            "extra": "avg mem: 163.9265792485076, max mem: 183.015625, count: 111064"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.872832,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.781548382947653, max cpu: 27.745665, count: 55532"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 173.453125,
+            "unit": "median mem",
+            "extra": "avg mem: 170.84521705953324, max mem: 174.4296875, count: 55532"
           }
         ]
       }

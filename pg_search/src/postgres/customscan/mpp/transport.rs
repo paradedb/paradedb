@@ -90,12 +90,10 @@ pub struct MppFrameHeader {
 const FRAME_KIND_MASK: u32 = 0x0000_00FF;
 
 /// Shift to position `task_idx` above the kind byte in `MppFrameHeader::flags`.
-#[allow(dead_code)]
 const TASK_IDX_SHIFT: u32 = 8;
 
 /// Maximum task index encodable in a `Request` frame: 24 bits, since the low byte is the kind.
 /// Plenty of headroom for realistic stage task counts; the constructor errors above this.
-#[allow(dead_code)]
 const TASK_IDX_MAX: u32 = (1 << 24) - 1;
 
 const _: () = {
@@ -134,7 +132,6 @@ impl MppFrameHeader {
     /// Header carries the kind in the low byte and `task_idx` in the upper 24 bits; consumers
     /// pull a partition with `(stage_id, task_idx, partition)` and the producer's service loop
     /// dispatches.
-    #[allow(dead_code)]
     pub fn request(stage_id: u32, task_idx: u32, partition: u32) -> Result<Self, DataFusionError> {
         if task_idx > TASK_IDX_MAX {
             return Err(DataFusionError::Internal(format!(
@@ -176,7 +173,6 @@ impl MppFrameHeader {
 
     /// Task index encoded in a `Request` frame's upper 24 bits. Only meaningful when `kind()` is
     /// `Request`; returns the raw upper bits otherwise.
-    #[allow(dead_code)]
     pub(super) fn task_idx(&self) -> u32 {
         self.flags >> TASK_IDX_SHIFT
     }
@@ -272,7 +268,6 @@ fn encode_eof_frame_into(
 /// partition)` into `buf`. Same 16-byte-message shape as [`encode_eof_frame_into`]; the producer
 /// proc decodes the header, dispatches `(stage_id, task_idx)`, and streams partition `partition`
 /// back.
-#[allow(dead_code)]
 fn encode_request_frame_into(
     stage_id: u32,
     task_idx: u32,
@@ -541,6 +536,15 @@ impl MppSender {
         }
     }
 
+    /// The header this sender currently stamps onto every outgoing frame. Exposed so callers
+    /// holding a `&MppSender` can build a channel-equivalent clone with a different header via
+    /// `clone_with_header(s.header())` — useful for diagnostics and for tests that need to
+    /// inspect what header the producer side will write.
+    #[allow(dead_code)]
+    pub fn header(&self) -> MppFrameHeader {
+        self.header
+    }
+
     /// Build a new `MppSender` that shares this sender's underlying channel
     /// but tags every frame with `header` instead. Used by callers that know
     /// the physical plan's output partition count and need one sender per
@@ -632,7 +636,6 @@ impl MppSender {
     ///
     /// `pub(super)` so callers within `mpp::` pick it up without exposing it to other customscan
     /// code.
-    #[allow(dead_code)]
     pub(super) async fn send_request_traced(
         &self,
         task_idx: u32,
@@ -655,7 +658,6 @@ impl MppSender {
         self.send_header_only(scratch, stats).await
     }
 
-    #[allow(dead_code)]
     async fn send_request_with_scratch(
         &self,
         task_idx: u32,
@@ -788,19 +790,19 @@ impl MppSender {
 /// Per-call timing + spin metrics for [`MppSender::send_batch_traced`].
 /// All fields accumulate; callers zero or reuse as needed.
 #[derive(Default, Debug, Clone)]
-pub(super) struct SendBatchStats {
+pub(crate) struct SendBatchStats {
     /// Cumulative time spent inside `encode_frame_into` (header + Arrow IPC serialization).
-    pub(super) encode: Duration,
+    pub(crate) encode: Duration,
     /// Cumulative wall time in the send-retry spin after the first failed
     /// `try_send_bytes`. Zero if the first try succeeded.
-    pub(super) send_wait: Duration,
+    pub(crate) send_wait: Duration,
     /// Cumulative time spent in `try_drain_pass` while spinning on a
     /// full outbound. A subset of `send_wait`; the remainder is the
     /// `tokio::task::yield_now()` await + the (small) cost of
     /// `try_send_bytes` itself.
-    pub(super) coop_drain_in_spin: Duration,
+    pub(crate) coop_drain_in_spin: Duration,
     /// Count of `try_send_bytes` calls that returned `Ok(false)` (full).
-    pub(super) spin_iters: u64,
+    pub(crate) spin_iters: u64,
 }
 
 /// High-level receiver: pulls bytes via the underlying channel and decodes them
@@ -818,13 +820,38 @@ impl MppReceiver {
         match self.channel.try_recv() {
             RecvOutcome::Bytes(bytes) => match decode_frame(&bytes) {
                 Ok((header, Some(batch))) => RecvBatchOutcome::Batch { header, batch },
-                Ok((header, None)) => RecvBatchOutcome::Eof { header },
+                Ok((header, None)) => match header.kind() {
+                    Ok(MppFrameKind::Request) => RecvBatchOutcome::Request { header },
+                    Ok(MppFrameKind::Eof) => RecvBatchOutcome::Eof { header },
+                    Ok(MppFrameKind::Batch) => RecvBatchOutcome::Error(DataFusionError::Internal(
+                        "mpp: decode_frame returned Batch kind with no payload".into(),
+                    )),
+                    Err(e) => RecvBatchOutcome::Error(e),
+                },
                 Err(e) => RecvBatchOutcome::Error(e),
             },
             RecvOutcome::Empty => RecvBatchOutcome::Empty,
             RecvOutcome::Detached => RecvBatchOutcome::Detached,
         }
     }
+}
+
+/// Producer-side dispatcher for incoming [`MppFrameKind::Request`] frames. The cooperative drain
+/// calls `on_request` whenever a peer asks for a partition; the implementation looks up the named
+/// `(stage_id, task_idx)`, builds (or reuses) a task driver, and spawns a per-partition future
+/// that streams batches back through `mesh.outbound_sender(sender_proc)`.
+///
+/// `sender_proc` is the proc that issued the Request, observed by the receiving drain (it's the
+/// `sender_proc` the drain was constructed with). Implementations route the response over the
+/// matching outbound queue.
+pub trait RequestHandler: Send + Sync {
+    fn on_request(
+        &self,
+        sender_proc: u32,
+        stage_id: u32,
+        task_idx: u32,
+        partition: u32,
+    ) -> Result<(), DataFusionError>;
 }
 
 /// Decoded result of an [`MppReceiver::try_recv_batch`]. Carries the
@@ -841,6 +868,13 @@ pub(super) enum RecvBatchOutcome {
     /// signalling that this logical channel is done, so we can EOF
     /// per-channel without dropping the whole queue.
     Eof {
+        header: MppFrameHeader,
+    },
+    /// A payload-less `Request` frame asking the producer side to run
+    /// `(header.stage_id, header.task_idx())` and stream partition
+    /// `header.partition` back through the matching outbound queue. The
+    /// cooperative drain dispatches to its installed [`RequestHandler`].
+    Request {
         header: MppFrameHeader,
     },
     Empty,
@@ -890,18 +924,81 @@ pub struct DrainHandle {
     /// is uncontended in production (single backend thread) so the marginal cost is in the
     /// type system, not the runtime.
     coop_receivers: Mutex<Vec<Option<MppReceiver>>>,
+    /// Which proc this drain pulls from. `Some(p)` in production (set during DSM attach so the
+    /// dispatcher can route Request responses back to `p`'s outbound queue). `None` for in-proc
+    /// test harnesses that don't care about the proc identity. A `Request` frame arriving on a
+    /// drain with `sender_proc = None` is a hard error: the handler can't pick an outbound queue
+    /// without it.
+    sender_proc: Option<u32>,
+    /// Installed by the producer's service loop via [`MppMesh::install_request_handler`]. The
+    /// drain dispatches every [`RecvBatchOutcome::Request`] to this handler so the producer can
+    /// spawn a task driver. Held behind `Mutex` (not `OnceLock`) so the loop can also clear it
+    /// at teardown — needed to break the `MppMesh ↔ DrainHandle ↔ Arc<dyn RequestHandler> ↔
+    /// Weak<MppMesh>` chain on shutdown.
+    request_handler: Mutex<Option<Arc<dyn RequestHandler>>>,
 }
 
 impl DrainHandle {
     /// Construct a cooperative drain handle. Channel buffers are populated lazily by
     /// [`Self::try_drain_pass`] when a frame arrives, or up-front by [`Self::register_channel`]
     /// when a consumer needs a buffer to wait on before any frame has come in.
-    pub(super) fn cooperative(receivers: Vec<MppReceiver>) -> Self {
+    ///
+    /// `sender_proc` is the proc this drain pulls from in the production mesh, or `None` for
+    /// in-proc test harnesses that don't care. It's the value the installed [`RequestHandler`]
+    /// receives as `sender_proc` on every `on_request` callback, so the dispatcher knows which
+    /// outbound queue to reply on.
+    pub(super) fn cooperative(receivers: Vec<MppReceiver>, sender_proc: Option<u32>) -> Self {
         let wrapped = receivers.into_iter().map(Some).collect();
         Self {
             channel_buffers: Mutex::new(ChannelBufferRegistry::default()),
             coop_receivers: Mutex::new(wrapped),
+            sender_proc,
+            request_handler: Mutex::new(None),
         }
+    }
+
+    /// Install a request handler. Idempotent overwrite — installing twice replaces the previous
+    /// handler. Called by [`MppMesh::install_request_handler`] for every inbound drain so the
+    /// producer service loop's registry is reached by Request frames from any peer.
+    pub fn set_request_handler(&self, handler: Arc<dyn RequestHandler>) {
+        *self
+            .request_handler
+            .lock()
+            .expect("DrainHandle request_handler mutex poisoned") = Some(handler);
+    }
+
+    /// Drop the installed request handler so the `Arc<dyn RequestHandler>` ref count releases.
+    /// The service loop calls this at teardown to break the `MppMesh → DrainHandle → Registry`
+    /// cycle (registry holds `Weak<MppMesh>`, but the drain holds a strong `Arc<Registry>`).
+    pub fn clear_request_handler(&self) {
+        *self
+            .request_handler
+            .lock()
+            .expect("DrainHandle request_handler mutex poisoned") = None;
+    }
+
+    /// True once [`Self::try_drain_pass`] has observed `Detached` from its underlying receiver.
+    /// Polled by the worker service loop to detect that the leader (or any monitored peer) has
+    /// torn down and no more frames will arrive.
+    pub fn is_detached(&self) -> bool {
+        self.channel_buffers
+            .lock()
+            .expect("DrainHandle channel_buffers mutex poisoned")
+            .detached
+    }
+
+    /// Drop the underlying receivers and mark every registered channel detached. Called by the
+    /// leader through [`crate::postgres::customscan::mpp::runtime::MppMesh::detach_inbound_receivers`]
+    /// when its plan finishes — once the inbound shm_mq handle drops, the peer-side sender's
+    /// next `shm_mq_send` returns `SHM_MQ_DETACHED`, which surfaces as a `send_*_traced` error
+    /// that the producer driver treats as "consumer torn down" and exits cleanly.
+    pub fn force_detach(&self) {
+        self.coop_receivers
+            .lock()
+            .expect("DrainHandle coop_receivers mutex poisoned")
+            .clear();
+        self.mark_detached();
+        self.cancel_channel_buffers();
     }
 
     /// Register (or look up) the channel buffer for `(stage_id, partition)`. The returned
@@ -1020,6 +1117,46 @@ impl DrainHandle {
                         buf.notify_source_done();
                         // Other channels may still flow on this queue, so the receiver slot
                         // stays live.
+                    }
+                    RecvBatchOutcome::Request { header } => {
+                        // Pull/dispatch protocol: the consumer side sends Request(stage, task,
+                        // partition); the producer service loop's installed handler spawns a
+                        // task driver and streams batches back through
+                        // `mesh.outbound_sender(sender_proc)`. Surface a hard error if a
+                        // Request lands on a drain with no handler installed — the most likely
+                        // cause is a teardown race where `clear_request_handler` ran before the
+                        // last frame drained.
+                        let handler = self
+                            .request_handler
+                            .lock()
+                            .expect("DrainHandle request_handler mutex poisoned")
+                            .as_ref()
+                            .map(Arc::clone);
+                        let Some(handler) = handler else {
+                            return Err(DataFusionError::Internal(format!(
+                                "mpp: Request frame received but no handler installed \
+                                 (stage_id={}, task_idx={}, partition={})",
+                                header.stage_id,
+                                header.task_idx(),
+                                header.partition,
+                            )));
+                        };
+                        let Some(sender_proc) = self.sender_proc else {
+                            return Err(DataFusionError::Internal(format!(
+                                "mpp: Request frame received on drain with sender_proc=None \
+                                 (stage_id={}, task_idx={}, partition={}); production drains \
+                                 must carry their peer proc index",
+                                header.stage_id,
+                                header.task_idx(),
+                                header.partition,
+                            )));
+                        };
+                        handler.on_request(
+                            sender_proc,
+                            header.stage_id,
+                            header.task_idx(),
+                            header.partition,
+                        )?;
                     }
                     RecvBatchOutcome::Empty => break,
                     RecvBatchOutcome::Detached => {
@@ -1284,6 +1421,21 @@ mod tests {
                         // treats it as a source-done signal. See `try_drain_pass`.
                         done[i] = true;
                         buffer.notify_source_done();
+                    }
+                    RecvBatchOutcome::Request { header } => {
+                        // Tests using `spawn_drain_thread` don't exercise the
+                        // pull-shape request/response loop; treat a Request the
+                        // same as a malformed frame so the failure mode surfaces
+                        // explicitly instead of silently being lost.
+                        done[i] = true;
+                        buffer.notify_source_done();
+                        return Err(DataFusionError::Internal(format!(
+                            "mpp test drain_loop: unexpected Request frame \
+                             (stage_id={}, task_idx={}, partition={})",
+                            header.stage_id,
+                            header.task_idx(),
+                            header.partition,
+                        )));
                     }
                     RecvBatchOutcome::Empty => {}
                     RecvBatchOutcome::Detached => {
@@ -1893,7 +2045,7 @@ mod tests {
         let s00 = base.clone_with_header(MppFrameHeader::batch(0, 0));
         let s01 = base.clone_with_header(MppFrameHeader::batch(0, 1));
         let receiver = MppReceiver::new(Box::new(rx));
-        let handle = DrainHandle::cooperative(vec![receiver]);
+        let handle = DrainHandle::cooperative(vec![receiver], None);
 
         s00.send_batch(&sample_batch(2)).unwrap();
         s01.send_batch(&sample_batch(7)).unwrap();
@@ -1930,7 +2082,7 @@ mod tests {
         let s00 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(0, 0));
         let s01 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(0, 1));
         let receiver = MppReceiver::new(Box::new(rx));
-        let handle = DrainHandle::cooperative(vec![receiver]);
+        let handle = DrainHandle::cooperative(vec![receiver], None);
 
         s00.send_batch(&sample_batch(4)).unwrap();
         // Hand-roll an Eof frame for (0, 0) onto the same shared channel.
@@ -1972,7 +2124,7 @@ mod tests {
         let (tx, rx) = in_proc_channel(8);
         drop(tx); // detach immediately
         let receiver = MppReceiver::new(Box::new(rx));
-        let handle = DrainHandle::cooperative(vec![receiver]);
+        let handle = DrainHandle::cooperative(vec![receiver], None);
 
         let buf00 = handle.register_channel(0, 0);
         let buf01 = handle.register_channel(0, 1);
@@ -1991,7 +2143,7 @@ mod tests {
         let (tx, rx) = in_proc_channel(8);
         drop(tx);
         let receiver = MppReceiver::new(Box::new(rx));
-        let handle = DrainHandle::cooperative(vec![receiver]);
+        let handle = DrainHandle::cooperative(vec![receiver], None);
 
         handle.try_drain_pass().unwrap(); // observes Detached, marks handle
 
@@ -2005,7 +2157,7 @@ mod tests {
         // DrainBuffer instance.
         let (_tx, rx) = in_proc_channel(8);
         let receiver = MppReceiver::new(Box::new(rx));
-        let handle = DrainHandle::cooperative(vec![receiver]);
+        let handle = DrainHandle::cooperative(vec![receiver], None);
 
         let first = handle.register_channel(2, 3);
         let second = handle.register_channel(2, 3);
@@ -2021,7 +2173,7 @@ mod tests {
         let s_stage0 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(0, 0));
         let s_stage1 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(1, 0));
         let receiver = MppReceiver::new(Box::new(rx));
-        let handle = DrainHandle::cooperative(vec![receiver]);
+        let handle = DrainHandle::cooperative(vec![receiver], None);
 
         s_stage0.send_batch(&sample_batch(2)).unwrap();
         s_stage1.send_batch(&sample_batch(9)).unwrap();
@@ -2054,7 +2206,7 @@ mod tests {
         // leave a consumer blocked on a buffer that will never see EOF.
         let (_tx, rx) = in_proc_channel(8);
         let receiver = MppReceiver::new(Box::new(rx));
-        let handle = DrainHandle::cooperative(vec![receiver]);
+        let handle = DrainHandle::cooperative(vec![receiver], None);
 
         let buf_a = handle.register_channel(0, 0);
         let buf_b = handle.register_channel(7, 3);

@@ -29,11 +29,11 @@ pub mod dsm;
 pub mod exec_worker;
 pub mod glue;
 pub mod mesh;
+pub mod producer_service;
 pub mod runtime;
 pub mod task_estimator;
 pub mod transport;
 pub mod worker;
-pub mod worker_fragments;
 
 /// Emit a runtime trace when `paradedb.mpp_debug` is on.
 ///
@@ -67,12 +67,20 @@ macro_rules! mpp_log {
 /// machinery. The lib-test binary (built without `pg_test`) does not link those PG symbols, so
 /// the `#[cfg(test)]` arm falls back to `panic!`. Either way the call site stays readable —
 /// `fail_loud(format!(...))` — without a per-site `#[cfg]` pair.
+///
+/// Currently no in-crate callers (the pull-shape rewrite replaced every push-shape site that
+/// used it). Kept around because future MPP-internal fatal paths reachable from lib-tests need
+/// the same `#[cfg(test)]` fallback — without it, `cargo test --no-default-features` fails to
+/// link `pgrx::error!`'s PG symbols. The `#[allow(dead_code)]` is the cheapest way to keep the
+/// shim available without sprinkling per-site cfg pairs at call introduction time.
 #[cfg(not(test))]
+#[allow(dead_code)]
 pub fn fail_loud(msg: String) -> ! {
     pgrx::error!("{}", msg);
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 pub fn fail_loud(msg: String) -> ! {
     panic!("{}", msg);
 }

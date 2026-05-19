@@ -189,6 +189,10 @@ pub struct MppLeaderState {
 /// Wrap each peer-indexed `ShmMqReceiver` into an inbound cooperative drain, returned in
 /// `sender_proc`-indexed form. Slot at index `this_proc` is `None` (no self-loop drain at this
 /// stage; the worker's self-loop is installed separately, and the leader never has one).
+///
+/// Each drain carries the `sender_proc` it pulls from. The pull-shape producer service loop
+/// uses it to route Request responses: when a Request frame arrives on this drain, the
+/// installed `RequestHandler` knows which outbound queue to reply on.
 fn build_inbound_receivers(
     this_proc: u32,
     total_procs: u32,
@@ -200,7 +204,10 @@ fn build_inbound_receivers(
         debug_assert!(sender_proc != this_proc);
         debug_assert!(sender_proc < total_procs);
         let mpp_recv = MppReceiver::new(Box::new(shm_recv));
-        drains[sender_proc as usize] = Some(Arc::new(DrainHandle::cooperative(vec![mpp_recv])));
+        drains[sender_proc as usize] = Some(Arc::new(DrainHandle::cooperative(
+            vec![mpp_recv],
+            Some(sender_proc),
+        )));
     }
     drains
 }
@@ -255,34 +262,32 @@ pub unsafe fn leader_setup(
     // frame, or up-front by `WorkerConnection::stream_partition`.
     let inbound_receivers = build_inbound_receivers(0, total_procs, attach.inbound_receivers);
 
-    let mesh = Arc::new(MppMesh::new(0, total_procs, inbound_receivers));
+    // The leader keeps its outbound senders even though it never hosts a producer fragment. In
+    // pull-shape the leader issues `Request` frames at `stream_partition` time, so it needs an
+    // outbound queue to every worker. No self-loop slot on the leader (proc 0 isn't its own
+    // peer); `build_outbound_senders` skips it naturally.
+    let outbound_senders = build_outbound_senders(0, total_procs, attach.outbound_senders);
 
-    // Drop the leader's own outbound senders. The leader is consumer-only and never hosts a
-    // producer fragment.
-    drop(attach.outbound_senders);
+    let mesh = Arc::new(MppMesh::new(
+        0,
+        total_procs,
+        inbound_receivers,
+        outbound_senders,
+    ));
 
     Ok(MppLeaderState { mesh, pcxt })
 }
 
-/// Returned to a worker from [`worker_setup`]. The customscan reads the plan bytes, runs the
-/// plan, and pushes resulting batches through `outbound_senders`.
+/// Returned to a worker from [`worker_setup`]. The customscan reads the plan bytes and hands
+/// the mesh + plan to the shape-agnostic producer service loop.
 pub struct MppWorkerState {
-    /// `outbound_senders[proc_idx]` is the sender that writes to `slot(this_proc, proc_idx)`.
-    /// The entry at `proc_idx == this_proc` is `None` because the self-loop slot is never
-    /// attached (matches the leader's `inbound_receivers` shape).
-    ///
-    /// Each fragment's per-partition output sender is keyed by
-    /// `outbound_senders[proc_for_task(n_workers, consumer_task)]`. Each `MppSender` wraps an
-    /// `Arc<dyn BatchChannelSender>` so callers can `clone_with_header` to multiplex
-    /// `(stage_id, partition)` channels onto one shm_mq queue.
-    pub outbound_senders: Vec<Option<MppSender>>,
     /// Worker fragment plan bytes, copied out of DSM. Caller deserializes via the
     /// `PgSearchExtensionCodec` to get an `Arc<dyn ExecutionPlan>`.
     pub plan_bytes: Vec<u8>,
-    /// Worker's MppMesh, same shape as the leader's. `inbound_receivers[sender_proc]` pulls frames
-    /// from `slot(sender_proc, this_proc)`. Workers consume from peers when running consumer
-    /// fragments (e.g. a `FinalPartitioned` aggregate above a `NetworkShuffleExec` peer-mesh).
-    /// Read by the multi-fragment dispatcher in `aggregatescan::exec_mpp_worker`.
+    /// Worker's MppMesh, same shape as the leader's. `inbound_receivers[sender_proc]` pulls
+    /// frames from `slot(sender_proc, this_proc)`; `outbound_senders[target_proc]` writes to
+    /// `slot(this_proc, target_proc)`. The mesh owns both halves now (pull-shape needs outbound
+    /// access from `MppMesh::outbound_sender` at request-dispatch and `stream_partition` time).
     pub mesh: Arc<MppMesh>,
 }
 
@@ -328,23 +333,25 @@ pub unsafe fn worker_setup(
     // `outbound_senders[this_proc] = None`. The in-proc channel keeps frame routing uniform from
     // the dispatcher's perspective: senders push, the `DrainHandle` reads via the same
     // `BatchChannelReceiver` contract as shm_mq, and the channel buffer registry demuxes per
-    // `(stage_id, partition)`.
+    // `(stage_id, partition)`. The self-loop drain carries `sender_proc = proc_idx` so the
+    // installed `RequestHandler` routes a self-Request back via the same self-loop outbound.
     let (self_tx, self_rx) = in_proc_channel(SELF_LOOP_CAPACITY);
     let self_tx_arc: Arc<dyn BatchChannelSender> = Arc::new(self_tx);
     outbound_senders[proc_idx as usize] = Some(MppSender::with_header(
         self_tx_arc,
         MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION),
     ));
-    inbound_receivers[proc_idx as usize] =
-        Some(Arc::new(DrainHandle::cooperative(vec![MppReceiver::new(
-            Box::new(self_rx),
-        )])));
+    inbound_receivers[proc_idx as usize] = Some(Arc::new(DrainHandle::cooperative(
+        vec![MppReceiver::new(Box::new(self_rx))],
+        Some(proc_idx),
+    )));
 
-    let mesh = Arc::new(MppMesh::new(proc_idx, total_procs, inbound_receivers));
-
-    Ok(MppWorkerState {
+    let mesh = Arc::new(MppMesh::new(
+        proc_idx,
+        total_procs,
+        inbound_receivers,
         outbound_senders,
-        plan_bytes,
-        mesh,
-    })
+    ));
+
+    Ok(MppWorkerState { plan_bytes, mesh })
 }

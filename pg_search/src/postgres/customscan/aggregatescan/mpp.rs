@@ -31,7 +31,6 @@ use crate::postgres::customscan::aggregatescan::scan_state;
 use crate::postgres::customscan::aggregatescan::AggregateScan;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::mpp::exec_worker::{run_mpp_worker, MppWorkerInputs};
-use crate::postgres::customscan::mpp::transport::MppSender;
 
 /// MPP worker exec: extract inputs from AggregateScan's state, build the aggregate-profile seed
 /// context, hand off to the shape-agnostic dispatcher. Workers emit zero rows back to PG;
@@ -72,10 +71,6 @@ pub(super) fn exec_mpp_worker(
     };
     let plan_bytes = worker.plan_bytes.clone();
     let worker_mesh = Arc::clone(&worker.mesh);
-    let outbound_senders: Vec<Option<MppSender>> = match df_state.mpp.as_mut() {
-        Some(scan_state::MppExecState::Worker(w)) => std::mem::take(&mut w.outbound_senders),
-        _ => unreachable!(),
-    };
 
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -101,7 +96,6 @@ pub(super) fn exec_mpp_worker(
             plan_sources_count,
             plan_bytes,
             worker_mesh,
-            outbound_senders,
         },
         seed_ctx,
         runtime,

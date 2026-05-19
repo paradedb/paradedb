@@ -33,7 +33,7 @@
 //!   address satisfies the API.
 
 use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use datafusion::common::{DataFusionError, Result};
@@ -44,7 +44,10 @@ use datafusion_distributed::{
 };
 use url::Url;
 
-use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, DrainHandle, DrainItem};
+use crate::postgres::customscan::mpp::transport::{
+    CooperativeDrainSet, DrainHandle, DrainItem, MppFrameHeader, MppSender, RequestHandler,
+    SendBatchStats,
+};
 
 /// `task_idx → proc_idx` round-robin over the worker procs. The leader is `proc_idx = 0`
 /// (consumer-only), workers are `1..n_procs` (each hosts producer fragments).
@@ -79,6 +82,20 @@ pub struct MppMesh {
     /// `outbound_senders[this_proc]` instead. The natural-shape gather installs drains for every
     /// `sender_proc != this_proc`.
     pub(super) inbound_receivers: Vec<Option<Arc<DrainHandle>>>,
+    /// `outbound_senders[target_proc]` is the per-peer sender on `slot(this_proc, target_proc)`.
+    /// Both the leader and workers hold them: the leader uses them to issue `Request` frames at
+    /// `stream_partition` time, and a worker's producer service loop reuses them to stream
+    /// batches back to the requesting peer via `clone_with_header`. The slot at
+    /// `target_proc == this_proc` is the worker's self-loop in-proc channel (`None` on the
+    /// leader, which has no self-loop).
+    ///
+    /// Wrapped in a `Mutex<Vec<...>>` so the leader can call [`Self::detach_outbound_senders`]
+    /// at end-of-stream — clearing the vec drops the `MppSender`s, which detaches every shm_mq
+    /// sender handle, which lets each worker's service loop observe `leader_inbound_detached`
+    /// and exit. Without this, workers would block in their service loops forever (PG's parallel
+    /// finish waits for workers to return EOS before calling `end_custom_scan` on the leader, so
+    /// the natural Arc<MppMesh> drop happens too late to break the wait).
+    outbound_senders: Mutex<Vec<Option<MppSender>>>,
 }
 
 impl MppMesh {
@@ -87,11 +104,13 @@ impl MppMesh {
         this_proc: u32,
         n_procs: u32,
         inbound_receivers: Vec<Option<Arc<DrainHandle>>>,
+        outbound_senders: Vec<Option<MppSender>>,
     ) -> Self {
         Self {
             this_proc,
             n_procs,
             inbound_receivers,
+            outbound_senders: Mutex::new(outbound_senders),
         }
     }
 
@@ -102,6 +121,109 @@ impl MppMesh {
         self.inbound_receivers
             .get(idx)
             .and_then(|slot| slot.as_ref())
+    }
+
+    /// Return an owned clone of the outbound sender to `target_proc`, stamped with `header`.
+    /// The clone preserves the underlying `Arc<dyn BatchChannelSender>` and the attached
+    /// cooperative drain. Returns `None` for `target_proc == this_proc` on the leader (no
+    /// self-loop), out-of-range, or after [`Self::detach_outbound_senders`] has run.
+    ///
+    /// The header is taken as a parameter rather than stamped later via `clone_with_header` so
+    /// callers don't have to materialise an intermediate sender with the wrong header. A second
+    /// `with_cooperative_drain` is still cheap if a caller needs to swap drains.
+    pub(super) fn outbound_sender(
+        &self,
+        target_proc: u32,
+        header: MppFrameHeader,
+    ) -> Option<MppSender> {
+        let guard = self
+            .outbound_senders
+            .lock()
+            .expect("MppMesh outbound_senders mutex poisoned");
+        let s = guard
+            .get(target_proc as usize)
+            .and_then(|slot| slot.as_ref())?;
+        Some(s.clone_with_header(header))
+    }
+
+    /// Drop every outbound sender on this mesh. The leader calls this after its plan drains
+    /// EOF so each worker's inbound from proc 0 sees `SHM_MQ_DETACHED` on the next drain pass,
+    /// `leader_inbound_detached()` flips to `true`, and the worker's service loop exits.
+    ///
+    /// Workers don't need to call this explicitly — when their `run_mpp_worker` returns, the
+    /// local `Arc<MppMesh>` drops, the inner `Vec` drops with the mesh, and outbound senders
+    /// detach via `Drop`. Only the leader has the PG-parallel-finish ordering problem that needs
+    /// the explicit hook.
+    pub fn detach_outbound_senders(&self) {
+        self.outbound_senders
+            .lock()
+            .expect("MppMesh outbound_senders mutex poisoned")
+            .clear();
+    }
+
+    /// Force-detach every inbound drain. The leader calls this alongside
+    /// [`Self::detach_outbound_senders`] so producer drivers that are still streaming when the
+    /// consumer side (e.g. `SortPreservingMergeExec` with `fetch=10`) stops pulling see
+    /// `SHM_MQ_DETACHED` on their next send and unwind cleanly instead of spinning forever on a
+    /// full outbound queue.
+    ///
+    /// Without this, `SortPreservingMergeExec(fetch=N) → NetworkCoalesceExec` plan shapes
+    /// deadlock: leader returns from its stream after N rows, workers' drivers fill the outbound
+    /// queue with the leftover batches, the cooperative-drain spin can't make progress (no
+    /// consumer is reading), and `pgrx::check_for_interrupts!()` never fires because PG won't
+    /// dispatch shutdown signals while still inside the same backend's query.
+    pub fn detach_inbound_receivers(&self) {
+        for drain in self.inbound_receivers.iter().flatten() {
+            drain.force_detach();
+        }
+    }
+
+    /// Install `handler` on every inbound drain so `Request` frames from any peer reach the
+    /// producer service loop's registry. Called once at worker startup after the registry is
+    /// built. Idempotent overwrite: re-installing replaces the previous handler on each drain.
+    pub fn install_request_handler(&self, handler: Arc<dyn RequestHandler>) {
+        for drain in self.inbound_receivers.iter().flatten() {
+            drain.set_request_handler(Arc::clone(&handler));
+        }
+    }
+
+    /// Drop every drain's installed request handler so the service loop's `Arc<dyn
+    /// RequestHandler>` references release at teardown. Without this, the cycle (mesh →
+    /// DrainHandle → Arc<Registry> → strong ref into the service loop) keeps the worker's mesh
+    /// alive forever. The registry's `Weak<MppMesh>` on its own isn't enough — the handler Arc
+    /// installed on the drain is the strong leg that needs explicit unwinding.
+    pub fn uninstall_request_handler(&self) {
+        for drain in self.inbound_receivers.iter().flatten() {
+            drain.clear_request_handler();
+        }
+    }
+
+    /// True when the leader's inbound drain (proc 0) has observed `Detached`. The producer
+    /// service loop on every worker watches this to decide it can exit: once the leader has
+    /// torn down its outbound senders, no more `Request` frames will arrive at this worker.
+    ///
+    /// Note: in pull-shape we deliberately key termination off the leader, not off every peer.
+    /// Worker-to-worker outbound senders stay alive as long as any peer is still running
+    /// drivers, so an all-peers check would deadlock — every worker would wait for every other
+    /// worker to detach first. Cascading off the leader avoids that.
+    pub fn leader_inbound_detached(&self) -> bool {
+        self.inbound_receivers
+            .first()
+            .and_then(|slot| slot.as_ref())
+            .map(|d| d.is_detached())
+            .unwrap_or(true)
+    }
+
+    /// True when every inbound drain has detached. Useful as a diagnostic / for tests; the
+    /// production service loop uses [`Self::leader_inbound_detached`] instead, since waiting on
+    /// every peer would deadlock (every worker waiting on every other worker).
+    #[cfg(test)]
+    #[allow(dead_code)]
+    pub fn all_inbound_detached(&self) -> bool {
+        self.inbound_receivers
+            .iter()
+            .flatten()
+            .all(|d| d.is_detached())
     }
 
     /// Number of worker procs (= `n_procs - 1`, since the leader is proc 0).
@@ -186,6 +308,7 @@ impl WorkerTransport for ShmMqWorkerTransport {
             mesh: Arc::clone(&self.mesh),
             sender_proc,
             stage_id,
+            target_task: target_task_u32,
         }))
     }
 }
@@ -197,6 +320,10 @@ struct ShmMqWorkerConnection {
     /// the channel buffer this connection streams from sees only frames tagged with the same
     /// `(stage_id, p)`.
     stage_id: u32,
+    /// Task index within `stage_id` whose output partitions this connection pulls. Encoded into
+    /// the `Request` frame header so the producer's service loop dispatches to the right
+    /// `(stage, task)` plan.
+    target_task: u32,
 }
 
 impl WorkerConnection for ShmMqWorkerConnection {
@@ -217,17 +344,46 @@ impl WorkerConnection for ShmMqWorkerConnection {
                 ))
             })?;
         let drain = Arc::clone(drain);
-        // Ask the drain for the channel buffer dedicated to this `(stage_id, partition)` channel.
-        // Frames with a matching header land here; frames tagged with other partitions go to
-        // their own channel buffers, so this consumer only sees its slice.
+        // Ordering matters: register the channel buffer BEFORE sending the Request, so a fast
+        // producer that responds immediately finds the buffer already in place. `register_channel`
+        // is idempotent, so a Request that races ahead and triggers lazy creation via
+        // `try_drain_pass` produces the same buffer Arc — but this ordering is the documented
+        // invariant. Frames with a matching `(stage_id, partition)` header land here; frames
+        // tagged with other partitions go to their own channel buffers, so this consumer only
+        // sees its slice.
         let buffer = drain.register_channel(self.stage_id, partition_u32);
+
+        // Build a header-only `Request` sender on the outbound queue to `sender_proc`. We carry
+        // the `(stage_id, partition)` in the cloned sender's header even though `send_request`
+        // only consumes the kind + task_idx; this keeps the call uniform with the `Batch` sender
+        // that the producer side will clone with the same `(stage_id, partition)` for replies.
+        // Attaching the mesh as a cooperative drain matters: if the outbound shm_mq is full
+        // when we try to send the Request, the spin pumps every inbound so peer batches keep
+        // flowing rather than deadlocking on a symmetric stall.
+        let req_sender = self
+            .mesh
+            .outbound_sender(
+                self.sender_proc,
+                MppFrameHeader::batch(self.stage_id, partition_u32),
+            )
+            .ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "ShmMqWorkerConnection: no outbound sender for sender_proc={} \
+                     (stage_id={}, this_proc={})",
+                    self.sender_proc, self.stage_id, self.mesh.this_proc
+                ))
+            })?
+            .with_cooperative_drain(Arc::clone(&self.mesh) as Arc<dyn CooperativeDrainSet>);
+        let target_task = self.target_task;
+
         crate::mpp_log!(
             "mpp transport::stream_partition this_proc={} sender_proc={} stage_id={} \
-             partition={partition_u32} (register_channel)",
+             target_task={target_task} partition={partition_u32} (register_channel + Request)",
             self.mesh.this_proc,
             self.sender_proc,
             self.stage_id,
         );
+
         // Cooperative pull loop: pgrx requires shm_mq FFI on the backend thread, so the drain
         // pass runs inline here. Each iteration drains the receiver into the registry (max 256
         // batches), then pops one batch out to yield, then yields back to Tokio so sibling tasks
@@ -238,6 +394,14 @@ impl WorkerConnection for ShmMqWorkerConnection {
         // would keep pumping batches even after the backend should have torn down. The send side
         // has the same check inside `MppSender::send_batch_traced`'s retry loop in `transport.rs`.
         let stream = async_stream::stream! {
+            // Send the Request first so the producer side runs the task and starts streaming.
+            // Send errors propagate out as the first yielded item; the consumer's polling loop
+            // sees `Err(...)` and unwinds the upper plan instead of hanging on an empty buffer.
+            let mut stats = SendBatchStats::default();
+            if let Err(e) = req_sender.send_request_traced(target_task, &mut stats).await {
+                yield Err(e);
+                return;
+            }
             loop {
                 pgrx::check_for_interrupts!();
                 if let Err(e) = drain.try_drain_pass() {

@@ -1361,7 +1361,8 @@ impl CustomScan for JoinScan {
             // `ShmMqWorkerTransport::open()` doesn't run during EXPLAIN, so the stub is safe.
             let expr_context = crate::postgres::utils::ExprContextGuard::new();
             let ctx = if mpp_is_active() {
-                let stub_mesh = Arc::new(MppMesh::new(0, mpp_worker_count(), Vec::new()));
+                let stub_mesh =
+                    Arc::new(MppMesh::new(0, mpp_worker_count(), Vec::new(), Vec::new()));
                 Self::build_mpp_session_context(stub_mesh)
             } else {
                 create_datafusion_session_context(SessionContextProfile::Join)
@@ -1577,11 +1578,55 @@ impl CustomScan for JoinScan {
             }
 
             loop {
-                if let Some(batch) = &state.custom_state().current_batch {
+                if let Some(batch) = state.custom_state().current_batch.clone() {
                     if state.custom_state().batch_index < batch.num_rows() {
                         let idx = state.custom_state().batch_index;
-                        state.custom_state_mut().batch_index += 1;
-                        if let Some(slot) = Self::build_result_tuple(state, idx) {
+                        let new_index = idx + 1;
+                        let is_last_row = new_index >= batch.num_rows();
+                        state.custom_state_mut().batch_index = new_index;
+                        let slot = Self::build_result_tuple(state, idx);
+
+                        // If that was the last row of the current batch, eagerly peek the next
+                        // one IN THIS SAME EXEC CALL. PG's `Limit` operator above us stops calling
+                        // `exec` once it has its N rows — for `LIMIT 10` plus a 10-row batch
+                        // that's call #10, so the "fetch next" path on call #11 never runs.
+                        // Without the eager peek, the leader never observes stream `None`, never
+                        // detaches the mesh, and the worker service loops spin forever waiting
+                        // on `leader_inbound_detached()`.
+                        if is_last_row {
+                            state.custom_state_mut().current_batch = None;
+                            let next = {
+                                let cs = state.custom_state_mut();
+                                cs.runtime.as_mut().unwrap().block_on(async {
+                                    cs.datafusion_stream.as_mut().unwrap().next().await
+                                })
+                            };
+                            match next {
+                                Some(Ok(next_batch)) => {
+                                    state.custom_state_mut().current_batch = Some(next_batch);
+                                    state.custom_state_mut().batch_index = 0;
+                                }
+                                None => {
+                                    if let Some(MppExecState::Leader(leader)) =
+                                        state.custom_state().mpp.as_ref()
+                                    {
+                                        leader.mesh.detach_outbound_senders();
+                                        leader.mesh.detach_inbound_receivers();
+                                    }
+                                }
+                                Some(Err(e)) => {
+                                    if let Some(MppExecState::Leader(leader)) =
+                                        state.custom_state().mpp.as_ref()
+                                    {
+                                        leader.mesh.detach_outbound_senders();
+                                        leader.mesh.detach_inbound_receivers();
+                                    }
+                                    panic!("DataFusion execution failed: {}", e);
+                                }
+                            }
+                        }
+
+                        if let Some(slot) = slot {
                             return slot;
                         }
                         continue;
@@ -1606,8 +1651,35 @@ impl CustomScan for JoinScan {
                         state.custom_state_mut().current_batch = Some(batch);
                         state.custom_state_mut().batch_index = 0;
                     }
-                    Some(Err(e)) => panic!("DataFusion execution failed: {}", e),
-                    None => return std::ptr::null_mut(),
+                    Some(Err(e)) => {
+                        // Tear down both halves of the mesh before panicking so worker service
+                        // loops can detach and exit instead of holding PG's parallel-finish
+                        // hostage. See `aggregatescan::exec_datafusion_aggregate` for the full
+                        // reasoning on why both halves are needed.
+                        if let Some(MppExecState::Leader(leader)) =
+                            state.custom_state().mpp.as_ref()
+                        {
+                            leader.mesh.detach_outbound_senders();
+                            leader.mesh.detach_inbound_receivers();
+                        }
+                        panic!("DataFusion execution failed: {}", e);
+                    }
+                    None => {
+                        // Stream exhausted. JoinScan plans with `LIMIT` use
+                        // `SortPreservingMergeExec(fetch=N)`, which stops pulling once N rows
+                        // are seen. Workers' drivers are still streaming the remainder, so we
+                        // detach both halves: outbound so workers' service loops exit, inbound
+                        // so still-running producer drivers see `SHM_MQ_DETACHED` on send and
+                        // unwind cleanly. Without the inbound detach, JoinScan's LIMIT path
+                        // would deadlock.
+                        if let Some(MppExecState::Leader(leader)) =
+                            state.custom_state().mpp.as_ref()
+                        {
+                            leader.mesh.detach_outbound_senders();
+                            leader.mesh.detach_inbound_receivers();
+                        }
+                        return std::ptr::null_mut();
+                    }
                 }
             }
         }

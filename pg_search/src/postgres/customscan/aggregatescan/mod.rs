@@ -1034,7 +1034,7 @@ impl AggregateScan {
             // sizing, and `ShmMqWorkerTransport::open()` doesn't run during EXPLAIN. Going
             // through the constructor is the only safe way to build an `MppMesh` outside
             // `glue::leader_setup`.
-            let stub_mesh = Arc::new(MppMesh::new(0, mpp_worker_count(), Vec::new()));
+            let stub_mesh = Arc::new(MppMesh::new(0, mpp_worker_count(), Vec::new(), Vec::new()));
             Self::build_mpp_session_context(stub_mesh)
         } else {
             create_aggregate_session_context()
@@ -1607,24 +1607,62 @@ impl AggregateScan {
         // Consume batches row-by-row
         loop {
             // Try current batch
-            if let Some(ref batch) = df_state.current_batch {
+            if let Some(batch) = df_state.current_batch.clone() {
                 if df_state.batch_row_idx < batch.num_rows() {
                     unsafe {
                         pg_sys::ExecClearTuple(scan_slot);
                     }
                     let row_idx = df_state.batch_row_idx;
+                    let new_idx = row_idx + 1;
+                    let is_last_row = new_idx >= batch.num_rows();
+                    df_state.batch_row_idx = new_idx;
                     let targetlist = &df_state.targetlist;
                     let group_df_indices = &df_state.group_df_indices;
                     let result = unsafe {
                         project_aggregate_row_to_slot(
                             scan_slot,
-                            batch,
+                            &batch,
                             row_idx,
                             targetlist,
                             group_df_indices,
                         )
                     };
-                    df_state.batch_row_idx += 1;
+
+                    // PG's `Limit` operator above us stops calling `exec` once it has its N
+                    // rows. If we leave `is_last_row` un-peeked, the next exec call where we'd
+                    // fetch the next batch (and see stream None → detach mesh) never happens,
+                    // and worker service loops spin forever. Eagerly fetch here so the detach
+                    // lands in the same call as the last row.
+                    if is_last_row {
+                        df_state.current_batch = None;
+                        let runtime = df_state.runtime.as_ref().unwrap();
+                        let stream = df_state.stream.as_mut().unwrap();
+                        let next = runtime.block_on(async { stream.next().await });
+                        match next {
+                            Some(Ok(next_batch)) => {
+                                df_state.current_batch = Some(next_batch);
+                                df_state.batch_row_idx = 0;
+                            }
+                            None => {
+                                if let Some(scan_state::MppExecState::Leader(leader)) =
+                                    df_state.mpp.as_ref()
+                                {
+                                    leader.mesh.detach_outbound_senders();
+                                    leader.mesh.detach_inbound_receivers();
+                                }
+                            }
+                            Some(Err(e)) => {
+                                if let Some(scan_state::MppExecState::Leader(leader)) =
+                                    df_state.mpp.as_ref()
+                                {
+                                    leader.mesh.detach_outbound_senders();
+                                    leader.mesh.detach_inbound_receivers();
+                                }
+                                pgrx::error!("DataFusion aggregate execution failed: {}", e);
+                            }
+                        }
+                    }
+
                     return result;
                 }
                 // Current batch exhausted
@@ -1643,10 +1681,31 @@ impl AggregateScan {
                     df_state.batch_row_idx = 0;
                 }
                 Some(Err(e)) => {
+                    // Tear down both halves of the mesh before raising so workers can observe
+                    // `leader_inbound_detached` AND see their outbound sends fail; otherwise
+                    // PG's parallel-finish would block trying to join workers stuck waiting on
+                    // the leader's connection.
+                    if let Some(scan_state::MppExecState::Leader(leader)) = df_state.mpp.as_ref() {
+                        leader.mesh.detach_outbound_senders();
+                        leader.mesh.detach_inbound_receivers();
+                    }
                     pgrx::error!("DataFusion aggregate execution failed: {}", e);
                 }
                 None => {
-                    // Stream exhausted — no more results
+                    // Stream exhausted. In MPP mode, drop both halves of the mesh so each
+                    // worker's service loop unwinds:
+                    //   - `detach_outbound_senders`: leader's `slot(0, w)` queue detaches →
+                    //     each worker's `leader_inbound_detached()` flips to `true`.
+                    //   - `detach_inbound_receivers`: leader's `slot(w, 0)` receiver detaches →
+                    //     any worker driver still streaming (e.g. when `SortPreservingMergeExec
+                    //     (fetch=N)` finished early under a LIMIT and stopped pulling) sees
+                    //     `SHM_MQ_DETACHED` on its next send and exits cleanly.
+                    // Without the inbound detach, those drivers spin forever on a full outbound
+                    // queue because the cooperative-drain has no consumer to drain into.
+                    if let Some(scan_state::MppExecState::Leader(leader)) = df_state.mpp.as_ref() {
+                        leader.mesh.detach_outbound_senders();
+                        leader.mesh.detach_inbound_receivers();
+                    }
                     return std::ptr::null_mut();
                 }
             }

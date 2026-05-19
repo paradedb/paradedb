@@ -27,10 +27,9 @@ use pgrx::pg_sys;
 
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::joinscan::scan_state as join_scan_state;
-use crate::postgres::customscan::joinscan::scan_state::{MppExecState, SessionContextProfile};
+use crate::postgres::customscan::joinscan::scan_state::SessionContextProfile;
 use crate::postgres::customscan::joinscan::JoinScan;
 use crate::postgres::customscan::mpp::exec_worker::{run_mpp_worker, MppWorkerInputs};
-use crate::postgres::customscan::mpp::transport::MppSender;
 // `create_datafusion_session_context` lives in joinscan::scan_state and isn't pub from
 // crate root, so import via the joinscan module path.
 use crate::postgres::customscan::joinscan::scan_state::create_datafusion_session_context;
@@ -66,10 +65,6 @@ impl JoinScan {
         };
         let plan_bytes = worker.plan_bytes.clone();
         let worker_mesh = Arc::clone(&worker.mesh);
-        let outbound_senders: Vec<Option<MppSender>> = match state.custom_state_mut().mpp.as_mut() {
-            Some(MppExecState::Worker(w)) => std::mem::take(&mut w.outbound_senders),
-            _ => unreachable!(),
-        };
 
         let runtime = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -91,7 +86,6 @@ impl JoinScan {
                 plan_sources_count,
                 plan_bytes,
                 worker_mesh,
-                outbound_senders,
             },
             seed_ctx,
             runtime,

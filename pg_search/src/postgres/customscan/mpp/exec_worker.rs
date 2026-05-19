@@ -15,42 +15,31 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Shape-agnostic MPP worker exec dispatcher.
+//! Shape-agnostic MPP worker entry point.
 //!
-//! The natural-shape MPP path is the same flow for every customscan that opts in: deserialize
-//! the leader's logical plan from DSM, build a distributed physical plan with the same session
-//! config the leader ran, walk it to find this proc's fragments, and dispatch them via
-//! [`run_worker_fragment`] + `join_all`. The only customscan-specific pieces are the seed
-//! `SessionContext` (different `SessionContextProfile`) and where the inputs come from in
-//! per-scan state.
+//! Pull-shape protocol body: deserialize the leader's logical plan from DSM, build a distributed
+//! physical plan with the same session config the leader ran, walk it for stage→plan mappings,
+//! install a [`ProducerTaskRegistry`] as the request handler on every inbound drain, and enter a
+//! service loop that pumps frames + dispatches Requests until the leader detaches and no drivers
+//! are in flight.
 //!
-//! This module isolates the shape-agnostic logic. Per-scan wrappers (`AggregateScan::exec_mpp_worker`,
-//! `JoinScan::exec_mpp_worker`) extract their inputs into [`MppWorkerInputs`], build their seed
-//! `SessionContext`, and call [`run_mpp_worker`].
+//! Per-scan wrappers (`AggregateScan::exec_mpp_worker`, `JoinScan::exec_mpp_worker`) extract
+//! their inputs into [`MppWorkerInputs`], build their seed `SessionContext`, and call
+//! [`run_mpp_worker`].
 
 use std::sync::Arc;
 
-use datafusion::execution::runtime_env::RuntimeEnvBuilder;
-use datafusion::execution::{SessionStateBuilder, TaskContext};
-use datafusion::physical_plan::ExecutionPlanProperties;
+use datafusion::common::DataFusionError;
+use datafusion::execution::SessionStateBuilder;
 use datafusion::prelude::SessionContext;
-use datafusion_distributed::{
-    DistributedExec, DistributedExt, DistributedTaskContext, SessionStateBuilderExt,
-};
+use datafusion_distributed::{DistributedExt, SessionStateBuilderExt};
 use pgrx::pg_sys;
 use tantivy::index::SegmentId;
 
 use crate::api::HashSet;
-use crate::postgres::customscan::datafusion::memory::create_memory_pool;
-use crate::postgres::customscan::mpp::runtime::{
-    proc_for_task, MppMesh, MppWorkerResolver, ShmMqWorkerTransport,
-};
+use crate::postgres::customscan::mpp::producer_service::{ProducerTaskRegistry, StagePlans};
+use crate::postgres::customscan::mpp::runtime::{MppMesh, MppWorkerResolver, ShmMqWorkerTransport};
 use crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator;
-use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, MppFrameHeader, MppSender};
-use crate::postgres::customscan::mpp::worker::run_worker_fragment;
-use crate::postgres::customscan::mpp::worker_fragments::{
-    find_worker_assignments, FragmentRouting,
-};
 use crate::postgres::customscan::parallel::list_segment_ids;
 use crate::postgres::ParallelScanState;
 use crate::scan::codec::{deserialize_logical_plan_with_runtime, PgSearchPhysicalCodecStub};
@@ -68,17 +57,15 @@ pub(crate) struct MppWorkerInputs {
     pub plan_sources_count: usize,
     /// Leader's serialized logical plan, copied out of DSM during `worker_setup`.
     pub plan_bytes: Vec<u8>,
-    /// This worker's `MppMesh` handle.
+    /// This worker's `MppMesh` handle. Owns both halves of the queue grid (inbound drains + the
+    /// outbound senders the producer service uses to respond to Requests).
     pub worker_mesh: Arc<MppMesh>,
-    /// This worker's outbound senders, keyed by destination `proc_idx`. The dispatcher takes
-    /// ownership; consumers see `Detached` once these drop.
-    pub outbound_senders: Vec<Option<MppSender>>,
 }
 
 /// Build the worker/leader distributed session context. Same builder both procs run so they
-/// agree on stage shape, task estimator chain, target_partitions, and codec. Without that,
-/// `find_worker_assignments` returns no fragments because the worker's plan numbers stages
-/// differently from the leader's.
+/// agree on stage shape, task estimator chain, target_partitions, and codec. Without that, a
+/// worker's plan numbers stages differently from the leader's and the per-stage plan registry
+/// disagrees with the consumer-side `target_task` addressing.
 ///
 /// `seed` is the customscan's serial session context (`create_aggregate_session_context()` for
 /// AggregateScan, `create_datafusion_session_context(SessionContextProfile::Join)` for JoinScan).
@@ -87,7 +74,6 @@ pub(crate) fn build_mpp_session_context(
     seed: SessionContext,
     mesh: Arc<MppMesh>,
 ) -> SessionContext {
-    // Workers are procs 1..n_procs; leader is proc 0. The producer count is `n_procs - 1`.
     let n_workers = mesh.n_procs.saturating_sub(1).max(1) as usize;
     // Four-knob unlock for actually inserting NetworkShuffleExec/etc.:
     //   1. target_partitions(N) — without this, EnforceDistribution skips every
@@ -105,24 +91,19 @@ pub(crate) fn build_mpp_session_context(
         .copied_config()
         .with_target_partitions(n_workers.max(2));
 
-    // Start from the seed's existing state so the customscan's query planner (`PgSearchQueryPlanner`),
-    // optimizer rules, and registered extensions all carry over. JoinScan relies on this for
-    // `VisibilityFilterNode` -> `VisibilityFilterExec` translation; AggregateScan's plan happens
-    // not to use any custom logical nodes but inheriting the planner is still the correct
-    // default. We then override `with_config` (bumps `target_partitions`) and layer the
-    // distributed-planner knobs on top.
     let state_builder = SessionStateBuilder::new_from_existing(seed.state())
         .with_config(cfg)
         .with_distributed_worker_resolver(MppWorkerResolver::new(n_workers))
         .with_distributed_worker_transport(ShmMqWorkerTransport::new(mesh))
         .with_distributed_in_process_mode(true)
         .expect("with_distributed_in_process_mode")
-        // Estimator chain order matters. The DF-D fork tries each estimator in registration
-        // order until one returns Some. The build-side one-task estimator has to come first.
-        // Otherwise the default `Desired(n_workers)` leaf estimator wins, the all-gather
-        // memory leaf gets task_count = n_workers, `_distribute_plan` builds
-        // `NetworkBroadcastExec` with `input_task_count = n_workers`, and the consumer's
-        // `select_all` over-counts by n_workers. See task_estimator.rs.
+        // BroadcastBuildSideOneTaskEstimator must come first in the chain. The DF-D fork tries
+        // each estimator in registration order until one returns Some. Without the broadcast cap,
+        // the default leaf estimator returns `Desired(n_workers)` for the memory-leaf canonical
+        // all-gather, the consumer's `select_all` over-counts by `n_workers`, and pull-mode would
+        // additionally dispatch one task per task_idx for the broadcast subtree — same dup
+        // problem as push-mode. The estimator caps `BroadcastExec` at task_count = 1 so only
+        // `task_idx = 0` requests are valid for broadcast stages.
         .with_distributed_task_estimator(BroadcastBuildSideOneTaskEstimator)
         .with_distributed_task_estimator(n_workers)
         .with_distributed_broadcast_joins(true)
@@ -133,8 +114,8 @@ pub(crate) fn build_mpp_session_context(
 }
 
 /// Shape-agnostic body of `exec_mpp_worker`. Runs to completion on the caller's tokio runtime,
-/// pgrx::error!s on fatal failures, returns normally on EOF (the customscan's
-/// `exec_custom_scan` then returns `null_mut()` to signal end-of-stream to PG).
+/// `pgrx::error!`s on fatal failures, returns normally once the leader has detached and every
+/// in-flight driver has emitted its `Eof` frame.
 ///
 /// `seed_ctx` is a bare serial `SessionContext` used only for plan deserialization
 /// (`ctx.task_ctx()`). The distributed planner config is built separately via
@@ -151,11 +132,9 @@ pub(crate) fn run_mpp_worker(
         plan_sources_count,
         plan_bytes,
         worker_mesh,
-        outbound_senders,
     } = inputs;
 
     let this_proc = worker_mesh.this_proc;
-    let total_procs = worker_mesh.n_procs;
 
     // Build per-source canonical segment ID sets. For the partitioning source, pull the full
     // list out of the populated ParallelScanState (workers will then claim individual segments
@@ -179,8 +158,8 @@ pub(crate) fn run_mpp_worker(
         &plan_bytes,
         &seed_ctx.task_ctx(),
         parallel_state,
-        None, // expr_context: bm25 search predicates don't need runtime params
-        None, // planstate: same
+        None,
+        None,
         non_partitioning_segments,
         index_segment_ids,
     ) {
@@ -197,208 +176,79 @@ pub(crate) fn run_mpp_worker(
         Err(e) => pgrx::error!("mpp worker: create_physical_plan failed: {e}"),
     };
 
-    // Walk the plan and collect every `(stage_id, task_idx)` slot owned by this proc under the
-    // `proc_for_task` round-robin policy. The dispatcher spawns one async task per fragment;
-    // together they form the worker's complete contribution to the distributed plan.
-    let n_workers = total_procs.saturating_sub(1).max(1);
-    let fragments = find_worker_assignments(&physical_plan, this_proc, n_workers);
-    if fragments.is_empty() {
+    // Walk the distributed physical plan and capture every (stage_id, local_plan, task_count)
+    // for the producer service. Empty means no NetworkBoundaryExt under the root — the natural
+    // shape always emits at least one, so an empty walk means the planner gave us a degenerate
+    // plan and the worker has nothing to do.
+    let stage_plans = StagePlans::build(&physical_plan);
+    if stage_plans.is_empty() {
         pgrx::warning!(
-            "mpp worker (proc={this_proc}): no fragments assigned; skipping (worker emits zero rows)"
+            "mpp worker (proc={this_proc}): physical plan has no NetworkBoundary; skipping \
+             (worker emits zero rows)"
         );
         return;
     }
+    crate::mpp_log!(
+        "mpp worker (proc={this_proc}): {} stage(s) registered for pull-shape dispatch",
+        stage_plans.len()
+    );
 
     let work_mem_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
     let hash_mem_multiplier = unsafe { pg_sys::hash_mem_multiplier };
     let session_arc = Arc::new(session);
+    let registry = Arc::new(ProducerTaskRegistry::new(
+        stage_plans,
+        session_arc,
+        &worker_mesh,
+        work_mem_bytes,
+        hash_mem_multiplier,
+    ));
 
-    // Two `Future` shapes share this vector: real producer-fragment futures and broadcast
-    // short-circuit EOF-only stubs. The alias keeps the `Vec<_>` declaration legible and silences
-    // clippy::type_complexity.
-    type FragmentFuture = std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<(), datafusion::common::DataFusionError>>
-                + Send,
-        >,
-    >;
-    let result = runtime.block_on(async move {
-        let mut futures: Vec<FragmentFuture> = Vec::with_capacity(fragments.len());
-        for fragment in &fragments {
-            let n_out = fragment.plan.output_partitioning().partition_count();
-            // Build per-output-partition senders. For each partition `q` emitted by this
-            // fragment, look up the destination proc via `fragment.routing` and clone the right
-            // outbound sender.
-            let mut per_partition_senders: Vec<MppSender> = Vec::with_capacity(n_out);
-            for q in 0..n_out {
-                let dest_proc = match &fragment.routing {
-                    FragmentRouting::Coalesce { dest_proc } => *dest_proc,
-                    FragmentRouting::Shuffle {
-                        partitions_per_consumer_task,
-                    }
-                    | FragmentRouting::Broadcast {
-                        partitions_per_consumer_task,
-                    } => {
-                        let t_c = (q / partitions_per_consumer_task) as u32;
-                        proc_for_task(n_workers, t_c)
-                    }
-                };
-                let base = match outbound_senders
-                    .get(dest_proc as usize)
-                    .and_then(|s| s.as_ref())
-                {
-                    Some(s) => s,
-                    None => {
-                        return Err(datafusion::common::DataFusionError::Internal(format!(
-                            "mpp worker dispatch: outbound_senders[{dest_proc}] is None \
-                             (self-loop or unattached); fragment stage_id={} task_idx={}",
-                            fragment.stage_id, fragment.task_idx,
-                        )));
-                    }
-                };
-                let q_u32 = u32::try_from(q).unwrap_or(u32::MAX);
-                crate::mpp_log!(
-                    "mpp worker dispatch this_proc={this_proc} fragment(stage_id={}, \
-                     task_idx={}) partition={q} → dest_proc={dest_proc}",
-                    fragment.stage_id,
-                    fragment.task_idx,
-                );
-                // Attach the worker mesh as the cooperative drain so a full outbound shm_mq
-                // queue doesn't block the backend thread. The spin pulls every inbound drain
-                // while retrying the send, breaking N×N symmetric stalls.
-                per_partition_senders.push(
-                    base.clone_with_header(MppFrameHeader::batch(fragment.stage_id, q_u32))
-                        .with_cooperative_drain(
-                            Arc::clone(&worker_mesh) as Arc<dyn CooperativeDrainSet>
-                        ),
-                );
+    // Install the registry as the request handler on every inbound drain. The cooperative drain
+    // dispatches each `Request` frame to `registry.on_request`, which spawns a driver future on
+    // the same tokio runtime backing this `block_on`.
+    worker_mesh.install_request_handler(Arc::clone(&registry)
+        as Arc<dyn crate::postgres::customscan::mpp::transport::RequestHandler>);
+
+    // Service loop. Three pieces interleave on the single tokio task scheduler:
+    //   - This loop: pumps every inbound drain, dispatching Requests.
+    //   - Spawned per-partition drivers (one per Request): run plan.execute(p, ctx), push
+    //     batches + Eof through `mesh.outbound_sender(sender_proc).clone_with_header(...)`.
+    //   - The cooperative-drain spin inside each `MppSender::send_*_traced`: pumps the same
+    //     inbounds while waiting for outbound space.
+    //
+    // All on the backend thread, all under pgrx's `check_active_thread` invariant. `yield_now`
+    // surrenders the runtime between iterations so spawned drivers make forward progress;
+    // without it, this loop would starve everything else on the runtime.
+    //
+    // Termination: leader detached AND no active drivers. Leader detach means the leader's
+    // outbound senders dropped — no more Requests can arrive from the consumer side. With zero
+    // active drivers, no producer fragment is still streaming. Using the leader's inbound as the
+    // detection signal (not "every inbound detached") avoids the symmetric-wait deadlock where
+    // every worker would wait for every other worker to detach first; see
+    // `MppMesh::leader_inbound_detached` for the reasoning.
+    let result: Result<(), DataFusionError> = runtime.block_on(async {
+        loop {
+            pgrx::check_for_interrupts!();
+            worker_mesh.drain_all_inbound()?;
+            if let Some(e) = registry.take_error() {
+                return Err(e);
             }
-
-            // Broadcast invariant: fail-loud cap check.
-            //
-            // The natural-shape plan canonical-replicates the build subtree via the `mpp build
-            // all-gather` step. Every producer task would scan the full canonical data, and the
-            // consumer's `select_all` would over-count by `input_task_count`. The planner-level
-            // `BroadcastBuildSideOneTaskEstimator` caps the build subtree at task_count=1, so a
-            // correct plan produces exactly one Broadcast fragment with task_idx == 0.
-            //
-            // A non-zero `task_idx` here means the cap silently failed: maybe the estimator
-            // wasn't installed, the chain order is wrong, or a future planner pass re-expanded
-            // the build subtree. We surface this as a hard error rather than silently
-            // EOF-only-ing the fragment.
-            if matches!(fragment.routing, FragmentRouting::Broadcast { .. }) {
-                debug_assert!(
-                    fragment.task_idx == 0,
-                    "mpp dispatcher: Broadcast fragment with task_idx={} but \
-                     BroadcastBuildSideOneTaskEstimator should have capped \
-                     input_task_count at 1; plan-walk drift?",
-                    fragment.task_idx,
-                );
-                if fragment.task_idx != 0 {
-                    return Err(datafusion::common::DataFusionError::Internal(format!(
-                        "mpp worker dispatch (proc={this_proc}): Broadcast fragment \
-                         (stage_id={}, task_idx={}) with task_idx > 0. The planner-level \
-                         BroadcastBuildSideOneTaskEstimator should cap input_task_count at 1. \
-                         A non-zero task_idx here indicates plan-walk drift or a missing \
-                         estimator chain on this session.",
-                        fragment.stage_id, fragment.task_idx,
-                    )));
-                }
+            if worker_mesh.leader_inbound_detached() && registry.active_drivers() == 0 {
+                break;
             }
-
-            // Build a TaskContext seeded with the right `DistributedTaskContext` so the boundary
-            // nodes inside the fragment's plan know their `(task_index, task_count)`.
-            let cfg = session_arc
-                .state()
-                .config()
-                .clone()
-                .with_extension(Arc::new(DistributedTaskContext {
-                    task_index: fragment.task_idx,
-                    task_count: fragment.task_count,
-                }));
-            let memory_pool =
-                create_memory_pool(&fragment.plan, work_mem_bytes, hash_mem_multiplier);
-            let task_ctx = Arc::new(
-                TaskContext::default()
-                    .with_session_config(cfg)
-                    .with_runtime(Arc::new(
-                        RuntimeEnvBuilder::new()
-                            .with_memory_pool(memory_pool)
-                            .build()
-                            .expect("Failed to create RuntimeEnv"),
-                    )),
-            );
-
-            // Wrap fragment.plan in a fresh `DistributedExec` and run `prepare_in_process_plan`
-            // to convert any nested boundaries' input stages from `Stage::Local` to
-            // `Stage::Remote`. Without this, a nested `NetworkShuffleExec` /
-            // `NetworkBroadcastExec` hitting `LocalStage::execute` errors when its task count
-            // exceeds 1; with the conversion, those boundaries dispatch through
-            // `ShmMqWorkerTransport` exactly like outer boundaries.
-            let plan = {
-                let dist = Arc::new(DistributedExec::new(Arc::clone(&fragment.plan)));
-                match dist.prepare_in_process_plan(&task_ctx) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        return Err(datafusion::common::DataFusionError::Internal(format!(
-                            "mpp worker: prepare_in_process_plan failed for fragment \
-                             (stage_id={}, task_idx={}): {e}",
-                            fragment.stage_id, fragment.task_idx
-                        )));
-                    }
-                }
-            };
-            futures.push(Box::pin(run_worker_fragment(
-                plan,
-                per_partition_senders,
-                task_ctx,
-            )));
+            tokio::task::yield_now().await;
         }
-        // Drop the original outbound_senders so the only remaining Arcs to each shm_mq queue /
-        // in-proc channel are the per-partition clones owned by the spawned fragments. Without
-        // this, the originals would outlive the futures, the consumer-side drains would never
-        // observe `Detached`, and `stream_partition`'s pull loop would spin forever.
-        drop(outbound_senders);
-        crate::mpp_log!(
-            "mpp worker dispatch this_proc={this_proc} starting join_all on {} fragments",
-            fragments.len()
-        );
-        // `join_all`, not `try_join_all`. Fail-fast cancellation would drop sibling fragments
-        // mid-`await`, and a cancelled `run_worker_fragment` cancels its inner partition
-        // futures, leaving their `(stage_id, partition)` sub-buffers stuck at
-        // `sources_done == 0` on the consumer side. Per-channel EOF is load-bearing on the
-        // substrate alone (matching reasoning in `run_worker_fragment`).
-        //
-        // Deadlock detector. Under `paradedb.mpp_debug`, if any fragment hasn't completed
-        // within 30 s the dispatcher surfaces an error instead of letting the backend spin
-        // forever.
-        let join_fut = futures::future::join_all(futures);
-        let outcome: Result<(), datafusion::common::DataFusionError> = if crate::gucs::mpp_debug() {
-            match tokio::time::timeout(std::time::Duration::from_secs(30), join_fut).await {
-                Ok(results) => results
-                    .into_iter()
-                    .collect::<Result<Vec<_>, _>>()
-                    .map(|_| ()),
-                Err(_) => {
-                    crate::mpp_log!(
-                        "mpp worker dispatch this_proc={this_proc} HANG: join_all exceeded 30s"
-                    );
-                    Err(datafusion::common::DataFusionError::Internal(format!(
-                        "mpp worker dispatch (proc={this_proc}): join_all exceeded 30s; \
-                         deadlock detector triggered"
-                    )))
-                }
-            }
-        } else {
-            join_fut
-                .await
-                .into_iter()
-                .collect::<Result<Vec<_>, _>>()
-                .map(|_| ())
-        };
-        outcome
+        Ok(())
     });
+
+    // Break the registry ↔ mesh handler cycle so the registry's `Arc<dyn RequestHandler>` refs
+    // (one per drain) release. Without this, `registry` and `worker_mesh` keep each other alive
+    // past the function return.
+    worker_mesh.uninstall_request_handler();
+    drop(registry);
+
     if let Err(e) = result {
-        pgrx::error!("mpp worker: fragment dispatch failed: {e}");
+        pgrx::error!("mpp worker: service loop failed: {e}");
     }
 }

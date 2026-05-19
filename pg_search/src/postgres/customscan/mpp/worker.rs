@@ -15,89 +15,79 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! MPP worker fragment runner.
+//! Per-partition driver for the pull-shape protocol.
 //!
-//! "Worker" matches the DF-D fork's terminology. Every distributed task is a `WorkerConnection`
-//! on the receive side, and the fragment runner is that worker's push side.
+//! [`run_partition_driver`] is the producer-side body that runs `plan.execute(partition, ctx)`
+//! and forwards every batch through a pre-built `MppSender`. It always tries to emit a
+//! per-channel `Eof` frame at the end (success OR clean exit) so the consumer's drain registry
+//! transitions cleanly. The shm_mq queue is multiplexed across `(stage_id, partition)` channels,
+//! so dropping the sender is NOT enough — only the explicit Eof frame closes a single logical
+//! channel without taking down the queue.
 //!
-//! - [`run_worker_fragment`]: PG-parallel-worker push loop. Runs the `n_partitions` output
-//!   partitions of `plan` concurrently; each batch yielded by partition `p` is encoded and pushed
-//!   through `outbound_senders[p]`. Returns when every output stream is exhausted. Only producer
-//!   workers call this; the leader is consumer-only (see
-//!   [`crate::postgres::customscan::mpp::glue::producer_worker_count`]).
+//! Consumer-side teardown (e.g. `SortPreservingMergeExec(fetch=N)` finishing early under a
+//! `LIMIT`) surfaces here as a "sender detached" send error. We treat it as a clean signal: the
+//! driver returns `Ok(())` so it doesn't poison the registry's first-error slot, and the
+//! service loop's `active_drivers` counter decrements to 0 normally.
 
 use std::sync::Arc;
 
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
-use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
+use datafusion::physical_plan::ExecutionPlan;
 use futures::stream::StreamExt;
 
 use crate::postgres::customscan::mpp::transport::{MppSender, SendBatchStats};
 
-/// Run a producer fragment plan to exhaustion and push every output batch
-/// through the corresponding `outbound_senders[partition]`.
+/// True if `err` is the "consumer torn down mid-stream" signal that
+/// [`MppSender::send_batch_traced`] / [`MppSender::send_eof_traced`] produce when the underlying
+/// channel detaches. Match on the message because both backends — shm_mq and in-proc — produce
+/// the same surface error type (`DataFusionError::Execution`) but with backend-specific text.
+fn is_consumer_detached(err: &DataFusionError) -> bool {
+    let s = err.to_string();
+    s.contains("shm_mq sender detached") || s.contains("in-proc channel detached")
+}
+
+/// Execute partition `partition` of `plan` and push every yielded batch through `sender`,
+/// followed by an `Eof` frame. Sends the Eof regardless of whether the stream succeeded — the
+/// consumer needs the EOF to unwind even on error, and the shm_mq queue is multiplexed so a
+/// dropped sender alone doesn't close the logical channel.
 ///
-/// The output partition count of `plan` MUST equal `outbound_senders.len()`;
-/// this is checked before the first batch is pulled.
-pub async fn run_worker_fragment(
+/// Consumer-detach during a send returns `Ok(())` (not an error) so the registry's
+/// first-error slot stays clean. Anything else that errors mid-stream still propagates.
+pub async fn run_partition_driver(
     plan: Arc<dyn ExecutionPlan>,
-    outbound_senders: Vec<MppSender>,
+    partition: usize,
+    sender: MppSender,
     ctx: Arc<TaskContext>,
 ) -> Result<()> {
-    let n_partitions = plan.output_partitioning().partition_count();
-    if n_partitions != outbound_senders.len() {
-        return Err(DataFusionError::Internal(format!(
-            "run_worker_fragment: plan has {} output partitions but {} senders provided",
-            n_partitions,
-            outbound_senders.len()
-        )));
-    }
-
-    // Execute every output partition concurrently. Each partition gets its
-    // own sender; pushes are independent. `Arc<MppSender>` so each
-    // partition's future has its own clone (MppSender is `Sync`).
-    let senders: Vec<Arc<MppSender>> = outbound_senders.into_iter().map(Arc::new).collect();
-    let mut futures = Vec::with_capacity(n_partitions);
-    for (partition, sender) in senders.iter().enumerate() {
-        let plan = Arc::clone(&plan);
-        let ctx = Arc::clone(&ctx);
-        let sender = Arc::clone(sender);
-        // Each partition must send a per-channel EOF when the stream ends, regardless of how it
-        // ended (success or error). The shm_mq queue is shared across fragments, so dropping the
-        // sender doesn't signal end-of-channel — only the EOF frame does. A `Drop`-based guard
-        // would be cleaner in principle, but `send_eof_traced` is async and runs through the
-        // cooperative-drain spin which must execute on the backend thread, so we sequence it
-        // explicitly here.
-        futures.push(async move {
-            let mut stats = SendBatchStats::default();
-            let stream_result: Result<(), DataFusionError> = async {
-                let mut stream = plan.execute(partition, ctx)?;
-                while let Some(batch) = stream.next().await {
-                    let batch = batch?;
-                    if batch.num_rows() == 0 {
-                        continue;
-                    }
-                    sender
-                        .as_ref()
-                        .send_batch_traced(&batch, &mut stats)
-                        .await?;
-                }
-                Ok(())
+    let mut stats = SendBatchStats::default();
+    let stream_result: Result<bool, DataFusionError> = async {
+        let mut stream = plan.execute(partition, ctx)?;
+        while let Some(batch) = stream.next().await {
+            let batch = batch?;
+            if batch.num_rows() == 0 {
+                continue;
             }
-            .await;
-            let eof_result = sender.as_ref().send_eof_traced(&mut stats).await;
-            // Stream error first, then any EOF-send error so neither failure mode disappears.
-            stream_result.and(eof_result)
-        });
+            match sender.send_batch_traced(&batch, &mut stats).await {
+                Ok(()) => {}
+                Err(e) if is_consumer_detached(&e) => return Ok(false),
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(true)
     }
-    // `join_all`, not `try_join_all`: fail-fast would cancel sibling partitions mid-await before
-    // they hit `send_eof_traced`, leaving the consumer's channel buffer stuck and the leader's
-    // `select_all` blocked.
-    let results = futures::future::join_all(futures).await;
-    drop(senders);
-    for r in results {
-        r?;
+    .await;
+
+    match stream_result {
+        // Streamed cleanly to exhaustion; emit the per-channel EOF. A detached consumer at this
+        // point is benign — same reasoning as in the stream loop.
+        Ok(true) => match sender.send_eof_traced(&mut stats).await {
+            Ok(()) => Ok(()),
+            Err(e) if is_consumer_detached(&e) => Ok(()),
+            Err(e) => Err(e),
+        },
+        // Consumer detached mid-stream — no point sending EOF, the channel buffer is gone.
+        Ok(false) => Ok(()),
+        Err(e) => Err(e),
     }
-    Ok(())
 }

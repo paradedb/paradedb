@@ -148,8 +148,18 @@ impl MppFrameHeader {
     /// `Err` if the slice is too short or the magic doesn't match.
     fn parse(bytes: &[u8]) -> Result<Self, DataFusionError> {
         if bytes.len() < MPP_FRAME_HEADER_SIZE {
+            // Diagnostic: a recent benchmark run on origin/main produced a 12-byte frame on the
+            // leader's inbound queue for the `aggregate_join_groupby` query at 100k scale. No
+            // encoder in this file produces sub-16-byte output, so the source is something
+            // outside the MPP layer. Hex-dump the bytes so the next benchmark surfaces what's
+            // actually arriving and we can chase the producer.
+            let hex = bytes
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<Vec<_>>()
+                .join(" ");
             return Err(DataFusionError::Internal(format!(
-                "mpp: frame too short for header ({} < {})",
+                "mpp: frame too short for header ({} < {}); bytes = [{hex}]",
                 bytes.len(),
                 MPP_FRAME_HEADER_SIZE
             )));

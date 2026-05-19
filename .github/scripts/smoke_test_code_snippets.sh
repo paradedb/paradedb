@@ -239,7 +239,7 @@ drizzle_fail_count=0
 if [[ $LANGUAGES =~ "drizzle" ]]; then
   echo "Installing @paradedb/drizzle-paradedb from npm..."
   npm --prefix "$DRIZZLE_ENV_DIR" install --silent \
-    "@paradedb/drizzle-paradedb" \
+    "@paradedb/drizzle-paradedb@0.1.0" \
     "drizzle-orm" \
     "postgres" \
     "tsx"

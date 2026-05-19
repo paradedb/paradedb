@@ -1643,7 +1643,21 @@ impl CustomScan for JoinScan {
         }
     }
 
-    fn shutdown_custom_scan(_state: &mut CustomScanStateWrapper<Self>) {}
+    fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        // Pull-shape: when PG signals shutdown on the leader's custom scan (typically because a
+        // parent `Limit` has reached its row count and is about to unwind), detach the mesh so
+        // worker service loops can exit. PG calls `ExecShutdownNode` on the lefttree from
+        // `ExecShutdownGatherMerge` BEFORE waiting for workers via
+        // `WaitForParallelWorkersToFinish` — the ordering matters because otherwise the wait
+        // would block forever (workers spin on the service loop waiting for the leader to
+        // detach). JoinScan plans with `LIMIT` end up in exactly this code path: there's no
+        // `Sort` between `Limit` and `Gather Merge` to fully drain the leader's stream, so the
+        // detach-on-stream-`None` path never fires.
+        if let Some(MppExecState::Leader(leader)) = state.custom_state().mpp.as_ref() {
+            leader.mesh.detach_outbound_senders();
+            leader.mesh.detach_inbound_receivers();
+        }
+    }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
         // Pull-shape: if we're an MPP worker, run the producer service loop here. By the time

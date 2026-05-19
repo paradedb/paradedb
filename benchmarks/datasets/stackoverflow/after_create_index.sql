@@ -1,3 +1,7 @@
+-- VACUUM FULL ANALYZE was previously required here to ensure deterministic segment
+-- counts after index creation. This is no longer necessary as the core indexing
+-- logic now produces deterministic segments without a manual vacuum step.
+
 DROP TABLE IF EXISTS stackoverflow_schema_metadata CASCADE;
 CREATE TABLE stackoverflow_schema_metadata ("name" TEXT PRIMARY KEY, "value" TEXT);
 INSERT INTO stackoverflow_schema_metadata ("name", "value") VALUES

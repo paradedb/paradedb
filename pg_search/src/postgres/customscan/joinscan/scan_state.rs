@@ -259,8 +259,6 @@ pub struct JoinScanState {
     /// Stashed in `begin_custom_scan` when MPP is active; consumed by `estimate_dsm` /
     /// `initialize_dsm`.
     pub mpp_plan_bytes: Option<Vec<u8>>,
-    /// MPP producer-partition count. Sized by `producer_worker_count()` at plan time.
-    pub mpp_n_partitions: u32,
     /// Which entry in `plan.sources()` is the partitioning source. Stamped into the DSM header
     /// by the leader; read back by workers in `exec_mpp_worker` to key `index_segment_ids`.
     pub mpp_partitioning_source_idx: Option<usize>,

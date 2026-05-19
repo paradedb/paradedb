@@ -1421,7 +1421,6 @@ impl CustomScan for JoinScan {
             if mpp_is_active() && unsafe { pg_sys::ParallelWorkerNumber } == -1 {
                 if let Some(bytes) = state.custom_state().logical_plan.clone() {
                     state.custom_state_mut().mpp_plan_bytes = Some(bytes.to_vec());
-                    state.custom_state_mut().mpp_n_partitions = producer_worker_count().max(1);
                     let partitioning_idx =
                         state.custom_state().join_clause.partitioning_source_index();
                     state.custom_state_mut().mpp_partitioning_source_idx = Some(partitioning_idx);

@@ -1435,10 +1435,12 @@ impl CustomScan for JoinScan {
     }
 
     fn exec_custom_scan(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
-        // MPP worker dispatch: producer-side fragments emit nothing back to PG. Route to the
-        // MPP exec helper and return null_mut() to signal end-of-stream.
+        // Pull-shape MPP workers produce zero rows for PG's parallel framework — all data flows
+        // via the MPP shm_mq mesh, not the per-worker tuple queue Gather Merge polls. Returning
+        // `null_mut()` here signals EOS so Gather Merge stops waiting on this worker; the actual
+        // service loop runs in [`Self::end_custom_scan`] after ExecutorRun exits.
         if matches!(state.custom_state().mpp, Some(MppExecState::Worker(_))) {
-            return JoinScan::exec_mpp_worker(state);
+            return std::ptr::null_mut();
         }
         unsafe {
             if state.custom_state().datafusion_stream.is_none() {
@@ -1578,55 +1580,11 @@ impl CustomScan for JoinScan {
             }
 
             loop {
-                if let Some(batch) = state.custom_state().current_batch.clone() {
+                if let Some(batch) = &state.custom_state().current_batch {
                     if state.custom_state().batch_index < batch.num_rows() {
                         let idx = state.custom_state().batch_index;
-                        let new_index = idx + 1;
-                        let is_last_row = new_index >= batch.num_rows();
-                        state.custom_state_mut().batch_index = new_index;
-                        let slot = Self::build_result_tuple(state, idx);
-
-                        // If that was the last row of the current batch, eagerly peek the next
-                        // one IN THIS SAME EXEC CALL. PG's `Limit` operator above us stops calling
-                        // `exec` once it has its N rows — for `LIMIT 10` plus a 10-row batch
-                        // that's call #10, so the "fetch next" path on call #11 never runs.
-                        // Without the eager peek, the leader never observes stream `None`, never
-                        // detaches the mesh, and the worker service loops spin forever waiting
-                        // on `leader_inbound_detached()`.
-                        if is_last_row {
-                            state.custom_state_mut().current_batch = None;
-                            let next = {
-                                let cs = state.custom_state_mut();
-                                cs.runtime.as_mut().unwrap().block_on(async {
-                                    cs.datafusion_stream.as_mut().unwrap().next().await
-                                })
-                            };
-                            match next {
-                                Some(Ok(next_batch)) => {
-                                    state.custom_state_mut().current_batch = Some(next_batch);
-                                    state.custom_state_mut().batch_index = 0;
-                                }
-                                None => {
-                                    if let Some(MppExecState::Leader(leader)) =
-                                        state.custom_state().mpp.as_ref()
-                                    {
-                                        leader.mesh.detach_outbound_senders();
-                                        leader.mesh.detach_inbound_receivers();
-                                    }
-                                }
-                                Some(Err(e)) => {
-                                    if let Some(MppExecState::Leader(leader)) =
-                                        state.custom_state().mpp.as_ref()
-                                    {
-                                        leader.mesh.detach_outbound_senders();
-                                        leader.mesh.detach_inbound_receivers();
-                                    }
-                                    panic!("DataFusion execution failed: {}", e);
-                                }
-                            }
-                        }
-
-                        if let Some(slot) = slot {
+                        state.custom_state_mut().batch_index += 1;
+                        if let Some(slot) = Self::build_result_tuple(state, idx) {
                             return slot;
                         }
                         continue;
@@ -1688,6 +1646,16 @@ impl CustomScan for JoinScan {
     fn shutdown_custom_scan(_state: &mut CustomScanStateWrapper<Self>) {}
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        // Pull-shape: if we're an MPP worker, run the producer service loop here. By the time
+        // `end_custom_scan` fires, exec_custom_scan has returned `null_mut` and PG's parallel
+        // framework has marked this worker EOS on the leader's Gather Merge — so the leader is
+        // free to drain MPP traffic without blocking on us. The worker process is still alive
+        // (we're inside ExecutorEnd), so shm_mq FFI remains valid. See
+        // `AggregateScan::end_custom_scan` for the full reasoning.
+        if matches!(state.custom_state().mpp, Some(MppExecState::Worker(_))) {
+            JoinScan::exec_mpp_worker(state);
+        }
+
         unsafe {
             // Drop tuple slots that we own.
             for rel_state in state.custom_state().relations.values() {

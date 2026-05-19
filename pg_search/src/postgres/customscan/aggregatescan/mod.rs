@@ -607,6 +607,23 @@ impl CustomScan for AggregateScan {
     fn shutdown_custom_scan(_state: &mut CustomScanStateWrapper<Self>) {}
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
+        // Pull-shape: if we're an MPP worker, run the producer service loop here. By the time
+        // `end_custom_scan` fires, ExecutorRun has exited on this worker (exec_custom_scan
+        // returned null), PG has detached the per-worker tuple queue, and Gather Merge on the
+        // leader has marked this worker EOS — so the leader can drain the MPP mesh without
+        // waiting on us. The worker process is still alive though (we're in ExecutorEnd), so
+        // shm_mq FFI is still valid. Loop runs until the leader detaches its outbound senders,
+        // then returns and PG continues teardown.
+        let is_mpp_worker = state
+            .custom_state()
+            .datafusion_state
+            .as_ref()
+            .map(|s| matches!(s.mpp, Some(scan_state::MppExecState::Worker(_))))
+            .unwrap_or(false);
+        if is_mpp_worker {
+            mpp::exec_mpp_worker(state);
+        }
+
         // Explicitly drop DataFusion resources (runtime, stream, batches) at the
         // intended lifecycle boundary rather than relying on Postgres to drop the
         // state wrapper later. Mirrors JoinScan::end_custom_scan.
@@ -1498,7 +1515,15 @@ impl AggregateScan {
         // call, then return null forever. Workers emit zero rows back to
         // PG; the leader assembles the result via the consumer plan.
         if let Some(scan_state::MppExecState::Worker(_)) = &df_state.mpp {
-            return mpp::exec_mpp_worker(state);
+            // Pull-shape workers produce zero rows for PG's parallel framework — all data flows
+            // via the MPP shm_mq mesh, not the per-worker tuple queue PG's Gather Merge polls.
+            // Returning `null_mut()` here signals EOS to Gather Merge so it stops waiting on this
+            // worker and continues polling the leader. The actual service loop (which dispatches
+            // Requests from the leader to spawn per-partition drivers) runs in
+            // [`end_custom_scan`] — at that point ExecutorRun has already exited on this worker,
+            // PG's tuple queue is detached, and the worker process is alive only for executor
+            // cleanup, which is exactly when we want to host the loop.
+            return std::ptr::null_mut();
         }
 
         // First call: build and execute the DataFusion plan
@@ -1607,62 +1632,24 @@ impl AggregateScan {
         // Consume batches row-by-row
         loop {
             // Try current batch
-            if let Some(batch) = df_state.current_batch.clone() {
+            if let Some(ref batch) = df_state.current_batch {
                 if df_state.batch_row_idx < batch.num_rows() {
                     unsafe {
                         pg_sys::ExecClearTuple(scan_slot);
                     }
                     let row_idx = df_state.batch_row_idx;
-                    let new_idx = row_idx + 1;
-                    let is_last_row = new_idx >= batch.num_rows();
-                    df_state.batch_row_idx = new_idx;
                     let targetlist = &df_state.targetlist;
                     let group_df_indices = &df_state.group_df_indices;
                     let result = unsafe {
                         project_aggregate_row_to_slot(
                             scan_slot,
-                            &batch,
+                            batch,
                             row_idx,
                             targetlist,
                             group_df_indices,
                         )
                     };
-
-                    // PG's `Limit` operator above us stops calling `exec` once it has its N
-                    // rows. If we leave `is_last_row` un-peeked, the next exec call where we'd
-                    // fetch the next batch (and see stream None → detach mesh) never happens,
-                    // and worker service loops spin forever. Eagerly fetch here so the detach
-                    // lands in the same call as the last row.
-                    if is_last_row {
-                        df_state.current_batch = None;
-                        let runtime = df_state.runtime.as_ref().unwrap();
-                        let stream = df_state.stream.as_mut().unwrap();
-                        let next = runtime.block_on(async { stream.next().await });
-                        match next {
-                            Some(Ok(next_batch)) => {
-                                df_state.current_batch = Some(next_batch);
-                                df_state.batch_row_idx = 0;
-                            }
-                            None => {
-                                if let Some(scan_state::MppExecState::Leader(leader)) =
-                                    df_state.mpp.as_ref()
-                                {
-                                    leader.mesh.detach_outbound_senders();
-                                    leader.mesh.detach_inbound_receivers();
-                                }
-                            }
-                            Some(Err(e)) => {
-                                if let Some(scan_state::MppExecState::Leader(leader)) =
-                                    df_state.mpp.as_ref()
-                                {
-                                    leader.mesh.detach_outbound_senders();
-                                    leader.mesh.detach_inbound_receivers();
-                                }
-                                pgrx::error!("DataFusion aggregate execution failed: {}", e);
-                            }
-                        }
-                    }
-
+                    df_state.batch_row_idx += 1;
                     return result;
                 }
                 // Current batch exhausted

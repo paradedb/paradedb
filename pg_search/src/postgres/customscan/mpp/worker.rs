@@ -79,14 +79,11 @@ pub async fn run_partition_driver(
     .await;
 
     match stream_result {
-        // Streamed cleanly to exhaustion; emit the per-channel EOF. A detached consumer at this
-        // point is benign — same reasoning as in the stream loop.
         Ok(true) => match sender.send_eof_traced(&mut stats).await {
             Ok(()) => Ok(()),
             Err(e) if is_consumer_detached(&e) => Ok(()),
             Err(e) => Err(e),
         },
-        // Consumer detached mid-stream — no point sending EOF, the channel buffer is gone.
         Ok(false) => Ok(()),
         Err(e) => Err(e),
     }

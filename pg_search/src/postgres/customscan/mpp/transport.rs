@@ -605,8 +605,7 @@ impl MppSender {
         // or the queue corrupts. Two `MppSender` clones can share one underlying
         // `Arc<dyn BatchChannelSender>` (that's how `(stage_id, partition)` channels multiplex
         // onto one shm_mq), so a yield between the WOULD_BLOCK and the retry used to let another
-        // task slip in a `try_send_bytes` with different bytes. That's the "frame too short for
-        // header (12 < 16)" / "invalid message size" corruption we were hitting in CI.
+        // task slip in a `try_send_bytes` with different bytes.
         //
         // The earlier fix gated the spin behind a per-handle `tokio::sync::Mutex`, which was
         // correct but serialized every multiplexed sender through one lock and tanked the

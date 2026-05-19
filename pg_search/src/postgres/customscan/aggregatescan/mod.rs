@@ -25,6 +25,7 @@ pub mod filterquery;
 pub mod groupby;
 pub mod join_targetlist;
 pub mod limit_offset;
+pub mod mpp;
 pub mod orderby;
 pub mod privdat;
 pub mod scan_state;
@@ -38,10 +39,11 @@ pub use targetlist::TargetListEntry;
 
 use std::sync::Arc;
 
-use datafusion::execution::SessionStateBuilder;
+use datafusion::execution::{SessionStateBuilder, TaskContext};
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::{
-    display_plan_ascii, DistributedExec, DistributedExt, SessionStateBuilderExt,
+    display_plan_ascii, DistributedExec, DistributedExt, DistributedTaskContext,
+    SessionStateBuilderExt,
 };
 
 use crate::postgres::customscan::mpp::dsm::MppDsmHeader;
@@ -49,18 +51,14 @@ use crate::postgres::customscan::mpp::glue::{
     estimate_dsm_size, leader_setup, mpp_is_active, mpp_worker_count, producer_worker_count,
     worker_setup,
 };
-use crate::postgres::customscan::mpp::runtime::{
-    LocalExecWorkerTransport, MppMesh, MppWorkerResolver, ShmMqWorkerTransport,
-};
-use crate::postgres::customscan::mpp::transport::MppSender;
-use crate::postgres::customscan::mpp::worker::run_worker_fragment;
+use crate::postgres::customscan::mpp::runtime::{MppMesh, MppWorkerResolver, ShmMqWorkerTransport};
+use crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator;
 
 use crate::api::agg_funcoid;
 use crate::api::SortDirection;
 use crate::gucs;
 
 use crate::aggregate::{NULL_SENTINEL_MAX, NULL_SENTINEL_MIN};
-use crate::api::HashSet;
 use crate::customscan::aggregatescan::build::AggregateCSClause;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexManifest;
@@ -97,7 +95,6 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::hook::query_has_paradedb_agg;
 use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, build_task_context};
 use crate::postgres::customscan::limit_offset::LimitOffset;
-use crate::postgres::customscan::parallel::list_segment_ids;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{range_table, CreateUpperPathsHookArgs, CustomScan};
@@ -106,9 +103,7 @@ use crate::postgres::types::{is_datetime_type, TantivyValue};
 use crate::postgres::utils::{add_vars_to_tlist, is_unnest_func, make_text_const};
 use crate::postgres::PgSearchRelation;
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
-use crate::scan::codec::{
-    deserialize_logical_plan_with_runtime, serialize_logical_plan, PgSearchPhysicalCodecStub,
-};
+use crate::scan::codec::{serialize_logical_plan, PgSearchPhysicalCodecStub};
 use chrono::{DateTime as ChronoDateTime, Utc};
 use futures::StreamExt;
 use pgrx::{pg_sys, PgList, PgMemoryContexts, PgTupleDesc};
@@ -692,7 +687,6 @@ impl ParallelQueryCapable for AggregateScan {
         let Some(plan_bytes) = df_state.mpp_plan_bytes.as_ref() else {
             return 0;
         };
-        let n_partitions = df_state.mpp_n_partitions;
         let plan_bytes_len = plan_bytes.len();
 
         // Capture source manifests so we can size the ParallelScanState block.
@@ -707,13 +701,7 @@ impl ParallelQueryCapable for AggregateScan {
         let pscan_size = ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false);
         let mpp_offset = mpp_align(mpp_agg_pscan_offset() + pscan_size);
 
-        // Number of non-partitioning sources gets a build-cache slot per worker.
-        let n_cache_sources = state
-            .custom_state()
-            .source_manifests
-            .len()
-            .saturating_sub(1) as u32;
-        let mpp_size = match estimate_dsm_size(plan_bytes_len, n_partitions, n_cache_sources) {
+        let mpp_size = match estimate_dsm_size(plan_bytes_len) {
             Ok(sz) => sz,
             Err(e) => {
                 pgrx::warning!("mpp: estimate_dsm failed: {e}; falling back to serial");
@@ -790,27 +778,14 @@ impl ParallelQueryCapable for AggregateScan {
         // Init the MPP region.
         let mpp_coordinate =
             unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut std::os::raw::c_void };
-        let n_cache_sources = state
-            .custom_state()
-            .source_manifests
-            .len()
-            .saturating_sub(1) as u32;
-        let leader = match unsafe {
-            leader_setup(
-                mpp_coordinate,
-                seg,
-                pcxt,
-                n_partitions,
-                plan_bytes,
-                n_cache_sources,
-            )
-        } {
-            Ok(l) => l,
-            Err(e) => {
-                pgrx::warning!("mpp: leader_setup failed: {e}; falling back to serial");
-                return;
-            }
-        };
+        let leader =
+            match unsafe { leader_setup(mpp_coordinate, seg, pcxt, n_partitions, plan_bytes) } {
+                Ok(l) => l,
+                Err(e) => {
+                    pgrx::warning!("mpp: leader_setup failed: {e}; falling back to serial");
+                    return;
+                }
+            };
         let df_state = state
             .custom_state_mut()
             .datafusion_state
@@ -1079,7 +1054,7 @@ impl AggregateScan {
         // mode (custom WorkerTransport registered) it clamps the Shuffle's
         // consumer_task_count to 1, which disables `NetworkShuffleExec`'s
         // per-task hash scaling. So producer output = target_partitions =
-        // n_workers (matching `build_mpp_leader_session_context`).
+        // n_workers (matching `build_mpp_session_context`).
         let n_workers = producer_worker_count();
         df_state.mpp_n_partitions = n_workers.max(1);
     }
@@ -1091,9 +1066,11 @@ impl AggregateScan {
     /// `create_physical_plan` over the leader's logical plan, returns a
     /// `DistributedExec` whose `NetworkShuffleExec`s pull batches from the
     /// shm_mq mesh at execute time.
-    fn build_mpp_leader_session_context(mesh: Arc<MppMesh>) -> datafusion::prelude::SessionContext {
+    fn build_mpp_session_context(mesh: Arc<MppMesh>) -> datafusion::prelude::SessionContext {
         let serial = create_aggregate_session_context();
-        let n_workers = mesh.n_workers as usize;
+        // Workers are procs 1..n_procs; leader is proc 0. The producer
+        // count is therefore `n_procs - 1`.
+        let n_workers = mesh.n_procs.saturating_sub(1).max(1) as usize;
         // Four-knob unlock for actually inserting NetworkShuffleExec/etc.:
         //   1. target_partitions(N) — without this, EnforceDistribution skips
         //      every RepartitionExec, so the annotator never sees a Shuffle.
@@ -1118,6 +1095,13 @@ impl AggregateScan {
             .with_distributed_worker_transport(ShmMqWorkerTransport::new(mesh))
             .with_distributed_in_process_mode(true)
             .expect("with_distributed_in_process_mode")
+            // Estimator chain order matters. The DF-D fork tries each estimator in registration
+            // order until one returns Some. The build-side one-task estimator has to come first.
+            // Otherwise the default `Desired(n_workers)` leaf estimator wins, the all-gather
+            // memory leaf gets task_count = n_workers, `_distribute_plan` builds
+            // `NetworkBroadcastExec` with `input_task_count = n_workers`, and the consumer's
+            // `select_all` over-counts by n_workers. See task_estimator.rs.
+            .with_distributed_task_estimator(BroadcastBuildSideOneTaskEstimator)
             .with_distributed_task_estimator(n_workers)
             .with_distributed_broadcast_joins(true)
             .expect("with_distributed_broadcast_joins")
@@ -1148,15 +1132,12 @@ impl AggregateScan {
         let custom_exprs = df_state.custom_exprs;
         let custom_scan_tlist = df_state.custom_scan_tlist;
         let ctx = if mpp_is_active() {
-            // Drain-less stub mesh: `with_distributed_planner` only reads
-            // `n_workers` for stage sizing; `ShmMqWorkerTransport::open()`
-            // is execution-time only and never runs during EXPLAIN.
-            let stub_mesh = Arc::new(MppMesh {
-                n_workers: producer_worker_count(),
-                n_partitions: 1,
-                drains: Vec::new(),
-            });
-            Self::build_mpp_leader_session_context(stub_mesh)
+            // Drain-less stub mesh. `with_distributed_planner` only needs `n_procs` for stage
+            // sizing, and `ShmMqWorkerTransport::open()` doesn't run during EXPLAIN. Going
+            // through the constructor is the only safe way to build an `MppMesh` outside
+            // `glue::leader_setup`.
+            let stub_mesh = Arc::new(MppMesh::new(0, mpp_worker_count(), Vec::new()));
+            Self::build_mpp_session_context(stub_mesh)
         } else {
             create_aggregate_session_context()
         };
@@ -1209,205 +1190,6 @@ impl AggregateScan {
                 .indent(false)
                 .to_string()
         }
-    }
-
-    /// MPP worker exec: deserialize the logical plan from DSM, build the
-    /// distributed physical plan (matching what the leader produced), find
-    /// the worker fragment (the `input_stage.plan` of the bottom
-    /// `NetworkShuffleExec`), and run it via
-    /// [`mpp::worker::run_worker_fragment`] which pushes every output batch
-    /// to the leader's shm_mq queues. Workers emit zero rows back to PG;
-    /// returning `null_mut()` signals end-of-stream.
-    fn exec_mpp_worker(state: &mut CustomScanStateWrapper<Self>) -> *mut pg_sys::TupleTableSlot {
-        // Pull worker-thread inputs from the outer state before we borrow
-        // df_state mutably. parallel_state and non_partitioning_segments
-        // are required to pin each worker's PgSearchTableProvider to the
-        // right segment slice (the partitioning source) and the leader's
-        // canonical replica (the non-partitioning sources). Without them,
-        // every worker re-scans the full data and the leader-side hash
-        // partitions get the same rows from every worker.
-        let parallel_state = state.custom_state().parallel_state;
-        let non_partitioning_segments = state.custom_state().non_partitioning_segments.clone();
-        let partitioning_source_idx = state
-            .custom_state()
-            .mpp_partitioning_source_idx
-            .unwrap_or(0);
-        let plan_sources_count = state
-            .custom_state()
-            .source_manifests
-            .len()
-            .max(non_partitioning_segments.len() + 1);
-
-        let df_state = state
-            .custom_state_mut()
-            .datafusion_state
-            .as_mut()
-            .expect("DataFusion state must be initialized");
-
-        if df_state.runtime.is_some() {
-            // Already drained on a prior call; just signal EOF.
-            return std::ptr::null_mut();
-        }
-        let scan_state::MppExecState::Worker(worker) = df_state.mpp.as_ref().expect("checked")
-        else {
-            unreachable!("exec_mpp_worker called outside Worker state");
-        };
-        let plan_bytes = worker.plan_bytes.clone();
-        // Worker count from the participant config (matches the leader's
-        // mesh.n_workers). `outbound_senders.len()` gives partitions-per-
-        // producer (= mpp_n_partitions), not the worker count — using it as
-        // n_workers misconfigured the planner so NetworkShuffleExec scaled
-        // its hash to mpp_n_partitions × mpp_n_partitions = 81 partitions.
-        let n_workers = worker.participant_config.total_participants;
-        let worker_idx_for_cache = worker.participant_config.participant_index;
-        let outbound_senders: Vec<MppSender> = match df_state.mpp.as_mut() {
-            Some(scan_state::MppExecState::Worker(w)) => std::mem::take(&mut w.outbound_senders),
-            _ => unreachable!(),
-        };
-
-        let runtime = match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
-            Ok(rt) => rt,
-            Err(e) => pgrx::error!("mpp worker: tokio runtime build failed: {e}"),
-        };
-        df_state.runtime = Some(runtime);
-        let runtime = df_state.runtime.as_ref().unwrap();
-        // Use a bare SessionContext for plan deserialization; the workers
-        // need the same `with_distributed_planner` config the leader had so
-        // the resulting physical plan exposes the matching NetworkShuffleExec.
-        let ctx = create_aggregate_session_context();
-
-        // Build per-source canonical segment ID sets. For the partitioning
-        // source, pull the full list out of the populated ParallelScanState
-        // (workers will then claim individual segments via `checkout_segment`
-        // inside their `PgSearchTableProvider`). For non-partitioning sources,
-        // use the segment IDs the leader snapshotted into shared memory.
-        let mut index_segment_ids: Vec<HashSet<tantivy::index::SegmentId>> =
-            vec![HashSet::default(); plan_sources_count];
-        if let Some(ps) = parallel_state {
-            let mut np_counter = 0usize;
-            for (i, slot) in index_segment_ids.iter_mut().enumerate() {
-                if i == partitioning_source_idx {
-                    *slot = unsafe { list_segment_ids(ps) };
-                } else if let Some(ids) = non_partitioning_segments.get(np_counter) {
-                    *slot = ids.clone();
-                    np_counter += 1;
-                }
-            }
-        }
-
-        let mpp_build_cache = match df_state.mpp.as_ref() {
-            Some(scan_state::MppExecState::Worker(w)) => w.build_cache.as_ref().map(Arc::clone),
-            _ => None,
-        };
-        let logical = match deserialize_logical_plan_with_runtime(
-            &plan_bytes,
-            &ctx.task_ctx(),
-            parallel_state,
-            None, // expr_context: bm25 search predicates don't need runtime params
-            None, // planstate: same
-            non_partitioning_segments,
-            index_segment_ids,
-            mpp_build_cache,
-            worker_idx_for_cache,
-        ) {
-            Ok(lp) => lp,
-            Err(e) => pgrx::error!("mpp worker: deserialize_logical_plan failed: {e}"),
-        };
-
-        // Build state with the DF-D fork's distributed planner so create_physical_plan
-        // produces a DistributedExec wrapping NetworkShuffleExec. The
-        // target_partitions, task-estimator, broadcast-joins and codec
-        // overrides must mirror the leader (see
-        // `build_mpp_leader_session_context`); otherwise the worker re-plans
-        // a different shape and `find_worker_fragment` returns None.
-        let n_workers_us = n_workers as usize;
-        let cfg = ctx
-            .copied_config()
-            .with_target_partitions(n_workers_us.max(2));
-        let state_builder = SessionStateBuilder::new()
-            .with_default_features()
-            .with_config(cfg)
-            .with_distributed_worker_resolver(MppWorkerResolver::new(n_workers_us))
-            // Workers may encounter nested network boundaries inside the
-            // producer fragment (e.g. a `NetworkBroadcastExec` on the build
-            // side of a `HashJoin`). Without a transport registered, the
-            // default `FlightWorkerTransport` would try to dial the empty
-            // URL and error out. The `LocalExecWorkerTransport` re-executes
-            // the boundary's input subtree locally — duplicates the build
-            // scan across workers, but for small index scans that's cheap
-            // and keeps the in-process design self-contained.
-            .with_distributed_worker_transport(LocalExecWorkerTransport)
-            .with_distributed_in_process_mode(true)
-            .expect("with_distributed_in_process_mode")
-            .with_distributed_task_estimator(n_workers_us)
-            .with_distributed_broadcast_joins(true)
-            .expect("with_distributed_broadcast_joins")
-            .with_distributed_user_codec(PgSearchPhysicalCodecStub)
-            .with_distributed_planner();
-        let session_state = state_builder.build();
-        let session = datafusion::prelude::SessionContext::new_with_state(session_state);
-
-        let physical_plan =
-            runtime.block_on(async { session.state().create_physical_plan(&logical).await });
-        let physical_plan = match physical_plan {
-            Ok(p) => p,
-            Err(e) => pgrx::error!("mpp worker: create_physical_plan failed: {e}"),
-        };
-        // Find the bottom NetworkShuffleExec; its input_stage.plan (==
-        // children()[0]) is the worker fragment. If the DF-D fork's planner
-        // didn't insert one (some plan shapes don't benefit from a network
-        // shuffle, or PartialReduce isn't enabled), the worker has no
-        // fragment to run — emit zero rows and let the leader produce
-        // results via its own copy. Logging at WARNING so production
-        // monitors can spot the falls-back-to-no-op case.
-        let fragment = match Self::find_worker_fragment(&physical_plan) {
-            Some(f) => f,
-            None => {
-                pgrx::warning!(
-                    "mpp worker: no NetworkShuffleExec found in distributed plan; \
-                     skipping producer-fragment run (worker emits zero rows)"
-                );
-                return std::ptr::null_mut();
-            }
-        };
-        let task_ctx = build_task_context(
-            &session,
-            &fragment,
-            unsafe { pg_sys::work_mem as usize * 1024 },
-            unsafe { pg_sys::hash_mem_multiplier },
-        );
-        let result = runtime
-            .block_on(async { run_worker_fragment(fragment, outbound_senders, task_ctx).await });
-        if let Err(e) = result {
-            pgrx::error!("mpp worker: run_worker_fragment failed: {e}");
-        }
-        std::ptr::null_mut()
-    }
-
-    /// Walk a DistributedExec-rooted plan and return the input subtree of
-    /// the **topmost** `NetworkShuffleExec` (the worker producer fragment).
-    /// Returns `None` if no `NetworkShuffleExec` is reachable from the root.
-    ///
-    /// Pre-order traversal returns on the first match, which is the
-    /// outermost shuffle — the one that straddles the worker→leader split.
-    /// Nested `NetworkShuffleExec`s inside the worker fragment (e.g. the
-    /// shuffles `HashJoinExec(Partitioned)` inserts on each side once the
-    /// build side crosses `hash_join_single_partition_threshold`) are
-    /// re-executed locally by `LocalExecWorkerTransport` at execute time,
-    /// so the worker only needs to find the outermost one.
-    fn find_worker_fragment(plan: &Arc<dyn ExecutionPlan>) -> Option<Arc<dyn ExecutionPlan>> {
-        if plan.name() == "NetworkShuffleExec" {
-            return plan.children().first().map(|c| Arc::clone(c));
-        }
-        for child in plan.children() {
-            if let Some(found) = Self::find_worker_fragment(child) {
-                return Some(found);
-            }
-        }
-        None
     }
 
     /// Existing single-table Tantivy aggregate path.
@@ -1507,7 +1289,7 @@ impl AggregateScan {
         // Below this line every Err carries a planner warning.
         let warn = |reason| AggregatePathDecline::Warn(reason);
 
-        // For M1, all tables must have BM25 indexes (DataFusion scans all via PgSearchTableProvider)
+        // All tables must have BM25 indexes (DataFusion scans all via PgSearchTableProvider).
         if !all_have_bm25_index(&sources) {
             return Err(warn(AggregateDeclineReason::NotAllBm25));
         }
@@ -1560,8 +1342,8 @@ impl AggregateScan {
         // FILTER `T_Var` arm is unreachable from here. But the HAVING
         // matchers need the plan tree anyway to recover a source's rti
         // from `plan_position` when matching parse-tree Vars to extracted
-        // targetlist refs (Moe #5 dropped rti from the targetlist refs
-        // themselves; the plan is the system of record now).
+        // targetlist refs: the plan is the system of record for rti, the
+        // targetlist refs themselves don't carry it.
         let outer_root_id =
             crate::postgres::customscan::joinscan::build::PlannerRootId::from(builder.args().root);
         let having_filter = unsafe {
@@ -1818,7 +1600,7 @@ impl AggregateScan {
         // call, then return null forever. Workers emit zero rows back to
         // PG; the leader assembles the result via the consumer plan.
         if let Some(scan_state::MppExecState::Worker(_)) = &df_state.mpp {
-            return Self::exec_mpp_worker(state);
+            return mpp::exec_mpp_worker(state);
         }
 
         // First call: build and execute the DataFusion plan
@@ -1858,7 +1640,7 @@ impl AggregateScan {
                             );
                         }
                     }
-                    Self::build_mpp_leader_session_context(Arc::clone(&leader.mesh))
+                    Self::build_mpp_session_context(Arc::clone(&leader.mesh))
                 }
                 _ => create_aggregate_session_context(),
             };
@@ -1895,6 +1677,23 @@ impl AggregateScan {
                 unsafe { pg_sys::work_mem as usize * 1024 },
                 unsafe { pg_sys::hash_mem_multiplier },
             );
+            // Install `DistributedTaskContext` explicitly so the top boundary sees the leader's
+            // `(task_index=0, task_count=1)` identity. Skipping this would let the fork's
+            // `from_ctx` default kick in, which silently hides any planner shape that emits a
+            // different `consumer_tc` at the top boundary. Matches the worker dispatcher's setup.
+            let task_ctx = {
+                let cfg = task_ctx.session_config().clone().with_extension(Arc::new(
+                    DistributedTaskContext {
+                        task_index: 0,
+                        task_count: 1,
+                    },
+                ));
+                Arc::new(
+                    TaskContext::default()
+                        .with_session_config(cfg)
+                        .with_runtime(task_ctx.runtime_env().clone()),
+                )
+            };
             let stream = {
                 let _guard = runtime.enter();
                 match physical_plan.execute(0, task_ctx) {

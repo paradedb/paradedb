@@ -54,26 +54,29 @@ const MPP_FRAME_HEADER_SIZE: usize = 16;
 /// Kind of payload following [`MppFrameHeader`].
 ///
 /// `Batch` is the common case. The header is followed by an Arrow IPC stream containing one
-/// `RecordBatch`. `Eof` carries no payload. It signals the receiver that the named
+/// `RecordBatch`. `Eof` carries no payload; it signals the receiver that the named
 /// `(stage_id, partition)` channel is done, even though the underlying shm_mq queue may still
-/// carry frames for other channels.
+/// carry frames for other channels. `Request` also carries no payload; it's the consumer-side
+/// "please run task X and stream me partition P" message used by the pull-shape protocol (consumer-side `WorkerConnection::stream_partition` sends one before pulling).
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum MppFrameKind {
     Batch = 0,
     Eof = 1,
+    Request = 2,
 }
 
 /// 16-byte prefix on every transport frame.
 ///
-/// The fixed layout `[magic, flags, stage_id, partition]` (4×u32) is what
-/// senders prepend before the Arrow IPC stream bytes and what receivers
-/// parse before deciding which channel buffer the payload belongs to.
+/// The fixed layout `[magic, flags, stage_id, partition]` (4×u32) is what senders prepend before
+/// the Arrow IPC stream bytes and what receivers parse before deciding which channel buffer the
+/// payload belongs to.
 ///
-/// The `flags` word currently encodes `MppFrameKind` in its low byte (mask
-/// `0x0000_00FF`); the upper 24 bits are reserved-must-be-zero and are
-/// validated at parse time so a future use can repurpose them without a
-/// wire-format break.
+/// `flags` packs the [`MppFrameKind`] discriminant in the low byte (mask `0x0000_00FF`). The
+/// upper 24 bits are interpreted by kind: for `Batch`/`Eof` they are reserved-must-be-zero (and
+/// validated at parse time so a future use can repurpose them without a wire-format break), and
+/// for `Request` they carry the producer-task index, keeping the header at 16 bytes without
+/// growing the wire format.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MppFrameHeader {
@@ -85,6 +88,15 @@ pub struct MppFrameHeader {
 
 /// Bit mask in [`MppFrameHeader::flags`] for the [`MppFrameKind`] discriminant.
 const FRAME_KIND_MASK: u32 = 0x0000_00FF;
+
+/// Shift to position `task_idx` above the kind byte in `MppFrameHeader::flags`.
+#[allow(dead_code)]
+const TASK_IDX_SHIFT: u32 = 8;
+
+/// Maximum task index encodable in a `Request` frame: 24 bits, since the low byte is the kind.
+/// Plenty of headroom for realistic stage task counts; the constructor errors above this.
+#[allow(dead_code)]
+const TASK_IDX_MAX: u32 = (1 << 24) - 1;
 
 const _: () = {
     // shm_mq slot layout calculations depend on this being exact.
@@ -115,23 +127,58 @@ impl MppFrameHeader {
         }
     }
 
-    /// Read the kind out of `flags`. Returns an error if the kind byte is
-    /// unknown or if any reserved upper bit is set, which catches wire-format
-    /// drift early.
-    pub(super) fn kind(&self) -> Result<MppFrameKind, DataFusionError> {
-        let reserved = self.flags & !FRAME_KIND_MASK;
-        if reserved != 0 {
+    /// Build a `Request` header asking the producer proc to run `(stage_id, task_idx)` and stream
+    /// its output partition `partition` back. Errors if `task_idx` doesn't fit in 24 bits — see
+    /// [`TASK_IDX_MAX`].
+    ///
+    /// Header carries the kind in the low byte and `task_idx` in the upper 24 bits; consumers
+    /// pull a partition with `(stage_id, task_idx, partition)` and the producer's service loop
+    /// dispatches.
+    #[allow(dead_code)]
+    pub fn request(stage_id: u32, task_idx: u32, partition: u32) -> Result<Self, DataFusionError> {
+        if task_idx > TASK_IDX_MAX {
             return Err(DataFusionError::Internal(format!(
-                "mpp: reserved frame flag bits set ({reserved:#x})"
+                "mpp: Request frame task_idx={task_idx} exceeds 24-bit max ({TASK_IDX_MAX})"
             )));
         }
-        match self.flags & FRAME_KIND_MASK {
-            0 => Ok(MppFrameKind::Batch),
-            1 => Ok(MppFrameKind::Eof),
-            other => Err(DataFusionError::Internal(format!(
-                "mpp: unknown frame kind {other:#x}"
-            ))),
+        Ok(Self {
+            magic: MPP_FRAME_MAGIC,
+            flags: (MppFrameKind::Request as u32) | (task_idx << TASK_IDX_SHIFT),
+            stage_id,
+            partition,
+        })
+    }
+
+    /// Read the kind out of `flags`. Errors on unknown kinds, or on non-zero upper bits for
+    /// kinds that don't use them (`Batch`/`Eof`). `Request` interprets the upper 24 bits as
+    /// `task_idx`, so reserved-bit validation is skipped there.
+    pub(super) fn kind(&self) -> Result<MppFrameKind, DataFusionError> {
+        let kind = match self.flags & FRAME_KIND_MASK {
+            0 => MppFrameKind::Batch,
+            1 => MppFrameKind::Eof,
+            2 => MppFrameKind::Request,
+            other => {
+                return Err(DataFusionError::Internal(format!(
+                    "mpp: unknown frame kind {other:#x}"
+                )))
+            }
+        };
+        if !matches!(kind, MppFrameKind::Request) {
+            let reserved = self.flags & !FRAME_KIND_MASK;
+            if reserved != 0 {
+                return Err(DataFusionError::Internal(format!(
+                    "mpp: reserved frame flag bits set ({reserved:#x})"
+                )));
+            }
         }
+        Ok(kind)
+    }
+
+    /// Task index encoded in a `Request` frame's upper 24 bits. Only meaningful when `kind()` is
+    /// `Request`; returns the raw upper bits otherwise.
+    #[allow(dead_code)]
+    pub(super) fn task_idx(&self) -> u32 {
+        self.flags >> TASK_IDX_SHIFT
     }
 
     /// Serialize into the first `MPP_FRAME_HEADER_SIZE` bytes of `out`.
@@ -221,9 +268,27 @@ fn encode_eof_frame_into(
     Ok(())
 }
 
+/// Serialize a payload-less [`MppFrameKind::Request`] frame for `(stage_id, task_idx,
+/// partition)` into `buf`. Same 16-byte-message shape as [`encode_eof_frame_into`]; the producer
+/// proc decodes the header, dispatches `(stage_id, task_idx)`, and streams partition `partition`
+/// back.
+#[allow(dead_code)]
+fn encode_request_frame_into(
+    stage_id: u32,
+    task_idx: u32,
+    partition: u32,
+    buf: &mut Vec<u8>,
+) -> Result<(), DataFusionError> {
+    let header = MppFrameHeader::request(stage_id, task_idx, partition)?;
+    buf.clear();
+    buf.resize(MPP_FRAME_HEADER_SIZE, 0);
+    header.write_to(&mut buf[..MPP_FRAME_HEADER_SIZE]);
+    Ok(())
+}
+
 /// Inverse of [`encode_frame_into`]. Parses the 16-byte header and, for `Batch` frames, decodes
-/// the trailing Arrow IPC stream. `Eof` frames return `(header, None)`. Receivers branch on
-/// `header.kind()` to decide routing.
+/// the trailing Arrow IPC stream. `Eof` and `Request` frames return `(header, None)`. Receivers
+/// branch on `header.kind()` to decide routing.
 fn decode_frame(bytes: &[u8]) -> Result<(MppFrameHeader, Option<RecordBatch>), DataFusionError> {
     let header = MppFrameHeader::parse(bytes)?;
     match header.kind()? {
@@ -231,6 +296,16 @@ fn decode_frame(bytes: &[u8]) -> Result<(MppFrameHeader, Option<RecordBatch>), D
             if bytes.len() != MPP_FRAME_HEADER_SIZE {
                 return Err(DataFusionError::Internal(format!(
                     "mpp: Eof frame carries payload ({} > {})",
+                    bytes.len(),
+                    MPP_FRAME_HEADER_SIZE
+                )));
+            }
+            Ok((header, None))
+        }
+        MppFrameKind::Request => {
+            if bytes.len() != MPP_FRAME_HEADER_SIZE {
+                return Err(DataFusionError::Internal(format!(
+                    "mpp: Request frame carries payload ({} > {})",
                     bytes.len(),
                     MPP_FRAME_HEADER_SIZE
                 )));
@@ -546,12 +621,64 @@ impl MppSender {
         result
     }
 
+    /// Consumer-side "please run `(stage_id, task_idx)` and stream partition `partition` back"
+    /// message for the pull-shape protocol. Same shape as
+    /// [`Self::send_eof_traced`]: header-only, no Arrow IPC body, dispatched through the
+    /// cooperative-drain spin so a full outbound queue doesn't stall the backend thread.
+    ///
+    /// `stage_id` and `partition` come from `self.header` (matching the consumer's request
+    /// addressing); `task_idx` is passed explicitly because the same `MppSender` can request
+    /// different producer tasks across calls.
+    ///
+    /// `pub(super)` so callers within `mpp::` pick it up without exposing it to other customscan
+    /// code.
+    #[allow(dead_code)]
+    pub(super) async fn send_request_traced(
+        &self,
+        task_idx: u32,
+        stats: &mut SendBatchStats,
+    ) -> Result<(), DataFusionError> {
+        let mut scratch = self.scratch.replace(Vec::new());
+        let result = self
+            .send_request_with_scratch(task_idx, &mut scratch, stats)
+            .await;
+        self.scratch.replace(scratch);
+        result
+    }
+
     async fn send_eof_with_scratch(
         &self,
         scratch: &mut Vec<u8>,
         stats: &mut SendBatchStats,
     ) -> Result<(), DataFusionError> {
         encode_eof_frame_into(self.header.stage_id, self.header.partition, scratch)?;
+        self.send_header_only(scratch, stats).await
+    }
+
+    #[allow(dead_code)]
+    async fn send_request_with_scratch(
+        &self,
+        task_idx: u32,
+        scratch: &mut Vec<u8>,
+        stats: &mut SendBatchStats,
+    ) -> Result<(), DataFusionError> {
+        encode_request_frame_into(
+            self.header.stage_id,
+            task_idx,
+            self.header.partition,
+            scratch,
+        )?;
+        self.send_header_only(scratch, stats).await
+    }
+
+    /// Shared spin used by every header-only send path (`Eof`, `Request`). Without a cooperative
+    /// drain attached, falls through to the blocking send (in-proc test channels behave that way
+    /// and never block long enough to matter).
+    async fn send_header_only(
+        &self,
+        scratch: &[u8],
+        stats: &mut SendBatchStats,
+    ) -> Result<(), DataFusionError> {
         let Some(drain) = self.cooperative_drain.as_ref() else {
             return self.channel.send_bytes(scratch);
         };
@@ -1045,6 +1172,16 @@ mod tests {
                 .expect("test tokio runtime build");
             rt.block_on(self.send_batch_traced(batch, &mut stats))
         }
+
+        /// Stats-less wrapper around `send_request_traced`. Same runtime-on-demand pattern as
+        /// `send_batch`; covers the phase-1 wire-format tests until phase 2 wires real callers.
+        fn send_request(&self, task_idx: u32) -> Result<(), DataFusionError> {
+            let mut stats = SendBatchStats::default();
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .build()
+                .expect("test tokio runtime build");
+            rt.block_on(self.send_request_traced(task_idx, &mut stats))
+        }
     }
 
     /// Configuration for `spawn_drain_thread`. pgrx panics on any pg FFI call (including
@@ -1273,6 +1410,71 @@ mod tests {
     }
 
     #[test]
+    fn frame_round_trips_request() {
+        let mut buf = Vec::with_capacity(MPP_FRAME_HEADER_SIZE);
+        encode_request_frame_into(11, 4, 9, &mut buf).expect("encode_request");
+        assert_eq!(buf.len(), MPP_FRAME_HEADER_SIZE);
+
+        let (header, batch_opt) = decode_frame(&buf).expect("decode_frame");
+        assert_eq!(header.kind().unwrap(), MppFrameKind::Request);
+        assert_eq!(header.stage_id, 11);
+        assert_eq!(header.partition, 9);
+        assert_eq!(header.task_idx(), 4);
+        assert!(batch_opt.is_none());
+    }
+
+    #[test]
+    fn frame_request_with_payload_is_rejected() {
+        let mut buf = Vec::with_capacity(32);
+        encode_request_frame_into(0, 0, 0, &mut buf).expect("encode_request");
+        buf.push(0xCD); // smuggle a payload byte after the header
+        let err = decode_frame(&buf).expect_err("Request+payload must fail");
+        assert!(format!("{err}").contains("Request frame carries payload"));
+    }
+
+    #[test]
+    fn frame_request_rejects_bad_magic() {
+        // Reuses the encode helper, then clobbers the magic. Magic check sits before the kind
+        // dispatch, so this catches both Request and any other kind that gets corrupted on the
+        // wire.
+        let mut buf = Vec::with_capacity(MPP_FRAME_HEADER_SIZE);
+        encode_request_frame_into(1, 2, 3, &mut buf).expect("encode_request");
+        buf[0..4].copy_from_slice(&0xDEADBEEF_u32.to_le_bytes());
+        let err = decode_frame(&buf).expect_err("bad magic must fail");
+        assert!(format!("{err}").contains("bad frame magic"));
+    }
+
+    #[test]
+    fn request_frame_packs_max_task_idx() {
+        // 24-bit max round-trips cleanly: the kind byte stays Request and `task_idx()` returns
+        // the same value.
+        let header = MppFrameHeader::request(0, TASK_IDX_MAX, 0).expect("max task_idx must fit");
+        let mut buf = vec![0u8; MPP_FRAME_HEADER_SIZE];
+        header.write_to(&mut buf);
+        let (parsed, _) = decode_frame(&buf).expect("decode_frame");
+        assert_eq!(parsed.kind().unwrap(), MppFrameKind::Request);
+        assert_eq!(parsed.task_idx(), TASK_IDX_MAX);
+    }
+
+    #[test]
+    fn request_frame_rejects_overflowing_task_idx() {
+        // 25th bit set is one past the encodable range; the constructor must surface the
+        // overflow rather than silently truncating into the kind byte.
+        let err = MppFrameHeader::request(0, TASK_IDX_MAX + 1, 0)
+            .expect_err("overflow must surface as error");
+        assert!(format!("{err}").contains("exceeds 24-bit max"));
+    }
+
+    #[test]
+    fn frame_rejects_request_with_zero_task_idx_still_decodes() {
+        // Pin the "task_idx = 0" case so a future change that conflates "no upper bits" with
+        // "wrong kind" surfaces in the test, not in production.
+        let header = MppFrameHeader::request(5, 0, 7).expect("task_idx=0 must construct");
+        assert_eq!(header.kind().unwrap(), MppFrameKind::Request);
+        assert_eq!(header.task_idx(), 0);
+    }
+
+    #[test]
     fn codec_round_trips_many_batch_sizes() {
         let mut buf = Vec::with_capacity(1024);
         for rows in [0, 1, 7, 64, 1024] {
@@ -1351,6 +1553,30 @@ mod tests {
             receiver.try_recv_batch(),
             RecvBatchOutcome::Detached
         ));
+    }
+
+    #[test]
+    fn send_request_round_trips_through_in_proc_channel() {
+        // Drives `send_request_traced` through the real encode path, then decodes the bytes
+        // back at the channel level. The receiver's `try_recv_batch` doesn't yet know about
+        // Request frames (that lands with the phase-2 dispatcher), so we go straight through
+        // `decode_frame` to keep this test scoped to the wire format.
+        let (tx, rx) = in_proc_channel(4);
+        let sender = MppSender::with_header(Arc::new(tx), MppFrameHeader::batch(13, 6));
+
+        sender.send_request(2).expect("send_request");
+        std::mem::drop(sender);
+
+        let bytes = match rx.try_recv() {
+            RecvOutcome::Bytes(b) => b,
+            other => panic!("expected bytes, got {other:?}"),
+        };
+        let (header, batch_opt) = decode_frame(&bytes).expect("decode_frame");
+        assert_eq!(header.kind().unwrap(), MppFrameKind::Request);
+        assert_eq!(header.stage_id, 13);
+        assert_eq!(header.partition, 6);
+        assert_eq!(header.task_idx(), 2);
+        assert!(batch_opt.is_none());
     }
 
     #[test]

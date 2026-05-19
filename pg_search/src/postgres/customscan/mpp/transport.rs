@@ -47,6 +47,20 @@ use datafusion::common::DataFusionError;
 /// Lets receivers reject misrouted / corrupt frames before they hit Arrow IPC.
 const MPP_FRAME_MAGIC: u32 = 0x4D505046;
 
+/// Sentinel embedded in [`DataFusionError`] messages that the producer-side driver matches on to
+/// distinguish "consumer torn down mid-stream" (a clean signal — return `Ok(())`) from any other
+/// transport-layer error (which must propagate). Centralising the string here keeps the producers
+/// and the predicate in [`crate::postgres::customscan::mpp::worker::is_consumer_detached`] in
+/// lockstep. Don't change the literal without grepping for the matching `contains` call.
+pub(crate) const CONSUMER_DETACHED_SENTINEL: &str = "mpp:consumer_detached";
+
+/// Build the canonical "consumer torn down" error every shm_mq / in-proc sender returns when its
+/// peer queue is gone. The producer side recognises it via [`CONSUMER_DETACHED_SENTINEL`].
+/// `detail` is a short, free-form note appended for diagnostics (channel kind, send path).
+pub(crate) fn consumer_detached_error(detail: &str) -> DataFusionError {
+    DataFusionError::Execution(format!("{CONSUMER_DETACHED_SENTINEL}: {detail}"))
+}
+
 /// Wire-format size of [`MppFrameHeader`] in bytes. Asserted at compile time
 /// below via `const _: ()`.
 const MPP_FRAME_HEADER_SIZE: usize = 16;
@@ -1101,76 +1115,96 @@ impl DrainHandle {
         // indefinitely on one source and starve its own outbound.
         const MAX_BATCHES_PER_SOURCE_PER_PASS: usize = 256;
 
-        let mut slots = self.coop_receivers.lock().unwrap();
-        for slot in slots.iter_mut() {
-            let Some(rx) = slot.as_ref() else {
-                continue;
-            };
-            for _ in 0..MAX_BATCHES_PER_SOURCE_PER_PASS {
-                match rx.try_recv_batch() {
-                    RecvBatchOutcome::Batch { header, batch } => {
-                        let buf = self.register_channel(header.stage_id, header.partition);
-                        buf.push_batch(batch);
-                    }
-                    RecvBatchOutcome::Eof { header } => {
-                        let buf = self.register_channel(header.stage_id, header.partition);
-                        buf.notify_source_done();
-                        // Other channels may still flow on this queue, so the receiver slot
-                        // stays live.
-                    }
-                    RecvBatchOutcome::Request { header } => {
-                        // Pull/dispatch protocol: the consumer side sends Request(stage, task,
-                        // partition); the producer service loop's installed handler spawns a
-                        // task driver and streams batches back through
-                        // `mesh.outbound_sender(sender_proc)`. Surface a hard error if a
-                        // Request lands on a drain with no handler installed — the most likely
-                        // cause is a teardown race where `clear_request_handler` ran before the
-                        // last frame drained.
-                        let handler = self
-                            .request_handler
-                            .lock()
-                            .expect("DrainHandle request_handler mutex poisoned")
-                            .as_ref()
-                            .map(Arc::clone);
-                        let Some(handler) = handler else {
-                            return Err(DataFusionError::Internal(format!(
-                                "mpp: Request frame received but no handler installed \
-                                 (stage_id={}, task_idx={}, partition={})",
-                                header.stage_id,
-                                header.task_idx(),
-                                header.partition,
-                            )));
-                        };
-                        let Some(sender_proc) = self.sender_proc else {
-                            return Err(DataFusionError::Internal(format!(
-                                "mpp: Request frame received on drain with sender_proc=None \
-                                 (stage_id={}, task_idx={}, partition={}); production drains \
-                                 must carry their peer proc index",
-                                header.stage_id,
-                                header.task_idx(),
-                                header.partition,
-                            )));
-                        };
-                        handler.on_request(
-                            sender_proc,
-                            header.stage_id,
-                            header.task_idx(),
-                            header.partition,
-                        )?;
-                    }
-                    RecvBatchOutcome::Empty => break,
-                    RecvBatchOutcome::Detached => {
-                        *slot = None;
-                        self.mark_detached();
-                        break;
-                    }
-                    RecvBatchOutcome::Error(e) => {
-                        *slot = None;
-                        self.mark_detached();
-                        return Err(e);
+        // Collect Request frames during the receiver-locked pass and dispatch them AFTER the
+        // lock is released. The dispatcher's `on_request` may run expensive work
+        // (`DistributedExec::prepare_in_process_plan` on a cache miss, several Arc clones, a
+        // `tokio::spawn`) — holding the `coop_receivers` lock across it would stall any
+        // concurrent `force_detach` and serialise drain progress on the slow-path of a single
+        // Request. The two halves don't have to be atomic: Request dispatch only spawns a future
+        // and updates registry-local state, neither of which depends on which Batch/Eof frames
+        // got drained before or after.
+        let mut pending_requests: Vec<MppFrameHeader> = Vec::new();
+        {
+            let mut slots = self.coop_receivers.lock().unwrap();
+            for slot in slots.iter_mut() {
+                let Some(rx) = slot.as_ref() else {
+                    continue;
+                };
+                for _ in 0..MAX_BATCHES_PER_SOURCE_PER_PASS {
+                    match rx.try_recv_batch() {
+                        RecvBatchOutcome::Batch { header, batch } => {
+                            let buf = self.register_channel(header.stage_id, header.partition);
+                            buf.push_batch(batch);
+                        }
+                        RecvBatchOutcome::Eof { header } => {
+                            let buf = self.register_channel(header.stage_id, header.partition);
+                            buf.notify_source_done();
+                            // Other channels may still flow on this queue, so the receiver slot
+                            // stays live.
+                        }
+                        RecvBatchOutcome::Request { header } => {
+                            pending_requests.push(header);
+                        }
+                        RecvBatchOutcome::Empty => break,
+                        RecvBatchOutcome::Detached => {
+                            *slot = None;
+                            self.mark_detached();
+                            break;
+                        }
+                        RecvBatchOutcome::Error(e) => {
+                            *slot = None;
+                            self.mark_detached();
+                            return Err(e);
+                        }
                     }
                 }
             }
+            // `slots` guard drops here, releasing `coop_receivers` before dispatch.
+        }
+
+        if !pending_requests.is_empty() {
+            self.dispatch_requests(pending_requests)?;
+        }
+        Ok(())
+    }
+
+    /// Forward `Request` frames to the installed handler. Two important corners:
+    ///
+    /// 1. The handler may not be installed (teardown race: `clear_request_handler` ran while a
+    ///    Request was already buffered on the shm_mq side). Drop the requests silently — the
+    ///    next drain pass will see `Detached` and the consumer that issued these Requests has
+    ///    already given up.
+    /// 2. `sender_proc` must be set on production drains, because the handler needs to know
+    ///    which outbound queue to respond on. A `None` here is a configuration bug — the
+    ///    in-proc test drains build with `None`, but those never receive Request frames.
+    fn dispatch_requests(&self, headers: Vec<MppFrameHeader>) -> Result<(), DataFusionError> {
+        let handler = self
+            .request_handler
+            .lock()
+            .expect("DrainHandle request_handler mutex poisoned")
+            .as_ref()
+            .map(Arc::clone);
+        let Some(handler) = handler else {
+            crate::mpp_log!(
+                "mpp drain: {} Request frame(s) dropped, no handler installed (teardown race)",
+                headers.len()
+            );
+            return Ok(());
+        };
+        let Some(sender_proc) = self.sender_proc else {
+            return Err(DataFusionError::Internal(format!(
+                "mpp: {} Request frame(s) received on drain with sender_proc=None; production \
+                 drains must carry their peer proc index",
+                headers.len()
+            )));
+        };
+        for header in headers {
+            handler.on_request(
+                sender_proc,
+                header.stage_id,
+                header.task_idx(),
+                header.partition,
+            )?;
         }
         Ok(())
     }
@@ -1216,18 +1250,18 @@ pub(super) struct InProcReceiver {
 
 impl BatchChannelSender for InProcSender {
     fn send_bytes(&self, bytes: &[u8]) -> Result<(), DataFusionError> {
-        self.tx.send(bytes.to_vec()).map_err(|_| {
-            DataFusionError::Execution("mpp: in-proc channel detached during send".into())
-        })
+        self.tx
+            .send(bytes.to_vec())
+            .map_err(|_| consumer_detached_error("in-proc channel send"))
     }
 
     fn try_send_bytes(&self, bytes: &[u8]) -> Result<bool, DataFusionError> {
         match self.tx.try_send(bytes.to_vec()) {
             Ok(()) => Ok(true),
             Err(std::sync::mpsc::TrySendError::Full(_)) => Ok(false),
-            Err(std::sync::mpsc::TrySendError::Disconnected(_)) => Err(DataFusionError::Execution(
-                "mpp: in-proc channel detached during try_send".into(),
-            )),
+            Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
+                Err(consumer_detached_error("in-proc channel try_send"))
+            }
         }
     }
 }

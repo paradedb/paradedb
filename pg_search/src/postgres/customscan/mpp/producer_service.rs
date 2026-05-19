@@ -46,13 +46,22 @@
 //!
 //! ## Lifetime
 //!
-//! `mesh: Weak<MppMesh>` is the key piece that breaks the cycle `MppMesh →
-//! Vec<DrainHandle> → Arc<dyn RequestHandler> → ProducerTaskRegistry → Arc<MppMesh>`. Without
-//! the `Weak`, the registry's strong ref keeps the mesh alive, which keeps the drains alive,
-//! which keeps the handler ref alive — perpetual liveness. The service loop's
-//! `MppMesh::uninstall_request_handler` is a second safety net for the same cycle (it drops the
-//! `Arc<dyn RequestHandler>` held by each drain), so the registry releases as soon as the local
-//! `Arc` in `run_mpp_worker` goes out of scope.
+//! Two distinct Arc cycles touch the mesh; each needs a different release path:
+//!
+//! 1. **Handler leg**: `MppMesh → Vec<DrainHandle> → Arc<dyn RequestHandler> →
+//!    ProducerTaskRegistry → … → Arc<MppMesh>`. `mesh: Weak<MppMesh>` breaks the back-edge so
+//!    the cycle isn't a true cycle by Arc-counting. Even so, the service loop calls
+//!    [`MppMesh::uninstall_request_handler`] explicitly at teardown so the `Arc<dyn
+//!    RequestHandler>` held by each drain releases promptly — the local `Arc<Registry>` in
+//!    `run_mpp_worker` is the last strong ref after that, and dropping it ends the registry.
+//!
+//! 2. **Cooperative-drain leg**: each spawned per-partition driver future captures an
+//!    `MppSender` whose `with_cooperative_drain` field holds `Arc<MppMesh>`. While a driver
+//!    future is alive, the mesh has a transient strong refcount through it. There's no
+//!    explicit unwind hook here — the strong ref releases when the spawned future completes
+//!    (and the runtime drops it from its task table) or when the runtime itself is dropped.
+//!    `active_drivers == 0` in the service-loop termination check is what guarantees no driver
+//!    futures outlive the loop and consequently no mesh refs leak past `run_mpp_worker`.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -102,6 +111,12 @@ impl StagePlans {
 
     pub(super) fn lookup(&self, stage_id: u32) -> Option<(Arc<dyn ExecutionPlan>, usize)> {
         self.stages.get(&stage_id).cloned()
+    }
+
+    /// `(stage_id, task_count)` pairs in some order. Used by `run_mpp_worker` to enumerate every
+    /// `(stage, task)` this proc owns so they can be pre-warmed.
+    pub(super) fn iter_task_counts(&self) -> impl Iterator<Item = (u32, usize)> + '_ {
+        self.stages.iter().map(|(s, (_, tc))| (*s, *tc))
     }
 }
 
@@ -176,6 +191,12 @@ impl ProducerTaskRegistry {
 
     /// Number of currently-running driver futures. Service loop watches this to know when
     /// in-flight work is done.
+    ///
+    /// The counter only gates termination; it doesn't synchronise data between the producer
+    /// drivers and the loop, so `Acquire` here pairs with the drivers' `Release` decrement just
+    /// to give the loop a clean happens-before for "this driver is gone". Producer increments
+    /// (line ~316) and decrements (line ~323) use `Relaxed` — they sequence with each other via
+    /// the registry's internal `Mutex`es, not via the atomic itself.
     pub(super) fn active_drivers(&self) -> usize {
         self.active_drivers.load(Ordering::Acquire)
     }
@@ -187,6 +208,34 @@ impl ProducerTaskRegistry {
             .lock()
             .expect("ProducerTaskRegistry first_error mutex poisoned")
             .take()
+    }
+
+    /// Eagerly build the cached `(prepared_plan, TaskContext)` for `(stage_id, task_idx)` so the
+    /// first Request for this task doesn't pay the `prepare_in_process_plan` cost on the drain
+    /// dispatch path. Called from `run_mpp_worker` at worker startup for every `(stage, task)`
+    /// this proc owns.
+    ///
+    /// Idempotent: re-warming an already-prepared key is a no-op. Returns an error if the
+    /// underlying `prepare_task` fails (e.g., DF planner refused the shape, memory pool builder
+    /// failed) — the caller decides whether to fail the worker startup or continue and let the
+    /// failure surface lazily on the first Request.
+    pub(super) fn prewarm(&self, stage_id: u32, task_idx: u32) -> Result<(), DataFusionError> {
+        let mut map = self
+            .prepared
+            .lock()
+            .expect("ProducerTaskRegistry prepared mutex poisoned");
+        if map.contains_key(&(stage_id, task_idx)) {
+            return Ok(());
+        }
+        let prepared = self.prepare_task(stage_id, task_idx)?;
+        map.insert((stage_id, task_idx), prepared);
+        Ok(())
+    }
+
+    /// `(stage_id, task_count)` pairs for every stage this worker's distributed plan touches.
+    /// Used by `run_mpp_worker` to drive [`Self::prewarm`].
+    pub(super) fn iter_task_counts(&self) -> impl Iterator<Item = (u32, usize)> + '_ {
+        self.stage_plans.iter_task_counts()
     }
 
     fn prepare_task(&self, stage_id: u32, task_idx: u32) -> Result<PreparedTask, DataFusionError> {
@@ -248,12 +297,19 @@ impl RequestHandler for ProducerTaskRegistry {
         // Idempotency: drop duplicate Requests. The pull-shape contract is one Request per
         // (stage, task, partition) per query; a second one means either the consumer restarted
         // its stream or a bug somewhere. Either way, re-running would double-send.
+        //
+        // We insert into `spawned` BEFORE doing any work (so two simultaneous on_request calls
+        // for the same key race to the insert and only one wins) and roll back on any failure
+        // path so a transient error (e.g., `prepare_task` returns Err) doesn't permanently
+        // poison the key against retry. The rollback drains down all the way to the final
+        // `tokio::spawn` — once we spawn we consider the slot "owned" by the driver future.
+        let rollback_key = (stage_id, task_idx, partition);
         {
             let mut spawned = self
                 .spawned
                 .lock()
                 .expect("ProducerTaskRegistry spawned mutex poisoned");
-            if !spawned.insert((stage_id, task_idx, partition)) {
+            if !spawned.insert(rollback_key) {
                 crate::mpp_log!(
                     "mpp producer dispatch: dropping duplicate Request \
                      stage_id={stage_id} task_idx={task_idx} partition={partition}"
@@ -262,15 +318,30 @@ impl RequestHandler for ProducerTaskRegistry {
             }
         }
 
-        let mesh = self.mesh.upgrade().ok_or_else(|| {
-            DataFusionError::Internal(
-                "mpp producer dispatch: mesh dropped before Request handled".into(),
-            )
-        })?;
+        // Helper: undo the `spawned` insert if any of the steps below fail. Avoids a long
+        // ladder of `.map_err(|e| { remove; e })` calls.
+        let rollback = || {
+            self.spawned
+                .lock()
+                .expect("ProducerTaskRegistry spawned mutex poisoned")
+                .remove(&rollback_key);
+        };
+
+        let mesh = match self.mesh.upgrade() {
+            Some(m) => m,
+            None => {
+                rollback();
+                return Err(DataFusionError::Internal(
+                    "mpp producer dispatch: mesh dropped before Request handled".into(),
+                ));
+            }
+        };
 
         // Prepare (or reuse) the per-(stage, task) plan + context. Multiple Requests for
         // different partitions of the same task share the prepared plan, so the
-        // prepare_in_process_plan cost is paid once.
+        // prepare_in_process_plan cost is paid once. With `prewarm` running at worker startup
+        // for every `(stage, task)` this proc owns, this lookup is normally a cache hit and the
+        // expensive prep doesn't land on the drain dispatch path.
         let prepared = {
             let mut map = self
                 .prepared
@@ -281,17 +352,23 @@ impl RequestHandler for ProducerTaskRegistry {
                     plan: Arc::clone(&p.plan),
                     ctx: Arc::clone(&p.ctx),
                 },
-                None => {
-                    let prepared = self.prepare_task(stage_id, task_idx)?;
-                    map.insert(
-                        (stage_id, task_idx),
-                        PreparedTask {
-                            plan: Arc::clone(&prepared.plan),
-                            ctx: Arc::clone(&prepared.ctx),
-                        },
-                    );
-                    prepared
-                }
+                None => match self.prepare_task(stage_id, task_idx) {
+                    Ok(prepared) => {
+                        map.insert(
+                            (stage_id, task_idx),
+                            PreparedTask {
+                                plan: Arc::clone(&prepared.plan),
+                                ctx: Arc::clone(&prepared.ctx),
+                            },
+                        );
+                        prepared
+                    }
+                    Err(e) => {
+                        drop(map);
+                        rollback();
+                        return Err(e);
+                    }
+                },
             }
         };
 
@@ -299,28 +376,50 @@ impl RequestHandler for ProducerTaskRegistry {
         // `(stage_id, partition)` so the consumer's drain registry routes batches to the right
         // channel buffer. Cooperative drain so the producer doesn't deadlock on a full outbound
         // queue — the spin pumps every inbound, which is what frees space symmetrically.
-        let sender = mesh
+        let sender = match mesh
             .outbound_sender(sender_proc, MppFrameHeader::batch(stage_id, partition))
-            .ok_or_else(|| {
-                DataFusionError::Internal(format!(
+        {
+            Some(s) => s.with_cooperative_drain(Arc::clone(&mesh) as Arc<dyn CooperativeDrainSet>),
+            None => {
+                // No outbound. Two cases:
+                //   - Detached: the leader (or a peer) called `detach_outbound_senders` between
+                //     this Request being enqueued and us dispatching it. The consumer side has
+                //     already torn down; dropping the Request silently is the clean path. Roll
+                //     back the `spawned` insert so a retry can succeed if for some reason the
+                //     mesh comes back (it shouldn't, but the rollback keeps state honest).
+                //   - Never present: a real configuration bug (out-of-range `sender_proc`, or
+                //     the self-loop slot on the leader). Surface as `Internal` so it's not
+                //     papered over.
+                if mesh.outbound_detached() {
+                    crate::mpp_log!(
+                        "mpp producer dispatch: outbound detached after Request enqueue, \
+                         dropping stage_id={stage_id} task_idx={task_idx} partition={partition}"
+                    );
+                    rollback();
+                    return Ok(());
+                }
+                rollback();
+                return Err(DataFusionError::Internal(format!(
                     "mpp producer dispatch: no outbound sender for sender_proc={sender_proc} \
                      (this_proc={}, stage_id={stage_id}, task_idx={task_idx}, partition={partition})",
                     mesh.this_proc
-                ))
-            })?
-            .with_cooperative_drain(Arc::clone(&mesh) as Arc<dyn CooperativeDrainSet>);
+                )));
+            }
+        };
 
         // Increment the active-driver counter BEFORE spawning so the service loop's
-        // `active_drivers() == 0` check doesn't race past a freshly-dispatched task. Decrement
-        // inside the future after the driver returns.
-        self.active_drivers.fetch_add(1, Ordering::AcqRel);
+        // `active_drivers() == 0` check doesn't race past a freshly-dispatched task. `Relaxed`
+        // is enough — the counter doesn't synchronise data, just gates termination. The
+        // `Acquire` load in `active_drivers()` is what pairs with the decrement below for the
+        // "driver is gone" happens-before.
+        self.active_drivers.fetch_add(1, Ordering::Relaxed);
         let counter = Arc::clone(&self.active_drivers);
         let err_slot = Arc::clone(&self.first_error);
         let plan = prepared.plan;
         let ctx = prepared.ctx;
         tokio::spawn(async move {
             let result = run_partition_driver(plan, partition as usize, sender, ctx).await;
-            counter.fetch_sub(1, Ordering::AcqRel);
+            counter.fetch_sub(1, Ordering::Release);
             if let Err(e) = result {
                 let mut guard = err_slot
                     .lock()

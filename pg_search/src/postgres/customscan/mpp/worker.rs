@@ -36,15 +36,17 @@ use datafusion::execution::TaskContext;
 use datafusion::physical_plan::ExecutionPlan;
 use futures::stream::StreamExt;
 
-use crate::postgres::customscan::mpp::transport::{MppSender, SendBatchStats};
+use crate::postgres::customscan::mpp::transport::{
+    MppSender, SendBatchStats, CONSUMER_DETACHED_SENTINEL,
+};
 
 /// True if `err` is the "consumer torn down mid-stream" signal that
 /// [`MppSender::send_batch_traced`] / [`MppSender::send_eof_traced`] produce when the underlying
-/// channel detaches. Match on the message because both backends — shm_mq and in-proc — produce
-/// the same surface error type (`DataFusionError::Execution`) but with backend-specific text.
+/// channel detaches. Matches on the [`CONSUMER_DETACHED_SENTINEL`] tag (shared between shm_mq
+/// and in-proc senders), not on backend-specific message text, so adding a new transport doesn't
+/// silently bypass the predicate.
 fn is_consumer_detached(err: &DataFusionError) -> bool {
-    let s = err.to_string();
-    s.contains("shm_mq sender detached") || s.contains("in-proc channel detached")
+    err.to_string().contains(CONSUMER_DETACHED_SENTINEL)
 }
 
 /// Execute partition `partition` of `plan` and push every yielded batch through `sender`,

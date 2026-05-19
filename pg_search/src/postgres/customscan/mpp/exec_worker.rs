@@ -38,7 +38,9 @@ use tantivy::index::SegmentId;
 
 use crate::api::HashSet;
 use crate::postgres::customscan::mpp::producer_service::{ProducerTaskRegistry, StagePlans};
-use crate::postgres::customscan::mpp::runtime::{MppMesh, MppWorkerResolver, ShmMqWorkerTransport};
+use crate::postgres::customscan::mpp::runtime::{
+    proc_for_task, MppMesh, MppWorkerResolver, ShmMqWorkerTransport,
+};
 use crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator;
 use crate::postgres::customscan::parallel::list_segment_ids;
 use crate::postgres::ParallelScanState;
@@ -203,6 +205,35 @@ pub(crate) fn run_mpp_worker(
         work_mem_bytes,
         hash_mem_multiplier,
     ));
+
+    // Pre-warm the registry's `(stage, task) → (prepared_plan, TaskContext)` cache for every
+    // task this proc owns. Without this, the first Request per task pays the full
+    // `DistributedExec::prepare_in_process_plan` cost (transform_up + codec encoding) on the
+    // drain dispatch path, stalling every other inbound until the prep completes. Front-loading
+    // it here makes the dispatch path purely a lookup.
+    //
+    // `proc_for_task(n_workers, t) == this_proc` selects the tasks this worker hosts. With the
+    // natural-shape estimator chain those are `task_idx mod n_workers == this_proc - 1`. Other
+    // tasks may be requested too (e.g., broadcast `task_idx == 0` from every consumer hits the
+    // proc that owns task 0), so we also prewarm `task_idx == 0` on every proc — it's cheap and
+    // covers the broadcast cap path.
+    let n_workers = worker_mesh.n_procs.saturating_sub(1).max(1);
+    let stage_task_counts: Vec<(u32, usize)> = registry.iter_task_counts().collect();
+    for (stage_id, task_count) in stage_task_counts {
+        for task_idx in 0..task_count as u32 {
+            let owned = proc_for_task(n_workers, task_idx) == this_proc;
+            let broadcast_zero = task_idx == 0;
+            if !(owned || broadcast_zero) {
+                continue;
+            }
+            if let Err(e) = registry.prewarm(stage_id, task_idx) {
+                pgrx::warning!(
+                    "mpp worker (proc={this_proc}): prewarm stage_id={stage_id} \
+                     task_idx={task_idx} failed: {e}; will retry lazily on Request"
+                );
+            }
+        }
+    }
 
     // Install the registry as the request handler on every inbound drain. The cooperative drain
     // dispatches each `Request` frame to `registry.on_request`, which spawns a driver future on

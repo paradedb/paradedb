@@ -628,12 +628,31 @@ impl CustomScan for AggregateScan {
         // waiting on us. The worker process is still alive though (we're in ExecutorEnd), so
         // shm_mq FFI is still valid. Loop runs until the leader detaches its outbound senders,
         // then returns and PG continues teardown.
-        let is_mpp_worker = state
+        //
+        // Belt-and-suspenders: if we're the LEADER, detach the mesh here too. The primary detach
+        // lives in `shutdown_custom_scan` (called by `ExecShutdownGatherMerge` BEFORE
+        // `WaitForParallelWorkersToFinish` blocks). But PG documents that `shutdown_custom_scan`
+        // "may be skipped" — under certain executor paths (subplan early-return, exception
+        // unwinding) `end_custom_scan` is the only teardown hook we're guaranteed to see. The
+        // detach is idempotent, so calling it from both places is safe.
+        let (is_mpp_worker, is_mpp_leader) = state
             .custom_state()
             .datafusion_state
             .as_ref()
-            .map(|s| matches!(s.mpp, Some(scan_state::MppExecState::Worker(_))))
-            .unwrap_or(false);
+            .map(|s| match &s.mpp {
+                Some(scan_state::MppExecState::Worker(_)) => (true, false),
+                Some(scan_state::MppExecState::Leader(_)) => (false, true),
+                None => (false, false),
+            })
+            .unwrap_or((false, false));
+        if is_mpp_leader {
+            if let Some(df_state) = state.custom_state().datafusion_state.as_ref() {
+                if let Some(scan_state::MppExecState::Leader(leader)) = df_state.mpp.as_ref() {
+                    leader.mesh.detach_outbound_senders();
+                    leader.mesh.detach_inbound_receivers();
+                }
+            }
+        }
         if is_mpp_worker {
             mpp::exec_mpp_worker(state);
         }

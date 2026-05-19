@@ -154,11 +154,25 @@ impl MppMesh {
     /// local `Arc<MppMesh>` drops, the inner `Vec` drops with the mesh, and outbound senders
     /// detach via `Drop`. Only the leader has the PG-parallel-finish ordering problem that needs
     /// the explicit hook.
-    pub fn detach_outbound_senders(&self) {
+    ///
+    /// Safe to call repeatedly — the `Mutex<Vec<...>>::clear` on an already-empty vec is a
+    /// no-op, so the customscan can detach in `shutdown_custom_scan`, `end_custom_scan`, AND the
+    /// stream-`None` branch of `exec_custom_scan` without worrying about double-detach.
+    pub(crate) fn detach_outbound_senders(&self) {
         self.outbound_senders
             .lock()
             .expect("MppMesh outbound_senders mutex poisoned")
             .clear();
+    }
+
+    /// True if [`Self::detach_outbound_senders`] has run. Producer-side dispatchers use this to
+    /// tell a clean teardown ("consumer torn down, drop the Request") from a real configuration
+    /// bug ("never had an outbound for this proc — that shouldn't happen").
+    pub(crate) fn outbound_detached(&self) -> bool {
+        self.outbound_senders
+            .lock()
+            .expect("MppMesh outbound_senders mutex poisoned")
+            .is_empty()
     }
 
     /// Force-detach every inbound drain. The leader calls this alongside
@@ -172,7 +186,11 @@ impl MppMesh {
     /// queue with the leftover batches, the cooperative-drain spin can't make progress (no
     /// consumer is reading), and `pgrx::check_for_interrupts!()` never fires because PG won't
     /// dispatch shutdown signals while still inside the same backend's query.
-    pub fn detach_inbound_receivers(&self) {
+    ///
+    /// Idempotent — [`DrainHandle::force_detach`] no-ops on a drain whose receivers are already
+    /// cleared. The customscan can call this from multiple teardown hooks (shutdown,
+    /// end_custom_scan, stream-`None`) without double-detach concerns.
+    pub(crate) fn detach_inbound_receivers(&self) {
         for drain in self.inbound_receivers.iter().flatten() {
             drain.force_detach();
         }
@@ -181,18 +199,17 @@ impl MppMesh {
     /// Install `handler` on every inbound drain so `Request` frames from any peer reach the
     /// producer service loop's registry. Called once at worker startup after the registry is
     /// built. Idempotent overwrite: re-installing replaces the previous handler on each drain.
-    pub fn install_request_handler(&self, handler: Arc<dyn RequestHandler>) {
+    pub(crate) fn install_request_handler(&self, handler: Arc<dyn RequestHandler>) {
         for drain in self.inbound_receivers.iter().flatten() {
             drain.set_request_handler(Arc::clone(&handler));
         }
     }
 
     /// Drop every drain's installed request handler so the service loop's `Arc<dyn
-    /// RequestHandler>` references release at teardown. Without this, the cycle (mesh →
-    /// DrainHandle → Arc<Registry> → strong ref into the service loop) keeps the worker's mesh
-    /// alive forever. The registry's `Weak<MppMesh>` on its own isn't enough — the handler Arc
-    /// installed on the drain is the strong leg that needs explicit unwinding.
-    pub fn uninstall_request_handler(&self) {
+    /// RequestHandler>` references release at teardown. The registry's `Weak<MppMesh>` breaks
+    /// the `Registry → Mesh` leg of the cycle, but the `Mesh → DrainHandle → Arc<dyn
+    /// RequestHandler>` leg is still strong; this hook is what unwinds it.
+    pub(crate) fn uninstall_request_handler(&self) {
         for drain in self.inbound_receivers.iter().flatten() {
             drain.clear_request_handler();
         }
@@ -206,7 +223,7 @@ impl MppMesh {
     /// Worker-to-worker outbound senders stay alive as long as any peer is still running
     /// drivers, so an all-peers check would deadlock — every worker would wait for every other
     /// worker to detach first. Cascading off the leader avoids that.
-    pub fn leader_inbound_detached(&self) -> bool {
+    pub(crate) fn leader_inbound_detached(&self) -> bool {
         self.inbound_receivers
             .first()
             .and_then(|slot| slot.as_ref())

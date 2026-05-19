@@ -1666,6 +1666,16 @@ impl CustomScan for JoinScan {
         // free to drain MPP traffic without blocking on us. The worker process is still alive
         // (we're inside ExecutorEnd), so shm_mq FFI remains valid. See
         // `AggregateScan::end_custom_scan` for the full reasoning.
+        //
+        // Belt-and-suspenders: if we're the LEADER, detach the mesh here. The primary detach
+        // lives in `shutdown_custom_scan` (`ExecShutdownGatherMerge` calls it before
+        // `WaitForParallelWorkersToFinish` blocks). But PG documents that `shutdown_custom_scan`
+        // "may be skipped" — `end_custom_scan` is the only teardown hook we're guaranteed to
+        // see. The detach is idempotent, so calling it from both places is safe.
+        if let Some(MppExecState::Leader(leader)) = state.custom_state().mpp.as_ref() {
+            leader.mesh.detach_outbound_senders();
+            leader.mesh.detach_inbound_receivers();
+        }
         if matches!(state.custom_state().mpp, Some(MppExecState::Worker(_))) {
             JoinScan::exec_mpp_worker(state);
         }

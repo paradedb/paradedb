@@ -29,7 +29,7 @@ use crate::parallel_worker::mqueue::{
     MessageQueueReceiver, MessageQueueRecvError, MessageQueueSendError, MessageQueueSender,
 };
 use crate::postgres::customscan::mpp::transport::{
-    BatchChannelReceiver, BatchChannelSender, RecvOutcome,
+    consumer_detached_error, BatchChannelReceiver, BatchChannelSender, RecvOutcome,
 };
 use datafusion::common::DataFusionError;
 
@@ -99,9 +99,7 @@ impl BatchChannelSender for ShmMqSender {
             "ShmMqSender::send_bytes called off the attach thread"
         );
         self.inner.send(bytes).map_err(|e| match e {
-            MessageQueueSendError::Detached => {
-                DataFusionError::Execution("mpp: shm_mq sender detached".into())
-            }
+            MessageQueueSendError::Detached => consumer_detached_error("shm_mq send"),
             MessageQueueSendError::WouldBlock => {
                 DataFusionError::Execution("mpp: shm_mq send would block".into())
             }
@@ -121,9 +119,7 @@ impl BatchChannelSender for ShmMqSender {
         match self.inner.try_send(bytes) {
             Ok(Some(())) => Ok(true),
             Ok(None) => Ok(false),
-            Err(MessageQueueSendError::Detached) => Err(DataFusionError::Execution(
-                "mpp: shm_mq sender detached".into(),
-            )),
+            Err(MessageQueueSendError::Detached) => Err(consumer_detached_error("shm_mq try_send")),
             Err(MessageQueueSendError::WouldBlock) => Ok(false),
             Err(MessageQueueSendError::Unknown(code)) => {
                 mpp_log!("mpp: shm_mq try_send unknown code {code}");

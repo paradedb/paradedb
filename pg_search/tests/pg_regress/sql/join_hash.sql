@@ -34,8 +34,11 @@ ANALYZE hash_t1;
 ANALYZE hash_t2;
 
 -- EXPLAIN ANALYZE to show HashJoin metrics.
--- Check in particular for dynamic_filter_pushdown=true, to indicate that dynamic filters
--- were pushed down into the Tantivy Query.
+-- Check in particular for the `dynamic_filter_pushdown=<strategy>` token (one of
+-- {gallop, linear, bitset_from_postings, automaton, empty}; falls back to `true`
+-- on the rare path where pushdown was indicated but no strategy tag was
+-- recorded), which signals dynamic filters were pushed down into the Tantivy
+-- query and reports the dispatched TermSet strategy.
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT t1.val, t2.val
 FROM hash_t1 t1
@@ -59,11 +62,12 @@ LIMIT 10;
 -- dynamic_filter_pushdown=... EXPLAIN token reports the chosen strategy.
 --
 -- The test asserts BOTH dispatch outcomes:
---   2a. With paradedb.term_set_gallop_max_density tightened to 1/100,
---       K/N = 0.75 is too dense for gallop on this small corpus → linear
---       strategy, EXPLAIN says dynamic_filter_pushdown=linear.
---   2b. With paradedb.term_set_gallop_max_density at 1.0 (which is also
---       the default — see gucs.rs), gallop fires → EXPLAIN says
+--   2a. With paradedb.term_set_gallop_enabled = OFF, gallop is rejected
+--       via the kill-switch. K/N = 0.75 is also above both bitset
+--       density gates, so the planner falls through to LinearScan →
+--       EXPLAIN says dynamic_filter_pushdown=linear.
+--   2b. With paradedb.term_set_gallop_enabled at its default ON, gallop
+--       fires on this sorted segment → EXPLAIN says
 --       dynamic_filter_pushdown=gallop.
 
 DROP TABLE IF EXISTS hash_sorted_t1 CASCADE;
@@ -74,9 +78,9 @@ CREATE TABLE hash_sorted_t2 (id INTEGER PRIMARY KEY, t1_id INTEGER, val TEXT);
 
 -- t1: 1500 rows (clears the TermSetQuery FastField cardinality threshold of
 -- 1024 so the FastField dispatch path is reached).
--- t2: 2000 rows with t1_id repeating across 1..1500 — K/N = 1500/2000 = 0.75,
--- which is too dense for the default gallop threshold (1/100 = 0.01) but
--- below the override used in TEST 2b (1.0).
+-- t2: 2000 rows with t1_id repeating across 1..1500 — K/N = 1500/2000 = 0.75.
+-- TEST 2a flips `term_set_gallop_enabled` off to reject gallop via the
+-- kill-switch; TEST 2b leaves the default on so gallop fires.
 INSERT INTO hash_sorted_t1 SELECT i, 'val ' || i FROM generate_series(1, 1500) i;
 INSERT INTO hash_sorted_t2 SELECT i, ((i - 1) % 1500) + 1, 'val ' || i FROM generate_series(1, 2000) i;
 
@@ -93,11 +97,10 @@ WITH (
 ANALYZE hash_sorted_t1;
 ANALYZE hash_sorted_t2;
 
--- TEST 2a: tightened density. K/N = 0.75 > 1/100, so gallop is rejected and
--- the planner lands on the LinearScan terminal. The current default
--- gallop_max_density is 1.0 (admit on any sorted segment), so we have to
--- explicitly tighten it to exercise the gallop-rejected branch.
-SET paradedb.term_set_gallop_max_density = 0.01;
+-- TEST 2a: gallop kill-switch engaged. K/N = 0.75 is also above both
+-- bitset gates (1/2000 and 1/200), so dispatch falls through to
+-- LinearScan.
+SET paradedb.term_set_gallop_enabled = OFF;
 
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT t1.val, t2.val
@@ -114,13 +117,10 @@ WHERE t1.val @@@ 'val'
 ORDER BY t1.id ASC
 LIMIT 10;
 
-RESET paradedb.term_set_gallop_max_density;
+RESET paradedb.term_set_gallop_enabled;
 
--- TEST 2b: density = 1.0 (admit any K < N). Same data, same query — gallop
--- now fires because K/N = 0.75 < 1.0. 1.0 is the production default; we
--- restore it explicitly here for clarity even though the RESET above
--- would have the same effect.
-SET paradedb.term_set_gallop_max_density = 1.0;
+-- TEST 2b: default behavior. Same data, same query — `gallop_enabled`
+-- is ON by default, sorted segment + matching field → gallop fires.
 
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT t1.val, t2.val
@@ -136,8 +136,6 @@ JOIN hash_sorted_t2 t2 ON t1.id = t2.t1_id
 WHERE t1.val @@@ 'val'
 ORDER BY t1.id ASC
 LIMIT 10;
-
-RESET paradedb.term_set_gallop_max_density;
 
 -- =============================================================================
 -- TEST 3: paradedb.hash_join_inlist_pushdown_max_distinct_values = 0 disables
@@ -147,7 +145,6 @@ RESET paradedb.term_set_gallop_max_density;
 -- to hash-table map), so 0 disables the InList materialization path on both
 -- sides of the boundary. EXPLAIN should NOT show `dynamic_filter_pushdown=`.
 SET paradedb.hash_join_inlist_pushdown_max_distinct_values = 0;
-SET paradedb.term_set_gallop_max_density = 1.0;
 
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT t1.val, t2.val
@@ -158,7 +155,6 @@ ORDER BY t1.id ASC
 LIMIT 10;
 
 RESET paradedb.hash_join_inlist_pushdown_max_distinct_values;
-RESET paradedb.term_set_gallop_max_density;
 
 -- =============================================================================
 -- CLEANUP

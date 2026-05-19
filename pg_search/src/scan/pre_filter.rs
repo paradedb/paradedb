@@ -755,7 +755,6 @@ fn try_convert_in_list_to_query(
     // its decision into so EXPLAIN ANALYZE can report which strategy fired.
     let cfg = TermSetStrategyConfig {
         gallop_enabled: crate::gucs::term_set_gallop_enabled(),
-        gallop_max_density: crate::gucs::term_set_gallop_max_density(),
         bitset_max_density_unique: crate::gucs::term_set_bitset_max_density_unique(),
         bitset_max_density_multi: crate::gucs::term_set_bitset_max_density_multi(),
         strategy_sink,

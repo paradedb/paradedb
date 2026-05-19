@@ -30,9 +30,10 @@
 --
 --   bitset_max_density_unique = 1/2000 = 0.0005    (D=1 path)
 --   bitset_max_density_multi  = 1/200  = 0.005     (D≥2 path)
---   gallop_max_density        = 1.0                (no-op gate)
 --
 -- The bitset gates use <= so the threshold value itself admits bitset.
+-- Gallop has no density gate — it commits whenever the structural
+-- preconditions hold and `term_set_gallop_enabled` is on.
 -- Plan-stabilizing GUCs (mirror join_hash.sql).
 SET max_parallel_workers_per_gather = 0;
 SET enable_indexscan TO OFF;
@@ -311,9 +312,8 @@ LIMIT 10;
 -- ============================================================================
 -- TEST F: sorted segment admits Gallop at any density
 -- ============================================================================
--- ts_sorted is sorted ASC by fk, so the gallop precondition holds. With the
--- default gallop_max_density = 1.0, even K/N = 0.01 (K=100) admits gallop.
--- (Sanity check that the relaxed default didn't break the gallop path.)
+-- ts_sorted is sorted ASC by fk, so the gallop precondition holds.
+-- Gallop has no density gate, so even K/N = 0.01 (K=100) admits gallop.
 EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, BUFFERS OFF, SUMMARY OFF)
 SELECT ts_outer.id, ts_sorted.id
 FROM ts_outer JOIN ts_sorted ON ts_outer.id = ts_sorted.fk

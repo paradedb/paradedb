@@ -171,9 +171,9 @@ pub struct PgSearchScanPlan {
     /// fine because `EXPLAIN ANALYZE` only asks "did any segment use it?".
     /// Stored as `u8` so it can live behind an `AtomicU8`; round-tripped
     /// through `tantivy::query::StrategyTag` at render time. A value of
-    /// `StrategyTag::None as u8` (= 0) means no dispatch happened, e.g. the
-    /// InList didn't reach the FastField path (K ≤ 1024 routes to
-    /// AutomatonWeight which doesn't write the sink).
+    /// `StrategyTag::None as u8` (= 0) means no `TermSetWeight` ran on
+    /// this scan to write a tag — the EXPLAIN renderer falls back to
+    /// `=true` in that case.
     dynamic_filter_strategy: Arc<AtomicU8>,
 }
 
@@ -388,6 +388,7 @@ fn strategy_name(strategy: tantivy::query::StrategyTag) -> &'static str {
         StrategyTag::Gallop => "gallop",
         StrategyTag::Linear => "linear",
         StrategyTag::Bitset => "bitset_from_postings",
+        StrategyTag::Automaton => "automaton",
         StrategyTag::Empty => "empty",
     }
 }
@@ -403,11 +404,14 @@ impl DisplayAs for PgSearchScanPlan {
             write!(f, ", dynamic_filters={}", self.dynamic_filters.len())?;
         }
         if self.dynamic_filter_pushdown.load(Ordering::Relaxed) {
-            // Render a single token. When the strategy framework engaged
-            // (K > 1024 reached FastFieldTermSetWeight and select_strategy
-            // wrote the sink), the value is the strategy name. Otherwise
-            // (K ≤ 1024 routed via AutomatonWeight, which doesn't write the
-            // sink) it falls back to "true".
+            // Render a single token. `TermSetWeight` writes the chosen
+            // `StrategyTag` to the sink on every dispatch, so the value
+            // is the strategy name (`gallop` / `linear` /
+            // `bitset_from_postings` / `automaton` / `empty`). Falls
+            // back to `true` only when pushdown was indicated but no
+            // `TermSetWeight` ran to record a tag — e.g., the dynamic
+            // filter handled a non-TermSet shape, or the scan
+            // short-circuited before any segment was processed.
             let tag = self.dynamic_filter_strategy.load(Ordering::Relaxed);
             let strategy = tantivy::query::StrategyTag::try_from(tag)
                 .unwrap_or(tantivy::query::StrategyTag::None);

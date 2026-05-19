@@ -200,16 +200,6 @@ static HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: GucSetting<i32> =
 /// back to the legacy linear scan even for sorted segments.
 static TERM_SET_GALLOP_ENABLED: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// Density gate for the gallop dispatch path. Gallop is selected when
-/// `K' / N` is at or below this threshold on a sorted segment, where `K'`
-/// is the number of distinct terms surviving min/max pruning and `N` is
-/// the segment size. Default `1.0` (Phase 6.13) — Gallop dominates
-/// whenever the segment is sorted by the queried field (Phase 6.12
-/// production-bench numbers), so no density gate fires under defaults.
-/// Lower values reject Gallop at high-K and fall through to Bitset or
-/// LinearScan. Matches `tantivy::query::TermSetStrategyConfig::default()`.
-static TERM_SET_GALLOP_MAX_DENSITY: GucSetting<f64> = GucSetting::<f64>::new(1.0);
-
 /// First-column `BitsetFromPostings` density gate for unique-valued
 /// columns (`D = 1`, i.e. `dict_size >= N`, e.g. primary keys). Bitset
 /// is admitted when `K' / N <= bitset_max_density_unique`. Default
@@ -522,16 +512,6 @@ pub fn init() {
         c"Enable galloping execution of FastFieldTermSetQuery on sorted segments.",
         c"When false, FastFieldTermSetQuery falls back to the legacy linear scan even on sorted segments. Acts as a kill-switch for the issue #4895 optimization.",
         &TERM_SET_GALLOP_ENABLED,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-    GucRegistry::define_float_guc(
-        c"paradedb.term_set_gallop_max_density",
-        c"Gallop is selected when K' / N is at or below this density on a sorted segment.",
-        c"K' is the number of distinct terms surviving min/max pruning; N is the segment size. Default 1.0 (admit Gallop whenever the segment is sorted by the queried field — Phase 6.12 found Gallop wins uniformly when admissible). Lower values reject Gallop at high K, falling back to BitsetFromPostings or LinearScan.",
-        &TERM_SET_GALLOP_MAX_DENSITY,
-        0.0,
-        1.0,
         GucContext::Userset,
         GucFlags::default(),
     );
@@ -852,10 +832,6 @@ pub fn hash_join_inlist_pushdown_max_distinct_values() -> i32 {
 
 pub fn term_set_gallop_enabled() -> bool {
     TERM_SET_GALLOP_ENABLED.get()
-}
-
-pub fn term_set_gallop_max_density() -> f64 {
-    TERM_SET_GALLOP_MAX_DENSITY.get()
 }
 
 pub fn term_set_bitset_max_density_unique() -> f64 {

@@ -393,6 +393,22 @@ pub(super) trait BatchChannelSender: Send + Sync {
     fn try_send_bytes(&self, bytes: &[u8]) -> Result<bool, DataFusionError> {
         self.send_bytes(bytes).map(|()| true)
     }
+
+    /// Async serialization lock held across multi-call sends. PG's `shm_mq_send` docs spell out
+    /// the invariant: once a send returns `SHM_MQ_WOULD_BLOCK`, the next call on the same handle
+    /// must repeat the *same* `(nbytes, data)` arguments — "changing the length or payload will
+    /// corrupt the queue." Multiple [`MppSender`] clones share one underlying
+    /// `Arc<dyn BatchChannelSender>` (the multiplexed `(stage_id, partition)` pattern), and the
+    /// cooperative-drain spin in `send_with_scratch` yields between retries. Without this lock,
+    /// task A's partial send can interleave with task B's full send, sending B's payload as a
+    /// continuation of A's length prefix and producing a garbled queue. The receiver then reads
+    /// a corrupted length and errors with "invalid message size" or "frame too short for header".
+    ///
+    /// `send_with_scratch` / `send_eof_with_scratch` / `send_request_with_scratch` acquire this
+    /// lock before the spin and hold it until the message is fully written. In-proc channels
+    /// don't need serialization (each send is atomic) but return a per-instance mutex anyway so
+    /// the call site stays uniform.
+    fn send_lock(&self) -> &tokio::sync::Mutex<()>;
 }
 
 /// Pluggable "drain everything inbound" hook for [`MppSender`]'s cooperative send spin. The
@@ -555,6 +571,10 @@ impl MppSender {
         let Some(drain) = self.cooperative_drain.as_ref() else {
             return self.channel.send_bytes(scratch);
         };
+        // Hold the channel's send lock across the entire spin. See `BatchChannelSender::send_lock`
+        // for the why — shm_mq can't tolerate two senders interleaving partial writes on the
+        // same handle, and yield_now().await would otherwise let another task in mid-send.
+        let _send_guard = self.channel.send_lock().lock().await;
         let mut first_try = true;
         let t_wait_start = Instant::now();
         loop {
@@ -589,6 +609,10 @@ impl MppSender {
             // back to the blocking send path.
             return self.channel.send_bytes(scratch);
         };
+        // Hold the channel's send lock across the entire spin. See `BatchChannelSender::send_lock`
+        // for the why — shm_mq can't tolerate two senders interleaving partial writes on the
+        // same handle, and yield_now().await would otherwise let another task in mid-send.
+        let _send_guard = self.channel.send_lock().lock().await;
         let mut first_try = true;
         let t_wait_start = Instant::now();
         // Mental model: a current-thread Tokio runtime lives on the
@@ -920,11 +944,23 @@ impl Drop for DrainHandle {
 /// chance of self-deadlock if the producer never yields.
 pub(super) fn in_proc_channel(capacity: usize) -> (InProcSender, InProcReceiver) {
     let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(capacity);
-    (InProcSender { tx }, InProcReceiver { rx: Mutex::new(rx) })
+    (
+        InProcSender {
+            tx,
+            send_lock: tokio::sync::Mutex::new(()),
+        },
+        InProcReceiver { rx: Mutex::new(rx) },
+    )
 }
 
 pub(super) struct InProcSender {
     tx: std::sync::mpsc::SyncSender<Vec<u8>>,
+    /// Per-instance lock so the [`BatchChannelSender::send_lock`] contract holds even when an
+    /// in-proc channel ends up in a code path that would otherwise need serialization. In-proc
+    /// `send_bytes` is already atomic (each call pushes a complete `Vec<u8>`), so the lock is
+    /// effectively a no-op here, but keeping it uniform with `ShmMqSender` avoids special-casing
+    /// the caller.
+    send_lock: tokio::sync::Mutex<()>,
 }
 
 pub(super) struct InProcReceiver {
@@ -951,6 +987,10 @@ impl BatchChannelSender for InProcSender {
                 "mpp: in-proc channel detached during try_send".into(),
             )),
         }
+    }
+
+    fn send_lock(&self) -> &tokio::sync::Mutex<()> {
+        &self.send_lock
     }
 }
 

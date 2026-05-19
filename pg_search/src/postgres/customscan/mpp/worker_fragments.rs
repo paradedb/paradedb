@@ -197,11 +197,13 @@ fn collect(
             // canonical replica to the leader and `select_all` would over-count by
             // `input_task_count`. Surface it as an error so a future planner change that hits
             // this shape doesn't silently produce wrong answers.
-            ("NetworkBroadcastExec", false) => pgrx::error!(
-                "mpp worker_fragments: top-level NetworkBroadcastExec is unsupported \
-                 (stage_id={stage_id}). The natural-shape AggregateScan plan does not \
-                 produce this shape; route via a NetworkCoalesceExec gather instead."
-            ),
+            ("NetworkBroadcastExec", false) => {
+                crate::postgres::customscan::mpp::fail_loud(format!(
+                    "mpp worker_fragments: top-level NetworkBroadcastExec is unsupported \
+                     (stage_id={stage_id}). The natural-shape AggregateScan plan does not \
+                     produce this shape; route via a NetworkCoalesceExec gather instead."
+                ))
+            }
             // Top-level boundary (gather to leader): consumer is leader proc 0.
             (_, false) => FragmentRouting::Coalesce { dest_proc: 0 },
             // Nested NetworkShuffleExec: hash-partitioned mesh. Each output partition q maps to
@@ -225,12 +227,12 @@ fn collect(
             // rather than silently routing to task 0 of `proc_for_task`, which would over-count
             // or drop batches for a shape we haven't reasoned about. Surface as error so
             // plan-walk drift is visible.
-            (other, true) => pgrx::error!(
+            (other, true) => crate::postgres::customscan::mpp::fail_loud(format!(
                 "mpp worker_fragments: unsupported nested boundary kind {other} \
                  (stage_id={stage_id}). Only NetworkShuffleExec, NetworkBroadcastExec, \
                  and NetworkCoalesceExec are recognised; routing this shape would silently \
                  mis-route batches."
-            ),
+            )),
         };
         #[cfg(not(test))]
         {

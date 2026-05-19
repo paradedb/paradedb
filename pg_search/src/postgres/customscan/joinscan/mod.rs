@@ -1644,13 +1644,13 @@ impl CustomScan for JoinScan {
     }
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // Pull-shape: when PG signals shutdown on the leader's custom scan (typically because a
-        // parent `Limit` has reached its row count and is about to unwind), detach the mesh so
-        // worker service loops can exit. PG calls `ExecShutdownNode` on the lefttree from
-        // `ExecShutdownGatherMerge` BEFORE waiting for workers via
-        // `WaitForParallelWorkersToFinish` — the ordering matters because otherwise the wait
-        // would block forever (workers spin on the service loop waiting for the leader to
-        // detach). JoinScan plans with `LIMIT` end up in exactly this code path: there's no
+        // PG signals shutdown on the leader's custom scan when a parent `Limit` has its row
+        // count and is about to unwind. Detach the mesh here so worker service loops can exit.
+        //
+        // The ordering matters: PG calls `ExecShutdownNode` on the lefttree from
+        // `ExecShutdownGatherMerge` BEFORE `WaitForParallelWorkersToFinish` blocks. Without
+        // this hook, that wait blocks forever (workers spin on the service loop waiting for
+        // the leader to detach). JoinScan plans with `LIMIT` are exactly this case. There's no
         // `Sort` between `Limit` and `Gather Merge` to fully drain the leader's stream, so the
         // detach-on-stream-`None` path never fires.
         if let Some(MppExecState::Leader(leader)) = state.custom_state().mpp.as_ref() {
@@ -1660,18 +1660,18 @@ impl CustomScan for JoinScan {
     }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // Pull-shape: if we're an MPP worker, run the producer service loop here. By the time
-        // `end_custom_scan` fires, exec_custom_scan has returned `null_mut` and PG's parallel
-        // framework has marked this worker EOS on the leader's Gather Merge — so the leader is
-        // free to drain MPP traffic without blocking on us. The worker process is still alive
-        // (we're inside ExecutorEnd), so shm_mq FFI remains valid. See
-        // `AggregateScan::end_custom_scan` for the full reasoning.
+        // If we're a worker, run the producer service loop here. By the time `end_custom_scan`
+        // fires, exec_custom_scan has returned `null_mut` and PG's parallel framework has
+        // marked this worker EOS on the leader's Gather Merge, so the leader is free to drain
+        // MPP traffic without blocking on us. The worker process is still alive (we're inside
+        // ExecutorEnd), so shm_mq FFI is still valid. See `AggregateScan::end_custom_scan` for
+        // the full reasoning.
         //
-        // Belt-and-suspenders: if we're the LEADER, detach the mesh here. The primary detach
-        // lives in `shutdown_custom_scan` (`ExecShutdownGatherMerge` calls it before
-        // `WaitForParallelWorkersToFinish` blocks). But PG documents that `shutdown_custom_scan`
-        // "may be skipped" — `end_custom_scan` is the only teardown hook we're guaranteed to
-        // see. The detach is idempotent, so calling it from both places is safe.
+        // If we're the LEADER, do a belt-and-suspenders detach. The primary detach lives in
+        // `shutdown_custom_scan` (`ExecShutdownGatherMerge` calls that before
+        // `WaitForParallelWorkersToFinish` blocks). But PG docs say `shutdown_custom_scan` can
+        // be skipped, and `end_custom_scan` is the only teardown hook we're guaranteed to see.
+        // Detach is idempotent so calling from both places is fine.
         if let Some(MppExecState::Leader(leader)) = state.custom_state().mpp.as_ref() {
             leader.mesh.detach_outbound_senders();
             leader.mesh.detach_inbound_receivers();

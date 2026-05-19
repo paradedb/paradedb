@@ -605,13 +605,15 @@ impl CustomScan for AggregateScan {
     }
 
     fn shutdown_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // Pull-shape: when PG signals shutdown on the leader's custom scan (typically because a
-        // parent `Limit` has reached its row count and is about to unwind), detach the mesh so
-        // worker service loops can exit. PG calls `ExecShutdownNode` on the lefttree from
-        // `ExecShutdownGatherMerge` BEFORE waiting for workers — the ordering matters because
-        // otherwise the wait would block forever (workers spin on the service loop waiting for
-        // the leader to detach). Without this, JoinScan/AggregateScan plans where PG `Limit`
-        // stops early — that is, the leader never observes stream None — would deadlock.
+        // PG signals shutdown on the leader's custom scan when a parent `Limit` has its row
+        // count and is about to unwind. Detach the mesh here so worker service loops can exit.
+        //
+        // The ordering is what makes this work: PG calls `ExecShutdownNode` on the lefttree
+        // from `ExecShutdownGatherMerge` BEFORE it waits for workers to finish. If we waited to
+        // detach in `end_custom_scan`, that wait would block forever (workers spin on the
+        // service loop, waiting for the leader to detach). JoinScan/AggregateScan plans where
+        // PG `Limit` stops early (so the leader never observes stream None) would deadlock
+        // without this hook.
         if let Some(df_state) = state.custom_state().datafusion_state.as_ref() {
             if let Some(scan_state::MppExecState::Leader(leader)) = df_state.mpp.as_ref() {
                 leader.mesh.detach_outbound_senders();
@@ -621,20 +623,20 @@ impl CustomScan for AggregateScan {
     }
 
     fn end_custom_scan(state: &mut CustomScanStateWrapper<Self>) {
-        // Pull-shape: if we're an MPP worker, run the producer service loop here. By the time
-        // `end_custom_scan` fires, ExecutorRun has exited on this worker (exec_custom_scan
-        // returned null), PG has detached the per-worker tuple queue, and Gather Merge on the
-        // leader has marked this worker EOS — so the leader can drain the MPP mesh without
-        // waiting on us. The worker process is still alive though (we're in ExecutorEnd), so
-        // shm_mq FFI is still valid. Loop runs until the leader detaches its outbound senders,
-        // then returns and PG continues teardown.
+        // If we're a worker, run the producer service loop here. By the time `end_custom_scan`
+        // fires, ExecutorRun has exited on this worker (`exec_custom_scan` returned null), PG
+        // has detached the per-worker tuple queue, and Gather Merge on the leader has marked
+        // this worker EOS, so the leader can drain the MPP mesh without waiting on us. The
+        // worker process is still alive though (we're inside ExecutorEnd), so shm_mq FFI is
+        // still valid. The loop runs until the leader detaches its outbound senders, then
+        // returns and PG continues teardown.
         //
-        // Belt-and-suspenders: if we're the LEADER, detach the mesh here too. The primary detach
-        // lives in `shutdown_custom_scan` (called by `ExecShutdownGatherMerge` BEFORE
-        // `WaitForParallelWorkersToFinish` blocks). But PG documents that `shutdown_custom_scan`
-        // "may be skipped" — under certain executor paths (subplan early-return, exception
-        // unwinding) `end_custom_scan` is the only teardown hook we're guaranteed to see. The
-        // detach is idempotent, so calling it from both places is safe.
+        // If we're the LEADER, do a belt-and-suspenders detach. The primary detach lives in
+        // `shutdown_custom_scan` (called by `ExecShutdownGatherMerge` before
+        // `WaitForParallelWorkersToFinish` blocks). But PG docs say `shutdown_custom_scan` can
+        // be skipped on some executor paths (subplan early-return, exception unwind), and
+        // `end_custom_scan` is the only teardown hook we're guaranteed to see. The detach is
+        // idempotent so calling it from both places is fine.
         let (is_mpp_worker, is_mpp_leader) = state
             .custom_state()
             .datafusion_state

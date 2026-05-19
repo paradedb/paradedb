@@ -90,11 +90,11 @@ pub struct MppMesh {
     /// leader, which has no self-loop).
     ///
     /// Wrapped in a `Mutex<Vec<...>>` so the leader can call [`Self::detach_outbound_senders`]
-    /// at end-of-stream — clearing the vec drops the `MppSender`s, which detaches every shm_mq
-    /// sender handle, which lets each worker's service loop observe `leader_inbound_detached`
-    /// and exit. Without this, workers would block in their service loops forever (PG's parallel
-    /// finish waits for workers to return EOS before calling `end_custom_scan` on the leader, so
-    /// the natural Arc<MppMesh> drop happens too late to break the wait).
+    /// at end-of-stream. Clearing the vec drops the `MppSender`s, which detaches every shm_mq
+    /// sender handle, which lets each worker's service loop see `leader_inbound_detached` and
+    /// exit. Without an explicit detach, workers would block forever: PG's parallel-finish
+    /// waits for workers to return EOS before calling `end_custom_scan` on the leader, so the
+    /// natural `Arc<MppMesh>` drop happens too late to break the wait.
     outbound_senders: Mutex<Vec<Option<MppSender>>>,
 }
 
@@ -125,11 +125,11 @@ impl MppMesh {
 
     /// Return an owned clone of the outbound sender to `target_proc`, stamped with `header`.
     /// The clone preserves the underlying `Arc<dyn BatchChannelSender>` and the attached
-    /// cooperative drain. Returns `None` for `target_proc == this_proc` on the leader (no
-    /// self-loop), out-of-range, or after [`Self::detach_outbound_senders`] has run.
+    /// cooperative drain. `None` when `target_proc == this_proc` on the leader (no self-loop),
+    /// when the target is out-of-range, or after [`Self::detach_outbound_senders`] has run.
     ///
-    /// The header is taken as a parameter rather than stamped later via `clone_with_header` so
-    /// callers don't have to materialise an intermediate sender with the wrong header. A second
+    /// The header is a parameter rather than stamped later via `clone_with_header` so callers
+    /// don't have to materialise an intermediate sender with the wrong header. A second
     /// `with_cooperative_drain` is still cheap if a caller needs to swap drains.
     pub(super) fn outbound_sender(
         &self,
@@ -150,13 +150,13 @@ impl MppMesh {
     /// EOF so each worker's inbound from proc 0 sees `SHM_MQ_DETACHED` on the next drain pass,
     /// `leader_inbound_detached()` flips to `true`, and the worker's service loop exits.
     ///
-    /// Workers don't need to call this explicitly — when their `run_mpp_worker` returns, the
-    /// local `Arc<MppMesh>` drops, the inner `Vec` drops with the mesh, and outbound senders
-    /// detach via `Drop`. Only the leader has the PG-parallel-finish ordering problem that needs
-    /// the explicit hook.
+    /// Workers don't need to call this explicitly. When `run_mpp_worker` returns the local
+    /// `Arc<MppMesh>` drops, the inner `Vec` drops with the mesh, and outbound senders detach
+    /// via `Drop`. Only the leader has the PG-parallel-finish ordering problem that needs the
+    /// explicit hook.
     ///
-    /// Safe to call repeatedly — the `Mutex<Vec<...>>::clear` on an already-empty vec is a
-    /// no-op, so the customscan can detach in `shutdown_custom_scan`, `end_custom_scan`, AND the
+    /// Safe to call repeatedly. `Mutex<Vec<...>>::clear` on an empty vec is a no-op, so the
+    /// customscan can detach from `shutdown_custom_scan`, `end_custom_scan`, AND the
     /// stream-`None` branch of `exec_custom_scan` without worrying about double-detach.
     pub(crate) fn detach_outbound_senders(&self) {
         self.outbound_senders
@@ -165,9 +165,9 @@ impl MppMesh {
             .clear();
     }
 
-    /// True if [`Self::detach_outbound_senders`] has run. Producer-side dispatchers use this to
-    /// tell a clean teardown ("consumer torn down, drop the Request") from a real configuration
-    /// bug ("never had an outbound for this proc — that shouldn't happen").
+    /// True once [`Self::detach_outbound_senders`] has run. Producer-side dispatchers use this
+    /// to tell a clean teardown ("consumer torn down, drop the Request") from a real config bug
+    /// ("never had an outbound for this proc, that shouldn't happen").
     pub(crate) fn outbound_detached(&self) -> bool {
         self.outbound_senders
             .lock()
@@ -176,20 +176,20 @@ impl MppMesh {
     }
 
     /// Force-detach every inbound drain. The leader calls this alongside
-    /// [`Self::detach_outbound_senders`] so producer drivers that are still streaming when the
-    /// consumer side (e.g. `SortPreservingMergeExec` with `fetch=10`) stops pulling see
-    /// `SHM_MQ_DETACHED` on their next send and unwind cleanly instead of spinning forever on a
-    /// full outbound queue.
+    /// [`Self::detach_outbound_senders`] so producer drivers still streaming after the
+    /// consumer side stops pulling (think `SortPreservingMergeExec(fetch=10)`) see
+    /// `SHM_MQ_DETACHED` on their next send and unwind cleanly instead of spinning forever on
+    /// a full outbound queue.
     ///
     /// Without this, `SortPreservingMergeExec(fetch=N) → NetworkCoalesceExec` plan shapes
-    /// deadlock: leader returns from its stream after N rows, workers' drivers fill the outbound
-    /// queue with the leftover batches, the cooperative-drain spin can't make progress (no
-    /// consumer is reading), and `pgrx::check_for_interrupts!()` never fires because PG won't
-    /// dispatch shutdown signals while still inside the same backend's query.
+    /// deadlock. Leader returns after N rows, workers' drivers keep streaming, the queue
+    /// fills, the cooperative-drain spin can't make progress because nobody's reading, and
+    /// `pgrx::check_for_interrupts!()` never fires (PG doesn't dispatch shutdown signals while
+    /// the same backend is still inside a query).
     ///
-    /// Idempotent — [`DrainHandle::force_detach`] no-ops on a drain whose receivers are already
-    /// cleared. The customscan can call this from multiple teardown hooks (shutdown,
-    /// end_custom_scan, stream-`None`) without double-detach concerns.
+    /// Idempotent. [`DrainHandle::force_detach`] no-ops on a drain whose receivers are already
+    /// cleared, so calling from multiple teardown hooks (`shutdown`, `end_custom_scan`,
+    /// stream-`None`) is safe.
     pub(crate) fn detach_inbound_receivers(&self) {
         for drain in self.inbound_receivers.iter().flatten() {
             drain.force_detach();
@@ -205,24 +205,24 @@ impl MppMesh {
         }
     }
 
-    /// Drop every drain's installed request handler so the service loop's `Arc<dyn
-    /// RequestHandler>` references release at teardown. The registry's `Weak<MppMesh>` breaks
-    /// the `Registry → Mesh` leg of the cycle, but the `Mesh → DrainHandle → Arc<dyn
-    /// RequestHandler>` leg is still strong; this hook is what unwinds it.
+    /// Drop every drain's installed request handler so the registry's `Arc<dyn RequestHandler>`
+    /// refs release at teardown. The registry's `Weak<MppMesh>` already breaks the `Registry →
+    /// Mesh` leg of the cycle, but the `Mesh → DrainHandle → Arc<Registry>` leg is still
+    /// strong. This is what unwinds it.
     pub(crate) fn uninstall_request_handler(&self) {
         for drain in self.inbound_receivers.iter().flatten() {
             drain.clear_request_handler();
         }
     }
 
-    /// True when the leader's inbound drain (proc 0) has observed `Detached`. The producer
-    /// service loop on every worker watches this to decide it can exit: once the leader has
-    /// torn down its outbound senders, no more `Request` frames will arrive at this worker.
+    /// True once the leader's inbound drain (proc 0) has observed `Detached`. Each worker's
+    /// service loop watches this to know when to exit: when the leader's outbound senders
+    /// dropped, no more `Request` frames can arrive.
     ///
-    /// Note: in pull-shape we deliberately key termination off the leader, not off every peer.
-    /// Worker-to-worker outbound senders stay alive as long as any peer is still running
-    /// drivers, so an all-peers check would deadlock — every worker would wait for every other
-    /// worker to detach first. Cascading off the leader avoids that.
+    /// Why the leader specifically and not all peers: worker-to-worker outbound senders stay
+    /// alive as long as any peer still has active drivers. An all-peers check would deadlock,
+    /// every worker waiting for every other worker to detach first. Cascading off the leader
+    /// avoids that.
     pub(crate) fn leader_inbound_detached(&self) -> bool {
         self.inbound_receivers
             .first()
@@ -361,22 +361,22 @@ impl WorkerConnection for ShmMqWorkerConnection {
                 ))
             })?;
         let drain = Arc::clone(drain);
-        // Ordering matters: register the channel buffer BEFORE sending the Request, so a fast
-        // producer that responds immediately finds the buffer already in place. `register_channel`
-        // is idempotent, so a Request that races ahead and triggers lazy creation via
-        // `try_drain_pass` produces the same buffer Arc — but this ordering is the documented
-        // invariant. Frames with a matching `(stage_id, partition)` header land here; frames
-        // tagged with other partitions go to their own channel buffers, so this consumer only
-        // sees its slice.
+        // Order matters: register the channel buffer BEFORE sending the Request, so a fast
+        // producer that responds immediately finds the buffer already in place.
+        // `register_channel` is idempotent, so a Request that races ahead and triggers lazy
+        // creation via `try_drain_pass` ends up with the same buffer Arc, but the registered-
+        // first ordering is the documented invariant. Frames with a matching `(stage_id,
+        // partition)` header land here; frames tagged with other partitions go to their own
+        // buffers, so this consumer only sees its slice.
         let buffer = drain.register_channel(self.stage_id, partition_u32);
 
-        // Build a header-only `Request` sender on the outbound queue to `sender_proc`. We carry
-        // the `(stage_id, partition)` in the cloned sender's header even though `send_request`
-        // only consumes the kind + task_idx; this keeps the call uniform with the `Batch` sender
-        // that the producer side will clone with the same `(stage_id, partition)` for replies.
-        // Attaching the mesh as a cooperative drain matters: if the outbound shm_mq is full
-        // when we try to send the Request, the spin pumps every inbound so peer batches keep
-        // flowing rather than deadlocking on a symmetric stall.
+        // Build a header-only Request sender on the outbound queue to `sender_proc`. The
+        // cloned sender carries `(stage_id, partition)` in its header even though
+        // `send_request` only uses kind + task_idx; that keeps it uniform with the Batch sender
+        // the producer side clones with the same `(stage_id, partition)` for replies. Attaching
+        // the mesh as a cooperative drain matters: if the outbound shm_mq is full when we try
+        // to send the Request, the spin pumps every inbound so peer batches keep flowing
+        // instead of deadlocking on a symmetric stall.
         let req_sender = self
             .mesh
             .outbound_sender(

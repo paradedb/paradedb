@@ -42,9 +42,8 @@ use crate::postgres::customscan::mpp::transport::{
 
 /// True if `err` is the "consumer torn down mid-stream" signal that
 /// [`MppSender::send_batch_traced`] / [`MppSender::send_eof_traced`] produce when the underlying
-/// channel detaches. Matches on the [`CONSUMER_DETACHED_SENTINEL`] tag (shared between shm_mq
-/// and in-proc senders), not on backend-specific message text, so adding a new transport doesn't
-/// silently bypass the predicate.
+/// channel detaches. Checks for the [`CONSUMER_DETACHED_SENTINEL`] tag (shared between shm_mq
+/// and in-proc senders), so adding a new transport backend can't silently bypass detection.
 fn is_consumer_detached(err: &DataFusionError) -> bool {
     err.to_string().contains(CONSUMER_DETACHED_SENTINEL)
 }

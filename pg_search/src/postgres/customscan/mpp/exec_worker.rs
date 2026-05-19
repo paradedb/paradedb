@@ -206,17 +206,17 @@ pub(crate) fn run_mpp_worker(
         hash_mem_multiplier,
     ));
 
-    // Pre-warm the registry's `(stage, task) → (prepared_plan, TaskContext)` cache for every
-    // task this proc owns. Without this, the first Request per task pays the full
+    // Pre-warm `(stage, task) → (prepared_plan, TaskContext)` for every task this proc owns.
+    // Without this, the first Request per task pays the full
     // `DistributedExec::prepare_in_process_plan` cost (transform_up + codec encoding) on the
-    // drain dispatch path, stalling every other inbound until the prep completes. Front-loading
-    // it here makes the dispatch path purely a lookup.
+    // drain dispatch path, which stalls every other inbound until prep completes. Front-loading
+    // here makes dispatch a pure cache lookup.
     //
-    // `proc_for_task(n_workers, t) == this_proc` selects the tasks this worker hosts. With the
-    // natural-shape estimator chain those are `task_idx mod n_workers == this_proc - 1`. Other
-    // tasks may be requested too (e.g., broadcast `task_idx == 0` from every consumer hits the
-    // proc that owns task 0), so we also prewarm `task_idx == 0` on every proc — it's cheap and
-    // covers the broadcast cap path.
+    // `proc_for_task(n_workers, t) == this_proc` picks the tasks this worker hosts (which under
+    // the natural-shape estimator chain works out to `task_idx mod n_workers == this_proc - 1`).
+    // We also prewarm `task_idx == 0` on every proc to cover the broadcast cap: with
+    // `BroadcastBuildSideOneTaskEstimator` Stage 1 has one task, and every consumer requests
+    // it from the proc that owns task 0. Cheap and load-bearing.
     let n_workers = worker_mesh.n_procs.saturating_sub(1).max(1);
     let stage_task_counts: Vec<(u32, usize)> = registry.iter_task_counts().collect();
     for (stage_id, task_count) in stage_task_counts {

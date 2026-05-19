@@ -47,16 +47,16 @@ use datafusion::common::DataFusionError;
 /// Lets receivers reject misrouted / corrupt frames before they hit Arrow IPC.
 const MPP_FRAME_MAGIC: u32 = 0x4D505046;
 
-/// Sentinel embedded in [`DataFusionError`] messages that the producer-side driver matches on to
-/// distinguish "consumer torn down mid-stream" (a clean signal — return `Ok(())`) from any other
-/// transport-layer error (which must propagate). Centralising the string here keeps the producers
-/// and the predicate in [`crate::postgres::customscan::mpp::worker::is_consumer_detached`] in
-/// lockstep. Don't change the literal without grepping for the matching `contains` call.
+/// Embedded in every [`DataFusionError`] that means "consumer torn down mid-stream". The
+/// producer driver looks for this string to decide whether to return `Ok(())` (clean signal,
+/// happens during LIMIT teardown) or propagate the error. Don't rename the literal without
+/// grepping for `CONSUMER_DETACHED_SENTINEL`; the predicate in `worker.rs` matches on exact
+/// contents.
 pub(crate) const CONSUMER_DETACHED_SENTINEL: &str = "mpp:consumer_detached";
 
-/// Build the canonical "consumer torn down" error every shm_mq / in-proc sender returns when its
-/// peer queue is gone. The producer side recognises it via [`CONSUMER_DETACHED_SENTINEL`].
-/// `detail` is a short, free-form note appended for diagnostics (channel kind, send path).
+/// Build the canonical "consumer torn down" error. shm_mq and in-proc senders both call this
+/// when their peer queue is gone, so the producer side has one string to match. `detail` gets
+/// appended for diagnostics: which send path tripped it.
 pub(crate) fn consumer_detached_error(detail: &str) -> DataFusionError {
     DataFusionError::Execution(format!("{CONSUMER_DETACHED_SENTINEL}: {detail}"))
 }
@@ -1115,14 +1115,12 @@ impl DrainHandle {
         // indefinitely on one source and starve its own outbound.
         const MAX_BATCHES_PER_SOURCE_PER_PASS: usize = 256;
 
-        // Collect Request frames during the receiver-locked pass and dispatch them AFTER the
-        // lock is released. The dispatcher's `on_request` may run expensive work
-        // (`DistributedExec::prepare_in_process_plan` on a cache miss, several Arc clones, a
-        // `tokio::spawn`) — holding the `coop_receivers` lock across it would stall any
-        // concurrent `force_detach` and serialise drain progress on the slow-path of a single
-        // Request. The two halves don't have to be atomic: Request dispatch only spawns a future
-        // and updates registry-local state, neither of which depends on which Batch/Eof frames
-        // got drained before or after.
+        // Collect Request headers under the receiver lock, then drop the lock and dispatch
+        // outside. `on_request` can do real work on a cache miss (DF's `prepare_in_process_plan`
+        // is transform_up + codec encoding), and holding the lock across that would stall any
+        // concurrent `force_detach` and block drain progress on every other receiver too. The
+        // two phases don't need to be atomic: Request dispatch just spawns a future and pokes
+        // registry-local state. Doesn't care which Batch/Eof frames drained before or after.
         let mut pending_requests: Vec<MppFrameHeader> = Vec::new();
         {
             let mut slots = self.coop_receivers.lock().unwrap();
@@ -1168,15 +1166,15 @@ impl DrainHandle {
         Ok(())
     }
 
-    /// Forward `Request` frames to the installed handler. Two important corners:
+    /// Forward `Request` frames to the installed handler. Two corner cases worth knowing:
     ///
-    /// 1. The handler may not be installed (teardown race: `clear_request_handler` ran while a
-    ///    Request was already buffered on the shm_mq side). Drop the requests silently — the
-    ///    next drain pass will see `Detached` and the consumer that issued these Requests has
-    ///    already given up.
-    /// 2. `sender_proc` must be set on production drains, because the handler needs to know
-    ///    which outbound queue to respond on. A `None` here is a configuration bug — the
-    ///    in-proc test drains build with `None`, but those never receive Request frames.
+    /// 1. No handler installed. Teardown race: `clear_request_handler` ran while a Request
+    ///    was already buffered on the shm_mq side. Drop the Requests silently. The next pass
+    ///    sees `Detached`, and the consumer that issued these has already given up.
+    /// 2. `sender_proc = None`. Production drains always carry a `sender_proc` because the
+    ///    handler needs to know which outbound queue to reply on. In-proc test drains use
+    ///    `None`, but those never see Request frames in practice. So `None` here means a real
+    ///    config bug, surface it.
     fn dispatch_requests(&self, headers: Vec<MppFrameHeader>) -> Result<(), DataFusionError> {
         let handler = self
             .request_handler
@@ -2254,10 +2252,10 @@ mod tests {
     // ---------------------------------------------------------------------
     // Pull-shape Request→handler dispatch tests.
     //
-    // The cooperative drain demuxes inbound frames by kind: `Batch`/`Eof` go to channel buffers,
-    // `Request` goes to the installed `RequestHandler`. These tests exercise the handler-dispatch
-    // half — the load-bearing piece of the pull-shape protocol — through a mock handler so the
-    // production producer-service code path stays out of scope.
+    // The cooperative drain demuxes inbound frames by kind. Batch and Eof go to channel
+    // buffers, Request goes to the installed `RequestHandler`. These tests cover the
+    // handler-dispatch half (the load-bearing piece of the pull-shape protocol) through a mock
+    // handler, so the production producer-service code stays out of scope.
     // ---------------------------------------------------------------------
 
     /// `(sender_proc, stage_id, task_idx, partition)` captured by [`CapturingHandler`].
@@ -2267,8 +2265,8 @@ mod tests {
     /// std-mpsc channel. Tests assert on the captured calls.
     struct CapturingHandler {
         calls: std::sync::Mutex<std::sync::mpsc::Sender<CapturedCall>>,
-        /// Optional Err to return on every call (defaults to Ok). Used by the error-propagation
-        /// test to verify the drain surfaces handler errors instead of silently swallowing.
+        /// Optional Err to return on every call (defaults to Ok). The error-propagation test
+        /// uses this to verify the drain surfaces handler errors instead of swallowing.
         force_err: std::sync::Mutex<Option<String>>,
     }
 
@@ -2310,7 +2308,7 @@ mod tests {
     }
 
     /// Push a Request frame straight into the wire bytes of an in-proc channel. Bypasses the
-    /// MppSender encoder so the test stays scoped to the drain side.
+    /// MppSender encoder so the test stays scoped to the drain.
     fn push_request_frame(
         tx: &dyn BatchChannelSender,
         stage_id: u32,
@@ -2351,10 +2349,9 @@ mod tests {
 
     #[test]
     fn drain_handle_dispatches_multiple_requests_in_send_order() {
-        // Two Request frames pumped in one drain pass land at the handler in the same order.
-        // Locks in the "collect-then-dispatch" ordering invariant — if a future refactor moves
-        // Request handling back inline with the receiver pump, this test catches order
-        // shuffling.
+        // Three Request frames in one drain pass land at the handler in the same order. Locks
+        // in the "collect then dispatch" ordering invariant. If a future refactor moves
+        // Request handling back inline with the receiver pump, this catches order shuffling.
         let (tx, rx) = in_proc_channel(8);
         let receiver = MppReceiver::new(Box::new(rx));
         let handle = DrainHandle::cooperative(vec![receiver], Some(2));
@@ -2378,10 +2375,10 @@ mod tests {
 
     #[test]
     fn drain_handle_drops_request_silently_when_no_handler_installed() {
-        // Production case: the service loop calls `uninstall_request_handler` at teardown but a
-        // Request frame is already in the shm_mq queue. The drain must drop the Request silently
-        // (return `Ok`) rather than raising — raising here would abort the transaction after the
-        // query completed successfully.
+        // Production case: the service loop called `uninstall_request_handler` at teardown but
+        // a Request frame is already in the shm_mq queue. The drain has to drop the Request
+        // silently (return `Ok`) rather than raise. Raising here would abort the transaction
+        // after the query already completed successfully.
         let (tx, rx) = in_proc_channel(8);
         let receiver = MppReceiver::new(Box::new(rx));
         let handle = DrainHandle::cooperative(vec![receiver], Some(1));
@@ -2397,9 +2394,9 @@ mod tests {
 
     #[test]
     fn drain_handle_errors_on_request_when_sender_proc_unknown() {
-        // Production drains carry `sender_proc = Some(_)`. A `None` here is a configuration
-        // bug: in-proc test drains use `None`, but those should never receive Request frames.
-        // Make sure a Request slipping into such a drain surfaces loudly.
+        // Production drains carry `sender_proc = Some(_)`. `None` is a config bug. In-proc test
+        // drains use `None`, but they should never see Request frames. If one slips through,
+        // surface loudly.
         let (tx, rx) = in_proc_channel(8);
         let receiver = MppReceiver::new(Box::new(rx));
         let handle = DrainHandle::cooperative(vec![receiver], None);
@@ -2420,10 +2417,10 @@ mod tests {
 
     #[test]
     fn drain_handle_propagates_handler_error() {
-        // If the handler's `on_request` returns `Err`, `try_drain_pass` must surface it. The
-        // service loop checks the registry's `first_error` between drain passes, but a transport
-        // error from the handler itself (e.g., dispatcher saw an unsupported plan shape) should
-        // not be silently swallowed.
+        // If `on_request` returns `Err`, `try_drain_pass` has to surface it. The service loop
+        // checks the registry's `first_error` between drain passes, but a transport error from
+        // the handler itself (say the dispatcher saw an unsupported plan shape) shouldn't get
+        // swallowed.
         let (tx, rx) = in_proc_channel(8);
         let receiver = MppReceiver::new(Box::new(rx));
         let handle = DrainHandle::cooperative(vec![receiver], Some(1));
@@ -2445,10 +2442,10 @@ mod tests {
 
     #[test]
     fn drain_handle_demuxes_request_among_batch_and_eof_frames() {
-        // A drain pass that sees a mix of Batch, Eof, and Request frames must route each one
-        // correctly: Batch → channel buffer, Eof → channel buffer source-done, Request →
-        // handler. Locks in the "collect-then-dispatch" structure of `try_drain_pass`: Batch and
-        // Eof frames land in their buffers regardless of where the Request sits in the queue.
+        // A pass that mixes Batch, Eof, and Request has to route each one correctly. Batch
+        // goes to the channel buffer, Eof flips the source-done flag, Request goes to the
+        // handler. Locks in `try_drain_pass`'s "collect then dispatch" structure: Batch and
+        // Eof land in their buffers regardless of where the Request sits in the queue.
         let (tx, rx) = in_proc_channel(16);
         let tx_arc: Arc<dyn BatchChannelSender> = Arc::new(tx);
         let receiver = MppReceiver::new(Box::new(rx));
@@ -2491,12 +2488,11 @@ mod tests {
     // ---------------------------------------------------------------------
     // Consumer-detach sentinel contract.
     //
-    // The producer-side driver in `worker.rs` treats "consumer torn down mid-stream" as a clean
-    // signal — returns `Ok(())` so the registry's `first_error` slot stays empty. The signal is
-    // recognised via [`CONSUMER_DETACHED_SENTINEL`] embedded in the sender's error message.
-    // These tests lock the contract for both transport backends (shm_mq's behavior is exercised
-    // by the integration tests; here we cover the in-proc backend which is shared between unit
-    // tests and worker self-loop routing).
+    // The producer-side driver in `worker.rs` treats "consumer torn down mid-stream" as a
+    // clean signal: returns `Ok(())` so the registry's `first_error` slot stays empty. The
+    // signal travels via [`CONSUMER_DETACHED_SENTINEL`] embedded in the sender's error
+    // message. shm_mq's behavior shows up in the integration tests; here we cover the in-proc
+    // backend, which is shared between unit tests and worker self-loop routing.
     // ---------------------------------------------------------------------
 
     #[test]
@@ -2510,9 +2506,10 @@ mod tests {
 
     #[test]
     fn in_proc_send_after_receiver_drop_returns_consumer_detached() {
-        // The in-proc backend is the self-loop sender on every worker. If a consumer drops mid
-        // -stream, the next try_send / send must produce the sentinel error so `run_partition
-        // _driver`'s `is_consumer_detached` predicate returns `true` and the driver exits Ok.
+        // The in-proc backend is the self-loop sender on every worker. If a consumer drops
+        // mid-stream, the next try_send / send has to produce the sentinel error so
+        // `run_partition_driver`'s `is_consumer_detached` predicate returns true and the
+        // driver exits Ok.
         let (tx, rx) = in_proc_channel(4);
         drop(rx);
 

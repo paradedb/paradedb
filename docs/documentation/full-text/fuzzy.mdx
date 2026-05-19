@@ -112,6 +112,40 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+// Fuzzy match disjunction
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, search.fuzzy("runing shose", 2)))
+  .limit(5);
+
+// Fuzzy match conjunction
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+  })
+  .from(mockItems)
+  .where(search.matchAll(mockItems.description, search.fuzzy("runing shose", 2)))
+  .limit(5);
+
+// Fuzzy term
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.description, search.fuzzy("shose", 2)))
+  .limit(5);
+```
+
 </CodeGroup>
 
 ## How It Works
@@ -174,6 +208,19 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.description, search.fuzzy("rann", 1, true)))
+  .limit(5);
+```
+
 </CodeGroup>
 
 <Note>
@@ -221,6 +268,19 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+  })
+  .from(mockItems)
+  .where(search.matchAll(mockItems.description, search.fuzzy("slee rann", 1, true)))
+  .limit(5);
+```
+
 </CodeGroup>
 
 ## Transposition Cost
@@ -264,6 +324,19 @@ MockItem.search(:description)
         .term("shose", distance: 1, transposition_cost_one: true)
         .select(:id, :description)
         .limit(5)
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.description, search.fuzzy("shose", 1, false, true)))
+  .limit(5);
 ```
 
 </CodeGroup>

@@ -45,6 +45,17 @@ MockItem.search(:category)
         .facets_agg(agg: ParadeDB::Aggregations.value_count(:id))
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({ value_count: { field: "id" } }),
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.category, "electronics"));
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -102,6 +113,21 @@ MockItem.search(:category)
         )
         .order(:rating)
         .limit(5)
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    rating: mockItems.rating,
+    agg: search.agg({ value_count: { field: "id" } }),
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.category, "electronics"))
+  .groupBy(mockItems.rating)
+  .orderBy(mockItems.rating)
+  .limit(5);
 ```
 
 </CodeGroup>
@@ -166,6 +192,18 @@ MockItem.search(:category)
         )
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    avgRating: search.agg({ avg: { field: "rating" } }),
+    count: search.agg({ value_count: { field: "id" } }),
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.category, "electronics"));
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -219,6 +257,17 @@ MockItem.search(:description)
         .facets_agg(exact: false, agg: ParadeDB::Aggregations.value_count(:id))
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({ value_count: { field: "id" } }, false),
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "running shoes"));
+```
+
 </CodeGroup>
 
 Disabling this check can improve query times by 2-4x in some cases (at the expense of correctness).
@@ -265,6 +314,17 @@ with Session(engine) as session:
 MockItem.search(:id)
         .match_all
         .facets_agg(agg: ParadeDB::Aggregations.terms("metadata.color"))
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({ terms: { field: "metadata.color" } }),
+  })
+  .from(mockItems)
+  .where(search.all(mockItems.id));
 ```
 
 </CodeGroup>

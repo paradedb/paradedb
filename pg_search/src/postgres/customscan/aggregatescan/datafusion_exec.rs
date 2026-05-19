@@ -544,8 +544,8 @@ async fn build_source_df(
 ) -> Result<DataFrame> {
     let mut scan_info = source.scan_info.clone();
 
-    // Set estimated_rows_per_worker for the table provider. In M1 we're
-    // single-threaded, so the per-worker estimate equals the total estimate.
+    // Set estimated_rows_per_worker for the table provider. The serial path is single-threaded,
+    // so the per-worker estimate equals the total estimate.
     if scan_info.estimated_rows_per_worker.is_none() {
         scan_info.estimated_rows_per_worker = Some(match scan_info.estimate {
             RowEstimate::Known(n) => n,

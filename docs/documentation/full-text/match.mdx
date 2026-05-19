@@ -48,6 +48,19 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "running shoes"));
+```
+
 </CodeGroup>
 
 This query returns:
@@ -125,6 +138,19 @@ with Session(engine) as session:
 MockItem.search(:description)
         .matching_all("running shoes")
         .select(:description, :rating, :category)
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.matchAll(mockItems.description, "running shoes"));
 ```
 
 </CodeGroup>
@@ -218,6 +244,24 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```ts Drizzle
+import { search, tokenizer } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.matchAny(
+      mockItems.description,
+      search.tokenize("running shoes", tokenizer.whitespace()),
+    ),
+  );
+```
+
 </CodeGroup>
 
 ## Using Pretokenized Text
@@ -258,6 +302,19 @@ with Session(engine) as session:
 MockItem.search(:description)
         .matching_all("running", "shoes")
         .select(:description, :rating, :category)
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.matchAll(mockItems.description, ["running", "shoes"]));
 ```
 
 </CodeGroup>

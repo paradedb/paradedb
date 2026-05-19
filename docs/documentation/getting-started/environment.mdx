@@ -562,3 +562,145 @@ rails console
 ```
 
 </Accordion>
+
+<Accordion title="Drizzle">
+To get started, create a TypeScript project with [Drizzle](https://orm.drizzle.team/), [postgres.js](https://github.com/porsager/postgres), and [@paradedb/drizzle-paradedb](https://www.npmjs.com/package/@paradedb/drizzle-paradedb) installed.
+
+```bash
+npm init -y
+npm pkg set type=module
+npm install drizzle-orm@1.0.0-rc.2 drizzle-kit@1.0.0-rc.2 postgres @paradedb/drizzle-paradedb@0.1.0 tsx
+```
+
+Create a `db.ts` file with your database connection and a schema for ParadeDB's built-in test table:
+
+```ts db.ts
+import { indexing } from "@paradedb/drizzle-paradedb";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
+import {
+  boolean,
+  customType,
+  date,
+  integer,
+  jsonb,
+  pgTable,
+  serial,
+  text,
+  time,
+  timestamp,
+  varchar,
+} from "drizzle-orm/pg-core";
+
+export const client = postgres(
+  "postgres://myuser:mypassword@localhost:5432/mydatabase",
+);
+export const db = drizzle({ client });
+
+export const mockItems = pgTable(
+  "mock_items",
+  {
+    id: serial("id").primaryKey(),
+    description: text("description"),
+    rating: integer("rating"),
+    category: varchar("category", { length: 255 }),
+    inStock: boolean("in_stock"),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at"),
+    lastUpdatedDate: date("last_updated_date"),
+    latestAvailableTime: time("latest_available_time"),
+    weightRange: customType<{ data: string }>({
+      dataType: () => "int4range",
+    })("weight_range"),
+  },
+  (table) => [
+    indexing
+      .bm25Index("search_idx")
+      .on(
+        table.id,
+        table.description,
+        table.category,
+        table.rating,
+        table.inStock,
+        table.metadata,
+        table.createdAt,
+        table.lastUpdatedDate,
+        table.latestAvailableTime,
+        table.weightRange,
+      ),
+  ],
+);
+```
+
+<Note>
+  As a general rule of thumb, any columns that you want to filter, `GROUP BY`,
+  `ORDER BY`, or aggregate as part of a full text query should be added to the
+  index for faster performance.
+</Note>
+
+<Note>
+  Note the mandatory `key_field` option. See [choosing a key
+  field](/documentation/indexing/create-index#choosing-a-key-field) for more
+  details.
+</Note>
+
+Create a Drizzle Kit configuration that points at the same database:
+
+```ts drizzle.config.ts
+import { defineConfig } from "drizzle-kit";
+
+export default defineConfig({
+  schema: "./db.ts",
+  dialect: "postgresql",
+  // Keep Drizzle Kit focused on `public.mock_items` so it
+  // doesn't try to modify tables from preinstalled extensions.
+  schemaFilter: ["public"],
+  tablesFilter: ["mock_items"],
+  dbCredentials: {
+    url: "postgres://myuser:mypassword@localhost:5432/mydatabase",
+  },
+});
+```
+
+Open a TypeScript REPL:
+
+```bash
+node --import tsx
+```
+
+Import your database connection, schema, and any helpers used by the setup and query snippets. The Node REPL does not support static `import` statements, so use dynamic imports here:
+
+```ts
+const { client, db, mockItems } = await import("./db.ts");
+const { and, desc, gt, sql } = await import("drizzle-orm");
+const { search } = await import("@paradedb/drizzle-paradedb");
+```
+
+Create and populate `mock_items`:
+
+```ts
+await db.execute(sql`
+  CALL paradedb.create_bm25_test_table(
+    schema_name => 'public',
+    table_name => 'mock_items'
+  )
+`);
+```
+
+Now, in a separate terminal, push the Drizzle schema to create the BM25 index:
+
+```bash
+npx drizzle-kit push
+```
+
+To paste a formatted query snippet, enter editor mode:
+
+```text
+.editor
+```
+
+Paste the query body without its `import` lines. The helpers from those imports are already available from the dynamic imports above. Press `Ctrl+D` to run the pasted query.
+
+You're all set! Try [running some queries](/documentation/getting-started/queries) in the REPL.
+
+</Accordion>

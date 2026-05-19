@@ -42,6 +42,19 @@ MockItem.search(:id)
         .facets_agg(agg: ParadeDB::Aggregations.date_histogram(:created_at, fixed_interval: "30d"))
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({
+      date_histogram: { field: "created_at", fixed_interval: "30d" },
+    }),
+  })
+  .from(mockItems)
+  .where(search.all(mockItems.id));
+```
+
 </CodeGroup>
 
 ```ini Expected Response

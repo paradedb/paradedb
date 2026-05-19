@@ -47,6 +47,21 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "running shoes"))
+  .orderBy(mockItems.rating)
+  .limit(5);
+```
+
 </CodeGroup>
 
 In order for a Top K query to be executed by ParadeDB vs. vanilla Postgres, all of the following conditions must be met:
@@ -131,6 +146,21 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "running shoes"))
+  .orderBy(mockItems.rating, mockItems.id)
+  .limit(5);
+```
+
 </CodeGroup>
 
 <Note>
@@ -197,6 +227,22 @@ MockItem.search(:description)
         .order(Arel::Nodes::Ascending.new(lower_description))
         .select(:description, :rating, :category)
         .limit(5)
+```
+
+```ts Drizzle
+import { sql } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "sleek running shoes"))
+  .orderBy(sql`lower(${mockItems.description})`)
+  .limit(5);
 ```
 
 </CodeGroup>

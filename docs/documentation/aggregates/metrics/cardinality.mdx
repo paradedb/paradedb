@@ -41,6 +41,17 @@ MockItem.search(:id)
         .facets_agg(agg: { cardinality: { field: "rating" } })
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({ cardinality: { field: "rating" } }),
+  })
+  .from(mockItems)
+  .where(search.all(mockItems.id));
+```
+
 </CodeGroup>
 
 ```ini Expected Response

@@ -37,7 +37,7 @@ use datafusion::common::DataFusionError;
 /// MAXALIGN-aligned; this rounds the user request down so every slot in a
 /// queue array is the same size and slot indexing is a simple multiply.
 #[inline]
-pub fn aligned_queue_bytes(queue_bytes: usize) -> usize {
+pub(super) fn aligned_queue_bytes(queue_bytes: usize) -> usize {
     const MAXIMUM_ALIGNOF: usize = pg_sys::MAXIMUM_ALIGNOF as usize;
     queue_bytes & !(MAXIMUM_ALIGNOF - 1)
 }
@@ -46,7 +46,7 @@ pub fn aligned_queue_bytes(queue_bytes: usize) -> usize {
 /// on overflow. Used by [`super::dsm::compute_dsm_layout`] to keep section
 /// boundaries inside the DSM region MAXALIGN-aligned.
 #[inline]
-pub fn align_up_maxalign_checked(n: usize) -> Option<usize> {
+pub(super) fn align_up_maxalign_checked(n: usize) -> Option<usize> {
     const MAXIMUM_ALIGNOF: usize = pg_sys::MAXIMUM_ALIGNOF as usize;
     let mask = MAXIMUM_ALIGNOF - 1;
     n.checked_add(mask).map(|x| x & !mask)
@@ -60,13 +60,20 @@ pub fn align_up_maxalign_checked(n: usize) -> Option<usize> {
 /// dedicated parallel-worker backend. The blocking `shm_mq_send(nowait=false)`
 /// path uses `WaitLatch` + `CHECK_FOR_INTERRUPTS` — both process-global
 /// Postgres primitives, not thread-safe off a backend thread.
-pub struct ShmMqSender {
+pub(super) struct ShmMqSender {
     inner: MessageQueueSender,
     attach_thread: std::thread::ThreadId,
 }
 
 // SAFETY: see struct doc.
 unsafe impl Send for ShmMqSender {}
+// SAFETY: `MppSender` ensures all `send_*` paths execute on the attach thread (a
+// `debug_assert!` in `send_bytes` / `try_send_bytes` pins this), so cross-thread sharing of
+// `&ShmMqSender` never actually crosses threads at the FFI boundary. The Sync bound is there so
+// multiple `MppSender`s can hold `Arc<dyn BatchChannelSender>` clones of the same underlying
+// queue (the multi-partition fan-out pattern) without the type system rejecting the `Arc::clone`
+// at compile time.
+unsafe impl Sync for ShmMqSender {}
 
 impl ShmMqSender {
     /// # Safety
@@ -74,7 +81,7 @@ impl ShmMqSender {
     /// - `mq` must point to a shm_mq region that has been `shm_mq_create`'d
     ///   at its address with the expected size and has had
     ///   `shm_mq_set_receiver` called by the peer.
-    pub unsafe fn attach(seg: *mut pg_sys::dsm_segment, mq: *mut pg_sys::shm_mq) -> Self {
+    pub(super) unsafe fn attach(seg: *mut pg_sys::dsm_segment, mq: *mut pg_sys::shm_mq) -> Self {
         unsafe {
             Self {
                 inner: MessageQueueSender::new(seg, mq),
@@ -131,7 +138,7 @@ impl BatchChannelSender for ShmMqSender {
 /// shm_mq-backed `BatchChannelReceiver`. The leader creates the shm_mq via
 /// `shm_mq_create` during DSM init; this attaches as receiver to an already-
 /// initialized queue.
-pub struct ShmMqReceiver {
+pub(super) struct ShmMqReceiver {
     inner: MessageQueueReceiver,
 }
 
@@ -141,14 +148,25 @@ pub struct ShmMqReceiver {
 // or CFI calls).
 unsafe impl Send for ShmMqReceiver {}
 
+// SAFETY: production invariant is that only the backend thread calls `try_recv` (the cooperative
+// drain runs inline on `DrainGatherStream::poll_next`; pgrx's `check_active_thread` would panic
+// on a non-backend caller anyway). `shm_mq_receive(nowait=true)` is therefore not reentered
+// concurrently on the same handle. We need `Sync` to satisfy the `BatchChannelReceiver: Send +
+// Sync` bound, which in turn lets `DrainHandle: Sync` come from the concrete types instead of
+// from the `Mutex<Vec<…>>` wrapper on `coop_receivers` having to provide it.
+unsafe impl Sync for ShmMqReceiver {}
+
 impl ShmMqReceiver {
     /// Attach as receiver to an *already-created* shm_mq.
     ///
     /// # Safety
     /// - `mq` must point to a shm_mq previously initialized by `shm_mq_create`.
     /// - `seg` may be NULL on workers.
-    /// - No other participant has already set itself as receiver for `mq`.
-    pub unsafe fn attach_existing(seg: *mut pg_sys::dsm_segment, mq: *mut pg_sys::shm_mq) -> Self {
+    /// - No other proc has already set itself as receiver for `mq`.
+    pub(super) unsafe fn attach_existing(
+        seg: *mut pg_sys::dsm_segment,
+        mq: *mut pg_sys::shm_mq,
+    ) -> Self {
         unsafe {
             pg_sys::shm_mq_set_receiver(mq, pg_sys::MyProc);
             let handle = pg_sys::shm_mq_attach(mq, seg, std::ptr::null_mut());

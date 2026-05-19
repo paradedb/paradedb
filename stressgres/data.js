@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779166187610,
+  "lastUpdate": 1779166876156,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7238,6 +7238,54 @@ window.BENCHMARK_DATA = {
             "value": 5.229743880365543,
             "unit": "median tps",
             "extra": "avg tps: 5.276687243064487, max tps: 7.338438425654569, count: 55691"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3b613b8d5a4b2751b6e5b334d2e00af32502fc33",
+          "message": "feat(mpp): multi-stage natural-shape AggregateScan (#5082)\n\n# Ticket(s) Closed\n\n- N/A\n\n## What\n\nAdds the multi-stage natural-shape MPP path for AggregateScan over a\nmultiplexed N×N PostgreSQL `shm_mq` mesh. Default off behind\n`paradedb.enable_mpp`.\n\nWhen the gate is on, eligible aggregate-over-join queries plan a\ndistributed pipeline: partial aggregation pinned to worker procs over a\n`HashJoin` with a broadcast build subtree, hash-shuffle of partial\ngroups by the group key, per-partition finalization, and a gather to the\nleader.\n\n## Why\n\nAggregate-over-join is the workload class where Postgres' single-node\naggregate sits on the join's hash table and finalization runs serially\nafter the build subtree finishes. The natural-shape MPP path splits that\nwork across `n_procs - 1` producer workers and pipelines partial-state\nshuffle in parallel, so the finalization barrier moves from the leader\nto the per-partition consumer side. The leader stays consumer-only,\ngathers the finalized groups, and emits to PG.\n\n`shm_mq` is the right substrate because it lives in the existing DSM\nregion the customscan already allocates for parallel state, gives\nnowait-receive semantics that play well with pgrx's\n`check_active_thread` (no blocking from non-backend threads), and\ndoesn't need a separate orchestration daemon.\n\n## How\n\nThe DSM region is a single contiguous block: header, plan bytes, then an\n`n_procs × n_procs` queue grid. Each proc attaches as **sender** on its\nrow (`slot(this, *)`) and **receiver** on its column (`slot(*, this)`).\nOne queue per directed proc-pair carries every logical channel,\ndemultiplexed on receive via a 16-byte `MppFrameHeader` prefix that tags\n`(stage_id, partition)`.\n\nThe cooperative drain runs **inline on the backend thread** from\n`DrainGatherStream::poll_next`. That's a hard requirement: pgrx's\n`check_active_thread` panics on any pg FFI call (`shm_mq_receive`\nincluded) from a non-backend thread, so the drain work cannot be moved\noff the backend thread. The same drain is poked from the sender's\ncooperative spin (`try_drain_pass`) when a peer's queue fills — that's\nwhat breaks the symmetric N×N send/receive deadlock.\n\nPer-channel sub-buffers decouple consumer-side backpressure from\nproducer-side backpressure: the drain always makes forward progress on\ninbound queues, so a stalled consumer can't propagate backpressure back\nto remote producers.\n\nCode organization: MPP code lives under\n`pg_search/src/postgres/customscan/mpp/` with a thin slice\n(`aggregatescan/mpp.rs`) holding the worker exec path. The pub surface\nfrom `mpp::transport` is exactly three names (`MppFrameHeader`,\n`MppSender`, `CooperativeDrainSet`); everything else is `pub(super)` or\nprivate.\n\n## Reviewer's guide\n\nEach link points at the post-state on this branch. Walk top-to-bottom\nfor the planning → setup → wire → exec flow.\n\n1. **Gate.**\n[`glue.rs:71`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/glue.rs#L71)\n`mpp_is_active` — true iff `enable_mpp = on` and `mpp_worker_count >= 3`\n(`>= 3` so the producer count `n_procs - 1` is at least 2, matching the\nplanner's target_partitions).\n\n2. **DSM region layout.**\n[`dsm.rs:75`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/dsm.rs#L75)\n`MppDsmHeader` and\n[`dsm.rs:159`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/dsm.rs#L159)\n`compute_dsm_layout` — header + plan bytes + `n_procs × n_procs` grid.\n\n3. **Leader sets up the mesh.**\n[`glue.rs:179`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/glue.rs#L179)\n`leader_setup` — allocates the grid via `leader_init`, builds inbound\ndrains for every peer (the leader is consumer-only, so outbound senders\nget dropped), wraps the result in `MppMesh`.\n\n4. **Worker attaches.**\n[`glue.rs:237`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/glue.rs#L237)\n`worker_setup` — symmetric attach, plus a self-loop in-proc channel for\n`slot(this, this)` so peer-mesh hash routing that lands producer and\nconsumer of the same partition on one worker stays on the uniform\n`BatchChannelReceiver` contract.\n\n5. **Wire format.**\n[`transport.rs:83`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/transport.rs#L83)\n`MppFrameHeader` — 16 bytes, `[magic, flags, stage_id, partition]`. One\nqueue carries many logical channels.\n\n6. **Cooperative drain + per-channel demux.**\n[`transport.rs:856`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/transport.rs#L856)\n`DrainHandle` owns the receivers and a `(stage_id, partition) ->\nArc<DrainBuffer>` registry. Sub-buffers are populated lazily by\n`try_drain_pass` or up-front by `WorkerConnection::stream_partition`.\n\n7. **Sender backpressure.**\n[`transport.rs:447`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/transport.rs#L447)\n`MppSender::send_batch_traced` — encode into scratch, spin on\n`try_send_bytes`; on full, call `drain.try_drain_pass()` to pull peer\ninbounds on the same thread, then `yield_now().await`, retry. Breaks the\nsymmetric stall cycle.\n\n8. **Fragment routing on the receive side.**\n[`worker_fragments.rs:72`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/worker_fragments.rs#L72)\n`FragmentRouting` — `Coalesce` (single destination), `Shuffle`\n(hash-partitioned to a consumer task), `Broadcast` (canonical-replica\nvia the one-task estimator).\n[`worker_fragments.rs:138`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/worker_fragments.rs#L138)\n`find_worker_assignments` walks the plan and collects every `(stage_id,\ntask_idx)` slot owned by this proc.\n\n9. **Worker exec.**\n[`aggregatescan/mpp.rs:57`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/aggregatescan/mpp.rs#L57)\n`exec_mpp_worker` — deserialize logical plan, build distributed physical\nplan (via the same session-context builder the leader runs, so stage\nnumbering agrees), find fragments, build per-output-partition senders,\ndispatch via `run_worker_fragment` + `join_all`.\n\n10. **Single session-context builder.**\n[`aggregatescan/mod.rs:1069`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/aggregatescan/mod.rs#L1069)\n`build_mpp_session_context` — used by leader exec, worker exec, and\nEXPLAIN's stub-mesh path. Both procs have to agree on stage shape;\nreusing the builder is how.\n\n11. **Run a fragment.**\n[`worker.rs:43`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/worker.rs#L43)\n`run_worker_fragment` — execute the fragment's plan, fan out batches to\nthe per-partition senders, send per-channel `Eof` frames at exhaustion\nso the consumer's `(stage_id, partition)` sub-buffer transitions to\n`Eof` without taking the whole shm_mq queue down.\n\n12. **fail_loud invariant guard.**\n[`mpp/mod.rs:71`](https://github.com/paradedb/paradedb/blob/moe/mpp-attempt5-refactor/pg_search/src/postgres/customscan/mpp/mod.rs#L71)\n— `pgrx::error!` in prod, `panic!` in test (the lib-test binary doesn't\nlink Postgres). Used for MPP-internal invariant breaches like an\nunrecognised nested boundary kind.\n\n## Tests\n\n- `cargo check --tests --features pg18` clean.\n- `cargo clippy --tests --features pg18 -- -D warnings` clean.\n- `cargo test --package pg_search --lib --features pg18\npostgres::customscan::mpp` passes — covers the codec, drain buffer,\ndrain handle, sub-buffer registry, in-proc channel, frame round-trip,\nand an N=2 mesh 100k-batch throughput run.\n- Regression coverage lives in\n`pg_search/tests/pg_regress/sql/mpp_*.sql`.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-18T21:07:22-07:00",
+          "tree_id": "64a38d148b2d4fdc5579ec41637242230a0fb137",
+          "url": "https://github.com/paradedb/paradedb/commit/3b613b8d5a4b2751b6e5b334d2e00af32502fc33"
+        },
+        "date": 1779166845514,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1062.927122884219,
+            "unit": "median tps",
+            "extra": "avg tps: 1055.5302856980347, max tps: 1127.3682392447558, count: 56495"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1189.504573495528,
+            "unit": "median tps",
+            "extra": "avg tps: 1171.104523773609, max tps: 1219.011309769997, count: 56495"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1101.496184820383,
+            "unit": "median tps",
+            "extra": "avg tps: 1003.5969890042879, max tps: 1413.2728171724552, count: 56495"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.062409800005981,
+            "unit": "median tps",
+            "extra": "avg tps: 5.114416216843831, max tps: 7.6936614808182595, count: 56495"
           }
         ]
       }

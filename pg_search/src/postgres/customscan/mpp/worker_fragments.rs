@@ -85,7 +85,7 @@ pub enum FragmentRouting {
     /// `proc_for_task(n_workers, consumer_task_idx)`. Frame header is
     /// `(stage_id, q)` so the consumer's
     /// `stream_partition(P_c * task_index + p_local)` finds it via the
-    /// per-`(stage_id, partition)` sub-buffer registry.
+    /// per-`(stage_id, partition)` channel buffer registry.
     ///
     /// [`NetworkShuffleExec`]: datafusion_distributed::NetworkShuffleExec
     Shuffle {
@@ -93,36 +93,17 @@ pub enum FragmentRouting {
         /// `P_c` in the receive-side formula `off = P_c * task_index`.
         partitions_per_consumer_task: usize,
     },
-    /// Broadcast mesh ([`NetworkBroadcastExec`]) over a build subtree that
-    /// is canonical-replicated across all producer procs. Wire-level math
-    /// is identical to [`Self::Shuffle`] (output partition `q` →
-    /// consumer task `q / P_c`), but the dispatcher effectively reduces
-    /// the producer side to a single task: only `task_idx == 0` runs the
-    /// producer plan; tasks `task_idx > 0` send a per-partition EOF and
-    /// exit. The consumer's input streams merge real data from task 0
-    /// with empty streams from the others, matching upstream's
-    /// single-producer broadcast pattern.
+    /// Broadcast mesh ([`NetworkBroadcastExec`]). Wire-level math matches [`Self::Shuffle`]
+    /// (`q → q / P_c`).
     ///
-    /// **INVARIANT (load-bearing for correctness):** the build subtree's output is
-    /// canonical-replicated across all producer procs. In the AggregateScan MPP path this is
-    /// enforced by the all-gather step (`mpp build all-gather`) that pre-stages the canonical
-    /// source on every worker before plan execution. If a future planner emits a
-    /// [`NetworkBroadcastExec`] over a sharded child (e.g. each producer task scans a different
-    /// file_group), the short-circuit silently drops `input_task_count - 1` shards' worth of
-    /// data. When that pattern is introduced, this variant must be split into
-    /// `BroadcastCanonicalReplica` vs. `BroadcastSharded` (or the short-circuit must be
-    /// conditional on a planner-set sentinel).
-    ///
-    /// **Planner-level cap:** the AggregateScan session installs
-    /// [`crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator`]
-    /// in front of the default leaf estimator, which caps the canonical-replica memory leaf at
-    /// `task_count = 1`. This propagates up the build subtree and makes the DF-D planner build
-    /// `NetworkBroadcastExec` with `input_task_count = 1`. With the cap in place the dispatcher
-    /// only ever sees `task_idx == 0` fragments for Broadcast routing. The wire-layer guard is
-    /// a hard `pgrx::error!` for any `task_idx > 0` so a missed cap surfaces loudly instead of
-    /// silently mis-routing data.
+    /// Delta from upstream: we cap the build subtree at `task_count = 1` via
+    /// [`BroadcastBuildSideOneTaskEstimator`], so the dispatcher only ever sees `task_idx == 0`
+    /// fragments here. The estimator relies on the AggregateScan all-gather step canonical-
+    /// replicating the build side; a future planner that emits `NetworkBroadcastExec` over a
+    /// sharded child would silently drop shards under this rule and needs a new routing variant.
     ///
     /// [`NetworkBroadcastExec`]: datafusion_distributed::NetworkBroadcastExec
+    /// [`BroadcastBuildSideOneTaskEstimator`]: crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator
     Broadcast {
         /// `B.properties().output_partitioning().partition_count()`. Same
         /// semantics as
@@ -197,31 +178,18 @@ fn collect(
     if let Some(nb) = plan.as_ref().as_network_boundary() {
         let stage = nb.input_stage();
         let stage_id = stage.num() as u32;
-        // Boundary's name decides routing rule. Downcasting through the trait gives us
-        // back-pointers to the concrete type, but the dispatcher only needs the receive-side
-        // math which is identical for the embedded model whether we got here through Shuffle or
-        // Coalesce; the only distinction is the partitions-per-task math.
         let name = plan.name();
-        // Receive-side per-consumer-task partition count: see
-        // `NetworkShuffleExec::execute`'s `off = P_c * task_index` formula.
+        // Per-consumer-task partition count from upstream's `NetworkShuffleExec::execute`
+        // receive-side formula `off = P_c * task_index`.
         let p_c = plan.properties().partitioning.partition_count();
 
-        // Determine routing for fragments produced by this boundary's
-        // input_stage tasks.
-        //
-        // NetworkShuffleExec and NetworkBroadcastExec have IDENTICAL receive-side math: both
-        // compute `off = P_c * task_index` and pull partition `off + p_local` from every input
-        // task. So the producer-side routing has to match: output partition q goes to consumer
-        // task `q / P_c`. The semantic difference (shuffle hashes rows, broadcast emits the full
-        // set to every consumer) lives entirely inside each task's plan and doesn't change how
-        // partitions map to procs at the wire layer.
-        //
-        // NetworkCoalesceExec is different. Its execute consults a single input task per
-        // consumer (`target_task = group.start_task + input_task_offset`), and the producer emits
-        // one stream per consumer task in its group. In the natural-shape plan we currently
-        // target, the only nested coalesce is consumer_tc=1 (the top-level gather, handled by
-        // the `parent=None` arm). The nested-coalesce arm below is a defensive fallback for
-        // shapes we don't exercise yet.
+        // Why we classify by `(boundary_kind, top_level)`. Upstream DF-D dispatches producers via
+        // gRPC keyed on the resolver's URLs, so worker code never has to decide where a producer's
+        // output partitions land. We don't have URLs: each shm_mq peer is push-driven, and the
+        // dispatcher here picks the destination proc for every output partition. The routing math
+        // differs by boundary kind (Shuffle / Broadcast share receive-side math but Broadcast caps
+        // to task 0; Coalesce collapses to one consumer task), and the top-level case routes to
+        // the leader.
         let routing = match (name, nested) {
             // Top-level NetworkBroadcastExec isn't a shape the natural-shape AggregateScan plan
             // produces (broadcast is always nested inside the HashJoin build subtree). Falling
@@ -229,13 +197,11 @@ fn collect(
             // canonical replica to the leader and `select_all` would over-count by
             // `input_task_count`. Surface it as an error so a future planner change that hits
             // this shape doesn't silently produce wrong answers.
-            ("NetworkBroadcastExec", false) => {
-                crate::postgres::customscan::mpp::fail_loud(format!(
-                    "mpp worker_fragments: top-level NetworkBroadcastExec is unsupported \
-                     (stage_id={stage_id}). The natural-shape AggregateScan plan does not \
-                     produce this shape; route via a NetworkCoalesceExec gather instead."
-                ))
-            }
+            ("NetworkBroadcastExec", false) => pgrx::error!(
+                "mpp worker_fragments: top-level NetworkBroadcastExec is unsupported \
+                 (stage_id={stage_id}). The natural-shape AggregateScan plan does not \
+                 produce this shape; route via a NetworkCoalesceExec gather instead."
+            ),
             // Top-level boundary (gather to leader): consumer is leader proc 0.
             (_, false) => FragmentRouting::Coalesce { dest_proc: 0 },
             // Nested NetworkShuffleExec: hash-partitioned mesh. Each output partition q maps to
@@ -259,12 +225,12 @@ fn collect(
             // rather than silently routing to task 0 of `proc_for_task`, which would over-count
             // or drop batches for a shape we haven't reasoned about. Surface as error so
             // plan-walk drift is visible.
-            (other, true) => crate::postgres::customscan::mpp::fail_loud(format!(
+            (other, true) => pgrx::error!(
                 "mpp worker_fragments: unsupported nested boundary kind {other} \
                  (stage_id={stage_id}). Only NetworkShuffleExec, NetworkBroadcastExec, \
                  and NetworkCoalesceExec are recognised; routing this shape would silently \
                  mis-route batches."
-            )),
+            ),
         };
         #[cfg(not(test))]
         {

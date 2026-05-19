@@ -162,7 +162,7 @@ impl ShmMqReceiver {
     /// # Safety
     /// - `mq` must point to a shm_mq previously initialized by `shm_mq_create`.
     /// - `seg` may be NULL on workers.
-    /// - No other participant has already set itself as receiver for `mq`.
+    /// - No other proc has already set itself as receiver for `mq`.
     pub(super) unsafe fn attach_existing(
         seg: *mut pg_sys::dsm_segment,
         mq: *mut pg_sys::shm_mq,

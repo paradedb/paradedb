@@ -34,7 +34,7 @@
 //!   +-------------------------------------------------------+
 //! ```
 //!
-//! - `n_procs` is the total participant count (1 leader + N parallel workers).
+//! - `n_procs` is the total proc count (1 leader + N parallel workers).
 //!   Leader is `proc_idx = 0`; workers are `proc_idx = ParallelWorkerNumber + 1`.
 //! - Every process attaches as **sender** to its row (`slot(this, *)`) and as
 //!   **receiver** to its column (`slot(*, this)`). The grid is uniform and
@@ -75,7 +75,7 @@ const MPP_DSM_MAX_BYTES: usize = 16 * 1024 * 1024 * 1024;
 pub struct MppDsmHeader {
     pub(super) magic: u32,
     pub(super) header_version: u32,
-    /// Total participant count. Leader is `proc_idx = 0`; workers are
+    /// Total proc count. Leader is `proc_idx = 0`; workers are
     /// `proc_idx = ParallelWorkerNumber + 1`. The shm_mq grid is `n_procs × n_procs`.
     pub n_procs: u32,
     pub(super) _pad: u32,
@@ -153,7 +153,7 @@ pub(super) struct DsmLayout {
 
 /// Compute the DSM region size and field offsets for one MPP query.
 ///
-/// `n_procs` is the total participant count (1 leader + N workers). The
+/// `n_procs` is the total proc count (1 leader + N workers). The
 /// shm_mq grid is `n_procs × n_procs`; each process attaches as sender to its
 /// row and receiver to its column.
 pub(super) fn compute_dsm_layout(
@@ -198,7 +198,7 @@ pub(super) fn compute_dsm_layout(
     })
 }
 
-/// Per-participant return: handles for the process's row (senders) and
+/// Per-proc return: handles for the process's row (senders) and
 /// column (receivers) in the multiplexed `n_procs × n_procs` grid.
 ///
 /// Self-loop slots (`slot(this_proc, this_proc)`) are skipped to avoid two
@@ -206,7 +206,7 @@ pub(super) fn compute_dsm_layout(
 /// queue nothing reads. As a consequence, `outbound_senders` and
 /// `inbound_receivers` each have `n_procs - 1` entries; the index gymnastics
 /// to translate `proc_idx` ↔ slice index are handled by
-/// [`MppMesh::inbound_drain`] in the runtime.
+/// [`MppMesh::inbound_receiver`] in the runtime.
 pub(super) struct ProcAttach {
     /// `outbound_senders[i]` writes to `slot(this_proc, peer_proc(i))` where
     /// `peer_proc(i) = i if i < this_proc else i + 1` (skipping the self-loop).
@@ -232,7 +232,7 @@ pub(super) fn peer_proc_for_index(this_proc: u32, peer_idx: u32) -> u32 {
 /// handles.
 ///
 /// In the multiplexed `n_procs × n_procs` grid, every process (leader included) is a full
-/// participant: sender for its row, receiver for its column. The leader is responsible for the
+/// proc: sender for its row, receiver for its column. The leader is responsible for the
 /// one-time `shm_mq_create` on every queue (workers can't, since the region is uninitialized at
 /// their attach time), then does its own `set_sender` / `set_receiver` calls on its row and column
 /// slots.

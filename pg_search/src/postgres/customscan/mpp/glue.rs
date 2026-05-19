@@ -72,7 +72,7 @@ pub fn mpp_is_active() -> bool {
     enable_mpp() && gucs_mpp_worker_count() >= 3
 }
 
-/// Total participant count: leader + producers. Clamped at 3 so the mesh
+/// Total proc count: leader + producers. Clamped at 3 so the mesh
 /// shape matches the planner's `target_partitions` (see [`mpp_is_active`]).
 pub fn mpp_worker_count() -> u32 {
     gucs_mpp_worker_count().max(3) as u32
@@ -85,7 +85,7 @@ pub(super) fn mpp_queue_size() -> usize {
 
 /// Body of `estimate_dsm_custom_scan`. Returns total DSM bytes the leader will need for the
 /// plan, the multiplexed `n_procs × n_procs` queue mesh, and the worker plan. `n_procs` is the
-/// total participant count (leader + `producer_worker_count()` parallel workers).
+/// total proc count (leader + `producer_worker_count()` parallel workers).
 pub fn estimate_dsm_size(plan_bytes_len: usize) -> Result<usize, String> {
     let layout = compute_dsm_layout(n_procs(), mpp_queue_size(), plan_bytes_len)
         .map_err(|e| format!("mpp: estimate_dsm_size: {e}"))?;
@@ -93,12 +93,12 @@ pub fn estimate_dsm_size(plan_bytes_len: usize) -> Result<usize, String> {
 }
 
 /// Number of producer workers PG should launch as `parallel_workers`.
-/// `mpp_worker_count - 1` because participant 0 is the leader.
+/// `mpp_worker_count - 1` because proc 0 is the leader.
 pub fn producer_worker_count() -> u32 {
     mpp_worker_count().saturating_sub(1).max(1)
 }
 
-/// Total participant count: 1 leader + N producer workers. This is the
+/// Total proc count: 1 leader + N producer workers. This is the
 /// dimension of the multiplexed `n_procs × n_procs` shm_mq grid.
 pub(super) fn n_procs() -> u32 {
     mpp_worker_count()
@@ -127,7 +127,7 @@ pub struct MppLeaderState {
 /// Wrap each peer-indexed `ShmMqReceiver` into an inbound cooperative drain, returned in
 /// `sender_proc`-indexed form. Slot at index `this_proc` is `None` (no self-loop drain at this
 /// stage; the worker's self-loop is installed separately, and the leader never has one).
-fn build_inbound_drains(
+fn build_inbound_receivers(
     this_proc: u32,
     total_procs: u32,
     peer_receivers: Vec<ShmMqReceiver>,
@@ -190,12 +190,12 @@ pub unsafe fn leader_setup(
     let attach = unsafe { leader_init(coordinate, seg, &layout, &plan_bytes) }?;
     let _ = n_partitions;
 
-    // Each `DrainHandle` owns a per-`(stage_id, partition)` sub-buffer registry, so one shm_mq
-    // queue can carry frames from many logical channels. Sub-buffers are created lazily on first
+    // Each `DrainHandle` owns a per-`(stage_id, partition)` channel buffer registry, so one shm_mq
+    // queue can carry frames from many logical channels. Channel buffers are created lazily on first
     // frame, or up-front by `WorkerConnection::stream_partition`.
-    let inbound_drains = build_inbound_drains(0, total_procs, attach.inbound_receivers);
+    let inbound_receivers = build_inbound_receivers(0, total_procs, attach.inbound_receivers);
 
-    let mesh = Arc::new(MppMesh::new(0, total_procs, inbound_drains));
+    let mesh = Arc::new(MppMesh::new(0, total_procs, inbound_receivers));
 
     // Drop the leader's own outbound senders. The leader is consumer-only and never hosts a
     // producer fragment.
@@ -209,7 +209,7 @@ pub unsafe fn leader_setup(
 pub struct MppWorkerState {
     /// `outbound_senders[proc_idx]` is the sender that writes to `slot(this_proc, proc_idx)`.
     /// The entry at `proc_idx == this_proc` is `None` because the self-loop slot is never
-    /// attached (matches the leader's `inbound_drains` shape).
+    /// attached (matches the leader's `inbound_receivers` shape).
     ///
     /// Each fragment's per-partition output sender is keyed by
     /// `outbound_senders[proc_for_task(n_workers, consumer_task)]`. Each `MppSender` wraps an
@@ -219,7 +219,7 @@ pub struct MppWorkerState {
     /// Worker fragment plan bytes, copied out of DSM. Caller deserializes via the
     /// `PgSearchExtensionCodec` to get an `Arc<dyn ExecutionPlan>`.
     pub plan_bytes: Vec<u8>,
-    /// Worker's MppMesh, same shape as the leader's. `inbound_drains[sender_proc]` pulls frames
+    /// Worker's MppMesh, same shape as the leader's. `inbound_receivers[sender_proc]` pulls frames
     /// from `slot(sender_proc, this_proc)`. Workers consume from peers when running consumer
     /// fragments (e.g. a `FinalPartitioned` aggregate above a `NetworkShuffleExec` peer-mesh).
     /// Read by the multi-fragment dispatcher in `aggregatescan::exec_mpp_worker`.
@@ -253,7 +253,8 @@ pub unsafe fn worker_setup(
 
     let mut outbound_senders =
         build_outbound_senders(proc_idx, total_procs, attach.outbound_senders);
-    let mut inbound_drains = build_inbound_drains(proc_idx, total_procs, attach.inbound_receivers);
+    let mut inbound_receivers =
+        build_inbound_receivers(proc_idx, total_procs, attach.inbound_receivers);
     debug_assert_eq!(
         outbound_senders.iter().filter(|s| s.is_some()).count(),
         (total_procs as usize).saturating_sub(1),
@@ -266,7 +267,7 @@ pub unsafe fn worker_setup(
     // on the same worker. Without this, the shm_mq grid's unattached diagonal would surface as
     // `outbound_senders[this_proc] = None`. The in-proc channel keeps frame routing uniform from
     // the dispatcher's perspective: senders push, the `DrainHandle` reads via the same
-    // `BatchChannelReceiver` contract as shm_mq, and the sub-buffer registry demuxes per
+    // `BatchChannelReceiver` contract as shm_mq, and the channel buffer registry demuxes per
     // `(stage_id, partition)`.
     let (self_tx, self_rx) = in_proc_channel(SELF_LOOP_CAPACITY);
     let self_tx_arc: Arc<dyn BatchChannelSender> = Arc::new(self_tx);
@@ -274,12 +275,12 @@ pub unsafe fn worker_setup(
         self_tx_arc,
         MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION),
     ));
-    inbound_drains[proc_idx as usize] =
+    inbound_receivers[proc_idx as usize] =
         Some(Arc::new(DrainHandle::cooperative(vec![MppReceiver::new(
             Box::new(self_rx),
         )])));
 
-    let mesh = Arc::new(MppMesh::new(proc_idx, total_procs, inbound_drains));
+    let mesh = Arc::new(MppMesh::new(proc_idx, total_procs, inbound_receivers));
 
     Ok(MppWorkerState {
         outbound_senders,

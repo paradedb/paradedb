@@ -46,15 +46,13 @@ use url::Url;
 
 use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, DrainHandle, DrainItem};
 
-/// `(producer_task_idx) → proc_idx` round-robin over the worker procs.
+/// `task_idx → proc_idx` round-robin over the worker procs. The leader is `proc_idx = 0`
+/// (consumer-only), workers are `1..n_procs` (each hosts producer fragments).
 ///
-/// Leader is `proc_idx = 0`; workers are `1..n_procs`. The mapping is a pure function of
-/// `task_idx % n_workers`, so it doesn't need a side table: every proc that knows `n_workers`
-/// computes the same answer.
-///
-/// With the planner's `target_partitions = n_workers` and `distributed_task_estimator = n_workers`
-/// knobs, the natural-shape plans keep `task_idx < n_workers` in every stage we target; the
-/// modulo wraps cleanly when future shapes exceed that.
+/// A stage's task count is set by the DF-D task estimator chain, not by the worker proc count.
+/// With the natural-shape plan's `distributed_task_estimator(n_workers)`, `task_count` equals
+/// `n_workers` in every stage we emit today, so the modulo is a no-op. The wrap is defensive for
+/// future shapes where an estimator could return more tasks than producer procs.
 #[inline]
 pub fn proc_for_task(n_workers: u32, task_idx: u32) -> u32 {
     1 + (task_idx % n_workers.max(1))
@@ -64,7 +62,7 @@ pub fn proc_for_task(n_workers: u32, task_idx: u32) -> u32 {
 ///
 /// Each shm_mq queue (one per `(sender_proc, this_proc)` pair in the V2 DSM grid) is
 /// multi-channel. Frames from any number of `(stage_id, partition)` logical channels can arrive
-/// on one queue, tagged by [`MppFrameHeader`]. The sub-buffer registry on each [`DrainHandle`]
+/// on one queue, tagged by [`MppFrameHeader`]. The channel buffer registry on each [`DrainHandle`]
 /// fans them out to the matching consumers keyed on `(stage_id, partition)`.
 ///
 /// [`MppFrameHeader`]: crate::postgres::customscan::mpp::transport::MppFrameHeader
@@ -72,15 +70,15 @@ pub struct MppMesh {
     /// This process's `proc_idx` (= 0 for the leader, `ParallelWorkerNumber + 1` for workers).
     /// Frames addressed to this proc arrive on `slot(*, this_proc)`.
     pub this_proc: u32,
-    /// Total participant count. Bounds the producer/consumer proc lookups in
+    /// Total proc count. Bounds the producer/consumer proc lookups in
     /// [`ShmMqWorkerTransport::open`].
     pub n_procs: u32,
-    /// `inbound_drains[sender_proc]` is the cooperative drain that pulls frames from
+    /// `inbound_receivers[sender_proc]` is the cooperative drain that pulls frames from
     /// `slot(sender_proc, this_proc)`. `None` at the self-loop entry
     /// (`sender_proc == this_proc`); workers route those frames through an in-proc channel via
     /// `outbound_senders[this_proc]` instead. The natural-shape gather installs drains for every
     /// `sender_proc != this_proc`.
-    pub(super) inbound_drains: Vec<Option<Arc<DrainHandle>>>,
+    pub(super) inbound_receivers: Vec<Option<Arc<DrainHandle>>>,
 }
 
 impl MppMesh {
@@ -88,20 +86,22 @@ impl MppMesh {
     pub fn new(
         this_proc: u32,
         n_procs: u32,
-        inbound_drains: Vec<Option<Arc<DrainHandle>>>,
+        inbound_receivers: Vec<Option<Arc<DrainHandle>>>,
     ) -> Self {
         Self {
             this_proc,
             n_procs,
-            inbound_drains,
+            inbound_receivers,
         }
     }
 
     /// Look up the drain that owns frames coming from `sender_proc`. Returns `None` if no drain
     /// is installed (out-of-range or the self-loop slot, which the single-stage gather skips).
-    pub(super) fn inbound_drain(&self, sender_proc: u32) -> Option<&Arc<DrainHandle>> {
+    pub(super) fn inbound_receiver(&self, sender_proc: u32) -> Option<&Arc<DrainHandle>> {
         let idx = sender_proc as usize;
-        self.inbound_drains.get(idx).and_then(|slot| slot.as_ref())
+        self.inbound_receivers
+            .get(idx)
+            .and_then(|slot| slot.as_ref())
     }
 
     /// Number of worker procs (= `n_procs - 1`, since the leader is proc 0).
@@ -120,7 +120,7 @@ impl MppMesh {
     /// all drains have been polled. Drains that have already detached are skipped silently (their
     /// slot is still `Some`, but their inner `coop_receivers` Vec entry is `None`).
     pub(super) fn drain_all_inbound(&self) -> Result<(), DataFusionError> {
-        for drain in self.inbound_drains.iter().flatten() {
+        for drain in self.inbound_receivers.iter().flatten() {
             drain.try_drain_pass()?;
         }
         Ok(())
@@ -194,7 +194,7 @@ struct ShmMqWorkerConnection {
     mesh: Arc<MppMesh>,
     sender_proc: u32,
     /// `stage_id` of the boundary's `input_stage`. Passed to `DrainHandle::register_channel` so
-    /// the sub-buffer this connection streams from sees only frames tagged with the same
+    /// the channel buffer this connection streams from sees only frames tagged with the same
     /// `(stage_id, p)`.
     stage_id: u32,
 }
@@ -206,17 +206,20 @@ impl WorkerConnection for ShmMqWorkerConnection {
                 "ShmMqWorkerConnection: partition={partition} > u32::MAX"
             ))
         })?;
-        let drain = self.mesh.inbound_drain(self.sender_proc).ok_or_else(|| {
-            DataFusionError::Internal(format!(
-                "ShmMqWorkerConnection: no inbound drain for sender_proc={} \
+        let drain = self
+            .mesh
+            .inbound_receiver(self.sender_proc)
+            .ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "ShmMqWorkerConnection: no inbound drain for sender_proc={} \
                  (stage_id={}, this_proc={})",
-                self.sender_proc, self.stage_id, self.mesh.this_proc
-            ))
-        })?;
+                    self.sender_proc, self.stage_id, self.mesh.this_proc
+                ))
+            })?;
         let drain = Arc::clone(drain);
-        // Ask the drain for the sub-buffer dedicated to this `(stage_id, partition)` channel.
+        // Ask the drain for the channel buffer dedicated to this `(stage_id, partition)` channel.
         // Frames with a matching header land here; frames tagged with other partitions go to
-        // their own sub-buffers, so this consumer only sees its slice.
+        // their own channel buffers, so this consumer only sees its slice.
         let buffer = drain.register_channel(self.stage_id, partition_u32);
         crate::mpp_log!(
             "mpp transport::stream_partition this_proc={} sender_proc={} stage_id={} \

@@ -15,35 +15,17 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Planner-level companion to the dispatcher's [`FragmentRouting::Broadcast`] runtime guard.
+//! Delta from upstream: caps `BroadcastExec` subtrees at `task_count = 1`.
 //!
-//! pg_search's natural-shape Aggregate plan canonical-replicates the HashJoin build subtree
-//! across all workers via the `mpp build all-gather` step. That step replaces the per-worker
-//! scan of the canonical source with a single `DataSourceExec(MemorySourceConfig)` returning the
-//! fully replicated data. Without intervention, the DF-D fork's default task estimator would
-//! annotate this leaf with `Desired(n_workers)`. The resulting `NetworkBroadcastExec` would have
-//! `input_task_count = n_workers`, every input task would emit the full canonical data, and the
-//! consumer's `select_all` would over-count by `input_task_count`.
+//! Upstream DF-D's default estimator returns `Desired(n_workers)` for memory leaves, so a
+//! `NetworkBroadcastExec` built over the canonical-replica all-gather step would get
+//! `input_task_count = n_workers`. Every producer task would re-emit the full build side and the
+//! consumer's `select_all` would over-count by `n_workers`. This estimator caps the build subtree
+//! at one task, so the wire-layer `FragmentRouting::Broadcast` only ever sees `task_idx == 0`.
 //!
-//! [`BroadcastBuildSideOneTaskEstimator`] caps every all-gather memory leaf at
-//! `TaskEstimation::maximum(1)`. That propagates up the build subtree and produces a
-//! `NetworkBroadcastExec(input_task_count=1)`. The single producer emits the canonical data once
-//! per consumer task, and the consumer's `select_all` sees one real stream plus empty
-//! placeholders from the missing input tasks.
-//!
-//! Installed via
-//! [`datafusion_distributed::SessionStateBuilderExt::with_distributed_task_estimator`] in front
-//! of the default per-leaf estimator. The DF-D fork's `CombinedTaskEstimator` iterates registered
-//! estimators and returns the FIRST `Some(_)` (registration order, not "biggest task_count
-//! wins"). That tiebreak runs at the per-stage layer across distinct leaves, not within one
-//! leaf's estimator chain. So this estimator returns `Some(Maximum(1))` for canonical-replica
-//! memory leaves and `None` everywhere else, and the default `Desired(n_workers)` estimator
+//! Registered first in the DF-D `CombinedTaskEstimator` chain, which returns the first `Some(_)`.
+//! Returns `None` for everything that isn't a `BroadcastExec`, so the default leaf estimator
 //! handles the fallthrough.
-//!
-//! With this estimator in place, the dispatcher's [`FragmentRouting::Broadcast`] short-circuit
-//! becomes a defensive `debug_assert!(fragment.task_idx == 0)` rather than a load-bearing
-//! correctness patch. See the doc on
-//! [`crate::postgres::customscan::mpp::worker_fragments::FragmentRouting::Broadcast`].
 
 use std::sync::Arc;
 
@@ -53,17 +35,9 @@ use datafusion_distributed::{BroadcastExec, TaskEstimation, TaskEstimator};
 
 /// Caps every [`BroadcastExec`] subtree at `task_count = 1`.
 ///
-/// In pg_search, every CollectLeft hash join with `broadcast_joins=true` produces a
-/// `BroadcastExec` over the (smaller) build side, and pg_search's scan model treats that build
-/// side as a single canonical replica: the same data on every worker. Capping the
-/// `BroadcastExec`'s task_count at 1 propagates upward and tells `_distribute_plan` to build a
-/// `NetworkBroadcastExec` with `input_task_count = 1`. A single producer task scans the build
-/// side and the fan-out replicates that stream to every consumer task.
-///
-/// Targeting `BroadcastExec` directly (rather than a marker wrapper on the leaf) survives
-/// DataFusion's HashJoin reordering. The planner may flip build/probe based on cost, but the
-/// `BroadcastExec` always sits above the final build side, so the cap lands at the right point
-/// no matter which source ends up there.
+/// Targeting `BroadcastExec` directly (instead of marking the leaf) survives DataFusion's
+/// HashJoin build/probe reordering: the `BroadcastExec` always sits above whichever side ends up
+/// as the build, so the cap lands at the right point regardless.
 #[derive(Debug)]
 pub struct BroadcastBuildSideOneTaskEstimator;
 

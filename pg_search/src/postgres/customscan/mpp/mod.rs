@@ -21,7 +21,7 @@
 //! workers through PostgreSQL `shm_mq` queues, so each row is scanned exactly once.
 //! Guarded by `paradedb.enable_mpp` (default off).
 //!
-//! Transport deadlock-avoidance relies on one dedicated drain thread per participant
+//! Transport deadlock-avoidance relies on one dedicated drain thread per proc
 //! that reads all inbound queues into a spillable local buffer — this decouples
 //! consumer-side backpressure from producer-side backpressure.
 
@@ -57,22 +57,4 @@ macro_rules! mpp_log {
     ($($arg:tt)*) => {
         { let _ = format_args!($($arg)*); }
     };
-}
-
-/// Fatal MPP-internal invariant breach. Same `!` return type as `pgrx::error!` /
-/// `panic!`, so it can sit in any `match` arm or expression position.
-///
-/// In production this calls `pgrx::error!`, which aborts the transaction via PG's ereport
-/// machinery. In `cargo test` the lib-test binary doesn't link against postgres, so we fall
-/// back to `panic!` with the same message. Either way the call site stays readable —
-/// `fail_loud(format!(...))` — instead of carrying a `#[cfg(not(test))] pgrx::error!` /
-/// `#[cfg(test)] panic!` arm pair at every fatal MPP invariant breach.
-#[cfg(not(test))]
-pub fn fail_loud(msg: String) -> ! {
-    pgrx::error!("{}", msg);
-}
-
-#[cfg(test)]
-pub fn fail_loud(msg: String) -> ! {
-    panic!("{}", msg);
 }

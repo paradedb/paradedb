@@ -1,0 +1,108 @@
+---
+title: BM25 Parameters
+description: Tuning per-field BM25 k1 and b parameters
+---
+
+## Overview
+
+BM25 (Best Matching 25) is the default ranking function used by `pg_search`. Two parameters
+control how term frequency and document length affect relevance scores:
+
+| Parameter | Description | Default | Recommended Range |
+|-----------|-------------|---------|-------------------|
+| `k1` | Controls term frequency saturation. Higher values increase the impact of additional term occurrences. | 1.2 | 0.0 – 3.0 |
+| `b` | Controls document length normalization. Higher values penalize longer documents more heavily. | 0.75 | 0.0 – 1.0 |
+
+## Parameter Details
+
+### k1 — Term Frequency Saturation
+
+The `k1` parameter determines how quickly the contribution of repeated terms saturates.
+
+- `k1 = 0`: Term frequency is ignored entirely. Only term presence matters.
+- `k1 = 1.2` (default): Balanced saturation suitable for most use cases.
+- `k1 > 2.0`: Repeated terms continue to boost relevance significantly.
+
+Lower `k1` is useful for short, structured fields (titles, tags) where repetition is rare.
+Higher `k1` suits long-form content where term frequency carries meaningful signal.
+
+### b — Length Normalization
+
+The `b` parameter controls how much a document's length relative to the average affects scoring.
+
+- `b = 0`: No length normalization. Long and short documents are treated equally.
+- `b = 0.75` (default): Moderate normalization suitable for mixed-length corpora.
+- `b = 1.0`: Full normalization. Longer documents are penalized proportionally.
+
+Set `b` lower when document length variation is not meaningful (e.g., fixed-format fields).
+Set `b` higher when shorter documents that match should rank above longer ones.
+
+## Setting Parameters with Typmod Syntax
+
+Per-field BM25 parameters are specified using typmod syntax in the index column definition:
+
+```sql
+CREATE INDEX idx_products ON products
+USING bm25 (id, description text_ops (k1 = 1.5, b = 0.5));
+```
+
+You can set parameters independently:
+
+```sql
+-- Only override k1, b stays at default 0.75
+CREATE INDEX idx_articles ON articles
+USING bm25 (id, title text_ops (k1 = 0.5));
+
+-- Only override b, k1 stays at default 1.2
+CREATE INDEX idx_articles ON articles
+USING bm25 (id, body text_ops (b = 0.9));
+```
+
+Different fields in the same index can have different parameters:
+
+```sql
+CREATE INDEX idx_docs ON documents
+USING bm25 (
+  id,
+  title text_ops (k1 = 0.5, b = 0.25),
+  body text_ops (k1 = 1.8, b = 0.75)
+);
+```
+
+## Practical Examples
+
+### Short Title Fields
+
+Titles are short and rarely repeat terms. Lower both parameters:
+
+```sql
+CREATE INDEX idx_products ON products
+USING bm25 (id, name text_ops (k1 = 0.5, b = 0.25));
+```
+
+### Long-Form Content
+
+For blog posts or articles where term frequency is meaningful and length varies:
+
+```sql
+CREATE INDEX idx_posts ON posts
+USING bm25 (id, content text_ops (k1 = 1.8, b = 0.75));
+```
+
+### Fixed-Length Fields
+
+When all values have similar length (e.g., product SKUs, codes), disable length normalization:
+
+```sql
+CREATE INDEX idx_inventory ON inventory
+USING bm25 (id, sku text_ops (k1 = 1.2, b = 0.0));
+```
+
+### Exact-Match Preference
+
+When you want presence to matter more than frequency:
+
+```sql
+CREATE INDEX idx_tags ON items
+USING bm25 (id, tags text_ops (k1 = 0.0, b = 0.0));
+```

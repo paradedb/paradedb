@@ -391,7 +391,6 @@ impl CustomScan for AggregateScan {
                     group_df_indices: Vec::new(),
                     mpp: None,
                     mpp_plan_bytes: None,
-                    mpp_n_partitions: 1,
                 });
                 builder.build()
             }
@@ -997,14 +996,6 @@ impl AggregateScan {
             }
         };
         df_state.mpp_plan_bytes = Some(bytes.to_vec());
-        // Each producer writes `target_partitions` partitions per worker.
-        // The DF-D fork's `_distribute_plan` is patched so that in in-process
-        // mode (custom WorkerTransport registered) it clamps the Shuffle's
-        // consumer_task_count to 1, which disables `NetworkShuffleExec`'s
-        // per-task hash scaling. So producer output = target_partitions =
-        // n_workers (matching `build_mpp_session_context`).
-        let n_workers = producer_worker_count();
-        df_state.mpp_n_partitions = n_workers.max(1);
     }
 
     /// Build the leader's distributed session context for this AggregateScan query. Thin

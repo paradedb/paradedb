@@ -63,11 +63,11 @@ const NATURAL_GATHER_PARTITION: u32 = 0;
 /// path-builders gate `parallel_workers` on this.
 ///
 /// `>= 3` (not `>= 2`) because the leader is consumer-only: with `mpp_worker_count = 2`,
-/// [`producer_worker_count`] returns 1, so [`crate::postgres::customscan::aggregatescan`] sizes
-/// the DSM mesh as `1 × mpp_n_partitions = 1` while `with_target_partitions(2)` (clamped by
-/// `n_workers.max(2)`) makes the planner build a 2-partition shuffle. The mesh wouldn't have a
-/// queue for the second partition. Gating at `>= 3` keeps `producer_worker_count >= 2` so mesh
-/// shape and shuffle width line up.
+/// [`producer_worker_count`] returns 1 and the DSM mesh has one producer row, while
+/// `with_target_partitions(2)` (clamped by `n_workers.max(2)` in `build_mpp_session_context`)
+/// makes the planner build a 2-partition shuffle. The mesh wouldn't have a queue for the
+/// second partition. Gating at `>= 3` keeps `producer_worker_count >= 2` so mesh shape and
+/// shuffle width line up.
 pub fn mpp_is_active() -> bool {
     enable_mpp() && gucs_mpp_worker_count() >= 3
 }

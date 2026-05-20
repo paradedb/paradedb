@@ -730,12 +730,12 @@ impl SubplanHandler for ProducerTaskRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
+    use crate::index::fast_fields_helper::FFHelper;
     use crate::scan::physical_codec::PgSearchPhysicalCodec;
+    use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
     use arrow_schema::{DataType, Field, Schema};
     use datafusion::physical_plan::empty::EmptyExec;
     use datafusion_proto::bytes::physical_plan_to_bytes_with_extension_codec;
-    use pgrx::pg_sys;
     use std::sync::Arc;
 
     /// Build a `ProducerTaskRegistry` with empty mesh/stage-plans, just enough to exercise
@@ -756,11 +756,11 @@ mod tests {
         ))
     }
 
-    /// Encode a minimal `VisibilityFilterExec` through `PgSearchPhysicalCodec` so we have
-    /// real bytes — same shape the leader's `ship_subplans_to_workers` would produce, just
-    /// without the full distributed plan tree wrapped around it. Picking VisibilityFilter
-    /// because its decode path is the simplest (no PG runtime required) and the codec's
-    /// VisibilityFilter arm has full round-trip coverage in #5121.
+    /// Encode a minimal `TantivyLookupExec` through `PgSearchPhysicalCodec` so we have real
+    /// bytes — same shape the leader's `ship_subplans_to_workers` would produce, just without
+    /// the full distributed plan tree wrapped around it. Picking `TantivyLookupExec` because
+    /// its codec is fully runnable in `cargo test` (the `VisibilityFilterExec` codec is gated
+    /// out of test builds, see the corresponding comment in `physical_codec.rs`).
     fn encode_test_subplan() -> Vec<u8> {
         let input_schema = Arc::new(Schema::new(vec![Field::new(
             "ctid",
@@ -768,14 +768,14 @@ mod tests {
             false,
         )]));
         let input: Arc<dyn ExecutionPlan> = Arc::new(EmptyExec::new(input_schema));
+        // `TantivyLookupExec` with an empty deferred-field list is the minimum that still
+        // exercises the codec end-to-end. The plan's runtime behavior isn't relevant here —
+        // we only check the bytes round-trip.
         let plan = Arc::new(
-            VisibilityFilterExec::new(
-                input,
-                vec![(0_usize, pg_sys::Oid::from(16384_u32))],
-                vec!["posts".to_string()],
-            )
-            .expect("VisibilityFilterExec::new"),
+            TantivyLookupExec::new(input, Vec::new(), crate::api::HashMap::default())
+                .expect("TantivyLookupExec::new"),
         ) as Arc<dyn ExecutionPlan>;
+        let _ = FFHelper::empty(); // keep FFHelper import live until the codec consumes it.
         let codec = PgSearchPhysicalCodec;
         physical_plan_to_bytes_with_extension_codec(plan, &codec)
             .expect("encode test subplan")

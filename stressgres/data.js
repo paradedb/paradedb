@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779294734409,
+  "lastUpdate": 1779302585586,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1650,6 +1650,78 @@ window.BENCHMARK_DATA = {
             "value": 42.504385252837544,
             "unit": "median tps",
             "extra": "avg tps: 51.326531354792586, max tps: 280.45157190301535, count: 55132"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e165958a105bfe85e119c02a71e333d0b675723d",
+          "message": "fix: Ignore dead PIDs during merge (#5104)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn prod we've seen situations where the mergelist holds segment ids that\nbelonged to an aborted merge, preventing those segments from ever\ngetting merged again.\n\nThe cleaner long term solution is to hold the mergelist in shared\nmemory. But because older versions of `pg_search` may not have\n`shared_preload_libraries` enabled, a temporary fix is to 1) ignore\nsegments with dead pids when merging 2) clear segments with dead pids\nwhen GCing the merge list.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-05-20T11:13:14-07:00",
+          "tree_id": "b4d3cec2eec4ff15f5a5e81d8366c685474f96c2",
+          "url": "https://github.com/paradedb/paradedb/commit/e165958a105bfe85e119c02a71e333d0b675723d"
+        },
+        "date": 1779302554205,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 129.90458297031972,
+            "unit": "median tps",
+            "extra": "avg tps: 130.71921797186698, max tps: 145.6468078293898, count: 55145"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 472.89480341991367,
+            "unit": "median tps",
+            "extra": "avg tps: 474.9891051897008, max tps: 603.2948961723451, count: 55145"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3243.0750749423614,
+            "unit": "median tps",
+            "extra": "avg tps: 3234.460430506626, max tps: 3287.169364827184, count: 55145"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 405.1731766328665,
+            "unit": "median tps",
+            "extra": "avg tps: 406.20705135434565, max tps: 501.0306199853098, count: 55145"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2825.716361003106,
+            "unit": "median tps",
+            "extra": "avg tps: 2814.457754392994, max tps: 2842.145079173683, count: 110290"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 473.8451719154016,
+            "unit": "median tps",
+            "extra": "avg tps: 475.69216820054726, max tps: 617.9797083778476, count: 55145"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2043.5039802874476,
+            "unit": "median tps",
+            "extra": "avg tps: 2030.4411605887278, max tps: 2052.205335415338, count: 55145"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 112.07351769091684,
+            "unit": "median tps",
+            "extra": "avg tps: 117.4661791813591, max tps: 666.6946678427161, count: 55145"
           }
         ]
       }

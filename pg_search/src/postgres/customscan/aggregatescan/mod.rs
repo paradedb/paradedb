@@ -1639,17 +1639,12 @@ impl AggregateScan {
 
             // MPP leader: walk the distributed physical plan and ship every nested per-(stage,
             // task) producer subplan to its owning worker via Subplan frames before kicking off
-            // local execution. Gated behind `paradedb.mpp_use_shipped_subplans` because the
-            // codec doesn't yet know how to encode DF-D wrapper nodes (`BroadcastExec`,
-            // `NetworkBroadcastExec`, `NetworkShuffleExec`) that appear in prepared subplans —
-            // and even if it did, the worker-side consume path is gated by the same GUC, so
-            // shipping when the GUC is off is just dead work that surfaces as an error on real
-            // queries. The follow-up commit that adds DF-D codec coverage + flips the GUC
-            // default also lifts this gate.
-            if let Some(mesh) = leader_mesh
-                .as_ref()
-                .filter(|_| crate::gucs::mpp_use_shipped_subplans())
-            {
+            // local execution. Workers stash the decoded plans in their ProducerTaskRegistry
+            // and `prepare_task` prefers them over the local re-plan path. The gate is
+            // `leader_mesh.is_some()` — true exactly when `enable_mpp` is on AND the leader
+            // setup succeeded — so no separate dispatch-flip knob; on for every MPP query,
+            // off otherwise.
+            if let Some(mesh) = leader_mesh.as_ref() {
                 if let Err(e) =
                     crate::postgres::customscan::mpp::producer_service::ship_subplans_to_workers(
                         &physical_plan,

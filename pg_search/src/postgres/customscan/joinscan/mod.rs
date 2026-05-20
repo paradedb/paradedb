@@ -1556,13 +1556,9 @@ impl CustomScan for JoinScan {
                     .block_on(build_physical_plan(&ctx, logical_plan))
                     .expect("Failed to create execution plan");
 
-                // MPP leader: ship per-(stage, task) producer subplans. Gated by
-                // `paradedb.mpp_use_shipped_subplans` (default off) because the codec doesn't
-                // yet handle DF-D wrapper nodes — see the matching comment in aggregatescan/mod.rs.
-                if let Some(mesh) = leader_mesh
-                    .as_ref()
-                    .filter(|_| crate::gucs::mpp_use_shipped_subplans())
-                {
+                // MPP leader: ship per-(stage, task) producer subplans. Runs for every MPP
+                // query — same gate as aggregatescan/mod.rs; see the matching comment there.
+                if let Some(mesh) = leader_mesh.as_ref() {
                     if let Err(e) =
                         crate::postgres::customscan::mpp::producer_service::ship_subplans_to_workers(
                             &plan,

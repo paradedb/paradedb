@@ -80,7 +80,6 @@ use crate::postgres::customscan::mpp::transport::{
     CooperativeDrainSet, MppFrameHeader, RequestHandler, SubplanHandler,
 };
 use crate::postgres::customscan::mpp::worker::run_partition_driver;
-use crate::scan::physical_codec::PgSearchPhysicalCodec;
 use datafusion_proto::bytes::physical_plan_from_bytes_with_extension_codec;
 
 /// Per-`stage_id` snapshot of `(local_plan, task_count)` walked out of the worker's distributed
@@ -166,26 +165,24 @@ pub(super) struct ProducerTaskRegistry {
     prepared: Mutex<HashMap<(u32, u32), PreparedTask>>,
     /// `(stage_id, task_idx) → decoded subplan` populated by [`Self::on_subplan`] when the
     /// leader ships a per-task subplan via a [`MppFrameKind::Subplan`](crate::postgres::customscan::mpp::transport::MppFrameKind::Subplan)
-    /// frame. Phase 4 of the dispatch-flip wires `prepare_task` to prefer this map when
-    /// `paradedb.mpp_use_shipped_subplans` is on; otherwise the field is populated but unused
-    /// and the existing local-prepare path runs.
+    /// frame. `prepare_task` consults this first; when a hit lands the worker uses the
+    /// leader-prepared plan directly instead of re-running `prepare_in_process_plan` locally.
     ///
-    /// Today the GUC defaults off because the codec's `decode_pgsearch_scan` returns an empty
-    /// `Vec<ScanState>` — the shipped path is reachable but would return zero rows for any
-    /// PgSearchScan-bearing query. The follow-up PR lands per-`PgSearchScanPlan` state
-    /// reconstruction (walk the decoded plan tree on the worker, rebuild scan state from the
-    /// local `PgSearchTableProvider`) and flips the default. Until then the field exists
-    /// largely for receive-side regression coverage.
+    /// The fallback path (`stage_plans` → local `prepare_in_process_plan`) is what fires
+    /// during the brief startup window between worker launch and the first drain pass that
+    /// delivers the Subplan frames. It's also where queries land if the codec hits a gap —
+    /// today's `decode_pgsearch_scan` emits an empty `Vec<ScanState>` placeholder, so a
+    /// shipped subplan with a `PgSearchScan` leaf would return zero rows. The followup PR
+    /// fixes that with per-`PgSearchScanPlan` state reconstruction.
     ///
-    /// **Ordering hazard for the future flip.** `run_mpp_worker` calls `prewarm` for every
-    /// `(stage_id, task_idx)` this proc owns *before* installing the SubplanHandler and
-    /// pumping the drain. With the GUC ON in production, `prewarm → prepare_task` would
-    /// observe an empty `shipped_subplans` map and fall through to the local-prepare branch,
-    /// caching that result in `prepared`. By the time real Subplan frames arrive and land
-    /// here, the cache is already populated and the shipped lookup never fires for the same
-    /// `(stage_id, task_idx)`. The follow-up commit has to reorder prewarm vs. handler-install
-    /// (and pump the drain once before prewarm) so shipped subplans are visible to the prep
-    /// path. Tracking item (0) in the Phase 4 commit message.
+    /// **Ordering hazard.** `run_mpp_worker` calls `prewarm` for every `(stage_id, task_idx)`
+    /// this proc owns *before* installing the SubplanHandler and pumping the drain. The
+    /// prewarm path goes through `prepare_task`, which sees an empty `shipped_subplans` and
+    /// falls back to local-prepare — caching the locally-built plan in `prepared`. When real
+    /// Subplan frames arrive later, they land in `shipped_subplans`, but `on_request` reads
+    /// from `prepared` first via the per-`(stage, task, partition)` dedupe path. The followup
+    /// PR reorders prewarm vs. handler-install (and pumps the drain once before prewarm) so
+    /// shipped subplans are visible to the prep path.
     shipped_subplans: Mutex<HashMap<(u32, u32), Arc<dyn ExecutionPlan>>>,
     /// `(stage_id, task_idx, partition)` set of already-dispatched drivers. Repeat Requests are
     /// dropped. Without this, a consumer that re-issued `stream_partition` would cause the
@@ -276,44 +273,39 @@ impl ProducerTaskRegistry {
     }
 
     fn prepare_task(&self, stage_id: u32, task_idx: u32) -> Result<PreparedTask, DataFusionError> {
-        // Phase 4 transitional path: prefer a leader-shipped subplan when one is present in
-        // `shipped_subplans` and the user has opted in via `paradedb.mpp_use_shipped_subplans`.
-        // The opt-in guard exists because the codec's `decode_pgsearch_scan` (see
-        // `crate::scan::physical_codec`) emits an empty `Vec<ScanState>` placeholder today —
-        // executing a decoded subplan with empty scan state returns zero rows. A follow-up
-        // commit lands the per-`PgSearchScanPlan` state reconstruction step that the worker
-        // runs over the decoded plan tree before this path is safe to enable by default. Until
-        // then the GUC stays off in production and CI; the lookup is exercised by lib tests
-        // that don't touch PgSearchScan.
-        if crate::gucs::mpp_use_shipped_subplans() {
-            if let Some(shipped) = self
-                .shipped_subplans
-                .lock()
-                .expect("ProducerTaskRegistry shipped_subplans mutex poisoned")
-                .get(&(stage_id, task_idx))
-                .cloned()
-            {
-                let task_count = self
-                    .stage_plans
-                    .lookup(stage_id)
-                    .map(|(_, tc)| tc)
-                    .unwrap_or(1);
-                let task_ctx = build_task_ctx(
-                    &self.session,
-                    task_idx,
-                    task_count,
-                    self.work_mem_bytes,
-                    self.hash_mem_multiplier,
-                    &shipped,
-                )?;
-                return Ok(PreparedTask {
-                    plan: shipped,
-                    ctx: task_ctx,
-                });
-            }
+        // Prefer a leader-shipped subplan when one is present in `shipped_subplans` — that's
+        // the dispatch-flip's "build once on the leader, ship many" path. Fall back to local
+        // re-plan if nothing has been shipped for this `(stage_id, task_idx)` yet (only
+        // possible during the brief window between worker startup and the first drain pass
+        // that delivers the subplan).
+        if let Some(shipped) = self
+            .shipped_subplans
+            .lock()
+            .expect("ProducerTaskRegistry shipped_subplans mutex poisoned")
+            .get(&(stage_id, task_idx))
+            .cloned()
+        {
+            let task_count = self
+                .stage_plans
+                .lookup(stage_id)
+                .map(|(_, tc)| tc)
+                .unwrap_or(1);
+            let task_ctx = build_task_ctx(
+                &self.session,
+                task_idx,
+                task_count,
+                self.work_mem_bytes,
+                self.hash_mem_multiplier,
+                &shipped,
+            )?;
+            return Ok(PreparedTask {
+                plan: shipped,
+                ctx: task_ctx,
+            });
         }
-        // Default fallback: build the prepared plan locally from `stage_plans`, same as before
-        // the dispatch flip.
+        // Fallback: build the prepared plan locally from `stage_plans`, same recipe as
+        // pre-dispatch-flip. Used during startup races (subplan hasn't arrived yet) and as a
+        // safety net while the codec's PgSearchScan state-reconstruction story matures.
         let (plan, task_count) = self.stage_plans.lookup(stage_id).ok_or_else(|| {
             DataFusionError::Internal(format!(
                 "mpp producer: no plan registered for stage_id={stage_id}"
@@ -455,7 +447,7 @@ pub(crate) fn ship_subplans_to_workers(
 ) -> Result<(), DataFusionError> {
     use crate::postgres::customscan::mpp::runtime::proc_for_task;
     use crate::postgres::customscan::mpp::transport::{MppFrameHeader, SendBatchStats};
-    use crate::scan::physical_codec::PgSearchPhysicalCodec;
+    use datafusion_distributed::DistributedCodec;
     use datafusion_proto::bytes::physical_plan_to_bytes_with_extension_codec;
 
     let stage_plans = StagePlans::build(physical_plan);
@@ -465,7 +457,13 @@ pub(crate) fn ship_subplans_to_workers(
     }
     let n_workers = leader_mesh.n_procs.saturating_sub(1).max(1);
 
-    let codec = PgSearchPhysicalCodec;
+    // Use DF-D's `DistributedCodec::new_combined_with_user` so DF-D's wrapper nodes
+    // (`NetworkShuffleExec`, `NetworkBroadcastExec`, `BroadcastExec`, etc.) serialize through
+    // DF-D's own codec, and our `PgSearchPhysicalCodec` only handles the leaves it knows about
+    // (`VisibilityFilterExec`, `TantivyLookupExec`, `SegmentedTopKExec`, `PgSearchScan`). The
+    // user codec is picked up from the session's distributed config; we registered it earlier
+    // via `with_distributed_user_codec`.
+    let codec = DistributedCodec::new_combined_with_user(session.state().config());
     let mut tasks: Vec<(u32, u32, usize, Arc<dyn ExecutionPlan>)> = Vec::new();
     for (stage_id, task_count) in stage_plans.iter_task_counts() {
         let (local_plan, _) = stage_plans.lookup(stage_id).expect("stage just walked");
@@ -678,14 +676,10 @@ impl RequestHandler for ProducerTaskRegistry {
 impl SubplanHandler for ProducerTaskRegistry {
     /// Receive a leader-shipped subplan for `(stage_id, task_idx)`. Decodes the bytes with
     /// [`crate::scan::physical_codec::PgSearchPhysicalCodec`] and stores the result in
-    /// `shipped_subplans` keyed by `(stage_id, task_idx)`.
-    ///
-    /// Phase 4 of the dispatch flip wires `prepare_task` to prefer the shipped subplan when
-    /// `paradedb.mpp_use_shipped_subplans` is on. Default is off because the codec emits an
-    /// empty `Vec<ScanState>` for `PgSearchScanPlan` — see the field doc on `shipped_subplans`
-    /// and `crate::scan::physical_codec::decode_pgsearch_scan` for the placeholder story.
-    /// The follow-up commit lands per-`PgSearchScanPlan` state reconstruction before flipping
-    /// the default.
+    /// `shipped_subplans` keyed by `(stage_id, task_idx)`. `prepare_task` then consumes from
+    /// that map ahead of any local re-plan. The codec's `PgSearchScan` arm still has an empty
+    /// `Vec<ScanState>` gap that the followup PR fills in — until then, plans containing a
+    /// `PgSearchScan` may emit zero rows when sourced from the shipped path.
     fn on_subplan(
         &self,
         stage_id: u32,
@@ -697,7 +691,13 @@ impl SubplanHandler for ProducerTaskRegistry {
         // the same subplan is broadcast to multiple drains) lands in the same slot. Last write
         // wins; same `(stage_id, task_idx)` from the same leader session always carries the
         // same bytes today.
-        let codec = PgSearchPhysicalCodec;
+        //
+        // Decode through `DistributedCodec::new_combined_with_user` so DF-D wrapper nodes
+        // round-trip via DF-D's codec. The leader encodes through the same combined codec, so
+        // sender and receiver must match.
+        let codec = datafusion_distributed::DistributedCodec::new_combined_with_user(
+            self.session.state().config(),
+        );
         let task_ctx = self.session.task_ctx();
         let decoded = physical_plan_from_bytes_with_extension_codec(
             payload.as_slice(),
@@ -731,7 +731,6 @@ impl SubplanHandler for ProducerTaskRegistry {
 mod tests {
     use super::*;
     use crate::index::fast_fields_helper::FFHelper;
-    use crate::scan::physical_codec::PgSearchPhysicalCodec;
     use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
     use arrow_schema::{DataType, Field, Schema};
     use datafusion::physical_plan::empty::EmptyExec;
@@ -739,14 +738,25 @@ mod tests {
     use std::sync::Arc;
 
     /// Build a `ProducerTaskRegistry` with empty mesh/stage-plans, just enough to exercise
-    /// `on_subplan` end-to-end. The mesh's `inbound_receivers` and `outbound_senders` are empty
-    /// vecs, which is fine because the test never reads from them.
+    /// `on_subplan` end-to-end. The session has `PgSearchPhysicalCodec` registered as the
+    /// distributed user codec so `DistributedCodec::new_combined_with_user` resolves our
+    /// custom execs (`TantivyLookupExec`, etc.) when it falls through past the DF-D types it
+    /// knows about. Without that registration, decode of our exec variants would miss the
+    /// user codec and surface as a decode error.
     fn test_registry() -> Arc<ProducerTaskRegistry> {
+        use crate::scan::physical_codec::PgSearchPhysicalCodec;
+        use datafusion::execution::SessionStateBuilder;
+        use datafusion_distributed::DistributedExt;
+
         let mesh = Arc::new(MppMesh::new(0, 1, Vec::new(), Vec::new()));
         let stage_plans = StagePlans {
             stages: HashMap::new(),
         };
-        let session = Arc::new(SessionContext::new());
+        let state = SessionStateBuilder::new()
+            .with_default_features()
+            .with_distributed_user_codec(PgSearchPhysicalCodec)
+            .build();
+        let session = Arc::new(SessionContext::new_with_state(state));
         Arc::new(ProducerTaskRegistry::new(
             stage_plans,
             session,
@@ -756,12 +766,13 @@ mod tests {
         ))
     }
 
-    /// Encode a minimal `TantivyLookupExec` through `PgSearchPhysicalCodec` so we have real
-    /// bytes — same shape the leader's `ship_subplans_to_workers` would produce, just without
-    /// the full distributed plan tree wrapped around it. Picking `TantivyLookupExec` because
-    /// its codec is fully runnable in `cargo test` (the `VisibilityFilterExec` codec is gated
-    /// out of test builds, see the corresponding comment in `physical_codec.rs`).
-    fn encode_test_subplan() -> Vec<u8> {
+    /// Encode a minimal `TantivyLookupExec` through `DistributedCodec::new_combined_with_user`
+    /// — same encode path the leader's `ship_subplans_to_workers` uses, so the bytes are
+    /// shape-identical to what production produces. Picking `TantivyLookupExec` because its
+    /// codec is fully runnable in `cargo test` (the `VisibilityFilterExec` codec is gated out
+    /// of test builds, see the corresponding comment in `physical_codec.rs`).
+    fn encode_test_subplan(session: &SessionContext) -> Vec<u8> {
+        use datafusion_distributed::DistributedCodec;
         let input_schema = Arc::new(Schema::new(vec![Field::new(
             "ctid",
             DataType::UInt64,
@@ -776,7 +787,7 @@ mod tests {
                 .expect("TantivyLookupExec::new"),
         ) as Arc<dyn ExecutionPlan>;
         let _ = FFHelper::empty(); // keep FFHelper import live until the codec consumes it.
-        let codec = PgSearchPhysicalCodec;
+        let codec = DistributedCodec::new_combined_with_user(session.state().config());
         physical_plan_to_bytes_with_extension_codec(plan, &codec)
             .expect("encode test subplan")
             .to_vec()
@@ -787,7 +798,7 @@ mod tests {
         let registry = test_registry();
         assert_eq!(registry.shipped_subplan_count(), 0);
 
-        let payload = encode_test_subplan();
+        let payload = encode_test_subplan(&registry.session);
         registry
             .on_subplan(7, 3, payload.clone())
             .expect("on_subplan must accept a well-formed payload");
@@ -806,7 +817,7 @@ mod tests {
     #[test]
     fn on_subplan_multiple_keys_accumulate() {
         let registry = test_registry();
-        let payload = encode_test_subplan();
+        let payload = encode_test_subplan(&registry.session);
 
         for (stage_id, task_idx) in [(0_u32, 0_u32), (0, 1), (1, 0), (1, 1)] {
             registry

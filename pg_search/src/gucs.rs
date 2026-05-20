@@ -145,14 +145,6 @@ static MPP_DEBUG: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// `SET log_min_messages = DEBUG1` but invisible to CI's default WARNING capture.
 static MPP_TRACE: GucSetting<bool> = GucSetting::<bool>::new(false);
 
-/// Transitional opt-in for the dispatch-flip's Phase 4 receive path. When ON, the MPP worker's
-/// `ProducerTaskRegistry::prepare_task` consumes the leader-shipped subplan from
-/// `shipped_subplans` instead of building one locally from `stage_plans`. Default OFF because
-/// today's codec emits empty `Vec<ScanState>` for `PgSearchScanPlan` — a follow-up commit will
-/// add per-`PgSearchScanPlan` state reconstruction on the worker before this is safe to enable
-/// by default. CI and bench keep this off until that lands.
-static MPP_USE_SHIPPED_SUBPLANS: GucSetting<bool> = GucSetting::<bool>::new(false);
-
 /// Total number of MPP participants (leader + workers). Default 4 splits
 /// scan + shuffle + partial-aggregate work across 4 processes. PG's
 /// `max_parallel_workers_per_gather` still caps the actual worker count
@@ -569,20 +561,6 @@ pub fn init() {
         GucFlags::default(),
     );
 
-    GucRegistry::define_bool_guc(
-        c"paradedb.mpp_use_shipped_subplans",
-        c"Opt into the dispatch-flip's leader-shipped subplan path",
-        c"When enabled, the MPP worker's `ProducerTaskRegistry` consumes the per-(stage, task) \
-          subplan the leader ships via Subplan frames instead of re-building it from the \
-          locally-walked physical plan. Transitional knob: the physical codec's PgSearchScan \
-          path returns an empty `Vec<ScanState>` today, so executing a shipped subplan against \
-          a real query returns zero rows. A follow-up commit lands the per-PgSearchScan state \
-          reconstruction step; until then this is off in production and CI.",
-        &MPP_USE_SHIPPED_SUBPLANS,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
     GucRegistry::define_int_guc(
         c"paradedb.mpp_worker_count",
         c"Total MPP participants (leader + parallel workers)",
@@ -810,10 +788,6 @@ pub fn mpp_debug() -> bool {
 
 pub fn mpp_trace() -> bool {
     MPP_TRACE.get()
-}
-
-pub fn mpp_use_shipped_subplans() -> bool {
-    MPP_USE_SHIPPED_SUBPLANS.get()
 }
 
 pub fn mpp_worker_count() -> i32 {

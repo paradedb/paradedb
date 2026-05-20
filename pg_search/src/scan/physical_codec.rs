@@ -512,6 +512,29 @@ fn encode_tantivy_lookup(node: &dyn ExecutionPlan) -> Result<TantivyLookupProto>
     })
 }
 
+/// Walk an `Arc<dyn ExecutionPlan>` and collect `(indexrelid → Arc<FFHelper>)` mappings from
+/// every `PgSearchScanPlan` node that carries a non-`None` `ffhelper`. Matches what the leader
+/// does in `LateMaterializePlanner::plan_extension` via the private
+/// `late_materialization::extract_ff_helper` function.
+///
+/// The Phase 2 reconstruction of `PgSearchScanPlan` produces real per-scan `FFHelper`s; this
+/// walk lets downstream execs (`TantivyLookupExec`, `SegmentedTopKExec`) reuse them without
+/// re-opening the index — same identity, same fast-field cache as the leader-side plan.
+fn collect_ffhelpers_from_input(
+    plan: &Arc<dyn ExecutionPlan>,
+    out: &mut crate::api::HashMap<u32, std::sync::Arc<crate::index::fast_fields_helper::FFHelper>>,
+) {
+    use crate::scan::execution_plan::PgSearchScanPlan;
+    if let Some(scan) = plan.as_any().downcast_ref::<PgSearchScanPlan>() {
+        if let Some(ff) = scan.ffhelper() {
+            out.insert(scan.indexrelid, ff);
+        }
+    }
+    for child in plan.children() {
+        collect_ffhelpers_from_input(child, out);
+    }
+}
+
 fn decode_tantivy_lookup(
     proto: TantivyLookupProto,
     inputs: &[Arc<dyn ExecutionPlan>],
@@ -547,19 +570,20 @@ fn decode_tantivy_lookup(
         })
         .collect::<Result<_>>()?;
 
-    // FFHelper map population: at production runtime (worker thread inside a PG backend) we'd
-    // open each `indexrelid` via `pg_sys::RelationIdGetRelation`, build a `SearchIndexReader`,
-    // and call `FFHelper::with_fields(reader, deferred fields on that index)`. That requires
-    // PG-backend context which `TaskContext` doesn't surface, so the actual wiring lands in the
-    // dispatch-flip commit alongside a `with_index_open` helper. For the codec PR scope (this
-    // commit) we hand back an empty `FFHelper` per relid — round-trip tests verify field shape,
-    // and any pre-dispatch-flip caller that tries to *execute* the decoded plan will trip a
-    // clear error on the first lookup miss.
-    let ffhelpers: HashMap<u32, std::sync::Arc<FFHelper>> = proto
-        .indexrelids
-        .into_iter()
-        .map(|relid| (relid, std::sync::Arc::new(FFHelper::empty())))
-        .collect();
+    // Reconstruct the FFHelper map from the input plan's PgSearchScanPlan nodes. Phase 2's
+    // reconstruction in `decode_pgsearch_scan` builds real FFHelpers; walking the inputs here
+    // pulls them out keyed by indexrelid, the same recipe the leader uses
+    // (`LateMaterializePlanner` calls `extract_ff_helper`). Fall back to an empty `FFHelper`
+    // for any indexrelid in the proto that isn't present in the input walk — that can only
+    // happen if a scan reconstruction fell back to the empty-states placeholder, and the
+    // resulting downstream lookup miss will surface as a clear error at the next access.
+    let mut ffhelpers: HashMap<u32, std::sync::Arc<FFHelper>> = HashMap::default();
+    collect_ffhelpers_from_input(&input, &mut ffhelpers);
+    for relid in &proto.indexrelids {
+        ffhelpers
+            .entry(*relid)
+            .or_insert_with(|| std::sync::Arc::new(FFHelper::empty()));
+    }
 
     let exec = TantivyLookupExec::new(input, deferred_fields, ffhelpers)?;
     Ok(Arc::new(exec))
@@ -693,12 +717,19 @@ fn decode_segmented_topk(
         })
         .collect::<Result<_>>()?;
 
-    // Same placeholder caveat as `decode_tantivy_lookup` — the real `FFHelper` for each index
-    // gets wired by the dispatch-flip commit, which has access to PG-backend state. Until then
-    // we hand back an empty helper that's structurally correct but won't service runtime
-    // fast-field lookups.
-    let _ = proto.indexrelids; // currently unused at decode time; reserved for the rebuild path.
-    let ffhelper = std::sync::Arc::new(FFHelper::empty());
+    // SegmentedTopKExec takes a single FFHelper — the leader picks `target_indexrelid`
+    // (`segmented_topk_rule.rs:271`) and pulls the FFHelper from the parent TantivyLookupExec
+    // by that key. Mirror that here: walk the input plan for FFHelpers and pick the entry
+    // matching the first deferred-column's indexrelid (the proto's `indexrelids` is already
+    // single-element when SegmentedTopK lands — `segmented_topk_rule.rs:260-269` falls back
+    // to a non-pushdown SortExec when the sort spans multiple indexes).
+    let mut input_ffhelpers: crate::api::HashMap<u32, std::sync::Arc<FFHelper>> =
+        crate::api::HashMap::default();
+    collect_ffhelpers_from_input(&input, &mut input_ffhelpers);
+    let target_indexrelid = proto.indexrelids.first().copied().unwrap_or(0);
+    let ffhelper = input_ffhelpers
+        .remove(&target_indexrelid)
+        .unwrap_or_else(|| std::sync::Arc::new(FFHelper::empty()));
 
     let exec = SegmentedTopKExec::new(
         input,

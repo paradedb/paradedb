@@ -260,6 +260,44 @@ impl ProducerTaskRegistry {
     }
 
     fn prepare_task(&self, stage_id: u32, task_idx: u32) -> Result<PreparedTask, DataFusionError> {
+        // Phase 4 transitional path: prefer a leader-shipped subplan when one is present in
+        // `shipped_subplans` and the user has opted in via `paradedb.mpp_use_shipped_subplans`.
+        // The opt-in guard exists because the codec's `decode_pgsearch_scan` (see
+        // `crate::scan::physical_codec`) emits an empty `Vec<ScanState>` placeholder today —
+        // executing a decoded subplan with empty scan state returns zero rows. A follow-up
+        // commit lands the per-`PgSearchScanPlan` state reconstruction step that the worker
+        // runs over the decoded plan tree before this path is safe to enable by default. Until
+        // then the GUC stays off in production and CI; the lookup is exercised by lib tests
+        // that don't touch PgSearchScan.
+        if crate::gucs::mpp_use_shipped_subplans() {
+            if let Some(shipped) = self
+                .shipped_subplans
+                .lock()
+                .expect("ProducerTaskRegistry shipped_subplans mutex poisoned")
+                .get(&(stage_id, task_idx))
+                .cloned()
+            {
+                let task_count = self
+                    .stage_plans
+                    .lookup(stage_id)
+                    .map(|(_, tc)| tc)
+                    .unwrap_or(1);
+                let task_ctx = build_task_ctx(
+                    &self.session,
+                    task_idx,
+                    task_count,
+                    self.work_mem_bytes,
+                    self.hash_mem_multiplier,
+                    &shipped,
+                )?;
+                return Ok(PreparedTask {
+                    plan: shipped,
+                    ctx: task_ctx,
+                });
+            }
+        }
+        // Default fallback: build the prepared plan locally from `stage_plans`, same as before
+        // the dispatch flip.
         let (plan, task_count) = self.stage_plans.lookup(stage_id).ok_or_else(|| {
             DataFusionError::Internal(format!(
                 "mpp producer: no plan registered for stage_id={stage_id}"
@@ -275,6 +313,39 @@ impl ProducerTaskRegistry {
             self.hash_mem_multiplier,
         )
     }
+}
+
+/// Build a per-`(stage_id, task_idx)` `TaskContext` matching what `prepare_stage_task` produces.
+/// Used by the shipped-subplan path: the decoded plan already has its `DistributedTaskContext`
+/// baked into nested boundary nodes from leader-side preparation, but the executing
+/// `TaskContext` still needs the extension layered on so any operator that re-reads it at
+/// runtime sees the right `(task_index, task_count)` shape.
+fn build_task_ctx(
+    session: &SessionContext,
+    task_idx: u32,
+    task_count: usize,
+    work_mem_bytes: usize,
+    hash_mem_multiplier: f64,
+    plan: &Arc<dyn ExecutionPlan>,
+) -> Result<Arc<TaskContext>, DataFusionError> {
+    let cfg = session
+        .state()
+        .config()
+        .clone()
+        .with_extension(Arc::new(DistributedTaskContext {
+            task_index: task_idx as usize,
+            task_count,
+        }));
+    let memory_pool = create_memory_pool(plan, work_mem_bytes, hash_mem_multiplier);
+    let runtime_env = RuntimeEnvBuilder::new()
+        .with_memory_pool(memory_pool)
+        .build()
+        .map_err(|e| DataFusionError::Internal(format!("mpp producer: build RuntimeEnv: {e}")))?;
+    Ok(Arc::new(
+        TaskContext::default()
+            .with_session_config(cfg)
+            .with_runtime(Arc::new(runtime_env)),
+    ))
 }
 
 /// Shared `(stage_id, task_idx) -> PreparedTask` builder. Called by `ProducerTaskRegistry` on

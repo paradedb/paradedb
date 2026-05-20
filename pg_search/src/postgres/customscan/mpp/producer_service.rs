@@ -77,7 +77,7 @@ use datafusion_distributed::{DistributedExec, DistributedTaskContext, NetworkBou
 use crate::postgres::customscan::datafusion::memory::create_memory_pool;
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 use crate::postgres::customscan::mpp::transport::{
-    CooperativeDrainSet, MppFrameHeader, RequestHandler,
+    CooperativeDrainSet, MppFrameHeader, RequestHandler, SubplanHandler,
 };
 use crate::postgres::customscan::mpp::worker::run_partition_driver;
 
@@ -162,6 +162,13 @@ pub(super) struct ProducerTaskRegistry {
     /// `(stage_id, task_idx) → prepared plan + TaskContext`. Lazy: first Request for a `(stage,
     /// task)` builds it; subsequent partitions of the same `(stage, task)` reuse it.
     prepared: Mutex<HashMap<(u32, u32), PreparedTask>>,
+    /// `(stage_id, task_idx) → decoded subplan` populated by [`Self::on_subplan`] when the
+    /// leader ships a per-task subplan via a [`MppFrameKind::Subplan`](crate::postgres::customscan::mpp::transport::MppFrameKind::Subplan)
+    /// frame. Lives alongside `prepared` (not in place of) for this phase of the dispatch flip:
+    /// Phase 4 of the PR chain will swap the Request handler to consume from here (and to
+    /// reconstruct PgSearchScan state on top of the decoded plan, which the current codec emits
+    /// empty). Until then this map is populated, not consumed — exercised by lib tests.
+    shipped_subplans: Mutex<HashMap<(u32, u32), Arc<dyn ExecutionPlan>>>,
     /// `(stage_id, task_idx, partition)` set of already-dispatched drivers. Repeat Requests are
     /// dropped. Without this, a consumer that re-issued `stream_partition` would cause the
     /// producer to spawn a second driver pushing duplicate frames onto the channel.
@@ -185,8 +192,21 @@ impl ProducerTaskRegistry {
             active_drivers: Arc::new(AtomicUsize::new(0)),
             first_error: Arc::new(Mutex::new(None)),
             prepared: Mutex::new(HashMap::new()),
+            shipped_subplans: Mutex::new(HashMap::new()),
             spawned: Mutex::new(HashSet::new()),
         }
+    }
+
+    /// Number of subplans the registry has received from the leader via
+    /// [`SubplanHandler::on_subplan`](crate::postgres::customscan::mpp::transport::SubplanHandler).
+    /// Read by lib tests; production code doesn't consume this map yet (see the field doc on
+    /// `shipped_subplans`).
+    #[allow(dead_code)] // consumed by Phase 4 of the dispatch flip + the upcoming lib tests.
+    pub(super) fn shipped_subplan_count(&self) -> usize {
+        self.shipped_subplans
+            .lock()
+            .expect("ProducerTaskRegistry shipped_subplans mutex poisoned")
+            .len()
     }
 
     /// Number of currently-running driver futures. Service loop reads this to know when
@@ -574,6 +594,56 @@ impl RequestHandler for ProducerTaskRegistry {
                 }
             }
         });
+        Ok(())
+    }
+}
+
+impl SubplanHandler for ProducerTaskRegistry {
+    /// Receive a leader-shipped subplan for `(stage_id, task_idx)`. Decodes the bytes with
+    /// [`crate::scan::physical_codec::PgSearchPhysicalCodec`] and stores the result in
+    /// `shipped_subplans` keyed by `(stage_id, task_idx)`.
+    ///
+    /// Phase 3 of the dispatch flip: the receive side is wired but the Request-path
+    /// hasn't switched over yet. The decoded plan goes into a separate map so the existing
+    /// `prepared` path is untouched while we land the receiver-side machinery. Phase 4 swaps
+    /// the lookup in `on_request` to consume from `shipped_subplans` and reconstruct
+    /// `PgSearchScan` state on top of the decoded plan (the codec emits empty `states` today —
+    /// see `crate::scan::physical_codec::decode_pgsearch_scan`).
+    fn on_subplan(
+        &self,
+        stage_id: u32,
+        task_idx: u32,
+        payload: Vec<u8>,
+    ) -> Result<(), DataFusionError> {
+        use crate::scan::physical_codec::PgSearchPhysicalCodec;
+        use datafusion_proto::bytes::physical_plan_from_bytes_with_extension_codec;
+
+        let key = (stage_id, task_idx);
+        // Dedupe — a re-shipped subplan (e.g. leader retried after a transient error) lands
+        // in the same slot. Last write wins; same `(stage_id, task_idx)` from the same leader
+        // session always carries the same bytes today.
+        let codec = PgSearchPhysicalCodec;
+        let task_ctx = self.session.task_ctx();
+        let decoded = physical_plan_from_bytes_with_extension_codec(
+            payload.as_slice(),
+            &task_ctx,
+            &codec,
+        )
+        .map_err(|e| {
+            DataFusionError::Internal(format!(
+                "mpp producer on_subplan: decode failed stage_id={stage_id} task_idx={task_idx}: {e}"
+            ))
+        })?;
+        let mut map = self
+            .shipped_subplans
+            .lock()
+            .expect("ProducerTaskRegistry shipped_subplans mutex poisoned");
+        map.insert(key, decoded);
+        crate::mpp_log!(
+            "mpp producer on_subplan: received stage_id={stage_id} task_idx={task_idx} \
+             (total shipped: {})",
+            map.len()
+        );
         Ok(())
     }
 }

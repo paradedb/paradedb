@@ -220,7 +220,6 @@ impl MppMesh {
     /// (proc 0) today, but installing on every drain keeps the API symmetric with
     /// [`Self::install_request_handler`] and is safe — a peer that never sends a Subplan frame
     /// never triggers the handler. Called once at worker startup.
-    #[allow(dead_code)] // called by Phase 3 of the dispatch-flip PR.
     pub(crate) fn install_subplan_handler(&self, handler: Arc<dyn SubplanHandler>) {
         for drain in self.inbound_receivers.iter().flatten() {
             drain.set_subplan_handler(Arc::clone(&handler));
@@ -229,7 +228,6 @@ impl MppMesh {
 
     /// Drop every drain's installed subplan handler at teardown, symmetric with
     /// [`Self::uninstall_request_handler`].
-    #[allow(dead_code)] // called by Phase 3 of the dispatch-flip PR.
     pub(crate) fn uninstall_subplan_handler(&self) {
         for drain in self.inbound_receivers.iter().flatten() {
             drain.clear_subplan_handler();

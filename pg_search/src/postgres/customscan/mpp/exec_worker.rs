@@ -248,6 +248,13 @@ pub(crate) fn run_mpp_worker(
     worker_mesh.install_request_handler(Arc::clone(&registry)
         as Arc<dyn crate::postgres::customscan::mpp::transport::RequestHandler>);
 
+    // Install the same registry as the subplan handler so leader-shipped per-(stage, task)
+    // subplans land in `registry.shipped_subplans`. Phase 3 of the dispatch flip just fills that
+    // map; Phase 4 will swap the on-Request path to consume from it. The two handler trait
+    // impls coexist on `ProducerTaskRegistry` and dispatch to disjoint code paths.
+    worker_mesh.install_subplan_handler(Arc::clone(&registry)
+        as Arc<dyn crate::postgres::customscan::mpp::transport::SubplanHandler>);
+
     // Service loop. Three pieces interleave on the single tokio task scheduler:
     //   - This loop: pumps every inbound drain, dispatching Requests.
     //   - Spawned per-partition drivers (one per Request): run plan.execute(p, ctx), push
@@ -280,10 +287,11 @@ pub(crate) fn run_mpp_worker(
         Ok(())
     });
 
-    // Break the registry ↔ mesh handler cycle so the registry's `Arc<dyn RequestHandler>` refs
-    // (one per drain) release. Without this, `registry` and `worker_mesh` keep each other alive
-    // past the function return.
+    // Break the registry ↔ mesh handler cycles so the registry's `Arc<dyn RequestHandler>` and
+    // `Arc<dyn SubplanHandler>` refs (one each per drain) release. Without this, `registry` and
+    // `worker_mesh` keep each other alive past the function return.
     worker_mesh.uninstall_request_handler();
+    worker_mesh.uninstall_subplan_handler();
     drop(registry);
 
     if let Err(e) = result {

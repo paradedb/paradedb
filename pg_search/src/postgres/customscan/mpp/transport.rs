@@ -1161,7 +1161,6 @@ impl DrainHandle {
     /// Install a subplan handler. Idempotent overwrite — installing twice replaces the previous
     /// handler. Wired by [`MppMesh::install_subplan_handler`] on the worker's leader-side drain
     /// so leader-shipped subplans reach the `ProducerTaskRegistry`.
-    #[allow(dead_code)] // called by Phase 3 of the dispatch-flip PR.
     pub fn set_subplan_handler(&self, handler: Arc<dyn SubplanHandler>) {
         *self
             .subplan_handler
@@ -1171,7 +1170,6 @@ impl DrainHandle {
 
     /// Drop the installed subplan handler. Service loop calls this at teardown for symmetry with
     /// [`Self::clear_request_handler`] so both registry-side handles release together.
-    #[allow(dead_code)] // called by Phase 3 of the dispatch-flip PR.
     pub fn clear_subplan_handler(&self) {
         *self
             .subplan_handler

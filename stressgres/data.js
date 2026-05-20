@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779302585586,
+  "lastUpdate": 1779302618074,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4754,6 +4754,138 @@ window.BENCHMARK_DATA = {
             "value": 58.04296875,
             "unit": "median mem",
             "extra": "avg mem: 56.19517065293296, max mem: 70.31640625, count: 55132"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e165958a105bfe85e119c02a71e333d0b675723d",
+          "message": "fix: Ignore dead PIDs during merge (#5104)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn prod we've seen situations where the mergelist holds segment ids that\nbelonged to an aborted merge, preventing those segments from ever\ngetting merged again.\n\nThe cleaner long term solution is to hold the mergelist in shared\nmemory. But because older versions of `pg_search` may not have\n`shared_preload_libraries` enabled, a temporary fix is to 1) ignore\nsegments with dead pids when merging 2) clear segments with dead pids\nwhen GCing the merge list.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-05-20T11:13:14-07:00",
+          "tree_id": "b4d3cec2eec4ff15f5a5e81d8366c685474f96c2",
+          "url": "https://github.com/paradedb/paradedb/commit/e165958a105bfe85e119c02a71e333d0b675723d"
+        },
+        "date": 1779302587352,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.266409,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.577610531211192, max cpu: 24.169184, count: 55145"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 66.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 66.04284046604407, max mem: 76.703125, count: 55145"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.759702541465707, max cpu: 19.21922, count: 55145"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 64.38671875,
+            "unit": "median mem",
+            "extra": "avg mem: 64.2467632208269, max mem: 74.9296875, count: 55145"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.626889059348166, max cpu: 9.329447, count: 55145"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 36.08203125,
+            "unit": "median mem",
+            "extra": "avg mem: 36.023403923746486, max mem: 38.125, count: 55145"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.73718934510592, max cpu: 9.4395275, count: 55145"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 63.265625,
+            "unit": "median mem",
+            "extra": "avg mem: 62.85292155907154, max mem: 73.8515625, count: 55145"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.654097422129341, max cpu: 9.411765, count: 110290"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 62.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 61.71039879238825, max mem: 73.41796875, count: 110290"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1736,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1741.9110164112794, max block_count: 3058.0, count: 55145"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.652824372109892, max segment_count: 17.0, count: 55145"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.795635860939779, max cpu: 19.21922, count: 55145"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 64.58984375,
+            "unit": "median mem",
+            "extra": "avg mem: 64.45791492882401, max mem: 75.12890625, count: 55145"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.580590871210931, max cpu: 4.7524753, count: 55145"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 62.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 62.02993138827183, max mem: 72.6328125, count: 55145"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.197153298829892, max cpu: 4.7197638, count: 55145"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 56.5625,
+            "unit": "median mem",
+            "extra": "avg mem: 55.39403518564693, max mem: 68.6796875, count: 55145"
           }
         ]
       }

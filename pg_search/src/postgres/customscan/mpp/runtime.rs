@@ -46,7 +46,7 @@ use url::Url;
 
 use crate::postgres::customscan::mpp::transport::{
     CooperativeDrainSet, DrainHandle, DrainItem, MppFrameHeader, MppSender, RequestHandler,
-    SendBatchStats,
+    SendBatchStats, SubplanHandler,
 };
 
 /// `task_idx → proc_idx` round-robin over the worker procs. The leader is `proc_idx = 0`
@@ -212,6 +212,27 @@ impl MppMesh {
     pub(crate) fn uninstall_request_handler(&self) {
         for drain in self.inbound_receivers.iter().flatten() {
             drain.clear_request_handler();
+        }
+    }
+
+    /// Install `handler` on every inbound drain so leader-shipped `Subplan` frames reach the
+    /// worker's `ProducerTaskRegistry`. Workers only receive Subplan frames from the leader
+    /// (proc 0) today, but installing on every drain keeps the API symmetric with
+    /// [`Self::install_request_handler`] and is safe — a peer that never sends a Subplan frame
+    /// never triggers the handler. Called once at worker startup.
+    #[allow(dead_code)] // called by Phase 3 of the dispatch-flip PR.
+    pub(crate) fn install_subplan_handler(&self, handler: Arc<dyn SubplanHandler>) {
+        for drain in self.inbound_receivers.iter().flatten() {
+            drain.set_subplan_handler(Arc::clone(&handler));
+        }
+    }
+
+    /// Drop every drain's installed subplan handler at teardown, symmetric with
+    /// [`Self::uninstall_request_handler`].
+    #[allow(dead_code)] // called by Phase 3 of the dispatch-flip PR.
+    pub(crate) fn uninstall_subplan_handler(&self) {
+        for drain in self.inbound_receivers.iter().flatten() {
+            drain.clear_subplan_handler();
         }
     }
 

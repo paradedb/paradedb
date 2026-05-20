@@ -78,6 +78,12 @@ pub(super) enum MppFrameKind {
     Batch = 0,
     Eof = 1,
     Request = 2,
+    /// Leader-to-worker control frame. Header carries `(stage_id, task_idx)` in the same shape
+    /// as `Request` (task_idx in the upper 24 bits of flags), and the payload is the
+    /// `PgSearchPhysicalCodec`-encoded subplan bytes the worker stashes in its
+    /// `ProducerTaskRegistry`. Pre-shipping subplans this way is what lets the dispatch-flip drop
+    /// the logical-plan-in-DSM scheme: workers no longer need to re-build the physical plan.
+    Subplan = 3,
 }
 
 /// 16-byte prefix on every transport frame.
@@ -160,21 +166,41 @@ impl MppFrameHeader {
         })
     }
 
+    /// Build a `Subplan` header tagging a leader-to-worker subplan ship for `(stage_id, task_idx)`.
+    /// Same task_idx packing as [`Self::request`]; `partition` is unused (set to 0) because the
+    /// subplan applies to all output partitions of `(stage_id, task_idx)`. Errors if `task_idx`
+    /// doesn't fit in 24 bits.
+    #[allow(dead_code)] // wired by Phase 2 of the dispatch-flip PR; tested via the test module.
+    pub fn subplan(stage_id: u32, task_idx: u32) -> Result<Self, DataFusionError> {
+        if task_idx > TASK_IDX_MAX {
+            return Err(DataFusionError::Internal(format!(
+                "mpp: Subplan frame task_idx={task_idx} exceeds 24-bit max ({TASK_IDX_MAX})"
+            )));
+        }
+        Ok(Self {
+            magic: MPP_FRAME_MAGIC,
+            flags: (MppFrameKind::Subplan as u32) | (task_idx << TASK_IDX_SHIFT),
+            stage_id,
+            partition: 0,
+        })
+    }
+
     /// Read the kind out of `flags`. Errors on unknown kinds, or on non-zero upper bits for
-    /// kinds that don't use them (`Batch`/`Eof`). `Request` interprets the upper 24 bits as
-    /// `task_idx`, so reserved-bit validation is skipped there.
+    /// kinds that don't use them (`Batch`/`Eof`). `Request` and `Subplan` interpret the upper 24
+    /// bits as `task_idx`, so reserved-bit validation is skipped for those.
     pub(super) fn kind(&self) -> Result<MppFrameKind, DataFusionError> {
         let kind = match self.flags & FRAME_KIND_MASK {
             0 => MppFrameKind::Batch,
             1 => MppFrameKind::Eof,
             2 => MppFrameKind::Request,
+            3 => MppFrameKind::Subplan,
             other => {
                 return Err(DataFusionError::Internal(format!(
                     "mpp: unknown frame kind {other:#x}"
                 )))
             }
         };
-        if !matches!(kind, MppFrameKind::Request) {
+        if !matches!(kind, MppFrameKind::Request | MppFrameKind::Subplan) {
             let reserved = self.flags & !FRAME_KIND_MASK;
             if reserved != 0 {
                 return Err(DataFusionError::Internal(format!(
@@ -296,8 +322,9 @@ fn encode_request_frame_into(
 }
 
 /// Inverse of [`encode_frame_into`]. Parses the 16-byte header and, for `Batch` frames, decodes
-/// the trailing Arrow IPC stream. `Eof` and `Request` frames return `(header, None)`. Receivers
-/// branch on `header.kind()` to decide routing.
+/// the trailing Arrow IPC stream. `Eof` and `Request` frames return `(header, None)`. `Subplan`
+/// is handled by [`MppReceiver::try_recv_batch`] before reaching this function so the raw payload
+/// stays accessible; reaching here with `Subplan` is a routing bug.
 fn decode_frame(bytes: &[u8]) -> Result<(MppFrameHeader, Option<RecordBatch>), DataFusionError> {
     let header = MppFrameHeader::parse(bytes)?;
     match header.kind()? {
@@ -329,7 +356,37 @@ fn decode_frame(bytes: &[u8]) -> Result<(MppFrameHeader, Option<RecordBatch>), D
             })??;
             Ok((header, Some(batch)))
         }
+        MppFrameKind::Subplan => Err(DataFusionError::Internal(
+            "mpp: decode_frame called on Subplan (caller should route via try_recv_batch's \
+             Subplan branch so the payload isn't lost)"
+                .into(),
+        )),
     }
+}
+
+/// Serialize a [`MppFrameKind::Subplan`] frame: 16-byte header for `(stage_id, task_idx)` followed
+/// by `subplan_bytes`. Consumed on the worker side by the installed [`SubplanHandler`] via
+/// [`DrainHandle::try_drain_pass`]'s subplan dispatch.
+///
+/// Wire layout:
+///
+/// ```text
+/// [ magic | flags=Subplan|task_idx<<8 | stage_id | partition=0 ] [ subplan_bytes ]
+/// |---------- 16 bytes --------|                                 |- variable -|
+/// ```
+#[allow(dead_code)] // wired by Phase 2 of the dispatch-flip PR; tested via the test module.
+fn encode_subplan_frame_into(
+    stage_id: u32,
+    task_idx: u32,
+    subplan_bytes: &[u8],
+    buf: &mut Vec<u8>,
+) -> Result<(), DataFusionError> {
+    buf.clear();
+    buf.resize(MPP_FRAME_HEADER_SIZE, 0);
+    let header = MppFrameHeader::subplan(stage_id, task_idx)?;
+    header.write_to(&mut buf[..MPP_FRAME_HEADER_SIZE]);
+    buf.extend_from_slice(subplan_bytes);
+    Ok(())
 }
 
 /// Local queue between a drain (either the cooperative `try_drain_pass` or the test-only thread
@@ -663,13 +720,36 @@ impl MppSender {
         result
     }
 
+    /// Ship a `(stage_id, task_idx)` subplan from the leader to its owning worker. `subplan_bytes`
+    /// is the `PgSearchPhysicalCodec` output for the worker's per-`(stage, task)` physical
+    /// subplan. The shm_mq peer reads this as a 16-byte header followed by `subplan_bytes` and
+    /// hands it to its installed [`SubplanHandler`], which decodes and stashes in the
+    /// `ProducerTaskRegistry`.
+    ///
+    /// Uses the same cooperative spin as `send_batch_traced` so a full outbound queue doesn't
+    /// stall the leader's setup phase.
+    #[allow(dead_code)] // called by Phase 2 of the dispatch-flip PR.
+    pub(super) async fn send_subplan_traced(
+        &self,
+        task_idx: u32,
+        subplan_bytes: &[u8],
+        stats: &mut SendBatchStats,
+    ) -> Result<(), DataFusionError> {
+        let mut scratch = self.scratch.replace(Vec::new());
+        let result = self
+            .send_subplan_with_scratch(task_idx, subplan_bytes, &mut scratch, stats)
+            .await;
+        self.scratch.replace(scratch);
+        result
+    }
+
     async fn send_eof_with_scratch(
         &self,
         scratch: &mut Vec<u8>,
         stats: &mut SendBatchStats,
     ) -> Result<(), DataFusionError> {
         encode_eof_frame_into(self.header.stage_id, self.header.partition, scratch)?;
-        self.send_header_only(scratch, stats).await
+        self.send_pre_encoded(scratch, stats).await
     }
 
     async fn send_request_with_scratch(
@@ -684,13 +764,26 @@ impl MppSender {
             self.header.partition,
             scratch,
         )?;
-        self.send_header_only(scratch, stats).await
+        self.send_pre_encoded(scratch, stats).await
     }
 
-    /// Shared spin used by every header-only send path (`Eof`, `Request`). Without a cooperative
-    /// drain attached, falls through to the blocking send (in-proc test channels behave that way
-    /// and never block long enough to matter).
-    async fn send_header_only(
+    #[allow(dead_code)] // called by `send_subplan_traced`; tail-of-tree allow.
+    async fn send_subplan_with_scratch(
+        &self,
+        task_idx: u32,
+        subplan_bytes: &[u8],
+        scratch: &mut Vec<u8>,
+        stats: &mut SendBatchStats,
+    ) -> Result<(), DataFusionError> {
+        encode_subplan_frame_into(self.header.stage_id, task_idx, subplan_bytes, scratch)?;
+        self.send_pre_encoded(scratch, stats).await
+    }
+
+    /// Shared spin used by every send path that has already encoded its frame into `scratch`:
+    /// `Eof`, `Request`, and `Subplan` (the last with a payload, the others header-only). Without
+    /// a cooperative drain attached, falls through to the blocking send (in-proc test channels
+    /// behave that way and never block long enough to matter).
+    async fn send_pre_encoded(
         &self,
         scratch: &[u8],
         stats: &mut SendBatchStats,
@@ -831,21 +924,57 @@ impl MppReceiver {
     }
 
     pub(super) fn try_recv_batch(&self) -> RecvBatchOutcome {
-        match self.channel.try_recv() {
-            RecvOutcome::Bytes(bytes) => match decode_frame(&bytes) {
-                Ok((header, Some(batch))) => RecvBatchOutcome::Batch { header, batch },
-                Ok((header, None)) => match header.kind() {
-                    Ok(MppFrameKind::Request) => RecvBatchOutcome::Request { header },
-                    Ok(MppFrameKind::Eof) => RecvBatchOutcome::Eof { header },
-                    Ok(MppFrameKind::Batch) => RecvBatchOutcome::Error(DataFusionError::Internal(
-                        "mpp: decode_frame returned Batch kind with no payload".into(),
-                    )),
+        let bytes = match self.channel.try_recv() {
+            RecvOutcome::Bytes(b) => b,
+            RecvOutcome::Empty => return RecvBatchOutcome::Empty,
+            RecvOutcome::Detached => return RecvBatchOutcome::Detached,
+        };
+        let header = match MppFrameHeader::parse(&bytes) {
+            Ok(h) => h,
+            Err(e) => return RecvBatchOutcome::Error(e),
+        };
+        let kind = match header.kind() {
+            Ok(k) => k,
+            Err(e) => return RecvBatchOutcome::Error(e),
+        };
+        // Subplan has a payload (the codec-encoded subplan bytes); the other kinds either have a
+        // payload-less header (Eof, Request) or an Arrow IPC stream (Batch). Dispatch each kind
+        // inline so we don't duplicate the payload-length checks `decode_frame` does.
+        match kind {
+            MppFrameKind::Subplan => {
+                if bytes.len() <= MPP_FRAME_HEADER_SIZE {
+                    return RecvBatchOutcome::Error(DataFusionError::Internal(format!(
+                        "mpp: Subplan frame missing payload (len {} <= header size {})",
+                        bytes.len(),
+                        MPP_FRAME_HEADER_SIZE
+                    )));
+                }
+                let payload = bytes[MPP_FRAME_HEADER_SIZE..].to_vec();
+                RecvBatchOutcome::Subplan { header, payload }
+            }
+            MppFrameKind::Batch | MppFrameKind::Eof | MppFrameKind::Request => {
+                match decode_frame(&bytes) {
+                    Ok((header, Some(batch))) => RecvBatchOutcome::Batch { header, batch },
+                    Ok((header, None)) => match header.kind() {
+                        Ok(MppFrameKind::Request) => RecvBatchOutcome::Request { header },
+                        Ok(MppFrameKind::Eof) => RecvBatchOutcome::Eof { header },
+                        Ok(MppFrameKind::Batch) => {
+                            RecvBatchOutcome::Error(DataFusionError::Internal(
+                                "mpp: decode_frame returned Batch kind with no payload".into(),
+                            ))
+                        }
+                        Ok(MppFrameKind::Subplan) => {
+                            // Unreachable: we dispatched Subplan above. Surface as an internal
+                            // error in case the kind reading drifts between the two call sites.
+                            RecvBatchOutcome::Error(DataFusionError::Internal(
+                                "mpp: try_recv_batch handed Subplan to decode_frame".into(),
+                            ))
+                        }
+                        Err(e) => RecvBatchOutcome::Error(e),
+                    },
                     Err(e) => RecvBatchOutcome::Error(e),
-                },
-                Err(e) => RecvBatchOutcome::Error(e),
-            },
-            RecvOutcome::Empty => RecvBatchOutcome::Empty,
-            RecvOutcome::Detached => RecvBatchOutcome::Detached,
+                }
+            }
         }
     }
 }
@@ -865,6 +994,24 @@ pub trait RequestHandler: Send + Sync {
         stage_id: u32,
         task_idx: u32,
         partition: u32,
+    ) -> Result<(), DataFusionError>;
+}
+
+/// Worker-side dispatcher for incoming [`MppFrameKind::Subplan`] frames. The cooperative drain
+/// calls `on_subplan` whenever the leader ships a per-`(stage_id, task_idx)` physical subplan;
+/// implementations decode the bytes with [`crate::scan::physical_codec::PgSearchPhysicalCodec`]
+/// and stash the resulting `Arc<dyn ExecutionPlan>` in their `ProducerTaskRegistry` so a later
+/// `Request` for the same `(stage_id, task_idx)` finds it already prepared.
+///
+/// Dispatch happens inline on the worker's backend thread (same as `RequestHandler`), so the
+/// handler shouldn't block on async work; `prepare_in_process_plan` already ran on the leader
+/// side before the subplan was shipped.
+pub trait SubplanHandler: Send + Sync {
+    fn on_subplan(
+        &self,
+        stage_id: u32,
+        task_idx: u32,
+        payload: Vec<u8>,
     ) -> Result<(), DataFusionError>;
 }
 
@@ -890,6 +1037,15 @@ pub(super) enum RecvBatchOutcome {
     /// cooperative drain dispatches to its installed [`RequestHandler`].
     Request {
         header: MppFrameHeader,
+    },
+    /// A leader-to-worker `Subplan` frame: header carries `(stage_id, task_idx)`, payload is the
+    /// `PgSearchPhysicalCodec`-encoded subplan bytes. The cooperative drain dispatches to its
+    /// installed [`SubplanHandler`] which stashes the decoded plan in the worker's
+    /// `ProducerTaskRegistry` so a follow-up `Request` for the same `(stage_id, task_idx)` can
+    /// execute it without re-planning.
+    Subplan {
+        header: MppFrameHeader,
+        payload: Vec<u8>,
     },
     Empty,
     Detached,
@@ -950,6 +1106,11 @@ pub struct DrainHandle {
     /// at teardown — needed to break the `MppMesh ↔ DrainHandle ↔ Arc<dyn RequestHandler> ↔
     /// Weak<MppMesh>` chain on shutdown.
     request_handler: Mutex<Option<Arc<dyn RequestHandler>>>,
+    /// Installed by the worker's service loop via [`MppMesh::install_subplan_handler`] to receive
+    /// leader-shipped subplans. Lifetime parallels `request_handler`; cleared at teardown to drop
+    /// the strong `Arc<dyn SubplanHandler>` reference. Workers only install this on their drain
+    /// for the leader (proc 0) — peer-to-peer subplan shipping doesn't happen today.
+    subplan_handler: Mutex<Option<Arc<dyn SubplanHandler>>>,
 }
 
 impl DrainHandle {
@@ -968,6 +1129,7 @@ impl DrainHandle {
             coop_receivers: Mutex::new(wrapped),
             sender_proc,
             request_handler: Mutex::new(None),
+            subplan_handler: Mutex::new(None),
         }
     }
 
@@ -989,6 +1151,27 @@ impl DrainHandle {
             .request_handler
             .lock()
             .expect("DrainHandle request_handler mutex poisoned") = None;
+    }
+
+    /// Install a subplan handler. Idempotent overwrite — installing twice replaces the previous
+    /// handler. Wired by [`MppMesh::install_subplan_handler`] on the worker's leader-side drain
+    /// so leader-shipped subplans reach the `ProducerTaskRegistry`.
+    #[allow(dead_code)] // called by Phase 3 of the dispatch-flip PR.
+    pub fn set_subplan_handler(&self, handler: Arc<dyn SubplanHandler>) {
+        *self
+            .subplan_handler
+            .lock()
+            .expect("DrainHandle subplan_handler mutex poisoned") = Some(handler);
+    }
+
+    /// Drop the installed subplan handler. Service loop calls this at teardown for symmetry with
+    /// [`Self::clear_request_handler`] so both registry-side handles release together.
+    #[allow(dead_code)] // called by Phase 3 of the dispatch-flip PR.
+    pub fn clear_subplan_handler(&self) {
+        *self
+            .subplan_handler
+            .lock()
+            .expect("DrainHandle subplan_handler mutex poisoned") = None;
     }
 
     /// True once [`Self::try_drain_pass`] has observed `Detached` from its underlying receiver.
@@ -1115,13 +1298,15 @@ impl DrainHandle {
         // indefinitely on one source and starve its own outbound.
         const MAX_BATCHES_PER_SOURCE_PER_PASS: usize = 256;
 
-        // Collect Request headers under the receiver lock, then drop the lock and dispatch
-        // outside. `on_request` can do real work on a cache miss (DF's `prepare_in_process_plan`
-        // is transform_up + codec encoding), and holding the lock across that would stall any
-        // concurrent `force_detach` and block drain progress on every other receiver too. The
-        // two phases don't need to be atomic: Request dispatch just spawns a future and pokes
-        // registry-local state. Doesn't care which Batch/Eof frames drained before or after.
+        // Collect Request and Subplan frames under the receiver lock, then drop the lock and
+        // dispatch outside. Both dispatch paths (`on_request` → DF's `prepare_in_process_plan` +
+        // codec encoding; `on_subplan` → physical-codec decode) can do real work, and holding
+        // the lock across that would stall any concurrent `force_detach` and block drain
+        // progress on every other receiver too. The two phases don't need to be atomic: Request
+        // / Subplan dispatch just pokes registry-local state, doesn't care which Batch/Eof
+        // frames drained before or after.
         let mut pending_requests: Vec<MppFrameHeader> = Vec::new();
+        let mut pending_subplans: Vec<(MppFrameHeader, Vec<u8>)> = Vec::new();
         {
             let mut slots = self.coop_receivers.lock().unwrap();
             for slot in slots.iter_mut() {
@@ -1143,6 +1328,9 @@ impl DrainHandle {
                         RecvBatchOutcome::Request { header } => {
                             pending_requests.push(header);
                         }
+                        RecvBatchOutcome::Subplan { header, payload } => {
+                            pending_subplans.push((header, payload));
+                        }
                         RecvBatchOutcome::Empty => break,
                         RecvBatchOutcome::Detached => {
                             *slot = None;
@@ -1160,6 +1348,11 @@ impl DrainHandle {
             // `slots` guard drops here, releasing `coop_receivers` before dispatch.
         }
 
+        // Subplans first: any Requests that arrived in the same pass for a `(stage_id, task_idx)`
+        // covered by these subplans need the registry populated before dispatch.
+        if !pending_subplans.is_empty() {
+            self.dispatch_subplans(pending_subplans)?;
+        }
         if !pending_requests.is_empty() {
             self.dispatch_requests(pending_requests)?;
         }
@@ -1203,6 +1396,34 @@ impl DrainHandle {
                 header.task_idx(),
                 header.partition,
             )?;
+        }
+        Ok(())
+    }
+
+    /// Forward `Subplan` frames to the installed handler. Same teardown-race semantics as
+    /// [`Self::dispatch_requests`]: if no handler is installed (worker shutting down before all
+    /// subplans arrived) we drop them silently, since the producer registry that would receive
+    /// them has already been torn down by the service loop. Any subsequent Request for the same
+    /// `(stage_id, task_idx)` would fail to find a prepared plan and surface its own error.
+    fn dispatch_subplans(
+        &self,
+        items: Vec<(MppFrameHeader, Vec<u8>)>,
+    ) -> Result<(), DataFusionError> {
+        let handler = self
+            .subplan_handler
+            .lock()
+            .expect("DrainHandle subplan_handler mutex poisoned")
+            .as_ref()
+            .map(Arc::clone);
+        let Some(handler) = handler else {
+            crate::mpp_log!(
+                "mpp drain: {} Subplan frame(s) dropped, no handler installed (teardown race)",
+                items.len()
+            );
+            return Ok(());
+        };
+        for (header, payload) in items {
+            handler.on_subplan(header.stage_id, header.task_idx(), payload)?;
         }
         Ok(())
     }
@@ -1469,6 +1690,20 @@ mod tests {
                             header.partition,
                         )));
                     }
+                    RecvBatchOutcome::Subplan { header, .. } => {
+                        // Same rationale as the Request arm: tests using `spawn_drain_thread`
+                        // don't exercise the dispatch-flip subplan-shipping path. Surface as a
+                        // hard error so a future test that accidentally produces a Subplan
+                        // doesn't silently swallow it.
+                        done[i] = true;
+                        buffer.notify_source_done();
+                        return Err(DataFusionError::Internal(format!(
+                            "mpp test drain_loop: unexpected Subplan frame \
+                             (stage_id={}, task_idx={})",
+                            header.stage_id,
+                            header.task_idx(),
+                        )));
+                    }
                     RecvBatchOutcome::Empty => {}
                     RecvBatchOutcome::Detached => {
                         done[i] = true;
@@ -1656,6 +1891,148 @@ mod tests {
         let header = MppFrameHeader::request(5, 0, 7).expect("task_idx=0 must construct");
         assert_eq!(header.kind().unwrap(), MppFrameKind::Request);
         assert_eq!(header.task_idx(), 0);
+    }
+
+    #[test]
+    fn frame_round_trips_subplan_with_payload() {
+        let payload: Vec<u8> = (0..32).collect();
+        let mut buf = Vec::with_capacity(MPP_FRAME_HEADER_SIZE + payload.len());
+        encode_subplan_frame_into(17, 3, &payload, &mut buf).expect("encode_subplan");
+        assert_eq!(buf.len(), MPP_FRAME_HEADER_SIZE + payload.len());
+
+        // `decode_frame` deliberately rejects Subplan: try_recv_batch handles it before calling
+        // `decode_frame` so the raw payload isn't lost. Pin that rejection in a test so any
+        // future re-routing that breaks the invariant fails loudly.
+        let err = decode_frame(&buf).expect_err("decode_frame must reject Subplan");
+        assert!(format!("{err}").contains("decode_frame called on Subplan"));
+
+        // The actual decode path: parse header, slice payload out of the bytes manually (mirrors
+        // try_recv_batch's Subplan branch).
+        let parsed = MppFrameHeader::parse(&buf).expect("header parse");
+        assert_eq!(parsed.kind().unwrap(), MppFrameKind::Subplan);
+        assert_eq!(parsed.stage_id, 17);
+        assert_eq!(parsed.task_idx(), 3);
+        assert_eq!(parsed.partition, 0);
+        assert_eq!(&buf[MPP_FRAME_HEADER_SIZE..], payload.as_slice());
+    }
+
+    #[test]
+    fn subplan_frame_rejects_overflowing_task_idx() {
+        let err = MppFrameHeader::subplan(0, TASK_IDX_MAX + 1)
+            .expect_err("overflow must surface as error");
+        assert!(format!("{err}").contains("exceeds 24-bit max"));
+    }
+
+    #[test]
+    fn try_recv_batch_decodes_subplan_payload() {
+        // Drive the receiver-side path: encode a Subplan frame, push it through an in-proc
+        // channel, and assert `try_recv_batch` returns `Subplan { header, payload }` with the
+        // bytes intact.
+        let (tx, rx) = in_proc_channel(8);
+        let receiver = MppReceiver::new(Box::new(rx));
+        let payload: Vec<u8> = b"hello-subplan".to_vec();
+        let mut buf = Vec::new();
+        encode_subplan_frame_into(2, 5, &payload, &mut buf).expect("encode_subplan");
+        tx.send_bytes(&buf).expect("tx send");
+
+        match receiver.try_recv_batch() {
+            RecvBatchOutcome::Subplan {
+                header,
+                payload: got,
+            } => {
+                assert_eq!(header.stage_id, 2);
+                assert_eq!(header.task_idx(), 5);
+                assert_eq!(got, payload);
+            }
+            other => panic!("expected Subplan, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn try_recv_batch_rejects_subplan_with_empty_payload() {
+        // A Subplan frame with no payload bytes is structurally broken — the codec always
+        // produces at least one byte. Surface that as a decode error rather than handing back
+        // an empty `Vec<u8>` to the SubplanHandler.
+        let (tx, rx) = in_proc_channel(8);
+        let receiver = MppReceiver::new(Box::new(rx));
+        // Hand-craft a frame: header only, no payload.
+        let header = MppFrameHeader::subplan(0, 0).expect("subplan header");
+        let mut buf = vec![0u8; MPP_FRAME_HEADER_SIZE];
+        header.write_to(&mut buf);
+        tx.send_bytes(&buf).expect("tx send");
+
+        match receiver.try_recv_batch() {
+            RecvBatchOutcome::Error(e) => {
+                assert!(
+                    format!("{e}").contains("Subplan frame missing payload"),
+                    "unexpected error: {e}"
+                );
+            }
+            other => panic!("expected Error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn drain_handle_dispatches_subplan_to_handler() {
+        // End-to-end: install a `SubplanHandler` on a DrainHandle, push a Subplan frame through
+        // the underlying receiver, run `try_drain_pass`, and verify the handler observed the
+        // call with the right `(stage_id, task_idx, payload)`.
+        type Captured = (u32, u32, Vec<u8>);
+        struct CapturingHandler {
+            calls: std::sync::Mutex<Vec<Captured>>,
+        }
+        impl SubplanHandler for CapturingHandler {
+            fn on_subplan(
+                &self,
+                stage_id: u32,
+                task_idx: u32,
+                payload: Vec<u8>,
+            ) -> Result<(), DataFusionError> {
+                self.calls
+                    .lock()
+                    .unwrap()
+                    .push((stage_id, task_idx, payload));
+                Ok(())
+            }
+        }
+
+        let (tx, rx) = in_proc_channel(8);
+        let recv = MppReceiver::new(Box::new(rx));
+        let drain = DrainHandle::cooperative(vec![recv], Some(0));
+        let handler = std::sync::Arc::new(CapturingHandler {
+            calls: std::sync::Mutex::new(Vec::new()),
+        });
+        drain.set_subplan_handler(handler.clone() as Arc<dyn SubplanHandler>);
+
+        let payload: Vec<u8> = vec![1, 2, 3, 4, 5];
+        let mut buf = Vec::new();
+        encode_subplan_frame_into(9, 6, &payload, &mut buf).expect("encode_subplan");
+        tx.send_bytes(&buf).expect("tx send");
+
+        drain.try_drain_pass().expect("drain pass");
+        let calls = handler.calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0], (9, 6, payload));
+    }
+
+    #[test]
+    fn drain_handle_drops_subplan_when_handler_absent() {
+        // Teardown race: a Subplan frame arrives after `clear_subplan_handler`. The drain must
+        // not error — the registry that would receive it is already torn down, and downstream
+        // Request frames for the same (stage, task) will surface their own miss errors. Just
+        // log and continue.
+        let (tx, rx) = in_proc_channel(8);
+        let recv = MppReceiver::new(Box::new(rx));
+        let drain = DrainHandle::cooperative(vec![recv], Some(0));
+
+        let payload: Vec<u8> = vec![0xAA];
+        let mut buf = Vec::new();
+        encode_subplan_frame_into(0, 0, &payload, &mut buf).expect("encode_subplan");
+        tx.send_bytes(&buf).expect("tx send");
+
+        drain
+            .try_drain_pass()
+            .expect("drain pass tolerates missing handler");
     }
 
     #[test]

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779171016122,
+  "lastUpdate": 1779291914739,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1578,6 +1578,78 @@ window.BENCHMARK_DATA = {
             "value": 58.614034687011525,
             "unit": "median tps",
             "extra": "avg tps: 90.44024062459, max tps: 811.5980609299129, count: 55226"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "141828258+RuchirRaj@users.noreply.github.com",
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "04e96489066b01ff59df968ee7f8651a726f5c56",
+          "message": "feat: Speed up dynamic filter pushdown via tantivy TermSet dispatch refactor (#5111)\n\nBumps `tantivy` + `tantivy-tokenizer-api` rev to pick up\n- https://github.com/paradedb/tantivy/pull/141\n\nThis turns `BitsetFromPostings` into a real TermSet dispatch strategy\nbacked by a new batched SSTable dictionary lookup API, adds D-aware\n(unique vs non-unique) gating, relaxes Gallop admission on sorted\nsegments, and unifies the fast-field and inverted-index dispatch paths\nunder a single `TermSetWeight`.\n\nSpeedups on the dispatch hot path (full bench matrix in the upstream\nPR):\n\n| Cell | K/N | Before | After | Speedup |\n|---|---|---|---|---|\n| PK 1M K=10K, sorted | 0.01 | 4.44 ms (Linear) | 1.09 ms (Gallop) |\n4.07× |\n| LowFk 20M K=1K, unsorted | 5e-5 | 58.7 ms (Linear) | 2.47 ms (Bitset)\n| 23.8× |\n| LowFk 20M K=10K, unsorted | 5e-4 | 59.9 ms (Linear) | 8.01 ms (Bitset)\n| 7.48× |\n\nIn paradedb this lands as a perf improvement for any query plan that\nemits a TermSet pushdown — primarily joins using dynamic filter\npushdown, and `IN (...)` filters on indexed columns.\n\n### Required source changes\n\n- `execution_plan.rs`: new `StrategyTag::Automaton => \"automaton\"` match\narm\nfor the new variant introduced in\nhttps://github.com/paradedb/tantivy/pull/141\n- `gucs.rs`, `pre_filter.rs`: removed `gallop_max_density` (dropped\nupstream;\n  `gallop_enabled` remains as the kill switch)\n\n### Behavior change worth flagging (user-visible)\n\n- `dynamic_filter_pushdown=*` in EXPLAIN output widens its value space.\nPreviously: `{true, false}`. Now: `{gallop, bitset_from_postings,\nlinear,\nautomaton, empty, true (rare fallback), false}`. \n\nThe unified `TermSetWeight` routes non-fast indexed text fields through\nthe strategy framework, so EXPLAIN now reports the actual strategy name\ninstead of the generic `=true` \"not-engaged\" marker. Anyone parsing this\ntoken downstream (dashboards, ops scripts) sees additional values; no\nsemantic changes to the planner's pushdown decisions themselves.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-20T20:43:58+05:30",
+          "tree_id": "f37fd8eb02fdad260dbc18e787e3a0720925d470",
+          "url": "https://github.com/paradedb/paradedb/commit/04e96489066b01ff59df968ee7f8651a726f5c56"
+        },
+        "date": 1779291884086,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 131.46868607184916,
+            "unit": "median tps",
+            "extra": "avg tps: 131.8906196515286, max tps: 145.1172570655851, count: 55132"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 508.11563238180406,
+            "unit": "median tps",
+            "extra": "avg tps: 507.8782763703129, max tps: 655.47911198209, count: 55132"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3362.232101963941,
+            "unit": "median tps",
+            "extra": "avg tps: 3335.0970109265454, max tps: 3372.1852356807153, count: 55132"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 423.8347966268866,
+            "unit": "median tps",
+            "extra": "avg tps: 423.3368205908032, max tps: 608.5258364248474, count: 55132"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2816.591432432126,
+            "unit": "median tps",
+            "extra": "avg tps: 2795.902335486121, max tps: 2900.1316319551715, count: 110264"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 524.4987613675027,
+            "unit": "median tps",
+            "extra": "avg tps: 523.6390354020687, max tps: 623.3841219769708, count: 55132"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2043.4657518574627,
+            "unit": "median tps",
+            "extra": "avg tps: 2021.0230947742004, max tps: 2072.821142862017, count: 55132"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 42.504385252837544,
+            "unit": "median tps",
+            "extra": "avg tps: 51.326531354792586, max tps: 280.45157190301535, count: 55132"
           }
         ]
       }

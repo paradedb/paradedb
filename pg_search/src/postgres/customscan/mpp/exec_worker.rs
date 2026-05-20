@@ -51,7 +51,9 @@ use crate::scan::physical_codec::PgSearchPhysicalCodec;
 /// Bundle of inputs the worker dispatcher needs. Per-scan `exec_mpp_worker` wrappers populate
 /// this from their typed state and hand it to [`run_mpp_worker`].
 pub(crate) struct MppWorkerInputs {
-    /// The leader's `ParallelScanState`, used to claim the partitioning source's segment slice.
+    /// Worker's view of the shared `ParallelScanState` (the DSM-attached state the leader
+    /// populated), used to claim the partitioning source's segment slice and to rebuild
+    /// PgSearchScan runtime state on decoded shipped subplans.
     pub parallel_state: Option<*mut ParallelScanState>,
     /// Canonical segment ID sets for non-partitioning sources, snapshotted by the leader.
     pub non_partitioning_segments: Vec<HashSet<SegmentId>>,
@@ -211,14 +213,14 @@ pub(crate) fn run_mpp_worker(
     let session_arc = Arc::new(session);
     // Pass the per-source canonical segment-ID sets + the ParallelScanState pointer down so the
     // registry can rebuild PgSearchScan / FFHelper runtime state when decoding leader-shipped
-    // subplans. The clone is cheap (each `HashSet<SegmentId>` is tens to thousands of UUIDs).
+    // subplans.
     let registry = Arc::new(ProducerTaskRegistry::new(
         stage_plans,
         session_arc,
         &worker_mesh,
         work_mem_bytes,
         hash_mem_multiplier,
-        index_segment_ids.clone(),
+        index_segment_ids,
         parallel_state,
     ));
 

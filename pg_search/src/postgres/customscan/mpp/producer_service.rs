@@ -64,8 +64,6 @@
 //!    `run_mpp_worker`.
 
 use std::collections::HashMap;
-
-use crate::api::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
@@ -75,9 +73,10 @@ use datafusion::execution::TaskContext;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion::prelude::SessionContext;
 use datafusion_distributed::{DistributedExec, DistributedTaskContext, NetworkBoundaryExt};
-
+use datafusion_proto::bytes::physical_plan_from_bytes_with_extension_codec;
 use tantivy::index::SegmentId;
 
+use crate::api::HashSet;
 use crate::postgres::customscan::datafusion::memory::create_memory_pool;
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 use crate::postgres::customscan::mpp::transport::{
@@ -85,7 +84,6 @@ use crate::postgres::customscan::mpp::transport::{
 };
 use crate::postgres::customscan::mpp::worker::run_partition_driver;
 use crate::postgres::ParallelScanState;
-use datafusion_proto::bytes::physical_plan_from_bytes_with_extension_codec;
 
 /// Per-`stage_id` snapshot of `(local_plan, task_count)` walked out of the worker's distributed
 /// physical plan at startup. The producer service loop consults this on every Request to find
@@ -207,12 +205,21 @@ pub(super) struct ProducerTaskRegistry {
     spawned: Mutex<HashSet<(u32, u32, u32)>>,
 }
 
-// SAFETY: `parallel_state: *mut ParallelScanState` makes the auto-derived `Send + Sync` go away.
-// In practice the pointer is into PG's DSM segment, valid for the lifetime of the parallel
-// context, and only dereferenced from the worker's backend thread (the runtime tokio uses on
-// the worker is current-thread, pinned to the backend). The registry's other handlers
-// (`on_request`, `on_subplan`) are invoked from the cooperative-drain spin which also runs on
-// the same backend thread. Cross-thread access is therefore impossible by construction.
+// SAFETY: `parallel_state: *mut ParallelScanState` makes the auto-derived `Send + Sync` go away,
+// but both bounds are required (`RequestHandler` and `SubplanHandler` are both `: Send + Sync`).
+//
+// Provenance: the pointer is the worker's view of PG's DSM-attached shared state — set up in the
+// custom-scan executor state (see `MppWorkerInputs::parallel_state` and the customscan
+// `parallel_state` field), passed into `run_mpp_worker` for the lifetime of that call. The
+// `ParallelScanState` outlives `run_mpp_worker` because PG won't tear down the executor state
+// (and DSM mapping) while the worker is still inside `ExecutorRun`.
+//
+// Threading: the only runtime the registry's handlers run on is the worker's `current_thread`
+// tokio runtime (pinned to the PG backend thread; see `aggregatescan/mpp.rs` and `joinscan/mpp.rs`).
+// `on_request`/`on_subplan` are invoked from the cooperative-drain spin on that same thread, and
+// the per-partition driver futures `tokio::spawn`ed from `on_request` poll on it too. Cross-thread
+// access is therefore impossible by construction. Same pattern that covers `ShmMqSender` and
+// `MppSender` in `mesh.rs` / `transport.rs`.
 unsafe impl Send for ProducerTaskRegistry {}
 unsafe impl Sync for ProducerTaskRegistry {}
 
@@ -787,15 +794,16 @@ mod tests {
             .with_distributed_user_codec(PgSearchPhysicalCodec)
             .build();
         let session = Arc::new(SessionContext::new_with_state(state));
+        // index_segment_ids + parallel_state stay empty/None in lib tests; the reconstruction
+        // walker (Phase 2+) is exercised by integration tests instead.
         Arc::new(ProducerTaskRegistry::new(
             stage_plans,
             session,
             &mesh,
-            64 * 1024 * 1024, // work_mem
-            2.0,              // hash_mem_multiplier
-            Vec::new(),       // index_segment_ids — empty in tests; reconstruction is exercised
-            //                                    by integration tests
-            None, // parallel_state — none in tests
+            64 * 1024 * 1024,
+            2.0,
+            Vec::new(),
+            None,
         ))
     }
 

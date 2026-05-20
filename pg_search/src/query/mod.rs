@@ -34,6 +34,7 @@ use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::customscan::explain::{format_for_explain, ExplainFormat};
 use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::storage::metadata::Version;
 use crate::postgres::utils::convert_pg_date_string;
 use crate::query::more_like_this::MoreLikeThisQuery;
 use crate::query::pdb_query::pdb;
@@ -902,6 +903,7 @@ impl SearchQueryInput {
     pub fn into_tantivy_query<QueryParserCtor: Fn() -> QueryParser>(
         self,
         schema: &SearchIndexSchema,
+        index_created_by_version: Option<Version>,
         parser: &QueryParserCtor,
         searcher: &Searcher,
         index_oid: pg_sys::Oid,
@@ -912,6 +914,7 @@ impl SearchQueryInput {
         self.into_tantivy_query_generic(
             &QueryOnlyBuilder,
             schema,
+            index_created_by_version,
             parser,
             searcher,
             index_oid,
@@ -927,6 +930,7 @@ impl SearchQueryInput {
         self,
         builder: &B,
         schema: &SearchIndexSchema,
+        index_created_by_version: Option<Version>,
         parser: &QueryParserCtor,
         searcher: &Searcher,
         index_oid: pg_sys::Oid,
@@ -938,6 +942,7 @@ impl SearchQueryInput {
             input.into_tantivy_query_generic(
                 builder,
                 schema,
+                index_created_by_version,
                 parser,
                 searcher,
                 index_oid,
@@ -1353,6 +1358,7 @@ impl SearchQueryInput {
                 let query = pdb_query.clone().into_tantivy_query(
                     field.clone(),
                     schema,
+                    index_created_by_version,
                     parser,
                     searcher,
                 )?;
@@ -1371,6 +1377,7 @@ impl SearchQueryInput {
     pub fn into_tantivy_query_with_tree<QueryParserCtor: Fn() -> QueryParser>(
         self,
         schema: &SearchIndexSchema,
+        index_created_by_version: Option<Version>,
         parser: &QueryParserCtor,
         searcher: &Searcher,
         index_oid: pg_sys::Oid,
@@ -1382,6 +1389,7 @@ impl SearchQueryInput {
         self.into_tantivy_query_generic(
             &QueryTreeBuilder,
             schema,
+            index_created_by_version,
             parser,
             searcher,
             index_oid,

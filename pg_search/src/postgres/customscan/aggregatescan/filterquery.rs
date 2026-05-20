@@ -115,9 +115,11 @@ fn build_query(query_json: serde_json::Value, indexrelid: u32) -> anyhow::Result
         None,
         query.needs_tokenizer(),
     )?;
+    let index_created_by_version = index.created_by_version();
 
     let tantivy_query = query.into_tantivy_query(
         &schema,
+        index_created_by_version,
         &|| {
             QueryParser::for_index(
                 reader.searcher().index(),

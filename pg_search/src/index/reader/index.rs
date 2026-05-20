@@ -30,7 +30,7 @@ use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::PinnedBuffer;
-use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::storage::metadata::{MetaPage, Version};
 use crate::query::estimate_tree::QueryWithEstimates;
 use crate::query::SearchQueryInput;
 use crate::scan::info::RowEstimate;
@@ -281,6 +281,7 @@ pub struct SearchIndexReader {
     need_scores: bool,
     total_segment_count: usize,
     total_docs: u64,
+    index_created_by_version: Option<Version>,
     segment_ordinal_by_id: HashMap<SegmentId, SegmentOrdinal>,
 
     // [`PinnedBuffer`] has a Drop impl, so we hold onto it but don't otherwise use it
@@ -309,6 +310,7 @@ impl Clone for SearchIndexReader {
             need_scores: self.need_scores,
             total_segment_count: self.total_segment_count,
             total_docs: self.total_docs,
+            index_created_by_version: self.index_created_by_version,
             segment_ordinal_by_id: self.segment_ordinal_by_id.clone(),
             _cleanup_lock: self._cleanup_lock.clone(),
         }
@@ -410,11 +412,13 @@ impl SearchIndexReader {
             schema,
         } = components;
 
+        let index_created_by_version = index_relation.created_by_version();
         let need_scores = need_scores || search_query_input.need_scores();
         let query = {
             search_query_input
                 .into_tantivy_query(
                     &schema,
+                    index_created_by_version,
                     &|| {
                         QueryParser::for_index(
                             &index,
@@ -446,6 +450,7 @@ impl SearchIndexReader {
             need_scores,
             total_segment_count,
             total_docs,
+            index_created_by_version,
             segment_ordinal_by_id: segment_ord_by_id,
             _cleanup_lock: cleanup_lock,
         })
@@ -501,6 +506,7 @@ impl SearchIndexReader {
             .clone()
             .into_tantivy_query(
                 &self.schema,
+                self.index_created_by_version,
                 &|| {
                     QueryParser::for_index(
                         &self.underlying_index,
@@ -1182,6 +1188,7 @@ impl SearchIndexReader {
 
         let (_tantivy_query, mut query_tree) = query_input.into_tantivy_query_with_tree(
             &self.schema,
+            self.index_created_by_version,
             &parser_closure,
             &self.searcher,
             self.index_rel.oid(),
@@ -1258,6 +1265,7 @@ impl SearchIndexReader {
             .clone()
             .into_tantivy_query(
                 &self.schema,
+                self.index_created_by_version,
                 parser,
                 &self.searcher,
                 self.index_rel.oid(),

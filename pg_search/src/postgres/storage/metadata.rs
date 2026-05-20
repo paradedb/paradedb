@@ -30,7 +30,6 @@ use pgrx::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[allow(dead_code)]
 pub struct Version {
     pub major: u16,
     pub minor: u16,
@@ -38,9 +37,10 @@ pub struct Version {
 }
 
 pub const TIMESTAMP_I64_STORAGE_VERSION: Version = Version::new(0, 24, 0);
+#[allow(dead_code)]
+pub const MIN_VERSION_STAMPED_VERSION: Version = Version::new(0, 24, 0);
 
 impl Version {
-    #[allow(dead_code)]
     pub const fn new(major: u16, minor: u16, patch: u16) -> Self {
         Self {
             major,

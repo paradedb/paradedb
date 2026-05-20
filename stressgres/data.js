@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779294701781,
+  "lastUpdate": 1779294734409,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19098,6 +19098,186 @@ window.BENCHMARK_DATA = {
             "value": 30.83984375,
             "unit": "median mem",
             "extra": "avg mem: 30.130773848317993, max mem: 30.90625, count: 53894"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "141828258+RuchirRaj@users.noreply.github.com",
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "04e96489066b01ff59df968ee7f8651a726f5c56",
+          "message": "feat: Speed up dynamic filter pushdown via tantivy TermSet dispatch refactor (#5111)\n\nBumps `tantivy` + `tantivy-tokenizer-api` rev to pick up\n- https://github.com/paradedb/tantivy/pull/141\n\nThis turns `BitsetFromPostings` into a real TermSet dispatch strategy\nbacked by a new batched SSTable dictionary lookup API, adds D-aware\n(unique vs non-unique) gating, relaxes Gallop admission on sorted\nsegments, and unifies the fast-field and inverted-index dispatch paths\nunder a single `TermSetWeight`.\n\nSpeedups on the dispatch hot path (full bench matrix in the upstream\nPR):\n\n| Cell | K/N | Before | After | Speedup |\n|---|---|---|---|---|\n| PK 1M K=10K, sorted | 0.01 | 4.44 ms (Linear) | 1.09 ms (Gallop) |\n4.07× |\n| LowFk 20M K=1K, unsorted | 5e-5 | 58.7 ms (Linear) | 2.47 ms (Bitset)\n| 23.8× |\n| LowFk 20M K=10K, unsorted | 5e-4 | 59.9 ms (Linear) | 8.01 ms (Bitset)\n| 7.48× |\n\nIn paradedb this lands as a perf improvement for any query plan that\nemits a TermSet pushdown — primarily joins using dynamic filter\npushdown, and `IN (...)` filters on indexed columns.\n\n### Required source changes\n\n- `execution_plan.rs`: new `StrategyTag::Automaton => \"automaton\"` match\narm\nfor the new variant introduced in\nhttps://github.com/paradedb/tantivy/pull/141\n- `gucs.rs`, `pre_filter.rs`: removed `gallop_max_density` (dropped\nupstream;\n  `gallop_enabled` remains as the kill switch)\n\n### Behavior change worth flagging (user-visible)\n\n- `dynamic_filter_pushdown=*` in EXPLAIN output widens its value space.\nPreviously: `{true, false}`. Now: `{gallop, bitset_from_postings,\nlinear,\nautomaton, empty, true (rare fallback), false}`. \n\nThe unified `TermSetWeight` routes non-fast indexed text fields through\nthe strategy framework, so EXPLAIN now reports the actual strategy name\ninstead of the generic `=true` \"not-engaged\" marker. Anyone parsing this\ntoken downstream (dashboards, ops scripts) sees additional values; no\nsemantic changes to the planner's pushdown decisions themselves.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-20T20:43:58+05:30",
+          "tree_id": "f37fd8eb02fdad260dbc18e787e3a0720925d470",
+          "url": "https://github.com/paradedb/paradedb/commit/04e96489066b01ff59df968ee7f8651a726f5c56"
+        },
+        "date": 1779294703617,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.072004915480066, max cpu: 9.284333, count: 53788"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 52.4296875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.520072872899156, max mem: 58.3203125, count: 53788"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5411544,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.26589709777773, max cpu: 4.597701, count: 53788"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 29.94140625,
+            "unit": "median mem",
+            "extra": "avg mem: 29.248498735777495, max mem: 30.328125, count: 53788"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.116809,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.870753702680356, max cpu: 18.390804, count: 53788"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 55.578125,
+            "unit": "median mem",
+            "extra": "avg mem: 55.35803619359802, max mem: 61.44921875, count: 53788"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.0291037418597675, max cpu: 9.29332, count: 53788"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 51.94140625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.001648689066336, max mem: 57.82421875, count: 53788"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.630186091309094, max cpu: 9.239654, count: 53788"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 33.73828125,
+            "unit": "median mem",
+            "extra": "avg mem: 33.814038301991154, max mem: 38.87890625, count: 53788"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1088,
+            "unit": "median pages",
+            "extra": "avg pages: 1097.3118353536104, max pages: 1823.0, count: 53788"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.5,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.572748713700081, max relation_size:MB: 14.2421875, count: 53788"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 6,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 6.586431917899903, max segment_count: 13.0, count: 53788"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.79093561433221, max cpu: 4.6065254, count: 53788"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.22265625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.5393419535956, max mem: 29.6171875, count: 53788"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.4514115682757507, max cpu: 4.6021094, count: 53788"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.495630196907303, max mem: 29.66015625, count: 53788"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.23838521974322, max cpu: 27.480915, count: 53788"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 50.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.6294144662843, max mem: 56.49609375, count: 53788"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.00003155061300956707, max replication_lag:MB: 0.24227142333984375, count: 53788"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.235972439097603, max cpu: 13.72736, count: 107576"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 51.66796875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.736143335583684, max mem: 57.63671875, count: 107576"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.611800970934491, max cpu: 4.6065254, count: 53788"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 30.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 30.01664027059939, max mem: 31.1640625, count: 53788"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.111879793965775, max cpu: 4.6153846, count: 53788"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 30.859375,
+            "unit": "median mem",
+            "extra": "avg mem: 30.14066973581468, max mem: 30.9453125, count: 53788"
           }
         ]
       }

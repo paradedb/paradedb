@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779294020848,
+  "lastUpdate": 1779294053505,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13934,6 +13934,114 @@ window.BENCHMARK_DATA = {
             "value": 173.453125,
             "unit": "median mem",
             "extra": "avg mem: 170.84521705953324, max mem: 174.4296875, count: 55532"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "141828258+RuchirRaj@users.noreply.github.com",
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "04e96489066b01ff59df968ee7f8651a726f5c56",
+          "message": "feat: Speed up dynamic filter pushdown via tantivy TermSet dispatch refactor (#5111)\n\nBumps `tantivy` + `tantivy-tokenizer-api` rev to pick up\n- https://github.com/paradedb/tantivy/pull/141\n\nThis turns `BitsetFromPostings` into a real TermSet dispatch strategy\nbacked by a new batched SSTable dictionary lookup API, adds D-aware\n(unique vs non-unique) gating, relaxes Gallop admission on sorted\nsegments, and unifies the fast-field and inverted-index dispatch paths\nunder a single `TermSetWeight`.\n\nSpeedups on the dispatch hot path (full bench matrix in the upstream\nPR):\n\n| Cell | K/N | Before | After | Speedup |\n|---|---|---|---|---|\n| PK 1M K=10K, sorted | 0.01 | 4.44 ms (Linear) | 1.09 ms (Gallop) |\n4.07× |\n| LowFk 20M K=1K, unsorted | 5e-5 | 58.7 ms (Linear) | 2.47 ms (Bitset)\n| 23.8× |\n| LowFk 20M K=10K, unsorted | 5e-4 | 59.9 ms (Linear) | 8.01 ms (Bitset)\n| 7.48× |\n\nIn paradedb this lands as a perf improvement for any query plan that\nemits a TermSet pushdown — primarily joins using dynamic filter\npushdown, and `IN (...)` filters on indexed columns.\n\n### Required source changes\n\n- `execution_plan.rs`: new `StrategyTag::Automaton => \"automaton\"` match\narm\nfor the new variant introduced in\nhttps://github.com/paradedb/tantivy/pull/141\n- `gucs.rs`, `pre_filter.rs`: removed `gallop_max_density` (dropped\nupstream;\n  `gallop_enabled` remains as the kill switch)\n\n### Behavior change worth flagging (user-visible)\n\n- `dynamic_filter_pushdown=*` in EXPLAIN output widens its value space.\nPreviously: `{true, false}`. Now: `{gallop, bitset_from_postings,\nlinear,\nautomaton, empty, true (rare fallback), false}`. \n\nThe unified `TermSetWeight` routes non-fast indexed text fields through\nthe strategy framework, so EXPLAIN now reports the actual strategy name\ninstead of the generic `=true` \"not-engaged\" marker. Anyone parsing this\ntoken downstream (dashboards, ops scripts) sees additional values; no\nsemantic changes to the planner's pushdown decisions themselves.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-20T20:43:58+05:30",
+          "tree_id": "f37fd8eb02fdad260dbc18e787e3a0720925d470",
+          "url": "https://github.com/paradedb/paradedb/commit/04e96489066b01ff59df968ee7f8651a726f5c56"
+        },
+        "date": 1779294022716,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.969308921127702, max cpu: 47.43083, count: 55518"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 175.06640625,
+            "unit": "median mem",
+            "extra": "avg mem: 165.44904235732105, max mem: 179.1328125, count: 55518"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.639557068405334, max cpu: 28.09756, count: 55518"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 121.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 120.14492899543842, max mem: 121.45703125, count: 55518"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.5149808283640125, max cpu: 18.60465, count: 55518"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 171.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 146.3343043022083, max mem: 180.1328125, count: 55518"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16263,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16544.360711841204, max block_count: 30840.0, count: 55518"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.523106213120584, max cpu: 4.64666, count: 55518"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 110.8828125,
+            "unit": "median mem",
+            "extra": "avg mem: 97.38006029575993, max mem: 138.796875, count: 55518"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 25.538095752728843, max segment_count: 39.0, count: 55518"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.217274926151342, max cpu: 32.463768, count: 111036"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 180.84375,
+            "unit": "median mem",
+            "extra": "avg mem: 163.14785991423952, max mem: 183.140625, count: 111036"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.8599365553472, max cpu: 27.934044, count: 55518"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 173.78515625,
+            "unit": "median mem",
+            "extra": "avg mem: 171.06098852511798, max mem: 174.55859375, count: 55518"
           }
         ]
       }

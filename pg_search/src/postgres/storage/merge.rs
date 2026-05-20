@@ -338,7 +338,7 @@ impl MergeList {
             self.entries
                 .list(None)
                 .into_iter()
-                // ignore entries whose backend is no longer live are stale (cancel mid-merge);
+                // ignore entries whose backend is no longer live (likely canceled mid-merge);
                 .filter(move |entry| {
                     *pid_alive
                         .entry(entry.pid)
@@ -361,5 +361,59 @@ impl MergeList {
         )
         .return_to_fsm();
         Ok(removed_entry)
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use super::*;
+    use crate::postgres::rel::PgSearchRelation;
+    use crate::postgres::storage::metadata::MetaPage;
+    use pgrx::prelude::*;
+
+    #[pg_test]
+    unsafe fn test_dead_pid_merge_entry_is_ignored_and_garbage_collected() -> spi::Result<()> {
+        Spi::run("DROP TABLE IF EXISTS merge_list_pid_test CASCADE")?;
+        Spi::run("CREATE TABLE merge_list_pid_test (id SERIAL, data TEXT)")?;
+        Spi::run(
+            "CREATE INDEX merge_list_pid_test_idx ON merge_list_pid_test USING bm25(id, data) WITH (key_field = 'id')",
+        )?;
+
+        let index_oid =
+            Spi::get_one::<pg_sys::Oid>("SELECT 'merge_list_pid_test_idx'::regclass::oid")?
+                .unwrap();
+        let indexrel = PgSearchRelation::with_lock(index_oid, pg_sys::RowExclusiveLock as _);
+        let merge_lock = MetaPage::open(&indexrel).acquire_merge_lock();
+        let mut merge_list = merge_lock.merge_list();
+
+        let segment_id = SegmentId::generate_random();
+        let merge_entry = merge_list
+            .add_segment_ids([&segment_id], pg_sys::ReadNextFullTransactionId())
+            .unwrap();
+        merge_list
+            .entries
+            .update_item(|entry| entry == &merge_entry, |entry| entry.pid = -1)
+            .unwrap();
+
+        let entries = merge_list.list();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].pid, -1);
+        assert!(merge_list.list_segment_ids().collect::<Vec<_>>().is_empty());
+
+        drop(merge_list);
+        drop(merge_lock);
+        drop(indexrel);
+
+        let reaped_pid = Spi::get_one::<i32>(
+            "SELECT paradedb.merge_lock_garbage_collect('merge_list_pid_test_idx'::regclass)",
+        )?;
+        assert_eq!(reaped_pid, Some(-1));
+
+        let indexrel = PgSearchRelation::open(index_oid);
+        let merge_lock = MetaPage::open(&indexrel).acquire_merge_lock();
+        assert!(merge_lock.merge_list().list().is_empty());
+
+        Ok(())
     }
 }

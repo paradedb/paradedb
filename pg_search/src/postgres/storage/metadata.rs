@@ -29,6 +29,31 @@ use pgrx::{
     PgSqlErrorCode,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[allow(dead_code)]
+pub struct Version {
+    pub major: u16,
+    pub minor: u16,
+    pub patch: u16,
+}
+
+impl Version {
+    #[allow(dead_code)]
+    pub fn new(major: u16, minor: u16, patch: u16) -> Self {
+        Self {
+            major,
+            minor,
+            patch,
+        }
+    }
+}
+
+impl std::fmt::Display for Version {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
+    }
+}
+
 /// The metadata stored on the [`Metadata`] page
 #[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
@@ -347,4 +372,17 @@ unsafe fn bgmerger_state(
 ) -> TableIterator<'static, (name!(pid, i32), name!(state, String))> {
     pgrx::warning!("bgmerger_state has been deprecated");
     TableIterator::new(std::iter::empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_ordering_is_lexicographic_on_components() {
+        assert!(Version::new(0, 18, 0) < Version::new(0, 18, 1));
+        assert!(Version::new(0, 18, 9) < Version::new(0, 19, 0));
+        assert!(Version::new(0, 99, 99) < Version::new(1, 0, 0));
+        assert_eq!(Version::new(1, 2, 3), Version::new(1, 2, 3));
+    }
 }

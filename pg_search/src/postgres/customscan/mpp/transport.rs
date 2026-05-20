@@ -208,11 +208,20 @@ impl MppFrameHeader {
                 )));
             }
         }
+        // Subplan frames don't use the `partition` field — the encoder always writes 0. Reject
+        // non-zero so a future change that accidentally encoded routing information there can't
+        // sneak past a handler that doesn't read it.
+        if matches!(kind, MppFrameKind::Subplan) && self.partition != 0 {
+            return Err(DataFusionError::Internal(format!(
+                "mpp: Subplan frame has reserved partition field set ({})",
+                self.partition,
+            )));
+        }
         Ok(kind)
     }
 
-    /// Task index encoded in a `Request` frame's upper 24 bits. Only meaningful when `kind()` is
-    /// `Request`; returns the raw upper bits otherwise.
+    /// Task index encoded in a `Request` or `Subplan` frame's upper 24 bits. Only meaningful when
+    /// `kind()` is one of those two; returns the raw upper bits otherwise.
     pub(super) fn task_idx(&self) -> u32 {
         self.flags >> TASK_IDX_SHIFT
     }
@@ -767,7 +776,10 @@ impl MppSender {
         self.send_pre_encoded(scratch, stats).await
     }
 
-    #[allow(dead_code)] // called by `send_subplan_traced`; tail-of-tree allow.
+    // `send_subplan_traced` itself carries an `#[allow(dead_code)]` until Phase 2 wires it; this
+    // helper rides along on the same allow because it's only reachable through that public
+    // entry point. Drop both allows together.
+    #[allow(dead_code)]
     async fn send_subplan_with_scratch(
         &self,
         task_idx: u32,
@@ -1403,8 +1415,9 @@ impl DrainHandle {
     /// Forward `Subplan` frames to the installed handler. Same teardown-race semantics as
     /// [`Self::dispatch_requests`]: if no handler is installed (worker shutting down before all
     /// subplans arrived) we drop them silently, since the producer registry that would receive
-    /// them has already been torn down by the service loop. Any subsequent Request for the same
-    /// `(stage_id, task_idx)` would fail to find a prepared plan and surface its own error.
+    /// them has already been torn down by the service loop. Later phases of the dispatch-flip
+    /// wire a producer-side miss path that surfaces an error if a Request arrives for a
+    /// `(stage_id, task_idx)` whose Subplan was dropped; until then this is a no-op log entry.
     fn dispatch_subplans(
         &self,
         items: Vec<(MppFrameHeader, Vec<u8>)>,
@@ -2013,6 +2026,104 @@ mod tests {
         let calls = handler.calls.lock().unwrap();
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0], (9, 6, payload));
+    }
+
+    #[test]
+    fn subplan_frame_packs_max_task_idx() {
+        // 24-bit max round-trips cleanly: header parses, kind() == Subplan, task_idx() == max.
+        let header = MppFrameHeader::subplan(1, TASK_IDX_MAX).expect("max task_idx must fit");
+        let mut buf = vec![0u8; MPP_FRAME_HEADER_SIZE];
+        header.write_to(&mut buf);
+        let parsed = MppFrameHeader::parse(&buf).expect("header parse");
+        assert_eq!(parsed.kind().unwrap(), MppFrameKind::Subplan);
+        assert_eq!(parsed.task_idx(), TASK_IDX_MAX);
+        assert_eq!(parsed.stage_id, 1);
+        assert_eq!(parsed.partition, 0);
+    }
+
+    #[test]
+    fn subplan_frame_rejects_nonzero_partition_field() {
+        // The encoder always writes partition=0, but a peer (or a future code change) could put
+        // routing information there by mistake. Decode must reject non-zero so it doesn't sneak
+        // past `on_subplan`, which doesn't look at partition.
+        let mut header =
+            MppFrameHeader::subplan(2, 4).expect("subplan header for the partition test");
+        header.partition = 7;
+        let err = header.kind().expect_err("non-zero partition must fail");
+        assert!(
+            format!("{err}").contains("reserved partition field set"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn drain_handle_dispatches_subplan_before_request_in_same_pass() {
+        // Pin the dispatch-ordering invariant the dispatch-flip relies on: when a Subplan and a
+        // Request for the same `(stage_id, task_idx)` arrive in the same drain pass, the
+        // SubplanHandler must run before the RequestHandler so the registry is populated by the
+        // time the request lands. Without this, a Phase 3 implementation that looks up the plan
+        // synchronously would see a miss on the very first request.
+        type Event = (&'static str, u32, u32);
+        struct OrderingHandler {
+            calls: std::sync::Arc<std::sync::Mutex<Vec<Event>>>,
+        }
+        impl SubplanHandler for OrderingHandler {
+            fn on_subplan(
+                &self,
+                stage_id: u32,
+                task_idx: u32,
+                _payload: Vec<u8>,
+            ) -> Result<(), DataFusionError> {
+                self.calls
+                    .lock()
+                    .unwrap()
+                    .push(("subplan", stage_id, task_idx));
+                Ok(())
+            }
+        }
+        impl RequestHandler for OrderingHandler {
+            fn on_request(
+                &self,
+                _sender_proc: u32,
+                stage_id: u32,
+                task_idx: u32,
+                _partition: u32,
+            ) -> Result<(), DataFusionError> {
+                self.calls
+                    .lock()
+                    .unwrap()
+                    .push(("request", stage_id, task_idx));
+                Ok(())
+            }
+        }
+
+        let (tx, rx) = in_proc_channel(8);
+        let recv = MppReceiver::new(Box::new(rx));
+        let drain = DrainHandle::cooperative(vec![recv], Some(0));
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let handler = std::sync::Arc::new(OrderingHandler {
+            calls: events.clone(),
+        });
+        drain.set_subplan_handler(handler.clone() as Arc<dyn SubplanHandler>);
+        drain.set_request_handler(handler.clone() as Arc<dyn RequestHandler>);
+
+        // Push Request first, then Subplan, into the wire. Even with this "wrong" order on the
+        // wire, dispatch-ordering inside try_drain_pass must surface Subplan first.
+        let mut req_buf = Vec::new();
+        encode_request_frame_into(7, 3, 0, &mut req_buf).expect("encode_request");
+        tx.send_bytes(&req_buf).expect("tx send request");
+
+        let payload = b"plan-bytes".to_vec();
+        let mut sub_buf = Vec::new();
+        encode_subplan_frame_into(7, 3, &payload, &mut sub_buf).expect("encode_subplan");
+        tx.send_bytes(&sub_buf).expect("tx send subplan");
+
+        drain.try_drain_pass().expect("drain pass");
+
+        let calls = events.lock().unwrap();
+        assert_eq!(calls.len(), 2, "both handlers must fire");
+        assert_eq!(calls[0], ("subplan", 7, 3), "subplan dispatched first");
+        assert_eq!(calls[1], ("request", 7, 3), "request dispatched second");
     }
 
     #[test]

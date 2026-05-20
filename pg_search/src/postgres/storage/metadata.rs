@@ -420,9 +420,11 @@ unsafe fn bgmerger_state(
     TableIterator::new(std::iter::empty())
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
 mod tests {
     use super::*;
+    use pgrx::prelude::*;
 
     #[test]
     fn version_ordering_is_lexicographic_on_components() {
@@ -430,5 +432,29 @@ mod tests {
         assert!(Version::new(0, 18, 9) < Version::new(0, 19, 0));
         assert!(Version::new(0, 99, 99) < Version::new(1, 0, 0));
         assert_eq!(Version::new(1, 2, 3), Version::new(1, 2, 3));
+    }
+
+    #[pg_test]
+    fn created_by_version_is_stamped_at_index_build() {
+        Spi::run("CREATE TABLE t (id SERIAL, data TEXT);").unwrap();
+        Spi::run("INSERT INTO t (data) VALUES ('hello');").unwrap();
+        Spi::run("CREATE INDEX t_idx ON t USING bm25(id, data) WITH (key_field = 'id');").unwrap();
+
+        let index_oid: pg_sys::Oid =
+            Spi::get_one("SELECT oid FROM pg_class WHERE relname = 't_idx' AND relkind = 'i';")
+                .expect("spi should succeed")
+                .unwrap();
+        let indexrel = PgSearchRelation::open(index_oid);
+
+        let stamped = MetaPage::open(&indexrel)
+            .created_by_version()
+            .expect("freshly built index should be version-stamped");
+
+        let expected = Version::new(
+            env!("CARGO_PKG_VERSION_MAJOR").parse().unwrap(),
+            env!("CARGO_PKG_VERSION_MINOR").parse().unwrap(),
+            env!("CARGO_PKG_VERSION_PATCH").parse().unwrap(),
+        );
+        assert_eq!(stamped, expected);
     }
 }

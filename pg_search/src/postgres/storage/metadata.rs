@@ -283,6 +283,7 @@ impl MetaPage {
 
     /// The pg_search version that created this index. Returns `None` for indices created
     /// before version stamping was added (the on-disk fields read as zero).
+    /// The first version with version-stamping is v0.24.0
     #[allow(dead_code)]
     pub fn created_by_version(&self) -> Option<Version> {
         let major = self.data.created_by_version_major;

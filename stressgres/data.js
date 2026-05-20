@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779291948811,
+  "lastUpdate": 1779292620222,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5470,6 +5470,42 @@ window.BENCHMARK_DATA = {
             "value": 5.405674320862251,
             "unit": "median tps",
             "extra": "avg tps: 4.859086481666907, max tps: 6.047661445542148, count: 57772"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "141828258+RuchirRaj@users.noreply.github.com",
+            "name": "Ruchir Raj",
+            "username": "RuchirRaj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "04e96489066b01ff59df968ee7f8651a726f5c56",
+          "message": "feat: Speed up dynamic filter pushdown via tantivy TermSet dispatch refactor (#5111)\n\nBumps `tantivy` + `tantivy-tokenizer-api` rev to pick up\n- https://github.com/paradedb/tantivy/pull/141\n\nThis turns `BitsetFromPostings` into a real TermSet dispatch strategy\nbacked by a new batched SSTable dictionary lookup API, adds D-aware\n(unique vs non-unique) gating, relaxes Gallop admission on sorted\nsegments, and unifies the fast-field and inverted-index dispatch paths\nunder a single `TermSetWeight`.\n\nSpeedups on the dispatch hot path (full bench matrix in the upstream\nPR):\n\n| Cell | K/N | Before | After | Speedup |\n|---|---|---|---|---|\n| PK 1M K=10K, sorted | 0.01 | 4.44 ms (Linear) | 1.09 ms (Gallop) |\n4.07× |\n| LowFk 20M K=1K, unsorted | 5e-5 | 58.7 ms (Linear) | 2.47 ms (Bitset)\n| 23.8× |\n| LowFk 20M K=10K, unsorted | 5e-4 | 59.9 ms (Linear) | 8.01 ms (Bitset)\n| 7.48× |\n\nIn paradedb this lands as a perf improvement for any query plan that\nemits a TermSet pushdown — primarily joins using dynamic filter\npushdown, and `IN (...)` filters on indexed columns.\n\n### Required source changes\n\n- `execution_plan.rs`: new `StrategyTag::Automaton => \"automaton\"` match\narm\nfor the new variant introduced in\nhttps://github.com/paradedb/tantivy/pull/141\n- `gucs.rs`, `pre_filter.rs`: removed `gallop_max_density` (dropped\nupstream;\n  `gallop_enabled` remains as the kill switch)\n\n### Behavior change worth flagging (user-visible)\n\n- `dynamic_filter_pushdown=*` in EXPLAIN output widens its value space.\nPreviously: `{true, false}`. Now: `{gallop, bitset_from_postings,\nlinear,\nautomaton, empty, true (rare fallback), false}`. \n\nThe unified `TermSetWeight` routes non-fast indexed text fields through\nthe strategy framework, so EXPLAIN now reports the actual strategy name\ninstead of the generic `=true` \"not-engaged\" marker. Anyone parsing this\ntoken downstream (dashboards, ops scripts) sees additional values; no\nsemantic changes to the planner's pushdown decisions themselves.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-20T20:43:58+05:30",
+          "tree_id": "f37fd8eb02fdad260dbc18e787e3a0720925d470",
+          "url": "https://github.com/paradedb/paradedb/commit/04e96489066b01ff59df968ee7f8651a726f5c56"
+        },
+        "date": 1779292587993,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.875901780162572,
+            "unit": "median tps",
+            "extra": "avg tps: 6.761934741739968, max tps: 10.256865387002621, count: 57914"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.509415161707877,
+            "unit": "median tps",
+            "extra": "avg tps: 4.948709541821096, max tps: 6.154099107756736, count: 57914"
           }
         ]
       }

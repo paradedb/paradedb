@@ -1059,6 +1059,9 @@ fn build_source_df<'a>(
         if let Some(idx) = np_idx {
             provider.set_non_partitioning_index(idx);
         }
+        // Record the absolute plan position; consumed by the physical codec's worker-side
+        // reconstruction to index into the registry's per-source segment-ID `Vec`.
+        provider.set_plan_position(plan_position);
 
         if let Some(ref sort_order) = scan_info.sort_order {
             required_early.insert(sort_order.field_name.as_ref().to_string());

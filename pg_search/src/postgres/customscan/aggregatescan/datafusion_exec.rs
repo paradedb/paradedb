@@ -602,6 +602,9 @@ async fn build_source_df(
     if let Some(idx) = np_idx {
         provider.set_non_partitioning_index(idx);
     }
+    // Absolute plan_position for the physical codec's worker-side reconstruction. See the
+    // `plan_position` field doc on `PgSearchTableProvider`.
+    provider.set_plan_position(plan_position);
     // HeapFilter queries (e.g. `=` on a column indexed via a
     // `pdb.literal(...)` cast) compile to runtime Postgres expressions
     // that can only be evaluated with a live ExprContext + PlanState.

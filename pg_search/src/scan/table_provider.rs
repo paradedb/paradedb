@@ -100,6 +100,16 @@ pub struct PgSearchTableProvider {
     /// This is serialized so the execution codec can inject the correct canonical
     /// segment IDs in both the leader and parallel workers.
     non_partitioning_index: Option<usize>,
+    /// Absolute position of this source in the full join source list (0-based DFS
+    /// enumeration), or `None` for serial scans / non-join paths.
+    ///
+    /// Used by the physical codec's worker-side reconstruction (PR #5122 follow-up): when
+    /// the leader ships a per-(stage, task) physical subplan, the worker looks up the
+    /// per-source canonical segment IDs in its registry's `Vec<HashSet<SegmentId>>`,
+    /// indexed by `plan_position`. The logical-codec path doesn't read this — there the
+    /// segment IDs are injected based on `non_partitioning_index` for non-partitioning
+    /// sources and a separate `parallel_state` pointer for the partitioning one.
+    plan_position: Option<usize>,
     /// Canonical segment IDs for replicated-parallel execution.
     ///
     /// When `Some`, `scan()` uses `MvccSatisfies::ParallelWorker(ids)` instead of
@@ -168,6 +178,7 @@ impl PgSearchTableProvider {
             expr_context: None,
             planstate: None,
             non_partitioning_index: None,
+            plan_position: None,
             canonical_segment_ids: None,
             visibility_mode: VisibilityMode::Eager,
             late_materialization_active: AtomicBool::new(false),
@@ -199,6 +210,19 @@ impl PgSearchTableProvider {
     /// Return the position of this provider in the non-partitioning source list, or `None`.
     pub(crate) fn non_partitioning_index(&self) -> Option<usize> {
         self.non_partitioning_index
+    }
+
+    /// Record the absolute plan position (full join source list index) for the physical
+    /// codec's worker-side reconstruction. See the `plan_position` field doc on
+    /// [`PgSearchTableProvider`].
+    pub(crate) fn set_plan_position(&mut self, plan_position: usize) {
+        self.plan_position = Some(plan_position);
+    }
+
+    /// Absolute plan position as set by [`Self::set_plan_position`], or `None`.
+    #[allow(dead_code)] // consumed by the physical-codec decode path in the next commit.
+    pub(crate) fn plan_position(&self) -> Option<usize> {
+        self.plan_position
     }
 
     /// Inject the canonical segment IDs for this replicated-parallel provider.

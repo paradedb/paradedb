@@ -37,6 +37,7 @@ use pgrx::pg_sys;
 use tantivy::index::SegmentId;
 
 use crate::api::HashSet;
+use crate::postgres::customscan::mpp::coalesce_rule::CoalesceBeforeNetworkShuffleRule;
 use crate::postgres::customscan::mpp::producer_service::{ProducerTaskRegistry, StagePlans};
 use crate::postgres::customscan::mpp::runtime::{
     proc_for_task, MppMesh, MppWorkerResolver, ShmMqWorkerTransport,
@@ -111,7 +112,13 @@ pub(crate) fn build_mpp_session_context(
         .with_distributed_broadcast_joins(true)
         .expect("with_distributed_broadcast_joins")
         .with_distributed_user_codec(PgSearchPhysicalCodecStub)
-        .with_distributed_planner();
+        .with_distributed_planner()
+        // Insert a `CoalesceBatchesExec` in front of every `NetworkShuffleExec` so partial-agg
+        // output (often many small batches at high group cardinality) gets bundled into ~5 MB
+        // Arrow IPC frames before hitting shm_mq. Without this the 20M `aggregate_join_groupby`
+        // bench takes 2× longer than the pre-multi-stage path — see [`CoalesceBeforeNetworkShuffleRule`]
+        // for the cost analysis.
+        .with_physical_optimizer_rule(Arc::new(CoalesceBeforeNetworkShuffleRule));
     SessionContext::new_with_state(state_builder.build())
 }
 

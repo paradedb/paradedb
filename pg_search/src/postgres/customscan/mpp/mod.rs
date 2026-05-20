@@ -25,6 +25,7 @@
 //! that reads all inbound queues into a spillable local buffer — this decouples
 //! consumer-side backpressure from producer-side backpressure.
 
+pub mod coalesce_rule;
 pub mod dsm;
 pub mod exec_worker;
 pub mod glue;

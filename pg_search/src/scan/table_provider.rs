@@ -746,27 +746,28 @@ impl TableProvider for PgSearchTableProvider {
 
     async fn scan(
         &self,
-        state: &dyn Session,
+        _state: &dyn Session,
         projection: Option<&Vec<usize>>,
         filters: &[Expr],
         limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         self.scan_inner(
             self.canonical_segment_ids.clone(),
-            state,
             projection,
             filters,
             limit,
         )
-        .await
     }
 }
 
 impl PgSearchTableProvider {
-    async fn scan_inner(
+    /// Sync core of the scan path. Same recipe `scan()` runs, but exposed for the physical
+    /// codec's worker-side reconstruction (PR #5122 follow-up): there's no `Session` to thread
+    /// through and no async runtime to .await against — the body is CPU-bound PG/tantivy work
+    /// and never yields.
+    pub(crate) fn scan_inner(
         &self,
         canonical_override: Option<HashSet<SegmentId>>,
-        _state: &dyn Session,
         projection: Option<&Vec<usize>>,
         filters: &[Expr],
         _limit: Option<usize>,

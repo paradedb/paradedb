@@ -30,6 +30,7 @@ use crate::postgres::customscan::orderby::text_lower_funcoid;
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::metadata::Version;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::var::find_vars;
 use crate::schema::{CategorizedFieldData, SearchField, SearchFieldType};
@@ -732,6 +733,8 @@ pub unsafe fn extract_field_attributes(
     field_attributes
 }
 
+/// `created_by_version`: The pg_search version that was used to create the index we are going
+/// to put this document in. None if the index was created before version-stamping was introduced
 pub unsafe fn row_to_search_document<'a>(
     categorized_fields: impl Iterator<
         Item = (
@@ -742,6 +745,7 @@ pub unsafe fn row_to_search_document<'a>(
         ),
     >,
     document: &mut tantivy::TantivyDocument,
+    created_by_version: Option<Version>,
 ) -> Result<(), IndexError> {
     for (
         datum,
@@ -802,9 +806,10 @@ pub unsafe fn row_to_search_document<'a>(
             }
         } else if *is_json {
             for value in
-                TantivyValue::try_from_datum_json(actual_datum, *base_oid).unwrap_or_else(|e| {
-                    panic!("could not parse field `{}`: {e}", search_field.field_name())
-                })
+                TantivyValue::try_from_datum_json(actual_datum, *base_oid, created_by_version)
+                    .unwrap_or_else(|e| {
+                        panic!("could not parse field `{}`: {e}", search_field.field_name())
+                    })
             {
                 document.add_field_value(search_field.field(), &OwnedValue::from(value));
             }

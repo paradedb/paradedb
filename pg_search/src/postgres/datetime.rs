@@ -175,6 +175,31 @@ impl TryFrom<PostgresDateTime> for tantivy::DateTime {
     }
 }
 
+pub fn rewrite_json_timestamp_strings_to_i64(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Null => (),
+        serde_json::Value::Bool(_) => (),
+        serde_json::Value::Number(_) => (),
+        serde_json::Value::Array(array) => {
+            for v in array {
+                rewrite_json_timestamp_strings_to_i64(v);
+            }
+        }
+        serde_json::Value::Object(obj) => {
+            for v in obj.values_mut() {
+                rewrite_json_timestamp_strings_to_i64(v);
+            }
+        }
+        serde_json::Value::String(s) => {
+            // if the string parses as a timestamp, then it's a timestamp and we can replace it
+            // with an i64
+            if let Ok(dt) = PostgresDateTime::try_from_timestamptz_str(s) {
+                *value = serde_json::Value::Number(serde_json::Number::from(dt.into_inner()));
+            }
+        }
+    }
+}
+
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {

@@ -20,10 +20,12 @@ use crate::nodecast;
 use crate::postgres::catalog::is_citext_oid;
 use crate::postgres::catalog::{facet_encoded_str_to_ltree_text, is_ltree_oid};
 use crate::postgres::datetime::{
-    datetime_components_to_tantivy_date, PostgresDateTime, MICROSECONDS_IN_SECOND,
+    datetime_components_to_tantivy_date, rewrite_json_timestamp_strings_to_i64, PostgresDateTime,
+    MICROSECONDS_IN_SECOND,
 };
 use crate::postgres::jsonb_support::jsonb_datum_to_serde_json_value;
 use crate::postgres::range::RangeToTantivyValue;
+use crate::postgres::storage::metadata::{Version, TIMESTAMP_I64_STORAGE_VERSION};
 use crate::schema::{AnyEnum, SearchField};
 use ordered_float::OrderedFloat;
 use pgrx::datum::datetime_support::DateTimeConversionError;
@@ -150,7 +152,17 @@ impl TantivyValue {
         }
     }
 
-    fn json_value_to_tantivy_value(value: Value) -> Vec<TantivyValue> {
+    fn json_value_to_tantivy_value(
+        mut value: Value,
+        created_by_version: Option<Version>,
+    ) -> Vec<TantivyValue> {
+        // versions >= 0.24.0 store timestamps as I64. We need to rewrite the json so that tantivy
+        // doesn't see the timestamp strings and store them as DateTime.
+        if let Some(v) = created_by_version {
+            if v >= TIMESTAMP_I64_STORAGE_VERSION {
+                rewrite_json_timestamp_strings_to_i64(&mut value);
+            }
+        }
         match value {
             // A tantivy JSON value can't be a top-level array, so we have to make
             // separate values out of each entry.
@@ -236,6 +248,7 @@ impl TantivyValue {
     pub unsafe fn try_from_datum_json(
         datum: Datum,
         oid: PgOid,
+        created_by_version: Option<Version>,
     ) -> Result<Vec<Self>, TantivyValueError> {
         match &oid {
             PgOid::BuiltIn(builtin) => match builtin {
@@ -246,12 +259,18 @@ impl TantivyValue {
                     let serde_json_value = jsonb_datum_to_serde_json_value(datum)
                         .ok_or(TantivyValueError::DatumDeref)?
                         .map_err(TantivyValueError::Utf8ConversionError)?;
-                    Ok(Self::json_value_to_tantivy_value(serde_json_value))
+                    Ok(Self::json_value_to_tantivy_value(
+                        serde_json_value,
+                        created_by_version,
+                    ))
                 }
                 PgBuiltInOids::JSONOID => {
                     let pgrx_value = pgrx::Json::from_datum(datum, false)
                         .ok_or(TantivyValueError::DatumDeref)?;
-                    Ok(Self::json_value_to_tantivy_value(pgrx_value.0))
+                    Ok(Self::json_value_to_tantivy_value(
+                        pgrx_value.0,
+                        created_by_version,
+                    ))
                 }
                 _ => Err(TantivyValueError::UnsupportedJsonOid(oid.value())),
             },

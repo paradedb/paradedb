@@ -639,6 +639,7 @@ pub fn index_memory_segment(
         .expect("Should have a heap relation.");
     let heaptupdesc = unsafe { PgTupleDesc::from_pg_unchecked(heaprel.rd_att) };
     let search_schema = indexrel.schema()?;
+    let created_by_version = indexrel.created_by_version();
     let categorized_fields = search_schema.categorized_fields();
     let oldest_xmin = unsafe { GetOldestNonRemovableTransactionId(heaprel.as_ptr()) };
 
@@ -831,6 +832,7 @@ pub fn index_memory_segment(
                         }
                     }),
                 &mut doc,
+                created_by_version,
             )
             .unwrap_or_else(|e| {
                 panic!("Failed to create document from row: {e}");

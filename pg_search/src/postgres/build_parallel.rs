@@ -35,6 +35,7 @@ use crate::postgres::ps_status::{
 };
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::buffer::BufferManager;
+use crate::postgres::storage::metadata::Version;
 use crate::postgres::utils::{
     collect_composites_for_unpacking, get_field_value, row_to_search_document,
 };
@@ -299,6 +300,8 @@ struct WorkerBuildState {
     next_xid: pg_sys::FullTransactionId,
     indexrel: PgSearchRelation,
     heaprel: PgSearchRelation,
+    // cache this because looking it up requires loading the meta page.
+    index_created_by_version: Option<Version>,
     // the following statistics are used to determine when and what to merge:
     //
     // 1. how many segments does this worker expect to make, assuming no merges?
@@ -349,12 +352,14 @@ impl WorkerBuildState {
         let writer = SerialIndexWriter::open(indexrel, config, worker_number)?;
         let schema = writer.schema();
         let categorized_fields = schema.categorized_fields().clone();
+        let created_by_version = indexrel.created_by_version();
         Ok(Self {
             writer: Some(writer),
             categorized_fields,
             per_row_context: PgMemoryContexts::new("pg_search ambuild context"),
             indexrel: indexrel.clone(),
             heaprel: heaprel.clone(),
+            index_created_by_version: created_by_version,
             current_xid,
             next_xid,
             worker_segment_target,
@@ -520,6 +525,7 @@ unsafe extern "C-unwind" fn build_callback(
                     (datum, is_null, field, categorized)
                 }),
             &mut doc,
+            build_state.index_created_by_version,
         )
         .unwrap_or_else(|e| panic!("{e}"));
 

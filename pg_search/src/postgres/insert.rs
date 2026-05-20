@@ -27,7 +27,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     MutableSegmentEntry, SegmentMetaEntry, SegmentMetaEntryContent, SegmentMetaEntryMutable,
 };
-use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::storage::metadata::{MetaPage, Version};
 use crate::postgres::utils::{
     collect_composites_for_unpacking, get_field_value, item_pointer_to_u64, row_to_search_document,
 };
@@ -83,6 +83,7 @@ pub struct InsertState {
     indexrel: PgSearchRelation,
     per_row_context: PgMemoryContexts,
     pub mode: InsertMode,
+    index_created_by_version: Option<Version>,
 }
 
 impl InsertState {
@@ -129,6 +130,7 @@ impl InsertState {
             indexrel: indexrel.clone(),
             mode,
             per_row_context: PgMemoryContexts::For(per_row_context),
+            index_created_by_version: indexrel.created_by_version(),
         })
     }
 }
@@ -302,6 +304,7 @@ unsafe fn insert(
                     (datum, is_null, field, categorized)
                 }),
                 &mut search_document,
+                state.index_created_by_version,
             )
             .unwrap_or_else(|err| panic!("{err}"));
             mode.writer

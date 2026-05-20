@@ -1817,7 +1817,7 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
         let (mut ast, _) = query_grammar::parse_query_lenient(&query_string);
         if let Some(version) = index_created_by_version {
             if version >= TIMESTAMP_I64_STORAGE_VERSION {
-                rewrite_timestamp_literals(&mut ast, schema)?;
+                rewrite_timestamp_literals(&mut ast, schema);
             }
         }
         let (parsed_query, _) = parser.build_query_from_user_input_ast_lenient(ast);
@@ -1827,7 +1827,7 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
             .map_err(|_| QueryError::GrammarParseError(query_string.clone()))?;
         if let Some(version) = index_created_by_version {
             if version >= TIMESTAMP_I64_STORAGE_VERSION {
-                rewrite_timestamp_literals(&mut ast, schema)?;
+                rewrite_timestamp_literals(&mut ast, schema);
             }
         }
         let parsed_query = parser
@@ -2032,28 +2032,24 @@ fn exists(field: FieldName, searcher: &Searcher) -> Box<ExistsQuery> {
 /// Walks the parsed user query AST and rewrites date/timestamp-string phrases as i64s.
 /// Best-effort: phrases that fail to parse as datetimes are left untouched, which
 /// preserves the original tantivy error path for genuinely malformed input.
-fn rewrite_timestamp_literals(
-    ast: &mut UserInputAst,
-    schema: &SearchIndexSchema,
-) -> anyhow::Result<()> {
+fn rewrite_timestamp_literals(ast: &mut UserInputAst, schema: &SearchIndexSchema) {
     match ast {
         UserInputAst::Clause(children) => {
             for (_, child) in children {
-                rewrite_timestamp_literals(child, schema)?;
+                rewrite_timestamp_literals(child, schema);
             }
         }
-        UserInputAst::Boost(inner, _) => rewrite_timestamp_literals(inner, schema)?,
-        UserInputAst::Leaf(leaf) => rewrite_leaf(leaf, schema)?,
+        UserInputAst::Boost(inner, _) => rewrite_timestamp_literals(inner, schema),
+        UserInputAst::Leaf(leaf) => rewrite_leaf(leaf, schema),
     }
-    Ok(())
 }
 
-fn rewrite_leaf(leaf: &mut UserInputLeaf, schema: &SearchIndexSchema) -> anyhow::Result<()> {
+fn rewrite_leaf(leaf: &mut UserInputLeaf, schema: &SearchIndexSchema) {
     match leaf {
         UserInputLeaf::Literal(lit) => {
             if let Some(field_name) = &lit.field_name {
                 if let Some(oid) = oid_might_require_timestamp_rewriting(schema, field_name) {
-                    if let Some(replacement) = phrase_to_pg_micros_string(&lit.phrase, oid)? {
+                    if let Some(replacement) = phrase_to_pg_micros_string(&lit.phrase, oid) {
                         lit.phrase = replacement;
                     }
                 }
@@ -2065,8 +2061,8 @@ fn rewrite_leaf(leaf: &mut UserInputLeaf, schema: &SearchIndexSchema) -> anyhow:
             upper,
         } => {
             if let Some(oid) = oid_might_require_timestamp_rewriting(schema, name) {
-                rewrite_bound(lower, oid)?;
-                rewrite_bound(upper, oid)?;
+                rewrite_bound(lower, oid);
+                rewrite_bound(upper, oid);
             }
         }
         UserInputLeaf::Set {
@@ -2075,7 +2071,7 @@ fn rewrite_leaf(leaf: &mut UserInputLeaf, schema: &SearchIndexSchema) -> anyhow:
         } => {
             if let Some(oid) = oid_might_require_timestamp_rewriting(schema, name) {
                 for element in elements.iter_mut() {
-                    if let Some(replacement) = phrase_to_pg_micros_string(element, oid)? {
+                    if let Some(replacement) = phrase_to_pg_micros_string(element, oid) {
                         *element = replacement;
                     }
                 }
@@ -2085,19 +2081,17 @@ fn rewrite_leaf(leaf: &mut UserInputLeaf, schema: &SearchIndexSchema) -> anyhow:
         // Range/Set without an explicit field can't be resolved here; leave them alone.
         _ => (),
     }
-    Ok(())
 }
 
-fn rewrite_bound(bound: &mut UserInputBound, oid: PgOid) -> anyhow::Result<()> {
+fn rewrite_bound(bound: &mut UserInputBound, oid: PgOid) {
     match bound {
         UserInputBound::Inclusive(phrase) | UserInputBound::Exclusive(phrase) => {
-            if let Some(replacement) = phrase_to_pg_micros_string(phrase, oid)? {
+            if let Some(replacement) = phrase_to_pg_micros_string(phrase, oid) {
                 *phrase = replacement;
             }
         }
         UserInputBound::Unbounded => (),
     }
-    Ok(())
 }
 
 fn oid_might_require_timestamp_rewriting(
@@ -2121,17 +2115,28 @@ fn oid_might_require_timestamp_rewriting(
 /// Parse `phrase` as a postgres date string and return the corresponding
 /// PG-epoch microseconds formatted as a decimal i64 string. Returns `None`
 /// if the phrase can't be parsed — caller leaves the phrase untouched.
-fn phrase_to_pg_micros_string(phrase: &str, oid: PgOid) -> anyhow::Result<Option<String>> {
+fn phrase_to_pg_micros_string(phrase: &str, oid: PgOid) -> Option<String> {
     match oid {
         PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID) => {
-            let micros = PostgresDateTime::try_from_timestamp_str(phrase)?.into_inner();
-            Ok(Some(micros.to_string()))
+            let micros = PostgresDateTime::try_from_timestamp_str(phrase)
+                .ok()?
+                .into_inner();
+            Some(micros.to_string())
         }
         PgOid::BuiltIn(BuiltinOid::TIMESTAMPTZOID) => {
-            let micros = PostgresDateTime::try_from_timestamptz_str(phrase)?.into_inner();
-            Ok(Some(micros.to_string()))
+            let micros = PostgresDateTime::try_from_timestamptz_str(phrase)
+                .ok()?
+                .into_inner();
+            Some(micros.to_string())
         }
-        _ => Ok(None),
+        PgOid::BuiltIn(BuiltinOid::JSONOID) | PgOid::BuiltIn(BuiltinOid::JSONBOID) => {
+            // Best-effort: if the phrase parses as a timestamp, rewrite to i64 micros.
+            // Otherwise leave alone — could be any non-datetime JSON value.
+            PostgresDateTime::try_from_timestamptz_str(phrase)
+                .ok()
+                .map(|dt| dt.into_inner().to_string())
+        }
+        _ => None,
     }
 }
 
@@ -2168,8 +2173,7 @@ mod tests {
         let result = phrase_to_pg_micros_string(
             "2024-01-01 00:00:00",
             PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID),
-        )
-        .expect("parse should succeed");
+        );
         assert_eq!(result, Some(PG_MICROS_2024.to_string()));
     }
 
@@ -2178,8 +2182,7 @@ mod tests {
         let result = phrase_to_pg_micros_string(
             "2024-01-01 00:00:00+00:00",
             PgOid::BuiltIn(BuiltinOid::TIMESTAMPTZOID),
-        )
-        .expect("parse should succeed");
+        );
         assert_eq!(result, Some(PG_MICROS_2024.to_string()));
     }
 
@@ -2189,31 +2192,28 @@ mod tests {
         let result = phrase_to_pg_micros_string(
             "2024-01-01 05:00:00+05:00",
             PgOid::BuiltIn(BuiltinOid::TIMESTAMPTZOID),
-        )
-        .expect("parse should succeed");
+        );
         assert_eq!(result, Some(PG_MICROS_2024.to_string()));
     }
 
     #[pg_test]
     fn phrase_to_pg_micros_non_timestamp_oid_returns_none() {
         let result =
-            phrase_to_pg_micros_string("2024-01-01 00:00:00", PgOid::BuiltIn(BuiltinOid::INT8OID))
-                .expect("non-timestamp oid should be Ok(None)");
+            phrase_to_pg_micros_string("2024-01-01 00:00:00", PgOid::BuiltIn(BuiltinOid::INT8OID));
         assert!(result.is_none());
     }
 
     #[pg_test]
-    fn phrase_to_pg_micros_invalid_phrase_errors() {
+    fn phrase_to_pg_micros_invalid_phrase_returns_none() {
         let result =
             phrase_to_pg_micros_string("not a date", PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID));
-        assert!(result.is_err(), "expected parse error for invalid phrase");
+        assert!(result.is_none())
     }
 
     #[pg_test]
     fn rewrite_bound_inclusive_replaces_phrase() {
         let mut bound = UserInputBound::Inclusive("2024-01-01 00:00:00".to_string());
-        rewrite_bound(&mut bound, PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID))
-            .expect("rewrite should succeed");
+        rewrite_bound(&mut bound, PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID));
         let UserInputBound::Inclusive(phrase) = bound else {
             panic!("expected Inclusive variant")
         };
@@ -2223,8 +2223,7 @@ mod tests {
     #[pg_test]
     fn rewrite_bound_exclusive_replaces_phrase() {
         let mut bound = UserInputBound::Exclusive("2024-01-01 00:00:00".to_string());
-        rewrite_bound(&mut bound, PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID))
-            .expect("rewrite should succeed");
+        rewrite_bound(&mut bound, PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID));
         let UserInputBound::Exclusive(phrase) = bound else {
             panic!("expected Exclusive variant")
         };
@@ -2234,8 +2233,23 @@ mod tests {
     #[pg_test]
     fn rewrite_bound_unbounded_unchanged() {
         let mut bound = UserInputBound::Unbounded;
-        rewrite_bound(&mut bound, PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID))
-            .expect("rewrite should succeed");
+        rewrite_bound(&mut bound, PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID));
         assert!(matches!(bound, UserInputBound::Unbounded));
+    }
+
+    #[pg_test]
+    fn phrase_to_pg_micros_jsonb_rewrites_parseable() {
+        let result = phrase_to_pg_micros_string(
+            "2024-01-01 00:00:00+00:00",
+            PgOid::BuiltIn(BuiltinOid::JSONBOID),
+        );
+        assert_eq!(result, Some(PG_MICROS_2024.to_string()));
+    }
+
+    #[pg_test]
+    fn phrase_to_pg_micros_jsonb_leaves_non_datetime_alone() {
+        let result =
+            phrase_to_pg_micros_string("hello world", PgOid::BuiltIn(BuiltinOid::JSONBOID));
+        assert!(result.is_none());
     }
 }

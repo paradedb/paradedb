@@ -770,6 +770,10 @@ impl VisibilityFilterExec {
     pub fn plan_pos_oids(&self) -> &[(usize, pg_sys::Oid)] {
         &self.plan_pos_oids
     }
+
+    pub fn table_names(&self) -> &[String] {
+        &self.table_names
+    }
 }
 
 impl DisplayAs for VisibilityFilterExec {

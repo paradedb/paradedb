@@ -761,6 +761,20 @@ impl TableProvider for PgSearchTableProvider {
 }
 
 impl PgSearchTableProvider {
+    /// Sync entrypoint for the physical codec's worker-side reconstruction. Same recipe the
+    /// async `scan()` method runs, but exposed without the `Session`/async ceremony — the
+    /// codec doesn't have a `Session` and the body never `.await`s.
+    ///
+    /// Only called from `decode_pgsearch_scan`, which is itself `#[cfg(not(test))]`-gated
+    /// (the codec links PG runtime symbols that the cargo-test binary can't resolve), so the
+    /// `dead_code` allow covers the test build.
+    #[allow(dead_code)]
+    pub(crate) fn scan_sync(&self) -> Result<Arc<dyn ExecutionPlan>> {
+        self.scan_inner(self.canonical_segment_ids.clone(), None, &[], None)
+    }
+}
+
+impl PgSearchTableProvider {
     /// Sync core of the scan path. Same recipe `scan()` runs, but exposed for the physical
     /// codec's worker-side reconstruction (PR #5122 follow-up): there's no `Session` to thread
     /// through and no async runtime to .await against — the body is CPU-bound PG/tantivy work

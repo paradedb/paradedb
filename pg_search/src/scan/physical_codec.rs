@@ -833,11 +833,58 @@ fn encode_pgsearch_scan(node: &dyn ExecutionPlan) -> Result<PgSearchScanProto> {
 fn decode_pgsearch_scan(
     proto: PgSearchScanProto,
     _inputs: &[Arc<dyn ExecutionPlan>],
-    _ctx: &TaskContext,
+    ctx: &TaskContext,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     use crate::scan::execution_plan::PgSearchScanPlan;
+    use crate::scan::table_provider::PgSearchTableProvider;
 
-    // Rebuild the arrow schema from the proto DfSchema.
+    // The reconstruction path: if the leader shipped a serialized `PgSearchTableProvider`
+    // AND the worker's `TaskContext` carries an `MppReconstructionContext` extension, replay
+    // `scan_inner` on the worker so the resulting plan carries real per-partition
+    // `ScanState`s (tantivy `SegmentReader` handles, MVCC visibility, FFHelper) instead of
+    // the empty placeholder that workers used before this commit.
+    //
+    // If either piece is missing — `table_provider_json` empty (test fixtures), or no
+    // extension (codec called outside the MPP worker path) — fall back to the
+    // empty-placeholder shape so callers that round-trip the wire format don't crash.
+    let recon = ctx
+        .session_config()
+        .get_extension::<MppReconstructionContext>();
+    if let (false, Some(recon)) = (proto.table_provider_json.is_empty(), recon) {
+        let mut provider: PgSearchTableProvider =
+            serde_json::from_slice(&proto.table_provider_json).map_err(|e| {
+                DataFusionError::Internal(format!(
+                    "decode_pgsearch_scan: PgSearchTableProvider JSON decode failed: {e}"
+                ))
+            })?;
+
+        // Mirror `PgSearchExtensionCodec::try_decode_table_provider`. `parallel_state` goes
+        // on every parallel scan; `canonical_segment_ids` is injected only for
+        // non-partitioning sources — the partitioning source falls through to the
+        // `parallel_state`-driven throttled-claim path inside `scan_inner` so the worker
+        // dynamically claims segments the same way the existing re-plan path does.
+        if provider.is_parallel() {
+            provider.set_parallel_state(recon.parallel_state);
+        }
+        if provider.non_partitioning_index().is_some() {
+            if let Some(plan_pos) = provider.plan_position() {
+                if let Some(ids) = recon.index_segment_ids.get(plan_pos) {
+                    provider.set_canonical_segment_ids(ids.clone());
+                }
+            }
+        }
+        // `expr_context` and `planstate` aren't plumbed in this commit. The existing
+        // re-plan path on the worker also gets them via the logical codec from the leader's
+        // `MppWorkerInputs`; reconstruction will need them when a shipped query carries
+        // runtime PG expressions (prepared-statement params, runtime-resolved casts).
+        // Follow-up; for now `provider.scan_inner` errors visibly with a missing-planstate
+        // message if a query hits that path.
+
+        return provider.scan_sync();
+    }
+
+    // Fallback: empty-placeholder shape. Used by round-trip tests and by any future caller
+    // that hits this codec without setting up an `MppReconstructionContext`.
     let df_schema_proto = proto.schema.ok_or_else(|| {
         DataFusionError::Internal("decode_pgsearch_scan: missing schema field".into())
     })?;
@@ -880,7 +927,6 @@ fn decode_pgsearch_scan(
         Some(proto.deferred_ctid_plan_position as usize)
     };
 
-    // Same FFHelper-placeholder caveat as the other execs: dispatch-flip wires the real one.
     let ffhelper = if !deferred_fields.is_empty() || deferred_ctid_plan_position.is_some() {
         Some(std::sync::Arc::new(
             crate::index::fast_fields_helper::FFHelper::empty(),
@@ -889,12 +935,9 @@ fn decode_pgsearch_scan(
         None
     };
 
-    // Empty states placeholder. Phase 2d wires the actual reconstruction (deserialize
-    // `proto.table_provider_json`, inject runtime context, call `scan_inner`).
     let states: Vec<crate::scan::execution_plan::ScanState> = Vec::new();
     let _ = proto.partition_recipes_json; // superseded by `table_provider_json` (Phase 2c).
     let _ = proto.dynamic_filters; // dynamic filters are re-pushed via FilterPushdown after construction; nothing to do here yet.
-    let _ = proto.table_provider_json; // consumed by the reconstruction landing in Phase 2d.
 
     let plan = PgSearchScanPlan::new(
         states,

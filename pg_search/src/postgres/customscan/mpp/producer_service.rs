@@ -80,6 +80,8 @@ use crate::postgres::customscan::mpp::transport::{
     CooperativeDrainSet, MppFrameHeader, RequestHandler, SubplanHandler,
 };
 use crate::postgres::customscan::mpp::worker::run_partition_driver;
+use crate::scan::physical_codec::PgSearchPhysicalCodec;
+use datafusion_proto::bytes::physical_plan_from_bytes_with_extension_codec;
 
 /// Per-`stage_id` snapshot of `(local_plan, task_count)` walked out of the worker's distributed
 /// physical plan at startup. The producer service loop consults this on every Request to find
@@ -615,13 +617,11 @@ impl SubplanHandler for ProducerTaskRegistry {
         task_idx: u32,
         payload: Vec<u8>,
     ) -> Result<(), DataFusionError> {
-        use crate::scan::physical_codec::PgSearchPhysicalCodec;
-        use datafusion_proto::bytes::physical_plan_from_bytes_with_extension_codec;
-
         let key = (stage_id, task_idx);
-        // Dedupe — a re-shipped subplan (e.g. leader retried after a transient error) lands
-        // in the same slot. Last write wins; same `(stage_id, task_idx)` from the same leader
-        // session always carries the same bytes today.
+        // Repeat ship (e.g. leader retried after a transient error, or a future shape where
+        // the same subplan is broadcast to multiple drains) lands in the same slot. Last write
+        // wins; same `(stage_id, task_idx)` from the same leader session always carries the
+        // same bytes today.
         let codec = PgSearchPhysicalCodec;
         let task_ctx = self.session.task_ctx();
         let decoded = physical_plan_from_bytes_with_extension_codec(
@@ -634,16 +634,129 @@ impl SubplanHandler for ProducerTaskRegistry {
                 "mpp producer on_subplan: decode failed stage_id={stage_id} task_idx={task_idx}: {e}"
             ))
         })?;
-        let mut map = self
-            .shipped_subplans
-            .lock()
-            .expect("ProducerTaskRegistry shipped_subplans mutex poisoned");
-        map.insert(key, decoded);
+        let total = {
+            let mut map = self
+                .shipped_subplans
+                .lock()
+                .expect("ProducerTaskRegistry shipped_subplans mutex poisoned");
+            map.insert(key, decoded);
+            map.len()
+        };
+        // Lock dropped above before the log call. `mpp_log!` expands to `pgrx::warning!` under
+        // the debug GUC and ereport's; cheap to keep off the hot path.
         crate::mpp_log!(
             "mpp producer on_subplan: received stage_id={stage_id} task_idx={task_idx} \
-             (total shipped: {})",
-            map.len()
+             (total shipped: {total})"
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
+    use crate::scan::physical_codec::PgSearchPhysicalCodec;
+    use arrow_schema::{DataType, Field, Schema};
+    use datafusion::physical_plan::empty::EmptyExec;
+    use datafusion_proto::bytes::physical_plan_to_bytes_with_extension_codec;
+    use pgrx::pg_sys;
+    use std::sync::Arc;
+
+    /// Build a `ProducerTaskRegistry` with empty mesh/stage-plans, just enough to exercise
+    /// `on_subplan` end-to-end. The mesh's `inbound_receivers` and `outbound_senders` are empty
+    /// vecs, which is fine because the test never reads from them.
+    fn test_registry() -> Arc<ProducerTaskRegistry> {
+        let mesh = Arc::new(MppMesh::new(0, 1, Vec::new(), Vec::new()));
+        let stage_plans = StagePlans {
+            stages: HashMap::new(),
+        };
+        let session = Arc::new(SessionContext::new());
+        Arc::new(ProducerTaskRegistry::new(
+            stage_plans,
+            session,
+            &mesh,
+            64 * 1024 * 1024, // work_mem
+            2.0,              // hash_mem_multiplier
+        ))
+    }
+
+    /// Encode a minimal `VisibilityFilterExec` through `PgSearchPhysicalCodec` so we have
+    /// real bytes — same shape the leader's `ship_subplans_to_workers` would produce, just
+    /// without the full distributed plan tree wrapped around it. Picking VisibilityFilter
+    /// because its decode path is the simplest (no PG runtime required) and the codec's
+    /// VisibilityFilter arm has full round-trip coverage in #5121.
+    fn encode_test_subplan() -> Vec<u8> {
+        let input_schema = Arc::new(Schema::new(vec![Field::new(
+            "ctid",
+            DataType::UInt64,
+            false,
+        )]));
+        let input: Arc<dyn ExecutionPlan> = Arc::new(EmptyExec::new(input_schema));
+        let plan = Arc::new(
+            VisibilityFilterExec::new(
+                input,
+                vec![(0_usize, pg_sys::Oid::from(16384_u32))],
+                vec!["posts".to_string()],
+            )
+            .expect("VisibilityFilterExec::new"),
+        ) as Arc<dyn ExecutionPlan>;
+        let codec = PgSearchPhysicalCodec;
+        physical_plan_to_bytes_with_extension_codec(plan, &codec)
+            .expect("encode test subplan")
+            .to_vec()
+    }
+
+    #[test]
+    fn on_subplan_decodes_and_stashes_in_shipped_map() {
+        let registry = test_registry();
+        assert_eq!(registry.shipped_subplan_count(), 0);
+
+        let payload = encode_test_subplan();
+        registry
+            .on_subplan(7, 3, payload.clone())
+            .expect("on_subplan must accept a well-formed payload");
+
+        assert_eq!(registry.shipped_subplan_count(), 1);
+
+        // The decoded plan is keyed by (stage_id, task_idx); not visible through a public
+        // accessor (Phase 4 will surface it through the Request path), but we can verify the
+        // key exists by re-shipping the same key and confirming the count stays at 1.
+        registry
+            .on_subplan(7, 3, payload)
+            .expect("re-ship of same key must succeed");
+        assert_eq!(registry.shipped_subplan_count(), 1);
+    }
+
+    #[test]
+    fn on_subplan_multiple_keys_accumulate() {
+        let registry = test_registry();
+        let payload = encode_test_subplan();
+
+        for (stage_id, task_idx) in [(0_u32, 0_u32), (0, 1), (1, 0), (1, 1)] {
+            registry
+                .on_subplan(stage_id, task_idx, payload.clone())
+                .expect("on_subplan");
+        }
+        assert_eq!(registry.shipped_subplan_count(), 4);
+    }
+
+    #[test]
+    fn on_subplan_surfaces_decode_error() {
+        let registry = test_registry();
+        // Garbage bytes — prost decode should fail loudly with an Internal error pointing
+        // at the failed (stage_id, task_idx) so an integration test can pinpoint the breakage.
+        let err = registry
+            .on_subplan(5, 2, vec![0xFF, 0xFE, 0xFD, 0xFC])
+            .expect_err("garbage payload must surface an error");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("decode failed")
+                && msg.contains("stage_id=5")
+                && msg.contains("task_idx=2"),
+            "unexpected error: {msg}"
+        );
+        // Failed decode does NOT populate the map.
+        assert_eq!(registry.shipped_subplan_count(), 0);
     }
 }

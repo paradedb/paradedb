@@ -461,6 +461,16 @@ impl WorkerConnection for ShmMqWorkerConnection {
 /// our embedded model are PG parallel workers in the same backend tree, not
 /// URL-addressed nodes; the planner only consults `get_urls().len()` for
 /// task-count sizing, so any URL satisfies it.
+///
+/// Load-bearing invariant for the dispatch flip: every entry in the returned vec is the *same*
+/// URL. The upstream `DistributedExec::prepare_plan` uses `rand::rng().random_range(..)` to pick
+/// a start index into the resolver URLs, then deals tasks out modulo the number of URLs. With
+/// uniform URLs the start index is observationally irrelevant and the same logical plan deals
+/// stages identically on the leader and on every worker — that's what makes the leader-shipped
+/// subplan match what the worker would have re-planned locally. If a future revision deduplicates
+/// the URL list (e.g. via `HashSet`) or assigns per-worker URLs, the random start index becomes
+/// load-bearing and plan equivalence breaks silently. Don't change the duplication scheme
+/// without updating the codec's plan-equivalence audit alongside.
 #[derive(Clone)]
 pub struct MppWorkerResolver {
     n_workers: usize,

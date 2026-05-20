@@ -259,6 +259,17 @@ impl ProducerTaskRegistry {
 /// the worker side and by [`ship_subplans_to_workers`] on the leader side. Both sites need the
 /// same TaskContext + `prepare_in_process_plan` recipe so the prepared plan they produce is
 /// bit-identical — that's the whole point of the dispatch-flip's "build once, ship many" model.
+///
+/// **Bit-identical-config-or-bust.** `session`, `work_mem_bytes`, and `hash_mem_multiplier` MUST
+/// match what the worker would supply for the same `(stage_id, task_idx)`. The dispatch-flip
+/// relies on this in two places: (1) the leader's encoded subplan has to match the worker's
+/// would-be locally-planned subplan for plan equivalence; (2) memory pools sized off
+/// `work_mem_bytes` need to match so a memory-bounded operator doesn't behave differently when
+/// the worker executes the shipped plan. Both sides feed `pg_sys::work_mem` and
+/// `pg_sys::hash_mem_multiplier`; both sides build the session through
+/// `crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context`. Any future
+/// session-config knob added on only one side breaks this invariant silently — bench-shape
+/// regressions then surface as "leader and worker disagree on the plan."
 fn prepare_stage_task(
     plan: &Arc<dyn ExecutionPlan>,
     stage_id: u32,
@@ -325,6 +336,18 @@ fn prepare_stage_task(
 /// `n_workers` is the producer-worker count (not total procs). `proc_for_task` maps
 /// `task_idx -> 1..=n_workers`, so we ship to procs 1..=n_workers and never to ourselves
 /// (proc 0).
+///
+/// **Why the leader's cooperative-drain spin is safe during ship.** The spin (inside
+/// `send_subplan_traced` / `send_pre_encoded`) calls `drain.try_drain_pass()` between
+/// `try_send` attempts. The leader's inbound drains have no `RequestHandler` or
+/// `SubplanHandler` installed at ship time — the handlers go in later in `exec_custom_scan`.
+/// If a worker happened to send a Request to the leader during this window, the
+/// `dispatch_requests` no-handler branch would silently drop it (`mpp_log!` for diag) and
+/// data would be lost. We currently rely on the invariant that workers never send Requests to
+/// the leader: `proc_for_task(n_workers, _)` always returns `1..=n_workers`, never 0, so no
+/// worker addresses a producer task to the leader. If a future planner change ever places a
+/// producer task on proc 0, this comment is wrong and the ship-time drain dispatch needs a
+/// proper handler installed before this call runs.
 pub(crate) fn ship_subplans_to_workers(
     physical_plan: &Arc<dyn ExecutionPlan>,
     leader_mesh: &Arc<MppMesh>,

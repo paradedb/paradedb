@@ -744,21 +744,19 @@ fn try_convert_in_list_to_query(
         return None;
     }
 
-    // Build a strategy config from the paradedb.term_set_*_max_density GUCs
-    // so the sorted-segment gallop fast path is enabled by default but
-    // operators can override the densities or kill the optimization without
-    // a recompile. Defaults mirror TermSetStrategyConfig::default() in
-    // tantivy. The optional `strategy_sink` is a per-scan AtomicU8 that the
-    // planner stores its decision into so EXPLAIN ANALYZE can report which
-    // strategy fired.
-    // The four other density fields (posting/bitset/hash_probe/
-    // subsequent_bitset) gate strategies that route to TermSetDocSet via
-    // stubs in tantivy today, so leaving them at TermSetStrategyConfig's
-    // tantivy-side defaults via struct update syntax keeps behavior
-    // identical to a bare tantivy caller until follow-ups A and B land.
+    // Build a strategy config from the paradedb.term_set_* GUCs so the
+    // dispatch thresholds (kill switch, gallop density gate, the two
+    // first-column bitset density gates) can be tuned in production
+    // without a recompile. Defaults mirror `TermSetStrategyConfig::default()`
+    // in tantivy. `subsequent_bitset_max_density` is not exposed because
+    // it gates a branch tantivy doesn't reach in production today;
+    // leave it at the tantivy default via struct update syntax. The
+    // optional `strategy_sink` is a per-scan AtomicU8 the planner stores
+    // its decision into so EXPLAIN ANALYZE can report which strategy fired.
     let cfg = TermSetStrategyConfig {
         gallop_enabled: crate::gucs::term_set_gallop_enabled(),
-        gallop_max_density: crate::gucs::term_set_gallop_max_density(),
+        bitset_max_density_unique: crate::gucs::term_set_bitset_max_density_unique(),
+        bitset_max_density_multi: crate::gucs::term_set_bitset_max_density_multi(),
         strategy_sink,
         ..TermSetStrategyConfig::default()
     };

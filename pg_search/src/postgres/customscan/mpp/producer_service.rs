@@ -63,7 +63,9 @@
 //!    is what guarantees no driver futures outlive the loop, so no mesh refs leak past
 //!    `run_mpp_worker`.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+
+use crate::api::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
@@ -74,12 +76,15 @@ use datafusion::physical_plan::ExecutionPlan;
 use datafusion::prelude::SessionContext;
 use datafusion_distributed::{DistributedExec, DistributedTaskContext, NetworkBoundaryExt};
 
+use tantivy::index::SegmentId;
+
 use crate::postgres::customscan::datafusion::memory::create_memory_pool;
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 use crate::postgres::customscan::mpp::transport::{
     CooperativeDrainSet, MppFrameHeader, RequestHandler, SubplanHandler,
 };
 use crate::postgres::customscan::mpp::worker::run_partition_driver;
+use crate::postgres::ParallelScanState;
 use datafusion_proto::bytes::physical_plan_from_bytes_with_extension_codec;
 
 /// Per-`stage_id` snapshot of `(local_plan, task_count)` walked out of the worker's distributed
@@ -155,6 +160,18 @@ pub(super) struct ProducerTaskRegistry {
     mesh: Weak<MppMesh>,
     work_mem_bytes: usize,
     hash_mem_multiplier: f64,
+    /// Per-source canonical segment ID sets, indexed by `plan_position`. The dispatch-flip
+    /// reconstruction step uses these to rebuild `Vec<ScanState>` for `PgSearchScanPlan` nodes
+    /// inside leader-shipped subplans: the codec carries only declarative fields, the runtime
+    /// state has to come from the worker's local PG-side data. Empty on test paths that don't
+    /// touch reconstruction.
+    #[allow(dead_code)] // consumed by the reconstruction walker landing in Phase 2.
+    index_segment_ids: Vec<HashSet<SegmentId>>,
+    /// Worker's `ParallelScanState`, threaded down so reconstruction can claim segments for the
+    /// partitioning source the same way `PgSearchTableProvider` does on the existing re-plan
+    /// path. `None` on test paths and on single-proc runs that don't have a parallel context.
+    #[allow(dead_code)] // consumed by the reconstruction walker landing in Phase 2.
+    parallel_state: Option<*mut ParallelScanState>,
     active_drivers: Arc<AtomicUsize>,
     /// First driver error observed since startup. The service loop polls this between
     /// `try_drain_pass` iterations and bails out so the worker surfaces a concrete failure
@@ -190,6 +207,15 @@ pub(super) struct ProducerTaskRegistry {
     spawned: Mutex<HashSet<(u32, u32, u32)>>,
 }
 
+// SAFETY: `parallel_state: *mut ParallelScanState` makes the auto-derived `Send + Sync` go away.
+// In practice the pointer is into PG's DSM segment, valid for the lifetime of the parallel
+// context, and only dereferenced from the worker's backend thread (the runtime tokio uses on
+// the worker is current-thread, pinned to the backend). The registry's other handlers
+// (`on_request`, `on_subplan`) are invoked from the cooperative-drain spin which also runs on
+// the same backend thread. Cross-thread access is therefore impossible by construction.
+unsafe impl Send for ProducerTaskRegistry {}
+unsafe impl Sync for ProducerTaskRegistry {}
+
 impl ProducerTaskRegistry {
     pub(super) fn new(
         stage_plans: StagePlans,
@@ -197,6 +223,8 @@ impl ProducerTaskRegistry {
         mesh: &Arc<MppMesh>,
         work_mem_bytes: usize,
         hash_mem_multiplier: f64,
+        index_segment_ids: Vec<HashSet<SegmentId>>,
+        parallel_state: Option<*mut ParallelScanState>,
     ) -> Self {
         Self {
             stage_plans,
@@ -204,11 +232,13 @@ impl ProducerTaskRegistry {
             mesh: Arc::downgrade(mesh),
             work_mem_bytes,
             hash_mem_multiplier,
+            index_segment_ids,
+            parallel_state,
             active_drivers: Arc::new(AtomicUsize::new(0)),
             first_error: Arc::new(Mutex::new(None)),
             prepared: Mutex::new(HashMap::new()),
             shipped_subplans: Mutex::new(HashMap::new()),
-            spawned: Mutex::new(HashSet::new()),
+            spawned: Mutex::new(HashSet::default()),
         }
     }
 
@@ -763,6 +793,9 @@ mod tests {
             &mesh,
             64 * 1024 * 1024, // work_mem
             2.0,              // hash_mem_multiplier
+            Vec::new(),       // index_segment_ids — empty in tests; reconstruction is exercised
+            //                                    by integration tests
+            None, // parallel_state — none in tests
         ))
     }
 

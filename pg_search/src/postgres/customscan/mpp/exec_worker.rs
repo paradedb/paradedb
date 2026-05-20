@@ -174,7 +174,7 @@ pub(crate) fn run_mpp_worker(
         None,
         None,
         non_partitioning_segments,
-        index_segment_ids,
+        index_segment_ids.clone(),
     ) {
         Ok(lp) => lp,
         Err(e) => pgrx::error!("mpp worker: deserialize_logical_plan failed: {e}"),
@@ -209,12 +209,17 @@ pub(crate) fn run_mpp_worker(
     let work_mem_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
     let hash_mem_multiplier = unsafe { pg_sys::hash_mem_multiplier };
     let session_arc = Arc::new(session);
+    // Pass the per-source canonical segment-ID sets + the ParallelScanState pointer down so the
+    // registry can rebuild PgSearchScan / FFHelper runtime state when decoding leader-shipped
+    // subplans. The clone is cheap (each `HashSet<SegmentId>` is tens to thousands of UUIDs).
     let registry = Arc::new(ProducerTaskRegistry::new(
         stage_plans,
         session_arc,
         &worker_mesh,
         work_mem_bytes,
         hash_mem_multiplier,
+        index_segment_ids.clone(),
+        parallel_state,
     ));
 
     // Pre-warm `(stage, task) → (prepared_plan, TaskContext)` for every task this proc owns.

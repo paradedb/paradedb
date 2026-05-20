@@ -1486,24 +1486,31 @@ impl CustomScan for JoinScan {
                 // DF-D fork's distributed-planner knobs over the Join profile so the resulting
                 // physical plan is a `DistributedExec`. Without this, the leader builds a serial
                 // plan and the worker fragments would have nothing to consume from.
-                let ctx = match state.custom_state().mpp.as_ref() {
-                    Some(MppExecState::Leader(leader)) => {
-                        let pcxt = leader.pcxt;
-                        if !pcxt.is_null() {
-                            let launched = (*pcxt).nworkers_launched as u32;
-                            let expected = producer_worker_count();
-                            if launched < expected {
-                                pgrx::error!(
-                                    "mpp join: PG launched {launched} of {expected} requested \
-                                     parallel workers; missing slots would hang the query. Retry, \
-                                     or raise `max_parallel_workers` / \
-                                     `max_parallel_workers_per_gather` so PG can launch the full set."
-                                );
+                // Same capture-then-build pattern as aggregatescan: hold a reference to the
+                // leader mesh so we can ship subplans once `build_physical_plan` returns.
+                let leader_mesh: Option<Arc<crate::postgres::customscan::mpp::runtime::MppMesh>> =
+                    match state.custom_state().mpp.as_ref() {
+                        Some(MppExecState::Leader(leader)) => {
+                            let pcxt = leader.pcxt;
+                            if !pcxt.is_null() {
+                                let launched = (*pcxt).nworkers_launched as u32;
+                                let expected = producer_worker_count();
+                                if launched < expected {
+                                    pgrx::error!(
+                                        "mpp join: PG launched {launched} of {expected} requested \
+                                         parallel workers; missing slots would hang the query. Retry, \
+                                         or raise `max_parallel_workers` / \
+                                         `max_parallel_workers_per_gather` so PG can launch the full set."
+                                    );
+                                }
                             }
+                            Some(Arc::clone(&leader.mesh))
                         }
-                        Self::build_mpp_session_context(Arc::clone(&leader.mesh))
-                    }
-                    _ => create_datafusion_session_context(SessionContextProfile::Join),
+                        _ => None,
+                    };
+                let ctx = match leader_mesh.as_ref() {
+                    Some(mesh) => Self::build_mpp_session_context(Arc::clone(mesh)),
+                    None => create_datafusion_session_context(SessionContextProfile::Join),
                 };
                 let logical_plan = deserialize_logical_plan_with_runtime(
                     &plan_bytes,
@@ -1548,6 +1555,24 @@ impl CustomScan for JoinScan {
                 let plan = runtime
                     .block_on(build_physical_plan(&ctx, logical_plan))
                     .expect("Failed to create execution plan");
+
+                // MPP leader: ship per-(stage, task) producer subplans to their owning workers
+                // via Subplan frames before kicking off local execution. Same Phase 2 wiring as
+                // aggregatescan; see the matching comment there for the Phase 3 dependency note.
+                if let Some(mesh) = leader_mesh.as_ref() {
+                    if let Err(e) =
+                        crate::postgres::customscan::mpp::producer_service::ship_subplans_to_workers(
+                            &plan,
+                            mesh,
+                            &ctx,
+                            pg_sys::work_mem as usize * 1024,
+                            pg_sys::hash_mem_multiplier,
+                            &runtime,
+                        )
+                    {
+                        pgrx::error!("mpp leader: ship_subplans_to_workers: {e}");
+                    }
+                }
 
                 let task_ctx = build_task_context(
                     &ctx,

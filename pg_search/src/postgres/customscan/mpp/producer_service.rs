@@ -243,46 +243,168 @@ impl ProducerTaskRegistry {
                 "mpp producer: no plan registered for stage_id={stage_id}"
             ))
         })?;
-        // Seed the TaskContext with a `DistributedTaskContext` so nested boundary nodes inside
-        // the prepared plan see `(task_index, task_count)` and address the right peer task.
-        let cfg = self
-            .session
-            .state()
-            .config()
-            .clone()
-            .with_extension(Arc::new(DistributedTaskContext {
-                task_index: task_idx as usize,
-                task_count,
-            }));
-        let memory_pool = create_memory_pool(&plan, self.work_mem_bytes, self.hash_mem_multiplier);
-        let runtime_env = RuntimeEnvBuilder::new()
-            .with_memory_pool(memory_pool)
-            .build()
-            .map_err(|e| {
-                DataFusionError::Internal(format!("mpp producer: build RuntimeEnv: {e}"))
-            })?;
-        let task_ctx = Arc::new(
-            TaskContext::default()
-                .with_session_config(cfg)
-                .with_runtime(Arc::new(runtime_env)),
-        );
-
-        // Wrap the stage's local plan in a fresh `DistributedExec` and `prepare_in_process_plan`
-        // so nested NetworkShuffleExec / NetworkBroadcastExec / NetworkCoalesceExec dispatch
-        // through `ShmMqWorkerTransport` (Stage::Remote) instead of the LocalStage path that
-        // errors when task_count > 1.
-        let dist = Arc::new(DistributedExec::new(Arc::clone(&plan)));
-        let prepared = dist.prepare_in_process_plan(&task_ctx).map_err(|e| {
-            DataFusionError::Internal(format!(
-                "mpp producer: prepare_in_process_plan failed for stage_id={stage_id} \
-                 task_idx={task_idx}: {e}"
-            ))
-        })?;
-        Ok(PreparedTask {
-            plan: prepared,
-            ctx: task_ctx,
-        })
+        prepare_stage_task(
+            &plan,
+            stage_id,
+            task_idx,
+            task_count,
+            &self.session,
+            self.work_mem_bytes,
+            self.hash_mem_multiplier,
+        )
     }
+}
+
+/// Shared `(stage_id, task_idx) -> PreparedTask` builder. Called by `ProducerTaskRegistry` on
+/// the worker side and by [`ship_subplans_to_workers`] on the leader side. Both sites need the
+/// same TaskContext + `prepare_in_process_plan` recipe so the prepared plan they produce is
+/// bit-identical — that's the whole point of the dispatch-flip's "build once, ship many" model.
+fn prepare_stage_task(
+    plan: &Arc<dyn ExecutionPlan>,
+    stage_id: u32,
+    task_idx: u32,
+    task_count: usize,
+    session: &SessionContext,
+    work_mem_bytes: usize,
+    hash_mem_multiplier: f64,
+) -> Result<PreparedTask, DataFusionError> {
+    // Seed the TaskContext with a `DistributedTaskContext` so nested boundary nodes inside the
+    // prepared plan see `(task_index, task_count)` and address the right peer task.
+    let cfg = session
+        .state()
+        .config()
+        .clone()
+        .with_extension(Arc::new(DistributedTaskContext {
+            task_index: task_idx as usize,
+            task_count,
+        }));
+    let memory_pool = create_memory_pool(plan, work_mem_bytes, hash_mem_multiplier);
+    let runtime_env = RuntimeEnvBuilder::new()
+        .with_memory_pool(memory_pool)
+        .build()
+        .map_err(|e| DataFusionError::Internal(format!("mpp producer: build RuntimeEnv: {e}")))?;
+    let task_ctx = Arc::new(
+        TaskContext::default()
+            .with_session_config(cfg)
+            .with_runtime(Arc::new(runtime_env)),
+    );
+
+    // Wrap the stage's local plan in a fresh `DistributedExec` and `prepare_in_process_plan` so
+    // nested NetworkShuffleExec / NetworkBroadcastExec / NetworkCoalesceExec dispatch through
+    // `ShmMqWorkerTransport` (Stage::Remote) instead of the LocalStage path that errors when
+    // task_count > 1.
+    let dist = Arc::new(DistributedExec::new(Arc::clone(plan)));
+    let prepared = dist.prepare_in_process_plan(&task_ctx).map_err(|e| {
+        DataFusionError::Internal(format!(
+            "mpp producer: prepare_in_process_plan failed for stage_id={stage_id} \
+             task_idx={task_idx}: {e}"
+        ))
+    })?;
+    Ok(PreparedTask {
+        plan: prepared,
+        ctx: task_ctx,
+    })
+}
+
+/// Leader-side: walk the distributed physical plan, prepare each `(stage_id, task_idx)`, encode
+/// it via [`crate::scan::physical_codec::PgSearchPhysicalCodec`], and ship the bytes to the
+/// owning worker via a [`MppFrameKind::Subplan`](crate::postgres::customscan::mpp::transport::MppFrameKind::Subplan)
+/// frame. The worker side stashes the decoded plan in its [`ProducerTaskRegistry`] so subsequent
+/// `Request` frames for the same `(stage, task)` skip the re-plan path.
+///
+/// Called once during the leader's setup, after `build_mpp_session_context` produces the
+/// distributed physical plan and before the leader starts executing its own plan
+/// (`NetworkBoundaryExec` consumers issue `Request` frames once execution kicks in — the
+/// subplans must already be at the workers by then).
+///
+/// `physical_plan` is the LEADER's distributed plan. Walking it for `NetworkBoundary` nodes
+/// gives every nested `(stage_id, local_plan, task_count)` we need to ship; the leader and
+/// workers run the same `build_mpp_session_context`, so the StagePlans the leader walks here
+/// matches the StagePlans each worker would build from its own copy.
+///
+/// `n_workers` is the producer-worker count (not total procs). `proc_for_task` maps
+/// `task_idx -> 1..=n_workers`, so we ship to procs 1..=n_workers and never to ourselves
+/// (proc 0).
+pub(crate) fn ship_subplans_to_workers(
+    physical_plan: &Arc<dyn ExecutionPlan>,
+    leader_mesh: &Arc<MppMesh>,
+    session: &SessionContext,
+    work_mem_bytes: usize,
+    hash_mem_multiplier: f64,
+    runtime: &tokio::runtime::Runtime,
+) -> Result<(), DataFusionError> {
+    use crate::postgres::customscan::mpp::runtime::proc_for_task;
+    use crate::postgres::customscan::mpp::transport::{MppFrameHeader, SendBatchStats};
+    use crate::scan::physical_codec::PgSearchPhysicalCodec;
+    use datafusion_proto::bytes::physical_plan_to_bytes_with_extension_codec;
+
+    let stage_plans = StagePlans::build(physical_plan);
+    if stage_plans.is_empty() {
+        // No NetworkBoundary nodes -> no subplans to ship. Single-proc plans hit this path.
+        return Ok(());
+    }
+    let n_workers = leader_mesh.n_procs.saturating_sub(1).max(1);
+
+    let codec = PgSearchPhysicalCodec;
+    let mut tasks: Vec<(u32, u32, usize, Arc<dyn ExecutionPlan>)> = Vec::new();
+    for (stage_id, task_count) in stage_plans.iter_task_counts() {
+        let (local_plan, _) = stage_plans.lookup(stage_id).expect("stage just walked");
+        for task_idx in 0..task_count {
+            tasks.push((
+                stage_id,
+                task_idx as u32,
+                task_count,
+                Arc::clone(&local_plan),
+            ));
+        }
+    }
+
+    runtime.block_on(async move {
+        let mut stats = SendBatchStats::default();
+        for (stage_id, task_idx, task_count, local_plan) in tasks {
+            let owner_proc = proc_for_task(n_workers, task_idx);
+
+            let prepared = prepare_stage_task(
+                &local_plan,
+                stage_id,
+                task_idx,
+                task_count,
+                session,
+                work_mem_bytes,
+                hash_mem_multiplier,
+            )?;
+
+            let bytes = physical_plan_to_bytes_with_extension_codec(prepared.plan, &codec)
+                .map_err(|e| {
+                    DataFusionError::Internal(format!(
+                        "mpp leader: encode subplan stage_id={stage_id} task_idx={task_idx}: {e}"
+                    ))
+                })?;
+
+            let header = MppFrameHeader::subplan(stage_id, task_idx)?;
+            let sender = leader_mesh
+                .outbound_sender(owner_proc, header)
+                .ok_or_else(|| {
+                    DataFusionError::Internal(format!(
+                    "mpp leader: no outbound sender to proc {owner_proc} for stage_id={stage_id} \
+                     task_idx={task_idx} (mesh detached?)"
+                ))
+                })?;
+            // Attach the leader's mesh as the cooperative drain so the spin can pull any
+            // queued-up leader-bound frames (rare during setup) without deadlocking. Even if no
+            // drain were attached the blocking send would still complete eventually — workers'
+            // own drains consume the bytes regardless of whether their SubplanHandler is
+            // installed (Phase 3) — but the explicit drain keeps this path consistent with
+            // other producer sends.
+            let sender = sender
+                .with_cooperative_drain(Arc::clone(leader_mesh) as Arc<dyn CooperativeDrainSet>);
+            sender
+                .send_subplan_traced(task_idx, bytes.as_ref(), &mut stats)
+                .await?;
+        }
+        Ok::<(), DataFusionError>(())
+    })?;
+    Ok(())
 }
 
 impl RequestHandler for ProducerTaskRegistry {

@@ -1573,34 +1573,42 @@ impl AggregateScan {
             // `NetworkShuffleExec`s use our `ShmMqWorkerTransport` to read
             // from worker queues at execute time. Otherwise: existing serial
             // session context.
-            let ctx = match df_state.mpp.as_ref() {
-                Some(scan_state::MppExecState::Leader(leader)) => {
-                    // CustomScan parallel exec doesn't guarantee that PG
-                    // launches every worker we requested at planning time
-                    // (other queries can hold all worker slots, etc.). The
-                    // unattached `shm_mq` slots stay in init-state, the
-                    // cooperative pull never sees `Detached`, and the leader
-                    // hangs on the missing partitions. Fail loudly instead
-                    // and ask the user to retry until #5061 picks a long-term
-                    // shape (resize the mesh at exec start, or move off
-                    // CustomScan parallel workers).
-                    let pcxt = leader.pcxt;
-                    if !pcxt.is_null() {
-                        let launched = unsafe { (*pcxt).nworkers_launched } as u32;
-                        let expected = producer_worker_count();
-                        if launched < expected {
-                            pgrx::error!(
-                                "mpp aggregate: PG launched {launched} of {expected} requested \
-                                 parallel workers; missing slots would hang the query. Retry, or \
-                                 raise `max_parallel_workers` / `max_parallel_workers_per_gather` \
-                                 so PG can launch the full set. Long-term fix tracked in \
-                                 https://github.com/paradedb/paradedb/issues/5061."
-                            );
+            // Capture the leader mesh up front; we need it both for the session-context build
+            // AND for shipping subplans once the physical plan exists.
+            let leader_mesh: Option<Arc<crate::postgres::customscan::mpp::runtime::MppMesh>> =
+                match df_state.mpp.as_ref() {
+                    Some(scan_state::MppExecState::Leader(leader)) => {
+                        // CustomScan parallel exec doesn't guarantee that PG
+                        // launches every worker we requested at planning time
+                        // (other queries can hold all worker slots, etc.). The
+                        // unattached `shm_mq` slots stay in init-state, the
+                        // cooperative pull never sees `Detached`, and the leader
+                        // hangs on the missing partitions. Fail loudly instead
+                        // and ask the user to retry until #5061 picks a long-term
+                        // shape (resize the mesh at exec start, or move off
+                        // CustomScan parallel workers).
+                        let pcxt = leader.pcxt;
+                        if !pcxt.is_null() {
+                            let launched = unsafe { (*pcxt).nworkers_launched } as u32;
+                            let expected = producer_worker_count();
+                            if launched < expected {
+                                pgrx::error!(
+                                    "mpp aggregate: PG launched {launched} of {expected} requested \
+                                     parallel workers; missing slots would hang the query. Retry, or \
+                                     raise `max_parallel_workers` / `max_parallel_workers_per_gather` \
+                                     so PG can launch the full set. Long-term fix tracked in \
+                                     https://github.com/paradedb/paradedb/issues/5061."
+                                );
+                            }
                         }
+                        Some(Arc::clone(&leader.mesh))
                     }
-                    Self::build_mpp_session_context(Arc::clone(&leader.mesh))
-                }
-                _ => create_aggregate_session_context(),
+                    _ => None,
+                };
+
+            let ctx = match leader_mesh.as_ref() {
+                Some(mesh) => Self::build_mpp_session_context(Arc::clone(mesh)),
+                None => create_aggregate_session_context(),
             };
 
             let custom_exprs = df_state.custom_exprs;
@@ -1628,6 +1636,28 @@ impl AggregateScan {
                 Ok(p) => p,
                 Err(e) => pgrx::error!("Failed to build DataFusion aggregate plan: {}", e),
             };
+
+            // MPP leader: walk the distributed physical plan and ship every nested per-(stage,
+            // task) producer subplan to its owning worker via Subplan frames before kicking off
+            // local execution. Workers stash the decoded plans in their ProducerTaskRegistry and
+            // skip the re-plan step when a follow-up Request arrives. No-op for non-MPP plans
+            // (the helper returns early when StagePlans is empty). The Phase 3 commit on this
+            // branch wires the worker-side SubplanHandler; until then this commit silently
+            // ships bytes that workers' drain consumes and discards.
+            if let Some(mesh) = leader_mesh.as_ref() {
+                if let Err(e) =
+                    crate::postgres::customscan::mpp::producer_service::ship_subplans_to_workers(
+                        &physical_plan,
+                        mesh,
+                        &ctx,
+                        unsafe { pg_sys::work_mem as usize * 1024 },
+                        unsafe { pg_sys::hash_mem_multiplier },
+                        &runtime,
+                    )
+                {
+                    pgrx::error!("mpp leader: ship_subplans_to_workers: {e}");
+                }
+            }
 
             let task_ctx = build_task_context(
                 &ctx,

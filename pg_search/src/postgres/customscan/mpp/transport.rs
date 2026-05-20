@@ -170,7 +170,6 @@ impl MppFrameHeader {
     /// Same task_idx packing as [`Self::request`]; `partition` is unused (set to 0) because the
     /// subplan applies to all output partitions of `(stage_id, task_idx)`. Errors if `task_idx`
     /// doesn't fit in 24 bits.
-    #[allow(dead_code)] // wired by Phase 2 of the dispatch-flip PR; tested via the test module.
     pub fn subplan(stage_id: u32, task_idx: u32) -> Result<Self, DataFusionError> {
         if task_idx > TASK_IDX_MAX {
             return Err(DataFusionError::Internal(format!(
@@ -383,7 +382,6 @@ fn decode_frame(bytes: &[u8]) -> Result<(MppFrameHeader, Option<RecordBatch>), D
 /// [ magic | flags=Subplan|task_idx<<8 | stage_id | partition=0 ] [ subplan_bytes ]
 /// |---------- 16 bytes --------|                                 |- variable -|
 /// ```
-#[allow(dead_code)] // wired by Phase 2 of the dispatch-flip PR; tested via the test module.
 fn encode_subplan_frame_into(
     stage_id: u32,
     task_idx: u32,
@@ -737,7 +735,6 @@ impl MppSender {
     ///
     /// Uses the same cooperative spin as `send_batch_traced` so a full outbound queue doesn't
     /// stall the leader's setup phase.
-    #[allow(dead_code)] // called by Phase 2 of the dispatch-flip PR.
     pub(super) async fn send_subplan_traced(
         &self,
         task_idx: u32,
@@ -776,10 +773,6 @@ impl MppSender {
         self.send_pre_encoded(scratch, stats).await
     }
 
-    // `send_subplan_traced` itself carries an `#[allow(dead_code)]` until Phase 2 wires it; this
-    // helper rides along on the same allow because it's only reachable through that public
-    // entry point. Drop both allows together.
-    #[allow(dead_code)]
     async fn send_subplan_with_scratch(
         &self,
         task_idx: u32,

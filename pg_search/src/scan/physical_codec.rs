@@ -261,6 +261,13 @@ pub struct MppReconstructionContext {
 // lifetime / threading story as `ProducerTaskRegistry`: the pointer is the worker's view of
 // PG's DSM-attached shared state, valid for the lifetime of the worker's customscan execution,
 // and only dereferenced on the worker's backend thread (current-thread tokio, FFI-pinned).
+//
+// **Invariant**: the `Arc<MppReconstructionContext>` is laid into `SessionConfig::with_extension`
+// and may be transitively cloned into TaskContexts that DataFusion / DF-D pass into operators.
+// All of those run on the worker's current-thread tokio runtime, pinned to the PG backend
+// thread (pgrx 0.18 single-thread FFI ABI). If a future change spawns codec or operator work
+// onto a multi-threaded runtime, this `Send` becomes a soundness hole — there's no synthesis
+// path that would allow `*mut ParallelScanState` to safely cross threads.
 unsafe impl Send for MppReconstructionContext {}
 unsafe impl Sync for MppReconstructionContext {}
 
@@ -801,11 +808,12 @@ fn encode_pgsearch_scan(node: &dyn ExecutionPlan) -> Result<PgSearchScanProto> {
         })
         .collect::<Result<_>>()?;
 
-    // `partition_recipes_json` is now superseded by the `table_provider_json` blob below:
+    // `partition_recipes_json` (proto tag 4) is now superseded by `table_provider_json`:
     // workers replay `scan_inner` to rebuild the per-partition `Vec<ScanState>` from scratch
-    // rather than reading per-partition recipes off the wire. Left as an empty Vec on the
-    // proto so deployments mid-rollout don't see a wire-shape mismatch; can be retired once
-    // the dispatch-flip lands in stable.
+    // rather than reading per-partition recipes off the wire. Left as an empty Vec for one
+    // release so deployments mid-rollout don't see a wire-shape mismatch; retire in the
+    // follow-up that lands after dispatch-flip stabilises (mark tag 4 `reserved` then to
+    // prevent reuse).
     let partition_recipes_json: Vec<String> = Vec::new();
 
     // Ship the serialized `PgSearchTableProvider` populated by `create_scan` (Phase 2b). If
@@ -850,7 +858,20 @@ fn decode_pgsearch_scan(
     let recon = ctx
         .session_config()
         .get_extension::<MppReconstructionContext>();
-    if let (false, Some(recon)) = (proto.table_provider_json.is_empty(), recon) {
+    let has_provider_json = !proto.table_provider_json.is_empty();
+    if has_provider_json && recon.is_none() {
+        // Loud surface for the asymmetric case: the leader shipped reconstruction-ready bytes
+        // but the worker's task ctx has no `MppReconstructionContext`. Today this only happens
+        // when `decode_pgsearch_scan` is invoked outside `ProducerTaskRegistry::on_subplan`
+        // (round-trip lib tests etc.). Falling through to the placeholder is correct there;
+        // surface a `warning!` so the asymmetry shows up in regression test output and helps
+        // future debugging if a new caller forgets to layer the extension.
+        pgrx::warning!(
+            "decode_pgsearch_scan: shipped table_provider_json present but no \
+             MppReconstructionContext on TaskContext; falling back to empty-states placeholder"
+        );
+    }
+    if let (true, Some(recon)) = (has_provider_json, recon) {
         let mut provider: PgSearchTableProvider =
             serde_json::from_slice(&proto.table_provider_json).map_err(|e| {
                 DataFusionError::Internal(format!(
@@ -869,7 +890,15 @@ fn decode_pgsearch_scan(
         if provider.non_partitioning_index().is_some() {
             if let Some(plan_pos) = provider.plan_position() {
                 if let Some(ids) = recon.index_segment_ids.get(plan_pos) {
-                    provider.set_canonical_segment_ids(ids.clone());
+                    // Empty slot means the registry never populated this position (e.g. no
+                    // parallel_state available at registry-build time). Setting an empty
+                    // canonical set would route `scan_inner` through
+                    // `MvccSatisfies::ParallelWorker(empty)` and silently emit zero rows;
+                    // skip injection and let scan_inner fall back to whatever path the
+                    // provider's other fields dictate.
+                    if !ids.is_empty() {
+                        provider.set_canonical_segment_ids(ids.clone());
+                    }
                 }
             }
         }
@@ -939,7 +968,7 @@ fn decode_pgsearch_scan(
     let _ = proto.partition_recipes_json; // superseded by `table_provider_json` (Phase 2c).
     let _ = proto.dynamic_filters; // dynamic filters are re-pushed via FilterPushdown after construction; nothing to do here yet.
 
-    let plan = PgSearchScanPlan::new(
+    let mut plan = PgSearchScanPlan::new(
         states,
         arrow_schema,
         query_for_display,
@@ -949,6 +978,14 @@ fn decode_pgsearch_scan(
         proto.indexrelid,
         deferred_ctid_plan_position,
     );
+
+    // Preserve the shipped table-provider bytes through the fallback so any subsequent
+    // re-encode (e.g. a future optimizer pass that rewrites this scan into a new variant)
+    // doesn't lose the codec metadata. The leader-side scan always carries them; the worker
+    // fallback should too.
+    if !proto.table_provider_json.is_empty() {
+        plan = plan.with_serialized_table_provider(proto.table_provider_json);
+    }
 
     Ok(Arc::new(plan))
 }

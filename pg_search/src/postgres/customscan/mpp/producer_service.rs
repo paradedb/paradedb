@@ -343,6 +343,11 @@ impl ProducerTaskRegistry {
         // Fallback: build the prepared plan locally from `stage_plans`, same recipe as
         // pre-dispatch-flip. Used during startup races (subplan hasn't arrived yet) and as a
         // safety net while the codec's PgSearchScan state-reconstruction story matures.
+        //
+        // No reconstruction context: this path goes through `DistributedExec
+        // ::prepare_in_process_plan` over `stage_plans` directly, never through the physical
+        // codec's `decode_pgsearch_scan`, so the extension would never be read. Pass `None`
+        // so it's clear from the call site that the fallback is by-design extension-free.
         let (plan, task_count) = self.stage_plans.lookup(stage_id).ok_or_else(|| {
             DataFusionError::Internal(format!(
                 "mpp producer: no plan registered for stage_id={stage_id}"
@@ -356,7 +361,7 @@ impl ProducerTaskRegistry {
             &self.session,
             self.work_mem_bytes,
             self.hash_mem_multiplier,
-            Some(Arc::clone(&self.reconstruction_context)),
+            None,
         )
     }
 }
@@ -748,7 +753,19 @@ impl SubplanHandler for ProducerTaskRegistry {
         let codec = datafusion_distributed::DistributedCodec::new_combined_with_user(
             self.session.state().config(),
         );
-        let task_ctx = self.session.task_ctx();
+        // The codec's `decode_pgsearch_scan` reaches into the task ctx's session config to
+        // pick up an `MppReconstructionContext` extension. Without it, shipped subplans land
+        // with an empty `Vec<ScanState>` placeholder and the scan emits zero rows. Layer the
+        // registry's reconstruction context onto a decode-local task ctx; the regular
+        // session task ctx doesn't carry it because the session is built before the registry
+        // exists.
+        let decode_cfg = self
+            .session
+            .state()
+            .config()
+            .clone()
+            .with_extension(Arc::clone(&self.reconstruction_context));
+        let task_ctx = Arc::new(TaskContext::default().with_session_config(decode_cfg));
         let decoded = physical_plan_from_bytes_with_extension_codec(
             payload.as_slice(),
             &task_ctx,

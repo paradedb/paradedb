@@ -513,17 +513,26 @@ impl PgSearchTableProvider {
         // contain tantivy `SegmentReader` handles + raw pgrx pointers — neither of which
         // can ride over shm_mq.
         //
-        // `to_vec` on a fully-serializable struct is infallible in practice; if the
-        // serialization shape ever changes such that it could fail, surface the error so
-        // the plan-build fails fast instead of producing a worker-side decode crash.
-        match serde_json::to_vec(self) {
-            Ok(bytes) => {
-                plan = plan.with_serialized_table_provider(bytes);
-            }
-            Err(e) => {
-                return Err(DataFusionError::Internal(format!(
-                    "PgSearchTableProvider serialization failed during scan build: {e}"
-                )));
+        // Skip the work on the worker. `create_scan` is reached on the worker too — through
+        // the codec's `decode_pgsearch_scan` → `scan_sync` → `scan_inner` → `create_*_scan` →
+        // `create_scan` chain — but the reconstructed scan is never re-encoded, so the bytes
+        // would just be dead weight. `ParallelWorkerNumber == -1` is the leader; anything
+        // else is a parallel worker. Confined to the `unsafe` access of the global to keep
+        // the check at its most direct.
+        let on_leader = unsafe { pg_sys::ParallelWorkerNumber == -1 };
+        if on_leader {
+            // `to_vec` on a fully-serializable struct is infallible in practice; if the
+            // serialization shape ever changes such that it could fail, surface the error so
+            // the plan-build fails fast instead of producing a worker-side decode crash.
+            match serde_json::to_vec(self) {
+                Ok(bytes) => {
+                    plan = plan.with_serialized_table_provider(bytes);
+                }
+                Err(e) => {
+                    return Err(DataFusionError::Internal(format!(
+                        "PgSearchTableProvider serialization failed during scan build: {e}"
+                    )));
+                }
             }
         }
 

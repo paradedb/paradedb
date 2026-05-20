@@ -184,6 +184,18 @@ impl SegmentedTopKExec {
         }
     }
 
+    pub fn k(&self) -> usize {
+        self.k
+    }
+
+    pub fn sort_exprs(&self) -> &LexOrdering {
+        &self.sort_exprs
+    }
+
+    pub fn deferred_columns(&self) -> &[DeferredSortColumn] {
+        &self.deferred_columns
+    }
+
     fn create_mat_row_converter(
         sort_exprs: &LexOrdering,
         deferred_columns: &[DeferredSortColumn],

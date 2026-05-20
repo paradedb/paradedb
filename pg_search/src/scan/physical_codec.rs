@@ -141,34 +141,51 @@ struct CanonicalColumnProto {
 
 /// Wire form for [`crate::scan::segmented_topk_exec::SegmentedTopKExec`].
 ///
-/// Carries the LIMIT, the column-encoded sort spec, and the deferred-field plumbing the topk
-/// needs to track. Schema/properties are derived from the wrapped child input via the codec's
-/// `inputs` slice.
+/// Carries the LIMIT, the sort spec, the deferred sort columns, and the deduped index relids
+/// referenced by those deferred columns (same FFHelper-reconstruction pattern as
+/// [`TantivyLookupProto`]). Schema/properties are derived from the wrapped child input via the
+/// codec's `inputs` slice.
 #[derive(Clone, PartialEq, ::prost::Message)]
 struct SegmentedTopKProto {
     /// LIMIT N — the upper bound on rows the topk emits.
     #[prost(uint64, tag = "1")]
     pub fetch: u64,
-    /// Sort key columns + ASC/DESC, in priority order.
+    /// Sort keys in priority order. Each entry is a full `PhysicalSortExpr`-equivalent
+    /// (expression bytes + asc/desc + nulls placement).
     #[prost(message, repeated, tag = "2")]
     pub sort_keys: Vec<SortKeyProto>,
-    /// Optional dynamic-filter threshold column expression; encoded as a serialized
-    /// `datafusion_proto::physical_plan::PhysicalExprNode`.
-    #[prost(bytes, optional, tag = "3")]
-    pub dynamic_filter_threshold: Option<Vec<u8>>,
+    /// Deferred sort columns whose values are resolved from tantivy fast fields rather than the
+    /// input batch. Empty for the common case (no deferred columns in the sort).
+    #[prost(message, repeated, tag = "3")]
+    pub deferred_columns: Vec<DeferredSortColumnProto>,
+    /// Unique index relids referenced by `deferred_columns`. Worker uses this to seed the
+    /// `FFHelper` map — same placeholder caveat as `TantivyLookupProto::indexrelids`.
+    #[prost(uint32, repeated, tag = "4")]
+    pub indexrelids: Vec<u32>,
 }
 
 #[derive(Clone, PartialEq, ::prost::Message)]
 struct SortKeyProto {
-    /// Column index in the input schema.
-    #[prost(uint64, tag = "1")]
-    pub col_idx: u64,
+    /// `datafusion_proto::protobuf::PhysicalExprNode` encoded as bytes via
+    /// `serialize_physical_expr(&expr, &codec).encode_to_vec()`. Carries the full expression
+    /// tree, so it covers `Column` and any other `PhysicalExpr` variant a sort key might be.
+    #[prost(bytes, tag = "1")]
+    pub expr_bytes: Vec<u8>,
     /// True if ASC; false if DESC.
     #[prost(bool, tag = "2")]
     pub ascending: bool,
     /// True if NULLS FIRST; false if NULLS LAST.
     #[prost(bool, tag = "3")]
     pub nulls_first: bool,
+}
+
+#[derive(Clone, PartialEq, ::prost::Message)]
+struct DeferredSortColumnProto {
+    /// Position of this column in the sort key list (parallel index into the lex ordering).
+    #[prost(uint64, tag = "1")]
+    pub sort_col_idx: u64,
+    #[prost(message, optional, tag = "2")]
+    pub canonical: Option<CanonicalColumnProto>,
 }
 
 /// Wire form for [`crate::scan::execution_plan::PgSearchScanPlan`].
@@ -422,20 +439,147 @@ fn decode_tantivy_lookup(
 
 // ---------- SegmentedTopKExec ----------
 
-fn encode_segmented_topk(_node: &dyn ExecutionPlan) -> Result<SegmentedTopKProto> {
-    Err(DataFusionError::NotImplemented(
-        "encode_segmented_topk: SegmentedTopKExec codec not yet implemented".into(),
-    ))
+fn encode_segmented_topk(node: &dyn ExecutionPlan) -> Result<SegmentedTopKProto> {
+    use crate::scan::segmented_topk_exec::SegmentedTopKExec;
+    use datafusion_proto::physical_plan::to_proto::serialize_physical_expr;
+
+    let exec = node
+        .as_any()
+        .downcast_ref::<SegmentedTopKExec>()
+        .ok_or_else(|| {
+            DataFusionError::Internal(
+                "encode_segmented_topk: node named SegmentedTopKExec but downcast failed".into(),
+            )
+        })?;
+
+    // We're encoding sort-key inner exprs (`PhysicalExpr`). They're never custom; the user codec
+    // only matters for UDFs reachable through those exprs, and the topk's sort keys are
+    // columns/literals/standard scalars. Pass a `PgSearchPhysicalCodec` instance through to
+    // serialize_physical_expr regardless — it's the contract.
+    let inner_codec = PgSearchPhysicalCodec;
+    let sort_keys: Vec<SortKeyProto> = exec
+        .sort_exprs()
+        .iter()
+        .map(|s| {
+            let expr_node = serialize_physical_expr(&s.expr, &inner_codec)?;
+            let mut expr_bytes = Vec::new();
+            expr_node.encode(&mut expr_bytes).map_err(|e| {
+                DataFusionError::Internal(format!(
+                    "encode_segmented_topk: PhysicalExprNode encode failed: {e}"
+                ))
+            })?;
+            Ok::<_, DataFusionError>(SortKeyProto {
+                expr_bytes,
+                ascending: !s.options.descending,
+                nulls_first: s.options.nulls_first,
+            })
+        })
+        .collect::<Result<_>>()?;
+
+    let deferred_columns: Vec<DeferredSortColumnProto> = exec
+        .deferred_columns()
+        .iter()
+        .map(|d| DeferredSortColumnProto {
+            sort_col_idx: d.sort_col_idx as u64,
+            canonical: Some(CanonicalColumnProto {
+                indexrelid: d.canonical.indexrelid,
+                ff_index: d.canonical.ff_index as u64,
+            }),
+        })
+        .collect();
+
+    let mut indexrelids: Vec<u32> = exec
+        .deferred_columns()
+        .iter()
+        .map(|d| d.canonical.indexrelid)
+        .collect();
+    indexrelids.sort_unstable();
+    indexrelids.dedup();
+
+    Ok(SegmentedTopKProto {
+        fetch: exec.k() as u64,
+        sort_keys,
+        deferred_columns,
+        indexrelids,
+    })
 }
 
 fn decode_segmented_topk(
-    _proto: SegmentedTopKProto,
-    _inputs: &[Arc<dyn ExecutionPlan>],
-    _ctx: &TaskContext,
+    proto: SegmentedTopKProto,
+    inputs: &[Arc<dyn ExecutionPlan>],
+    ctx: &TaskContext,
 ) -> Result<Arc<dyn ExecutionPlan>> {
-    Err(DataFusionError::NotImplemented(
-        "decode_segmented_topk: SegmentedTopKExec codec not yet implemented".into(),
-    ))
+    use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper};
+    use crate::scan::segmented_topk_exec::{DeferredSortColumn, SegmentedTopKExec};
+    use datafusion::physical_expr::{LexOrdering, PhysicalSortExpr};
+    use datafusion_proto::physical_plan::from_proto::parse_physical_expr;
+    use datafusion_proto::protobuf::PhysicalExprNode;
+
+    let input = inputs.first().cloned().ok_or_else(|| {
+        DataFusionError::Internal(
+            "decode_segmented_topk: SegmentedTopKExec must have exactly one input".into(),
+        )
+    })?;
+    let input_schema = input.schema();
+    let inner_codec = PgSearchPhysicalCodec;
+
+    let mut sort_exprs_vec: Vec<PhysicalSortExpr> = Vec::with_capacity(proto.sort_keys.len());
+    for sk in &proto.sort_keys {
+        let expr_node = PhysicalExprNode::decode(sk.expr_bytes.as_slice()).map_err(|e| {
+            DataFusionError::Internal(format!(
+                "decode_segmented_topk: PhysicalExprNode decode failed: {e}"
+            ))
+        })?;
+        let expr = parse_physical_expr(&expr_node, ctx, &input_schema, &inner_codec)?;
+        sort_exprs_vec.push(PhysicalSortExpr {
+            expr,
+            options: arrow_schema::SortOptions {
+                descending: !sk.ascending,
+                nulls_first: sk.nulls_first,
+            },
+        });
+    }
+    let sort_exprs = LexOrdering::new(sort_exprs_vec).ok_or_else(|| {
+        DataFusionError::Internal(
+            "decode_segmented_topk: empty sort key list (SegmentedTopK requires at least one)"
+                .into(),
+        )
+    })?;
+
+    let deferred_columns: Vec<DeferredSortColumn> = proto
+        .deferred_columns
+        .into_iter()
+        .map(|d| {
+            let canonical = d.canonical.ok_or_else(|| {
+                DataFusionError::Internal(
+                    "decode_segmented_topk: deferred sort column missing canonical".into(),
+                )
+            })?;
+            Ok(DeferredSortColumn {
+                sort_col_idx: d.sort_col_idx as usize,
+                canonical: CanonicalColumn {
+                    indexrelid: canonical.indexrelid,
+                    ff_index: canonical.ff_index as usize,
+                },
+            })
+        })
+        .collect::<Result<_>>()?;
+
+    // Same placeholder caveat as `decode_tantivy_lookup` — the real `FFHelper` for each index
+    // gets wired by the dispatch-flip commit, which has access to PG-backend state. Until then
+    // we hand back an empty helper that's structurally correct but won't service runtime
+    // fast-field lookups.
+    let _ = proto.indexrelids; // currently unused at decode time; reserved for the rebuild path.
+    let ffhelper = std::sync::Arc::new(FFHelper::empty());
+
+    let exec = SegmentedTopKExec::new(
+        input,
+        sort_exprs,
+        deferred_columns,
+        ffhelper,
+        proto.fetch as usize,
+    );
+    Ok(Arc::new(exec))
 }
 
 // ---------- PgSearchScanPlan ----------
@@ -518,6 +662,70 @@ mod tests {
     // `EmptyExec`, so it should be safe). Smoke check first:
 
     #[test]
+    fn segmented_topk_round_trip() {
+        use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper};
+        use crate::scan::segmented_topk_exec::{DeferredSortColumn, SegmentedTopKExec};
+        use arrow_schema::SortOptions;
+        use datafusion::physical_expr::expressions::Column;
+        use datafusion::physical_expr::{LexOrdering, PhysicalSortExpr};
+        use std::sync::Arc;
+
+        let input_schema = Arc::new(Schema::new(vec![
+            Field::new("score", DataType::Float64, false),
+            Field::new("title", DataType::Utf8, true),
+        ]));
+        let input: Arc<dyn ExecutionPlan> = Arc::new(EmptyExec::new(input_schema));
+
+        let col_score =
+            Arc::new(Column::new("score", 0)) as Arc<dyn datafusion::physical_expr::PhysicalExpr>;
+        let sort_exprs = LexOrdering::new(vec![PhysicalSortExpr {
+            expr: Arc::clone(&col_score),
+            options: SortOptions {
+                descending: true,
+                nulls_first: false,
+            },
+        }])
+        .unwrap();
+        let deferred_columns = vec![DeferredSortColumn {
+            sort_col_idx: 0,
+            canonical: CanonicalColumn {
+                indexrelid: 16384,
+                ff_index: 2,
+            },
+        }];
+        let exec = Arc::new(SegmentedTopKExec::new(
+            Arc::clone(&input),
+            sort_exprs.clone(),
+            deferred_columns.clone(),
+            Arc::new(FFHelper::empty()),
+            10,
+        )) as Arc<dyn ExecutionPlan>;
+
+        let codec = codec();
+        let mut buf = Vec::new();
+        codec.try_encode(Arc::clone(&exec), &mut buf).unwrap();
+
+        let decoded = codec
+            .try_decode(&buf, std::slice::from_ref(&input), &ctx())
+            .unwrap();
+
+        let topk = decoded
+            .as_any()
+            .downcast_ref::<SegmentedTopKExec>()
+            .expect("decoded plan is a SegmentedTopKExec");
+        assert_eq!(topk.k(), 10);
+        let got_sort = topk.sort_exprs();
+        assert_eq!(got_sort.len(), 1);
+        assert!(got_sort[0].options.descending);
+        assert!(!got_sort[0].options.nulls_first);
+        let got_deferred = topk.deferred_columns();
+        assert_eq!(got_deferred.len(), 1);
+        assert_eq!(got_deferred[0].sort_col_idx, 0);
+        assert_eq!(got_deferred[0].canonical.indexrelid, 16384);
+        assert_eq!(got_deferred[0].canonical.ff_index, 2);
+    }
+
+    #[test]
     fn tantivy_lookup_round_trip() {
         use crate::index::fast_fields_helper::CanonicalColumn;
         use crate::scan::tantivy_lookup_exec::{PhysicalDeferredField, TantivyLookupExec};
@@ -527,10 +735,11 @@ mod tests {
         // TantivyLookupExec's `build_schema_and_decoders` only treats Union-typed input columns
         // as candidate decode targets; pass-through columns ignore matching deferred entries.
         // Build an input schema where col 1 is a Union so the lookup picks it up.
-        let union_fields = UnionFields::new(
+        let union_fields = UnionFields::try_new(
             vec![0_i8],
             vec![Field::new("inner", DataType::UInt64, false)],
-        );
+        )
+        .expect("UnionFields::try_new");
         let union_dt = DataType::Union(union_fields, arrow_schema::UnionMode::Dense);
         let input_schema = Arc::new(Schema::new(vec![
             Field::new("ctid", DataType::UInt64, false),

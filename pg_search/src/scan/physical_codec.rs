@@ -133,8 +133,10 @@ struct PhysicalDeferredFieldProto {
 struct CanonicalColumnProto {
     #[prost(uint32, tag = "1")]
     pub indexrelid: u32,
-    #[prost(string, tag = "2")]
-    pub field_name: String,
+    /// `FFIndex` is a `usize` slot in the per-segment fast-field cache. Stored as `u64` on the
+    /// wire to side-step platform-dependent serialization of `usize`.
+    #[prost(uint64, tag = "2")]
+    pub ff_index: u64,
 }
 
 /// Wire form for [`crate::scan::segmented_topk_exec::SegmentedTopKExec`].
@@ -326,22 +328,96 @@ fn decode_visibility_filter(
 
 // ---------- TantivyLookupExec ----------
 
-fn encode_tantivy_lookup(_node: &dyn ExecutionPlan) -> Result<TantivyLookupProto> {
-    Err(DataFusionError::NotImplemented(
-        "encode_tantivy_lookup: TantivyLookupExec codec not yet implemented (tracked under \
-         PR #5118 follow-up)"
-            .into(),
-    ))
+fn encode_tantivy_lookup(node: &dyn ExecutionPlan) -> Result<TantivyLookupProto> {
+    use crate::scan::tantivy_lookup_exec::TantivyLookupExec;
+    let exec = node
+        .as_any()
+        .downcast_ref::<TantivyLookupExec>()
+        .ok_or_else(|| {
+            DataFusionError::Internal(
+                "encode_tantivy_lookup: node named TantivyLookupExec but downcast failed".into(),
+            )
+        })?;
+    let fields: Vec<PhysicalDeferredFieldProto> = exec
+        .deferred_fields()
+        .iter()
+        .map(|d| PhysicalDeferredFieldProto {
+            col_idx: d.col_idx as u64,
+            display_name: d.display_name.clone(),
+            is_bytes: d.is_bytes,
+            canonical: Some(CanonicalColumnProto {
+                indexrelid: d.canonical.indexrelid,
+                ff_index: d.canonical.ff_index as u64,
+            }),
+        })
+        .collect();
+    // Unique index relids referenced by any field; used to seed the `ffhelpers` map on the
+    // worker. `deferred_fields()` is already deduplicated by `(col_idx, canonical)` but the
+    // canonical's `indexrelid` is not — multiple deferred columns can sit on the same index.
+    let mut indexrelids: Vec<u32> = exec
+        .deferred_fields()
+        .iter()
+        .map(|d| d.canonical.indexrelid)
+        .collect();
+    indexrelids.sort_unstable();
+    indexrelids.dedup();
+    Ok(TantivyLookupProto {
+        fields,
+        indexrelids,
+    })
 }
 
 fn decode_tantivy_lookup(
-    _proto: TantivyLookupProto,
-    _inputs: &[Arc<dyn ExecutionPlan>],
+    proto: TantivyLookupProto,
+    inputs: &[Arc<dyn ExecutionPlan>],
     _ctx: &TaskContext,
 ) -> Result<Arc<dyn ExecutionPlan>> {
-    Err(DataFusionError::NotImplemented(
-        "decode_tantivy_lookup: TantivyLookupExec codec not yet implemented".into(),
-    ))
+    use crate::api::HashMap;
+    use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper};
+    use crate::scan::tantivy_lookup_exec::{PhysicalDeferredField, TantivyLookupExec};
+
+    let input = inputs.first().cloned().ok_or_else(|| {
+        DataFusionError::Internal(
+            "decode_tantivy_lookup: TantivyLookupExec must have exactly one input".into(),
+        )
+    })?;
+    let deferred_fields: Vec<PhysicalDeferredField> = proto
+        .fields
+        .into_iter()
+        .map(|f| {
+            let canonical_proto = f.canonical.ok_or_else(|| {
+                DataFusionError::Internal(
+                    "decode_tantivy_lookup: deferred field missing canonical column".into(),
+                )
+            })?;
+            Ok(PhysicalDeferredField {
+                col_idx: f.col_idx as usize,
+                display_name: f.display_name,
+                is_bytes: f.is_bytes,
+                canonical: CanonicalColumn {
+                    indexrelid: canonical_proto.indexrelid,
+                    ff_index: canonical_proto.ff_index as usize,
+                },
+            })
+        })
+        .collect::<Result<_>>()?;
+
+    // FFHelper map population: at production runtime (worker thread inside a PG backend) we'd
+    // open each `indexrelid` via `pg_sys::RelationIdGetRelation`, build a `SearchIndexReader`,
+    // and call `FFHelper::with_fields(reader, deferred fields on that index)`. That requires
+    // PG-backend context which `TaskContext` doesn't surface, so the actual wiring lands in the
+    // dispatch-flip commit alongside a `with_index_open` helper. For the codec PR scope (this
+    // commit) we hand back an empty `FFHelper` per relid — round-trip tests verify field shape,
+    // and any pre-dispatch-flip caller that tries to *execute* the decoded plan will trip a
+    // clear error on the first lookup miss.
+    let ffhelpers: HashMap<u32, std::sync::Arc<FFHelper>> = proto
+        .indexrelids
+        .into_iter()
+        .map(|relid| (relid, std::sync::Arc::new(FFHelper::empty())))
+        .collect();
+
+    let exec = TantivyLookupExec::new(input, deferred_fields, ffhelpers)?;
+    Ok(Arc::new(exec))
 }
 
 // ---------- SegmentedTopKExec ----------
@@ -440,6 +516,71 @@ mod tests {
     // exec's constructor accepts construction without PG state (currently `new()` requires
     // running on a backend thread for `EquivalenceProperties`; the input we build here is an
     // `EmptyExec`, so it should be safe). Smoke check first:
+
+    #[test]
+    fn tantivy_lookup_round_trip() {
+        use crate::index::fast_fields_helper::CanonicalColumn;
+        use crate::scan::tantivy_lookup_exec::{PhysicalDeferredField, TantivyLookupExec};
+        use arrow_schema::UnionFields;
+        use std::sync::Arc;
+
+        // TantivyLookupExec's `build_schema_and_decoders` only treats Union-typed input columns
+        // as candidate decode targets; pass-through columns ignore matching deferred entries.
+        // Build an input schema where col 1 is a Union so the lookup picks it up.
+        let union_fields = UnionFields::new(
+            vec![0_i8],
+            vec![Field::new("inner", DataType::UInt64, false)],
+        );
+        let union_dt = DataType::Union(union_fields, arrow_schema::UnionMode::Dense);
+        let input_schema = Arc::new(Schema::new(vec![
+            Field::new("ctid", DataType::UInt64, false),
+            Field::new("body", union_dt, true),
+        ]));
+        let input: Arc<dyn ExecutionPlan> = Arc::new(EmptyExec::new(input_schema));
+
+        let deferred_fields = vec![PhysicalDeferredField {
+            col_idx: 1,
+            display_name: "body".to_string(),
+            is_bytes: false,
+            canonical: CanonicalColumn {
+                indexrelid: 16384,
+                ff_index: 0,
+            },
+        }];
+        let exec = Arc::new(
+            TantivyLookupExec::new(
+                Arc::clone(&input),
+                deferred_fields.clone(),
+                crate::api::HashMap::default(),
+            )
+            .unwrap(),
+        ) as Arc<dyn ExecutionPlan>;
+
+        let codec = codec();
+        let mut buf = Vec::new();
+        codec.try_encode(Arc::clone(&exec), &mut buf).unwrap();
+
+        let decoded = codec
+            .try_decode(&buf, std::slice::from_ref(&input), &ctx())
+            .unwrap();
+
+        let lookup = decoded
+            .as_any()
+            .downcast_ref::<TantivyLookupExec>()
+            .expect("decoded plan is a TantivyLookupExec");
+        let got = lookup.deferred_fields();
+        assert_eq!(got.len(), deferred_fields.len());
+        for (g, e) in got.iter().zip(deferred_fields.iter()) {
+            assert_eq!(g.col_idx, e.col_idx);
+            assert_eq!(g.display_name, e.display_name);
+            assert_eq!(g.is_bytes, e.is_bytes);
+            assert_eq!(g.canonical.indexrelid, e.canonical.indexrelid);
+            assert_eq!(g.canonical.ff_index, e.canonical.ff_index);
+        }
+        // Empty FFHelper placeholder stashed for every unique indexrelid the encoded form
+        // referenced; dispatch-flip commit replaces this with PG-state-backed reconstruction.
+        assert!(lookup.ffhelper(16384).is_some());
+    }
 
     #[test]
     fn visibility_filter_round_trip() {

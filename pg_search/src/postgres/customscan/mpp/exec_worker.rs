@@ -249,9 +249,17 @@ pub(crate) fn run_mpp_worker(
         as Arc<dyn crate::postgres::customscan::mpp::transport::RequestHandler>);
 
     // Install the same registry as the subplan handler so leader-shipped per-(stage, task)
-    // subplans land in `registry.shipped_subplans`. Phase 3 of the dispatch flip just fills that
-    // map; Phase 4 will swap the on-Request path to consume from it. The two handler trait
-    // impls coexist on `ProducerTaskRegistry` and dispatch to disjoint code paths.
+    // subplans land in `registry.shipped_subplans`. Phase 4 wires `prepare_task` to consume
+    // from that map when `paradedb.mpp_use_shipped_subplans` is on; default OFF until the
+    // follow-up commit adds per-`PgSearchScanPlan` state reconstruction.
+    //
+    // **Ordering caveat**: the `prewarm` loop above runs BEFORE this handler is installed and
+    // BEFORE the first drain pump. With the GUC ON in production, prewarm's `prepare_task`
+    // call would observe an empty `shipped_subplans` map and cache a locally-built plan in
+    // `prepared`, which subsequent `on_request` calls hit before re-checking `shipped_subplans`.
+    // The follow-up commit reorders prewarm to run AFTER handler install + a one-shot drain
+    // pump so shipped subplans are visible to the prep path. Today this is fine because the
+    // GUC is off in production.
     worker_mesh.install_subplan_handler(Arc::clone(&registry)
         as Arc<dyn crate::postgres::customscan::mpp::transport::SubplanHandler>);
 

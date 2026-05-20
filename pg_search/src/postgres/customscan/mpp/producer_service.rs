@@ -166,10 +166,26 @@ pub(super) struct ProducerTaskRegistry {
     prepared: Mutex<HashMap<(u32, u32), PreparedTask>>,
     /// `(stage_id, task_idx) → decoded subplan` populated by [`Self::on_subplan`] when the
     /// leader ships a per-task subplan via a [`MppFrameKind::Subplan`](crate::postgres::customscan::mpp::transport::MppFrameKind::Subplan)
-    /// frame. Lives alongside `prepared` (not in place of) for this phase of the dispatch flip:
-    /// Phase 4 of the PR chain will swap the Request handler to consume from here (and to
-    /// reconstruct PgSearchScan state on top of the decoded plan, which the current codec emits
-    /// empty). Until then this map is populated, not consumed — exercised by lib tests.
+    /// frame. Phase 4 of the dispatch-flip wires `prepare_task` to prefer this map when
+    /// `paradedb.mpp_use_shipped_subplans` is on; otherwise the field is populated but unused
+    /// and the existing local-prepare path runs.
+    ///
+    /// Today the GUC defaults off because the codec's `decode_pgsearch_scan` returns an empty
+    /// `Vec<ScanState>` — the shipped path is reachable but would return zero rows for any
+    /// PgSearchScan-bearing query. The follow-up PR lands per-`PgSearchScanPlan` state
+    /// reconstruction (walk the decoded plan tree on the worker, rebuild scan state from the
+    /// local `PgSearchTableProvider`) and flips the default. Until then the field exists
+    /// largely for receive-side regression coverage.
+    ///
+    /// **Ordering hazard for the future flip.** `run_mpp_worker` calls `prewarm` for every
+    /// `(stage_id, task_idx)` this proc owns *before* installing the SubplanHandler and
+    /// pumping the drain. With the GUC ON in production, `prewarm → prepare_task` would
+    /// observe an empty `shipped_subplans` map and fall through to the local-prepare branch,
+    /// caching that result in `prepared`. By the time real Subplan frames arrive and land
+    /// here, the cache is already populated and the shipped lookup never fires for the same
+    /// `(stage_id, task_idx)`. The follow-up commit has to reorder prewarm vs. handler-install
+    /// (and pump the drain once before prewarm) so shipped subplans are visible to the prep
+    /// path. Tracking item (0) in the Phase 4 commit message.
     shipped_subplans: Mutex<HashMap<(u32, u32), Arc<dyn ExecutionPlan>>>,
     /// `(stage_id, task_idx, partition)` set of already-dispatched drivers. Repeat Requests are
     /// dropped. Without this, a consumer that re-issued `stream_partition` would cause the
@@ -201,9 +217,9 @@ impl ProducerTaskRegistry {
 
     /// Number of subplans the registry has received from the leader via
     /// [`SubplanHandler::on_subplan`](crate::postgres::customscan::mpp::transport::SubplanHandler).
-    /// Read by lib tests; production code doesn't consume this map yet (see the field doc on
-    /// `shipped_subplans`).
-    #[allow(dead_code)] // consumed by Phase 4 of the dispatch flip + the upcoming lib tests.
+    /// Used by lib tests to verify receive-side regression coverage.
+    #[allow(dead_code)] // exercised by lib tests; production reads of `shipped_subplans` go
+                        // through `prepare_task` directly, not through this accessor.
     pub(super) fn shipped_subplan_count(&self) -> usize {
         self.shipped_subplans
             .lock()
@@ -372,26 +388,14 @@ fn prepare_stage_task(
     work_mem_bytes: usize,
     hash_mem_multiplier: f64,
 ) -> Result<PreparedTask, DataFusionError> {
-    // Seed the TaskContext with a `DistributedTaskContext` so nested boundary nodes inside the
-    // prepared plan see `(task_index, task_count)` and address the right peer task.
-    let cfg = session
-        .state()
-        .config()
-        .clone()
-        .with_extension(Arc::new(DistributedTaskContext {
-            task_index: task_idx as usize,
-            task_count,
-        }));
-    let memory_pool = create_memory_pool(plan, work_mem_bytes, hash_mem_multiplier);
-    let runtime_env = RuntimeEnvBuilder::new()
-        .with_memory_pool(memory_pool)
-        .build()
-        .map_err(|e| DataFusionError::Internal(format!("mpp producer: build RuntimeEnv: {e}")))?;
-    let task_ctx = Arc::new(
-        TaskContext::default()
-            .with_session_config(cfg)
-            .with_runtime(Arc::new(runtime_env)),
-    );
+    let task_ctx = build_task_ctx(
+        session,
+        task_idx,
+        task_count,
+        work_mem_bytes,
+        hash_mem_multiplier,
+        plan,
+    )?;
 
     // Wrap the stage's local plan in a fresh `DistributedExec` and `prepare_in_process_plan` so
     // nested NetworkShuffleExec / NetworkBroadcastExec / NetworkCoalesceExec dispatch through
@@ -676,12 +680,12 @@ impl SubplanHandler for ProducerTaskRegistry {
     /// [`crate::scan::physical_codec::PgSearchPhysicalCodec`] and stores the result in
     /// `shipped_subplans` keyed by `(stage_id, task_idx)`.
     ///
-    /// Phase 3 of the dispatch flip: the receive side is wired but the Request-path
-    /// hasn't switched over yet. The decoded plan goes into a separate map so the existing
-    /// `prepared` path is untouched while we land the receiver-side machinery. Phase 4 swaps
-    /// the lookup in `on_request` to consume from `shipped_subplans` and reconstruct
-    /// `PgSearchScan` state on top of the decoded plan (the codec emits empty `states` today —
-    /// see `crate::scan::physical_codec::decode_pgsearch_scan`).
+    /// Phase 4 of the dispatch flip wires `prepare_task` to prefer the shipped subplan when
+    /// `paradedb.mpp_use_shipped_subplans` is on. Default is off because the codec emits an
+    /// empty `Vec<ScanState>` for `PgSearchScanPlan` — see the field doc on `shipped_subplans`
+    /// and `crate::scan::physical_codec::decode_pgsearch_scan` for the placeholder story.
+    /// The follow-up commit lands per-`PgSearchScanPlan` state reconstruction before flipping
+    /// the default.
     fn on_subplan(
         &self,
         stage_id: u32,

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779304011961,
+  "lastUpdate": 1779304045358,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10672,6 +10672,108 @@ window.BENCHMARK_DATA = {
             "value": 164.484375,
             "unit": "median mem",
             "extra": "avg mem: 182.886362626819, max mem: 222.890625, count: 56281"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ming.ying.nyc@gmail.com",
+            "name": "Ming",
+            "username": "rebasedming"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e165958a105bfe85e119c02a71e333d0b675723d",
+          "message": "fix: Ignore dead PIDs during merge (#5104)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nIn prod we've seen situations where the mergelist holds segment ids that\nbelonged to an aborted merge, preventing those segments from ever\ngetting merged again.\n\nThe cleaner long term solution is to hold the mergelist in shared\nmemory. But because older versions of `pg_search` may not have\n`shared_preload_libraries` enabled, a temporary fix is to 1) ignore\nsegments with dead pids when merging 2) clear segments with dead pids\nwhen GCing the merge list.\n\n## Why\n\n## How\n\n## Tests",
+          "timestamp": "2026-05-20T11:13:14-07:00",
+          "tree_id": "b4d3cec2eec4ff15f5a5e81d8366c685474f96c2",
+          "url": "https://github.com/paradedb/paradedb/commit/e165958a105bfe85e119c02a71e333d0b675723d"
+        },
+        "date": 1779304014414,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.056969804934532825, max background_merging: 2.0, count: 56135"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.751864691574186, max cpu: 9.67742, count: 56135"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.4140625,
+            "unit": "median mem",
+            "extra": "avg mem: 26.39618393437695, max mem: 26.51171875, count: 56135"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.042733161095628, max cpu: 9.648242, count: 56135"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 170.796875,
+            "unit": "median mem",
+            "extra": "avg mem: 169.50596608622072, max mem: 171.04296875, count: 56135"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 57996,
+            "unit": "median block_count",
+            "extra": "avg block_count: 57783.280912086935, max block_count: 57996.0, count: 56135"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.221893649238446, max segment_count: 59.0, count: 56135"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.019637623089559, max cpu: 28.20764, count: 56135"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 198.69921875,
+            "unit": "median mem",
+            "extra": "avg mem: 196.8883593262893, max mem: 228.4140625, count: 56135"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.835244746555699, max cpu: 9.523809, count: 56135"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 170.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 166.60576866872273, max mem: 170.69921875, count: 56135"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 24.054324513439525, max cpu: 33.366436, count: 56135"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 164.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 182.84438191691905, max mem: 222.87890625, count: 56135"
           }
         ]
       }

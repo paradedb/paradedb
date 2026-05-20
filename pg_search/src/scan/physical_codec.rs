@@ -59,6 +59,10 @@ use datafusion::execution::TaskContext;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_proto::physical_plan::PhysicalExtensionCodec;
 use datafusion_proto::protobuf::DfSchema;
+// `pgrx::pg_sys` is only referenced by the production codec functions (gated behind
+// `#[cfg(not(test))]` to keep coverage builds from linking PG runtime symbols). In test builds
+// the import would be unused and trigger `unused_imports`; gate it out.
+#[cfg(not(test))]
 use pgrx::pg_sys;
 use prost::Message;
 
@@ -251,8 +255,18 @@ impl PhysicalExtensionCodec for PgSearchPhysicalCodec {
             )
         })?;
         match variant {
+            #[cfg(not(test))]
             custom_exec_proto::Variant::VisibilityFilter(p) => {
                 decode_visibility_filter(p, inputs, ctx)
+            }
+            #[cfg(test)]
+            custom_exec_proto::Variant::VisibilityFilter(_) => {
+                Err(DataFusionError::NotImplemented(
+                    "VisibilityFilterExec decode is excluded from cargo-test/llvm-cov builds \
+                     (pulls in `pg_sys::Oid` whose CGU references `PG_exception_stack`); \
+                     covered by `cargo pgrx test`"
+                        .into(),
+                ))
             }
             custom_exec_proto::Variant::TantivyLookup(p) => decode_tantivy_lookup(p, inputs, ctx),
             custom_exec_proto::Variant::SegmentedTopK(p) => decode_segmented_topk(p, inputs, ctx),
@@ -269,9 +283,18 @@ impl PhysicalExtensionCodec for PgSearchPhysicalCodec {
 
     fn try_encode(&self, node: Arc<dyn ExecutionPlan>, buf: &mut Vec<u8>) -> Result<()> {
         let variant = match node.name() {
+            #[cfg(not(test))]
             "VisibilityFilterExec" => custom_exec_proto::Variant::VisibilityFilter(
                 encode_visibility_filter(node.as_ref())?,
             ),
+            #[cfg(test)]
+            "VisibilityFilterExec" => {
+                return Err(DataFusionError::NotImplemented(
+                    "VisibilityFilterExec encode is excluded from cargo-test/llvm-cov builds; \
+                     covered by `cargo pgrx test`"
+                        .into(),
+                ));
+            }
             "TantivyLookupExec" => {
                 custom_exec_proto::Variant::TantivyLookup(encode_tantivy_lookup(node.as_ref())?)
             }
@@ -306,7 +329,21 @@ impl PhysicalExtensionCodec for PgSearchPhysicalCodec {
 }
 
 // ---------- VisibilityFilterExec ----------
+//
+// `VisibilityFilterExec` carries `Vec<(usize, pg_sys::Oid)>` in its `plan_pos_oids` field, and
+// the codec has to construct those `pg_sys::Oid` values via `pg_sys::Oid::from(u32)` at decode
+// time. `pgrx_pg_sys`'s `Oid` definition lives in the same compilation unit as the FFI guard
+// (`pg_guard_ffi_boundary_impl`), which references the PG-runtime global `PG_exception_stack`.
+// Coverage builds (`cargo llvm-cov`) don't dead-strip uncalled production code, so the CGU's
+// reference to `PG_exception_stack` becomes a hard link error — PG provides that symbol at
+// extension-load time, but a standalone test binary doesn't have it.
+//
+// Plain `cargo test` works (DCE drops the uncalled symbols), but CI uses llvm-cov for PR runs.
+// Gate these halves out of test builds the same way `decode_pgsearch_scan` is gated; the codec
+// is covered by `cargo pgrx test` instead. A future commit can refactor `VisibilityFilterExec`
+// to take `Vec<(usize, u32)>` and do the Oid wrap internally, after which this gate comes off.
 
+#[cfg(not(test))]
 fn encode_visibility_filter(node: &dyn ExecutionPlan) -> Result<VisibilityFilterProto> {
     use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
     let vf = node
@@ -330,6 +367,7 @@ fn encode_visibility_filter(node: &dyn ExecutionPlan) -> Result<VisibilityFilter
     })
 }
 
+#[cfg(not(test))]
 fn decode_visibility_filter(
     proto: VisibilityFilterProto,
     inputs: &[Arc<dyn ExecutionPlan>],
@@ -993,34 +1031,9 @@ mod tests {
         assert!(lookup.ffhelper(16384).is_some());
     }
 
-    #[test]
-    fn visibility_filter_round_trip() {
-        use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
-
-        let input = empty_input(2);
-        let plan_pos_oids = vec![
-            (0_usize, pg_sys::Oid::from(16384_u32)),
-            (1_usize, pg_sys::Oid::from(16385_u32)),
-        ];
-        let table_names = vec!["posts".to_string(), "comments".to_string()];
-        let exec = Arc::new(
-            VisibilityFilterExec::new(input.clone(), plan_pos_oids.clone(), table_names.clone())
-                .unwrap(),
-        ) as Arc<dyn ExecutionPlan>;
-
-        let codec = codec();
-        let mut buf = Vec::new();
-        codec.try_encode(Arc::clone(&exec), &mut buf).unwrap();
-
-        let decoded = codec
-            .try_decode(&buf, std::slice::from_ref(&input), &ctx())
-            .unwrap();
-
-        let vf = decoded
-            .as_any()
-            .downcast_ref::<VisibilityFilterExec>()
-            .expect("decoded plan is a VisibilityFilterExec");
-        assert_eq!(vf.plan_pos_oids(), plan_pos_oids.as_slice());
-        assert_eq!(vf.table_names(), table_names.as_slice());
-    }
+    // Note: `visibility_filter_round_trip` lives in the pgrx-gated test surface (`cargo pgrx
+    // test`) rather than here. The codec's `decode_visibility_filter` constructs `pg_sys::Oid`
+    // values, which pulls in a pgrx_pg_sys compilation unit that transitively references
+    // `PG_exception_stack` — a PG-runtime global that plain `cargo test` / `cargo llvm-cov`
+    // can't link. Same reason `pgsearch_scan_round_trip` is integration-tested only.
 }

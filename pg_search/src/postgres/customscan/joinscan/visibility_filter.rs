@@ -771,6 +771,8 @@ impl VisibilityFilterExec {
         &self.plan_pos_oids
     }
 
+    #[allow(dead_code)] // consumed by `encode_visibility_filter` in the physical codec, which
+                        // is gated behind `#[cfg(not(test))]`; the cargo-test surface sees this as unused.
     pub fn table_names(&self) -> &[String] {
         &self.table_names
     }

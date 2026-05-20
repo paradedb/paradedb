@@ -84,6 +84,7 @@ use crate::postgres::customscan::mpp::transport::{
 };
 use crate::postgres::customscan::mpp::worker::run_partition_driver;
 use crate::postgres::ParallelScanState;
+use crate::scan::physical_codec::MppReconstructionContext;
 
 /// Per-`stage_id` snapshot of `(local_plan, task_count)` walked out of the worker's distributed
 /// physical plan at startup. The producer service loop consults this on every Request to find
@@ -159,17 +160,12 @@ pub(super) struct ProducerTaskRegistry {
     work_mem_bytes: usize,
     hash_mem_multiplier: f64,
     /// Per-source canonical segment ID sets, indexed by `plan_position`. The dispatch-flip
-    /// reconstruction step uses these to rebuild `Vec<ScanState>` for `PgSearchScanPlan` nodes
-    /// inside leader-shipped subplans: the codec carries only declarative fields, the runtime
-    /// state has to come from the worker's local PG-side data. Empty on test paths that don't
-    /// touch reconstruction.
-    #[allow(dead_code)] // consumed by the reconstruction walker landing in Phase 2.
-    index_segment_ids: Vec<HashSet<SegmentId>>,
-    /// Worker's `ParallelScanState`, threaded down so reconstruction can claim segments for the
-    /// partitioning source the same way `PgSearchTableProvider` does on the existing re-plan
-    /// path. `None` on test paths and on single-proc runs that don't have a parallel context.
-    #[allow(dead_code)] // consumed by the reconstruction walker landing in Phase 2.
-    parallel_state: Option<*mut ParallelScanState>,
+    /// Reconstruction context layered onto each `TaskContext` built in [`build_task_ctx`].
+    /// Carries the per-source canonical segment IDs (indexed by absolute `plan_position`) and
+    /// the worker's `ParallelScanState` pointer. Read by the physical codec's
+    /// `decode_pgsearch_scan` to rebuild `Vec<ScanState>` on shipped subplans. Empty on test
+    /// paths that don't go through `run_mpp_worker`.
+    reconstruction_context: Arc<MppReconstructionContext>,
     active_drivers: Arc<AtomicUsize>,
     /// First driver error observed since startup. The service loop polls this between
     /// `try_drain_pass` iterations and bails out so the worker surfaces a concrete failure
@@ -233,14 +229,17 @@ impl ProducerTaskRegistry {
         index_segment_ids: Vec<HashSet<SegmentId>>,
         parallel_state: Option<*mut ParallelScanState>,
     ) -> Self {
+        let reconstruction_context = Arc::new(MppReconstructionContext {
+            index_segment_ids,
+            parallel_state,
+        });
         Self {
             stage_plans,
             session,
             mesh: Arc::downgrade(mesh),
             work_mem_bytes,
             hash_mem_multiplier,
-            index_segment_ids,
-            parallel_state,
+            reconstruction_context,
             active_drivers: Arc::new(AtomicUsize::new(0)),
             first_error: Arc::new(Mutex::new(None)),
             prepared: Mutex::new(HashMap::new()),
@@ -334,6 +333,7 @@ impl ProducerTaskRegistry {
                 self.work_mem_bytes,
                 self.hash_mem_multiplier,
                 &shipped,
+                Some(Arc::clone(&self.reconstruction_context)),
             )?;
             return Ok(PreparedTask {
                 plan: shipped,
@@ -356,6 +356,7 @@ impl ProducerTaskRegistry {
             &self.session,
             self.work_mem_bytes,
             self.hash_mem_multiplier,
+            Some(Arc::clone(&self.reconstruction_context)),
         )
     }
 }
@@ -365,6 +366,9 @@ impl ProducerTaskRegistry {
 /// baked into nested boundary nodes from leader-side preparation, but the executing
 /// `TaskContext` still needs the extension layered on so any operator that re-reads it at
 /// runtime sees the right `(task_index, task_count)` shape.
+///
+/// `reconstruction_context` is layered on only when the caller is a worker (the leader's
+/// `ship_subplans_to_workers` passes `None` because it never decodes — it only encodes).
 fn build_task_ctx(
     session: &SessionContext,
     task_idx: u32,
@@ -372,15 +376,20 @@ fn build_task_ctx(
     work_mem_bytes: usize,
     hash_mem_multiplier: f64,
     plan: &Arc<dyn ExecutionPlan>,
+    reconstruction_context: Option<Arc<MppReconstructionContext>>,
 ) -> Result<Arc<TaskContext>, DataFusionError> {
-    let cfg = session
-        .state()
-        .config()
-        .clone()
-        .with_extension(Arc::new(DistributedTaskContext {
-            task_index: task_idx as usize,
-            task_count,
-        }));
+    let mut cfg =
+        session
+            .state()
+            .config()
+            .clone()
+            .with_extension(Arc::new(DistributedTaskContext {
+                task_index: task_idx as usize,
+                task_count,
+            }));
+    if let Some(recon) = reconstruction_context {
+        cfg = cfg.with_extension(recon);
+    }
     let memory_pool = create_memory_pool(plan, work_mem_bytes, hash_mem_multiplier);
     let runtime_env = RuntimeEnvBuilder::new()
         .with_memory_pool(memory_pool)
@@ -408,6 +417,7 @@ fn build_task_ctx(
 /// `crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context`. Any future
 /// session-config knob added on only one side breaks this invariant silently — bench-shape
 /// regressions then surface as "leader and worker disagree on the plan."
+#[allow(clippy::too_many_arguments)]
 fn prepare_stage_task(
     plan: &Arc<dyn ExecutionPlan>,
     stage_id: u32,
@@ -416,6 +426,7 @@ fn prepare_stage_task(
     session: &SessionContext,
     work_mem_bytes: usize,
     hash_mem_multiplier: f64,
+    reconstruction_context: Option<Arc<MppReconstructionContext>>,
 ) -> Result<PreparedTask, DataFusionError> {
     let task_ctx = build_task_ctx(
         session,
@@ -424,6 +435,7 @@ fn prepare_stage_task(
         work_mem_bytes,
         hash_mem_multiplier,
         plan,
+        reconstruction_context,
     )?;
 
     // Wrap the stage's local plan in a fresh `DistributedExec` and `prepare_in_process_plan` so
@@ -527,6 +539,7 @@ pub(crate) fn ship_subplans_to_workers(
                 session,
                 work_mem_bytes,
                 hash_mem_multiplier,
+                None, // leader never decodes — only encodes; no reconstruction context.
             )?;
 
             let bytes = physical_plan_to_bytes_with_extension_codec(prepared.plan, &codec)

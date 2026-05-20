@@ -237,6 +237,33 @@ struct PgSearchScanProto {
 
 const DEFERRED_CTID_NONE: u32 = u32::MAX;
 
+/// Per-task reconstruction context attached to the worker's `TaskContext` via
+/// `SessionConfig::with_extension`. Read by `decode_pgsearch_scan` to look up the per-source
+/// canonical segment IDs (by `plan_position`) and the `ParallelScanState` pointer when
+/// rebuilding the runtime half of a shipped `PgSearchScanPlan`.
+///
+/// The producer-side dispatcher ([`crate::postgres::customscan::mpp::producer_service::ProducerTaskRegistry::prepare_task`])
+/// constructs this from the registry's fields and layers it onto the `TaskContext` that drives
+/// `PhysicalExtensionCodec::try_decode`.
+#[derive(Debug)]
+pub struct MppReconstructionContext {
+    /// Canonical segment ID sets indexed by absolute `plan_position` (full join source list
+    /// index). For non-MPP / serial paths this stays empty and the codec falls back to leaving
+    /// the scan's `Vec<ScanState>` empty.
+    pub index_segment_ids: Vec<crate::api::HashSet<tantivy::index::SegmentId>>,
+    /// Worker's view of the DSM-attached `ParallelScanState`. Injected on the deserialized
+    /// `PgSearchTableProvider` when `is_parallel()` is true so the partitioning-source scan
+    /// claims segments through the same shared state the rest of the worker is using.
+    pub parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+}
+
+// SAFETY: the raw `*mut ParallelScanState` makes the auto-derived `Send + Sync` go away. Same
+// lifetime / threading story as `ProducerTaskRegistry`: the pointer is the worker's view of
+// PG's DSM-attached shared state, valid for the lifetime of the worker's customscan execution,
+// and only dereferenced on the worker's backend thread (current-thread tokio, FFI-pinned).
+unsafe impl Send for MppReconstructionContext {}
+unsafe impl Sync for MppReconstructionContext {}
+
 /// The real physical codec. Replaces `PgSearchPhysicalCodecStub` once the dispatch-flip PR
 /// lands; until then it's exercised exclusively via round-trip unit tests in this module.
 ///

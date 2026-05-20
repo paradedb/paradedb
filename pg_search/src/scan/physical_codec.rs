@@ -226,6 +226,13 @@ struct PgSearchScanProto {
     /// Dynamic filters as serialized `PhysicalExprNode`s, in plan order.
     #[prost(bytes, repeated, tag = "8")]
     pub dynamic_filters: Vec<Vec<u8>>,
+    /// `serde_json` bytes of the `PgSearchTableProvider` that built this scan on the leader.
+    /// Workers deserialize, inject runtime context (segment IDs by `plan_position`,
+    /// `parallel_state`, `expr_context`/`planstate`), and replay `scan_inner` to rebuild the
+    /// per-partition `Vec<ScanState>`. Empty for scans that didn't go through the production
+    /// `create_scan` path (test fixtures).
+    #[prost(bytes, tag = "9")]
+    pub table_provider_json: Vec<u8>,
 }
 
 const DEFERRED_CTID_NONE: u32 = u32::MAX;
@@ -767,12 +774,20 @@ fn encode_pgsearch_scan(node: &dyn ExecutionPlan) -> Result<PgSearchScanProto> {
         })
         .collect::<Result<_>>()?;
 
-    // `partition_recipes_json` is intentionally empty at the codec PR scope. The
-    // `Vec<ScanState>` holds tantivy handles + raw pgrx pointers that can't ship over the wire;
-    // workers rebuild it from the table provider in the dispatch-flip commit, where PG-backed
-    // segment ID claims are reachable. Leaving the wire field in place so the proto layout is
-    // forward-compatible — the dispatch-flip commit fills it in without bumping the version.
+    // `partition_recipes_json` is now superseded by the `table_provider_json` blob below:
+    // workers replay `scan_inner` to rebuild the per-partition `Vec<ScanState>` from scratch
+    // rather than reading per-partition recipes off the wire. Left as an empty Vec on the
+    // proto so deployments mid-rollout don't see a wire-shape mismatch; can be retired once
+    // the dispatch-flip lands in stable.
     let partition_recipes_json: Vec<String> = Vec::new();
+
+    // Ship the serialized `PgSearchTableProvider` populated by `create_scan` (Phase 2b). If
+    // the scan didn't go through `create_scan` (test fixtures), the field is `None` and we
+    // ship an empty Vec — workers detect the empty payload and skip reconstruction.
+    let table_provider_json = scan
+        .serialized_table_provider()
+        .map(|s| s.to_vec())
+        .unwrap_or_default();
 
     Ok(PgSearchScanProto {
         indexrelid: scan.indexrelid,
@@ -783,6 +798,7 @@ fn encode_pgsearch_scan(node: &dyn ExecutionPlan) -> Result<PgSearchScanProto> {
         deferred_fields_json,
         deferred_ctid_plan_position,
         dynamic_filters,
+        table_provider_json,
     })
 }
 
@@ -846,12 +862,12 @@ fn decode_pgsearch_scan(
         None
     };
 
-    // Empty states: the codec PR doesn't ship segment data. Worker-side execution before the
-    // dispatch-flip commit would just emit zero rows from this scan. Round-trip tests verify
-    // only the declarative fields.
+    // Empty states placeholder. Phase 2d wires the actual reconstruction (deserialize
+    // `proto.table_provider_json`, inject runtime context, call `scan_inner`).
     let states: Vec<crate::scan::execution_plan::ScanState> = Vec::new();
-    let _ = proto.partition_recipes_json; // reserved for the dispatch-flip commit.
+    let _ = proto.partition_recipes_json; // superseded by `table_provider_json` (Phase 2c).
     let _ = proto.dynamic_filters; // dynamic filters are re-pushed via FilterPushdown after construction; nothing to do here yet.
+    let _ = proto.table_provider_json; // consumed by the reconstruction landing in Phase 2d.
 
     let plan = PgSearchScanPlan::new(
         states,

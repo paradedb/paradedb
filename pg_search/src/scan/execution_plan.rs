@@ -338,6 +338,32 @@ impl PgSearchScanPlan {
     pub fn deferred_ctid_plan_position(&self) -> Option<usize> {
         self.deferred_ctid_plan_position
     }
+
+    // Accessors below are consumed exclusively by the physical codec
+    // (`crate::scan::physical_codec::encode_pgsearch_scan`), which is gated out of cargo-test
+    // builds because the codec links `SearchQueryInput` → `PostgresType` derive →
+    // `_CacheMemoryContext`. `#[allow(dead_code)]` keeps cargo-test clippy quiet without
+    // pretending the methods are unused; remove the allow when the dispatch-flip PR exercises
+    // them from production code.
+    #[allow(dead_code)]
+    pub fn query_for_display(&self) -> &SearchQueryInput {
+        &self.query_for_display
+    }
+
+    #[allow(dead_code)]
+    pub fn sort_order(&self) -> Option<&SortByField> {
+        self.sort_order.as_ref()
+    }
+
+    #[allow(dead_code)]
+    pub fn deferred_fields(&self) -> &[DeferredField] {
+        &self.deferred_fields
+    }
+
+    #[allow(dead_code)]
+    pub fn dynamic_filters(&self) -> &[Arc<dyn PhysicalExpr>] {
+        &self.dynamic_filters
+    }
 }
 
 /// Build `EquivalenceProperties` with the specified sort ordering.

@@ -256,7 +256,14 @@ impl PhysicalExtensionCodec for PgSearchPhysicalCodec {
             }
             custom_exec_proto::Variant::TantivyLookup(p) => decode_tantivy_lookup(p, inputs, ctx),
             custom_exec_proto::Variant::SegmentedTopK(p) => decode_segmented_topk(p, inputs, ctx),
+            #[cfg(not(test))]
             custom_exec_proto::Variant::PgSearchScan(p) => decode_pgsearch_scan(p, inputs, ctx),
+            #[cfg(test)]
+            custom_exec_proto::Variant::PgSearchScan(_) => Err(DataFusionError::NotImplemented(
+                "PgSearchScan decode is excluded from cargo-test builds; covered by \
+                 `cargo pgrx test`"
+                    .into(),
+            )),
         }
     }
 
@@ -271,8 +278,17 @@ impl PhysicalExtensionCodec for PgSearchPhysicalCodec {
             "SegmentedTopKExec" => {
                 custom_exec_proto::Variant::SegmentedTopK(encode_segmented_topk(node.as_ref())?)
             }
+            #[cfg(not(test))]
             "PgSearchScan" => {
                 custom_exec_proto::Variant::PgSearchScan(encode_pgsearch_scan(node.as_ref())?)
+            }
+            #[cfg(test)]
+            "PgSearchScan" => {
+                return Err(DataFusionError::NotImplemented(
+                    "PgSearchScan encode is excluded from cargo-test builds; covered by \
+                     `cargo pgrx test`"
+                        .into(),
+                ));
             }
             other => {
                 return Err(DataFusionError::Internal(format!(
@@ -583,21 +599,201 @@ fn decode_segmented_topk(
 }
 
 // ---------- PgSearchScanPlan ----------
+//
+// `PgSearchScanPlan` transitively pulls in `SearchQueryInput`, which derives `pgrx::PostgresType`
+// and references PG runtime globals (`CacheMemoryContext`, etc.). A plain cargo-test binary
+// can't resolve those symbols at link time, so the codec halves for this exec are gated out of
+// test builds and covered by `cargo pgrx test` instead.
 
-fn encode_pgsearch_scan(_node: &dyn ExecutionPlan) -> Result<PgSearchScanProto> {
-    Err(DataFusionError::NotImplemented(
-        "encode_pgsearch_scan: PgSearchScanPlan codec not yet implemented".into(),
-    ))
+#[cfg(not(test))]
+fn encode_pgsearch_scan(node: &dyn ExecutionPlan) -> Result<PgSearchScanProto> {
+    use crate::scan::execution_plan::PgSearchScanPlan;
+    use datafusion_proto::physical_plan::to_proto::serialize_physical_expr;
+
+    let scan = node
+        .as_any()
+        .downcast_ref::<PgSearchScanPlan>()
+        .ok_or_else(|| {
+            DataFusionError::Internal(
+                "encode_pgsearch_scan: node named PgSearchScan but downcast failed".into(),
+            )
+        })?;
+
+    // Schema: lift from the plan's PlanProperties and convert to the DfSchema proto used by
+    // datafusion_proto. Workers reconstruct an arrow `SchemaRef` from this on decode.
+    let arrow_schema = scan.schema();
+    let df_schema_ref = std::sync::Arc::new(
+        datafusion::common::DFSchema::try_from(arrow_schema.as_ref().clone()).map_err(|e| {
+            DataFusionError::Internal(format!(
+                "encode_pgsearch_scan: arrow schema -> DFSchema failed: {e}"
+            ))
+        })?,
+    );
+    let schema_proto: DfSchema = (&df_schema_ref).try_into().map_err(|e| {
+        DataFusionError::Internal(format!(
+            "encode_pgsearch_scan: DFSchema -> proto failed: {e}"
+        ))
+    })?;
+
+    // JSON-encode the serde-derived fields. Keeps the wire format flexible while we iterate on
+    // the dispatch flip; once the shape stabilises we can switch to dedicated prost messages if
+    // the JSON cost shows up in profiles.
+    let query_for_display_json = serde_json::to_string(scan.query_for_display()).map_err(|e| {
+        DataFusionError::Internal(format!(
+            "encode_pgsearch_scan: SearchQueryInput JSON encode failed: {e}"
+        ))
+    })?;
+    let sort_order = scan
+        .sort_order()
+        .map(|so| {
+            let canon = CanonicalColumnProto {
+                indexrelid: 0,
+                ff_index: 0,
+            };
+            // SortByField doesn't fit the col-idx-based SortKeyProto; fall back to a JSON
+            // payload encoded as expr_bytes for now. Decode is the inverse.
+            let bytes = serde_json::to_vec(so).map_err(|e| {
+                DataFusionError::Internal(format!(
+                    "encode_pgsearch_scan: SortByField JSON encode failed: {e}"
+                ))
+            })?;
+            let _ = canon;
+            Ok::<_, DataFusionError>(SortKeyProto {
+                expr_bytes: bytes,
+                ascending: !matches!(
+                    so.direction,
+                    crate::postgres::options::SortByDirection::Desc
+                ),
+                nulls_first: false,
+            })
+        })
+        .transpose()?;
+
+    let deferred_fields_json = serde_json::to_string(scan.deferred_fields()).map_err(|e| {
+        DataFusionError::Internal(format!(
+            "encode_pgsearch_scan: DeferredField JSON encode failed: {e}"
+        ))
+    })?;
+
+    let deferred_ctid_plan_position = scan
+        .deferred_ctid_plan_position()
+        .map(|p| p as u32)
+        .unwrap_or(DEFERRED_CTID_NONE);
+
+    let inner_codec = PgSearchPhysicalCodec;
+    let dynamic_filters: Vec<Vec<u8>> = scan
+        .dynamic_filters()
+        .iter()
+        .map(|expr| {
+            let proto = serialize_physical_expr(expr, &inner_codec)?;
+            let mut bytes = Vec::new();
+            proto.encode(&mut bytes).map_err(|e| {
+                DataFusionError::Internal(format!(
+                    "encode_pgsearch_scan: dynamic_filter encode failed: {e}"
+                ))
+            })?;
+            Ok::<_, DataFusionError>(bytes)
+        })
+        .collect::<Result<_>>()?;
+
+    // `partition_recipes_json` is intentionally empty at the codec PR scope. The
+    // `Vec<ScanState>` holds tantivy handles + raw pgrx pointers that can't ship over the wire;
+    // workers rebuild it from the table provider in the dispatch-flip commit, where PG-backed
+    // segment ID claims are reachable. Leaving the wire field in place so the proto layout is
+    // forward-compatible — the dispatch-flip commit fills it in without bumping the version.
+    let partition_recipes_json: Vec<String> = Vec::new();
+
+    Ok(PgSearchScanProto {
+        indexrelid: scan.indexrelid,
+        schema: Some(schema_proto),
+        query_for_display_json,
+        partition_recipes_json,
+        sort_order,
+        deferred_fields_json,
+        deferred_ctid_plan_position,
+        dynamic_filters,
+    })
 }
 
+#[cfg(not(test))]
 fn decode_pgsearch_scan(
-    _proto: PgSearchScanProto,
+    proto: PgSearchScanProto,
     _inputs: &[Arc<dyn ExecutionPlan>],
     _ctx: &TaskContext,
 ) -> Result<Arc<dyn ExecutionPlan>> {
-    Err(DataFusionError::NotImplemented(
-        "decode_pgsearch_scan: PgSearchScanPlan codec not yet implemented".into(),
-    ))
+    use crate::scan::execution_plan::PgSearchScanPlan;
+
+    // Rebuild the arrow schema from the proto DfSchema.
+    let df_schema_proto = proto.schema.ok_or_else(|| {
+        DataFusionError::Internal("decode_pgsearch_scan: missing schema field".into())
+    })?;
+    let df_schema: datafusion::common::DFSchema = (&df_schema_proto).try_into().map_err(|e| {
+        DataFusionError::Internal(format!(
+            "decode_pgsearch_scan: DFSchema proto -> DFSchema failed: {e}"
+        ))
+    })?;
+    let arrow_schema: SchemaRef = std::sync::Arc::new(df_schema.as_arrow().clone());
+
+    let query_for_display = serde_json::from_str(&proto.query_for_display_json).map_err(|e| {
+        DataFusionError::Internal(format!(
+            "decode_pgsearch_scan: SearchQueryInput JSON decode failed: {e}"
+        ))
+    })?;
+
+    let sort_order = proto
+        .sort_order
+        .map(|sk| {
+            serde_json::from_slice::<crate::postgres::options::SortByField>(&sk.expr_bytes).map_err(
+                |e| {
+                    DataFusionError::Internal(format!(
+                        "decode_pgsearch_scan: SortByField JSON decode failed: {e}"
+                    ))
+                },
+            )
+        })
+        .transpose()?;
+
+    let deferred_fields: Vec<crate::scan::late_materialization::DeferredField> =
+        serde_json::from_str(&proto.deferred_fields_json).map_err(|e| {
+            DataFusionError::Internal(format!(
+                "decode_pgsearch_scan: DeferredField JSON decode failed: {e}"
+            ))
+        })?;
+
+    let deferred_ctid_plan_position = if proto.deferred_ctid_plan_position == DEFERRED_CTID_NONE {
+        None
+    } else {
+        Some(proto.deferred_ctid_plan_position as usize)
+    };
+
+    // Same FFHelper-placeholder caveat as the other execs: dispatch-flip wires the real one.
+    let ffhelper = if !deferred_fields.is_empty() || deferred_ctid_plan_position.is_some() {
+        Some(std::sync::Arc::new(
+            crate::index::fast_fields_helper::FFHelper::empty(),
+        ))
+    } else {
+        None
+    };
+
+    // Empty states: the codec PR doesn't ship segment data. Worker-side execution before the
+    // dispatch-flip commit would just emit zero rows from this scan. Round-trip tests verify
+    // only the declarative fields.
+    let states: Vec<crate::scan::execution_plan::ScanState> = Vec::new();
+    let _ = proto.partition_recipes_json; // reserved for the dispatch-flip commit.
+    let _ = proto.dynamic_filters; // dynamic filters are re-pushed via FilterPushdown after construction; nothing to do here yet.
+
+    let plan = PgSearchScanPlan::new(
+        states,
+        arrow_schema,
+        query_for_display,
+        sort_order.as_ref(),
+        deferred_fields,
+        ffhelper,
+        proto.indexrelid,
+        deferred_ctid_plan_position,
+    );
+
+    Ok(Arc::new(plan))
 }
 
 // ---------- shared helpers ----------
@@ -660,6 +856,12 @@ mod tests {
     // exec's constructor accepts construction without PG state (currently `new()` requires
     // running on a backend thread for `EquivalenceProperties`; the input we build here is an
     // `EmptyExec`, so it should be safe). Smoke check first:
+
+    // Note: `pgsearch_scan_round_trip` lives in the pgrx-gated `scan::tests` module rather than
+    // here — `PgSearchScanPlan::new` indirectly touches PG symbols (via `SearchQueryInput`'s
+    // `PostgresType` derive), and a plain cargo-test binary can't resolve those at link time.
+    // The cargo-test surface checks proto-level round-tripping for the simpler execs that don't
+    // pull PG in; full PgSearchScan coverage runs under `cargo pgrx test`.
 
     #[test]
     fn segmented_topk_round_trip() {

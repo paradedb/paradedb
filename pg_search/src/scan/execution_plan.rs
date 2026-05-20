@@ -175,6 +175,14 @@ pub struct PgSearchScanPlan {
     /// InList didn't reach the FastField path (K ≤ 1024 routes to
     /// AutomatonWeight which doesn't write the sink).
     dynamic_filter_strategy: Arc<AtomicU8>,
+    /// `serde_json` bytes of the `PgSearchTableProvider` that produced this scan.
+    /// Populated by `PgSearchTableProvider::create_scan` on the leader; consumed by
+    /// the physical codec on the worker to reconstruct the `Vec<ScanState>` that
+    /// can't ride over the wire (tantivy `SegmentReader` handles, raw pgrx pointers).
+    ///
+    /// `None` for paths that don't go through `PgSearchTableProvider::create_scan`
+    /// (the codec's worker-side decoder builds plans directly, tests, etc.).
+    serialized_table_provider: Option<Vec<u8>>,
 }
 
 impl std::fmt::Debug for PgSearchScanPlan {
@@ -259,7 +267,23 @@ impl PgSearchScanPlan {
             dynamic_filter_pushdown: Arc::new(AtomicBool::new(false)),
             sort_order: sort_order.cloned(),
             dynamic_filter_strategy: Arc::new(AtomicU8::new(0)),
+            serialized_table_provider: None,
         }
+    }
+
+    /// Builder-style setter for the serialized `PgSearchTableProvider` blob. See the
+    /// `serialized_table_provider` field doc.
+    #[must_use]
+    pub fn with_serialized_table_provider(mut self, bytes: Vec<u8>) -> Self {
+        self.serialized_table_provider = Some(bytes);
+        self
+    }
+
+    /// Borrowed view of the serialized `PgSearchTableProvider` bytes carried on this scan,
+    /// or `None` if the scan wasn't constructed via the production `create_scan` path.
+    #[allow(dead_code)] // consumed by the physical-codec encoder in the next commit.
+    pub fn serialized_table_provider(&self) -> Option<&[u8]> {
+        self.serialized_table_provider.as_deref()
     }
 
     /// Produce a plan identical to `dyn_plan` but with `dynamic_filters` emptied.
@@ -314,7 +338,7 @@ impl PgSearchScanPlan {
         let states: Vec<ScanState> = taken.into_iter().flatten().map(|u| u.0).collect();
 
         let schema = scan.properties.eq_properties.schema().clone();
-        let new_plan = PgSearchScanPlan::new(
+        let mut new_plan = PgSearchScanPlan::new(
             states,
             schema,
             scan.query_for_display.clone(),
@@ -324,6 +348,9 @@ impl PgSearchScanPlan {
             scan.indexrelid,
             scan.deferred_ctid_plan_position,
         );
+        if let Some(bytes) = scan.serialized_table_provider.clone() {
+            new_plan = new_plan.with_serialized_table_provider(bytes);
+        }
         Ok(Arc::new(new_plan))
     }
 
@@ -716,6 +743,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                 dynamic_filter_strategy: Arc::new(AtomicU8::new(
                     self.dynamic_filter_strategy.load(Ordering::Relaxed),
                 )),
+                serialized_table_provider: self.serialized_table_provider.clone(),
             });
             Ok(
                 FilterPushdownPropagation::with_parent_pushdown_result(filters)

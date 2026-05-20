@@ -495,7 +495,7 @@ impl PgSearchTableProvider {
             Some(ffhelper)
         };
 
-        Ok(Arc::new(PgSearchScanPlan::new(
+        let mut plan = PgSearchScanPlan::new(
             segments,
             schema,
             query_for_display,
@@ -504,7 +504,30 @@ impl PgSearchTableProvider {
             ffhelper_arg,
             self.scan_info.indexrelid.to_u32(),
             deferred_ctid_plan_position,
-        )))
+        );
+
+        // Serialize the provider so the physical codec can ship the leader's declarative
+        // half (heaprelid, score_needed, projected fields, partitioning-source marker,
+        // sort_order, plan_position) over the wire. Worker decoders deserialize this and
+        // call back into `scan_inner` to rebuild the per-partition `ScanState`s that
+        // contain tantivy `SegmentReader` handles + raw pgrx pointers — neither of which
+        // can ride over shm_mq.
+        //
+        // `to_vec` on a fully-serializable struct is infallible in practice; if the
+        // serialization shape ever changes such that it could fail, surface the error so
+        // the plan-build fails fast instead of producing a worker-side decode crash.
+        match serde_json::to_vec(self) {
+            Ok(bytes) => {
+                plan = plan.with_serialized_table_provider(bytes);
+            }
+            Err(e) => {
+                return Err(DataFusionError::Internal(format!(
+                    "PgSearchTableProvider serialization failed during scan build: {e}"
+                )));
+            }
+        }
+
+        Ok(Arc::new(plan))
     }
 
     /// Creates a multi-partition `PgSearchScanPlan` for throttled parallel scans.

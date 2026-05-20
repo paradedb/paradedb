@@ -54,6 +54,21 @@ impl std::fmt::Display for Version {
     }
 }
 
+/// Parses a decimal version component at compile time. Overflow or non-digit bytes
+/// produce a compile error via the const-eval rules.
+const fn parse_version_component(s: &str) -> u16 {
+    let bytes = s.as_bytes();
+    let mut result: u16 = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        assert!(b >= b'0' && b <= b'9', "version component must be decimal");
+        result = result * 10 + (b - b'0') as u16;
+        i += 1;
+    }
+    result
+}
+
 /// The metadata stored on the [`Metadata`] page
 #[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
@@ -99,6 +114,11 @@ pub struct MetaPageData {
     /// This used to be for detecting concurrent background merges,
     /// now we use advisory locks
     _dead_space_4: [pg_sys::BlockNumber; 2],
+
+    /// pg_search version that created this index. All zeros = created before stamping was added.
+    created_by_version_major: u16,
+    created_by_version_minor: u16,
+    created_by_version_patch: u16,
 }
 
 /// Provides read access to the metadata page
@@ -136,6 +156,13 @@ impl MetaPage {
             metadata.settings_start = LinkedBytesList::create_without_fsm(indexrel);
             metadata.segment_metas_start =
                 LinkedItemList::<SegmentMetaEntry>::create_without_fsm(indexrel);
+
+            metadata.created_by_version_major =
+                const { parse_version_component(env!("CARGO_PKG_VERSION_MAJOR")) };
+            metadata.created_by_version_minor =
+                const { parse_version_component(env!("CARGO_PKG_VERSION_MINOR")) };
+            metadata.created_by_version_patch =
+                const { parse_version_component(env!("CARGO_PKG_VERSION_PATCH")) };
         }
     }
 
@@ -252,6 +279,25 @@ impl MetaPage {
     pub fn fsm(&self) -> pg_sys::BlockNumber {
         assert!(block_number_is_valid(self.data.v2_fsm));
         self.data.v2_fsm
+    }
+
+    /// The pg_search version that created this index. Returns `None` for indices created
+    /// before version stamping was added (the on-disk fields read as zero).
+    #[allow(dead_code)]
+    pub fn created_by_version(&self) -> Option<Version> {
+        let major = self.data.created_by_version_major;
+        let minor = self.data.created_by_version_minor;
+        let patch = self.data.created_by_version_patch;
+
+        if major == 0 && minor == 0 && patch == 0 {
+            None
+        } else {
+            Some(Version {
+                major,
+                minor,
+                patch,
+            })
+        }
     }
 
     ///

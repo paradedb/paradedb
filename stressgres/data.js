@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779400343194,
+  "lastUpdate": 1779400376797,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7422,6 +7422,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.92066003616637, max segment_count: 132.0, count: 57512"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a3b5e61a3edc85110f13cda339aeb5ee47e92235",
+          "message": "fix(mpp): serialize concurrent sends on the same shm_mq handle (#5110)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nFixes the benchmark workflow that's been failing on `main` since #5082\nlanded\n(https://github.com/paradedb/paradedb/actions/runs/26077021525/job/76670054238).\nThe `aggregate_join_groupby - alternative 2` query (MPP + aggregate +\nGROUP BY over a JOIN at 100k stackoverflow scale) errors with either\n\"frame too short for header (12 < 16)\" or \"invalid message size\n1985348632576000 in shared memory queue\". Both shapes are the same\nunderlying corruption — a shm_mq queue's length prefix got stitched to\nsomeone else's payload.\n\n## Why\n\nPG's `shm_mq_send` documents it directly:\n\n> When nowait = true ... if the buffer becomes full, we return\nSHM_MQ_WOULD_BLOCK. In this case, the caller should call this function\nagain, with the same arguments. (Once begun, the sending of a message\ncannot be aborted except by detaching from the queue; changing the\nlength or payload will corrupt the queue.)\n\nOur cooperative-drain spin in `MppSender::send_*_traced` does\n`tokio::task::yield_now().await` between `try_send_bytes` retries so\npeer inbound queues keep draining. The multiplexed transport has\nmultiple `MppSender` clones sharing one underlying `Arc<dyn\nBatchChannelSender>` (that's how `(stage_id, partition)` channels share\nan shm_mq). Without serialization, after task A's `try_send_bytes`\nreturns `WOULD_BLOCK` with a partial write, the `yield_now().await` lets\ntask B call `try_send_bytes` on the same handle with different bytes. PG\nstitches A's length prefix to B's payload and the queue's now garbled.\n\n## How\n\n`BatchChannelSender::send_lock()` exposes a `tokio::sync::Mutex<()>` per\nshm_mq handle. The send paths (`MppSender::send_batch_traced` /\n`send_eof_traced`) acquire it before entering the cooperative-drain spin\nand hold it across `yield_now().await`. Two `MppSender` clones sharing\none underlying channel now serialize naturally, so the interleave that\ncorrupts the queue can't happen.\n\nThis PR has been through a couple of iterations:\n\n- An earlier revision (`c1a6bb1`, since reverted) dropped the lock and\ninstead removed the only `.await` from inside the partial-send window,\non the theory that an awaitless spin would be cheaper. The benchmark\ndidn't agree — see the standing perf section below.\n- The current version (`fbc5ed0f`) reverts that to keep the more\nobviously-correct lock-based serialization, matching the recommendation\nfrom review.\n\nThe hex-dump diagnostic from `b338f70e` stays. It cost nothing and would\ncatch a regression of the same shape if it recurs.\n\n## Standing perf regression (separate from this PR)\n\nThe CI benchmark on this branch reports `aggregate_join_groupby -\nalternative 2` ~1.88× slower and `aggregate_join_topk_count -\nalternative 2` ~2.17× slower than the pre-#5082 baseline at 20M rows.\nThe non-MPP alternatives on the same queries are flat (~1.00×), so the\nregression is on the multi-stage MPP path that landed in #5082 / #5092 —\nnot on the transport changes in this PR.\n\nThe earlier \"drop the lock\" revision was based on the theory that the\nper-handle `tokio::sync::Mutex` was the bottleneck. The bench data\ndidn't bear that out: removing the lock did not change the ratio, which\nis consistent with a held mutex and an awaitless spin having the same\neffect on a current-thread runtime (both block sibling tokio tasks until\nthe send completes). The regression's root cause is elsewhere in the\npost-#5082 multi-stage path and is tracked as separate follow-up work.\n\nLonger term, replacing `shm_mq` with an explicit ring buffer +\nasync-friendly signaling (cf. #4184's strategy) lifts the partial-send\ninvariant entirely and removes the need for per-handle send\nserialization at all. A code-comment pointer to that follow-up sits at\nthe top of `send_with_scratch`.\n\n## Tests\n\n- 30 sequential runs of the failing query locally on synthetic 100k\nposts / 1M comments. The bug doesn't reproduce reliably at that scale on\nmy hardware. The interleave needs `WOULD_BLOCK` pressure, which is more\nlikely at the CI scale (real Stack Overflow body sizes, 48 segments per\nindex, 96 cores). CI benchmark on this branch will be the final word.\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2026-05-21T14:10:19-07:00",
+          "tree_id": "c24f7c426f37a1c70b3729675945b028f38d0e71",
+          "url": "https://github.com/paradedb/paradedb/commit/a3b5e61a3edc85110f13cda339aeb5ee47e92235"
+        },
+        "date": 1779400345029,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.9562049373305, max cpu: 43.11377, count: 57751"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.0625,
+            "unit": "median mem",
+            "extra": "avg mem: 234.9390178984996, max mem: 236.55078125, count: 57751"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.342119744204037, max cpu: 33.267326, count: 57751"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 178.0859375,
+            "unit": "median mem",
+            "extra": "avg mem: 177.73158757532337, max mem: 178.46875, count: 57751"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34410,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33772.502051912525, max block_count: 36444.0, count: 57751"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 82.14136551748021, max segment_count: 130.0, count: 57751"
           }
         ]
       }

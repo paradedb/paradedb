@@ -524,11 +524,22 @@ fn collect_ffhelpers_from_input(
     out: &mut crate::api::HashMap<u32, std::sync::Arc<crate::index::fast_fields_helper::FFHelper>>,
 ) {
     use crate::scan::execution_plan::PgSearchScanPlan;
+    // Pull the FFHelper off any `PgSearchScanPlan` in the subtree, indexed by its
+    // `indexrelid`. The previous version gated this on `scan.has_deferred_fields()` — that
+    // was symmetric with the leader-side `LateMaterializePlanner::extract_ff_helper` test,
+    // but it discarded scans that have a perfectly usable FFHelper just because *they*
+    // aren't the late-materialization consumer. A scan above the join (the one
+    // `SegmentedTopKExec` / `TantivyLookupExec` actually needs the FFHelper of) can be a
+    // probe-side `PgSearchScan` with `query="all"`: its own `deferred_fields` is empty
+    // because no late materialization fired on it, but the FFHelper it carries — built by
+    // `scan_inner` over the projected fields — is what the parent topk/lookup wants.
+    //
+    // The downstream consumer (`decode_segmented_topk`, `decode_tantivy_lookup`) keys by
+    // `proto.indexrelids` so an extra unrelated FFHelper in the map is harmless; the only
+    // requirement is that every relid the parent asks for is present.
     if let Some(scan) = plan.as_any().downcast_ref::<PgSearchScanPlan>() {
-        if scan.has_deferred_fields() {
-            if let Some(ff) = scan.ffhelper() {
-                out.insert(scan.indexrelid, ff);
-            }
+        if let Some(ff) = scan.ffhelper() {
+            out.insert(scan.indexrelid, ff);
         }
     }
     for child in plan.children() {

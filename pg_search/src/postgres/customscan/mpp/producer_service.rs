@@ -341,8 +341,10 @@ impl ProducerTaskRegistry {
             });
         }
         // Fallback: build the prepared plan locally from `stage_plans`, same recipe as
-        // pre-dispatch-flip. Used during startup races (subplan hasn't arrived yet) and as a
-        // safety net while the codec's PgSearchScan state-reconstruction story matures.
+        // pre-dispatch-flip. Two surviving uses after the state-reconstruction PR:
+        //   1. `broadcast_zero` prewarm on non-owner procs — the leader ships `(stage, 0)`
+        //      to the task-0 owner only, so non-owner procs prewarm via local-prepare.
+        //   2. Tests / future paths that drive `prepare_task` without a shipped subplan map.
         //
         // No reconstruction context: this path goes through `DistributedExec
         // ::prepare_in_process_plan` over `stage_plans` directly, never through the physical

@@ -224,6 +224,33 @@ pub(crate) fn run_mpp_worker(
         parallel_state,
     ));
 
+    // Install the request handler on every inbound drain. The cooperative drain dispatches
+    // each `Request` frame to `registry.on_request`, which spawns a driver future on the same
+    // tokio runtime backing this `block_on`.
+    worker_mesh.install_request_handler(Arc::clone(&registry)
+        as Arc<dyn crate::postgres::customscan::mpp::transport::RequestHandler>);
+
+    // Install the subplan handler so leader-shipped per-(stage, task) subplans land in
+    // `registry.shipped_subplans`. `ProducerTaskRegistry::prepare_task` consults this map
+    // first; on a hit the shipped subplan is used directly. Must be installed BEFORE the
+    // initial drain pump below so any Subplan frames already buffered get routed.
+    worker_mesh.install_subplan_handler(Arc::clone(&registry)
+        as Arc<dyn crate::postgres::customscan::mpp::transport::SubplanHandler>);
+
+    // Pump the drain once to deliver any Subplan frames that landed before the handlers were
+    // installed. The leader ships subplans early (before its own NetworkBoundaryExec consumers
+    // issue Requests), so the worker's first drain pump usually finds a full set of Subplan
+    // frames waiting. Pumping here puts those into `shipped_subplans` before the prewarm loop
+    // calls `prepare_task` — otherwise prewarm would observe an empty map and fall back to
+    // local-prepare, caching a locally-built plan in `prepared` that subsequent `on_request`
+    // calls would hit before the shipped subplan check.
+    if let Err(e) = worker_mesh.drain_all_inbound() {
+        pgrx::warning!(
+            "mpp worker (proc={this_proc}): initial drain pump failed: {e}; prewarm may fall \
+             back to local-prepare for shipped (stage, task) pairs"
+        );
+    }
+
     // Pre-warm `(stage, task) → (prepared_plan, TaskContext)` for every task this proc owns.
     // Without this, the first Request per task pays the full
     // `DistributedExec::prepare_in_process_plan` cost (transform_up + codec encoding) on the
@@ -234,7 +261,9 @@ pub(crate) fn run_mpp_worker(
     // the natural-shape estimator chain works out to `task_idx mod n_workers == this_proc - 1`).
     // We also prewarm `task_idx == 0` on every proc to cover the broadcast cap: with
     // `BroadcastBuildSideOneTaskEstimator` Stage 1 has one task, and every consumer requests
-    // it from the proc that owns task 0. Cheap and load-bearing.
+    // it from the proc that owns task 0. Cheap and load-bearing — the leader only ships
+    // `(stage, 0)` to the owner proc, so non-owner procs hit the local-prepare fallback for
+    // that pair (the broadcast prewarm is what populates their `prepared` cache).
     let n_workers = worker_mesh.n_procs.saturating_sub(1).max(1);
     let stage_task_counts: Vec<(u32, usize)> = registry.iter_task_counts().collect();
     for (stage_id, task_count) in stage_task_counts {
@@ -252,27 +281,6 @@ pub(crate) fn run_mpp_worker(
             }
         }
     }
-
-    // Install the registry as the request handler on every inbound drain. The cooperative drain
-    // dispatches each `Request` frame to `registry.on_request`, which spawns a driver future on
-    // the same tokio runtime backing this `block_on`.
-    worker_mesh.install_request_handler(Arc::clone(&registry)
-        as Arc<dyn crate::postgres::customscan::mpp::transport::RequestHandler>);
-
-    // Install the same registry as the subplan handler so leader-shipped per-(stage, task)
-    // subplans land in `registry.shipped_subplans`. Phase 4 wires `prepare_task` to consume
-    // from that map when `paradedb.mpp_use_shipped_subplans` is on; default OFF until the
-    // follow-up commit adds per-`PgSearchScanPlan` state reconstruction.
-    //
-    // **Ordering caveat**: the `prewarm` loop above runs BEFORE this handler is installed and
-    // BEFORE the first drain pump. With the GUC ON in production, prewarm's `prepare_task`
-    // call would observe an empty `shipped_subplans` map and cache a locally-built plan in
-    // `prepared`, which subsequent `on_request` calls hit before re-checking `shipped_subplans`.
-    // The follow-up commit reorders prewarm to run AFTER handler install + a one-shot drain
-    // pump so shipped subplans are visible to the prep path. Today this is fine because the
-    // GUC is off in production.
-    worker_mesh.install_subplan_handler(Arc::clone(&registry)
-        as Arc<dyn crate::postgres::customscan::mpp::transport::SubplanHandler>);
 
     // Service loop. Three pieces interleave on the single tokio task scheduler:
     //   - This loop: pumps every inbound drain, dispatching Requests.

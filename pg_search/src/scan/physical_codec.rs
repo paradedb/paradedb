@@ -18,16 +18,13 @@
 //! Real physical codec for our custom `ExecutionPlan` nodes.
 //!
 //! Companion to [`crate::scan::codec::PgSearchExtensionCodec`] (the logical-plan codec). The
-//! logical codec is used today on the DSM path: leader ships a serialized logical plan, workers
-//! deserialize and re-run physical planning. This module exists to support the planned move to
-//! shipping fully-built physical subplans on workers' Request response cycle — see PR description
-//! for the dispatch-flip follow-up.
-//!
-//! Today the codec is registered as a *parallel* codec to the existing
-//! [`crate::scan::codec::PgSearchPhysicalCodecStub`]: the stub stays the one used by
-//! `with_distributed_user_codec` until the dispatch-flip PR lands. That keeps every commit in
-//! this PR safe even while individual exec encoders/decoders are being filled in: the new codec
-//! is exercised by round-trip tests but never produces bytes a worker reads.
+//! dispatch-flip ships per-(stage, task) physical subplans over shm_mq; this codec round-trips
+//! the four custom physical execs (`VisibilityFilterExec`, `TantivyLookupExec`,
+//! `SegmentedTopKExec`, `PgSearchScan`) plus the five built-in aggregate UDAFs
+//! (`min`/`max`/`count`/`sum`/`avg`) the shipped `AggregateExec` plans depend on. Registered on
+//! the worker's `SessionConfig` via `with_distributed_user_codec` in
+//! [`crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context`]; leader and
+//! worker both pick it up through `DistributedCodec::new_combined_with_user`.
 //!
 //! ## Wire format
 //!
@@ -40,16 +37,18 @@
 //! Several execs hold tantivy runtime state (`ScanState`, `FFHelper`, etc.) that can't ship over
 //! the wire. The encoded form carries only declarative inputs (`indexrelid`, segment IDs, query,
 //! schema). `try_decode` rebuilds runtime state on the worker side via the same constructors
-//! that the table provider uses today.
+//! that the table provider uses today — see `decode_pgsearch_scan` and
+//! `collect_ffhelpers_from_input`.
 //!
-//! ## On the `dead_code` allow
+//! ## Test-build dead-code allow
 //!
-//! Nothing in production registers this codec yet — `with_distributed_user_codec` still gets
-//! [`crate::scan::codec::PgSearchPhysicalCodecStub`]. The struct, the proto messages, and the
-//! per-exec encode/decode helpers are exercised only by this file's `#[cfg(test)]` round-trip
-//! tests. Once the dispatch-flip PR swaps the registration, the allow comes off naturally.
+//! Several decode paths (`PgSearchScan`, `VisibilityFilterExec`) and helper constants are
+//! `#[cfg(not(test))]`-gated because they transitively link `pg_sys` symbols the cargo-test
+//! binary can't resolve. The remaining `MppReconstructionContext` fields and the
+//! `DEFERRED_CTID_NONE` constant are only read from those gated paths, so cargo-test sees them
+//! as dead. Suppress the warning here rather than per-item to keep the codec file readable.
 
-#![allow(dead_code)]
+#![cfg_attr(test, allow(dead_code))]
 
 use std::sync::Arc;
 

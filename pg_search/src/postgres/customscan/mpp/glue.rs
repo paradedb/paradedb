@@ -61,10 +61,10 @@ const NATURAL_GATHER_PARTITION: u32 = 0;
 
 /// Minimum total proc count for MPP to be active: leader (consumer-only) + at least 2
 /// producers. Below this, [`producer_worker_count`] would drop to 1 while
-/// `with_target_partitions(n_workers.max(2))` in `build_mpp_session_context` would still
-/// make the planner build a 2-partition shuffle — the mesh wouldn't have a queue for the
-/// second partition. Stays as a single source of truth so [`mpp_is_active`] and
-/// [`mpp_worker_count`] don't drift on the threshold.
+/// `build_mpp_session_context` would still call `with_target_partitions(n_workers.max(2))`
+/// (where `n_workers = mesh.n_procs - 1`), clamping the shuffle width up to 2 — the mesh
+/// wouldn't have a queue for the second partition. Stays as a single source of truth so
+/// [`mpp_is_active`] and [`mpp_worker_count`] don't drift on the threshold.
 const MIN_TOTAL_WORKER_COUNT: i32 = 3;
 
 /// True iff `paradedb.enable_mpp = on` and `paradedb.mpp_worker_count >=
@@ -74,9 +74,10 @@ pub fn mpp_is_active() -> bool {
 }
 
 /// Total proc count: leader + producers. Equal to the GUC value when [`mpp_is_active`] is
-/// true. Callers must gate on [`mpp_is_active`] first — calling this when MPP is inactive
-/// returns a value the rest of the stack isn't prepared to handle (`producer_worker_count`
-/// could be < 2 and the planner / mesh shapes would disagree).
+/// true. **Callers must gate on [`mpp_is_active`] first.** In debug builds the
+/// `debug_assert!` aborts on misuse; in release builds the function silently returns the
+/// raw GUC value, and downstream [`producer_worker_count`] may underflow or fall below 2,
+/// breaking the planner's `target_partitions` / mesh-width invariant.
 pub fn mpp_worker_count() -> u32 {
     debug_assert!(
         mpp_is_active(),

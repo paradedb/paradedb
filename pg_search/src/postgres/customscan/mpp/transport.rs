@@ -564,7 +564,7 @@ impl MppSender {
         // also skips the contention that made multiplexed senders serialize through one mutex.
         // Cross-process deadlock breaking still works: `drain.try_drain_pass` pulls peer batches
         // out of our inbound every iteration, freeing peers' outbound slots so their sends
-        // unstall and ours eventually fits.
+        // unblock and ours eventually fits.
         let mut first_try = true;
         let t_wait_start = Instant::now();
         loop {

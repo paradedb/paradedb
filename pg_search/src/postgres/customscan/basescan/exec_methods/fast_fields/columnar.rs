@@ -660,6 +660,7 @@ impl ExecMethod for ColumnarExecState {
         if self.runtime.is_none() {
             self.runtime = Some(
                 tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
                     .build()
                     .expect("Failed to create tokio runtime for DataFusion stream execution"),
             );

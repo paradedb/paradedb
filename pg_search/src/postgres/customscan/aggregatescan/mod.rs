@@ -1091,7 +1091,10 @@ impl AggregateScan {
         } else {
             create_aggregate_session_context()
         };
-        let Ok(runtime) = tokio::runtime::Builder::new_current_thread().build() else {
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        else {
             explainer.add_text("DataFusion Plan", "(tokio runtime unavailable)");
             return;
         };

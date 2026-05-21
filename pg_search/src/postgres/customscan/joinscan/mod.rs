@@ -1368,6 +1368,7 @@ impl CustomScan for JoinScan {
                 create_datafusion_session_context(SessionContextProfile::Join)
             };
             let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
                 .build()
                 .expect("Failed to create tokio runtime");
             let logical_plan = deserialize_logical_plan_with_runtime(
@@ -1445,6 +1446,7 @@ impl CustomScan for JoinScan {
         unsafe {
             if state.custom_state().datafusion_stream.is_none() {
                 let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
                     .build()
                     .unwrap();
                 let mut join_clause = state.custom_state().join_clause.clone();
@@ -1948,6 +1950,7 @@ unsafe fn build_output_projection(
 /// it during scan startup.
 fn bake_logical_plan(private_data: &mut PrivateData, custom_exprs: *mut pg_sys::List) {
     let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
         .build()
         .expect("Failed to create tokio runtime");
     let logical_plan = runtime

@@ -188,6 +188,7 @@ jobs:
           PG_CONFIG_PATH="/usr/lib/postgresql/${{ env.PG_VERSION }}/bin/pg_config"
           RUSTFLAGS="-Ccodegen-units=1 -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Clink-args=-Wl,--build-id -lvoidstar" \
             cargo pgrx package --profile=release-with-debug --pg-config "$PG_CONFIG_PATH"
+          ../scripts/install_lindera_dictionaries.sh --pg-config "$PG_CONFIG_PATH" --package-root "../target/release-with-debug/pg_search-pg${{ env.PG_VERSION }}"
 
       - name: Split pg_search Debug Symbols
         run: |

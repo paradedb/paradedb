@@ -644,6 +644,14 @@ impl UserDefinedLogicalNodeCore for LateMaterializeNode {
 
 pub struct LateMaterializePlanner;
 
+// The `has_deferred_fields()` gate stays here, in contrast to the worker-side walker in
+// `physical_codec::collect_ffhelpers_from_input` which drops that condition. The asymmetry
+// is intentional and load-bearing: `LateMaterializePlanner` sits *directly above* the
+// scan that owns the deferred fields, so the immediately-below `PgSearchScanPlan` always
+// has deferred fields set when this rule fires — the gate is correct here. The worker-
+// side walker runs over a different shape (the shipped subplan, rooted at a topk/lookup
+// whose immediate child may or may not be the deferred-producing scan), so it must accept
+// any scan that carries an FFHelper regardless of whether *that* scan has deferred fields.
 fn extract_ff_helper(
     plan: &Arc<dyn ExecutionPlan>,
     helpers: &mut crate::api::HashMap<u32, Arc<FFHelper>>,

@@ -223,16 +223,14 @@ pub(super) struct ProducerTaskRegistry {
     /// closed under the natural shape: `ship_subplans_to_workers` runs to completion before
     /// `physical_plan.execute` issues any Request. This is an unenforced invariant — if a
     /// future shape executes the leader's consumer plan concurrently with shipping (or a
-    /// nested boundary sends Requests upstream during shipping), the cache-invalidate path
-    /// below would have to do more work.
+    /// nested boundary sends Requests upstream during shipping), this docstring's claim
+    /// (and `prepare_task`'s no-shipped-subplan invariant) would have to change.
     ///
-    /// On a late Subplan arrival (one that landed after a Request triggered local-prepare),
-    /// `on_subplan` invalidates the cached `prepared` entry so the next Request re-runs
-    /// `prepare_task` and picks up the shipped version.
-    ///
-    /// The local-prepare fallback in `prepare_task` still fires for `(stage, task)` pairs
-    /// the leader never ships and for decode-failure cases (codec gaps —
-    /// TODO(codec-coverage)).
+    /// Post-Phase-B, `prepare_task` no longer has a local-prepare fallback: a missing entry
+    /// here when `prepare_task` runs is treated as an invariant breach and returns Err to
+    /// the caller (typically `on_request`'s driver dispatch). The previous "stale prepared
+    /// cache invalidation" path in `on_subplan` is correspondingly dead and replaced by a
+    /// `debug_assert!`.
     shipped_subplans: Mutex<HashMap<(u32, u32), Arc<dyn ExecutionPlan>>>,
     /// `(stage_id, task_idx)` keys for which `on_subplan` has already run, regardless of decode
     /// outcome. Populated on **both** the Ok and Err arms inside `on_subplan` so the prewarm
@@ -381,11 +379,12 @@ impl ProducerTaskRegistry {
     }
 
     /// True iff `on_subplan` has finished processing the Subplan frame for `(stage_id,
-    /// task_idx)` — whether decode succeeded (entry in `shipped_subplans`) or failed (no entry
-    /// and the worker will fall through to local-prepare). Used by `run_mpp_worker`'s prewarm
-    /// barrier as a single deterministic signal that "shipping for this key is done", so the
-    /// barrier neither races ahead of the shipped path nor wedges forever on a silent codec
-    /// gap.
+    /// task_idx)` — whether decode succeeded (entry now in `shipped_subplans`) or failed
+    /// (no entry; the Err propagated up to `drain_all_inbound` and the worker is on its way
+    /// to `pgrx::error!`). Used by `run_mpp_worker`'s prewarm barrier as a single
+    /// deterministic signal that "shipping for this key is done"; the barrier exits either
+    /// to call `prewarm` (success) or to re-observe the Err via the next drain pass and
+    /// surface it through the `runtime.block_on(...)?` chain.
     pub(super) fn is_subplan_attempted(&self, stage_id: u32, task_idx: u32) -> bool {
         self.attempted_subplans
             .lock()
@@ -396,10 +395,10 @@ impl ProducerTaskRegistry {
     fn prepare_task(&self, stage_id: u32, task_idx: u32) -> Result<PreparedTask, DataFusionError> {
         // Workers only execute leader-shipped subplans. The prewarm barrier in
         // `run_mpp_worker` waits for `on_subplan` to mark each owned `(stage_id, task_idx)`
-        // attempted before any `prepare_task` call runs, and Phase B2's cross-stage
-        // FFHelper + ctid-resolver caches make decode reliable so `on_subplan` either
-        // succeeds (entry present here) or hard-errors the worker. A miss at this point is
-        // an invariant breach — not a recoverable race.
+        // attempted before any `prepare_task` call runs, and the cross-stage FFHelper +
+        // ctid-resolver caches on `MppReconstructionContext` make decode reliable so
+        // `on_subplan` either succeeds (entry present here) or hard-errors the worker. A
+        // miss at this point is an invariant breach — not a recoverable race.
         let shipped = self
             .shipped_subplans
             .lock()
@@ -410,8 +409,8 @@ impl ProducerTaskRegistry {
                 DataFusionError::Internal(format!(
                     "mpp producer prepare_task: no shipped subplan for \
                      stage_id={stage_id} task_idx={task_idx}; the prewarm barrier should \
-                     have blocked the worker until the leader shipped this (stage, task), \
-                     and Phase B2's caches should have made the decode succeed"
+                     have blocked the worker until the leader shipped this (stage, task) \
+                     and the cross-stage codec caches should have made decode succeed"
                 ))
             })?;
         let task_count = self
@@ -843,13 +842,14 @@ impl SubplanHandler for ProducerTaskRegistry {
         let decoded =
             physical_plan_from_bytes_with_extension_codec(payload.as_slice(), &task_ctx, &codec)
                 .map_err(|e| {
-                    // After Phase B2 (cross-stage FFHelper + ctid-resolver caches on
-                    // `MppReconstructionContext`) every codec gap the local-prepare fallback used
-                    // to paper over is now covered by decode itself. Decode failure here therefore
-                    // means a real codec bug (new exec variant, missing UDAF coverage, cross-stage
-                    // cache key not built by `collect_ffhelper_snapshots`, etc.), not a recoverable
-                    // cross-stage walker miss. Surface as Err so the drain pump aborts the worker
-                    // via `pgrx::error!` and the underlying codec error reaches the user instead
+                    // With the cross-stage FFHelper + ctid-resolver caches on
+                    // `MppReconstructionContext` in place, every codec gap the local-prepare
+                    // fallback used to paper over is now covered by decode itself. Decode
+                    // failure here therefore means a real codec bug (new exec variant, missing
+                    // UDAF coverage, cross-stage cache key not built by
+                    // `collect_ffhelper_snapshots`, etc.), not a recoverable cross-stage walker
+                    // miss. Surface as Err so the drain pump aborts the worker via
+                    // `pgrx::error!` and the underlying codec error reaches the user instead
                     // of getting masked by a silent fallback.
                     DataFusionError::Internal(format!(
                         "mpp producer on_subplan: decode failed stage_id={stage_id} \
@@ -864,26 +864,23 @@ impl SubplanHandler for ProducerTaskRegistry {
             map.insert(key, decoded);
             map.len()
         };
-        // Invalidate any cached `prepared` entry for the same `(stage, task)` so the next
-        // `on_request` re-runs `prepare_task` and picks up the freshly-shipped subplan
-        // instead of a stale locally-prepared one. This closes the leader-vs-worker process
-        // race: workers can enter `run_mpp_worker` before the leader's `ship_subplans_to_workers`
-        // call completes, so prewarm may cache a locally-prepared plan that `on_request`
-        // would otherwise keep returning even after the shipped subplan arrives.
-        let prev_prepared = self
-            .prepared
-            .lock()
-            .expect("ProducerTaskRegistry prepared mutex poisoned")
-            .remove(&key);
-        if prev_prepared.is_some() {
-            crate::mpp_log!(
-                "mpp producer on_subplan: invalidated stale locally-prepared cache for \
-                 stage_id={stage_id} task_idx={task_idx}; subsequent Requests will re-prepare \
-                 from the shipped subplan"
-            );
-        }
-        // Lock dropped above before the log call. `mpp_log!` expands to `pgrx::warning!` under
-        // the debug GUC and ereport's; cheap to keep off the hot path.
+        // Post-Phase-B invariant: `prepared` cannot contain `key` at this point. The
+        // prewarm barrier in `run_mpp_worker` only calls `prewarm` AFTER `on_subplan` has
+        // marked the key attempted (here, just above), and there is no longer a local-
+        // prepare path that could have populated `prepared` before shipping settled. A
+        // `Some` here would mean a future refactor reintroduced a pre-ship prepare path
+        // and didn't update the barrier — surface it loudly in debug builds.
+        debug_assert!(
+            self.prepared
+                .lock()
+                .expect("ProducerTaskRegistry prepared mutex poisoned")
+                .get(&key)
+                .is_none(),
+            "mpp producer on_subplan: prepared cache for ({stage_id}, {task_idx}) was \
+             populated before on_subplan ran — the prewarm barrier in run_mpp_worker is \
+             supposed to gate prewarm on `is_subplan_attempted`. Likely cause: a new \
+             prewarm path was added that doesn't wait on the barrier."
+        );
         crate::mpp_log!(
             "mpp producer on_subplan: received stage_id={stage_id} task_idx={task_idx} \
              (total shipped: {total})"
@@ -1004,9 +1001,10 @@ mod tests {
     fn on_subplan_decode_failure_is_fatal() {
         let registry = test_registry();
         // Garbage bytes — `physical_plan_from_bytes_with_extension_codec` fails on prost
-        // decode. Phase B2 removed `prepare_task`'s local-prepare fallback, so a decode
-        // failure here must surface as Err. The drain pump turns this Err into
-        // `pgrx::error!` and aborts the worker rather than silently masking a codec gap.
+        // decode. With the cross-stage codec caches in place `prepare_task` no longer has
+        // a local-prepare fallback, so a decode failure here must surface as Err. The
+        // drain pump turns this Err into `pgrx::error!` and aborts the worker rather than
+        // silently masking a codec gap.
         let result = registry.on_subplan(5, 2, vec![0xFF, 0xFE, 0xFD, 0xFC]);
         assert!(
             result.is_err(),
@@ -1031,9 +1029,10 @@ mod tests {
     fn on_subplan_decode_failure_still_marks_attempted() {
         // The prewarm barrier in `run_mpp_worker` waits per-owned-key on
         // `is_subplan_attempted` and would deadlock if `attempted_subplans` only flipped on
-        // the Ok arm of `on_subplan`. Pin the contract: on decode failure, `attempted` MUST
-        // flip and `shipped_subplans` MUST stay empty so `prepare_task` reaches the local-
-        // prepare fallback.
+        // the Ok arm of `on_subplan`. Pin the contract: on decode failure, `attempted`
+        // MUST flip and `shipped_subplans` MUST stay empty so the prewarm barrier exits
+        // its wait and the propagated decode-Err can take down the worker cleanly via
+        // `drain_all_inbound` → `runtime.block_on(...)?` → `pgrx::error!`.
         let registry = test_registry();
         assert!(!registry.is_subplan_attempted(5, 2));
 
@@ -1069,5 +1068,25 @@ mod tests {
             "on_subplan must mark (stage, task) attempted on the Ok arm too"
         );
         assert_eq!(registry.shipped_subplan_count(), 1);
+    }
+
+    #[test]
+    fn prepare_task_errors_when_no_shipped_subplan() {
+        // Pin the post-Phase-B invariant boundary in `prepare_task`: without a shipped
+        // subplan there is no executable plan, period. The prewarm barrier is supposed to
+        // gate this, but if a future refactor accidentally reintroduces a "default empty
+        // plan" or any other recovery here, this test catches it.
+        let registry = test_registry();
+        // No `on_subplan` call, so `shipped_subplans` is empty.
+        let err = match registry.prepare_task(99, 99) {
+            Ok(_) => panic!("prepare_task must return Err when there's no shipped subplan"),
+            Err(e) => format!("{e}"),
+        };
+        assert!(
+            err.contains("no shipped subplan")
+                && err.contains("stage_id=99")
+                && err.contains("task_idx=99"),
+            "prepare_task Err must spell out stage/task and the missing-shipped reason; got {err}"
+        );
     }
 }

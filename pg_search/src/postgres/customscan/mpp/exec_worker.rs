@@ -285,12 +285,13 @@ pub(crate) fn run_mpp_worker(
         .collect();
     owned_keys.sort_unstable();
 
-    // Prewarm barrier: drain → wait until `on_subplan` has *attempted* the owned key (shipped
-    // OR decode-failed) → call `prewarm`. `prepare_task` then either consumes the shipped
-    // subplan (preferred) or falls through to the local-prepare path (codec-gap fallback,
-    // TODO(codec-coverage) tracked separately). The barrier replaces the old startup-eager
-    // prewarm that raced with the leader's `ship_subplans_to_workers` and could cache a
-    // locally-prepared entry that `on_subplan` would later have to invalidate.
+    // Prewarm barrier: drain → wait until `on_subplan` has *attempted* the owned key
+    // (shipped OR decode-failed) → call `prewarm`. With Phase B's cross-stage caches the
+    // codec decodes reliably; a decode failure now propagates back through the drain pump
+    // as a hard Err, so `prepare_task` is no longer required to fall back to anything. The
+    // barrier replaces the old startup-eager prewarm that raced with the leader's
+    // `ship_subplans_to_workers` and could cache a locally-prepared entry that
+    // `on_subplan` would later have to invalidate.
     //
     // The barrier closes the prewarm-time race; a separate, smaller race remains during
     // prewarm itself if a Request arrives before its corresponding Subplan. The leader's
@@ -336,12 +337,12 @@ pub(crate) fn run_mpp_worker(
                 }
                 tokio::task::yield_now().await;
             }
-            // After the barrier, `prewarm` runs either the shipped path (when `on_subplan`
-            // decoded successfully) or the local-prepare fallback (when decode failed). An
-            // error here therefore means either:
-            //   - shipped path's `build_task_ctx` failed (memory pool builder, etc.), OR
-            //   - local-prepare's `DistributedExec::prepare_in_process_plan` failed (DF
-            //     planner refused the shape, etc.).
+            // After the barrier, `prewarm` always runs the shipped path. Possible errors:
+            //   - `prepare_task` couldn't find the shipped subplan (would be an invariant
+            //     breach since `is_subplan_attempted` flipped meaning either the shipped
+            //     entry is in `shipped_subplans` now or `on_subplan` returned Err and the
+            //     drain pump above would have surfaced it before we got here), OR
+            //   - `build_task_ctx` failed (memory pool builder, RuntimeEnv builder, etc.).
             // Either way, abort instead of sliding into the service loop with no prepared
             // plan for an owned task.
             registry.prewarm(stage_id, task_idx)?;

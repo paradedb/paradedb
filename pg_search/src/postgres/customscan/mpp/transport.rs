@@ -148,8 +148,16 @@ impl MppFrameHeader {
     /// `Err` if the slice is too short or the magic doesn't match.
     fn parse(bytes: &[u8]) -> Result<Self, DataFusionError> {
         if bytes.len() < MPP_FRAME_HEADER_SIZE {
+            // No encoder in this file emits sub-header output, so a short frame means the
+            // shm_mq stitched together payloads from different senders. Hex-dump the bytes
+            // so the source is identifiable from log output without a debugger.
+            let hex = bytes
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<Vec<_>>()
+                .join(" ");
             return Err(DataFusionError::Internal(format!(
-                "mpp: frame too short for header ({} < {})",
+                "mpp: frame too short for header ({} < {}); bytes = [{hex}]",
                 bytes.len(),
                 MPP_FRAME_HEADER_SIZE
             )));
@@ -383,6 +391,14 @@ pub(super) trait BatchChannelSender: Send + Sync {
     fn try_send_bytes(&self, bytes: &[u8]) -> Result<bool, DataFusionError> {
         self.send_bytes(bytes).map(|()| true)
     }
+
+    /// Async lock the send paths hold across the cooperative-drain spin so two tasks can't
+    /// interleave partial writes on the same handle. PG's `shm_mq_send` requires the same
+    /// `(nbytes, data)` on retry after `SHM_MQ_WOULD_BLOCK`. Multiple [`MppSender`] clones
+    /// multiplex onto one channel, and the spin's `yield_now().await` would otherwise let a
+    /// sibling task land a different payload mid-message and corrupt the queue. In-proc
+    /// channels return a per-instance mutex too, just to keep the call sites uniform.
+    fn send_lock(&self) -> &tokio::sync::Mutex<()>;
 }
 
 /// Pluggable "drain everything inbound" hook for [`MppSender`]'s cooperative send spin. The
@@ -426,17 +442,12 @@ pub struct MppSender {
     scratch: std::cell::RefCell<Vec<u8>>,
 }
 
-// SAFETY: `MppSender` lives inside `ShuffleWiring`, which is owned by a
-// single `ShuffleExec` running on a single backend thread. The async
-// `send_batch_traced` future captures `&self` and contains a Tokio
-// `yield_now().await`; the compiler conservatively requires the future
-// to be `Send`, which forces `&MppSender: Send` and therefore
-// `MppSender: Sync`. At runtime the future is created and consumed on
-// the same thread (DataFusion's current-thread runtime on the backend),
-// so there is no actual cross-thread aliasing of the inner `RefCell` or
-// of the `Box<dyn BatchChannelSender>`. This mirrors the same
-// single-thread-by-construction contract that justifies
-// `unsafe impl Send for ShmMqSender` over in `mesh.rs`.
+// SAFETY: only `scratch: RefCell<Vec<u8>>` and the trait-object `Arc`s are `!Sync`. Callers
+// compose `send_*_traced` futures via `tokio::spawn` / `join_all`, which makes the compiler
+// require `&Self: Send` and therefore `Self: Sync`. At runtime those futures run on the
+// current-thread tokio runtime pinned to the PG backend thread, so the cell is never actually
+// observed from another thread. Same single-thread-by-construction contract as
+// `unsafe impl Send for ShmMqSender` in `mesh.rs`.
 unsafe impl Sync for MppSender {}
 
 impl MppSender {
@@ -479,13 +490,12 @@ impl MppSender {
         self
     }
 
-    /// `send_batch` variant that accumulates per-call timings and spin
-    /// counts into `stats`. Callers that report these at EOF (e.g.,
-    /// `ShuffleStream`) use this to diagnose where time goes when the
-    /// outbound queue is full.
+    /// `send_batch` variant that accumulates per-call timings and spin counts into `stats`.
+    /// Callers that report at EOF (e.g. `ShuffleStream`) use this to diagnose where time
+    /// goes when the outbound queue is full.
     ///
-    /// Async because the cooperative-spin path needs to surrender the
-    /// Tokio runtime back periodically — see the body comment.
+    /// Async because the spin awaits the per-handle send lock and yields between
+    /// `try_send_bytes` retries; see `send_with_scratch`.
     pub(super) async fn send_batch_traced(
         &self,
         batch: &RecordBatch,
@@ -545,6 +555,9 @@ impl MppSender {
         let Some(drain) = self.cooperative_drain.as_ref() else {
             return self.channel.send_bytes(scratch);
         };
+        // Lock the channel before the spin so a sibling task can't interleave a different
+        // partial write through the shared shm_mq handle. See `BatchChannelSender::send_lock`.
+        let _send_guard = self.channel.send_lock().lock().await;
         let mut first_try = true;
         let t_wait_start = Instant::now();
         loop {
@@ -579,37 +592,24 @@ impl MppSender {
             // back to the blocking send path.
             return self.channel.send_bytes(scratch);
         };
+        // Lock the channel before the spin so a sibling task can't interleave a different
+        // partial write through the shared shm_mq handle. See `BatchChannelSender::send_lock`.
+        // Long-term, switching shm_mq for an async-friendly ring buffer (cf. #4184) drops the
+        // partial-send invariant entirely and removes the need for this lock.
+        let _send_guard = self.channel.send_lock().lock().await;
         let mut first_try = true;
         let t_wait_start = Instant::now();
-        // Mental model: a current-thread Tokio runtime lives on the
-        // backend thread (DataFusion needs one to drive `Stream`s).
-        // This spin runs *inside* a Tokio task — specifically the body
-        // of `ShuffleStream::poll_next`. The deadlock the cooperative
-        // drain prevents is *cross-proc*, not same-runtime: two
-        // peers each blocking on a full outbound and never reading the
-        // other side. We break that by driving our own inbound on this
-        // same OS thread via `try_drain_pass`, which pulls peer
-        // batches that have already arrived and frees their slots so
-        // peers' writers can advance.
-        //
-        // The `tokio::task::yield_now().await` between iterations
-        // hands the runtime back to the executor each spin. Today's
-        // MPP topology is linear (`ChainExec` polls inline, no
-        // `RepartitionExec` / `CoalescePartitions` driver above the
-        // shuffle), so there are no sibling Tokio tasks ready to run
-        // and yielding is effectively a no-op cost. Once the planner
-        // grows a parallel operator above us, those siblings start
-        // making forward progress during this yield instead of
-        // starving.
+        // The spin runs inside a tokio task on the backend thread's current-thread runtime
+        // (DataFusion needs one to drive `Stream`s). The deadlock we're breaking is
+        // *cross-proc*: two peers each blocked on a full outbound. `try_drain_pass` pulls
+        // peer batches off our inbound on the same OS thread, freeing their slots so their
+        // sends advance. `yield_now().await` between iterations hands the runtime back to
+        // siblings if any are ready, mostly a no-op under today's linear MPP topology.
         loop {
-            // `pgrx::check_for_interrupts!()` pulls in PG symbols
-            // (`ProcessInterrupts`, `PG_exception_stack`,
-            // `CopyErrorData`, …) that aren't linked into the crate's
-            // `--tests` / llvm-cov build. This fn is reached from
-            // `#[cfg(test)]` code in this file and `shuffle.rs`, so
-            // gate the check out of test builds; `InProc` channels
-            // used in tests never block, so the send side of the loop
-            // returns on the first iteration anyway.
+            // Gate the check out of test builds. `pgrx::check_for_interrupts!()` pulls in PG
+            // symbols (`ProcessInterrupts`, etc.) that the `--tests` / llvm-cov build can't
+            // link. `InProc` channels used in tests never block, so the loop returns on the
+            // first iteration anyway.
             #[cfg(not(test))]
             pgrx::check_for_interrupts!();
             if self.channel.try_send_bytes(scratch)? {
@@ -620,12 +620,10 @@ impl MppSender {
             }
             first_try = false;
             stats.spin_iters += 1;
-            // Would-block: pull from our own mesh's inbound so peers'
-            // sends to us unblock. Without this interleave two
-            // procs blocking on symmetric sends deadlock —
-            // neither gets to drain. Errors propagate so a peer
-            // detaching mid-spin doesn't leave the sender looping
-            // forever on a closed mesh.
+            // Would-block. Pull from our inbound so peers' outbound-to-us frees up and their
+            // sends to us unblock; without this, symmetric full-queue sends deadlock. Errors
+            // propagate so a peer detaching mid-spin doesn't leave us spinning on a closed
+            // mesh.
             let t_drain = Instant::now();
             drain.try_drain_pass()?;
             stats.coop_drain_in_spin += t_drain.elapsed();
@@ -910,11 +908,23 @@ impl Drop for DrainHandle {
 /// chance of self-deadlock if the producer never yields.
 pub(super) fn in_proc_channel(capacity: usize) -> (InProcSender, InProcReceiver) {
     let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(capacity);
-    (InProcSender { tx }, InProcReceiver { rx: Mutex::new(rx) })
+    (
+        InProcSender {
+            tx,
+            send_lock: tokio::sync::Mutex::new(()),
+        },
+        InProcReceiver { rx: Mutex::new(rx) },
+    )
 }
 
 pub(super) struct InProcSender {
     tx: std::sync::mpsc::SyncSender<Vec<u8>>,
+    /// Per-instance lock so the [`BatchChannelSender::send_lock`] contract holds even when an
+    /// in-proc channel ends up in a code path that would otherwise need serialization. In-proc
+    /// `send_bytes` is already atomic (each call pushes a complete `Vec<u8>`), so the lock is
+    /// effectively a no-op here, but keeping it uniform with `ShmMqSender` avoids special-casing
+    /// the caller.
+    send_lock: tokio::sync::Mutex<()>,
 }
 
 pub(super) struct InProcReceiver {
@@ -941,6 +951,10 @@ impl BatchChannelSender for InProcSender {
                 "mpp: in-proc channel detached during try_send".into(),
             )),
         }
+    }
+
+    fn send_lock(&self) -> &tokio::sync::Mutex<()> {
+        &self.send_lock
     }
 }
 

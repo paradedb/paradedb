@@ -237,21 +237,22 @@ pub(crate) fn run_mpp_worker(
     worker_mesh.install_subplan_handler(Arc::clone(&registry)
         as Arc<dyn crate::postgres::customscan::mpp::transport::SubplanHandler>);
 
-    // Pump the drain once to deliver any Subplan frames that already landed before the
-    // handlers were installed. Pumping here puts those into `shipped_subplans` so the prewarm
-    // loop below calls `prepare_task` against a populated map. Workers can still enter
-    // `run_mpp_worker` before the leader's `ship_subplans_to_workers` completes (no PG-level
-    // barrier syncs the two — leader runs in `ExecutorRun`, worker in `end_custom_scan` on
-    // its first poll), so this pump only catches what's already there; the rest of the
-    // protection lives in `ProducerTaskRegistry::on_subplan`, which invalidates any cached
-    // locally-prepared entry when a shipped subplan arrives later.
+    // Pump the drain once to deliver any frames already queued before the handlers were
+    // installed. Subplan frames go into `shipped_subplans` so the prewarm loop below calls
+    // `prepare_task` against a populated map. Request frames can also be in the queue if the
+    // leader has already started executing its own plan; those go through
+    // `ProducerTaskRegistry::on_request` → `tokio::spawn`, so the drain pump must run inside
+    // the runtime's context — `tokio::spawn` panics if there is no current runtime.
     //
-    // Drain failures at startup are fatal — that means the underlying queue is corrupted or
-    // the mesh detached. Per-subplan decode failures are NOT surfaced here: `on_subplan`
-    // swallows decode errors with a `warning!` so the affected `(stage, task)` falls back
-    // to `prepare_task`'s local-prepare path naturally. An `error!` here is reserved for
-    // genuine infrastructure failure.
-    if let Err(e) = worker_mesh.drain_all_inbound() {
+    // Drain failures here are fatal — that means the underlying queue is corrupted or the
+    // mesh detached. Per-subplan decode failures are NOT surfaced: `on_subplan` swallows
+    // decode errors with `mpp_log!` so the affected `(stage, task)` falls back to
+    // `prepare_task`'s local-prepare path naturally.
+    let drain_result = {
+        let _guard = runtime.enter();
+        worker_mesh.drain_all_inbound()
+    };
+    if let Err(e) = drain_result {
         pgrx::error!("mpp worker (proc={this_proc}): initial drain pump failed: {e}");
     }
 

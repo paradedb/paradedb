@@ -211,9 +211,26 @@ pub(crate) fn run_mpp_worker(
     let work_mem_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
     let hash_mem_multiplier = unsafe { pg_sys::hash_mem_multiplier };
     let session_arc = Arc::new(session);
-    // Pass the per-source canonical segment-ID sets + the ParallelScanState pointer down so the
-    // registry can rebuild PgSearchScan / FFHelper runtime state when decoding leader-shipped
-    // subplans.
+
+    // Walk the worker's full local physical plan once and capture FFHelper snapshots indexed
+    // by two keys:
+    //   - `indexrelid` → consumed by `decode_segmented_topk` / `decode_tantivy_lookup` for
+    //     deferred field materialization.
+    //   - `deferred_ctid_plan_position` → consumed by `decode_visibility_filter` to wire
+    //     ctid resolvers (the standalone `VisibilityCtidResolverRule` doesn't fire on the
+    //     decoded subplan because `prepare_in_process_plan` bypasses optimizer rules, and
+    //     the rule's own walker has the same cross-stage blindness as the FFHelper walker).
+    //
+    // Both maps are populated from the same recursion so we walk the plan once. Storing on
+    // `MppReconstructionContext` makes the cache visible to every decoder via the codec's
+    // `TaskContext` extension. Cheap: each `Arc<FFHelper>` is shared.
+    let (ffhelpers_by_relid, ctid_resolvers_by_plan_position) =
+        collect_ffhelper_snapshots(&physical_plan);
+
+    // Pass the per-source canonical segment-ID sets, the ParallelScanState pointer, and the
+    // FFHelper snapshots down so the registry can rebuild PgSearchScan / FFHelper /
+    // VisibilityFilter runtime state when decoding leader-shipped subplans across stage
+    // boundaries.
     let registry = Arc::new(ProducerTaskRegistry::new(
         stage_plans,
         session_arc,
@@ -222,6 +239,8 @@ pub(crate) fn run_mpp_worker(
         hash_mem_multiplier,
         index_segment_ids,
         parallel_state,
+        ffhelpers_by_relid,
+        ctid_resolvers_by_plan_position,
     ));
 
     // Install the request handler on every inbound drain. The cooperative drain dispatches
@@ -375,4 +394,51 @@ pub(crate) fn run_mpp_worker(
     if let Err(e) = result {
         pgrx::error!("mpp worker: service loop failed: {e}");
     }
+}
+
+/// Walk a worker-local distributed physical plan and snapshot every `PgSearchScanPlan`'s
+/// `Arc<FFHelper>` under two keys: `indexrelid` (for `decode_segmented_topk` /
+/// `decode_tantivy_lookup`) and `deferred_ctid_plan_position` (for
+/// `decode_visibility_filter`'s ctid resolver wiring). Both snapshots go on the worker's
+/// `MppReconstructionContext` so codec decoders can resolve cross-stage references that the
+/// shipped subplan's local input tree can't reach across a `NetworkBoundaryExec`.
+///
+/// Recurses through `plan.children()`, which DataFusion implements on every standard exec.
+/// `NetworkBoundaryExec` (and the DF-D fork's wrappers) lift their wrapped inner plan into
+/// `children()` at the leader-side construction site, so the worker's local rebuild has
+/// every stage's scans reachable from the same root — this walk hits all of them.
+#[allow(clippy::type_complexity)]
+fn collect_ffhelper_snapshots(
+    plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+) -> (
+    crate::api::HashMap<u32, Arc<crate::index::fast_fields_helper::FFHelper>>,
+    crate::api::HashMap<usize, Arc<crate::index::fast_fields_helper::FFHelper>>,
+) {
+    use crate::scan::execution_plan::PgSearchScanPlan;
+    let mut by_relid = crate::api::HashMap::default();
+    let mut by_ctid_position = crate::api::HashMap::default();
+    fn recurse(
+        plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+        by_relid: &mut crate::api::HashMap<u32, Arc<crate::index::fast_fields_helper::FFHelper>>,
+        by_ctid_position: &mut crate::api::HashMap<
+            usize,
+            Arc<crate::index::fast_fields_helper::FFHelper>,
+        >,
+    ) {
+        if let Some(scan) = plan.as_any().downcast_ref::<PgSearchScanPlan>() {
+            if let Some(ff) = scan.ffhelper() {
+                by_relid
+                    .entry(scan.indexrelid)
+                    .or_insert_with(|| Arc::clone(&ff));
+                if let Some(pos) = scan.deferred_ctid_plan_position() {
+                    by_ctid_position.entry(pos).or_insert(ff);
+                }
+            }
+        }
+        for child in plan.children() {
+            recurse(child, by_relid, by_ctid_position);
+        }
+    }
+    recurse(plan, &mut by_relid, &mut by_ctid_position);
+    (by_relid, by_ctid_position)
 }

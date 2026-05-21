@@ -244,7 +244,6 @@ const DEFERRED_CTID_NONE: u32 = u32::MAX;
 /// The producer-side dispatcher ([`crate::postgres::customscan::mpp::producer_service::ProducerTaskRegistry::prepare_task`])
 /// constructs this from the registry's fields and layers it onto the `TaskContext` that drives
 /// `PhysicalExtensionCodec::try_decode`.
-#[derive(Debug)]
 pub struct MppReconstructionContext {
     /// Canonical segment ID sets indexed by absolute `plan_position` (full join source list
     /// index). For non-MPP / serial paths this stays empty and the codec falls back to leaving
@@ -254,6 +253,47 @@ pub struct MppReconstructionContext {
     /// `PgSearchTableProvider` when `is_parallel()` is true so the partitioning-source scan
     /// claims segments through the same shared state the rest of the worker is using.
     pub parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+    /// `indexrelid → FFHelper` snapshot built once at worker startup by walking the worker's
+    /// full local physical plan. Populated from every `PgSearchScanPlan` the worker can see —
+    /// across all stages, including stages whose scans live behind a `NetworkBoundaryExec`
+    /// from the perspective of a sibling stage's shipped subplan.
+    ///
+    /// `decode_segmented_topk` / `decode_tantivy_lookup` consult this cache before falling
+    /// back to walking the shipped subplan's local input tree, which can't reach across a
+    /// `NetworkBoundary` to find the source `PgSearchScan`. A probe-side scan with
+    /// `query="all"` and a build-side scan reached through `NetworkBroadcastExec` both end
+    /// up in this map keyed by their `indexrelid` regardless of which stage they sit in.
+    pub ffhelpers_by_relid:
+        crate::api::HashMap<u32, std::sync::Arc<crate::index::fast_fields_helper::FFHelper>>,
+    /// `deferred_ctid_plan_position → FFHelper` snapshot, built from the same walk as
+    /// `ffhelpers_by_relid` but keyed by `PgSearchScanPlan::deferred_ctid_plan_position`.
+    /// `decode_visibility_filter` uses this to wire ctid resolvers at decode time, because
+    /// the standalone `VisibilityCtidResolverRule` physical-optimizer rule doesn't fire on
+    /// `DistributedExec::prepare_in_process_plan`-produced subplans, and its in-subtree
+    /// walker has the same cross-stage blindness as the FFHelper walker.
+    pub ctid_resolvers_by_plan_position:
+        crate::api::HashMap<usize, std::sync::Arc<crate::index::fast_fields_helper::FFHelper>>,
+}
+
+impl std::fmt::Debug for MppReconstructionContext {
+    // Custom impl because `FFHelper` doesn't (and shouldn't) implement `Debug` — its inner
+    // tantivy `FastFieldReaders` and column caches are opaque runtime state that has no
+    // meaningful textual form. Print just the key set instead so the extension can still be
+    // dumped via `pgrx::warning!(?recon)` style without unhelpful huge segment dumps.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let ffhelper_relids: Vec<u32> = self.ffhelpers_by_relid.keys().copied().collect();
+        let ctid_resolver_positions: Vec<usize> = self
+            .ctid_resolvers_by_plan_position
+            .keys()
+            .copied()
+            .collect();
+        f.debug_struct("MppReconstructionContext")
+            .field("index_segment_ids_count", &self.index_segment_ids.len())
+            .field("parallel_state_present", &self.parallel_state.is_some())
+            .field("ffhelper_relids", &ffhelper_relids)
+            .field("ctid_resolver_positions", &ctid_resolver_positions)
+            .finish()
+    }
 }
 
 // SAFETY: the raw `*mut ParallelScanState` makes the auto-derived `Send + Sync` go away. Same
@@ -444,7 +484,7 @@ fn encode_visibility_filter(node: &dyn ExecutionPlan) -> Result<VisibilityFilter
 fn decode_visibility_filter(
     proto: VisibilityFilterProto,
     inputs: &[Arc<dyn ExecutionPlan>],
-    _ctx: &TaskContext,
+    ctx: &TaskContext,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterExec;
     let input = inputs.first().cloned().ok_or_else(|| {
@@ -466,7 +506,38 @@ fn decode_visibility_filter(
         .zip(proto.heap_oids.iter())
         .map(|(p, oid)| (*p as usize, pg_sys::Oid::from(*oid)))
         .collect();
-    let exec = VisibilityFilterExec::new(input, plan_pos_oids, proto.table_names)?;
+    let exec = VisibilityFilterExec::new(input, plan_pos_oids.clone(), proto.table_names)?;
+
+    // Wire ctid resolvers from the worker's cross-stage cache. The standalone
+    // `VisibilityCtidResolverRule` doesn't fire on the codec-decoded subplan
+    // (`prepare_in_process_plan` bypasses optimizer rules) and its in-subtree walker has
+    // the same cross-stage blindness as the FFHelper walker — under MPP the source scan
+    // for a deferred ctid column commonly lives in a sibling stage (probe-side scan vs.
+    // outer visibility filter). The cache built at worker startup in
+    // `collect_ffhelper_snapshots` covers every reachable scan; consult it here.
+    //
+    // Production gates on the recon-context extension being present. Round-trip tests
+    // without it produce a `VisibilityFilterExec` with empty resolvers; that's fine for
+    // wire-shape tests since they don't execute.
+    if let Some(recon) = ctx
+        .session_config()
+        .get_extension::<MppReconstructionContext>()
+    {
+        for (plan_pos, _heap_oid) in &plan_pos_oids {
+            if let Some(ffhelper) = recon.ctid_resolvers_by_plan_position.get(plan_pos) {
+                exec.set_ctid_resolver(*plan_pos, std::sync::Arc::clone(ffhelper));
+            } else {
+                return Err(DataFusionError::Internal(format!(
+                    "decode_visibility_filter: no ctid resolver in MppReconstructionContext \
+                     for plan_position {plan_pos}; the worker's local physical-plan walk in \
+                     `collect_ffhelper_snapshots` should populate every deferred ctid plan \
+                     position the leader's plan references. Check that the worker's local \
+                     rebuild succeeded and that the leader's and worker's plans agree."
+                )));
+            }
+        }
+    }
+
     Ok(Arc::new(exec))
 }
 
@@ -582,32 +653,41 @@ fn decode_tantivy_lookup(
         })
         .collect::<Result<_>>()?;
 
-    // Reconstruct the FFHelper map from the input plan's PgSearchScanPlan nodes. Phase 2's
-    // reconstruction in `decode_pgsearch_scan` builds real FFHelpers; walking the inputs here
-    // pulls them out keyed by indexrelid, the same recipe the leader uses
-    // (`LateMaterializePlanner` calls `extract_ff_helper`, gated identically by both
-    // `has_deferred_fields()` and `ffhelper().is_some()`).
+    // Reconstruct the FFHelper map. Two sources, consulted in order:
+    //   1. `MppReconstructionContext.ffhelpers_by_relid` — a worker-startup snapshot built by
+    //      walking the FULL local physical plan, so it covers relids whose source scan
+    //      lives in a sibling stage across a `NetworkBoundaryExec`.
+    //   2. `collect_ffhelpers_from_input` — fallback walk over the shipped subplan's local
+    //      input tree, for shapes where the source scan does sit in this stage's subtree
+    //      and the cross-stage cache is empty (e.g. round-trip tests with no extension).
     //
     // In production (`MppReconstructionContext` present on the TaskContext) every relid in
-    // `proto.indexrelids` must be covered by the walk — substituting `FFHelper::empty()`
-    // would panic later (segment_caches OOB at first access). Hard-error at decode time so
-    // the failure points at the right layer. Round-trip tests that use `EmptyExec` inputs
-    // (no PgSearchScanPlan to walk) intentionally fall through to empty FFHelpers — they
-    // exercise wire-shape, not runtime semantics, and the test ctx lacks the extension.
-    let in_production = ctx
+    // `proto.indexrelids` must be covered by one of these two sources — substituting
+    // `FFHelper::empty()` would panic later (segment_caches OOB at first access). Hard-error
+    // at decode time so the failure points at the right layer. Round-trip tests that use
+    // `EmptyExec` inputs (no PgSearchScanPlan to walk, no recon context) intentionally fall
+    // through to empty FFHelpers — they exercise wire-shape, not runtime semantics.
+    let recon = ctx
         .session_config()
-        .get_extension::<MppReconstructionContext>()
-        .is_some();
+        .get_extension::<MppReconstructionContext>();
+    let in_production = recon.is_some();
     let mut ffhelpers: HashMap<u32, std::sync::Arc<FFHelper>> = HashMap::default();
+    if let Some(recon) = &recon {
+        for (relid, ff) in recon.ffhelpers_by_relid.iter() {
+            ffhelpers.insert(*relid, std::sync::Arc::clone(ff));
+        }
+    }
     collect_ffhelpers_from_input(&input, &mut ffhelpers);
     for relid in &proto.indexrelids {
         if !ffhelpers.contains_key(relid) {
             if in_production {
                 return Err(DataFusionError::Internal(format!(
                     "decode_tantivy_lookup: missing reconstructed FFHelper for indexrelid={relid}; \
-                     the input PgSearchScan must have fallen back to the empty-states placeholder. \
-                     Check that `MppReconstructionContext` is attached to the worker's TaskContext \
-                     in `on_subplan` and that `table_provider_json` is non-empty on the wire."
+                     not found in MppReconstructionContext's cross-stage cache or in the \
+                     shipped subplan's input tree. The worker's local physical-plan walk in \
+                     `collect_ffhelpers_by_relid` should cover every relid the leader's plan \
+                     references; check that the worker's local rebuild succeeded and that the \
+                     leader's and worker's plans agree on which sources exist."
                 )));
             }
             ffhelpers.insert(*relid, std::sync::Arc::new(FFHelper::empty()));
@@ -747,21 +827,28 @@ fn decode_segmented_topk(
         .collect::<Result<_>>()?;
 
     // SegmentedTopKExec takes a single FFHelper — the leader picks `target_indexrelid`
-    // (`segmented_topk_rule.rs:271`) and pulls the FFHelper from the parent TantivyLookupExec
-    // by that key. Mirror that here: walk the input plan for FFHelpers and pick the entry
-    // matching the first deferred-column's indexrelid.
+    // (`segmented_topk_rule.rs:271`) and pulls the FFHelper for that relid from the parent
+    // TantivyLookupExec. Mirror that here, with two lookup sources in priority order:
+    //   1. `MppReconstructionContext.ffhelpers_by_relid` — worker-startup cross-stage
+    //      snapshot, covers relids whose source scan lives across a `NetworkBoundaryExec`.
+    //   2. `collect_ffhelpers_from_input` — same-stage fallback walk, kept for round-trip
+    //      tests and for shapes where the source scan does sit in this stage's subtree.
     //
     // `segmented_topk_rule.rs:260-269` enforces a single-relid invariant on the leader
     // (returns `Ok(None)` if the deferred-column set is empty or spans multiple relids), so
-    // in production an empty `proto.indexrelids` or a missing walker entry is a hard failure
-    // — `FFHelper::empty()` would panic later (segment_caches OOB). Round-trip tests with
-    // `EmptyExec` inputs fall through to empty (same rationale as `decode_tantivy_lookup`).
-    let in_production = ctx
+    // in production an empty `proto.indexrelids` or a missing entry in both sources is a
+    // hard failure — `FFHelper::empty()` would panic later (segment_caches OOB).
+    let recon = ctx
         .session_config()
-        .get_extension::<MppReconstructionContext>()
-        .is_some();
+        .get_extension::<MppReconstructionContext>();
+    let in_production = recon.is_some();
     let mut input_ffhelpers: crate::api::HashMap<u32, std::sync::Arc<FFHelper>> =
         crate::api::HashMap::default();
+    if let Some(recon) = &recon {
+        for (relid, ff) in recon.ffhelpers_by_relid.iter() {
+            input_ffhelpers.insert(*relid, std::sync::Arc::clone(ff));
+        }
+    }
     collect_ffhelpers_from_input(&input, &mut input_ffhelpers);
     let ffhelper = match proto.indexrelids.first().copied() {
         Some(rid) => match input_ffhelpers.remove(&rid) {
@@ -769,8 +856,10 @@ fn decode_segmented_topk(
             None if in_production => {
                 return Err(DataFusionError::Internal(format!(
                     "decode_segmented_topk: missing reconstructed FFHelper for \
-                     target_indexrelid={rid}; the input PgSearchScan / TantivyLookup must have \
-                     fallen back to placeholders"
+                     target_indexrelid={rid}; not found in MppReconstructionContext's \
+                     cross-stage cache or in the shipped subplan's input tree. The worker's \
+                     local physical-plan walk in `collect_ffhelpers_by_relid` should cover \
+                     every relid the leader's plan references."
                 )));
             }
             None => std::sync::Arc::new(FFHelper::empty()),

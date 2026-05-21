@@ -267,6 +267,7 @@ unsafe impl Send for ProducerTaskRegistry {}
 unsafe impl Sync for ProducerTaskRegistry {}
 
 impl ProducerTaskRegistry {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         stage_plans: StagePlans,
         session: Arc<SessionContext>,
@@ -275,10 +276,20 @@ impl ProducerTaskRegistry {
         hash_mem_multiplier: f64,
         index_segment_ids: Vec<HashSet<SegmentId>>,
         parallel_state: Option<*mut ParallelScanState>,
+        ffhelpers_by_relid: crate::api::HashMap<
+            u32,
+            Arc<crate::index::fast_fields_helper::FFHelper>,
+        >,
+        ctid_resolvers_by_plan_position: crate::api::HashMap<
+            usize,
+            Arc<crate::index::fast_fields_helper::FFHelper>,
+        >,
     ) -> Self {
         let reconstruction_context = Arc::new(MppReconstructionContext {
             index_segment_ids,
             parallel_state,
+            ffhelpers_by_relid,
+            ctid_resolvers_by_plan_position,
         });
         Self {
             stage_plans,
@@ -383,62 +394,44 @@ impl ProducerTaskRegistry {
     }
 
     fn prepare_task(&self, stage_id: u32, task_idx: u32) -> Result<PreparedTask, DataFusionError> {
-        // Prefer a leader-shipped subplan when one is present in `shipped_subplans` — that's
-        // the dispatch-flip's "build once on the leader, ship many" path. Fall back to local
-        // re-plan if nothing has been shipped for this `(stage_id, task_idx)` — either
-        // because the shipping race hasn't settled yet (Phase A's prewarm barrier in
-        // `run_mpp_worker` narrows that window), OR because `on_subplan` failed to decode
-        // the shipped bytes (codec gap, e.g. SegmentedTopK above a NetworkBoundary that
-        // hides the input PgSearchScan from the FFHelper walker). The fallback is the
-        // always-correct path: it builds the plan locally on the worker the same way the
-        // leader did. Closing those codec gaps is tracked separately from the worker-
-        // simplification phases.
-        if let Some(shipped) = self
+        // Workers only execute leader-shipped subplans. The prewarm barrier in
+        // `run_mpp_worker` waits for `on_subplan` to mark each owned `(stage_id, task_idx)`
+        // attempted before any `prepare_task` call runs, and Phase B2's cross-stage
+        // FFHelper + ctid-resolver caches make decode reliable so `on_subplan` either
+        // succeeds (entry present here) or hard-errors the worker. A miss at this point is
+        // an invariant breach — not a recoverable race.
+        let shipped = self
             .shipped_subplans
             .lock()
             .expect("ProducerTaskRegistry shipped_subplans mutex poisoned")
             .get(&(stage_id, task_idx))
             .cloned()
-        {
-            let task_count = self
-                .stage_plans
-                .lookup(stage_id)
-                .map(|(_, tc)| tc)
-                .unwrap_or(1);
-            let task_ctx = build_task_ctx(
-                &self.session,
-                task_idx,
-                task_count,
-                self.work_mem_bytes,
-                self.hash_mem_multiplier,
-                &shipped,
-                Some(Arc::clone(&self.reconstruction_context)),
-            )?;
-            return Ok(PreparedTask {
-                plan: shipped,
-                ctx: task_ctx,
-            });
-        }
-        // Local-prepare fallback. No reconstruction context: this path goes through
-        // `DistributedExec::prepare_in_process_plan` over `stage_plans` directly, never
-        // through the physical codec's `decode_pgsearch_scan`, so the extension would never
-        // be read. Pass `None` so the call site signals the fallback is extension-free
-        // by design.
-        let (plan, task_count) = self.stage_plans.lookup(stage_id).ok_or_else(|| {
-            DataFusionError::Internal(format!(
-                "mpp producer: no plan registered for stage_id={stage_id}"
-            ))
-        })?;
-        prepare_stage_task(
-            &plan,
-            stage_id,
+            .ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "mpp producer prepare_task: no shipped subplan for \
+                     stage_id={stage_id} task_idx={task_idx}; the prewarm barrier should \
+                     have blocked the worker until the leader shipped this (stage, task), \
+                     and Phase B2's caches should have made the decode succeed"
+                ))
+            })?;
+        let task_count = self
+            .stage_plans
+            .lookup(stage_id)
+            .map(|(_, tc)| tc)
+            .unwrap_or(1);
+        let task_ctx = build_task_ctx(
+            &self.session,
             task_idx,
             task_count,
-            &self.session,
             self.work_mem_bytes,
             self.hash_mem_multiplier,
-            None,
-        )
+            &shipped,
+            Some(Arc::clone(&self.reconstruction_context)),
+        )?;
+        Ok(PreparedTask {
+            plan: shipped,
+            ctx: task_ctx,
+        })
     }
 }
 
@@ -834,14 +827,12 @@ impl SubplanHandler for ProducerTaskRegistry {
             .clone()
             .with_extension(Arc::clone(&self.reconstruction_context));
         let task_ctx = Arc::new(TaskContext::default().with_session_config(decode_cfg));
-        let decode_result =
-            physical_plan_from_bytes_with_extension_codec(payload.as_slice(), &task_ctx, &codec);
-        // Whether the decode succeeded or not, the leader's Subplan frame for this key has
-        // now been processed. Record that in `attempted_subplans` so the prewarm barrier in
-        // `run_mpp_worker` can stop waiting and either consume the shipped plan (Ok arm) or
-        // fall through to `prepare_task`'s local-prepare path (Err arm). Mutating this
-        // unconditionally before branching keeps the barrier's invariant trivially correct:
-        // `attempted` is set exactly once per key, regardless of which arm runs.
+        // Mark `(stage, task)` attempted before the decode call so that even a hard-error
+        // decode path leaves the bit flipped — the prewarm barrier in `run_mpp_worker`
+        // observes the bit and exits its wait loop, instead of needing a separate Err-side
+        // signal. If decode then fails, the Err propagates up to `drain_all_inbound` and
+        // the barrier also surfaces it via `worker_mesh.drain_all_inbound()?`. Both
+        // termination paths end with the worker exiting cleanly.
         {
             let mut attempted = self
                 .attempted_subplans
@@ -849,30 +840,22 @@ impl SubplanHandler for ProducerTaskRegistry {
                 .expect("ProducerTaskRegistry attempted_subplans mutex poisoned");
             attempted.insert(key);
         }
-        let decoded = match decode_result {
-            Ok(decoded) => decoded,
-            Err(e) => {
-                // Per-subplan decode gaps (cross-stage FFHelper reconstruction misses, etc.)
-                // are NOT fatal: `prepare_task` falls back to the worker's local-prepare
-                // path (via `stage_plans`) for any `(stage, task)` whose shipped subplan
-                // failed to decode. That fallback is the always-correct path — it builds the
-                // plan locally on the worker the same way the leader did, so execution
-                // produces correct rows, just at the cost of skipping the dispatch-flip's
-                // "build once on the leader, ship many" optimization for this pair. The
-                // worker-simplification phases keep this safety net until the codec
-                // coverage audit closes the remaining decode gaps.
-                //
-                // Returning Ok here keeps the drain pump healthy. Returning Err would abort
-                // the worker via the drain pump's `error!`, taking down query execution for
-                // a fixable codec gap.
-                crate::mpp_log!(
-                    "mpp producer on_subplan: decode failed stage_id={stage_id} \
-                     task_idx={task_idx}: {e}; this (stage, task) will use the local-prepare \
-                     fallback in prepare_task"
-                );
-                return Ok(());
-            }
-        };
+        let decoded =
+            physical_plan_from_bytes_with_extension_codec(payload.as_slice(), &task_ctx, &codec)
+                .map_err(|e| {
+                    // After Phase B2 (cross-stage FFHelper + ctid-resolver caches on
+                    // `MppReconstructionContext`) every codec gap the local-prepare fallback used
+                    // to paper over is now covered by decode itself. Decode failure here therefore
+                    // means a real codec bug (new exec variant, missing UDAF coverage, cross-stage
+                    // cache key not built by `collect_ffhelper_snapshots`, etc.), not a recoverable
+                    // cross-stage walker miss. Surface as Err so the drain pump aborts the worker
+                    // via `pgrx::error!` and the underlying codec error reaches the user instead
+                    // of getting masked by a silent fallback.
+                    DataFusionError::Internal(format!(
+                        "mpp producer on_subplan: decode failed stage_id={stage_id} \
+                 task_idx={task_idx}: {e}"
+                    ))
+                })?;
         let total = {
             let mut map = self
                 .shipped_subplans
@@ -939,8 +922,9 @@ mod tests {
             .with_distributed_user_codec(PgSearchPhysicalCodec)
             .build();
         let session = Arc::new(SessionContext::new_with_state(state));
-        // index_segment_ids + parallel_state stay empty/None in lib tests; the reconstruction
-        // walker (Phase 2+) is exercised by integration tests instead.
+        // index_segment_ids, parallel_state, and both FFHelper snapshots stay empty/None in
+        // lib tests; the reconstruction walker and cross-stage caches are exercised by
+        // integration tests instead.
         Arc::new(ProducerTaskRegistry::new(
             stage_plans,
             session,
@@ -949,6 +933,8 @@ mod tests {
             2.0,
             Vec::new(),
             None,
+            crate::api::HashMap::default(),
+            crate::api::HashMap::default(),
         ))
     }
 
@@ -1015,22 +1001,29 @@ mod tests {
     }
 
     #[test]
-    fn on_subplan_decode_failure_is_logged_but_not_fatal() {
+    fn on_subplan_decode_failure_is_fatal() {
         let registry = test_registry();
         // Garbage bytes — `physical_plan_from_bytes_with_extension_codec` fails on prost
-        // decode. `on_subplan` swallows the error, logs a `warning!`, and returns Ok so the
-        // drain pump stays healthy. The affected `(stage, task)` is NOT added to
-        // `shipped_subplans`; `prepare_task` will fall back to the local-prepare path.
+        // decode. Phase B2 removed `prepare_task`'s local-prepare fallback, so a decode
+        // failure here must surface as Err. The drain pump turns this Err into
+        // `pgrx::error!` and aborts the worker rather than silently masking a codec gap.
         let result = registry.on_subplan(5, 2, vec![0xFF, 0xFE, 0xFD, 0xFC]);
         assert!(
-            result.is_ok(),
-            "on_subplan must return Ok on decode failure to keep the drain pump alive; got {result:?}"
+            result.is_err(),
+            "on_subplan must return Err on decode failure now that the local-prepare \
+             fallback is gone; got {result:?}"
         );
         assert_eq!(
             registry.shipped_subplan_count(),
             0,
-            "failed decode must NOT populate shipped_subplans (prepare_task should miss \
-             and fall back to local-prepare)"
+            "failed decode must not populate shipped_subplans"
+        );
+        // The `attempted_subplans` bit still flips on the Err arm so the prewarm barrier
+        // exits cleanly even though decode failed — see
+        // `on_subplan_decode_failure_still_marks_attempted` for the explicit pin.
+        assert!(
+            registry.is_subplan_attempted(5, 2),
+            "decode failure still marks attempted (barrier termination invariant)"
         );
     }
 

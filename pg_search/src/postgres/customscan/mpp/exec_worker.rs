@@ -246,9 +246,11 @@ pub(crate) fn run_mpp_worker(
     // protection lives in `ProducerTaskRegistry::on_subplan`, which invalidates any cached
     // locally-prepared entry when a shipped subplan arrives later.
     //
-    // Drain failures at startup are fatal — partial Subplan dispatch leaves the worker with
-    // a mixed shipped/local plan map, which silently breaks the "build once, ship many"
-    // invariant. Surface as `error!` so the query aborts instead of producing wrong rows.
+    // Drain failures at startup are fatal — that means the underlying queue is corrupted or
+    // the mesh detached. Per-subplan decode failures are NOT surfaced here: `on_subplan`
+    // swallows decode errors with a `warning!` so the affected `(stage, task)` falls back
+    // to `prepare_task`'s local-prepare path naturally. An `error!` here is reserved for
+    // genuine infrastructure failure.
     if let Err(e) = worker_mesh.drain_all_inbound() {
         pgrx::error!("mpp worker (proc={this_proc}): initial drain pump failed: {e}");
     }

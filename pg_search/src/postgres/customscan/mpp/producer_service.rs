@@ -791,16 +791,32 @@ impl SubplanHandler for ProducerTaskRegistry {
             .clone()
             .with_extension(Arc::clone(&self.reconstruction_context));
         let task_ctx = Arc::new(TaskContext::default().with_session_config(decode_cfg));
-        let decoded = physical_plan_from_bytes_with_extension_codec(
+        let decoded = match physical_plan_from_bytes_with_extension_codec(
             payload.as_slice(),
             &task_ctx,
             &codec,
-        )
-        .map_err(|e| {
-            DataFusionError::Internal(format!(
-                "mpp producer on_subplan: decode failed stage_id={stage_id} task_idx={task_idx}: {e}"
-            ))
-        })?;
+        ) {
+            Ok(decoded) => decoded,
+            Err(e) => {
+                // Per-subplan decode gaps (cross-stage FFHelper reconstruction misses, etc.)
+                // are NOT fatal: `prepare_task` will fall back to the worker's local-prepare
+                // path (via `stage_plans`) for any `(stage, task)` whose shipped subplan
+                // failed to decode. That fallback is the always-correct path — it builds the
+                // plan locally on the worker the same way the leader did, so execution
+                // produces correct rows, just at the cost of skipping the dispatch-flip's
+                // "build once on the leader, ship many" optimization for this pair.
+                //
+                // Returning Ok here keeps the drain pump healthy. Returning Err would abort
+                // the worker via the drain pump's `error!`, taking down query execution for
+                // a fixable codec gap.
+                crate::mpp_log!(
+                    "mpp producer on_subplan: decode failed stage_id={stage_id} \
+                     task_idx={task_idx}: {e}; this (stage, task) will use the local-prepare \
+                     fallback in prepare_task"
+                );
+                return Ok(());
+            }
+        };
         let total = {
             let mut map = self
                 .shipped_subplans
@@ -943,21 +959,22 @@ mod tests {
     }
 
     #[test]
-    fn on_subplan_surfaces_decode_error() {
+    fn on_subplan_decode_failure_is_logged_but_not_fatal() {
         let registry = test_registry();
-        // Garbage bytes — prost decode should fail loudly with an Internal error pointing
-        // at the failed (stage_id, task_idx) so an integration test can pinpoint the breakage.
-        let err = registry
-            .on_subplan(5, 2, vec![0xFF, 0xFE, 0xFD, 0xFC])
-            .expect_err("garbage payload must surface an error");
-        let msg = err.to_string();
+        // Garbage bytes — `physical_plan_from_bytes_with_extension_codec` fails on prost
+        // decode. `on_subplan` swallows the error, logs a `warning!`, and returns Ok so the
+        // drain pump stays healthy. The affected `(stage, task)` is NOT added to
+        // `shipped_subplans`; `prepare_task` will fall back to the local-prepare path.
+        let result = registry.on_subplan(5, 2, vec![0xFF, 0xFE, 0xFD, 0xFC]);
         assert!(
-            msg.contains("decode failed")
-                && msg.contains("stage_id=5")
-                && msg.contains("task_idx=2"),
-            "unexpected error: {msg}"
+            result.is_ok(),
+            "on_subplan must return Ok on decode failure to keep the drain pump alive; got {result:?}"
         );
-        // Failed decode does NOT populate the map.
-        assert_eq!(registry.shipped_subplan_count(), 0);
+        assert_eq!(
+            registry.shipped_subplan_count(),
+            0,
+            "failed decode must NOT populate shipped_subplans (prepare_task should miss \
+             and fall back to local-prepare)"
+        );
     }
 }

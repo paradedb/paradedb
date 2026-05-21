@@ -148,10 +148,10 @@ impl MppFrameHeader {
     /// `Err` if the slice is too short or the magic doesn't match.
     fn parse(bytes: &[u8]) -> Result<Self, DataFusionError> {
         if bytes.len() < MPP_FRAME_HEADER_SIZE {
-            // No encoder in this file emits sub-`MPP_FRAME_HEADER_SIZE` output, so a frame
-            // landing here means the underlying shm_mq stitched together payloads from
-            // different senders. Hex-dump the bytes so the source is identifiable from log
-            // output alone (without re-running under a debugger).
+            // No encoder in this file emits sub-`MPP_FRAME_HEADER_SIZE` output, so any frame
+            // landing here means something corrupted the shm_mq stream upstream of `parse`.
+            // Hex-dump the bytes so the source is identifiable from log output alone (no
+            // debugger re-run needed).
             let hex = bytes
                 .iter()
                 .map(|b| format!("{b:02x}"))
@@ -435,17 +435,20 @@ pub struct MppSender {
     scratch: std::cell::RefCell<Vec<u8>>,
 }
 
-// SAFETY: `MppSender` lives inside `ShuffleWiring`, which is owned by a
-// single `ShuffleExec` running on a single backend thread. The async
-// `send_batch_traced` future captures `&self` and contains a Tokio
-// `yield_now().await`; the compiler conservatively requires the future
-// to be `Send`, which forces `&MppSender: Send` and therefore
-// `MppSender: Sync`. At runtime the future is created and consumed on
-// the same thread (DataFusion's current-thread runtime on the backend),
-// so there is no actual cross-thread aliasing of the inner `RefCell` or
-// of the `Box<dyn BatchChannelSender>`. This mirrors the same
-// single-thread-by-construction contract that justifies
-// `unsafe impl Send for ShmMqSender` over in `mesh.rs`.
+// SAFETY: `MppSender`'s only `!Sync` fields are the `RefCell<Vec<u8>>` scratch buffer and
+// the `Arc<dyn BatchChannelSender>` / `Arc<dyn CooperativeDrainSet>` trait objects (whose
+// concrete impls — `ShmMqSender` in `mesh.rs`, the `MppMesh` cooperative-drain — likewise
+// rely on a "constructed and consumed on the attach thread" contract enforced by
+// `debug_assert!`s at every FFI call site). The `async fn send_batch_traced` etc. futures
+// capture `&self`, and downstream call sites compose those futures via `tokio::spawn` /
+// `futures::future::join_all`, so the compiler infers `Send` on the futures, which forces
+// `&MppSender: Send` and therefore `MppSender: Sync`. At runtime every `MppSender` value
+// is constructed and consumed on one PG backend thread, and the tokio runtime driving the
+// futures is always `Builder::new_current_thread()` (verified in `exec_worker.rs` /
+// `joinscan/mod.rs` / `aggregatescan/mod.rs`), so the `RefCell` borrows are non-aliasing
+// in practice and the `Arc` clones never cross threads at the FFI boundary. Same single-
+// thread-by-construction contract that justifies `unsafe impl Send for ShmMqSender` in
+// `mesh.rs`.
 unsafe impl Sync for MppSender {}
 
 impl MppSender {
@@ -493,8 +496,9 @@ impl MppSender {
     /// `ShuffleStream`) use this to diagnose where time goes when the
     /// outbound queue is full.
     ///
-    /// Async because the cooperative-spin path needs to surrender the
-    /// Tokio runtime back periodically — see the body comment.
+    /// Async for call-site uniformity with the rest of the transport entry points; the body
+    /// itself does NOT suspend inside the partial-send window — see the spin comment on
+    /// `send_with_scratch` for the invariant.
     pub(super) async fn send_batch_traced(
         &self,
         batch: &RecordBatch,
@@ -647,10 +651,10 @@ pub(super) struct SendBatchStats {
     /// Cumulative wall time in the send-retry spin after the first failed
     /// `try_send_bytes`. Zero if the first try succeeded.
     pub(super) send_wait: Duration,
-    /// Cumulative time spent in `try_drain_pass` while spinning on a
-    /// full outbound. A subset of `send_wait`; the remainder is the
-    /// `tokio::task::yield_now()` await + the (small) cost of
-    /// `try_send_bytes` itself.
+    /// Cumulative time spent in `try_drain_pass` while spinning on a full outbound. A subset
+    /// of `send_wait`; the remainder is `try_send_bytes` itself + loop-control overhead. (The
+    /// spin no longer yields the runtime — see the partial-send invariant on
+    /// `send_with_scratch` for why.)
     pub(super) coop_drain_in_spin: Duration,
     /// Count of `try_send_bytes` calls that returned `Ok(false)` (full).
     pub(super) spin_iters: u64,

@@ -72,8 +72,11 @@ use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::TaskContext;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion::prelude::SessionContext;
-use datafusion_distributed::{DistributedExec, DistributedTaskContext, NetworkBoundaryExt};
+use datafusion_distributed::{
+    DistributedCodec, DistributedExec, DistributedTaskContext, NetworkBoundaryExt,
+};
 use datafusion_proto::bytes::physical_plan_from_bytes_with_extension_codec;
+use datafusion_proto::physical_plan::{ComposedPhysicalExtensionCodec, PhysicalExtensionCodec};
 use tantivy::index::SegmentId;
 
 use crate::api::HashSet;
@@ -84,7 +87,38 @@ use crate::postgres::customscan::mpp::transport::{
 };
 use crate::postgres::customscan::mpp::worker::run_partition_driver;
 use crate::postgres::ParallelScanState;
-use crate::scan::physical_codec::MppReconstructionContext;
+use crate::scan::physical_codec::{MppReconstructionContext, PgSearchPhysicalCodec};
+
+/// Compose `[PgSearchPhysicalCodec, DistributedCodec]` for the shipped-subplan wire.
+///
+/// **User codec first, deliberately.** DataFusion's
+/// `ComposedPhysicalExtensionCodec::encode_protobuf` probes inner codecs in registration
+/// order and stops at the first `Ok`. The `try_encode_udaf` / `try_encode_udf` defaults on
+/// `PhysicalExtensionCodec` return `Ok(())` (no-op), so DF-D's `DistributedCodec` at
+/// position 0 would silently claim every UDAF — encoder_position gets recorded as 0, then
+/// on decode `DistributedCodec::try_decode_udaf` (the default, NotImplemented) errors with
+/// "PhysicalExtensionCodec is not provided for aggregate function {name}".
+///
+/// Putting `PgSearchPhysicalCodec` first means UDAFs we handle (`count` / `sum` / `min` /
+/// `max` / `avg`) successfully encode at position 0 and decode at position 0. DF-D wrapper
+/// nodes (`NetworkShuffleExec`, `NetworkBroadcastExec`, etc.) fall through to
+/// `DistributedCodec` at position 1 because `PgSearchPhysicalCodec::try_encode` returns
+/// `Err` for nodes it doesn't recognise — so encoder_position correctly lands at 1 for
+/// those.
+///
+/// `session` is accepted for signature parity with the upstream
+/// `DistributedCodec::new_combined_with_user(cfg)` and to keep the door open for a future
+/// switch that consults session config; the implementation doesn't read from it.
+///
+/// Long term this belongs in the DF-D fork — have `DistributedCodec::try_encode_udaf`
+/// return `Err` so the probe correctly falls through under either ordering. Working around
+/// it locally for now.
+fn build_mpp_subplan_codec(session: &SessionContext) -> ComposedPhysicalExtensionCodec {
+    let _ = session;
+    let codecs: Vec<Arc<dyn PhysicalExtensionCodec>> =
+        vec![Arc::new(PgSearchPhysicalCodec), Arc::new(DistributedCodec)];
+    ComposedPhysicalExtensionCodec::new(codecs)
+}
 
 /// Per-`stage_id` snapshot of `(local_plan, task_count)` walked out of the worker's distributed
 /// physical plan at startup. The producer service loop consults this on every Request to find
@@ -500,7 +534,6 @@ pub(crate) fn ship_subplans_to_workers(
 ) -> Result<(), DataFusionError> {
     use crate::postgres::customscan::mpp::runtime::proc_for_task;
     use crate::postgres::customscan::mpp::transport::{MppFrameHeader, SendBatchStats};
-    use datafusion_distributed::DistributedCodec;
     use datafusion_proto::bytes::physical_plan_to_bytes_with_extension_codec;
 
     let stage_plans = StagePlans::build(physical_plan);
@@ -510,13 +543,9 @@ pub(crate) fn ship_subplans_to_workers(
     }
     let n_workers = leader_mesh.n_procs.saturating_sub(1).max(1);
 
-    // Use DF-D's `DistributedCodec::new_combined_with_user` so DF-D's wrapper nodes
-    // (`NetworkShuffleExec`, `NetworkBroadcastExec`, `BroadcastExec`, etc.) serialize through
-    // DF-D's own codec, and our `PgSearchPhysicalCodec` only handles the leaves it knows about
-    // (`VisibilityFilterExec`, `TantivyLookupExec`, `SegmentedTopKExec`, `PgSearchScan`). The
-    // user codec is picked up from the session's distributed config; we registered it earlier
-    // via `with_distributed_user_codec`.
-    let codec = DistributedCodec::new_combined_with_user(session.state().config());
+    // See `build_mpp_subplan_codec` for the user-first ordering rationale (works around the
+    // PhysicalExtensionCodec default `try_encode_udaf` Ok shadowing).
+    let codec = build_mpp_subplan_codec(session);
     let mut tasks: Vec<(u32, u32, usize, Arc<dyn ExecutionPlan>)> = Vec::new();
     for (stage_id, task_count) in stage_plans.iter_task_counts() {
         let (local_plan, _) = stage_plans.lookup(stage_id).expect("stage just walked");
@@ -746,12 +775,9 @@ impl SubplanHandler for ProducerTaskRegistry {
         // wins; same `(stage_id, task_idx)` from the same leader session always carries the
         // same bytes today.
         //
-        // Decode through `DistributedCodec::new_combined_with_user` so DF-D wrapper nodes
-        // round-trip via DF-D's codec. The leader encodes through the same combined codec, so
-        // sender and receiver must match.
-        let codec = datafusion_distributed::DistributedCodec::new_combined_with_user(
-            self.session.state().config(),
-        );
+        // Decode through `build_mpp_subplan_codec` — same codec composition (user-first) the
+        // leader's `ship_subplans_to_workers` uses; sender and receiver must match.
+        let codec = build_mpp_subplan_codec(&self.session);
         // The codec's `decode_pgsearch_scan` reaches into the task ctx's session config to
         // pick up an `MppReconstructionContext` extension. Without it, shipped subplans land
         // with an empty `Vec<ScanState>` placeholder and the scan emits zero rows. Layer the
@@ -860,7 +886,6 @@ mod tests {
     /// codec is fully runnable in `cargo test` (the `VisibilityFilterExec` codec is gated out
     /// of test builds, see the corresponding comment in `physical_codec.rs`).
     fn encode_test_subplan(session: &SessionContext) -> Vec<u8> {
-        use datafusion_distributed::DistributedCodec;
         let input_schema = Arc::new(Schema::new(vec![Field::new(
             "ctid",
             DataType::UInt64,
@@ -875,7 +900,9 @@ mod tests {
                 .expect("TantivyLookupExec::new"),
         ) as Arc<dyn ExecutionPlan>;
         let _ = FFHelper::empty(); // keep FFHelper import live until the codec consumes it.
-        let codec = DistributedCodec::new_combined_with_user(session.state().config());
+                                   // Match production's user-first codec composition — otherwise the encode here uses
+                                   // a different position layout than `on_subplan`'s decode and round-trip breaks.
+        let codec = build_mpp_subplan_codec(session);
         physical_plan_to_bytes_with_extension_codec(plan, &codec)
             .expect("encode test subplan")
             .to_vec()

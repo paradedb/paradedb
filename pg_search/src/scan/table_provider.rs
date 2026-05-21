@@ -889,21 +889,7 @@ impl PgSearchTableProvider {
         )
         .map_err(|e| DataFusionError::Internal(format!("Failed to open reader: {e}")))?;
 
-        // Build the FFHelper from the **unprojected** self.fields list. `CanonicalColumn
-        // ::ff_index` (set by `deferred_fields()` iterating `self.fields`) is a position in
-        // the unprojected list, while `FFHelper::with_fields` indexes the slice it's given.
-        // Building FFHelper from `projected_fields` (potentially narrower) means
-        // `column(seg_ord, ff_index)` indexes out of bounds or looks up the wrong field when
-        // a downstream operator (`TantivyLookupExec::enrich_batch`, `SegmentedTopKExec`)
-        // resolves a deferred field by its canonical ff_index.
-        //
-        // Leader-side this would silently work today because the planner usually hands the
-        // scan `projection=None`, but the worker-side reconstruction path
-        // (`PgSearchPhysicalCodec::decode_pgsearch_scan` → `scan_sync`) can run with a
-        // narrower projection, exposing the off-by-projection bug. The fix is symmetric on
-        // both sides: always use self.fields so canonical ff_indices line up regardless of
-        // projection.
-        let ffhelper = FFHelper::with_fields(&reader, &self.fields);
+        let ffhelper = FFHelper::with_fields(&reader, &projected_fields);
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
         let sort_order = self.scan_info.sort_order.as_ref();

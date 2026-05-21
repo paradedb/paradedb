@@ -17,6 +17,24 @@ FROM mock_items
 WHERE description @@@ ('sleek' ## 1 ## 'shoes');
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.proximity(
+      mockItems.description,
+      search.proxStr("sleek").within(1, "shoes"),
+    ),
+  );
+```
+
 ```python Django
 from paradedb import ParadeDB, Proximity
 
@@ -59,6 +77,24 @@ To ensure that the left-hand term appears before the right-hand term, use `##>`.
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ ('sleek' ##> 1 ##> 'shoes');
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.proximity(
+      mockItems.description,
+      search.proxStr("sleek").within(1, "shoes", true),
+    ),
+  );
 ```
 
 ```python Django
@@ -105,6 +141,24 @@ FROM mock_items
 WHERE description @@@ (pdb.prox_regex('sl.*') ## 1 ## 'shoes');
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.proximity(
+      mockItems.description,
+      search.proxRegex("sl.*").within(1, "shoes"),
+    ),
+  );
+```
+
 ```python Django
 from paradedb import ParadeDB, ProxRegex, Proximity
 
@@ -144,6 +198,24 @@ by providing a second argument:
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ (pdb.prox_regex('sl.*', 100) ## 1 ## 'shoes');
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.proximity(
+      mockItems.description,
+      search.proxRegex("sl.*", 100).within(1, "shoes"),
+    ),
+  );
 ```
 
 ```python Django
@@ -188,6 +260,24 @@ FROM mock_items
 WHERE description @@@ (pdb.prox_array('sleek', 'white') ## 1 ## 'shoes');
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.proximity(
+      mockItems.description,
+      search.proxArray("sleek", "white").within(1, "shoes"),
+    ),
+  );
+```
+
 ```python Django
 from paradedb import ParadeDB, Proximity
 
@@ -225,6 +315,24 @@ MockItem.search(:description)
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ (pdb.prox_array(pdb.prox_regex('sl.*'), 'white') ## 1 ## 'shoes');
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.proximity(
+      mockItems.description,
+      search.proxArray(search.proxRegex("sl.*"), "white").within(1, "shoes"),
+    ),
+  );
 ```
 
 ```python Django
@@ -266,6 +374,27 @@ Multiple proximity clauses can be chained together:
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ ('sleek' ## 1 ## 'running' ## 2 ## pdb.prox_array('sneakers', pdb.prox_regex('sho.*')));
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.proximity(
+      mockItems.description,
+      search
+        .proxStr("sleek")
+        .within(1, "running")
+        .within(2, search.proxArray("sneakers", search.proxRegex("sho.*"))),
+    ),
+  );
 ```
 
 ```python Django

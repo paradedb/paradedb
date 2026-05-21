@@ -43,7 +43,7 @@ jobs:
         if: ${{ inputs.reset_data }}
         run: |
           git config user.name "Benchmark Backfill Job"
-          git config user.email "developers@paradedb.com"
+          git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"
           files=$(git ls-files stressgres/data.js benchmarks/data.js)
           if [ -n "$files" ]; then
             echo "$files" | xargs git rm
@@ -61,7 +61,7 @@ jobs:
         sha: ${{ fromJSON(github.event.inputs.commits) }} # → ["…","…"]
 
     steps:
-      - name: Fire Benchmark & Stressgres for ${{ matrix.sha }}
+      - name: Fire Benchmark for ${{ matrix.sha }}
         uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -69,20 +69,38 @@ jobs:
             const owner = context.repo.owner;
             const repo  = context.repo.repo;
             const sha   = '${{ matrix.sha }}';
+            const wf = 'benchmark-pg_search-benchmarks.yml';
 
-            // Workflows to queue
-            const targets = ['benchmark-pg_search-benchmarks.yml', 'benchmark-pg_search-stressgres.yml'];
+            /*  createWorkflowDispatch must point at a branch or tag, not a
+                bare SHA, so we send `ref:"main"` and hand the commit SHA
+                through an input named `commit`  */
+            await github.rest.actions.createWorkflowDispatch({
+              owner,
+              repo,
+              workflow_id: wf,
+              ref: 'main',
+              inputs: { commit: sha, fail_on_error: 'false' }
+            });
+            core.info(`queued ${wf} for ${sha}`);
 
-            for (const wf of targets) {
-              /*  createWorkflowDispatch must point at a branch or tag, not a
-                  bare SHA, so we send `ref:"main"` and hand the commit SHA
-                  through an input named `commit`  */
-              await github.rest.actions.createWorkflowDispatch({
-                owner,
-                repo,
-                workflow_id: wf,
-                ref: 'main',
-                inputs: { commit: sha, fail_on_error: 'false' }
-              });
-              core.info(`queued ${wf} for ${sha}`);
-            }
+      - name: Fire Stressgres for ${{ matrix.sha }}
+        uses: actions/github-script@v9
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo  = context.repo.repo;
+            const sha   = '${{ matrix.sha }}';
+            const wf = 'benchmark-pg_search-stressgres.yml';
+
+            /*  createWorkflowDispatch must point at a branch or tag, not a
+                bare SHA, so we send `ref:"main"` and hand the commit SHA
+                through an input named `commit`  */
+            await github.rest.actions.createWorkflowDispatch({
+              owner,
+              repo,
+              workflow_id: wf,
+              ref: 'main',
+              inputs: { commit: sha }
+            });
+            core.info(`queued ${wf} for ${sha}`);

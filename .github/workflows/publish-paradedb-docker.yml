@@ -1,19 +1,22 @@
 # workflows/publish-paradedb-docker.yml
 #
 # Publish ParadeDB (Docker)
-# Publish ParadeDB as Docker images for all of our supported PostgreSQL versions to Docker Hub. Stable
-# releases publish Docker images for all of our supported PostgreSQL versions, while beta releases
-# only publish the default PostgreSQL version we run as default (currently 18). Once all Docker images
-# are published, notify ORM wrapper repositories via repository_dispatch so they can run compatibility
-# checks against the new version. This is done in `publish-paradedb-docker.yml` since ORM integration
-# tests are run against our Docker image.
+# Publish ParadeDB as Docker images for all of our supported PostgreSQL versions to Docker Hub after
+# the pg_search .deb has been published to GitHub Releases. Stable releases publish Docker images for
+# all of our supported PostgreSQL versions, while beta releases only publish the default PostgreSQL
+# version we run as default (currently 18). Once all Docker images are published, notify ORM wrapper
+# repositories via repository_dispatch so they can run compatibility checks against the new version.
+# This is done in `publish-paradedb-docker.yml` since ORM integration tests are run against our Docker
+# image.
 
 name: Publish ParadeDB (Docker)
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_run:
+    workflows:
+      - Publish pg_search (Debian)
+    types:
+      - completed
   workflow_dispatch:
     inputs:
       version:
@@ -26,7 +29,7 @@ on:
         default: "[15, 16, 17, 18]"
 
 concurrency:
-  group: publish-paradedb-docker-${{ github.head_ref || github.ref }}
+  group: publish-paradedb-docker-${{ github.event.workflow_run.head_branch || github.event.inputs.version || github.head_ref || github.ref }}
   cancel-in-progress: true
 
 # Used by actions/attest-build-provenance to sign the builds
@@ -34,19 +37,22 @@ permissions:
   contents: write
   id-token: write
   attestations: write
+  pull-requests: write
 
 jobs:
   set-matrix:
     name: Define the PostgreSQL Version Matrix
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && startsWith(github.event.workflow_run.head_branch, 'v') && !contains(github.event.workflow_run.head_branch, '-rc.')) }}
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - name: Define the PostgreSQL Version Matrix
         id: set-matrix
         run: |
-          echo "Evaluating tag: $GITHUB_REF"
-          if [[ "$GITHUB_REF" == *"-"* ]]; then
+          REF_NAME="${{ github.event.workflow_run.head_branch || github.event.inputs.version || github.ref_name }}"
+          echo "Evaluating ref: $REF_NAME"
+          if [[ "$REF_NAME" == *"-"* ]]; then
             echo "GitHub ref contains a dash. Release candidate tag detected; using only PostgreSQL version 18."
             echo "matrix=[18]" >> $GITHUB_OUTPUT
           else
@@ -54,27 +60,40 @@ jobs:
             echo "matrix=${{ github.event.inputs.pg_version || '[15, 16, 17, 18]' }}" >> $GITHUB_OUTPUT
           fi
 
-  publish-paradedb-docker-image:
-    name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }}
+  generate-dockerfiles:
+    name: Generate Dockerfiles
     runs-on: ubuntu-latest
     needs: set-matrix
-    strategy:
-      matrix:
-        pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
-    env:
-      default_pg_version: 18
-
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      release_branch: ${{ steps.version.outputs.release_branch }}
+      is_latest: ${{ steps.release_latest.outputs.is_latest }}
+      branch: ${{ steps.generated_branch.outputs.branch }}
+      has_changes: ${{ steps.generated_branch.outputs.has_changes }}
     steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+
       - name: Checkout Git Repository
         uses: actions/checkout@v6
         with:
-          token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          ref: ${{ github.event.workflow_run.head_branch || github.ref }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Retrieve GitHub Release Version
         id: version
         run: |
-          # If no workflow_dispatch version is provided, we use workflow tag trigger version
-          if [ -z "${{ github.event.inputs.version }}" ]; then
+          # If this was triggered by publish-pg_search-debian, use the tag from that workflow run.
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            TAG="${{ github.event.workflow_run.head_branch }}"
+            VERSION=${TAG#v}
+          # If no workflow_dispatch version is provided, we use workflow tag trigger version.
+          elif [ -z "${{ github.event.inputs.version }}" ]; then
             if [[ $GITHUB_REF == refs/tags/v* ]]; then
               VERSION=${GITHUB_REF#refs/tags/v}
               TAG=${GITHUB_REF#refs/tags/}
@@ -87,14 +106,18 @@ jobs:
             VERSION=${{ github.event.inputs.version }}
             TAG=v${{ github.event.inputs.version }}
           fi
+          RELEASE_VERSION=${VERSION%%-*}
+          IFS=. read -r MAJOR MINOR _ <<< "$RELEASE_VERSION"
+          RELEASE_BRANCH="$MAJOR.$MINOR.x"
           echo "GitHub Tag Version: $VERSION"
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "release_branch=$RELEASE_BRANCH" >> $GITHUB_OUTPUT
 
       - name: Determine if Release Should be Marked as Latest
         id: release_latest
         env:
-          GITHUB_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           current_tag_version="${{ steps.version.outputs.version }}"
           latest_tag_version=$(gh release list --jq '.[] | select(.isLatest == true) | .name' --json=name,isLatest | sed 's/^v//')
@@ -116,34 +139,80 @@ jobs:
             echo "is_latest=false" >> $GITHUB_OUTPUT
           fi
 
-      # Official releases need a single universal image so that the same tag (e.g. `paradedb:latest`)
-      # works on both amd64 and arm64 hosts — pulling clients pick the right manifest entry for their
-      # arch. That requires producing both arches under one tag, which means cross-compiling at least
-      # one of them. Cross-compilation via `docker buildx` (under QEMU emulation) is prohibitively
-      # slow for a build this size, so we offload to Depot, which provides native builders on both
-      # arches and stitches them into a single multi-arch manifest. (We could eventually replace this
-      # with Docker Build Cloud once it supports multiple concurrent builders.)
-      - name: Configure Depot CLI
-        uses: depot/setup-action@v1
+      - name: Generate Dockerfiles
+        run: docker/generate-dockerfiles.sh "${{ steps.version.outputs.version }}"
+
+      - name: Commit Generated Dockerfiles
+        id: generated_branch
+        run: |
+          BRANCH="update-dockerfiles/${{ steps.version.outputs.tag }}"
+          git fetch origin "$BRANCH:refs/remotes/origin/$BRANCH" || true
+          git checkout -B "$BRANCH"
+          git config user.name "paradedb-github-app[bot]"
+          git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"
+          git add docker
+          if git diff --cached --quiet; then
+            echo "No generated Dockerfile changes to commit."
+            HAS_CHANGES=false
+          else
+            git commit -m "Generate Dockerfiles for ${{ steps.version.outputs.tag }}"
+            HAS_CHANGES=true
+          fi
+          git push --force-with-lease origin "$BRANCH"
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          echo "has_changes=$HAS_CHANGES" >> $GITHUB_OUTPUT
+
+  test-generated-dockerfiles:
+    name: Test Generated Dockerfiles
+    needs:
+      - set-matrix
+      - generate-dockerfiles
+    uses: ./.github/workflows/test-pg_search-docker.yml
+    with:
+      ref: ${{ needs.generate-dockerfiles.outputs.branch }}
+    secrets: inherit
+
+  publish-paradedb-docker-image:
+    name: Publish ParadeDB Docker Image for PostgreSQL ${{ matrix.pg_version }}
+    runs-on: ubuntu-latest
+    needs:
+      - set-matrix
+      - generate-dockerfiles
+      - test-generated-dockerfiles
+    strategy:
+      matrix:
+        pg_version: ${{ fromJson(needs.set-matrix.outputs.matrix) }}
+    env:
+      default_pg_version: 18
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.generate-dockerfiles.outputs.branch }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
       # The pg_version-tag Docker tag syntax is necessary for our CloudNativePG Helm chart. We only deploy
-      # the `latest` and `latest-pg` tags on production releases, not for beta releases.
+      # the `latest`, `latest-pg`, and `pg` tags on production releases, not for beta releases.
       - name: Setup Docker Image tags
         id: meta
         uses: docker/metadata-action@v6
         with:
           images: paradedb/paradedb
           tags: |
-            type=raw,value=${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}
-            type=raw,value=${{ steps.version.outputs.tag }}-pg${{ matrix.pg_version }}
-            type=raw,value=${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}
-            type=raw,value=${{ steps.version.outputs.tag }},enable=${{ matrix.pg_version == env.default_pg_version }}
-            type=raw,value=${{ steps.version.outputs.version }},enable=${{ matrix.pg_version == env.default_pg_version }}
-            type=raw,value=latest-pg${{ matrix.pg_version }},enable=${{ steps.release_latest.outputs.is_latest == 'true' && !contains(steps.version.outputs.tag, '-rc.') }}
-            type=raw,value=latest,enable=${{ matrix.pg_version == env.default_pg_version && steps.release_latest.outputs.is_latest == 'true' && !contains(steps.version.outputs.tag, '-rc.') }}
+            type=raw,value=${{ matrix.pg_version }}-${{ needs.generate-dockerfiles.outputs.tag }}
+            type=raw,value=${{ needs.generate-dockerfiles.outputs.tag }}-pg${{ matrix.pg_version }}
+            type=raw,value=${{ needs.generate-dockerfiles.outputs.version }}-pg${{ matrix.pg_version }}
+            type=raw,value=${{ needs.generate-dockerfiles.outputs.tag }},enable=${{ matrix.pg_version == env.default_pg_version }}
+            type=raw,value=${{ needs.generate-dockerfiles.outputs.version }},enable=${{ matrix.pg_version == env.default_pg_version }}
+            type=raw,value=latest-pg${{ matrix.pg_version }},enable=${{ needs.generate-dockerfiles.outputs.is_latest == 'true' && !contains(needs.generate-dockerfiles.outputs.tag, '-rc.') }}
+            type=raw,value=pg${{ matrix.pg_version }},enable=${{ needs.generate-dockerfiles.outputs.is_latest == 'true' && !contains(needs.generate-dockerfiles.outputs.tag, '-rc.') }}
+            type=raw,value=latest,enable=${{ matrix.pg_version == env.default_pg_version && needs.generate-dockerfiles.outputs.is_latest == 'true' && !contains(needs.generate-dockerfiles.outputs.tag, '-rc.') }}
 
       - name: Login to Docker Hub
         uses: docker/login-action@v4
@@ -153,18 +222,14 @@ jobs:
 
       - name: Build and Push Docker Image to Docker Hub
         id: build-push
-        uses: depot/build-push-action@v1
+        uses: docker/build-push-action@v7
         with:
-          context: .
-          build-args: |
-            PG_VERSION_MAJOR=${{ matrix.pg_version }}
+          context: docker
           platforms: linux/amd64,linux/arm64
-          file: docker/Dockerfile
+          file: docker/Dockerfile.paradedb-${{ matrix.pg_version }}
           push: true
           sbom: true
           provenance: mode=max
-          project: ${{ secrets.DEPOT_PROJECT }}
-          token: ${{ secrets.DEPOT_TOKEN }}
           tags: ${{ steps.meta.outputs.tags }}
 
       - name: Sign and Attest Build Provenance
@@ -174,32 +239,108 @@ jobs:
           subject-digest: ${{ steps.build-push.outputs.digest }}
           push-to-registry: true
 
+  open-dockerfile-prs:
+    name: Open Dockerfile Update PRs
+    runs-on: ubuntu-latest
+    needs:
+      - generate-dockerfiles
+      - publish-paradedb-docker-image
+    if: ${{ needs.generate-dockerfiles.outputs.has_changes == 'true' }}
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+
+      - name: Checkout Git Repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.generate-dockerfiles.outputs.branch }}
+          fetch-depth: 2
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Open Release Branch PR
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          BRANCH="${{ needs.generate-dockerfiles.outputs.branch }}"
+          BASE="${{ needs.generate-dockerfiles.outputs.release_branch }}"
+
+          PR=$(gh pr list --head "$BRANCH" --base "$BASE" --state open --json number --jq '.[0].number // ""')
+          if [ -n "$PR" ]; then
+            echo "Release branch PR already exists: #$PR"
+          else
+            gh pr create --base "$BASE" --head "$BRANCH" --title "chore: Generate Dockerfiles for ${{ needs.generate-dockerfiles.outputs.tag }}" --body "Updates generated Dockerfiles for ${{ needs.generate-dockerfiles.outputs.tag }} after the Docker images were published."
+          fi
+
+      - name: Open Main PR
+        if: ${{ needs.generate-dockerfiles.outputs.is_latest == 'true' }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          TAG="${{ needs.generate-dockerfiles.outputs.tag }}"
+          BRANCH="update-dockerfiles/${TAG}-main"
+          COMMIT_SHA=$(git rev-parse HEAD)
+
+          git config user.name "paradedb-github-app[bot]"
+          git config user.email "282009505+paradedb-github-app[bot]@users.noreply.github.com"
+          git fetch origin main:refs/remotes/origin/main
+          git checkout -B "$BRANCH" origin/main
+          git cherry-pick --no-commit "$COMMIT_SHA"
+          git commit -m "Generate Dockerfiles for $TAG"
+          git push --force-with-lease origin "$BRANCH"
+
+          PR=$(gh pr list --head "$BRANCH" --base main --state open --json number --jq '.[0].number // ""')
+          if [ -n "$PR" ]; then
+            echo "Main PR already exists: #$PR"
+          else
+            gh pr create --base main --head "$BRANCH" --title "chore: Generate Dockerfiles for $TAG" --body "Updates generated Dockerfiles for $TAG after the Docker images were published."
+          fi
+
   notify-orm-repos:
     name: Notify ORM Repos of New Release
     runs-on: ubuntu-latest
     needs: publish-paradedb-docker-image
-    if: ${{ !contains(github.ref, '-rc.') }}
+    if: ${{ !contains(github.event.workflow_run.head_branch || github.event.inputs.version || github.ref, '-rc.') }}
     env:
       # ORM repos to notify on new releases
       ORM_REPOS: |
         paradedb/django-paradedb
         paradedb/rails-paradedb
         paradedb/sqlalchemy-paradedb
+        paradedb/drizzle-paradedb
 
     steps:
       - name: Retrieve GitHub Release Version
         id: version
         run: |
-          if [ -z "${{ github.event.inputs.version }}" ]; then
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            VERSION="${{ github.event.workflow_run.head_branch }}"
+            VERSION=${VERSION#v}
+          elif [ -z "${{ github.event.inputs.version }}" ]; then
             VERSION=${GITHUB_REF#refs/tags/v}
           else
             VERSION=${{ github.event.inputs.version }}
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: |
+            django-paradedb
+            rails-paradedb
+            sqlalchemy-paradedb
+
       - name: Notify ORM Repos of New Release
         env:
-          GH_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           while IFS= read -r repo; do
             repo=$(echo "$repo" | xargs)

@@ -84,8 +84,8 @@ WHERE p.id NOT IN (
        OR p.company_id IN (SELECT c.id FROM issue_4719_companies c))
 ORDER BY p.id DESC
 LIMIT 26;
-                                                                                                                      QUERY PLAN                                                                                                                      
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id
    ->  Custom Scan (ParadeDB Join Scan)
@@ -103,7 +103,7 @@ LIMIT 26;
            :         VisibilityFilterExec: tables=[p]
            :           HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(person_id@0, id@2)]
            :             CooperativeExec
-           :               PgSearchScan: segments=1, query={"term_set":{"terms":[{"field":"company_id","value":10,"is_datetime":false},{"field":"company_id","value":20,"is_datetime":false},{"field":"company_id","value":50,"is_datetime":false}]}}
+           :               PgSearchScan: segments=1, query={"term_set":{"terms":[{"field":"company_id","value":10},{"field":"company_id","value":20},{"field":"company_id","value":50}]}}
            :             CooperativeExec
            :               PgSearchScan: segments=1, dynamic_filters=1, query="all"
            :         VisibilityFilterExec: tables=[c]

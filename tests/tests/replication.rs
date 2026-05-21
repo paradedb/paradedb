@@ -70,6 +70,7 @@ struct EphemeralPostgres {
     pub port: u16,
     pub dbname: String,
     pub pg_ctl_path: PathBuf,
+    pub log_path: PathBuf,
 }
 
 // Implement Drop trait to ensure the PostgreSQL instance is properly stopped
@@ -158,6 +159,7 @@ impl EphemeralPostgres {
             port,
             dbname: "postgres".to_string(),
             pg_ctl_path,
+            log_path: PathBuf::from(logfile),
         }
     }
 
@@ -624,7 +626,6 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
         wal_level = replica
         max_wal_senders = 4
         shared_preload_libraries = 'pg_search'
-        # It's often helpful to have a short wal_keep_size or max_wal_senders for testing
     ";
     let pg_hba_conf = "
         host replication all 127.0.0.1/32 md5
@@ -650,7 +651,6 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     )"
     .execute(&mut source_conn);
 
-    // Insert initial data
     "INSERT INTO items (description, category, created_at) VALUES
         ('Red running shoes', 'Footwear', NOW()),
         ('Blue sports shoes', 'Footwear', NOW()),
@@ -658,26 +658,10 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
         ('4K television', 'Electronics', NOW())"
         .execute(&mut source_conn);
 
-    // Create a bm25 index on the items table
-    "
-    CREATE INDEX items_search_idx ON items
-    USING bm25 (id, description, category)
-    WITH (key_field = 'id');
-    "
-    .execute(&mut source_conn);
-
-    // Verify that searching on the primary works
-    let source_results: Vec<(i32,)> =
-        "SELECT id FROM items WHERE items @@@ 'description:shoes' ORDER BY id"
-            .fetch(&mut source_conn);
-    assert_eq!(source_results.len(), 2);
-
     // Set up the standby using pg_basebackup
     let target_tempdir = TempDir::new().expect("Failed to create temp dir for standby");
     let target_tempdir_path = target_tempdir.keep();
 
-    // Permissions for the --pgdata directory passed to pg_basebackup
-    // should be u=rwx (0700) or u=rwx,g=rx (0750)
     std::fs::set_permissions(
         target_tempdir_path.as_path(),
         std::fs::Permissions::from_mode(0o700),
@@ -695,11 +679,9 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     )
     .expect("Failed to run pg_basebackup for standby setup");
 
-    // Start the standby also with pg_search preloaded
     let standby_config = "
         shared_preload_libraries = 'pg_search'
         hot_standby = on
-        hot_standby_feedback = true
         primary_slot_name = wal_receiver_1
     ";
 
@@ -710,25 +692,54 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     );
     let mut standby_conn = standby_postgres.connection().await?;
 
-    // Wait for the standby to catch up
-    // The fetch_retry helper is used in previous tests; you can adapt a similar approach here.
-    "SELECT description FROM items ORDER BY id".fetch_retry::<(String,)>(
+    // Confirm baseline streaming: the standby sees the four pre-bm25 rows.
+    let standby_rows: Vec<(String,)> = "SELECT description FROM items ORDER BY id".fetch_retry(
         &mut standby_conn,
         60,
         1000,
-        |result| !result.is_empty(),
+        |result| result.len() == 4,
+    );
+    assert_eq!(standby_rows.len(), 4);
+
+    // Now build a bm25 index on the primary. ambuild emits the rmgr 137 marker; when the
+    // standby replays it, rm_redo aborts recovery with our "not supported" error.
+    "
+    CREATE INDEX items_search_idx ON items
+    USING bm25 (id, description, category)
+    WITH (key_field = 'id');
+    "
+    .execute(&mut source_conn);
+
+    // Wait for the marker to stream to the standby and FATAL its recovery process. Poll the
+    // log instead of sleeping for a fixed duration so the test self-paces.
+    let expected = "replicas are not supported on community and require paradedb enterprise";
+    let log_path = standby_postgres.log_path.clone();
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let mut tripwire_found = false;
+    while std::time::Instant::now() < deadline {
+        if let Ok(log) = std::fs::read_to_string(&log_path) {
+            if log.contains(expected) {
+                tripwire_found = true;
+                break;
+            }
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+    assert!(
+        tripwire_found,
+        "expected standby log {log_path:?} to contain tripwire message {expected:?}"
     );
 
-    // Test that the correct error is returned when trying to read from a standby
-    let result = "SELECT id FROM items WHERE items @@@ 'category:Electronics' ORDER BY id"
-        .fetch_result::<(i32,)>(&mut standby_conn);
-
-    match result {
-        Err(err) => assert!(err.to_string().contains("Serving reads from a standby requires write-ahead log (WAL) integration, which is supported on ParadeDB Enterprise, not ParadeDB Community")),
-        _ => {
-            panic!("physical replication should not be supported on ParadeDB Community {:?}", result);
-        }
-    }
+    // The FATAL during recovery should also have brought the standby down: reconnects fail.
+    let reconnect = PgConnection::connect(&format!(
+        "postgresql://{}:{}/{}",
+        standby_postgres.host, standby_postgres.port, standby_postgres.dbname
+    ))
+    .await;
+    assert!(
+        reconnect.is_err(),
+        "expected reconnect to dead standby to fail, got {reconnect:?}"
+    );
 
     Ok(())
 }

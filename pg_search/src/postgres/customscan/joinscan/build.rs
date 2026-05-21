@@ -138,6 +138,11 @@ impl From<*mut pg_sys::PlannerInfo> for PlannerRootId {
 ///
 /// Note: Currently only Inner join is supported, but other variants are
 /// defined for future extensibility and to match PostgreSQL's JoinType enum.
+///
+/// The serde JSON shape of this enum (in particular, struct variant `Anti`)
+/// is **intra-process only** - it flows leader -> worker via `custom_private`
+/// within a single backend, never crosses a process or version boundary.
+/// Changing the shape is safe as long as no cross-process persistence is added.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
 pub enum JoinType {
     #[default]
@@ -146,13 +151,20 @@ pub enum JoinType {
     Full,
     Right,
     Semi,
-    Anti,
+    /// Anti join. `null_aware` carries the SQL `NOT IN` three-valued-logic
+    /// requirement to DataFusion's `LogicalPlan::Join.null_aware`. The flag
+    /// lives on the variant rather than as a separate field so the type
+    /// system rejects `(Inner, null_aware: true)` at compile time instead
+    /// of relying on a runtime guard.
+    Anti {
+        null_aware: bool,
+    },
     /// LeftMark join: returns all left rows with an additional boolean "mark" column
     /// indicating whether a right-side match exists. Used to decorrelate
     /// `EXISTS` / `IN` subqueries inside disjunctive predicates such as
     /// `col IS NULL OR col IN (SELECT ...)`.
     LeftMark,
-    /// RightMark join: mirror of LeftMark — returns all right rows with a
+    /// RightMark join: mirror of LeftMark - returns all right rows with a
     /// boolean "mark" column indicating whether a left-side match exists.
     RightMark,
     RightSemi,
@@ -169,7 +181,7 @@ impl fmt::Display for JoinType {
             JoinType::Full => "Full",
             JoinType::Right => "Right",
             JoinType::Semi => "Semi",
-            JoinType::Anti => "Anti",
+            JoinType::Anti { .. } => "Anti",
             JoinType::LeftMark => "LeftMark",
             JoinType::RightMark => "RightMark",
             JoinType::RightSemi => "RightSemi",
@@ -191,7 +203,11 @@ impl TryFrom<pg_sys::JoinType::Type> for JoinType {
             pg_sys::JoinType::JOIN_FULL => Ok(JoinType::Full),
             pg_sys::JoinType::JOIN_RIGHT => Ok(JoinType::Right),
             pg_sys::JoinType::JOIN_SEMI => Ok(JoinType::Semi),
-            pg_sys::JoinType::JOIN_ANTI => Ok(JoinType::Anti),
+            // PG only pulls up to JOIN_ANTI when the inner is non-nullable,
+            // so three-valued logic doesn't apply at this entry point. The
+            // null-aware case is constructed in `wrap_with_semi_anti` for
+            // un-pulled-up `NOT IN`.
+            pg_sys::JoinType::JOIN_ANTI => Ok(JoinType::Anti { null_aware: false }),
             #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
             pg_sys::JoinType::JOIN_RIGHT_ANTI => Ok(JoinType::RightAnti),
             #[cfg(feature = "pg18")]
@@ -391,11 +407,11 @@ impl JoinSourceCandidate {
 
     /// Calculate and store the estimated number of rows matching the query.
     ///
-    /// This uses `MvccSatisfies::LargestSegment` to efficiently estimate the count
-    /// without opening all segments.
-    ///
-    /// If the source does not have a BM25 index, this is a no-op.
-    /// If estimation fails (e.g. IO error), this method will panic.
+    /// Uses `MvccSatisfies::LargestSegment` for cheap estimation. When the
+    /// query has heap filters or `PostgresExpression`s (which need executor
+    /// state we don't have at planning time), falls back to `total_docs` as
+    /// an upper bound - looser estimate but avoids evaluating Param-bearing
+    /// expressions during planning (would segfault on unbound PARAM_EXEC).
     pub fn estimate_rows(&mut self) {
         if !self.has_bm25_index() {
             return;
@@ -408,8 +424,8 @@ impl JoinSourceCandidate {
         let heap_rel = PgSearchRelation::open(heaprelid);
         let mut query = self.query.clone().unwrap_or(SearchQueryInput::All);
         let row_estimate = RowEstimate::from_reltuples(heap_rel.reltuples().map(|r| r as f64));
-        let has_pg_exprs = query.has_postgres_expressions();
-        if has_pg_exprs {
+
+        if query.has_postgres_expressions() || query.has_heap_filters() {
             let reader = SearchIndexReader::empty(&index_rel, MvccSatisfies::LargestSegment)
                 .expect("Failed to open index reader for estimation");
             self.segment_count = Some(reader.total_segment_count());
@@ -789,7 +805,10 @@ impl RelNode {
             RelNode::Join(j) => {
                 matches!(
                     j.join_type,
-                    JoinType::Semi | JoinType::Anti | JoinType::LeftMark | JoinType::RightMark
+                    JoinType::Semi
+                        | JoinType::Anti { .. }
+                        | JoinType::LeftMark
+                        | JoinType::RightMark
                 ) || j.left.has_semi_or_anti()
                     || j.right.has_semi_or_anti()
             }
@@ -805,7 +824,7 @@ impl RelNode {
                     j.join_type,
                     JoinType::Inner
                         | JoinType::Semi
-                        | JoinType::Anti
+                        | JoinType::Anti { .. }
                         | JoinType::LeftMark
                         | JoinType::RightMark
                 ) {
@@ -828,6 +847,56 @@ impl RelNode {
 
     pub fn source_for_rti_in_subtree(&self, rti: pg_sys::Index) -> Option<&JoinSource> {
         self.sources().into_iter().find(|s| s.contains_rti(rti))
+    }
+
+    /// Locate the unique output-visible source identified by
+    /// `(root_id, rti, attno)`. `root_id` disambiguates rtis that alias
+    /// across sub-PlannerInfos (e.g. SubPlans lifted by
+    /// `wrap_with_semi_anti`). Restricted to output-visible sources because
+    /// callers (targetlist refs, group/aggregate columns) only see sources
+    /// that survive join pruning. Use at construction time to capture
+    /// `plan_position`; use [`Self::source_at_plan_position`] at execution.
+    pub fn source_with(
+        &self,
+        root_id: PlannerRootId,
+        rti: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+    ) -> Option<&JoinSource> {
+        let mut matches = self
+            .output_sources()
+            .into_iter()
+            .filter(|s| s.root_id == Some(root_id) && s.contains_rti(rti) && s.has_attno(attno));
+        let first = matches.next()?;
+        debug_assert!(
+            matches.next().is_none(),
+            "source_with: multiple output sources matched (root_id={root_id:?}, rti={rti}, attno={attno})"
+        );
+        Some(first)
+    }
+
+    /// Convenience: resolve `(root_id, rti, attno)` to the unique
+    /// output-visible source's `plan_position`. Use at construction time
+    /// to capture an opaque, misuse-resistant identity that survives
+    /// serialization. JoinScan and AggregateScan both go through this.
+    pub fn plan_position(
+        &self,
+        root_id: PlannerRootId,
+        rti: pg_sys::Index,
+        attno: pg_sys::AttrNumber,
+    ) -> Option<usize> {
+        self.source_with(root_id, rti, attno)
+            .map(|s| s.plan_position)
+    }
+
+    /// Look up a source by its previously-resolved `plan_position`. Use at
+    /// execution time when the targetlist already carries plan_position
+    /// captured during construction. Walks all sources (not just
+    /// output-visible) because plan_position is unique across the tree
+    /// regardless of join-type pruning.
+    pub fn source_at_plan_position(&self, plan_position: usize) -> Option<&JoinSource> {
+        self.sources()
+            .into_iter()
+            .find(|s| s.plan_position == plan_position)
     }
 
     /// Recursively collects all base join sources from this tree.
@@ -886,7 +955,7 @@ impl RelNode {
         match self {
             RelNode::Scan(s) => acc.push(&**s),
             RelNode::Join(j) => match j.join_type {
-                JoinType::Semi | JoinType::Anti | JoinType::LeftMark => {
+                JoinType::Semi | JoinType::Anti { .. } | JoinType::LeftMark => {
                     j.left.collect_output_sources(acc);
                 }
                 JoinType::RightSemi | JoinType::RightAnti | JoinType::RightMark => {
@@ -922,7 +991,7 @@ impl RelNode {
 
     /// Recursively collect every `(rti, attno)` referenced by a join-level
     /// filter (`JoinNode.filter`). Used by `build_source_df` to keep the
-    /// referenced columns out of the deferred-output promotion — the filter
+    /// referenced columns out of the deferred-output promotion - the filter
     /// is evaluated before the join emits rows, so the columns must be
     /// materialized in the per-source scan.
     pub fn filter_input_vars(&self) -> Vec<(pg_sys::Index, pg_sys::AttrNumber)> {
@@ -1000,7 +1069,7 @@ impl RelNode {
     ///
     /// **Why AggregateScan needs this but JoinScan does not:**
     /// JoinScan hooks into `join_pathlist`, which PostgreSQL calls bottom-up
-    /// for each join pair — so equi-keys arrive pre-distributed across join
+    /// for each join pair - so equi-keys arrive pre-distributed across join
     /// levels by the planner itself. AggregateScan hooks into
     /// `UPPERREL_GROUP_AGG` (post-join), where it must reconstruct the join
     /// tree from the parse tree. For implicit joins (`FROM a, b, c WHERE ...`)
@@ -1022,7 +1091,7 @@ impl RelNode {
                 let inner_in_left = join_node.left.contains_rti(key.inner_rti);
                 let inner_in_right = join_node.right.contains_rti(key.inner_rti);
 
-                // Key spans the two sides of this join — place it here
+                // Key spans the two sides of this join - place it here
                 if (outer_in_left && inner_in_right) || (outer_in_right && inner_in_left) {
                     let dup = join_node.equi_keys.iter().any(|k| {
                         (k.outer_rti == key.outer_rti
@@ -1040,12 +1109,12 @@ impl RelNode {
                     return true;
                 }
 
-                // Both RTIs in left subtree — recurse left
+                // Both RTIs in left subtree - recurse left
                 if outer_in_left && inner_in_left {
                     return join_node.left.inject_single_equi_key(key);
                 }
 
-                // Both RTIs in right subtree — recurse right
+                // Both RTIs in right subtree - recurse right
                 if outer_in_right && inner_in_right {
                     return join_node.right.inject_single_equi_key(key);
                 }
@@ -1338,26 +1407,16 @@ impl JoinCSClause {
         }
     }
 
-    /// Resolve an output Var to a unique source index using output-visible sources.
+    /// Resolve an output Var to a unique source index using output-visible
+    /// sources. Thin delegate to [`RelNode::plan_position`] so JoinScan and
+    /// AggregateScan share a single resolution implementation.
     pub fn plan_position(
         &self,
         root_id: PlannerRootId,
         rti: pg_sys::Index,
         attno: pg_sys::AttrNumber,
     ) -> Option<usize> {
-        let mut matches = self
-            .plan
-            .output_sources()
-            .into_iter()
-            .filter(|s| s.root_id == Some(root_id) && s.contains_rti(rti) && s.has_attno(attno))
-            .map(|s| s.plan_position);
-
-        let first = matches.next()?;
-        debug_assert!(
-            matches.next().is_none(),
-            "plan_position: multiple output sources matched rti={rti}, attno={attno}"
-        );
-        Some(first)
+        self.plan.plan_position(root_id, rti, attno)
     }
 
     pub fn source_for_var(

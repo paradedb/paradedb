@@ -16,6 +16,17 @@ FROM mock_items
 WHERE category === 'electronics';
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({ value_count: { field: "id" } }),
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.category, "electronics"));
+```
+
 ```python Django
 from paradedb import Agg, ParadeDB, Term
 
@@ -64,6 +75,21 @@ WHERE category === 'electronics'
 GROUP BY rating
 ORDER BY rating
 LIMIT 5;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    rating: mockItems.rating,
+    agg: search.agg({ value_count: { field: "id" } }),
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.category, "electronics"))
+  .groupBy(mockItems.rating)
+  .orderBy(mockItems.rating)
+  .limit(5);
 ```
 
 ```python Django
@@ -128,6 +154,18 @@ FROM mock_items
 WHERE category === 'electronics';
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    avgRating: search.agg({ avg: { field: "rating" } }),
+    count: search.agg({ value_count: { field: "id" } }),
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.category, "electronics"));
+```
+
 ```python Django
 from paradedb import Agg, ParadeDB, Term
 
@@ -189,11 +227,22 @@ FROM mock_items
 WHERE description ||| 'running shoes';
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({ value_count: { field: "id" } }, false),
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "running shoes"));
+```
+
 ```python Django
-from paradedb import Agg, Match, ParadeDB
+from paradedb import Agg, MatchAny, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('running shoes', operator='OR'))
+    description=ParadeDB(MatchAny('running shoes'))
 ).aggregate(
     agg=Agg('{"value_count": {"field": "id"}}', exact=False)
 )
@@ -236,6 +285,17 @@ If `metadata` is a JSON field with key `color`, use `metadata.color` as the fiel
 SELECT pdb.agg('{"terms": {"field": "metadata.color"}}')
 FROM mock_items
 WHERE id @@@ pdb.all();
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({ terms: { field: "metadata.color" } }),
+  })
+  .from(mockItems)
+  .where(search.all(mockItems.id));
 ```
 
 ```python Django

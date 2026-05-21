@@ -17,11 +17,13 @@
 
 use std::any::Any;
 use std::fmt::Debug;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
 use datafusion::catalog::{Session, TableProvider};
+use datafusion::common::stats::{ColumnStatistics, Precision};
 use datafusion::common::{DataFusionError, Result, Statistics};
 use datafusion::logical_expr::{Expr, TableProviderFilterPushDown, TableType};
 use datafusion::physical_plan::ExecutionPlan;
@@ -29,6 +31,7 @@ use pgrx::pg_sys;
 use serde::{Deserialize, Serialize};
 use tantivy::index::SegmentId;
 
+use crate::api::HashSet;
 use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper, WhichFastField};
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
@@ -42,8 +45,6 @@ use crate::scan::filter_pushdown::{combine_with_and, FilterAnalyzer};
 use crate::scan::info::{RowEstimate, ScanInfo};
 use crate::scan::late_materialization::DeferredField;
 use crate::scan::Scanner;
-
-use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct VisibilitySourceMetadata {
@@ -75,9 +76,9 @@ pub struct PgSearchTableProvider {
     scan_info: ScanInfo,
     fields: Vec<WhichFastField>,
     #[serde(skip)]
-    schema: std::sync::OnceLock<SchemaRef>,
+    schema: OnceLock<SchemaRef>,
     #[serde(skip)]
-    late_materialization_schema: std::sync::OnceLock<SchemaRef>,
+    late_materialization_schema: OnceLock<SchemaRef>,
     is_parallel: bool,
     /// Parallel state is skipped during serialization because it's a raw pointer
     /// to shared memory that is only valid in the current process. It is
@@ -105,7 +106,7 @@ pub struct PgSearchTableProvider {
     /// `MvccSatisfies::Snapshot`. Injected by the execution codec based on
     /// `non_partitioning_index`; `None` for the partitioning source and serial scans.
     #[serde(skip)]
-    canonical_segment_ids: Option<crate::api::HashSet<SegmentId>>,
+    canonical_segment_ids: Option<HashSet<SegmentId>>,
     /// The visibility strategy for this source.
     ///
     /// `Deferred { plan_position }` means the scan emits packed DocAddresses in its
@@ -160,8 +161,8 @@ impl PgSearchTableProvider {
         Self {
             scan_info,
             fields,
-            schema: std::sync::OnceLock::new(),
-            late_materialization_schema: std::sync::OnceLock::new(),
+            schema: OnceLock::new(),
+            late_materialization_schema: OnceLock::new(),
             is_parallel,
             parallel_state: None,
             expr_context: None,
@@ -201,7 +202,7 @@ impl PgSearchTableProvider {
     }
 
     /// Inject the canonical segment IDs for this replicated-parallel provider.
-    pub(crate) fn set_canonical_segment_ids(&mut self, ids: crate::api::HashSet<SegmentId>) {
+    pub(crate) fn set_canonical_segment_ids(&mut self, ids: HashSet<SegmentId>) {
         self.canonical_segment_ids = Some(ids);
     }
 
@@ -212,7 +213,7 @@ impl PgSearchTableProvider {
     pub(crate) fn set_planstate(&mut self, planstate: Option<*mut pg_sys::PlanState>) {
         self.planstate = planstate;
     }
-    fn enable_deferred_columns(&mut self, required_early_columns: &crate::api::HashSet<String>) {
+    fn enable_deferred_columns(&mut self, required_early_columns: &HashSet<String>) {
         for wff in self.fields.iter_mut() {
             if let WhichFastField::Named(name, field_type) = wff {
                 let is_string_or_bytes = matches!(
@@ -257,7 +258,7 @@ impl PgSearchTableProvider {
     /// - ctid resolution for JoinScan deferred visibility
     pub fn configure_deferred_outputs(
         &mut self,
-        required_early_columns: &crate::api::HashSet<String>,
+        required_early_columns: &HashSet<String>,
         visibility_mode: VisibilityMode,
     ) {
         self.enable_deferred_columns(required_early_columns);
@@ -659,8 +660,6 @@ impl TableProvider for PgSearchTableProvider {
     }
 
     fn statistics(&self) -> Option<Statistics> {
-        use datafusion::common::stats::{ColumnStatistics, Precision};
-
         let num_rows = match self.scan_info.estimate {
             RowEstimate::Known(n) => Precision::Inexact(n as usize),
             RowEstimate::Unknown => Precision::Absent,
@@ -700,6 +699,26 @@ impl TableProvider for PgSearchTableProvider {
 
     async fn scan(
         &self,
+        state: &dyn Session,
+        projection: Option<&Vec<usize>>,
+        filters: &[Expr],
+        limit: Option<usize>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        self.scan_inner(
+            self.canonical_segment_ids.clone(),
+            state,
+            projection,
+            filters,
+            limit,
+        )
+        .await
+    }
+}
+
+impl PgSearchTableProvider {
+    async fn scan_inner(
+        &self,
+        canonical_override: Option<HashSet<SegmentId>>,
         _state: &dyn Session,
         projection: Option<&Vec<usize>>,
         filters: &[Expr],
@@ -714,7 +733,8 @@ impl TableProvider for PgSearchTableProvider {
         let expr_context = self.expr_context;
         let planstate = self.planstate;
         let parallel_state = self.parallel_state;
-        let canonical_segment_ids = self.canonical_segment_ids.clone();
+        let canonical_segment_ids =
+            canonical_override.or_else(|| self.canonical_segment_ids.clone());
 
         let heap_rel = PgSearchRelation::open(heap_relid);
         let index_rel = PgSearchRelation::open(index_relid);

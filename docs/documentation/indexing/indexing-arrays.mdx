@@ -21,6 +21,12 @@ USING bm25 (id, categories)
 WITH (key_field = 'id');
 ```
 
+```ts Drizzle
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+indexing.bm25Index("search_idx").on(arrayDemo.id, arrayDemo.categories);
+```
+
 ```python Django
 from django.db import connection
 from paradedb.indexes import BM25Index
@@ -90,6 +96,17 @@ Text arrays can be [tokenized](/documentation/tokenizers/overview) and [filtered
 CREATE INDEX search_idx ON array_demo
 USING bm25 (id, (categories::pdb.literal))
 WITH (key_field = 'id');
+```
+
+```ts Drizzle
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(
+    arrayDemo.id,
+    indexing.bm25Field(arrayDemo.categories, tokenizer.literal()),
+  );
 ```
 
 ```python Django

@@ -25,6 +25,7 @@ pub mod filterquery;
 pub mod groupby;
 pub mod join_targetlist;
 pub mod limit_offset;
+pub mod mpp;
 pub mod orderby;
 pub mod privdat;
 pub mod scan_state;
@@ -36,17 +37,33 @@ pub use aggregate_type::AggregateType;
 pub use groupby::GroupingColumn;
 pub use targetlist::TargetListEntry;
 
+use std::sync::Arc;
+
+use datafusion::execution::TaskContext;
+use datafusion::physical_plan::ExecutionPlan;
+use datafusion_distributed::{display_plan_ascii, DistributedExec, DistributedTaskContext};
+
+use crate::postgres::customscan::mpp::dsm::MppDsmHeader;
+use crate::postgres::customscan::mpp::glue::{
+    estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, mpp_worker_count,
+    producer_worker_count, pscan_offset, read_custom_scan_header, worker_setup,
+    write_custom_scan_header, CustomScanMppHeader,
+};
+use crate::postgres::customscan::mpp::runtime::MppMesh;
+
 use crate::api::agg_funcoid;
 use crate::api::SortDirection;
 use crate::gucs;
 
 use crate::aggregate::{NULL_SENTINEL_MAX, NULL_SENTINEL_MIN};
 use crate::customscan::aggregatescan::build::AggregateCSClause;
+use crate::index::mvcc::MvccSatisfies;
+use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::aggregatescan::datafusion_build::{
     all_have_bm25_index, collect_join_agg_sources, extract_join_tree_from_parse, has_any_bm25_index,
 };
 use crate::postgres::customscan::aggregatescan::datafusion_exec::{
-    build_join_aggregate_plan, create_aggregate_session_context,
+    build_join_aggregate_plan, create_aggregate_session_context, MppPlanContext,
 };
 use crate::postgres::customscan::aggregatescan::datafusion_project::project_aggregate_row_to_slot;
 use crate::postgres::customscan::aggregatescan::exec::{
@@ -63,7 +80,16 @@ use crate::postgres::customscan::builders::custom_scan::CustomScanBuilder;
 use crate::postgres::customscan::builders::custom_state::{
     CustomScanStateBuilder, CustomScanStateWrapper,
 };
+use crate::postgres::customscan::dsm::{
+    estimate_dsm_custom_scan, initialize_dsm_custom_scan, initialize_worker_custom_scan,
+    reinitialize_dsm_custom_scan, ParallelQueryCapable,
+};
+use crate::postgres::customscan::exec::{
+    begin_custom_scan, end_custom_scan, exec_custom_scan, explain_custom_scan, rescan_custom_scan,
+    shutdown_custom_scan,
+};
 use crate::postgres::customscan::explainer::Explainer;
+use crate::postgres::customscan::hook::query_has_paradedb_agg;
 use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, build_task_context};
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
@@ -73,7 +99,10 @@ use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::{is_datetime_type, TantivyValue};
 use crate::postgres::utils::{add_vars_to_tlist, is_unnest_func, make_text_const};
 use crate::postgres::PgSearchRelation;
+use crate::postgres::{ParallelScanArgs, ParallelScanState};
+use crate::scan::codec::serialize_logical_plan;
 use chrono::{DateTime as ChronoDateTime, Utc};
+use futures::StreamExt;
 use pgrx::{pg_sys, PgList, PgMemoryContexts, PgTupleDesc};
 use std::ffi::CStr;
 use tantivy::schema::OwnedValue;
@@ -136,28 +165,25 @@ impl CustomScan for AggregateScan {
     fn exec_methods() -> pg_sys::CustomExecMethods {
         pg_sys::CustomExecMethods {
             CustomName: Self::NAME.as_ptr(),
-            BeginCustomScan: Some(crate::postgres::customscan::exec::begin_custom_scan::<Self>),
-            ExecCustomScan: Some(crate::postgres::customscan::exec::exec_custom_scan::<Self>),
-            EndCustomScan: Some(crate::postgres::customscan::exec::end_custom_scan::<Self>),
-            ReScanCustomScan: Some(crate::postgres::customscan::exec::rescan_custom_scan::<Self>),
+            BeginCustomScan: Some(begin_custom_scan::<Self>),
+            ExecCustomScan: Some(exec_custom_scan::<Self>),
+            EndCustomScan: Some(end_custom_scan::<Self>),
+            ReScanCustomScan: Some(rescan_custom_scan::<Self>),
             MarkPosCustomScan: None,
             RestrPosCustomScan: None,
-            EstimateDSMCustomScan: None,
-            InitializeDSMCustomScan: None,
-            ReInitializeDSMCustomScan: None,
-            InitializeWorkerCustomScan: None,
-            ShutdownCustomScan: Some(
-                crate::postgres::customscan::exec::shutdown_custom_scan::<Self>,
-            ),
-            ExplainCustomScan: Some(crate::postgres::customscan::exec::explain_custom_scan::<Self>),
+            EstimateDSMCustomScan: Some(estimate_dsm_custom_scan::<Self>),
+            InitializeDSMCustomScan: Some(initialize_dsm_custom_scan::<Self>),
+            ReInitializeDSMCustomScan: Some(reinitialize_dsm_custom_scan::<Self>),
+            InitializeWorkerCustomScan: Some(initialize_worker_custom_scan::<Self>),
+            ShutdownCustomScan: Some(shutdown_custom_scan::<Self>),
+            ExplainCustomScan: Some(explain_custom_scan::<Self>),
         }
     }
 
     fn create_custom_path(builder: CustomPathBuilder<Self>) -> Vec<pg_sys::CustomPath> {
         let has_paradedb_agg = unsafe {
             let parse = builder.args().root().parse;
-            !parse.is_null()
-                && crate::postgres::customscan::hook::query_has_paradedb_agg(parse, true)
+            !parse.is_null() && query_has_paradedb_agg(parse, true)
         };
 
         let input_rel = builder.args().input_rel();
@@ -280,14 +306,32 @@ impl CustomScan for AggregateScan {
                     cscan.custom_exprs = custom_exprs_list.into_pg();
                 }
 
-                if !has_pathkeys {
-                    // No ORDER BY: safe to replace Aggrefs at plan time.
+                let parallel_aware = (*best_path).path.parallel_aware;
+                if !has_pathkeys && !parallel_aware {
+                    // Non-MPP, no-pathkeys: safe to replace Aggrefs at plan
+                    // time. The customscan emits final aggregate rows, no
+                    // Gather above us, no setrefs match needed.
                     let plan = &mut cscan.scan.plan;
                     replace_aggrefs_in_target_list(plan);
                 }
-                // When has_pathkeys: aggrefs stay in plan.targetlist so Postgres's
-                // make_sort_from_pathkeys can find them. Replacement is deferred to
-                // create_custom_scan_state (execution time).
+                // MPP path (parallel_aware): leave Aggrefs in
+                // `plan.targetlist`. PG's `set_plan_refs` walks the
+                // partial-worker tlist looking for `equal()` matches to
+                // wire the Gather's projection — observed behaviour is
+                // that replacing the Aggrefs with `pdb.agg_fn(...)`
+                // placeholders breaks every match and the planner falls
+                // back to `Single Copy: true`. We haven't traced the
+                // exact upstream code path that does the rejection (it
+                // doesn't necessarily go through Partial+Final aggregate
+                // insertion), only the symptom. Either way the workaround
+                // is the same: keep the Aggrefs through path/plan
+                // construction and replace them at execution time in
+                // `create_custom_scan_state`.
+                //
+                // When has_pathkeys: same reason — `make_sort_from_pathkeys`
+                // needs to see the original Aggrefs. Replacement deferred
+                // to `create_custom_scan_state` (execution time) for both
+                // MPP-on and MPP-off+ORDER-BY cases.
                 cscan
             }
         }
@@ -345,6 +389,8 @@ impl CustomScan for AggregateScan {
                     current_batch: None,
                     batch_row_idx: 0,
                     group_df_indices: Vec::new(),
+                    mpp: None,
+                    mpp_plan_bytes: None,
                 });
                 builder.build()
             }
@@ -425,7 +471,7 @@ impl CustomScan for AggregateScan {
                             a.agg_kind.to_string()
                         } else {
                             let fields: Vec<&str> =
-                                a.field_refs.iter().map(|(_, _, n)| n.as_str()).collect();
+                                a.field_refs.iter().map(|r| r.field_name.as_str()).collect();
                             format!("{}({})", a.agg_kind, fields.join(", "))
                         }
                     })
@@ -433,6 +479,17 @@ impl CustomScan for AggregateScan {
                 if !aggs.is_empty() {
                     explainer.add_text("Aggregates", aggs.join(", "));
                 }
+
+                // Rebuild and render the DataFusion physical plan so
+                // reviewers can see the join/aggregate/network shape PG
+                // is about to execute. Matches the joinscan EXPLAIN
+                // behaviour. For plain EXPLAIN we build with the leader's
+                // session context (distributed planner included) but
+                // skip installing the runtime mesh — `create_physical_plan`
+                // only needs `WorkerTransport` for boundary node
+                // construction, not actual execute calls. Build failures
+                // here shouldn't crash EXPLAIN; surface them as a note.
+                Self::render_df_physical_plan(df_state, explainer);
             }
             return;
         }
@@ -456,17 +513,36 @@ impl CustomScan for AggregateScan {
     fn begin_custom_scan(
         state: &mut CustomScanStateWrapper<Self>,
         estate: *mut pg_sys::EState,
-        _eflags: i32,
+        eflags: i32,
     ) {
         if state.custom_state().is_datafusion_backend() {
-            // DataFusion backend: create scan slot for result projection
+            // The agg-on-join path runs entirely inside DataFusion and
+            // never reaches the standard `init_expr_context` block below.
+            // Allocate an ExprContext here so per-relation HeapFilter
+            // queries (e.g. `=` on a `pdb.literal`-cast column) have a
+            // live evaluation context - except under EXPLAIN_ONLY, where
+            // no expressions run and the allocation is just dead weight
+            // until the per-query context tears down.
             unsafe {
                 let planstate = state.planstate();
+                if eflags & (pg_sys::EXEC_FLAG_EXPLAIN_ONLY as i32) == 0 {
+                    pg_sys::ExecAssignExprContext(estate, planstate);
+                    state.runtime_context = state.csstate.ss.ps.ps_ExprContext;
+                }
+
                 let scan_slot = pg_sys::MakeTupleTableSlot(
                     (*planstate).ps_ResultTupleDesc,
                     &pg_sys::TTSOpsVirtual,
                 );
                 state.custom_state_mut().scan_slot = Some(scan_slot);
+            }
+            // MPP: serialize the logical plan so estimate_dsm/initialize_dsm
+            // can write it into the DSM region. Only the leader runs
+            // this branch (`ParallelWorkerNumber == -1` in the leader
+            // backend); workers read the bytes back from DSM in
+            // initialize_worker_custom_scan.
+            if mpp_is_active() && unsafe { pg_sys::ParallelWorkerNumber } == -1 {
+                Self::stash_mpp_plan_bytes(state);
             }
             return;
         }
@@ -549,6 +625,191 @@ impl CustomScan for AggregateScan {
     }
 }
 
+impl ParallelQueryCapable for AggregateScan {
+    fn estimate_dsm_custom_scan(
+        state: &mut CustomScanStateWrapper<Self>,
+        _pcxt: *mut pg_sys::ParallelContext,
+    ) -> pg_sys::Size {
+        let Some(df_state) = state.custom_state().datafusion_state.as_ref() else {
+            return 0;
+        };
+        let Some(plan_bytes) = df_state.mpp_plan_bytes.as_ref() else {
+            return 0;
+        };
+        let plan_bytes_len = plan_bytes.len();
+
+        // Capture source manifests so we can size the ParallelScanState block.
+        Self::ensure_source_manifests(state);
+        let all_nsegments: Vec<usize> = state
+            .custom_state()
+            .source_manifests
+            .iter()
+            .map(|m| m.segment_count())
+            .collect();
+        let partitioning_idx = Self::partitioning_source_idx(state);
+        let pscan_size = ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false);
+        let mpp_offset = mpp_align(pscan_offset() + pscan_size);
+
+        let mpp_size = match estimate_dsm_size(plan_bytes_len) {
+            Ok(sz) => sz,
+            Err(e) => {
+                pgrx::warning!("mpp: estimate_dsm failed: {e}; falling back to serial");
+                return 0;
+            }
+        };
+
+        (mpp_offset + mpp_size) as pg_sys::Size
+    }
+
+    fn initialize_dsm_custom_scan(
+        state: &mut CustomScanStateWrapper<Self>,
+        pcxt: *mut pg_sys::ParallelContext,
+        coordinate: *mut std::os::raw::c_void,
+    ) {
+        let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() else {
+            return;
+        };
+        let Some(plan_bytes) = df_state.mpp_plan_bytes.take() else {
+            return;
+        };
+        let seg = unsafe { (*pcxt).seg };
+
+        // Capture manifests + size the ParallelScanState block.
+        Self::ensure_source_manifests(state);
+        let partitioning_idx = Self::partitioning_source_idx(state);
+        let all_nsegments: Vec<usize> = state
+            .custom_state()
+            .source_manifests
+            .iter()
+            .map(|m| m.segment_count())
+            .collect();
+        let pscan_size = ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false);
+        let pscan_offset = pscan_offset();
+        let mpp_offset = mpp_align(pscan_offset + pscan_size);
+
+        // Stamp the MPP-region offset and partitioning-source index into
+        // the DSM header so workers can skip past the ParallelScanState
+        // block and key index_segment_ids the same way as the leader.
+        unsafe {
+            write_custom_scan_header(
+                coordinate,
+                CustomScanMppHeader {
+                    mpp_offset: mpp_offset as u64,
+                    partitioning_source_idx: partitioning_idx as u64,
+                },
+            )
+        };
+
+        // Init the ParallelScanState at `pscan_offset`.
+        let pscan_state =
+            unsafe { (coordinate as *mut u8).add(pscan_offset) as *mut ParallelScanState };
+        assert!(!pscan_state.is_null(), "MPP DSM coordinate is null");
+        unsafe {
+            let all_sources: Vec<&[tantivy::SegmentReader]> = state
+                .custom_state()
+                .source_manifests
+                .iter()
+                .map(|m| m.segment_readers())
+                .collect();
+            (*pscan_state).create_and_populate(ParallelScanArgs {
+                all_sources,
+                partitioning_source_idx: partitioning_idx,
+                query: vec![],
+                with_aggregates: false,
+            });
+        }
+        let non_partitioning_segments = unsafe { (*pscan_state).non_partitioning_segment_ids() };
+        state.custom_state_mut().parallel_state = Some(pscan_state);
+        state.custom_state_mut().non_partitioning_segments = non_partitioning_segments;
+        state.custom_state_mut().mpp_partitioning_source_idx = Some(partitioning_idx);
+
+        // Init the MPP region.
+        let mpp_coordinate =
+            unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut std::os::raw::c_void };
+        let leader = match unsafe { leader_setup(mpp_coordinate, seg, pcxt, plan_bytes) } {
+            Ok(l) => l,
+            Err(e) => {
+                pgrx::warning!("mpp: leader_setup failed: {e}; falling back to serial");
+                return;
+            }
+        };
+        let df_state = state
+            .custom_state_mut()
+            .datafusion_state
+            .as_mut()
+            .expect("datafusion_state must still be set");
+        df_state.mpp = Some(scan_state::MppExecState::Leader(leader));
+    }
+
+    fn reinitialize_dsm_custom_scan(
+        _state: &mut CustomScanStateWrapper<Self>,
+        _pcxt: *mut pg_sys::ParallelContext,
+        coordinate: *mut std::os::raw::c_void,
+    ) {
+        // Reset the ParallelScanState header so a re-execution re-claims segments.
+        let pscan_offset = pscan_offset();
+        let pscan_state =
+            unsafe { (coordinate as *mut u8).add(pscan_offset) as *mut ParallelScanState };
+        if !pscan_state.is_null() {
+            unsafe { (*pscan_state).reset() };
+        }
+    }
+
+    fn initialize_worker_custom_scan(
+        state: &mut CustomScanStateWrapper<Self>,
+        _toc: *mut pg_sys::shm_toc,
+        coordinate: *mut std::os::raw::c_void,
+    ) {
+        if state.custom_state().datafusion_state.is_none() {
+            return;
+        }
+
+        // Read the MPP-region offset + partitioning-source index from the
+        // DSM header.
+        let header = unsafe { read_custom_scan_header(coordinate) };
+        let mpp_offset = header.mpp_offset as usize;
+        let pscan_offset = pscan_offset();
+        state.custom_state_mut().mpp_partitioning_source_idx =
+            Some(header.partitioning_source_idx as usize);
+
+        // Attach to the ParallelScanState and wait for the leader to
+        // populate it before reading the canonical segment list.
+        let pscan_state =
+            unsafe { (coordinate as *mut u8).add(pscan_offset) as *mut ParallelScanState };
+        assert!(!pscan_state.is_null(), "MPP DSM coordinate is null");
+        unsafe { (*pscan_state).wait_for_initialization() };
+        let non_partitioning_segments = unsafe { (*pscan_state).non_partitioning_segment_ids() };
+        state.custom_state_mut().parallel_state = Some(pscan_state);
+        state.custom_state_mut().non_partitioning_segments = non_partitioning_segments;
+
+        // Attach to the MPP region.
+        let mpp_coordinate =
+            unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut std::os::raw::c_void };
+        let region_total = unsafe { (*mpp_coordinate.cast::<MppDsmHeader>()).region_total };
+        let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
+        let worker = match unsafe {
+            worker_setup(
+                mpp_coordinate,
+                region_total,
+                worker_number,
+                std::ptr::null_mut(),
+            )
+        } {
+            Ok(w) => w,
+            Err(e) => {
+                pgrx::warning!("mpp: worker_setup failed: {e}; falling back to serial");
+                return;
+            }
+        };
+        let df_state = state
+            .custom_state_mut()
+            .datafusion_state
+            .as_mut()
+            .expect("checked above");
+        df_state.mpp = Some(scan_state::MppExecState::Worker(worker));
+    }
+}
+
 pub enum CustomScanBuildError {
     NotInteresting,
     Incompatible(String),
@@ -617,6 +878,218 @@ pub trait CustomScanClause<CS: CustomScan> {
 }
 
 impl AggregateScan {
+    /// Capture per-source `SearchIndexManifest`s for every PgSearchScan
+    /// reachable from the aggregate's `RelNode` plan tree. Mirrors
+    /// `JoinScan::ensure_source_manifests`. Required at DSM-init time so
+    /// `ParallelScanState::size_of` can size the shared region; the buffer
+    /// pins must also outlive the scan itself, hence storing on
+    /// `AggregateScanState` rather than as a local.
+    fn ensure_source_manifests(state: &mut CustomScanStateWrapper<Self>) {
+        if !state.custom_state().source_manifests.is_empty() {
+            return;
+        }
+        let Some(df_state) = state.custom_state().datafusion_state.as_ref() else {
+            return;
+        };
+        let manifests: Vec<SearchIndexManifest> = df_state
+            .plan
+            .sources()
+            .iter()
+            .map(|source| {
+                let rel = PgSearchRelation::open(source.scan_info.indexrelid);
+                SearchIndexManifest::capture(&rel, MvccSatisfies::Snapshot).unwrap_or_else(|e| {
+                    panic!(
+                        "Failed to capture source manifest for indexrelid {}: {e}",
+                        source.scan_info.indexrelid
+                    )
+                })
+            })
+            .collect();
+        state.custom_state_mut().source_manifests = manifests;
+    }
+
+    /// Pick the partitioning source — the one whose segment list workers
+    /// claim from. Largest by total live doc count, falling back to
+    /// segment count, then position. (Earlier this was just
+    /// `max_by_key(segment_count)`, which under ties returns the *last*
+    /// element — for a 2-table JOIN with both indexes at 10 segments,
+    /// that put the smaller table on the partitioning side and forced
+    /// the all-gather to cache the larger one. Doc count breaks the tie
+    /// in the right direction.)
+    fn partitioning_source_idx(state: &CustomScanStateWrapper<Self>) -> usize {
+        state
+            .custom_state()
+            .source_manifests
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, m)| (m.total_doc_count(), m.segment_count()))
+            .map(|(i, _)| i)
+            .unwrap_or(0)
+    }
+
+    /// Serialize the leader's logical plan (already on `df_state`) and stash
+    /// the bytes on `df_state.mpp_plan_bytes`. `estimate_dsm_custom_scan`
+    /// reads the length to size the DSM region; `initialize_dsm_custom_scan`
+    /// hands the bytes to `glue::leader_setup` which copies them into DSM
+    /// for workers.
+    fn stash_mpp_plan_bytes(state: &mut CustomScanStateWrapper<Self>) {
+        // Capture source manifests + partitioning_source_idx BEFORE building
+        // the logical plan. Each `PgSearchTableProvider` needs to know whether
+        // it's the partitioning source (uses `parallel_state.checkout_segment`
+        // to slice work across PG parallel workers) or non-partitioning
+        // (replicated view via canonical segment IDs). These flags are baked
+        // into the serialized plan; workers re-derive them via the codec.
+        Self::ensure_source_manifests(state);
+        let partitioning_idx = Self::partitioning_source_idx(state);
+        let mpp_ctx = MppPlanContext {
+            partitioning_plan_position: partitioning_idx,
+        };
+        state.custom_state_mut().mpp_partitioning_source_idx = Some(partitioning_idx);
+
+        let Some(df_state) = state.custom_state_mut().datafusion_state.as_mut() else {
+            return;
+        };
+        // Build a logical plan eagerly. The DataFusion exec path normally
+        // builds it lazily on first `exec_custom_scan` call; for MPP we
+        // need it before estimate_dsm fires.
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(e) => {
+                pgrx::warning!("mpp: tokio runtime build failed: {e}; skipping MPP");
+                return;
+            }
+        };
+        let ctx = create_aggregate_session_context();
+        let custom_exprs = df_state.custom_exprs;
+        let custom_scan_tlist = df_state.custom_scan_tlist;
+        let logical = runtime.block_on(async {
+            build_join_aggregate_plan(
+                &df_state.plan,
+                &df_state.targetlist,
+                df_state.topk.as_ref(),
+                &df_state.join_level_predicates,
+                custom_exprs,
+                custom_scan_tlist,
+                df_state.having_filter.as_ref(),
+                &ctx,
+                None,
+                None,
+                Some(mpp_ctx),
+            )
+            .await
+        });
+        let logical = match logical {
+            Ok((lp, _group_df_indices)) => lp,
+            Err(e) => {
+                pgrx::warning!("mpp: build_join_aggregate_plan failed: {e}; skipping MPP");
+                return;
+            }
+        };
+        let bytes = match serialize_logical_plan(&logical) {
+            Ok(b) => b,
+            Err(e) => {
+                pgrx::warning!("mpp: serialize_logical_plan failed: {e}; skipping MPP");
+                return;
+            }
+        };
+        df_state.mpp_plan_bytes = Some(bytes.to_vec());
+    }
+
+    /// Build the leader's distributed session context for this AggregateScan query. Thin
+    /// wrapper over the shape-agnostic [`crate::postgres::customscan::mpp::exec_worker::
+    /// build_mpp_session_context`] that seeds with `create_aggregate_session_context()`.
+    fn build_mpp_session_context(mesh: Arc<MppMesh>) -> datafusion::prelude::SessionContext {
+        crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context(
+            create_aggregate_session_context(),
+            mesh,
+        )
+    }
+
+    /// Rebuild and render the DataFusion physical plan into the explainer.
+    /// Used only by plain EXPLAIN (no ANALYZE); EXPLAIN ANALYZE would cache
+    /// the executing plan separately.
+    ///
+    /// When `mpp_is_active()` we rebuild with the same distributed planner
+    /// the leader will run with, attached to a drain-less stub mesh — the
+    /// planner only consults the mesh's worker count, not the actual
+    /// `shm_mq` queues, so the stub is enough to produce a `DistributedExec`
+    /// root. That lets us render via `datafusion_distributed::display_plan_ascii`
+    /// and surface the boxed `Stage N — Tasks: t0:[p0..pN]` topology the
+    /// executor will actually run. When MPP is off we fall back to the
+    /// serial context and the standard `displayable().indent(false)` tree.
+    ///
+    /// Failures here go to a single explainer line rather than crashing
+    /// EXPLAIN; the failure mode is non-load-bearing diagnostics.
+    fn render_df_physical_plan(
+        df_state: &scan_state::DataFusionAggState,
+        explainer: &mut Explainer,
+    ) {
+        let custom_exprs = df_state.custom_exprs;
+        let custom_scan_tlist = df_state.custom_scan_tlist;
+        let ctx = if mpp_is_active() {
+            // Drain-less stub mesh. `with_distributed_planner` only needs `n_procs` for stage
+            // sizing, and `ShmMqWorkerTransport::open()` doesn't run during EXPLAIN. Going
+            // through the constructor is the only safe way to build an `MppMesh` outside
+            // `glue::leader_setup`.
+            let stub_mesh = Arc::new(MppMesh::new(0, mpp_worker_count(), Vec::new()));
+            Self::build_mpp_session_context(stub_mesh)
+        } else {
+            create_aggregate_session_context()
+        };
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread().build() else {
+            explainer.add_text("DataFusion Plan", "(tokio runtime unavailable)");
+            return;
+        };
+        let plan_result = runtime.block_on(async {
+            let (logical, _) = build_join_aggregate_plan(
+                &df_state.plan,
+                &df_state.targetlist,
+                df_state.topk.as_ref(),
+                &df_state.join_level_predicates,
+                custom_exprs,
+                custom_scan_tlist,
+                df_state.having_filter.as_ref(),
+                &ctx,
+                None,
+                None,
+                None,
+            )
+            .await?;
+            build_physical_plan(&ctx, logical).await
+        });
+        match plan_result {
+            Ok(plan) => {
+                explainer.add_text("DataFusion Physical Plan", "");
+                for line in Self::render_plan_for_explain(plan.as_ref()).lines() {
+                    explainer.add_text("  ", line);
+                }
+            }
+            Err(e) => {
+                explainer.add_text(
+                    "DataFusion Plan",
+                    format!("(rebuild failed during EXPLAIN: {e})"),
+                );
+            }
+        }
+    }
+
+    /// Render a physical plan for EXPLAIN. `DistributedExec` roots go through
+    /// `display_plan_ascii` for the boxed-stage rendering; serial plans keep
+    /// the standard `displayable().indent(false)` tree so non-MPP expected
+    /// outputs are stable.
+    fn render_plan_for_explain(plan: &dyn ExecutionPlan) -> String {
+        if plan.as_any().downcast_ref::<DistributedExec>().is_some() {
+            display_plan_ascii(plan, false)
+        } else {
+            datafusion::physical_plan::displayable(plan)
+                .indent(false)
+                .to_string()
+        }
+    }
+
     /// Existing single-table Tantivy aggregate path.
     fn build_tantivy_aggregate_path(
         builder: CustomPathBuilder<Self>,
@@ -714,7 +1187,7 @@ impl AggregateScan {
         // Below this line every Err carries a planner warning.
         let warn = |reason| AggregatePathDecline::Warn(reason);
 
-        // For M1, all tables must have BM25 indexes (DataFusion scans all via PgSearchTableProvider)
+        // All tables must have BM25 indexes (DataFusion scans all via PgSearchTableProvider).
         if !all_have_bm25_index(&sources) {
             return Err(warn(AggregateDeclineReason::NotAllBm25));
         }
@@ -733,7 +1206,7 @@ impl AggregateScan {
                 .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Extract aggregate target list (GROUP BY + aggregates)
-        let targetlist = unsafe { extract_aggregate_targetlist(builder.args(), &sources) }
+        let targetlist = unsafe { extract_aggregate_targetlist(builder.args(), &sources, &plan) }
             .map_err(|e| warn(AggregateDeclineReason::Other(e)))?;
 
         // Reject plans with any join node that has no equi-keys (CROSS JOIN).
@@ -761,20 +1234,43 @@ impl AggregateScan {
         // redundant Sort above us, which is correct (just wasteful on K rows).
         let topk = unsafe { detect_join_aggregate_topk(builder.args(), &targetlist) };
 
-        // Extract HAVING clause if present
+        // Extract HAVING clause if present.
+        //
+        // HAVING produces `AggRef`/`GroupRef`, never `ColumnRef`, so the
+        // FILTER `T_Var` arm is unreachable from here. But the HAVING
+        // matchers need the plan tree anyway to recover a source's rti
+        // from `plan_position` when matching parse-tree Vars to extracted
+        // targetlist refs: the plan is the system of record for rti, the
+        // targetlist refs themselves don't carry it.
+        let outer_root_id =
+            crate::postgres::customscan::joinscan::build::PlannerRootId::from(builder.args().root);
         let having_filter = unsafe {
             let parse = builder.args().root().parse;
             if !parse.is_null() && !(*parse).havingQual.is_null() {
                 privdat::FilterExpr::from_pg_node(
                     (*parse).havingQual,
-                    &datafusion_build::FilterExprBuildContext {
-                        targetlist: Some(&targetlist),
-                        sources: None,
+                    &datafusion_build::FilterExprBuildContext::Having {
+                        targetlist: &targetlist,
+                        plan: &plan,
+                        outer_root_id,
                     },
                 )
             } else {
                 None
             }
+        };
+
+        // Activate MPP at planning time if the GUC is on. Must be set on
+        // the builder *before* `.build()` — PG's path-builder freezes the
+        // parallel flags at build time, and setting them after produces a
+        // `Single Copy: true` Gather where the customscan never actually
+        // runs in multiple workers.
+        let builder = if mpp_is_active() {
+            let n_workers = mpp_worker_count();
+            let workers_to_launch = (n_workers.saturating_sub(1) as usize).max(1);
+            builder.set_parallel(workers_to_launch)
+        } else {
+            builder
         };
 
         // Build the custom path with DataFusion private data
@@ -981,11 +1477,29 @@ impl AggregateScan {
             .scan_slot
             .expect("scan_slot must be initialized in begin_custom_scan");
 
+        // Capture before the mutable borrow on `datafusion_state`. Threaded
+        // down to each `PgSearchTableProvider` so HeapFilter queries (`=`
+        // on a `pdb.literal`-cast column, etc.) can resolve their runtime
+        // expressions - the same plumbing single-table aggregates get from
+        // `state.runtime_context` directly.
+        let runtime_expr_context =
+            (!state.runtime_context.is_null()).then_some(state.runtime_context);
+        let ps = state.planstate();
+        let runtime_planstate = (!ps.is_null()).then_some(ps);
+
         let df_state = state
             .custom_state_mut()
             .datafusion_state
             .as_mut()
             .expect("DataFusion state must be initialized");
+
+        // MPP worker fast-path: run the producer fragment to exhaustion
+        // (pushing every batch into the leader's shm_mq mesh) on the first
+        // call, then return null forever. Workers emit zero rows back to
+        // PG; the leader assembles the result via the consumer plan.
+        if let Some(scan_state::MppExecState::Worker(_)) = &df_state.mpp {
+            return mpp::exec_mpp_worker(state);
+        }
 
         // First call: build and execute the DataFusion plan
         if df_state.runtime.is_none() {
@@ -994,7 +1508,40 @@ impl AggregateScan {
                 .build()
                 .unwrap_or_else(|e| pgrx::error!("Failed to create tokio runtime: {}", e));
 
-            let ctx = create_aggregate_session_context();
+            // MPP leader: install the mesh + DF-D fork's distributed planner so
+            // `create_physical_plan` produces a `DistributedExec` whose
+            // `NetworkShuffleExec`s use our `ShmMqWorkerTransport` to read
+            // from worker queues at execute time. Otherwise: existing serial
+            // session context.
+            let ctx = match df_state.mpp.as_ref() {
+                Some(scan_state::MppExecState::Leader(leader)) => {
+                    // CustomScan parallel exec doesn't guarantee that PG
+                    // launches every worker we requested at planning time
+                    // (other queries can hold all worker slots, etc.). The
+                    // unattached `shm_mq` slots stay in init-state, the
+                    // cooperative pull never sees `Detached`, and the leader
+                    // hangs on the missing partitions. Fail loudly instead
+                    // and ask the user to retry until #5061 picks a long-term
+                    // shape (resize the mesh at exec start, or move off
+                    // CustomScan parallel workers).
+                    let pcxt = leader.pcxt;
+                    if !pcxt.is_null() {
+                        let launched = unsafe { (*pcxt).nworkers_launched } as u32;
+                        let expected = producer_worker_count();
+                        if launched < expected {
+                            pgrx::error!(
+                                "mpp aggregate: PG launched {launched} of {expected} requested \
+                                 parallel workers; missing slots would hang the query. Retry, or \
+                                 raise `max_parallel_workers` / `max_parallel_workers_per_gather` \
+                                 so PG can launch the full set. Long-term fix tracked in \
+                                 https://github.com/paradedb/paradedb/issues/5061."
+                            );
+                        }
+                    }
+                    Self::build_mpp_session_context(Arc::clone(&leader.mesh))
+                }
+                _ => create_aggregate_session_context(),
+            };
 
             let custom_exprs = df_state.custom_exprs;
             let custom_scan_tlist = df_state.custom_scan_tlist;
@@ -1008,6 +1555,9 @@ impl AggregateScan {
                     custom_scan_tlist,
                     df_state.having_filter.as_ref(),
                     &ctx,
+                    runtime_expr_context,
+                    runtime_planstate,
+                    None,
                 )
                 .await?;
                 df_state.group_df_indices = group_df_indices;
@@ -1025,6 +1575,23 @@ impl AggregateScan {
                 unsafe { pg_sys::work_mem as usize * 1024 },
                 unsafe { pg_sys::hash_mem_multiplier },
             );
+            // Install `DistributedTaskContext` explicitly so the top boundary sees the leader's
+            // `(task_index=0, task_count=1)` identity. Skipping this would let the fork's
+            // `from_ctx` default kick in, which silently hides any planner shape that emits a
+            // different `consumer_tc` at the top boundary. Matches the worker dispatcher's setup.
+            let task_ctx = {
+                let cfg = task_ctx.session_config().clone().with_extension(Arc::new(
+                    DistributedTaskContext {
+                        task_index: 0,
+                        task_count: 1,
+                    },
+                ));
+                Arc::new(
+                    TaskContext::default()
+                        .with_session_config(cfg)
+                        .with_runtime(task_ctx.runtime_env().clone()),
+                )
+            };
             let stream = {
                 let _guard = runtime.enter();
                 match physical_plan.execute(0, task_ctx) {
@@ -1068,10 +1635,7 @@ impl AggregateScan {
             let runtime = df_state.runtime.as_ref().unwrap();
             let stream = df_state.stream.as_mut().unwrap();
 
-            let next = runtime.block_on(async {
-                use futures::StreamExt;
-                stream.next().await
-            });
+            let next = runtime.block_on(async { stream.next().await });
 
             match next {
                 Some(Ok(batch)) => {

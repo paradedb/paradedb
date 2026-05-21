@@ -2,6 +2,9 @@
 
 set -euo pipefail
 
+# If you don't want check the snippets for all languages at once, pass in the list you'd like to check:
+# scripts/smoke_test_code_snippets.sh sql rails
+LANGUAGES=${*:-'sql django sqlalchemy rails drizzle'}
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 VERIFY_DIR="${SCRIPT_DIR}/verify"
@@ -17,10 +20,12 @@ PARADEDB_PASSWORD="${PARADEDB_PASSWORD:-}"
 PYTHON_ENV_DIR="$(mktemp -d -t paradedb-docs-python.XXXXXX)"
 PYTHON_BIN="$PYTHON_ENV_DIR/bin/python"
 RUBY_GEM_HOME="$(mktemp -d -t paradedb-docs-ruby.XXXXXX)"
+DRIZZLE_ENV_DIR="$(mktemp -d -t paradedb-docs-drizzle.XXXXXX)"
 
 cleanup() {
   rm -rf "$PYTHON_ENV_DIR"
   rm -rf "$RUBY_GEM_HOME"
+  rm -rf "$DRIZZLE_ENV_DIR"
 }
 
 trap cleanup EXIT
@@ -33,6 +38,7 @@ export PGPORT="$PARADEDB_PORT"
 export PGDATABASE="$PARADEDB_DATABASE"
 export PGUSER="$PARADEDB_USER"
 export PGPASSWORD="$PARADEDB_PASSWORD"
+export DATABASE_URL="${DATABASE_URL:-postgres://${PARADEDB_USER}${PARADEDB_PASSWORD:+:${PARADEDB_PASSWORD}}@${PARADEDB_HOST}:${PARADEDB_PORT}/${PARADEDB_DATABASE}}"
 
 PSQL=(psql -v ON_ERROR_STOP=1)
 
@@ -79,142 +85,202 @@ drop_snippet_indexes() {
   run_psql_file "${SCRIPT_DIR}/drop_code_snippet_indexes.sql"
 }
 
-echo "Creating temporary Python environment for Python snippet verification..."
-python3 -m venv "$PYTHON_ENV_DIR"
+python3 "${SCRIPT_DIR}/extract_code_snippets.py" >/dev/null
 
-echo "Installing Django and SQLAlchemy ParadeDB clients from PyPI..."
-PIP_DISABLE_PIP_VERSION_CHECK=1 "$PYTHON_BIN" -m pip install --quiet --upgrade \
-  "django-paradedb==0.6.0" \
-  "sqlalchemy-paradedb==0.6.0" \
-  "psycopg[binary]"
-
-echo "Installing rails-paradedb from RubyGems..."
-GEM_HOME="$RUBY_GEM_HOME" GEM_PATH="$RUBY_GEM_HOME" \
-  gem install --silent --no-document --install-dir "$RUBY_GEM_HOME" \
-  "rails-paradedb:0.7.0" \
-  "pg"
-
-"$PYTHON_BIN" "${SCRIPT_DIR}/extract_code_snippets.py" >/dev/null
-
-run_psql_file "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql"
 
 sql_pass_count=0
 sql_fail_count=0
+if [[ $LANGUAGES =~ "sql" ]]; then
+  run_psql_file "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql"
 
-while IFS= read -r snippet_file; do
-  rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
-  drop_snippet_indexes
+  while IFS= read -r snippet_file; do
+    rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
-  if ! grep -Fq 'CREATE INDEX' "$snippet_file"; then
-    create_snippet_indexes
-  fi
+    drop_snippet_indexes
 
-  if run_psql_file "$snippet_file"; then
-    echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
-    sql_pass_count=$((sql_pass_count + 1))
-  else
-    echo "${RED}[FAIL]${RESET} $rel_snippet" >&2
-    sql_fail_count=$((sql_fail_count + 1))
-  fi
-done < <(find "$SQL_DIR" -type f -name '*.sql' | LC_ALL=C sort)
+    if ! grep -Fq 'CREATE INDEX' "$snippet_file"; then
+      create_snippet_indexes
+    fi
+
+    if run_psql_file "$snippet_file"; then
+      echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
+      sql_pass_count=$((sql_pass_count + 1))
+    else
+      echo "${RED}[FAIL]${RESET} $rel_snippet" >&2
+      sql_fail_count=$((sql_fail_count + 1))
+    fi
+  done < <(find "$SQL_DIR" -type f -name '*.sql' | LC_ALL=C sort)
+fi
 
 django_pass_count=0
 django_fail_count=0
-
-while IFS= read -r snippet_file; do
-  rel_snippet="${snippet_file#"$REPO_ROOT"/}"
-
-  drop_snippet_indexes
-
-  if ! grep -Eq 'schema_editor\.add_index' "$snippet_file"; then
-    create_snippet_indexes
+if [[ $LANGUAGES =~ "django" ]]; then
+  if [[ ! -x "$PYTHON_BIN" ]]; then
+    echo "Creating temporary Python environment for Python snippet verification..."
+    python3 -m venv "$PYTHON_ENV_DIR"
   fi
 
-  if {
-    cat "${SCRIPT_DIR}/django_snippet_harness.py"
-    cat <<PY
+  echo "Installing Django ParadeDB client from PyPI..."
+  PIP_DISABLE_PIP_VERSION_CHECK=1 "$PYTHON_BIN" -m pip install --quiet --upgrade \
+    "django-paradedb==0.8.0" \
+    "psycopg[binary]"
+
+  while IFS= read -r snippet_file; do
+    rel_snippet="${snippet_file#"$REPO_ROOT"/}"
+
+    drop_snippet_indexes
+
+    if ! grep -Eq 'schema_editor\.add_index' "$snippet_file"; then
+      create_snippet_indexes
+    fi
+
+    if {
+      cat "${SCRIPT_DIR}/django_snippet_harness.py"
+      cat <<PY
 
 # Source: $rel_snippet
 PY
-    cat "$snippet_file"
-  } | "$PYTHON_BIN" - >/dev/null
-  then
-    echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
-    django_pass_count=$((django_pass_count + 1))
-  else
-    exit_if_interrupted "$?"
-    echo "${RED}[FAIL]${RESET} $rel_snippet" >&2
-    django_fail_count=$((django_fail_count + 1))
-  fi
-done < <(find "$DJANGO_DIR" -type f -name '*.py' | LC_ALL=C sort)
+      cat "$snippet_file"
+    } | "$PYTHON_BIN" - >/dev/null
+    then
+      echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
+      django_pass_count=$((django_pass_count + 1))
+    else
+      exit_if_interrupted "$?"
+      echo "${RED}[FAIL]${RESET} $rel_snippet" >&2
+      django_fail_count=$((django_fail_count + 1))
+    fi
+  done < <(find "$DJANGO_DIR" -type f -name '*.py' | LC_ALL=C sort)
+fi
 
 rails_pass_count=0
 rails_fail_count=0
+if [[ $LANGUAGES =~ "rails" ]]; then
+  echo "Installing rails-paradedb from RubyGems..."
+  GEM_HOME="$RUBY_GEM_HOME" GEM_PATH="$RUBY_GEM_HOME" \
+    gem install --silent --no-document --install-dir "$RUBY_GEM_HOME" \
+    "rails-paradedb:0.7.0" \
+    "pg"
 
-while IFS= read -r snippet_file; do
-  rel_snippet="${snippet_file#"$REPO_ROOT"/}"
+  while IFS= read -r snippet_file; do
+    rel_snippet="${snippet_file#"$REPO_ROOT"/}"
 
-  drop_snippet_indexes
+    drop_snippet_indexes
 
-  if ! grep -Fq 'add_bm25_index' "$snippet_file"; then
-    create_snippet_indexes
-  fi
+    if ! grep -Fq 'add_bm25_index' "$snippet_file"; then
+      create_snippet_indexes
+    fi
 
-  if {
-    cat "${SCRIPT_DIR}/rails_snippet_harness.rb"
-    cat <<RUBY
+    if {
+      cat "${SCRIPT_DIR}/rails_snippet_harness.rb"
+      cat <<RUBY
 
 # Source: $rel_snippet
 RUBY
-    cat "$snippet_file"
-  } | RUBYLIB="$SCRIPT_DIR${RUBYLIB:+:$RUBYLIB}" \
-      GEM_HOME="$RUBY_GEM_HOME" \
-      GEM_PATH="$RUBY_GEM_HOME" \
-      ruby - >/dev/null; then
-    echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
-    rails_pass_count=$((rails_pass_count + 1))
-  else
-    exit_if_interrupted "$?"
-    echo "${RED}[FAIL]${RESET} $rel_snippet" >&2
-    rails_fail_count=$((rails_fail_count + 1))
-  fi
-done < <(find "$RAILS_DIR" -type f -name '*.rb' | LC_ALL=C sort)
+      cat "$snippet_file"
+    } | RUBYLIB="$SCRIPT_DIR${RUBYLIB:+:$RUBYLIB}" \
+        GEM_HOME="$RUBY_GEM_HOME" \
+        GEM_PATH="$RUBY_GEM_HOME" \
+        ruby - >/dev/null; then
+      echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
+      rails_pass_count=$((rails_pass_count + 1))
+    else
+      exit_if_interrupted "$?"
+      echo "${RED}[FAIL]${RESET} $rel_snippet" >&2
+      rails_fail_count=$((rails_fail_count + 1))
+    fi
+  done < <(find "$RAILS_DIR" -type f -name '*.rb' | LC_ALL=C sort)
+fi
+
 
 sqlalchemy_pass_count=0
 sqlalchemy_fail_count=0
-
-while IFS= read -r snippet_file; do
-  rel_snippet="${snippet_file#"$REPO_ROOT"/}"
-
-  drop_snippet_indexes
-
-  if ! grep -Fq 'idx.create' "$snippet_file"; then
-    create_snippet_indexes
+if [[ $LANGUAGES =~ "sqlalchemy" ]]; then
+  if [[ ! -x "$PYTHON_BIN" ]]; then
+    echo "Creating temporary Python environment for Python snippet verification..."
+    python3 -m venv "$PYTHON_ENV_DIR"
   fi
 
-  if {
-    cat <<PY
+  echo "Installing SQLAlchemy ParadeDB client from PyPI..."
+  PIP_DISABLE_PIP_VERSION_CHECK=1 "$PYTHON_BIN" -m pip install --quiet --upgrade \
+    "sqlalchemy-paradedb==0.6.0" \
+    "psycopg[binary]"
+
+  while IFS= read -r snippet_file; do
+    rel_snippet="${snippet_file#"$REPO_ROOT"/}"
+
+    drop_snippet_indexes
+
+    if ! grep -Fq 'idx.create' "$snippet_file"; then
+      create_snippet_indexes
+    fi
+
+    if {
+      cat <<PY
 from sqlalchemy_snippet_harness import MockItem, Order, ArrayDemo, engine
 
 # Source: $rel_snippet
 PY
-    cat "$snippet_file"
-  } | PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - >/dev/null; then
-    echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
-    sqlalchemy_pass_count=$((sqlalchemy_pass_count + 1))
-  else
-    exit_if_interrupted "$?"
-    echo "${RED}[FAIL]${RESET} $rel_snippet" >&2
-    sqlalchemy_fail_count=$((sqlalchemy_fail_count + 1))
-  fi
-done < <(find "$SQLALCHEMY_DIR" -type f -name '*.py' | LC_ALL=C sort)
+      cat "$snippet_file"
+    } | PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" "$PYTHON_BIN" - >/dev/null; then
+      echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
+      sqlalchemy_pass_count=$((sqlalchemy_pass_count + 1))
+    else
+      exit_if_interrupted "$?"
+      echo "${RED}[FAIL]${RESET} $rel_snippet" >&2
+      sqlalchemy_fail_count=$((sqlalchemy_fail_count + 1))
+    fi
+  done < <(find "$SQLALCHEMY_DIR" -type f -name '*.py' | LC_ALL=C sort)
+fi
+
+drizzle_pass_count=0
+drizzle_fail_count=0
+if [[ $LANGUAGES =~ "drizzle" ]]; then
+  echo "Installing @paradedb/drizzle-paradedb from npm..."
+  npm --prefix "$DRIZZLE_ENV_DIR" install --silent \
+    "@paradedb/drizzle-paradedb@0.1.0" \
+    "drizzle-orm" \
+    "postgres" \
+    "tsx"
+
+  while IFS= read -r snippet_file; do
+    rel_snippet="${snippet_file#"$REPO_ROOT"/}"
+
+    run_psql_file "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql"
+    drop_snippet_indexes
+
+    if ! grep -Fq 'bm25Index' "$snippet_file"; then
+      create_snippet_indexes
+    fi
+
+    if {
+      cat "${SCRIPT_DIR}/drizzle_snippet_harness.ts"
+      cat <<TS
+// Source: $rel_snippet
+TS
+      cat "$snippet_file"
+      cat <<'TS'
+
+await client.end();
+TS
+    } | (cd "$DRIZZLE_ENV_DIR" && npm exec -- tsx -) >/dev/null; then
+      echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
+      drizzle_pass_count=$((drizzle_pass_count + 1))
+    else
+      exit_if_interrupted "$?"
+      echo "${RED}[FAIL]${RESET} $rel_snippet" >&2
+      drizzle_fail_count=$((drizzle_fail_count + 1))
+    fi
+  done < <(find "${VERIFY_DIR}/drizzle" -type f -name '*.ts' | LC_ALL=C sort)
+fi
 
 echo "SQL passed: $sql_pass_count failed: $sql_fail_count"
 echo "Django passed: $django_pass_count failed: $django_fail_count"
 echo "Rails passed: $rails_pass_count failed: $rails_fail_count"
 echo "SQLAlchemy passed: $sqlalchemy_pass_count failed: $sqlalchemy_fail_count"
+echo "Drizzle passed: $drizzle_pass_count failed: $drizzle_fail_count"
 
-if [[ $sql_fail_count -gt 0 || $django_fail_count -gt 0 || $rails_fail_count -gt 0 || $sqlalchemy_fail_count -gt 0 ]]; then
+if [[ $sql_fail_count -gt 0 || $django_fail_count -gt 0 || $rails_fail_count -gt 0 || $sqlalchemy_fail_count -gt 0 || $drizzle_fail_count -gt 0 ]]; then
   exit 1
 fi

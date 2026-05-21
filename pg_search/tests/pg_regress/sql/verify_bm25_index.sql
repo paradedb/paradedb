@@ -555,4 +555,3 @@ FROM pdb.verify_index('details_idx', heapallindexed := true)
 ORDER BY check_name;
 
 DROP TABLE details_test CASCADE;
-

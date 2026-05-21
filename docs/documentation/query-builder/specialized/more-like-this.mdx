@@ -18,6 +18,21 @@ WHERE id @@@ pdb.more_like_this(3)
 ORDER BY id;
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.moreLikeThisId(mockItems.id, 3))
+  .orderBy(mockItems.id);
+```
+
 ```python Django
 from paradedb import MoreLikeThis, ParadeDB
 
@@ -77,6 +92,21 @@ SELECT id, description, rating, category
 FROM mock_items
 WHERE id @@@ pdb.more_like_this(3, ARRAY['description'])
 ORDER BY id;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.moreLikeThisId(mockItems.id, 3, { fields: ["description"] }))
+  .orderBy(mockItems.id);
 ```
 
 ```python Django
@@ -147,6 +177,26 @@ WHERE id @@@ pdb.more_like_this('{"description": "Sleek running shoes", "categor
 ORDER BY id;
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.moreLikeThisDocument(mockItems.id, {
+      description: "Sleek running shoes",
+      category: "footwear",
+    }),
+  )
+  .orderBy(mockItems.id);
+```
+
 ```python Django
 from paradedb import MoreLikeThis, ParadeDB
 
@@ -201,6 +251,21 @@ WHERE id @@@ pdb.more_like_this(3, min_term_frequency => 2)
 ORDER BY id;
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.moreLikeThisId(mockItems.id, 3, { minTermFrequency: 2 }))
+  .orderBy(mockItems.id);
+```
+
 ```python Django
 from paradedb import MoreLikeThis, ParadeDB
 
@@ -244,6 +309,21 @@ SELECT id, description, rating, category
 FROM mock_items
 WHERE id @@@ pdb.more_like_this(3, min_doc_frequency => 3)
 ORDER BY id;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.moreLikeThisId(mockItems.id, 3, { minDocFrequency: 3 }))
+  .orderBy(mockItems.id);
 ```
 
 ```python Django
@@ -293,6 +373,21 @@ WHERE id @@@ pdb.more_like_this(3, max_query_terms => 10)
 ORDER BY id;
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.moreLikeThisId(mockItems.id, 3, { maxQueryTerms: 10 }))
+  .orderBy(mockItems.id);
+```
+
 ```python Django
 from paradedb import MoreLikeThis, ParadeDB
 
@@ -337,6 +432,21 @@ WHERE id @@@ pdb.more_like_this(3, min_word_length => 5)
 ORDER BY id;
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.moreLikeThisId(mockItems.id, 3, { minWordLength: 5 }))
+  .orderBy(mockItems.id);
+```
+
 ```python Django
 from paradedb import MoreLikeThis, ParadeDB
 
@@ -378,6 +488,21 @@ SELECT id, description, rating, category
 FROM mock_items
 WHERE id @@@ pdb.more_like_this(3, stopwords => ARRAY['the', 'a'])
 ORDER BY id;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.moreLikeThisId(mockItems.id, 3, { stopwords: ["the", "a"] }))
+  .orderBy(mockItems.id);
 ```
 
 ```python Django

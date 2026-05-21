@@ -37,7 +37,7 @@
                   {
                     "group": "Getting Started",
                     "pages": [
-                      "welcome/ai-agents",
+                      "documentation/getting-started/ai-agents",
                       "documentation/getting-started/install",
                       "documentation/getting-started/environment",
                       "documentation/getting-started/queries",

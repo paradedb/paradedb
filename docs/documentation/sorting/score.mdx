@@ -19,11 +19,26 @@ ORDER BY pdb.score(id) DESC
 LIMIT 5;
 ```
 
+```ts Drizzle
+import { desc } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    score: search.score(mockItems.id),
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "shoes"))
+  .orderBy(desc(search.score(mockItems.id)))
+  .limit(5);
+```
+
 ```python Django
-from paradedb import Match, ParadeDB, Score
+from paradedb import MatchAny, ParadeDB, Score
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('shoes', operator='OR'))
+    description=ParadeDB(MatchAny('shoes'))
 ).annotate(
     score=Score()
 ).values('id', 'score').order_by('-score')[:5]
@@ -68,12 +83,32 @@ ORDER BY pdb.score(id) DESC
 LIMIT 5;
 ```
 
+```ts Drizzle
+import { desc, lt, or } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    score: search.score(mockItems.id),
+  })
+  .from(mockItems)
+  .where(
+    or(
+      search.matchAny(mockItems.description, "keyboard"),
+      lt(mockItems.rating, 2),
+    ),
+  )
+  .orderBy(desc(search.score(mockItems.id)))
+  .limit(5);
+```
+
 ```python Django
 from django.db.models import Q
-from paradedb import Match, ParadeDB, Score
+from paradedb import MatchAny, ParadeDB, Score
 
 MockItem.objects.filter(
-    Q(description=ParadeDB(Match('keyboard', operator='OR'))) | Q(rating__lt=2)
+    Q(description=ParadeDB(MatchAny('keyboard'))) | Q(rating__lt=2)
 ).annotate(
     score=Score()
 ).values('id', 'score').order_by('-score')[:5]
@@ -144,14 +179,39 @@ ORDER BY score DESC, o.order_id
 LIMIT 5;
 ```
 
+```ts Drizzle
+import { and, desc, eq, sql } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+const score = sql`${search.score(orders.orderId)} + ${search.score(mockItems.id)}`;
+
+await db
+  .select({
+    orderId: orders.orderId,
+    customerName: orders.customerName,
+    description: mockItems.description,
+    score,
+  })
+  .from(orders)
+  .innerJoin(mockItems, eq(orders.productId, mockItems.id))
+  .where(
+    and(
+      search.matchAny(orders.customerName, "Johnson"),
+      search.matchAny(mockItems.description, "running shoes"),
+    ),
+  )
+  .orderBy(desc(score), orders.orderId)
+  .limit(5);
+```
+
 ```python Django
 from django.db.models import F, FloatField
 from django.db.models.expressions import RawSQL
-from paradedb import Match, ParadeDB, Score
+from paradedb import MatchAny, ParadeDB, Score
 
 Order.objects.filter(
-    customer_name=ParadeDB(Match('Johnson', operator='OR')),
-    product__description=ParadeDB(Match('running shoes', operator='OR')),
+    customer_name=ParadeDB(MatchAny('Johnson')),
+    product__description=ParadeDB(MatchAny('running shoes')),
 ).annotate(
     order_score=Score(),
     product_score=RawSQL('pdb.score(mock_items.id)', [], output_field=FloatField()),

@@ -49,12 +49,14 @@ jobs:
       # The job can be triggered manually by attaching the `benchmark` label to a PR. This step
       # removes the label once the job has started, so it can be applied again if needed.
       - name: Maybe Remove Label
-        uses: actions-ecosystem/action-remove-labels@v1
-        if: github.event_name == 'pull_request' && github.event.label.name == 'benchmark' || github.event_name == 'pull_request' && github.event.label.name == 'benchmark-stressgres'
-        with:
-          labels: |
-            benchmark
-            benchmark-stressgres
+        if: github.event_name == 'pull_request' && (github.event.label.name == 'benchmark' || github.event.label.name == 'benchmark-stressgres')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr edit ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --remove-label benchmark \
+            --remove-label benchmark-stressgres || true
 
       - name: Determine Ref to Benchmark
         id: determine-ref
@@ -222,7 +224,8 @@ jobs:
         with:
           test_file: single-server.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
@@ -232,7 +235,8 @@ jobs:
         with:
           test_file: bulk-updates.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
@@ -242,7 +246,8 @@ jobs:
         with:
           test_file: wide-table.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
@@ -252,7 +257,8 @@ jobs:
         with:
           test_file: background-merge.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
@@ -262,10 +268,23 @@ jobs:
         with:
           test_file: logical-replication.toml
           ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
-          github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+          github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
           pr_label: ${{ steps.pr_label.outputs.result }}
+
+      # Disabled pending https://github.com/paradedb/paradedb/issues/5076
+      # - name: Benchmark logical-replication-merge.toml
+      #   uses: ./.github/actions/benchmark-stressgres
+      #   with:
+      #     test_file: logical-replication-merge.toml
+      #     ref: ${{ steps.determine-ref.outputs.ref || steps.commit_info.outputs.short_commit }}
+      #     github_app_id: ${{ vars.PARADEDB_GITHUB_APP_CLIENT_ID }}
+      #     github_app_private_key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
+      #     slack_oauth_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+      #     slack_channel: ${{ secrets.SLACK_BENCHMARKS_CHANNEL_ID }}
+      #     pr_label: ${{ steps.pr_label.outputs.result }}
 
       - name: Notify Slack on Failure (push only)
         if: failure() && github.event_name == 'push'

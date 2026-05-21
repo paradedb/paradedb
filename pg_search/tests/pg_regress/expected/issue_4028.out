@@ -24,8 +24,8 @@ SELECT * FROM test
 WHERE lower(description) === 'cloud engineer'
 ORDER BY lower(description)
 LIMIT 10;
-                                                          QUERY PLAN                                                           
--------------------------------------------------------------------------------------------------------------------------------
+                                                QUERY PLAN                                                 
+-----------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on test
          Table: test
@@ -34,7 +34,7 @@ LIMIT 10;
          Scores: false
             TopK Order By: description asc
             TopK Limit: 10
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"cloud engineer","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"cloud engineer"}}}}
 (9 rows)
 
 SELECT * FROM test

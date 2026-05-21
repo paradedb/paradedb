@@ -1,7 +1,7 @@
 # workflows/schemabot-generate-diff.yml
 #
 # SchemaBot Generate Diff
-# Determine if a commit introduces an extension schema change for pg_search and post a comment to the PR.
+# Determine if a commit introduces an extension schema change for pg_search
 
 name: SchemaBot Generate Diff
 

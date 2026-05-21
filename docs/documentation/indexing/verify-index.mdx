@@ -21,6 +21,12 @@ The `pdb.verify_index` function performs structural integrity checks on a BM25 i
 SELECT * FROM pdb.verify_index('search_idx');
 ```
 
+```ts Drizzle
+import { diagnostics } from "@paradedb/drizzle-paradedb";
+
+await db.execute(diagnostics.verifyIndex("search_idx"));
+```
+
 ```python Django
 from paradedb import paradedb_verify_index
 
@@ -65,6 +71,16 @@ To verify that all indexed entries still exist in the heap table, use the `heapa
 <CodeGroup>
 ```sql SQL
 SELECT * FROM pdb.verify_index('search_idx', heapallindexed := true);
+```
+
+```ts Drizzle
+import { diagnostics } from "@paradedb/drizzle-paradedb";
+
+await db.execute(
+  diagnostics.verifyIndex("search_idx", {
+    heapAllIndexed: true,
+  }),
+);
 ```
 
 ```python Django
@@ -116,6 +132,17 @@ SELECT * FROM pdb.verify_index('search_idx',
 );
 ```
 
+```ts Drizzle
+import { diagnostics } from "@paradedb/drizzle-paradedb";
+
+await db.execute(
+  diagnostics.verifyIndex("search_idx", {
+    heapAllIndexed: true,
+    sampleRate: 0.1,
+  }),
+);
+```
+
 ```python Django
 from paradedb import paradedb_verify_index
 
@@ -156,6 +183,17 @@ For long-running verifications, enable progress reporting to see status updates:
 SELECT * FROM pdb.verify_index('search_idx',
     heapallindexed := true,
     report_progress := true
+);
+```
+
+```ts Drizzle
+import { diagnostics } from "@paradedb/drizzle-paradedb";
+
+await db.execute(
+  diagnostics.verifyIndex("search_idx", {
+    heapAllIndexed: true,
+    reportProgress: true,
+  }),
 );
 ```
 
@@ -205,6 +243,18 @@ SELECT * FROM pdb.verify_index('search_idx',
 );
 ```
 
+```ts Drizzle
+import { diagnostics } from "@paradedb/drizzle-paradedb";
+
+await db.execute(
+  diagnostics.verifyIndex("search_idx", {
+    heapAllIndexed: true,
+    reportProgress: true,
+    verbose: true,
+  }),
+);
+```
+
 ```python Django
 from paradedb import paradedb_verify_index
 
@@ -248,6 +298,16 @@ To stop verification immediately when the first error is found (similar to `pg_a
 SELECT * FROM pdb.verify_index('search_idx', on_error_stop := true);
 ```
 
+```ts Drizzle
+import { diagnostics } from "@paradedb/drizzle-paradedb";
+
+await db.execute(
+  diagnostics.verifyIndex("search_idx", {
+    onErrorStop: true,
+  }),
+);
+```
+
 ```python Django
 from paradedb import paradedb_verify_index
 
@@ -287,6 +347,12 @@ First, list all segments in the index:
 <CodeGroup>
 ```sql SQL
 SELECT * FROM pdb.index_segments('search_idx');
+```
+
+```ts Drizzle
+import { diagnostics } from "@paradedb/drizzle-paradedb";
+
+await db.execute(diagnostics.indexSegments("search_idx"));
 ```
 
 ```python Django
@@ -334,6 +400,36 @@ SELECT * FROM pdb.verify_index('search_idx',
     segment_ids := ARRAY[1, 3]
 );
 
+```
+
+```ts Drizzle
+import { diagnostics } from "@paradedb/drizzle-paradedb";
+
+const segments = await db.execute(diagnostics.indexSegments("search_idx"));
+const evenSegments = segments
+  .map((row) => row.segment_idx)
+  .filter((segmentIdx) => segmentIdx % 2 === 0);
+const oddSegments = segments
+  .map((row) => row.segment_idx)
+  .filter((segmentIdx) => segmentIdx % 2 === 1);
+
+// Worker 1: Verify even segments
+await db.execute(
+  diagnostics.verifyIndex("search_idx", {
+    heapAllIndexed: true,
+    segmentIds: evenSegments,
+  }),
+);
+
+// Worker 2: Verify odd segments
+if (oddSegments.length) {
+  await db.execute(
+    diagnostics.verifyIndex("search_idx", {
+      heapAllIndexed: true,
+      segmentIds: oddSegments,
+    }),
+  );
+}
 ```
 
 ```python Django
@@ -415,6 +511,21 @@ SELECT * FROM pdb.verify_index('search_idx',
 
 ```
 
+```ts Drizzle
+import { diagnostics } from "@paradedb/drizzle-paradedb";
+
+const segments = await db.execute(diagnostics.indexSegments("search_idx"));
+
+await db.execute(
+  diagnostics.verifyIndex("search_idx", {
+    heapAllIndexed: true,
+    segmentIds: segments
+      .map((row) => row.segment_idx)
+      .filter((segmentIdx) => segmentIdx % 4 === 0),
+  }),
+);
+```
+
 ```python Django
 from paradedb import paradedb_index_segments, paradedb_verify_index
 
@@ -464,6 +575,11 @@ To verify all BM25 indexes in the database at once:
 SELECT * FROM pdb.verify_all_indexes();
 ```
 
+```ts Drizzle
+import { diagnostics } from "@paradedb/drizzle-paradedb";
+
+await db.execute(diagnostics.verifyAllIndexes());
+```
 ```python Django
 from paradedb import paradedb_verify_all_indexes
 
@@ -479,6 +595,7 @@ diagnostics.paradedb_verify_all_indexes(engine)
 ```ruby Rails
 ParadeDB.paradedb_verify_all_indexes()
 ```
+
 </CodeGroup>
 
 ### Filtering by Pattern
@@ -498,6 +615,33 @@ SELECT * FROM pdb.verify_all_indexes(
     schema_pattern := 'app_%',
     index_pattern := '%_idx',
     heapallindexed := true
+);
+```
+
+```ts Drizzle
+import { diagnostics } from "@paradedb/drizzle-paradedb";
+
+// Verify indexes in the 'public' schema only
+await db.execute(
+  diagnostics.verifyAllIndexes({
+    schemaPattern: "public",
+  }),
+);
+
+// Verify indexes matching a name pattern
+await db.execute(
+  diagnostics.verifyAllIndexes({
+    indexPattern: "search_%",
+  }),
+);
+
+// Combine filters
+await db.execute(
+  diagnostics.verifyAllIndexes({
+    schemaPattern: "public",
+    indexPattern: "search_%",
+    heapAllIndexed: true,
+  }),
 );
 ```
 
@@ -566,6 +710,12 @@ To see all BM25 indexes in the database with summary statistics:
 <CodeGroup>
 ```sql SQL
 SELECT * FROM pdb.indexes();
+```
+
+```ts Drizzle
+import { diagnostics } from "@paradedb/drizzle-paradedb";
+
+await db.execute(diagnostics.indexes());
 ```
 
 ```python Django

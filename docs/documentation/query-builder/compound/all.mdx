@@ -29,6 +29,37 @@ ORDER BY rating
 LIMIT 5;
 ```
 
+```ts Drizzle
+import { and, isNotNull } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+// Top K executed by standard Postgres
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(isNotNull(mockItems.rating))
+  .orderBy(mockItems.rating)
+  .limit(5);
+
+// Top K executed by ParadeDB
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(and(isNotNull(mockItems.rating), search.all(mockItems.id)))
+  .orderBy(mockItems.rating)
+  .limit(5);
+```
+
 ```python Django
 from paradedb import All, ParadeDB
 

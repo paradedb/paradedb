@@ -16,6 +16,14 @@ USING bm25 (id, description, rating)
 WITH (key_field = 'id');
 ```
 
+```ts Drizzle
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(mockItems.id, mockItems.description, mockItems.rating);
+```
+
 ```python Django
 from django.db import connection
 from paradedb.indexes import BM25Index
@@ -74,6 +82,21 @@ To enable columnar indexing for text and JSON fields, cast the field to a [token
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.unicode_words('columnar=true')), rating)
 WITH (key_field = 'id');
+```
+
+```ts Drizzle
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(
+    mockItems.id,
+    indexing.bm25Field(
+      mockItems.description,
+      tokenizer.unicodeWords({ columnar: true }),
+    ),
+    mockItems.rating,
+  );
 ```
 
 ```python Django

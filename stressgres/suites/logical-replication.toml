@@ -6,7 +6,6 @@ postgresql_conf = "Publisher"
 [server.setup]
 sql = """
 DROP TABLE IF EXISTS test CASCADE;
-CREATE EXTENSION IF NOT EXISTS pg_search;
 CREATE TABLE test (
     id SERIAL8 NOT NULL PRIMARY KEY,
     message TEXT,
@@ -204,7 +203,7 @@ log_tps = false
 title = "Update 1..9"
 cancel_keycode = 'U'
 sql = """
-UPDATE test SET message = array_to_string((string_to_array(message, ' '))[1:array_upper(string_to_array(message, ' '), 1) - 1], ' ') || ' ' || txid_current(), old_message = message WHERE id < 10;
+UPDATE test SET message = array_to_string((string_to_array(message, ' '))[1:array_length(string_to_array(message, ' '), 1) - 1], ' ') || ' ' || lpad((txid_current() % 10000)::text, 5, '0'), old_message = message WHERE id < 10;
 """
 destinations = ["Publisher"]
 
@@ -215,7 +214,7 @@ title = "Update 10,11"
 cancel_keycode = 'U'
 sql = """
 BEGIN;
-UPDATE test SET message = array_to_string((string_to_array(message, ' '))[1:array_upper(string_to_array(message, ' '), 1) - 1], ' ') || ' ' || txid_current(), old_message = message WHERE id IN (10, 11);
+UPDATE test SET message = array_to_string((string_to_array(message, ' '))[1:array_length(string_to_array(message, ' '), 1) - 1], ' ') || ' ' || lpad((txid_current() % 10000)::text, 5, '0'), old_message = message WHERE id IN (10, 11);
 ABORT;
 """
 destinations = ["Publisher"]

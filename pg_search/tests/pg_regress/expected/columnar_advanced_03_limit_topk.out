@@ -509,8 +509,8 @@ FROM limit_topk_test
 WHERE (rating BETWEEN 2.5 AND 4.5) AND category @@@ 'Toys OR Clothing'
 ORDER BY price DESC
 LIMIT 8;
-                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                            
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                       QUERY PLAN                                                                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on limit_topk_test
          Table: limit_topk_test
@@ -519,7 +519,7 @@ LIMIT 8;
          Scores: false
             TopK Order By: price desc
             TopK Limit: 8
-         Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"included":2.5},"upper_bound":null,"is_datetime":false}},{"range":{"field":"rating","lower_bound":null,"upper_bound":{"included":4.5},"is_datetime":false}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Toys OR Clothing","lenient":null,"conjunction_mode":null}}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"range":{"field":"rating","lower_bound":{"included":2.5},"upper_bound":null}},{"range":{"field":"rating","lower_bound":null,"upper_bound":{"included":4.5}}},{"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Toys OR Clothing","lenient":null,"conjunction_mode":null}}}}]}}
 (9 rows)
 
 SELECT title, category, rating, price

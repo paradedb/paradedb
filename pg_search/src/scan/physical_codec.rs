@@ -513,9 +513,9 @@ fn encode_tantivy_lookup(node: &dyn ExecutionPlan) -> Result<TantivyLookupProto>
 }
 
 /// Walk an `Arc<dyn ExecutionPlan>` and collect `(indexrelid → Arc<FFHelper>)` mappings from
-/// every `PgSearchScanPlan` node that carries a non-`None` `ffhelper`. Matches what the leader
-/// does in `LateMaterializePlanner::plan_extension` via the private
-/// `late_materialization::extract_ff_helper` function.
+/// every `PgSearchScanPlan` node that carries deferred fields and a non-`None` `ffhelper`.
+/// Matches the leader's `late_materialization::extract_ff_helper` exactly — both the
+/// `has_deferred_fields()` gate and the `ffhelper().is_some()` gate.
 ///
 /// The Phase 2 reconstruction of `PgSearchScanPlan` produces real per-scan `FFHelper`s; this
 /// walk lets downstream execs (`TantivyLookupExec`, `SegmentedTopKExec`) reuse them without
@@ -526,8 +526,10 @@ fn collect_ffhelpers_from_input(
 ) {
     use crate::scan::execution_plan::PgSearchScanPlan;
     if let Some(scan) = plan.as_any().downcast_ref::<PgSearchScanPlan>() {
-        if let Some(ff) = scan.ffhelper() {
-            out.insert(scan.indexrelid, ff);
+        if scan.has_deferred_fields() {
+            if let Some(ff) = scan.ffhelper() {
+                out.insert(scan.indexrelid, ff);
+            }
         }
     }
     for child in plan.children() {
@@ -538,7 +540,7 @@ fn collect_ffhelpers_from_input(
 fn decode_tantivy_lookup(
     proto: TantivyLookupProto,
     inputs: &[Arc<dyn ExecutionPlan>],
-    _ctx: &TaskContext,
+    ctx: &TaskContext,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     use crate::api::HashMap;
     use crate::index::fast_fields_helper::{CanonicalColumn, FFHelper};
@@ -573,16 +575,33 @@ fn decode_tantivy_lookup(
     // Reconstruct the FFHelper map from the input plan's PgSearchScanPlan nodes. Phase 2's
     // reconstruction in `decode_pgsearch_scan` builds real FFHelpers; walking the inputs here
     // pulls them out keyed by indexrelid, the same recipe the leader uses
-    // (`LateMaterializePlanner` calls `extract_ff_helper`). Fall back to an empty `FFHelper`
-    // for any indexrelid in the proto that isn't present in the input walk — that can only
-    // happen if a scan reconstruction fell back to the empty-states placeholder, and the
-    // resulting downstream lookup miss will surface as a clear error at the next access.
+    // (`LateMaterializePlanner` calls `extract_ff_helper`, gated identically by both
+    // `has_deferred_fields()` and `ffhelper().is_some()`).
+    //
+    // In production (`MppReconstructionContext` present on the TaskContext) every relid in
+    // `proto.indexrelids` must be covered by the walk — substituting `FFHelper::empty()`
+    // would panic later (segment_caches OOB at first access). Hard-error at decode time so
+    // the failure points at the right layer. Round-trip tests that use `EmptyExec` inputs
+    // (no PgSearchScanPlan to walk) intentionally fall through to empty FFHelpers — they
+    // exercise wire-shape, not runtime semantics, and the test ctx lacks the extension.
+    let in_production = ctx
+        .session_config()
+        .get_extension::<MppReconstructionContext>()
+        .is_some();
     let mut ffhelpers: HashMap<u32, std::sync::Arc<FFHelper>> = HashMap::default();
     collect_ffhelpers_from_input(&input, &mut ffhelpers);
     for relid in &proto.indexrelids {
-        ffhelpers
-            .entry(*relid)
-            .or_insert_with(|| std::sync::Arc::new(FFHelper::empty()));
+        if !ffhelpers.contains_key(relid) {
+            if in_production {
+                return Err(DataFusionError::Internal(format!(
+                    "decode_tantivy_lookup: missing reconstructed FFHelper for indexrelid={relid}; \
+                     the input PgSearchScan must have fallen back to the empty-states placeholder. \
+                     Check that `MppReconstructionContext` is attached to the worker's TaskContext \
+                     in `on_subplan` and that `table_provider_json` is non-empty on the wire."
+                )));
+            }
+            ffhelpers.insert(*relid, std::sync::Arc::new(FFHelper::empty()));
+        }
     }
 
     let exec = TantivyLookupExec::new(input, deferred_fields, ffhelpers)?;
@@ -720,16 +739,42 @@ fn decode_segmented_topk(
     // SegmentedTopKExec takes a single FFHelper — the leader picks `target_indexrelid`
     // (`segmented_topk_rule.rs:271`) and pulls the FFHelper from the parent TantivyLookupExec
     // by that key. Mirror that here: walk the input plan for FFHelpers and pick the entry
-    // matching the first deferred-column's indexrelid (the proto's `indexrelids` is already
-    // single-element when SegmentedTopK lands — `segmented_topk_rule.rs:260-269` falls back
-    // to a non-pushdown SortExec when the sort spans multiple indexes).
+    // matching the first deferred-column's indexrelid.
+    //
+    // `segmented_topk_rule.rs:260-269` enforces a single-relid invariant on the leader
+    // (returns `Ok(None)` if the deferred-column set is empty or spans multiple relids), so
+    // in production an empty `proto.indexrelids` or a missing walker entry is a hard failure
+    // — `FFHelper::empty()` would panic later (segment_caches OOB). Round-trip tests with
+    // `EmptyExec` inputs fall through to empty (same rationale as `decode_tantivy_lookup`).
+    let in_production = ctx
+        .session_config()
+        .get_extension::<MppReconstructionContext>()
+        .is_some();
     let mut input_ffhelpers: crate::api::HashMap<u32, std::sync::Arc<FFHelper>> =
         crate::api::HashMap::default();
     collect_ffhelpers_from_input(&input, &mut input_ffhelpers);
-    let target_indexrelid = proto.indexrelids.first().copied().unwrap_or(0);
-    let ffhelper = input_ffhelpers
-        .remove(&target_indexrelid)
-        .unwrap_or_else(|| std::sync::Arc::new(FFHelper::empty()));
+    let ffhelper = match proto.indexrelids.first().copied() {
+        Some(rid) => match input_ffhelpers.remove(&rid) {
+            Some(ff) => ff,
+            None if in_production => {
+                return Err(DataFusionError::Internal(format!(
+                    "decode_segmented_topk: missing reconstructed FFHelper for \
+                     target_indexrelid={rid}; the input PgSearchScan / TantivyLookup must have \
+                     fallen back to placeholders"
+                )));
+            }
+            None => std::sync::Arc::new(FFHelper::empty()),
+        },
+        None if in_production => {
+            return Err(DataFusionError::Internal(
+                "decode_segmented_topk: proto.indexrelids is empty; SegmentedTopK requires \
+                 exactly one deferred-column indexrelid (enforced by \
+                 segmented_topk_rule.rs:260-269)"
+                    .into(),
+            ));
+        }
+        None => std::sync::Arc::new(FFHelper::empty()),
+    };
 
     let exec = SegmentedTopKExec::new(
         input,

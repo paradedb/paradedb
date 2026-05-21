@@ -53,7 +53,7 @@ use crate::postgres::customscan::mpp::worker_fragments::{
 };
 use crate::postgres::customscan::parallel::list_segment_ids;
 use crate::postgres::ParallelScanState;
-use crate::scan::codec::{deserialize_logical_plan_with_runtime, PgSearchPhysicalCodecStub};
+use crate::scan::codec::deserialize_logical_plan_with_runtime;
 
 /// Bundle of inputs the worker dispatcher needs. Per-scan `exec_mpp_worker` wrappers populate
 /// this from their typed state and hand it to [`run_mpp_worker`].
@@ -127,7 +127,20 @@ pub(crate) fn build_mpp_session_context(
         .with_distributed_task_estimator(n_workers)
         .with_distributed_broadcast_joins(true)
         .expect("with_distributed_broadcast_joins")
-        .with_distributed_user_codec(PgSearchPhysicalCodecStub)
+        // No `with_distributed_user_codec(...)` line is needed because:
+        //   (a) we hard-wire `with_distributed_in_process_mode(true)` two lines above, and
+        //   (b) fork PR paradedb/datafusion-distributed#8 short-circuits the eager
+        //       `PhysicalPlanNode::try_from_physical_plan(stage.plan, codec).encode_to_vec()`
+        //       inside `CoordinatorToWorkerTaskSpawner::new` whenever in-process mode is
+        //       on. With (a) + (b), no physical codec is consulted at any point. Workers
+        //       re-plan from the logical plan we ship via DSM and never decode a physical
+        //       subplan over the wire.
+        //
+        // If `in_process_mode = false` is ever exercised (e.g. a remote-worker mode
+        // appears), restore `.with_distributed_user_codec(...)` here for our custom execs
+        // (`PgSearchScan`, `VisibilityFilterExec`, `SegmentedTopKExec`, `TantivyLookupExec`,
+        // `FilterPassthroughExec`); the default `DistributedCodec` will otherwise fail with
+        // `Unexpected plan {name}` from `try_encode` on the first one it meets.
         .with_distributed_planner();
     SessionContext::new_with_state(state_builder.build())
 }

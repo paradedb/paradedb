@@ -237,18 +237,20 @@ pub(crate) fn run_mpp_worker(
     worker_mesh.install_subplan_handler(Arc::clone(&registry)
         as Arc<dyn crate::postgres::customscan::mpp::transport::SubplanHandler>);
 
-    // Pump the drain once to deliver any Subplan frames that landed before the handlers were
-    // installed. The leader ships subplans early (before its own NetworkBoundaryExec consumers
-    // issue Requests), so the worker's first drain pump usually finds a full set of Subplan
-    // frames waiting. Pumping here puts those into `shipped_subplans` before the prewarm loop
-    // calls `prepare_task` — otherwise prewarm would observe an empty map and fall back to
-    // local-prepare, caching a locally-built plan in `prepared` that subsequent `on_request`
-    // calls would hit before the shipped subplan check.
+    // Pump the drain once to deliver any Subplan frames that already landed before the
+    // handlers were installed. Pumping here puts those into `shipped_subplans` so the prewarm
+    // loop below calls `prepare_task` against a populated map. Workers can still enter
+    // `run_mpp_worker` before the leader's `ship_subplans_to_workers` completes (no PG-level
+    // barrier syncs the two — leader runs in `ExecutorRun`, worker in `end_custom_scan` on
+    // its first poll), so this pump only catches what's already there; the rest of the
+    // protection lives in `ProducerTaskRegistry::on_subplan`, which invalidates any cached
+    // locally-prepared entry when a shipped subplan arrives later.
+    //
+    // Drain failures at startup are fatal — partial Subplan dispatch leaves the worker with
+    // a mixed shipped/local plan map, which silently breaks the "build once, ship many"
+    // invariant. Surface as `error!` so the query aborts instead of producing wrong rows.
     if let Err(e) = worker_mesh.drain_all_inbound() {
-        pgrx::warning!(
-            "mpp worker (proc={this_proc}): initial drain pump failed: {e}; prewarm may fall \
-             back to local-prepare for shipped (stage, task) pairs"
-        );
+        pgrx::error!("mpp worker (proc={this_proc}): initial drain pump failed: {e}");
     }
 
     // Pre-warm `(stage, task) → (prepared_plan, TaskContext)` for every task this proc owns.
@@ -259,11 +261,11 @@ pub(crate) fn run_mpp_worker(
     //
     // `proc_for_task(n_workers, t) == this_proc` picks the tasks this worker hosts (which under
     // the natural-shape estimator chain works out to `task_idx mod n_workers == this_proc - 1`).
-    // We also prewarm `task_idx == 0` on every proc to cover the broadcast cap: with
-    // `BroadcastBuildSideOneTaskEstimator` Stage 1 has one task, and every consumer requests
-    // it from the proc that owns task 0. Cheap and load-bearing — the leader only ships
-    // `(stage, 0)` to the owner proc, so non-owner procs hit the local-prepare fallback for
-    // that pair (the broadcast prewarm is what populates their `prepared` cache).
+    // We also prewarm `task_idx == 0` on every proc as a defensive cache: under the current
+    // estimator chain `proc_for_task(_, 0) == 1` always, so the broadcast Requests only ever
+    // land on proc 1 and non-owner procs never serve them. If a future estimator change
+    // re-routes broadcast tasks, those non-owner caches turn from defensive into load-bearing
+    // without code changes here.
     let n_workers = worker_mesh.n_procs.saturating_sub(1).max(1);
     let stage_task_counts: Vec<(u32, usize)> = registry.iter_task_counts().collect();
     for (stage_id, task_count) in stage_task_counts {

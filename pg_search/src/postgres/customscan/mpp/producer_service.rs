@@ -159,12 +159,12 @@ pub(super) struct ProducerTaskRegistry {
     mesh: Weak<MppMesh>,
     work_mem_bytes: usize,
     hash_mem_multiplier: f64,
-    /// Per-source canonical segment ID sets, indexed by `plan_position`. The dispatch-flip
-    /// Reconstruction context layered onto each `TaskContext` built in [`build_task_ctx`].
-    /// Carries the per-source canonical segment IDs (indexed by absolute `plan_position`) and
-    /// the worker's `ParallelScanState` pointer. Read by the physical codec's
-    /// `decode_pgsearch_scan` to rebuild `Vec<ScanState>` on shipped subplans. Empty on test
-    /// paths that don't go through `run_mpp_worker`.
+    /// Reconstruction context layered onto each `TaskContext` built in [`build_task_ctx`] and
+    /// onto the per-decode `TaskContext` in [`Self::on_subplan`]. Carries the per-source
+    /// canonical segment IDs (indexed by absolute `plan_position`) and the worker's
+    /// `ParallelScanState` pointer. Read by the physical codec's `decode_pgsearch_scan` to
+    /// rebuild `Vec<ScanState>` on shipped subplans. Empty on test paths that don't go through
+    /// `run_mpp_worker`.
     reconstruction_context: Arc<MppReconstructionContext>,
     active_drivers: Arc<AtomicUsize>,
     /// First driver error observed since startup. The service loop polls this between
@@ -176,24 +176,21 @@ pub(super) struct ProducerTaskRegistry {
     prepared: Mutex<HashMap<(u32, u32), PreparedTask>>,
     /// `(stage_id, task_idx) → decoded subplan` populated by [`Self::on_subplan`] when the
     /// leader ships a per-task subplan via a [`MppFrameKind::Subplan`](crate::postgres::customscan::mpp::transport::MppFrameKind::Subplan)
-    /// frame. `prepare_task` consults this first; when a hit lands the worker uses the
-    /// leader-prepared plan directly instead of re-running `prepare_in_process_plan` locally.
+    /// frame. `prepare_task` consults this first; on a hit the worker uses the leader-prepared
+    /// plan directly instead of re-running `prepare_in_process_plan` locally.
     ///
-    /// The fallback path (`stage_plans` → local `prepare_in_process_plan`) is what fires
-    /// during the brief startup window between worker launch and the first drain pass that
-    /// delivers the Subplan frames. It's also where queries land if the codec hits a gap —
-    /// today's `decode_pgsearch_scan` emits an empty `Vec<ScanState>` placeholder, so a
-    /// shipped subplan with a `PgSearchScan` leaf would return zero rows. The followup PR
-    /// fixes that with per-`PgSearchScanPlan` state reconstruction.
+    /// `run_mpp_worker` installs the SubplanHandler and runs one drain pump BEFORE prewarming,
+    /// so the bulk of leader-shipped subplans land in this map before `prepare_task` is ever
+    /// called. A subset can still arrive after prewarm — workers can enter `run_mpp_worker`
+    /// before the leader's `ship_subplans_to_workers` completes (there's no PG-level barrier
+    /// between leader's `ExecutorRun` and worker's `end_custom_scan`), in which case prewarm
+    /// caches a locally-prepared entry in `prepared`. `on_subplan` invalidates that cache on
+    /// late-arriving subplans so the next `on_request` re-runs `prepare_task` and picks up the
+    /// shipped version.
     ///
-    /// **Ordering hazard.** `run_mpp_worker` calls `prewarm` for every `(stage_id, task_idx)`
-    /// this proc owns *before* installing the SubplanHandler and pumping the drain. The
-    /// prewarm path goes through `prepare_task`, which sees an empty `shipped_subplans` and
-    /// falls back to local-prepare — caching the locally-built plan in `prepared`. When real
-    /// Subplan frames arrive later, they land in `shipped_subplans`, but `on_request` reads
-    /// from `prepared` first via the per-`(stage, task, partition)` dedupe path. The followup
-    /// PR reorders prewarm vs. handler-install (and pumps the drain once before prewarm) so
-    /// shipped subplans are visible to the prep path.
+    /// The fallback path (`stage_plans` → local `prepare_in_process_plan`) still fires for
+    /// `(stage, task)` pairs the leader never ships — broadcast tasks under the current
+    /// estimator (`proc_for_task(_, 0) == 1`) on non-owner procs, plus test paths.
     shipped_subplans: Mutex<HashMap<(u32, u32), Arc<dyn ExecutionPlan>>>,
     /// `(stage_id, task_idx, partition)` set of already-dispatched drivers. Repeat Requests are
     /// dropped. Without this, a consumer that re-issued `stream_partition` would cause the
@@ -786,6 +783,24 @@ impl SubplanHandler for ProducerTaskRegistry {
             map.insert(key, decoded);
             map.len()
         };
+        // Invalidate any cached `prepared` entry for the same `(stage, task)` so the next
+        // `on_request` re-runs `prepare_task` and picks up the freshly-shipped subplan
+        // instead of a stale locally-prepared one. This closes the leader-vs-worker process
+        // race: workers can enter `run_mpp_worker` before the leader's `ship_subplans_to_workers`
+        // call completes, so prewarm may cache a locally-prepared plan that `on_request`
+        // would otherwise keep returning even after the shipped subplan arrives.
+        let prev_prepared = self
+            .prepared
+            .lock()
+            .expect("ProducerTaskRegistry prepared mutex poisoned")
+            .remove(&key);
+        if prev_prepared.is_some() {
+            crate::mpp_log!(
+                "mpp producer on_subplan: invalidated stale locally-prepared cache for \
+                 stage_id={stage_id} task_idx={task_idx}; subsequent Requests will re-prepare \
+                 from the shipped subplan"
+            );
+        }
         // Lock dropped above before the log call. `mpp_log!` expands to `pgrx::warning!` under
         // the debug GUC and ereport's; cheap to keep off the hot path.
         crate::mpp_log!(

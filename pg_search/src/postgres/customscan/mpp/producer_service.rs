@@ -226,6 +226,14 @@ pub(super) struct ProducerTaskRegistry {
     /// `(stage, task)` pairs the leader never ships — broadcast tasks under the current
     /// estimator (`proc_for_task(_, 0) == 1`) on non-owner procs, plus test paths.
     shipped_subplans: Mutex<HashMap<(u32, u32), Arc<dyn ExecutionPlan>>>,
+    /// `(stage_id, task_idx)` keys for which `on_subplan` has already run, regardless of decode
+    /// outcome. Populated on **both** the Ok and Err arms inside `on_subplan` so the prewarm
+    /// barrier in `run_mpp_worker` has a single signal that means "the leader's Subplan frame
+    /// for this key has been processed; we either have a shipped plan now or we never will".
+    /// Without this signal the barrier would either hang on silent decode failures (the
+    /// `shipped_subplans` map never gets the entry) or have to bail out on a coarse timeout
+    /// that fires before the leader actually finished shipping.
+    attempted_subplans: Mutex<HashSet<(u32, u32)>>,
     /// `(stage_id, task_idx, partition)` set of already-dispatched drivers. Repeat Requests are
     /// dropped. Without this, a consumer that re-issued `stream_partition` would cause the
     /// producer to spawn a second driver pushing duplicate frames onto the channel.
@@ -275,6 +283,7 @@ impl ProducerTaskRegistry {
             first_error: Arc::new(Mutex::new(None)),
             prepared: Mutex::new(HashMap::new()),
             shipped_subplans: Mutex::new(HashMap::new()),
+            attempted_subplans: Mutex::new(HashSet::default()),
             spawned: Mutex::new(HashSet::default()),
         }
     }
@@ -339,12 +348,30 @@ impl ProducerTaskRegistry {
         self.stage_plans.iter_task_counts()
     }
 
+    /// True iff `on_subplan` has finished processing the Subplan frame for `(stage_id,
+    /// task_idx)` — whether decode succeeded (entry in `shipped_subplans`) or failed (no entry
+    /// and the worker will fall through to local-prepare). Used by `run_mpp_worker`'s prewarm
+    /// barrier as a single deterministic signal that "shipping for this key is done", so the
+    /// barrier neither races ahead of the shipped path nor wedges forever on a silent codec
+    /// gap.
+    pub(super) fn is_subplan_attempted(&self, stage_id: u32, task_idx: u32) -> bool {
+        self.attempted_subplans
+            .lock()
+            .expect("ProducerTaskRegistry attempted_subplans mutex poisoned")
+            .contains(&(stage_id, task_idx))
+    }
+
     fn prepare_task(&self, stage_id: u32, task_idx: u32) -> Result<PreparedTask, DataFusionError> {
         // Prefer a leader-shipped subplan when one is present in `shipped_subplans` — that's
         // the dispatch-flip's "build once on the leader, ship many" path. Fall back to local
-        // re-plan if nothing has been shipped for this `(stage_id, task_idx)` yet (only
-        // possible during the brief window between worker startup and the first drain pass
-        // that delivers the subplan).
+        // re-plan if nothing has been shipped for this `(stage_id, task_idx)` — either
+        // because the shipping race hasn't settled yet (Phase A's prewarm barrier in
+        // `run_mpp_worker` narrows that window), OR because `on_subplan` failed to decode
+        // the shipped bytes (codec gap, e.g. SegmentedTopK above a NetworkBoundary that
+        // hides the input PgSearchScan from the FFHelper walker). The fallback is the
+        // always-correct path: it builds the plan locally on the worker the same way the
+        // leader did. Closing those codec gaps is tracked separately from the worker-
+        // simplification phases.
         if let Some(shipped) = self
             .shipped_subplans
             .lock()
@@ -371,16 +398,11 @@ impl ProducerTaskRegistry {
                 ctx: task_ctx,
             });
         }
-        // Fallback: build the prepared plan locally from `stage_plans`, same recipe as
-        // pre-dispatch-flip. Two surviving uses after the state-reconstruction PR:
-        //   1. `broadcast_zero` prewarm on non-owner procs — the leader ships `(stage, 0)`
-        //      to the task-0 owner only, so non-owner procs prewarm via local-prepare.
-        //   2. Tests / future paths that drive `prepare_task` without a shipped subplan map.
-        //
-        // No reconstruction context: this path goes through `DistributedExec
-        // ::prepare_in_process_plan` over `stage_plans` directly, never through the physical
-        // codec's `decode_pgsearch_scan`, so the extension would never be read. Pass `None`
-        // so it's clear from the call site that the fallback is by-design extension-free.
+        // Local-prepare fallback. No reconstruction context: this path goes through
+        // `DistributedExec::prepare_in_process_plan` over `stage_plans` directly, never
+        // through the physical codec's `decode_pgsearch_scan`, so the extension would never
+        // be read. Pass `None` so the call site signals the fallback is extension-free
+        // by design.
         let (plan, task_count) = self.stage_plans.lookup(stage_id).ok_or_else(|| {
             DataFusionError::Internal(format!(
                 "mpp producer: no plan registered for stage_id={stage_id}"
@@ -791,20 +813,33 @@ impl SubplanHandler for ProducerTaskRegistry {
             .clone()
             .with_extension(Arc::clone(&self.reconstruction_context));
         let task_ctx = Arc::new(TaskContext::default().with_session_config(decode_cfg));
-        let decoded = match physical_plan_from_bytes_with_extension_codec(
-            payload.as_slice(),
-            &task_ctx,
-            &codec,
-        ) {
+        let decode_result =
+            physical_plan_from_bytes_with_extension_codec(payload.as_slice(), &task_ctx, &codec);
+        // Whether the decode succeeded or not, the leader's Subplan frame for this key has
+        // now been processed. Record that in `attempted_subplans` so the prewarm barrier in
+        // `run_mpp_worker` can stop waiting and either consume the shipped plan (Ok arm) or
+        // fall through to `prepare_task`'s local-prepare path (Err arm). Mutating this
+        // unconditionally before branching keeps the barrier's invariant trivially correct:
+        // `attempted` is set exactly once per key, regardless of which arm runs.
+        {
+            let mut attempted = self
+                .attempted_subplans
+                .lock()
+                .expect("ProducerTaskRegistry attempted_subplans mutex poisoned");
+            attempted.insert(key);
+        }
+        let decoded = match decode_result {
             Ok(decoded) => decoded,
             Err(e) => {
                 // Per-subplan decode gaps (cross-stage FFHelper reconstruction misses, etc.)
-                // are NOT fatal: `prepare_task` will fall back to the worker's local-prepare
+                // are NOT fatal: `prepare_task` falls back to the worker's local-prepare
                 // path (via `stage_plans`) for any `(stage, task)` whose shipped subplan
                 // failed to decode. That fallback is the always-correct path — it builds the
                 // plan locally on the worker the same way the leader did, so execution
                 // produces correct rows, just at the cost of skipping the dispatch-flip's
-                // "build once on the leader, ship many" optimization for this pair.
+                // "build once on the leader, ship many" optimization for this pair. The
+                // worker-simplification phases keep this safety net until the codec
+                // coverage audit closes the remaining decode gaps.
                 //
                 // Returning Ok here keeps the drain pump healthy. Returning Err would abort
                 // the worker via the drain pump's `error!`, taking down query execution for

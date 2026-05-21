@@ -237,55 +237,63 @@ pub(crate) fn run_mpp_worker(
     worker_mesh.install_subplan_handler(Arc::clone(&registry)
         as Arc<dyn crate::postgres::customscan::mpp::transport::SubplanHandler>);
 
-    // Pump the drain once to deliver any frames already queued before the handlers were
-    // installed. Subplan frames go into `shipped_subplans` so the prewarm loop below calls
-    // `prepare_task` against a populated map. Request frames can also be in the queue if the
-    // leader has already started executing its own plan; those go through
-    // `ProducerTaskRegistry::on_request` → `tokio::spawn`, so the drain pump must run inside
-    // the runtime's context — `tokio::spawn` panics if there is no current runtime.
-    //
-    // Drain failures here are fatal — that means the underlying queue is corrupted or the
-    // mesh detached. Per-subplan decode failures are NOT surfaced: `on_subplan` swallows
-    // decode errors with `mpp_log!` so the affected `(stage, task)` falls back to
-    // `prepare_task`'s local-prepare path naturally.
-    let drain_result = {
-        let _guard = runtime.enter();
-        worker_mesh.drain_all_inbound()
-    };
-    if let Err(e) = drain_result {
-        pgrx::error!("mpp worker (proc={this_proc}): initial drain pump failed: {e}");
-    }
-
-    // Pre-warm `(stage, task) → (prepared_plan, TaskContext)` for every task this proc owns.
-    // Without this, the first Request per task pays the full
-    // `DistributedExec::prepare_in_process_plan` cost (transform_up + codec encoding) on the
-    // drain dispatch path, which stalls every other inbound until prep completes. Front-loading
-    // here makes dispatch a pure cache lookup.
-    //
-    // `proc_for_task(n_workers, t) == this_proc` picks the tasks this worker hosts (which under
-    // the natural-shape estimator chain works out to `task_idx mod n_workers == this_proc - 1`).
-    // We also prewarm `task_idx == 0` on every proc as a defensive cache: under the current
-    // estimator chain `proc_for_task(_, 0) == 1` always, so the broadcast Requests only ever
-    // land on proc 1 and non-owner procs never serve them. If a future estimator change
-    // re-routes broadcast tasks, those non-owner caches turn from defensive into load-bearing
-    // without code changes here.
+    // Enumerate the `(stage_id, task_idx)` tuples this worker owns. Only owned tasks ever
+    // receive Requests under the natural-shape estimator chain
+    // (`proc_for_task(n_workers, t) == this_proc`), so those are the only ones the prewarm
+    // barrier needs to settle before the service loop runs. The defensive `broadcast_zero`
+    // prewarm on non-owner procs that used to live here was load-bearing only via the prep-
+    // cache race the new barrier closes — under the current estimator
+    // `proc_for_task(_, 0) == 1`, so non-owner procs never serve task_idx=0 anyway.
     let n_workers = worker_mesh.n_procs.saturating_sub(1).max(1);
-    let stage_task_counts: Vec<(u32, usize)> = registry.iter_task_counts().collect();
-    for (stage_id, task_count) in stage_task_counts {
-        for task_idx in 0..task_count as u32 {
-            let owned = proc_for_task(n_workers, task_idx) == this_proc;
-            let broadcast_zero = task_idx == 0;
-            if !(owned || broadcast_zero) {
-                continue;
+    let owned_keys: Vec<(u32, u32)> = registry
+        .iter_task_counts()
+        .flat_map(|(stage_id, task_count)| {
+            (0..task_count as u32)
+                .filter(|task_idx| proc_for_task(n_workers, *task_idx) == this_proc)
+                .map(move |task_idx| (stage_id, task_idx))
+        })
+        .collect();
+
+    // Prewarm barrier: drain → wait until `on_subplan` has *attempted* the owned key (shipped
+    // OR decode-failed) → call `prewarm`. `prepare_task` then either consumes the shipped
+    // subplan (preferred) or falls through to the local-prepare path (codec-gap fallback,
+    // tracked separately). The barrier replaces the old startup-eager prewarm that raced with
+    // the leader's `ship_subplans_to_workers` and could cache a locally-prepared entry that
+    // `on_subplan` would later have to invalidate.
+    //
+    // Termination signal is `ProducerTaskRegistry::is_subplan_attempted`, set unconditionally
+    // by `on_subplan` on both Ok and Err arms. That removes the only deadlock risk the
+    // earlier `has_shipped_subplan` check carried (a silent decode failure would never flip
+    // the shipped-only bit).
+    //
+    // `runtime.enter()` is load-bearing: drain dispatch routes Request frames through
+    // `ProducerTaskRegistry::on_request` → `tokio::spawn`, which panics if there is no
+    // current runtime. Without the guard, a Request already queued at startup brings the
+    // worker down the moment it gets pulled off the queue.
+    let _guard = runtime.enter();
+    for (stage_id, task_idx) in owned_keys {
+        loop {
+            pgrx::check_for_interrupts!();
+            if let Err(e) = worker_mesh.drain_all_inbound() {
+                pgrx::error!("mpp worker (proc={this_proc}): prewarm-barrier drain failed: {e}");
             }
-            if let Err(e) = registry.prewarm(stage_id, task_idx) {
-                pgrx::warning!(
-                    "mpp worker (proc={this_proc}): prewarm stage_id={stage_id} \
-                     task_idx={task_idx} failed: {e}; will retry lazily on Request"
-                );
+            if registry.is_subplan_attempted(stage_id, task_idx) {
+                if let Err(e) = registry.prewarm(stage_id, task_idx) {
+                    // `prewarm` reaches local-prepare on a shipped-decode miss, so an error
+                    // here means the worker-local rebuild itself failed (DF planner refused
+                    // the shape, memory pool builder failed, etc.) — abort instead of
+                    // sliding into the service loop with no prepared plan for an owned task.
+                    pgrx::error!(
+                        "mpp worker (proc={this_proc}): prewarm stage_id={stage_id} \
+                         task_idx={task_idx} failed: {e}"
+                    );
+                }
+                break;
             }
+            std::thread::yield_now();
         }
     }
+    drop(_guard);
 
     // Service loop. Three pieces interleave on the single tokio task scheduler:
     //   - This loop: pumps every inbound drain, dispatching Requests.

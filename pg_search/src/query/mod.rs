@@ -35,6 +35,7 @@ use crate::api::HashMap;
 use crate::postgres::customscan::explain::{format_for_explain, ExplainFormat};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::storage::metadata::Version;
+use crate::postgres::storage::metadata::TIMESTAMP_I64_STORAGE_VERSION;
 use crate::postgres::utils::convert_pg_date_string;
 use crate::query::more_like_this::MoreLikeThisQuery;
 use crate::query::pdb_query::pdb;
@@ -1239,6 +1240,7 @@ impl SearchQueryInput {
                             field_type,
                             &search_field.field_type(),
                             field.path().as_deref(),
+                            index_created_by_version,
                         )
                         .expect("could not convert argument to search term")
                     },
@@ -1362,26 +1364,41 @@ fn convert_for_field_type(value: &OwnedValue, field_type: &FieldType) -> OwnedVa
     }
 }
 
+fn append_optimistically_parsed_datetime_to_term(
+    term: &mut Term,
+    text: &str,
+    index_created_by_version: Option<Version>,
+) {
+    if let Ok(pgdt) = PostgresDateTime::try_from_timestamptz_str(text) {
+        if let Some(version) = index_created_by_version {
+            if version >= TIMESTAMP_I64_STORAGE_VERSION {
+                term.append_type_and_fast_value(pgdt.into_inner());
+                return;
+            }
+        }
+        if let Ok(date) = tantivy::DateTime::try_from(pgdt) {
+            term.append_type_and_fast_value(date.truncate(DATE_TIME_PRECISION_INDEXED));
+            return;
+        }
+    }
+    term.append_type_and_str(text);
+}
+
 fn value_to_json_term(
     field: Field,
     value: &OwnedValue,
     path: Option<&str>,
     expand_dots: bool,
+    index_created_by_version: Option<Version>,
 ) -> Result<Term> {
     let mut term = Term::from_field_json_path(field, path.unwrap_or_default(), expand_dots);
     match value {
         OwnedValue::Str(text) => {
-            if let Ok(pgdt) = PostgresDateTime::try_from_timestamptz_str(text.as_str()) {
-                if let Ok(date) = tantivy::DateTime::try_from(pgdt) {
-                    // https://github.com/quickwit-oss/tantivy/pull/2456
-                    // It's a footgun that date needs to truncated when creating the Term
-                    term.append_type_and_fast_value(date.truncate(DATE_TIME_PRECISION_INDEXED));
-                } else {
-                    term.append_type_and_str(text);
-                }
-            } else {
-                term.append_type_and_str(text);
-            }
+            append_optimistically_parsed_datetime_to_term(
+                &mut term,
+                text.as_str(),
+                index_created_by_version,
+            );
         }
         OwnedValue::U64(value) => {
             if let Ok(i64_val) = (*value).try_into() {
@@ -1422,6 +1439,7 @@ pub fn value_to_term(
     field_type: &FieldType,
     search_field_type: &SearchFieldType,
     path: Option<&str>,
+    index_created_by_version: Option<Version>,
 ) -> Result<Term> {
     let json_options = match field_type {
         FieldType::JsonObject(ref options) => Some(options),
@@ -1429,7 +1447,13 @@ pub fn value_to_term(
     };
 
     if let Some(json_options) = json_options {
-        return value_to_json_term(field, value, path, json_options.is_expand_dots_enabled());
+        return value_to_json_term(
+            field,
+            value,
+            path,
+            json_options.is_expand_dots_enabled(),
+            index_created_by_version,
+        );
     }
 
     match (value, field_type, search_field_type) {

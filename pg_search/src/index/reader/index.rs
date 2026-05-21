@@ -546,6 +546,10 @@ impl SearchIndexReader {
         &self.schema
     }
 
+    pub fn index_created_by_version(&self) -> Option<Version> {
+        self.index_created_by_version
+    }
+
     pub fn searcher(&self) -> &Searcher {
         &self.searcher
     }

@@ -490,6 +490,7 @@ impl pdb::Query {
             } => fuzzy_term(
                 &field,
                 schema,
+                index_created_by_version,
                 value,
                 distance,
                 transposition_cost_one,
@@ -505,6 +506,7 @@ impl pdb::Query {
             } => match_query(
                 &field,
                 schema,
+                index_created_by_version,
                 searcher,
                 &value,
                 tokenizer,
@@ -522,6 +524,7 @@ impl pdb::Query {
             } => match_array_query(
                 &field,
                 schema,
+                index_created_by_version,
                 value,
                 distance,
                 transposition_cost_one,
@@ -549,48 +552,94 @@ impl pdb::Query {
                 fuzzy_data,
             )?,
 
-            pdb::Query::Phrase { phrases, slop } => {
-                phrase(&field, schema, searcher, phrases, slop)?
+            pdb::Query::Phrase { phrases, slop } => phrase(
+                &field,
+                schema,
+                index_created_by_version,
+                searcher,
+                phrases,
+                slop,
+            )?,
+            pdb::Query::PhraseArray { tokens, slop } => {
+                phrase_array(&field, schema, index_created_by_version, tokens, slop)?
             }
-            pdb::Query::PhraseArray { tokens, slop } => phrase_array(&field, schema, tokens, slop)?,
 
             pdb::Query::PhrasePrefix {
                 phrases,
                 max_expansions,
-            } => phrase_prefix(&field, schema, phrases, max_expansions)?,
+            } => phrase_prefix(
+                &field,
+                schema,
+                index_created_by_version,
+                phrases,
+                max_expansions,
+            )?,
             pdb::Query::Proximity {
                 left,
                 distance,
                 right,
             } => proximity(&field, schema, left, distance, right)?,
-            pdb::Query::TokenizedPhrase { phrase, slop } => {
-                tokenized_phrase(&field, schema, searcher, &phrase, slop)?
-            }
+            pdb::Query::TokenizedPhrase { phrase, slop } => tokenized_phrase(
+                &field,
+                schema,
+                index_created_by_version,
+                searcher,
+                &phrase,
+                slop,
+            )?,
             pdb::Query::Range {
                 lower_bound,
                 upper_bound,
-            } => range(&field, schema, lower_bound, upper_bound)?,
+            } => range(
+                &field,
+                schema,
+                index_created_by_version,
+                lower_bound,
+                upper_bound,
+            )?,
             pdb::Query::RangeContains {
                 lower_bound,
                 upper_bound,
-            } => range_contains(&field, schema, lower_bound, upper_bound)?,
+            } => range_contains(
+                &field,
+                schema,
+                index_created_by_version,
+                lower_bound,
+                upper_bound,
+            )?,
             pdb::Query::RangeIntersects {
                 lower_bound,
                 upper_bound,
-            } => range_intersects(&field, schema, lower_bound, upper_bound)?,
-            pdb::Query::RangeTerm { value } => range_term(&field, schema, &value)?,
+            } => range_intersects(
+                &field,
+                schema,
+                index_created_by_version,
+                lower_bound,
+                upper_bound,
+            )?,
+            pdb::Query::RangeTerm { value } => {
+                range_term(&field, schema, index_created_by_version, &value)?
+            }
             pdb::Query::RangeWithin {
                 lower_bound,
                 upper_bound,
-            } => range_within(&field, schema, lower_bound, upper_bound)?,
+            } => range_within(
+                &field,
+                schema,
+                index_created_by_version,
+                lower_bound,
+                upper_bound,
+            )?,
             pdb::Query::Regex { pattern } => regex(&field, schema, &pattern)?,
             pdb::Query::RegexPhrase {
                 regexes,
                 slop,
                 max_expansions,
             } => regex_phrase(&field, schema, regexes, slop, max_expansions)?,
-            pdb::Query::Term { value } => term(field, schema, &value)?,
-            pdb::Query::TermSet { terms } => term_set(field, schema, terms)?,
+            pdb::Query::Term { value } => term(field, schema, index_created_by_version, &value)?,
+            pdb::Query::TermSet { terms } => {
+                term_set(field, schema, index_created_by_version, terms)?
+            }
         };
 
         Ok(query)
@@ -742,6 +791,7 @@ fn proximity(
 fn term_set(
     field: FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     terms: Vec<OwnedValue>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
@@ -765,6 +815,7 @@ fn term_set(
                 field_type,
                 &search_field_type,
                 field.path().as_deref(),
+                index_created_by_version,
             )
             .expect("could not convert argument to search term")
         }),
@@ -774,6 +825,7 @@ fn term_set(
 fn term(
     field: FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     value: &OwnedValue,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let record_option = IndexRecordOption::WithFreqsAndPositions;
@@ -792,6 +844,7 @@ fn term(
         field_type,
         &search_field_type,
         field.path().as_deref(),
+        index_created_by_version,
     )?;
 
     Ok(Box::new(TermQuery::new(term, record_option.into())))
@@ -839,6 +892,7 @@ fn regex(
 fn range_within(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     lower_bound: Bound<OwnedValue>,
     upper_bound: Bound<OwnedValue>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
@@ -848,7 +902,7 @@ fn range_within(
     let typeoid = search_field.field_type().typeoid();
     let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
 
-    let range_field = RangeField::new(search_field.field());
+    let range_field = RangeField::new(search_field.field(), index_created_by_version);
 
     let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
     let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
@@ -991,6 +1045,7 @@ fn range_within(
 fn range_term(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     value: &OwnedValue,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
@@ -1004,7 +1059,7 @@ fn range_term(
     // - Date/time ranges: handling is determined by examining the schema
     let value = convert_value_for_range_field(value.clone(), &search_field.field_type());
 
-    let range_field = RangeField::new(search_field.field());
+    let range_field = RangeField::new(search_field.field(), index_created_by_version);
 
     let satisfies_lower_bound = BooleanQuery::new(vec![
         (
@@ -1101,6 +1156,7 @@ fn range_term(
 fn range_intersects(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     lower_bound: Bound<OwnedValue>,
     upper_bound: Bound<OwnedValue>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
@@ -1110,7 +1166,7 @@ fn range_intersects(
     let typeoid = search_field.field_type().typeoid();
 
     let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
-    let range_field = RangeField::new(search_field.field());
+    let range_field = RangeField::new(search_field.field(), index_created_by_version);
 
     let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
     let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
@@ -1256,6 +1312,7 @@ fn range_intersects(
 fn range_contains(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     lower_bound: Bound<OwnedValue>,
     upper_bound: Bound<OwnedValue>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
@@ -1264,7 +1321,7 @@ fn range_contains(
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let typeoid = search_field.field_type().typeoid();
     let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
-    let range_field = RangeField::new(search_field.field());
+    let range_field = RangeField::new(search_field.field(), index_created_by_version);
 
     let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
     let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
@@ -1413,6 +1470,7 @@ fn range_contains(
 fn range(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     lower_bound: Bound<OwnedValue>,
     upper_bound: Bound<OwnedValue>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
@@ -1474,6 +1532,7 @@ fn range(
             field_type,
             &search_field_type,
             field.path().as_deref(),
+            index_created_by_version,
         )?),
         Bound::Excluded(value) => Bound::Excluded(value_to_term(
             search_field.field(),
@@ -1481,6 +1540,7 @@ fn range(
             field_type,
             &search_field_type,
             field.path().as_deref(),
+            index_created_by_version,
         )?),
         Bound::Unbounded => Bound::Unbounded,
     };
@@ -1492,6 +1552,7 @@ fn range(
             field_type,
             &search_field_type,
             field.path().as_deref(),
+            index_created_by_version,
         )?),
         Bound::Excluded(value) => Bound::Excluded(value_to_term(
             search_field.field(),
@@ -1499,6 +1560,7 @@ fn range(
             field_type,
             &search_field_type,
             field.path().as_deref(),
+            index_created_by_version,
         )?),
         Bound::Unbounded => Bound::Unbounded,
     };
@@ -1527,6 +1589,7 @@ fn resolve_search_tokenizer(
 fn tokenized_phrase(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     searcher: &Searcher,
     phrase: &str,
     slop: Option<u32>,
@@ -1550,6 +1613,7 @@ fn tokenized_phrase(
             field_type,
             &search_field.field_type(),
             path.as_deref(),
+            index_created_by_version,
         )?;
         tokens.push(term);
     }
@@ -1570,6 +1634,7 @@ fn tokenized_phrase(
 fn phrase_prefix(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     phrases: Vec<String>,
     max_expansions: Option<u32>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
@@ -1586,6 +1651,7 @@ fn phrase_prefix(
             field_type,
             &search_field.field_type(),
             field.path().as_deref(),
+            index_created_by_version,
         )
         .unwrap()
     });
@@ -1599,6 +1665,7 @@ fn phrase_prefix(
 fn phrase(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     searcher: &Searcher,
     phrases: Vec<String>,
     slop: Option<u32>,
@@ -1625,6 +1692,7 @@ fn phrase(
                 field_type,
                 &search_field.field_type(),
                 field.path().as_deref(),
+                index_created_by_version,
             )?;
 
             terms.push(term);
@@ -1653,6 +1721,7 @@ fn phrase(
 fn phrase_array(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     mut tokens: Vec<String>,
     slop: Option<u32>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
@@ -1671,6 +1740,7 @@ fn phrase_array(
             field_type,
             &search_field.field_type(),
             field.path().as_deref(),
+            index_created_by_version,
         )?;
         Ok(Box::new(TermQuery::new(
             term,
@@ -1684,6 +1754,7 @@ fn phrase_array(
                 field_type,
                 &search_field.field_type(),
                 field.path().as_deref(),
+                index_created_by_version,
             )?;
 
             terms.push(term);
@@ -1753,6 +1824,7 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
                 tantivy_field_type,
                 &search_field.field_type(),
                 field.path().as_deref(),
+                index_created_by_version,
             )?;
             return Ok(Box::new(TermQuery::new(
                 term,
@@ -1815,6 +1887,7 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
 fn match_query(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     searcher: &Searcher,
     value: &str,
     tokenizer: Option<Value>,
@@ -1849,6 +1922,7 @@ fn match_query(
             field_type,
             &search_field.field_type(),
             field.path().as_deref(),
+            index_created_by_version,
         )?);
     }
 
@@ -1883,6 +1957,7 @@ fn match_query(
 fn match_array_query(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     tokens: Vec<String>,
     distance: Option<u8>,
     transposition_cost_one: Option<bool>,
@@ -1907,6 +1982,7 @@ fn match_array_query(
             field_type,
             &search_field.field_type(),
             field.path().as_deref(),
+            index_created_by_version,
         )?;
         let term_query: Box<dyn TantivyQuery> = match (distance, prefix) {
             (0, _) => Box::new(TermQuery::new(
@@ -1938,6 +2014,7 @@ fn match_array_query(
 fn fuzzy_term(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     value: String,
     distance: Option<u8>,
     transposition_cost_one: Option<bool>,
@@ -1953,6 +2030,7 @@ fn fuzzy_term(
         field_type,
         &search_field.field_type(),
         field.path().as_deref(),
+        index_created_by_version,
     )?;
     let distance = distance.unwrap_or(2);
     let transposition_cost_one = transposition_cost_one.unwrap_or(true);

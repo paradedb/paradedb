@@ -119,6 +119,7 @@ use tantivy::SegmentOrdinal;
 
 use crate::api::HashSet;
 use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
+use crate::postgres::storage::metadata::Version;
 use crate::query::value_to_term;
 use crate::scan::filter_pushdown::scalar_to_owned_value;
 use tantivy::query::{
@@ -682,6 +683,7 @@ fn extract_in_list_exprs<'a>(
 fn try_convert_in_list_to_query(
     in_list: &InListExpr,
     schema: &crate::schema::SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
 ) -> Option<Box<dyn Query>> {
     if in_list.negated() {
@@ -732,6 +734,7 @@ fn try_convert_in_list_to_query(
                 tantivy_field_type,
                 &field_type,
                 None,
+                index_created_by_version,
             )
             .ok()
         })
@@ -801,9 +804,12 @@ pub fn try_dynamic_filter_pushdown(
         for in_list_arc in extracted_in_lists {
             let in_list = in_list_arc.as_any().downcast_ref::<InListExpr>().unwrap();
 
-            if let Some(query) =
-                try_convert_in_list_to_query(in_list, schema, strategy_sink.clone())
-            {
+            if let Some(query) = try_convert_in_list_to_query(
+                in_list,
+                schema,
+                reader.index_created_by_version(),
+                strategy_sink.clone(),
+            ) {
                 pushed_down_queries.push(query);
                 pushed_down_pointers.insert(Arc::as_ptr(in_list_arc) as *const () as usize);
             }

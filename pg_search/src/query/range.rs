@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::storage::metadata::Version;
 use crate::query::value_to_json_term;
 use crate::schema::IndexRecordOption;
 use anyhow::Result;
@@ -42,6 +43,7 @@ const RECORD: IndexRecordOption = IndexRecordOption::WithFreqsAndPositions;
 #[derive(Clone, Debug)]
 pub struct RangeField {
     field: Field,
+    index_created_by_version: Option<Version>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -53,8 +55,11 @@ pub enum Comparison {
 }
 
 impl RangeField {
-    pub fn new(field: Field) -> Self {
-        Self { field }
+    pub fn new(field: Field, index_created_by_version: Option<Version>) -> Self {
+        Self {
+            field,
+            index_created_by_version,
+        }
     }
 
     pub fn exists(&self) -> Result<RegexQuery> {
@@ -141,7 +146,13 @@ impl RangeField {
     }
 
     fn as_range_term(&self, value: &OwnedValue, path: Option<&str>) -> Result<Term> {
-        value_to_json_term(self.field, value, path, EXPAND_DOTS)
+        value_to_json_term(
+            self.field,
+            value,
+            path,
+            EXPAND_DOTS,
+            self.index_created_by_version,
+        )
     }
 }
 

@@ -45,7 +45,8 @@ use crate::postgres::customscan::mpp::runtime::{
 use crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator;
 use crate::postgres::customscan::parallel::list_segment_ids;
 use crate::postgres::ParallelScanState;
-use crate::scan::codec::{deserialize_logical_plan_with_runtime, PgSearchPhysicalCodecStub};
+use crate::scan::codec::deserialize_logical_plan_with_runtime;
+use crate::scan::physical_codec::PgSearchPhysicalCodec;
 
 /// Bundle of inputs the worker dispatcher needs. Per-scan `exec_mpp_worker` wrappers populate
 /// this from their typed state and hand it to [`run_mpp_worker`].
@@ -86,10 +87,13 @@ pub(crate) fn build_mpp_session_context(
     //   3. distributed_broadcast_joins(true) — CollectLeft HashJoins otherwise cap their
     //      stage's task_count to Maximum(1) and propagate that cap upward, eliding shuffles
     //      above the join.
-    //   4. distributed_user_codec — the DF-D fork's prepare_plan unconditionally encodes
-    //      worker subplans for gRPC shipment; without a codec for our custom physical execs,
-    //      encoding errors before execution. In our model the encoded bytes are never observed
-    //      (workers re-plan from the logical plan in DSM), so the codec is a stub.
+    //   4. distributed_user_codec — DF-D's `DistributedCodec::new_combined_with_user` reads
+    //      the user codec back off the config when shipping subplans (leader's
+    //      `ship_subplans_to_workers`) and when decoding them on the worker (`on_subplan`).
+    //      The real `PgSearchPhysicalCodec` round-trips our four custom execs
+    //      (`VisibilityFilterExec`, `TantivyLookupExec`, `SegmentedTopKExec`, `PgSearchScan`)
+    //      plus the five built-in aggregate UDAFs (`min`/`max`/`count`/`sum`/`avg`) that
+    //      shipped `AggregateExec` plans depend on.
     let cfg = seed
         .copied_config()
         .with_target_partitions(n_workers.max(2));
@@ -111,7 +115,7 @@ pub(crate) fn build_mpp_session_context(
         .with_distributed_task_estimator(n_workers)
         .with_distributed_broadcast_joins(true)
         .expect("with_distributed_broadcast_joins")
-        .with_distributed_user_codec(PgSearchPhysicalCodecStub)
+        .with_distributed_user_codec(PgSearchPhysicalCodec)
         .with_distributed_planner()
         // Insert a `CoalesceBatchesExec` in front of every `NetworkShuffleExec` so partial-agg
         // output (often many small batches at high group cardinality) gets bundled into ~5 MB

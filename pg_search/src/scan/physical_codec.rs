@@ -326,6 +326,39 @@ impl PhysicalExtensionCodec for PgSearchPhysicalCodec {
             DataFusionError::Internal(format!("PgSearchPhysicalCodec: prost encode failed: {e}"))
         })
     }
+
+    // UDAF round-trip for the same built-in aggregates the logical codec handles
+    // (`scan/codec.rs::PgSearchExtensionCodec::try_decode_udaf`). Shipped physical plans that
+    // wrap an `AggregateExec` with `count`/`sum`/etc. reach this path; without it the worker
+    // errors with "PhysicalExtensionCodec is not provided for aggregate function {name}". The
+    // encoder writes the UDF name as bytes; the decoder rebuilds via DataFusion's built-in
+    // factories. Encoding is name-only because all five aggregates are stateless built-ins.
+    fn try_decode_udaf(
+        &self,
+        name: &str,
+        _buf: &[u8],
+    ) -> Result<Arc<datafusion::logical_expr::AggregateUDF>> {
+        use datafusion::functions_aggregate as dfa;
+        match name {
+            "min" => Ok(dfa::min_max::min_udaf()),
+            "max" => Ok(dfa::min_max::max_udaf()),
+            "count" => Ok(dfa::count::count_udaf()),
+            "sum" => Ok(dfa::sum::sum_udaf()),
+            "avg" => Ok(dfa::average::avg_udaf()),
+            _ => Err(DataFusionError::NotImplemented(format!(
+                "PgSearchPhysicalCodec::try_decode_udaf: aggregate '{name}' not registered"
+            ))),
+        }
+    }
+
+    fn try_encode_udaf(
+        &self,
+        node: &datafusion::logical_expr::AggregateUDF,
+        buf: &mut Vec<u8>,
+    ) -> Result<()> {
+        buf.extend_from_slice(node.name().as_bytes());
+        Ok(())
+    }
 }
 
 // ---------- VisibilityFilterExec ----------

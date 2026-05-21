@@ -44,11 +44,11 @@ await db
 
 ```python Django
 from django.db.models import Q
-from paradedb import Match, ParadeDB, Score
+from paradedb import Boost, MatchAny, ParadeDB, Score
 
 MockItem.objects.filter(
-    Q(description=ParadeDB(Match('shoes', operator='OR', boost=2))) |
-    Q(category=ParadeDB(Match('footwear', operator='OR')))
+    Q(description=ParadeDB(MatchAny(Boost('shoes', 2)))) |
+    Q(category=ParadeDB(MatchAny('footwear')))
 ).annotate(
     score=Score()
 ).values('id', 'score', 'description', 'category').order_by('-score')[:5]
@@ -123,10 +123,10 @@ await db
 ```
 
 ```python Django
-from paradedb import ParadeDB, Regex, Score
+from paradedb import Boost, ParadeDB, Regex, Score
 
 MockItem.objects.filter(
-    description=ParadeDB(Regex('key.*', boost=2))
+    description=ParadeDB(Boost(Regex('key.*'), 2))
 ).annotate(
     score=Score()
 ).values('id', 'description', 'category', 'score').order_by('-score')[:5]
@@ -198,10 +198,10 @@ await db
 ```
 
 ```python Django
-from paradedb import Match, ParadeDB, Score
+from paradedb import Boost, Fuzzy, MatchAny, ParadeDB, Score
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('shose', operator='OR', distance=2, boost=2))
+    description=ParadeDB(MatchAny(Boost(Fuzzy('shose', 2), 2)))
 ).annotate(
     score=Score()
 ).values('id', 'description', 'category', 'score').order_by('-score')[:5]
@@ -273,10 +273,10 @@ await db
 ```
 
 ```python Django
-from paradedb import Match, ParadeDB, Score
+from paradedb import Const, MatchAny, ParadeDB, Score
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('shoes', operator='OR', const=1))
+    description=ParadeDB(MatchAny(Const('shoes', 1)))
 ).annotate(
     score=Score()
 ).values('id', 'score', 'description', 'category').order_by('-score')[:5]

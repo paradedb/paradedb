@@ -123,7 +123,7 @@ if [[ $LANGUAGES =~ "django" ]]; then
 
   echo "Installing Django ParadeDB client from PyPI..."
   PIP_DISABLE_PIP_VERSION_CHECK=1 "$PYTHON_BIN" -m pip install --quiet --upgrade \
-    "django-paradedb==0.6.0" \
+    "django-paradedb==0.8.0" \
     "psycopg[binary]"
 
   while IFS= read -r snippet_file; do

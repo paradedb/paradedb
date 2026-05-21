@@ -35,10 +35,10 @@ await db
 ```
 
 ```python Django
-from paradedb import Match, ParadeDB, Score
+from paradedb import MatchAny, ParadeDB, Score
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('shoes', operator='OR'))
+    description=ParadeDB(MatchAny('shoes'))
 ).annotate(
     score=Score()
 ).values('id', 'score').order_by('-score')[:5]
@@ -105,10 +105,10 @@ await db
 
 ```python Django
 from django.db.models import Q
-from paradedb import Match, ParadeDB, Score
+from paradedb import MatchAny, ParadeDB, Score
 
 MockItem.objects.filter(
-    Q(description=ParadeDB(Match('keyboard', operator='OR'))) | Q(rating__lt=2)
+    Q(description=ParadeDB(MatchAny('keyboard'))) | Q(rating__lt=2)
 ).annotate(
     score=Score()
 ).values('id', 'score').order_by('-score')[:5]
@@ -207,11 +207,11 @@ await db
 ```python Django
 from django.db.models import F, FloatField
 from django.db.models.expressions import RawSQL
-from paradedb import Match, ParadeDB, Score
+from paradedb import MatchAny, ParadeDB, Score
 
 Order.objects.filter(
-    customer_name=ParadeDB(Match('Johnson', operator='OR')),
-    product__description=ParadeDB(Match('running shoes', operator='OR')),
+    customer_name=ParadeDB(MatchAny('Johnson')),
+    product__description=ParadeDB(MatchAny('running shoes')),
 ).annotate(
     order_score=Score(),
     product_score=RawSQL('pdb.score(mock_items.id)', [], output_field=FloatField()),

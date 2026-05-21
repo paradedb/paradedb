@@ -135,10 +135,10 @@ await db
 ```
 
 ```python Django
-from paradedb import ParadeDB, Phrase
+from paradedb import ParadeDB, Phrase, Slop
 
 MockItem.objects.filter(
-    description=ParadeDB(Phrase('shoes running', slop=2))
+    description=ParadeDB(Phrase(Slop('shoes running', 2)))
 ).values('description', 'rating', 'category')
 ```
 
@@ -194,10 +194,10 @@ await db
 ```
 
 ```python Django
-from paradedb import ParadeDB, Phrase, Tokenizer
+from paradedb import ParadeDB, Phrase, Tokenized, Tokenizer
 
 MockItem.objects.filter(
-    description=ParadeDB(Phrase('running shoes', tokenizer=Tokenizer.whitespace()))
+    description=ParadeDB(Phrase(Tokenized('running shoes', Tokenizer.whitespace())))
 ).values('description', 'rating', 'category')
 ```
 

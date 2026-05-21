@@ -35,7 +35,6 @@ use crate::postgres::types::TantivyValue;
 use crate::postgres::var::find_vars;
 use crate::schema::{CategorizedFieldData, SearchField, SearchFieldType};
 use anyhow::Result;
-use chrono::{NaiveDate, NaiveTime};
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
 use pgrx::*;
 use rustc_hash::FxHashMap;
@@ -845,21 +844,12 @@ pub unsafe fn row_to_search_document<'a>(
     Ok(())
 }
 
-pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::DateTime {
-    use crate::postgres::datetime::unix_micros_to_tantivy_datetime;
-
+pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> PostgresDateTime {
     match typeoid {
         PgOid::BuiltIn(PgBuiltInOids::DATEOID | PgBuiltInOids::DATERANGEOID) => {
             let d = pgrx::datum::Date::from_str(date_string)
                 .expect("must be valid postgres date format");
-            let micros = NaiveDate::from_ymd_opt(d.year(), d.month().into(), d.day().into())
-                .expect("must be able to parse date format")
-                .and_hms_opt(0, 0, 0)
-                .expect("must be able to set date default time")
-                .and_utc()
-                .timestamp_micros();
-            unix_micros_to_tantivy_datetime(micros)
-                .expect("date exceeds Tantivy DateTime nanosecond range")
+            PostgresDateTime::from(d)
         }
         // For TIMESTAMPOID, Used only by legacy indexes as of v0.24.0.
         PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID | PgBuiltInOids::TSRANGEOID) => {
@@ -880,27 +870,12 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> tantivy::Dat
         PgOid::BuiltIn(PgBuiltInOids::TIMEOID) => {
             let t =
                 pgrx::datum::Time::from_str(date_string).expect("must be a valid postgres time");
-            let (hour, minute, second, micros) = t.to_hms_micro();
-            let naive_time =
-                NaiveTime::from_hms_micro_opt(hour.into(), minute.into(), second.into(), micros)
-                    .expect("must be able to parse time");
-            let naive_date = NaiveDate::from_ymd_opt(1970, 1, 1).expect("default date");
-            let micros = naive_date.and_time(naive_time).and_utc().timestamp_micros();
-            unix_micros_to_tantivy_datetime(micros)
-                .expect("time exceeds Tantivy DateTime nanosecond range")
+            PostgresDateTime::from(t)
         }
         PgOid::BuiltIn(PgBuiltInOids::TIMETZOID) => {
             let twtz = pgrx::datum::TimeWithTimeZone::from_str(date_string)
-                .expect("must be a valid postgres time with time zone")
-                .to_utc();
-            let (hour, minute, second, micros) = twtz.to_hms_micro();
-            let naive_time =
-                NaiveTime::from_hms_micro_opt(hour.into(), minute.into(), second.into(), micros)
-                    .expect("must be able to parse time with time zone");
-            let naive_date = NaiveDate::from_ymd_opt(1970, 1, 1).expect("default date");
-            let micros = naive_date.and_time(naive_time).and_utc().timestamp_micros();
-            unix_micros_to_tantivy_datetime(micros)
-                .expect("timetz exceeds Tantivy DateTime nanosecond range")
+                .expect("must be a valid postgres time with time zone");
+            PostgresDateTime::from(twtz)
         }
         _ => panic!("Unsupported typeoid: {typeoid:?}"),
     }

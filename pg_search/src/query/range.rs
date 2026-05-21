@@ -16,6 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::storage::metadata::Version;
+use crate::query::value::QueryValue;
 use crate::query::value_to_json_term;
 use crate::schema::IndexRecordOption;
 use anyhow::Result;
@@ -67,33 +68,53 @@ impl RangeField {
     }
 
     pub fn empty(&self, val: bool) -> Result<TermQuery> {
-        let term = Self::as_range_term(self, &OwnedValue::Bool(val), Some(EMPTY_KEY))?;
+        let term = Self::as_range_term(
+            self,
+            &QueryValue::Tantivy(OwnedValue::Bool(val)),
+            Some(EMPTY_KEY),
+        )?;
         Ok(TermQuery::new(term, RECORD.into()))
     }
 
     pub fn upper_bound_inclusive(&self, val: bool) -> Result<TermQuery> {
-        let term = Self::as_range_term(self, &OwnedValue::Bool(val), Some(UPPER_INCLUSIVE_KEY))?;
+        let term = Self::as_range_term(
+            self,
+            &QueryValue::Tantivy(OwnedValue::Bool(val)),
+            Some(UPPER_INCLUSIVE_KEY),
+        )?;
         Ok(TermQuery::new(term, RECORD.into()))
     }
 
     pub fn lower_bound_inclusive(&self, val: bool) -> Result<TermQuery> {
-        let term = Self::as_range_term(self, &OwnedValue::Bool(val), Some(LOWER_INCLUSIVE_KEY))?;
+        let term = Self::as_range_term(
+            self,
+            &QueryValue::Tantivy(OwnedValue::Bool(val)),
+            Some(LOWER_INCLUSIVE_KEY),
+        )?;
         Ok(TermQuery::new(term, RECORD.into()))
     }
 
     pub fn upper_bound_unbounded(&self, val: bool) -> Result<TermQuery> {
-        let term = Self::as_range_term(self, &OwnedValue::Bool(val), Some(UPPER_UNBOUNDED_KEY))?;
+        let term = Self::as_range_term(
+            self,
+            &QueryValue::Tantivy(OwnedValue::Bool(val)),
+            Some(UPPER_UNBOUNDED_KEY),
+        )?;
         Ok(TermQuery::new(term, RECORD.into()))
     }
 
     pub fn lower_bound_unbounded(&self, val: bool) -> Result<TermQuery> {
-        let term = Self::as_range_term(self, &OwnedValue::Bool(val), Some(LOWER_UNBOUNDED_KEY))?;
+        let term = Self::as_range_term(
+            self,
+            &OQueryValue::Tantivy(OwnedValue::Bool(val)),
+            Some(LOWER_UNBOUNDED_KEY),
+        )?;
         Ok(TermQuery::new(term, RECORD.into()))
     }
 
     pub fn compare_lower_bound(
         &self,
-        owned: &OwnedValue,
+        owned: &QueryValue,
         comparison: Comparison,
     ) -> Result<RangeQuery> {
         let query = match comparison {
@@ -120,7 +141,7 @@ impl RangeField {
 
     pub fn compare_upper_bound(
         &self,
-        owned: &OwnedValue,
+        owned: &QueryValue,
         comparison: Comparison,
     ) -> Result<RangeQuery> {
         let query = match comparison {
@@ -145,7 +166,7 @@ impl RangeField {
         Ok(query)
     }
 
-    fn as_range_term(&self, value: &OwnedValue, path: Option<&str>) -> Result<Term> {
+    fn as_range_term(&self, value: &QueryValue, path: Option<&str>) -> Result<Term> {
         value_to_json_term(
             self.field,
             value,

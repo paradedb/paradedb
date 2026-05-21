@@ -19,6 +19,8 @@ use std::str::FromStr;
 
 use chrono::{DateTime, NaiveDate};
 use pgrx::datum::datetime_support::DateTimeConversionError;
+use serde;
+use serde::{Deserialize, Serialize};
 
 pub static MICROSECONDS_IN_SECOND: u32 = 1_000_000;
 
@@ -63,6 +65,11 @@ pub const MIN_PG_MICROS: i64 = -211_813_488_000_000_000;
 #[allow(dead_code)]
 pub const MAX_PG_MICROS: i64 = 9_223_371_331_200_000_000 - 1;
 
+const SECOND_MICROS: i64 = 1_000_000;
+const MINUTE_MICROS: i64 = 60 * SECOND_MICROS;
+const HOUR_MICROS: i64 = 60 * MINUTE_MICROS;
+const ONE_DAY_MICROS: i64 = 24 * HOUR_MICROS;
+
 #[inline]
 pub fn unix_micros_to_tantivy_datetime(
     micros: i64,
@@ -98,7 +105,8 @@ pub fn datetime_components_to_tantivy_date(
 
 /// A wrapper type for working with postgres time values. Holds a postgres timestamp, which is
 /// really just a wrapper around an i64 representing microseconds from the PG epoch.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(into = "i64", try_from = "i64")]
 pub struct PostgresDateTime(pgrx::datum::Timestamp);
 impl PostgresDateTime {
     pub fn into_inner(self) -> i64 {
@@ -119,6 +127,39 @@ impl PostgresDateTime {
     pub fn try_from_timestamptz_str(s: &str) -> Result<Self, DateTimeConversionError> {
         let ts = pgrx::datum::TimestampWithTimeZone::from_str(s)?;
         Ok(Self::from(ts))
+    }
+}
+
+impl From<pgrx::datum::Date> for PostgresDateTime {
+    fn from(value: pgrx::datum::Date) -> Self {
+        let midnight_micros = (value.to_pg_epoch_days() as i64)
+            .checked_mul(ONE_DAY_MICROS)
+            .expect("days to micros should never overflow");
+        Self::try_from_raw(midnight_micros)
+            .expect("Date->Timestamp conversion should always be valid")
+    }
+}
+
+fn time_parts_to_micros(h: u8, m: u8, s: u8, micros: u32) -> Option<i64> {
+    (h as i64)
+        .checked_mul(HOUR_MICROS)?
+        .checked_add((m as i64).checked_mul(MINUTE_MICROS)?)?
+        .checked_add((s as i64).checked_mul(SECOND_MICROS)?)?
+        .checked_add(micros as i64)
+}
+
+impl From<pgrx::datum::Time> for PostgresDateTime {
+    fn from(value: pgrx::datum::Time) -> Self {
+        let (h, m, s, micros) = value.to_hms_micro();
+        let time_micros = time_parts_to_micros(h, m, s, micros)
+            .expect("time->micros conversion should always work");
+        Self::try_from_raw(time_micros)
+            .expect("time micros -> Timestamp conversion should always work")
+    }
+}
+impl From<pgrx::datum::TimeWithTimeZone> for PostgresDateTime {
+    fn from(value: pgrx::datum::TimeWithTimeZone) -> Self {
+        Self::from(value.to_utc())
     }
 }
 impl From<pgrx::datum::Timestamp> for PostgresDateTime {
@@ -172,6 +213,18 @@ impl TryFrom<PostgresDateTime> for tantivy::DateTime {
             return Err(DateTimeConversionError::OutOfRange);
         }
         Ok(tantivy::DateTime::from_timestamp_micros(unix_micros))
+    }
+}
+impl From<PostgresDateTime> for i64 {
+    fn from(value: PostgresDateTime) -> Self {
+        value.into_inner()
+    }
+}
+impl TryFrom<i64> for PostgresDateTime {
+    type Error = DateTimeConversionError;
+
+    fn try_from(value: i64) -> Result<Self, Self::Error> {
+        PostgresDateTime::try_from_raw(value)
     }
 }
 

@@ -774,12 +774,29 @@ impl PgSearchTableProvider {
     /// async `scan()` method runs, but exposed without the `Session`/async ceremony — the
     /// codec doesn't have a `Session` and the body never `.await`s.
     ///
+    /// `projection` is the column-index list the leader's planner used when it built its
+    /// scan (e.g. `Some([0, 2])` projects to columns 0 and 2 of `provider.get_schema()`).
+    /// `None` means the full unprojected schema. Without this the worker reconstructs a
+    /// scan with a wider schema than the leader's plan expects, and downstream operators
+    /// that reference columns by index (`HashJoinExec`'s join keys, etc.) error with
+    /// "Missing on the right: {Column index: N}" at physical-plan prepare time.
+    ///
     /// Only called from `decode_pgsearch_scan`, which is itself `#[cfg(not(test))]`-gated
-    /// (the codec links PG runtime symbols that the cargo-test binary can't resolve), so the
-    /// `dead_code` allow covers the test build.
+    /// (the codec links PG runtime symbols that the cargo-test binary can't resolve), so
+    /// the `dead_code` allow covers the test build.
     #[allow(dead_code)]
-    pub(crate) fn scan_sync(&self) -> Result<Arc<dyn ExecutionPlan>> {
-        self.scan_inner(self.canonical_segment_ids.clone(), None, &[], None)
+    pub(crate) fn scan_sync(
+        &self,
+        projection: Option<&Vec<usize>>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        self.scan_inner(self.canonical_segment_ids.clone(), projection, &[], None)
+    }
+
+    /// Unprojected output schema. Used by the codec to derive the leader's projection
+    /// indices by matching field names against the proto-shipped schema.
+    #[allow(dead_code)]
+    pub(crate) fn unprojected_schema(&self) -> SchemaRef {
+        self.get_schema()
     }
 }
 

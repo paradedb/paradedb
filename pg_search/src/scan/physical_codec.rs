@@ -984,7 +984,49 @@ fn decode_pgsearch_scan(
         // Follow-up; for now `provider.scan_inner` errors visibly with a missing-planstate
         // message if a query hits that path.
 
-        return provider.scan_sync();
+        // Derive the projection the leader's planner used by matching the shipped schema's
+        // field names against the provider's unprojected schema. Without this the worker's
+        // `scan_inner` defaults to the full unprojected schema, which differs from what
+        // downstream operators (HashJoinExec keys, FilterExec, etc.) reference by index.
+        // The mismatch surfaces as "Missing on the right: {Column { ..., index: N }}" at
+        // physical-planning time inside `prepare_in_process_plan`.
+        let proto_schema = proto.schema.as_ref().ok_or_else(|| {
+            DataFusionError::Internal(
+                "decode_pgsearch_scan: shipped TableProvider but proto.schema is missing".into(),
+            )
+        })?;
+        let proto_df_schema: datafusion::common::DFSchema =
+            proto_schema.try_into().map_err(|e| {
+                DataFusionError::Internal(format!(
+                    "decode_pgsearch_scan: DFSchema proto -> DFSchema failed: {e}"
+                ))
+            })?;
+        let proto_arrow_schema = proto_df_schema.as_arrow();
+        let unprojected = provider.unprojected_schema();
+        let projection_indices: Vec<usize> = proto_arrow_schema
+            .fields()
+            .iter()
+            .map(|f| {
+                unprojected.index_of(f.name()).map_err(|_| {
+                    DataFusionError::Internal(format!(
+                        "decode_pgsearch_scan: shipped schema field {:?} not found in \
+                         provider's unprojected schema (provider has {} fields)",
+                        f.name(),
+                        unprojected.fields().len()
+                    ))
+                })
+            })
+            .collect::<Result<_>>()?;
+        // Identity projection (all columns in original order) → pass `None` so
+        // `projected_fields_and_schema` skips the projection step entirely. Common case
+        // for scans that don't have a downstream projection above them.
+        let is_identity = projection_indices.len() == unprojected.fields().len()
+            && projection_indices.iter().enumerate().all(|(i, &p)| i == p);
+        return if is_identity {
+            provider.scan_sync(None)
+        } else {
+            provider.scan_sync(Some(&projection_indices))
+        };
     }
 
     // Fallback: empty-placeholder shape. Used by round-trip tests and by any future caller

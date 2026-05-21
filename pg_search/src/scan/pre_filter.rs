@@ -121,7 +121,6 @@ use crate::api::HashSet;
 use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
 use crate::query::value_to_term;
 use crate::scan::filter_pushdown::scalar_to_owned_value;
-use crate::schema::SearchFieldType;
 use tantivy::query::{
     BooleanQuery, ConstScoreQuery, Occur, Query, TermSetQuery, TermSetStrategyConfig,
 };
@@ -720,7 +719,6 @@ fn try_convert_in_list_to_query(
     let tantivy_schema = schema.tantivy_schema();
     let tantivy_field = tantivy_schema.get_field(col.name()).ok()?;
     let tantivy_field_type = tantivy_schema.get_field_entry(tantivy_field).field_type();
-    let is_date = matches!(field_type, SearchFieldType::Date(_));
 
     let terms: Option<Vec<Term>> = in_list
         .list()
@@ -734,7 +732,6 @@ fn try_convert_in_list_to_query(
                 tantivy_field_type,
                 &field_type,
                 None,
-                is_date,
             )
             .ok()
         })

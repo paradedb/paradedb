@@ -206,8 +206,6 @@ where
                             .unwrap();
                     Ok((field, field_query_input))
                 } else {
-                    rewrite_is_datetime_values_to_tagged_dates(&mut value);
-
                     let mut reconstructed = serde_json::Map::new();
                     reconstructed.insert(key, value);
 
@@ -225,30 +223,6 @@ where
         }
     }
     deserializer.deserialize_map(Visitor)
-}
-
-/// For locations where legacy-style json queries could have uses `is_datetime` to denote that the
-/// provided value should be treated as a datetime, we "rewrite" those to use the new tagged format
-/// and remove the `is_datetime` field.
-fn rewrite_is_datetime_values_to_tagged_dates(value: &mut serde_json::Value) {
-    let is_datetime = value["is_datetime"].as_bool().unwrap_or(false);
-    if is_datetime {
-        value.as_object_mut().unwrap().remove("is_datetime");
-        if let Some(s) = value["value"].as_str() {
-            value["value"] = serde_json::json!({
-                "date": s
-            });
-        }
-        for bound_key in ["lower_bound", "upper_bound"] {
-            for inclusion_key in ["included", "excluded", "Included", "Excluded"] {
-                if let Some(s) = value[bound_key][inclusion_key].as_str() {
-                    value[bound_key][inclusion_key] = serde_json::json!({
-                            "date": s
-                    });
-                }
-            }
-        }
-    }
 }
 
 impl SearchQueryInput {
@@ -672,42 +646,10 @@ impl SearchQueryInput {
     }
 }
 
-/// TermInputWire needs to exist in order to support the correct handling of is_datetime from the
-/// legacy api. We deserialize TermInput as TermInputWire, the try to convert it to TermInput.
-/// Serialization does not require special handling
-#[derive(Deserialize)]
-struct TermInputWire {
-    field: FieldName,
-    #[serde(deserialize_with = "deserialize_as_date_aware_owned_value")]
-    value: OwnedValue,
-    /// When true, `value` will be interpreted as a Date instead of as a String
-    #[serde(default)]
-    is_datetime: bool,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(try_from = "TermInputWire")]
 pub struct TermInput {
     pub field: FieldName,
-    #[serde(serialize_with = "serialize_as_date_aware_owned_value")]
     pub value: OwnedValue,
-}
-impl TryFrom<TermInputWire> for TermInput {
-    type Error = anyhow::Error;
-
-    fn try_from(value: TermInputWire) -> std::result::Result<Self, Self::Error> {
-        let field = value.field;
-        match (value.value, value.is_datetime) {
-            (OwnedValue::Str(s), true) => {
-                let dt = TantivyDateTime::try_from(s.as_str())?;
-                Ok(TermInput {
-                    field,
-                    value: OwnedValue::Date(dt.0),
-                })
-            }
-            (value, _) => Ok(TermInput { field, value }),
-        }
-    }
 }
 
 /// Serialize a [`SearchQueryInput`] node to a Postgres [`pg_sys::Const`] node, palloc'd
@@ -1297,7 +1239,6 @@ impl SearchQueryInput {
                             field_type,
                             &search_field.field_type(),
                             field.path().as_deref(),
-                            search_field.is_datetime(),
                         )
                         .expect("could not convert argument to search term")
                     },
@@ -1400,85 +1341,6 @@ impl SearchQueryInput {
     }
 }
 
-fn serialize_date_aware_owned_value_date<S>(
-    value: &tantivy::DateTime,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let ov = OwnedValue::Date(*value);
-    ov.serialize(serializer)
-}
-fn deserialize_date_aware_owned_value_date<'de, D>(
-    deserializer: D,
-) -> Result<tantivy::DateTime, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    match OwnedValue::deserialize(deserializer)? {
-        OwnedValue::Date(dt) => Ok(dt),
-        OwnedValue::Str(s) => TantivyDateTime::try_from(s.as_str())
-            .map(|t| t.0)
-            .map_err(serde::de::Error::custom),
-        _ => Err(serde::de::Error::invalid_value(
-            serde::de::Unexpected::Other("a non-datetime value"),
-            &"a datetime value",
-        )),
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(untagged)]
-enum DateAwareOwnedValue {
-    Date {
-        // serde through OwnedValue so we get the same datetime serialization
-        #[serde(
-            serialize_with = "serialize_date_aware_owned_value_date",
-            deserialize_with = "deserialize_date_aware_owned_value_date"
-        )]
-        date: tantivy::DateTime,
-    },
-    Other(OwnedValue),
-}
-impl From<OwnedValue> for DateAwareOwnedValue {
-    fn from(value: OwnedValue) -> Self {
-        match value {
-            OwnedValue::Date(date) => Self::Date { date },
-            _ => Self::Other(value),
-        }
-    }
-}
-impl From<DateAwareOwnedValue> for OwnedValue {
-    fn from(value: DateAwareOwnedValue) -> OwnedValue {
-        match value {
-            DateAwareOwnedValue::Date { date } => OwnedValue::Date(date),
-            DateAwareOwnedValue::Other(owned) => owned,
-        }
-    }
-}
-
-pub(crate) fn serialize_as_date_aware_owned_value<S>(
-    value: &OwnedValue,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let date_aware = DateAwareOwnedValue::from(value.clone());
-    date_aware.serialize(serializer)
-}
-
-pub(crate) fn deserialize_as_date_aware_owned_value<'de, D>(
-    deserializer: D,
-) -> Result<OwnedValue, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let date_aware = DateAwareOwnedValue::deserialize(deserializer)?;
-    Ok(OwnedValue::from(date_aware))
-}
-
 /// Convert a string-encoded numeric value to the appropriate type based on field type.
 /// Used for JSON field comparisons where NUMERIC constants need to match stored JSON numbers.
 fn convert_for_field_type(value: &OwnedValue, field_type: &FieldType) -> OwnedValue {
@@ -1505,16 +1367,18 @@ fn value_to_json_term(
     value: &OwnedValue,
     path: Option<&str>,
     expand_dots: bool,
-    is_datetime: bool,
 ) -> Result<Term> {
     let mut term = Term::from_field_json_path(field, path.unwrap_or_default(), expand_dots);
     match value {
         OwnedValue::Str(text) => {
-            if is_datetime {
-                let TantivyDateTime(date) = TantivyDateTime::try_from(text.as_str())?;
-                // https://github.com/quickwit-oss/tantivy/pull/2456
-                // It's a footgun that date needs to truncated when creating the Term
-                term.append_type_and_fast_value(date.truncate(DATE_TIME_PRECISION_INDEXED));
+            if let Ok(pgdt) = PostgresDateTime::try_from_timestamptz_str(text.as_str()) {
+                if let Ok(date) = tantivy::DateTime::try_from(pgdt) {
+                    // https://github.com/quickwit-oss/tantivy/pull/2456
+                    // It's a footgun that date needs to truncated when creating the Term
+                    term.append_type_and_fast_value(date.truncate(DATE_TIME_PRECISION_INDEXED));
+                } else {
+                    term.append_type_and_str(text);
+                }
             } else {
                 term.append_type_and_str(text);
             }
@@ -1558,7 +1422,6 @@ pub fn value_to_term(
     field_type: &FieldType,
     search_field_type: &SearchFieldType,
     path: Option<&str>,
-    is_datetime: bool,
 ) -> Result<Term> {
     let json_options = match field_type {
         FieldType::JsonObject(ref options) => Some(options),
@@ -1566,55 +1429,46 @@ pub fn value_to_term(
     };
 
     if let Some(json_options) = json_options {
-        return value_to_json_term(
-            field,
-            value,
-            path,
-            json_options.is_expand_dots_enabled(),
-            is_datetime,
-        );
+        return value_to_json_term(field, value, path, json_options.is_expand_dots_enabled());
     }
 
-    if is_datetime {
-        match (value, field_type, search_field_type) {
-            (OwnedValue::Str(text), FieldType::Date(_), _) => {
-                let TantivyDateTime(date) = TantivyDateTime::try_from(text.as_str())?;
-                // https://github.com/quickwit-oss/tantivy/pull/2456
-                // It's a footgun that date needs to truncated when creating the Term
-                return Ok(Term::from_field_date(
-                    field,
-                    date.truncate(DATE_TIME_PRECISION_INDEXED),
-                ));
-            }
-            // Timestamp/timestamptz are stored as i64, so convert to i64 if that's our target
-            (OwnedValue::Str(text), FieldType::I64(_), SearchFieldType::I64(oid))
-                if *oid == pg_sys::TIMESTAMPOID =>
-            {
-                let pg_dt = PostgresDateTime::try_from_timestamp_str(text.as_str())?;
-                return Ok(Term::from_field_i64(field, pg_dt.into_inner()));
-            }
-            (OwnedValue::Str(text), FieldType::I64(_), SearchFieldType::I64(oid))
-                if *oid == pg_sys::TIMESTAMPTZOID =>
-            {
-                let pg_dt = PostgresDateTime::try_from_timestamptz_str(text.as_str())?;
-                return Ok(Term::from_field_i64(field, pg_dt.into_inner()));
-            }
-            // Got a timestamp/timestamptz value that was converted to an i64, but this is a legacy index that
-            // uses Date, so we need to convert it.
-            // The raw i64 values for timestamp and timestamptz are equivalent, so we can handle
-            // them the same way.
-            (OwnedValue::I64(pg_micros), FieldType::Date(_), SearchFieldType::Date(oid))
-                if *oid == pg_sys::TIMESTAMPOID || *oid == pg_sys::TIMESTAMPTZOID =>
-            {
-                let pg_dt = PostgresDateTime::try_from_raw(*pg_micros)?;
-                let dt: tantivy::DateTime = pg_dt.try_into()?;
-                return Ok(Term::from_field_date(
-                    field,
-                    dt.truncate(DATE_TIME_PRECISION_INDEXED),
-                ));
-            }
-            _ => (),
+    match (value, field_type, search_field_type) {
+        (OwnedValue::Str(text), FieldType::Date(_), _) => {
+            let pgdt = PostgresDateTime::try_from_timestamptz_str(text.as_str())?;
+            let date = tantivy::DateTime::try_from(pgdt)?;
+            return Ok(Term::from_field_date(
+                field,
+                date.truncate(DATE_TIME_PRECISION_INDEXED),
+            ));
         }
+        // Timestamp/timestamptz are stored as i64, so convert to i64 if that's our target
+        (OwnedValue::Str(text), FieldType::I64(_), SearchFieldType::I64(oid))
+            if *oid == pg_sys::TIMESTAMPOID =>
+        {
+            let pg_dt = PostgresDateTime::try_from_timestamp_str(text.as_str())?;
+            return Ok(Term::from_field_i64(field, pg_dt.into_inner()));
+        }
+        (OwnedValue::Str(text), FieldType::I64(_), SearchFieldType::I64(oid))
+            if *oid == pg_sys::TIMESTAMPTZOID =>
+        {
+            let pg_dt = PostgresDateTime::try_from_timestamptz_str(text.as_str())?;
+            return Ok(Term::from_field_i64(field, pg_dt.into_inner()));
+        }
+        // Got a timestamp/timestamptz value that was converted to an i64, but this is a legacy index that
+        // uses Date, so we need to convert it.
+        // The raw i64 values for timestamp and timestamptz are equivalent, so we can handle
+        // them the same way.
+        (OwnedValue::I64(pg_micros), FieldType::Date(_), SearchFieldType::Date(oid))
+            if *oid == pg_sys::TIMESTAMPOID || *oid == pg_sys::TIMESTAMPTZOID =>
+        {
+            let pg_dt = PostgresDateTime::try_from_raw(*pg_micros)?;
+            let dt: tantivy::DateTime = pg_dt.try_into()?;
+            return Ok(Term::from_field_date(
+                field,
+                dt.truncate(DATE_TIME_PRECISION_INDEXED),
+            ));
+        }
+        _ => (),
     }
 
     // For facet fields, convert string values to facet terms
@@ -1648,22 +1502,6 @@ pub fn value_to_term(
         OwnedValue::IpAddr(ip) => Term::from_field_ip_addr(field, *ip),
         _ => panic!("Tantivy OwnedValue type not supported"),
     })
-}
-
-struct TantivyDateTime(pub DateTime);
-impl TryFrom<&str> for TantivyDateTime {
-    type Error = QueryError;
-
-    fn try_from(text: &str) -> Result<Self, Self::Error> {
-        let datetime = match chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%SZ") {
-            Ok(dt) => dt,
-            Err(_) => chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.fZ")
-                .map_err(|_| QueryError::FieldTypeMismatch)?,
-        };
-        Ok(TantivyDateTime(DateTime::from_timestamp_micros(
-            datetime.and_utc().timestamp_micros(),
-        )))
-    }
 }
 
 #[allow(dead_code)]

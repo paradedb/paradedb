@@ -56,13 +56,7 @@ pub fn to_search_query_input(field: FieldName, query: pdb::Query) -> SearchQuery
 #[pg_schema]
 pub mod pdb {
     use crate::query::proximity::{ProximityClause, ProximityDistance};
-    use crate::query::range::{
-        deserialize_bound, deserialize_bound_date_aware, serialize_bound,
-        serialize_bound_date_aware,
-    };
-    use crate::query::{
-        deserialize_as_date_aware_owned_value, serialize_as_date_aware_owned_value,
-    };
+    use crate::query::range::{deserialize_bound, serialize_bound};
     use pgrx::PostgresType;
     use serde::{Deserialize, Serialize};
     use std::collections::Bound;
@@ -264,56 +258,52 @@ pub mod pdb {
         },
         Range {
             #[serde(
-                serialize_with = "serialize_bound_date_aware",
-                deserialize_with = "deserialize_bound_date_aware"
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
             )]
             lower_bound: Bound<OwnedValue>,
             #[serde(
-                serialize_with = "serialize_bound_date_aware",
-                deserialize_with = "deserialize_bound_date_aware"
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
             )]
             upper_bound: Bound<OwnedValue>,
         },
         RangeContains {
             #[serde(
-                serialize_with = "serialize_bound_date_aware",
-                deserialize_with = "deserialize_bound_date_aware"
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
             )]
             lower_bound: Bound<OwnedValue>,
             #[serde(
-                serialize_with = "serialize_bound_date_aware",
-                deserialize_with = "deserialize_bound_date_aware"
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
             )]
             upper_bound: Bound<OwnedValue>,
         },
         RangeIntersects {
             #[serde(
-                serialize_with = "serialize_bound_date_aware",
-                deserialize_with = "deserialize_bound_date_aware"
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
             )]
             lower_bound: Bound<OwnedValue>,
             #[serde(
-                serialize_with = "serialize_bound_date_aware",
-                deserialize_with = "deserialize_bound_date_aware"
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
             )]
             upper_bound: Bound<OwnedValue>,
         },
         RangeTerm {
-            #[serde(
-                serialize_with = "serialize_as_date_aware_owned_value",
-                deserialize_with = "deserialize_as_date_aware_owned_value"
-            )]
             value: OwnedValue,
         },
         RangeWithin {
             #[serde(
-                serialize_with = "serialize_bound_date_aware",
-                deserialize_with = "deserialize_bound_date_aware"
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
             )]
             lower_bound: Bound<OwnedValue>,
             #[serde(
-                serialize_with = "serialize_bound_date_aware",
-                deserialize_with = "deserialize_bound_date_aware"
+                serialize_with = "serialize_bound",
+                deserialize_with = "deserialize_bound"
             )]
             upper_bound: Bound<OwnedValue>,
         },
@@ -326,10 +316,6 @@ pub mod pdb {
             max_expansions: Option<u32>,
         },
         Term {
-            #[serde(
-                serialize_with = "serialize_as_date_aware_owned_value",
-                deserialize_with = "deserialize_as_date_aware_owned_value"
-            )]
             value: OwnedValue,
         },
         TermSet {
@@ -779,7 +765,6 @@ fn term_set(
                 field_type,
                 &search_field_type,
                 field.path().as_deref(),
-                search_field.is_datetime(),
             )
             .expect("could not convert argument to search term")
         }),
@@ -807,7 +792,6 @@ fn term(
         field_type,
         &search_field_type,
         field.path().as_deref(),
-        search_field.is_datetime(),
     )?;
 
     Ok(Box::new(TermQuery::new(term, record_option.into())))
@@ -864,7 +848,7 @@ fn range_within(
     let typeoid = search_field.field_type().typeoid();
     let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
 
-    let range_field = RangeField::new(search_field.field(), search_field.is_datetime());
+    let range_field = RangeField::new(search_field.field());
 
     let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
     let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
@@ -1020,7 +1004,7 @@ fn range_term(
     // - Date/time ranges: handling is determined by examining the schema
     let value = convert_value_for_range_field(value.clone(), &search_field.field_type());
 
-    let range_field = RangeField::new(search_field.field(), search_field.is_datetime());
+    let range_field = RangeField::new(search_field.field());
 
     let satisfies_lower_bound = BooleanQuery::new(vec![
         (
@@ -1126,7 +1110,7 @@ fn range_intersects(
     let typeoid = search_field.field_type().typeoid();
 
     let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
-    let range_field = RangeField::new(search_field.field(), search_field.is_datetime());
+    let range_field = RangeField::new(search_field.field());
 
     let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
     let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
@@ -1280,7 +1264,7 @@ fn range_contains(
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let typeoid = search_field.field_type().typeoid();
     let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
-    let range_field = RangeField::new(search_field.field(), search_field.is_datetime());
+    let range_field = RangeField::new(search_field.field());
 
     let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
     let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
@@ -1490,7 +1474,6 @@ fn range(
             field_type,
             &search_field_type,
             field.path().as_deref(),
-            search_field.is_datetime(),
         )?),
         Bound::Excluded(value) => Bound::Excluded(value_to_term(
             search_field.field(),
@@ -1498,7 +1481,6 @@ fn range(
             field_type,
             &search_field_type,
             field.path().as_deref(),
-            search_field.is_datetime(),
         )?),
         Bound::Unbounded => Bound::Unbounded,
     };
@@ -1510,7 +1492,6 @@ fn range(
             field_type,
             &search_field_type,
             field.path().as_deref(),
-            search_field.is_datetime(),
         )?),
         Bound::Excluded(value) => Bound::Excluded(value_to_term(
             search_field.field(),
@@ -1518,7 +1499,6 @@ fn range(
             field_type,
             &search_field_type,
             field.path().as_deref(),
-            search_field.is_datetime(),
         )?),
         Bound::Unbounded => Bound::Unbounded,
     };
@@ -1570,7 +1550,6 @@ fn tokenized_phrase(
             field_type,
             &search_field.field_type(),
             path.as_deref(),
-            false,
         )?;
         tokens.push(term);
     }
@@ -1607,7 +1586,6 @@ fn phrase_prefix(
             field_type,
             &search_field.field_type(),
             field.path().as_deref(),
-            false,
         )
         .unwrap()
     });
@@ -1647,7 +1625,6 @@ fn phrase(
                 field_type,
                 &search_field.field_type(),
                 field.path().as_deref(),
-                false,
             )?;
 
             terms.push(term);
@@ -1694,7 +1671,6 @@ fn phrase_array(
             field_type,
             &search_field.field_type(),
             field.path().as_deref(),
-            false,
         )?;
         Ok(Box::new(TermQuery::new(
             term,
@@ -1708,7 +1684,6 @@ fn phrase_array(
                 field_type,
                 &search_field.field_type(),
                 field.path().as_deref(),
-                false,
             )?;
 
             terms.push(term);
@@ -1778,7 +1753,6 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
                 tantivy_field_type,
                 &search_field.field_type(),
                 field.path().as_deref(),
-                false,
             )?;
             return Ok(Box::new(TermQuery::new(
                 term,
@@ -1875,7 +1849,6 @@ fn match_query(
             field_type,
             &search_field.field_type(),
             field.path().as_deref(),
-            false,
         )?);
     }
 
@@ -1934,7 +1907,6 @@ fn match_array_query(
             field_type,
             &search_field.field_type(),
             field.path().as_deref(),
-            false,
         )?;
         let term_query: Box<dyn TantivyQuery> = match (distance, prefix) {
             (0, _) => Box::new(TermQuery::new(
@@ -1981,7 +1953,6 @@ fn fuzzy_term(
         field_type,
         &search_field.field_type(),
         field.path().as_deref(),
-        false,
     )?;
     let distance = distance.unwrap_or(2);
     let transposition_cost_one = transposition_cost_one.unwrap_or(true);

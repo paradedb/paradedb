@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::query::{value_to_json_term, DateAwareOwnedValue};
+use crate::query::value_to_json_term;
 use crate::schema::IndexRecordOption;
 use anyhow::Result;
 use serde::de::Error as SerdeError;
@@ -42,7 +42,6 @@ const RECORD: IndexRecordOption = IndexRecordOption::WithFreqsAndPositions;
 #[derive(Clone, Debug)]
 pub struct RangeField {
     field: Field,
-    is_datetime: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -54,8 +53,8 @@ pub enum Comparison {
 }
 
 impl RangeField {
-    pub fn new(field: Field, is_datetime: bool) -> Self {
-        Self { field, is_datetime }
+    pub fn new(field: Field) -> Self {
+        Self { field }
     }
 
     pub fn exists(&self) -> Result<RegexQuery> {
@@ -142,24 +141,8 @@ impl RangeField {
     }
 
     fn as_range_term(&self, value: &OwnedValue, path: Option<&str>) -> Result<Term> {
-        value_to_json_term(self.field, value, path, EXPAND_DOTS, self.is_datetime)
+        value_to_json_term(self.field, value, path, EXPAND_DOTS)
     }
-}
-
-pub fn serialize_bound_date_aware<S>(
-    bound: &Bound<OwnedValue>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let date_aware_bound = match bound {
-        Bound::Included(val) => Bound::Included(DateAwareOwnedValue::from(val.clone())),
-        Bound::Excluded(val) => Bound::Excluded(DateAwareOwnedValue::from(val.clone())),
-        Bound::Unbounded => Bound::Unbounded,
-    };
-
-    serialize_bound(&date_aware_bound, serializer)
 }
 
 /// Custom serialization function for `Bound<T>`.
@@ -199,20 +182,6 @@ where
     }
 }
 
-pub fn deserialize_bound_date_aware<'de, D>(deserializer: D) -> Result<Bound<OwnedValue>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let date_aware_bound: Bound<DateAwareOwnedValue> = deserialize_bound(deserializer)?;
-    let owned_value_bound = match date_aware_bound {
-        Bound::Included(val) => Bound::Included(OwnedValue::from(val)),
-        Bound::Excluded(val) => Bound::Excluded(OwnedValue::from(val)),
-        Bound::Unbounded => Bound::Unbounded,
-    };
-    Ok(owned_value_bound)
-}
-
-/// Custom deserialization function for `Bound<T>`.
 /// This function attempts to deserialize `Bound<T>` with lowercase keys (e.g., "included", "excluded"),
 /// and if that fails, it falls back to deserializing with capitalized keys ("Included", "Excluded").
 pub fn deserialize_bound<'de, D, T>(deserializer: D) -> Result<Bound<T>, D::Error>

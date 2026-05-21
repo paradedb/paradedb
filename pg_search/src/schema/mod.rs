@@ -691,10 +691,6 @@ impl SearchField {
         self.field_name().is_ctid()
     }
 
-    pub fn is_datetime(&self) -> bool {
-        self.field_entry.field_type().is_date() || self.field_type.is_i64_stored_timestamp()
-    }
-
     pub fn is_text(&self) -> bool {
         self.field_entry.field_type().is_str()
     }

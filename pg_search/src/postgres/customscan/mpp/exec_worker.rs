@@ -240,12 +240,23 @@ pub(crate) fn run_mpp_worker(
     // Enumerate the `(stage_id, task_idx)` tuples this worker owns. Only owned tasks ever
     // receive Requests under the natural-shape estimator chain
     // (`proc_for_task(n_workers, t) == this_proc`), so those are the only ones the prewarm
-    // barrier needs to settle before the service loop runs. The defensive `broadcast_zero`
-    // prewarm on non-owner procs that used to live here was load-bearing only via the prep-
-    // cache race the new barrier closes — under the current estimator
-    // `proc_for_task(_, 0) == 1`, so non-owner procs never serve task_idx=0 anyway.
-    let n_workers = worker_mesh.n_procs.saturating_sub(1).max(1);
-    let owned_keys: Vec<(u32, u32)> = registry
+    // barrier needs to settle before the service loop runs.
+    //
+    // The defensive `broadcast_zero` prewarm on non-owner procs that used to live here was
+    // load-bearing only via the prep-cache race the new barrier closes. Two independent
+    // invariants make it safe to drop today: (1) `BroadcastBuildSideOneTaskEstimator` caps
+    // broadcast subtrees at `task_count == 1`, and (2) `proc_for_task(_, 0) == 1`. If either
+    // invariant changes — a different estimator chain, or a `proc_for_task` offset shift —
+    // non-owner procs could start serving `task_idx == 0` again, and the broadcast_zero
+    // prewarm needs to come back alongside the change. See `task_estimator.rs` and
+    // `runtime.rs::proc_for_task`.
+    //
+    // `owned_keys` is sorted so the barrier waits on keys in a deterministic order. The
+    // underlying `StagePlans` map iterates in `HashMap` order, which is randomized per
+    // process; without the sort, two runs of the same query show different per-worker
+    // startup-latency traces depending on which key happens to be checked first.
+    let n_workers = worker_mesh.n_workers();
+    let mut owned_keys: Vec<(u32, u32)> = registry
         .iter_task_counts()
         .flat_map(|(stage_id, task_count)| {
             (0..task_count as u32)
@@ -253,47 +264,74 @@ pub(crate) fn run_mpp_worker(
                 .map(move |task_idx| (stage_id, task_idx))
         })
         .collect();
+    owned_keys.sort_unstable();
 
     // Prewarm barrier: drain → wait until `on_subplan` has *attempted* the owned key (shipped
     // OR decode-failed) → call `prewarm`. `prepare_task` then either consumes the shipped
     // subplan (preferred) or falls through to the local-prepare path (codec-gap fallback,
-    // tracked separately). The barrier replaces the old startup-eager prewarm that raced with
-    // the leader's `ship_subplans_to_workers` and could cache a locally-prepared entry that
-    // `on_subplan` would later have to invalidate.
+    // TODO(codec-coverage) tracked separately). The barrier replaces the old startup-eager
+    // prewarm that raced with the leader's `ship_subplans_to_workers` and could cache a
+    // locally-prepared entry that `on_subplan` would later have to invalidate.
     //
-    // Termination signal is `ProducerTaskRegistry::is_subplan_attempted`, set unconditionally
-    // by `on_subplan` on both Ok and Err arms. That removes the only deadlock risk the
-    // earlier `has_shipped_subplan` check carried (a silent decode failure would never flip
-    // the shipped-only bit).
+    // The barrier closes the prewarm-time race; a separate, smaller race remains during
+    // prewarm itself if a Request arrives before its corresponding Subplan. The leader's
+    // ship-before-execute ordering (`ship_subplans_to_workers` runs synchronously to
+    // completion before `physical_plan.execute` issues any Request) keeps that race closed
+    // under the natural shape; documented here because it's an unenforced invariant rather
+    // than a structural one.
     //
-    // `runtime.enter()` is load-bearing: drain dispatch routes Request frames through
-    // `ProducerTaskRegistry::on_request` → `tokio::spawn`, which panics if there is no
-    // current runtime. Without the guard, a Request already queued at startup brings the
-    // worker down the moment it gets pulled off the queue.
-    let _guard = runtime.enter();
-    for (stage_id, task_idx) in owned_keys {
-        loop {
-            pgrx::check_for_interrupts!();
-            if let Err(e) = worker_mesh.drain_all_inbound() {
-                pgrx::error!("mpp worker (proc={this_proc}): prewarm-barrier drain failed: {e}");
-            }
-            if registry.is_subplan_attempted(stage_id, task_idx) {
-                if let Err(e) = registry.prewarm(stage_id, task_idx) {
-                    // `prewarm` reaches local-prepare on a shipped-decode miss, so an error
-                    // here means the worker-local rebuild itself failed (DF planner refused
-                    // the shape, memory pool builder failed, etc.) — abort instead of
-                    // sliding into the service loop with no prepared plan for an owned task.
-                    pgrx::error!(
-                        "mpp worker (proc={this_proc}): prewarm stage_id={stage_id} \
-                         task_idx={task_idx} failed: {e}"
-                    );
+    // Termination has three exits (in priority order):
+    //   1. `is_subplan_attempted(stage, task)` flips → call prewarm, advance to next key.
+    //   2. `registry.take_error()` returns `Some` → a spawned driver future failed during
+    //      the barrier; surface it as `pgrx::error!` rather than wait forever.
+    //   3. `worker_mesh.leader_inbound_detached()` flips before (1) → the leader gave up
+    //      shipping (e.g. a leader-side `pgrx::error!` longjmped out of
+    //      `ship_subplans_to_workers` partway through the task vector); error out with a
+    //      clear diagnostic instead of looping forever.
+    //
+    // The barrier sits inside `runtime.block_on` so `tokio::task::yield_now().await` is the
+    // right cooperative-yield primitive (lets `tokio::spawn`ed drivers from `on_request`
+    // make forward progress) and so `tokio::spawn` itself has a current runtime — without
+    // the runtime context, a `Request` frame already queued at startup brings the worker
+    // down the moment its dispatch path calls `tokio::spawn`.
+    let result: Result<(), DataFusionError> = runtime.block_on(async {
+        for (stage_id, task_idx) in &owned_keys {
+            let (stage_id, task_idx) = (*stage_id, *task_idx);
+            loop {
+                pgrx::check_for_interrupts!();
+                worker_mesh.drain_all_inbound()?;
+                if registry.is_subplan_attempted(stage_id, task_idx) {
+                    break;
                 }
-                break;
+                if let Some(e) = registry.take_error() {
+                    return Err(e);
+                }
+                if worker_mesh.leader_inbound_detached() {
+                    return Err(DataFusionError::Internal(format!(
+                        "mpp worker (proc={this_proc}): leader detached before shipping \
+                         subplan for stage_id={stage_id} task_idx={task_idx}; most likely \
+                         the leader's `ship_subplans_to_workers` errored partway through \
+                         the task vector, or the leader's and worker's `StagePlans` walks \
+                         disagree on which stages exist"
+                    )));
+                }
+                tokio::task::yield_now().await;
             }
-            std::thread::yield_now();
+            // After the barrier, `prewarm` runs either the shipped path (when `on_subplan`
+            // decoded successfully) or the local-prepare fallback (when decode failed). An
+            // error here therefore means either:
+            //   - shipped path's `build_task_ctx` failed (memory pool builder, etc.), OR
+            //   - local-prepare's `DistributedExec::prepare_in_process_plan` failed (DF
+            //     planner refused the shape, etc.).
+            // Either way, abort instead of sliding into the service loop with no prepared
+            // plan for an owned task.
+            registry.prewarm(stage_id, task_idx)?;
         }
+        Ok(())
+    });
+    if let Err(e) = result {
+        pgrx::error!("mpp worker (proc={this_proc}): prewarm barrier failed: {e}");
     }
-    drop(_guard);
 
     // Service loop. Three pieces interleave on the single tokio task scheduler:
     //   - This loop: pumps every inbound drain, dispatching Requests.

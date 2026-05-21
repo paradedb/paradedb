@@ -213,18 +213,26 @@ pub(super) struct ProducerTaskRegistry {
     /// frame. `prepare_task` consults this first; on a hit the worker uses the leader-prepared
     /// plan directly instead of re-running `prepare_in_process_plan` locally.
     ///
-    /// `run_mpp_worker` installs the SubplanHandler and runs one drain pump BEFORE prewarming,
-    /// so the bulk of leader-shipped subplans land in this map before `prepare_task` is ever
-    /// called. A subset can still arrive after prewarm — workers can enter `run_mpp_worker`
-    /// before the leader's `ship_subplans_to_workers` completes (there's no PG-level barrier
-    /// between leader's `ExecutorRun` and worker's `end_custom_scan`), in which case prewarm
-    /// caches a locally-prepared entry in `prepared`. `on_subplan` invalidates that cache on
-    /// late-arriving subplans so the next `on_request` re-runs `prepare_task` and picks up the
-    /// shipped version.
+    /// `run_mpp_worker`'s prewarm barrier waits per-owned-key until `is_subplan_attempted`
+    /// flips before calling `prepare_task`, so every shipped subplan that successfully
+    /// decoded is in this map by the time `prepare_task` runs for that key. That closes the
+    /// startup-time race between worker entry and leader's `ship_subplans_to_workers`.
     ///
-    /// The fallback path (`stage_plans` → local `prepare_in_process_plan`) still fires for
-    /// `(stage, task)` pairs the leader never ships — broadcast tasks under the current
-    /// estimator (`proc_for_task(_, 0) == 1`) on non-owner procs, plus test paths.
+    /// A separate, smaller race remains during prewarm itself if a Request arrives before
+    /// its corresponding Subplan. The leader's ship-before-execute ordering keeps that race
+    /// closed under the natural shape: `ship_subplans_to_workers` runs to completion before
+    /// `physical_plan.execute` issues any Request. This is an unenforced invariant — if a
+    /// future shape executes the leader's consumer plan concurrently with shipping (or a
+    /// nested boundary sends Requests upstream during shipping), the cache-invalidate path
+    /// below would have to do more work.
+    ///
+    /// On a late Subplan arrival (one that landed after a Request triggered local-prepare),
+    /// `on_subplan` invalidates the cached `prepared` entry so the next Request re-runs
+    /// `prepare_task` and picks up the shipped version.
+    ///
+    /// The local-prepare fallback in `prepare_task` still fires for `(stage, task)` pairs
+    /// the leader never ships and for decode-failure cases (codec gaps —
+    /// TODO(codec-coverage)).
     shipped_subplans: Mutex<HashMap<(u32, u32), Arc<dyn ExecutionPlan>>>,
     /// `(stage_id, task_idx)` keys for which `on_subplan` has already run, regardless of decode
     /// outcome. Populated on **both** the Ok and Err arms inside `on_subplan` so the prewarm
@@ -330,15 +338,28 @@ impl ProducerTaskRegistry {
     /// The caller decides whether to fail worker startup or let the failure resurface lazily on
     /// the first Request.
     pub(super) fn prewarm(&self, stage_id: u32, task_idx: u32) -> Result<(), DataFusionError> {
-        let mut map = self
+        // Lock ordering matters: `prepare_task` acquires `shipped_subplans` (and indirectly
+        // `prepared` via on_subplan's invalidation), while `on_subplan` acquires
+        // `attempted_subplans` → `shipped_subplans` → `prepared`. Holding the `prepared`
+        // lock across `prepare_task` would form a `prepared → shipped_subplans` edge that
+        // inverts `on_subplan`'s order, so drop the dedupe-check lock before the prepare
+        // call. The dedupe is best-effort — under the single-thread runtime invariant the
+        // race between dedupe-check and insert is impossible; if a future runtime change
+        // breaks that invariant the worst-case outcome is one redundant `prepare_task` call
+        // for the same key (correct result, wasted work), not a deadlock or a stale entry.
+        if self
             .prepared
             .lock()
-            .expect("ProducerTaskRegistry prepared mutex poisoned");
-        if map.contains_key(&(stage_id, task_idx)) {
+            .expect("ProducerTaskRegistry prepared mutex poisoned")
+            .contains_key(&(stage_id, task_idx))
+        {
             return Ok(());
         }
         let prepared = self.prepare_task(stage_id, task_idx)?;
-        map.insert((stage_id, task_idx), prepared);
+        self.prepared
+            .lock()
+            .expect("ProducerTaskRegistry prepared mutex poisoned")
+            .insert((stage_id, task_idx), prepared);
         Ok(())
     }
 
@@ -1011,5 +1032,49 @@ mod tests {
             "failed decode must NOT populate shipped_subplans (prepare_task should miss \
              and fall back to local-prepare)"
         );
+    }
+
+    #[test]
+    fn on_subplan_decode_failure_still_marks_attempted() {
+        // The prewarm barrier in `run_mpp_worker` waits per-owned-key on
+        // `is_subplan_attempted` and would deadlock if `attempted_subplans` only flipped on
+        // the Ok arm of `on_subplan`. Pin the contract: on decode failure, `attempted` MUST
+        // flip and `shipped_subplans` MUST stay empty so `prepare_task` reaches the local-
+        // prepare fallback.
+        let registry = test_registry();
+        assert!(!registry.is_subplan_attempted(5, 2));
+
+        let _ = registry.on_subplan(5, 2, vec![0xFF, 0xFE, 0xFD, 0xFC]);
+
+        assert!(
+            registry.is_subplan_attempted(5, 2),
+            "on_subplan must mark (stage, task) attempted even when decode fails, or the \
+             prewarm barrier hangs forever waiting on a key that will never ship"
+        );
+        assert_eq!(
+            registry.shipped_subplan_count(),
+            0,
+            "failed decode must not populate shipped_subplans"
+        );
+    }
+
+    #[test]
+    fn on_subplan_success_marks_attempted_and_ships() {
+        // Companion to `on_subplan_decode_failure_still_marks_attempted`: on the Ok arm,
+        // `attempted` flips AND `shipped_subplans` gets the entry. Both invariants together
+        // are what the prewarm barrier relies on.
+        let registry = test_registry();
+        assert!(!registry.is_subplan_attempted(7, 3));
+
+        let payload = encode_test_subplan(&registry.session);
+        registry
+            .on_subplan(7, 3, payload)
+            .expect("on_subplan must accept a well-formed payload");
+
+        assert!(
+            registry.is_subplan_attempted(7, 3),
+            "on_subplan must mark (stage, task) attempted on the Ok arm too"
+        );
+        assert_eq!(registry.shipped_subplan_count(), 1);
     }
 }

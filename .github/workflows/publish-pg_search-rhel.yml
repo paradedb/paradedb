@@ -300,6 +300,7 @@ jobs:
         run: |
           PG_CONFIG_PATH="/usr/pgsql-${{ matrix.pg_version }}/bin/pg_config"
           cargo pgrx package --pg-config $PG_CONFIG_PATH
+          ../scripts/install_lindera_dictionaries.sh --pg-config "$PG_CONFIG_PATH" --package-root "../target/release/pg_search-pg${{ matrix.pg_version }}"
 
       - name: Create .rpm Package
         run: |
@@ -328,10 +329,12 @@ jobs:
           %{__rm} -rf %{buildroot}
           install -d %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/lib/
           install -d %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
+          install -d %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search/
           install -d %{buildroot}/usr/share/licenses/%{name}/
           install -m 755 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/lib/pg_search.so %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/lib/
           install -m 644 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search*.sql %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
           install -m 644 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search.control %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
+          cp -a %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search/. %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search/
           install -m 644 %{_sourcedir}/LICENSE %{buildroot}/usr/share/licenses/%{name}/LICENSE
 
           %files
@@ -339,6 +342,7 @@ jobs:
           /usr/pgsql-${{ matrix.pg_version }}/lib/pg_search.so
           /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search.control
           /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search*sql
+          /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search
 
           %changelog
           * ${{ steps.version.outputs.current_date }} ParadeDB <support@paradedb.com> - ${{ steps.version.outputs.tag_version }}

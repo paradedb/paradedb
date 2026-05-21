@@ -5,6 +5,7 @@ DISTVERSION  = $(shell grep -m 1 '^version' Cargo.toml | sed -e 's/[^"]*"\([^"]*
 PGRXV        = $(shell perl -nE '/^pgrx\s+=\s"=?([^"]+)/ && do { say $$1; exit }' Cargo.toml)
 PGV          = $(shell perl -E 'shift =~ /(\d+)/ && say $$1' "$(shell $(PG_CONFIG) --version)")
 EXTRA_CLEAN  = META.json $(DISTNAME)-$(DISTVERSION).zip target
+LINDERA_CACHE ?= $(CURDIR)/target/lindera-dict-cache
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
@@ -35,11 +36,13 @@ pgrx-init: pg_search/Cargo.toml
 .PHONY: install
 install:
 	@cargo pgrx install --package pg_search --release --pg-config "$(PG_CONFIG)"
+	@LINDERA_CACHE="$(LINDERA_CACHE)" scripts/install_lindera_dictionaries.sh --pg-config "$(PG_CONFIG)"
 
 # Build pg_search for the PostgreSQL cluster identified by pg_config.
 .DEFAULT_GOAL: package
 package:
 	@cargo pgrx package --package pg_search --pg-config "$(PG_CONFIG)"
+	@LINDERA_CACHE="$(LINDERA_CACHE)" scripts/install_lindera_dictionaries.sh --pg-config "$(PG_CONFIG)" --package-root "$(CURDIR)/target/release/$(DISTNAME)-pg$(PGV)"
 
 META.json: META.json.in pg_search/Cargo.toml
 	@sed -e "s/@CRATE_DESC@/$(DISTDESC)/g" -e "s/@CRATE_VERSION@/$(DISTVERSION)/g" $< > $@

@@ -4566,12 +4566,7 @@ dependencies = [
  "byteorder",
  "csv",
  "kanaria",
- "lindera-cc-cedict",
  "lindera-dictionary",
- "lindera-ipadic",
- "lindera-ipadic-neologd",
- "lindera-ko-dic",
- "lindera-unidic",
  "once_cell",
  "percent-encoding",
  "regex",
@@ -4588,16 +4583,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "lindera-cc-cedict"
-version = "1.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34aad0b904e0e5c6ab4df0c426e9e7e73baa1bd02beb5f6caa299a2c50b65be5"
+name = "lindera-dict-builder"
+version = "0.1.0"
 dependencies = [
  "anyhow",
- "byteorder",
- "csv",
  "lindera-dictionary",
- "once_cell",
  "rkyv 0.8.16",
  "serde_json",
  "tokio",
@@ -4635,70 +4625,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "yada",
-]
-
-[[package]]
-name = "lindera-ipadic"
-version = "1.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c96c39429b860d3cd6673817654f73c3569fdd4ff5ee350579b7144f3af6607"
-dependencies = [
- "anyhow",
- "byteorder",
- "csv",
- "lindera-dictionary",
- "once_cell",
- "rkyv 0.8.16",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "lindera-ipadic-neologd"
-version = "1.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aafe1b69d68bf202c1dc38f7650617269627806b532addf179f6ecd117290a13"
-dependencies = [
- "anyhow",
- "byteorder",
- "csv",
- "lindera-dictionary",
- "once_cell",
- "rkyv 0.8.16",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "lindera-ko-dic"
-version = "1.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "420133c798b4162a1fb3e8c483da0add4e370f22d3e90c9f2ef15013bdac9ce2"
-dependencies = [
- "anyhow",
- "byteorder",
- "csv",
- "lindera-dictionary",
- "once_cell",
- "rkyv 0.8.16",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "lindera-unidic"
-version = "1.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae93789d60f4423c341af4f17bb83180a30aa3c156329fab647f446e00cf364b"
-dependencies = [
- "anyhow",
- "byteorder",
- "csv",
- "lindera-dictionary",
- "once_cell",
- "rkyv 0.8.16",
- "serde_json",
- "tokio",
 ]
 
 [[package]]

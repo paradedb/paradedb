@@ -959,6 +959,18 @@ mod tests {
     use super::*;
     use rstest::*;
 
+    fn skip_if_lindera_dictionaries_are_missing() -> bool {
+        if crate::lindera_mmap::installed_dictionaries_ready() {
+            return false;
+        }
+
+        eprintln!(
+            "skipping Lindera tokenizer manager test; set {} to a preinstalled dictionary root",
+            crate::lindera_mmap::DICTIONARY_ROOT_ENV
+        );
+        true
+    }
+
     #[rstest]
     fn test_search_tokenizer() {
         let tokenizer = SearchTokenizer::Simple(SearchTokenizerFilters::default());
@@ -1232,6 +1244,10 @@ mod tests {
             })
         );
 
+        if skip_if_lindera_dictionaries_are_missing() {
+            return;
+        }
+
         // Test that the tokenizer is created successfully
         let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
 
@@ -1266,6 +1282,10 @@ mod tests {
 
         let tokenizer =
             SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
+
+        if skip_if_lindera_dictionaries_are_missing() {
+            return;
+        }
 
         // Test that the tokenizer is created successfully
         let mut analyzer = tokenizer.to_tantivy_tokenizer().unwrap();
@@ -1304,6 +1324,11 @@ mod tests {
 
         let tokenizer_lindera =
             SearchTokenizer::from_json_value(&serde_json::from_str(json_lindera).unwrap()).unwrap();
+
+        if skip_if_lindera_dictionaries_are_missing() {
+            return;
+        }
+
         let mut analyzer_lindera = tokenizer_lindera.to_tantivy_tokenizer().unwrap();
 
         let text_lindera = "富裕 劳动力";
@@ -1367,6 +1392,10 @@ mod tests {
         use tantivy::query::TermQuery;
         use tantivy::schema::{Schema, TextFieldIndexing, TextOptions, STORED};
         use tantivy::{Index, Term};
+
+        if skip_if_lindera_dictionaries_are_missing() {
+            return;
+        }
 
         // create all tokenizer variants
         let tokenizers = vec![

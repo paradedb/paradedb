@@ -120,7 +120,9 @@ runs:
     - name: Compile & install pg_search
       working-directory: pg_search/
       shell: bash
-      run: cargo pgrx install --sudo --pg-config="/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"
+      run: |
+        cargo pgrx install --sudo --pg-config="/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"
+        ../scripts/install_lindera_dictionaries.sh --sudo --pg-config "/usr/lib/postgresql/${{ inputs.pg_version }}/bin/pg_config"
 
     - name: Add pg_search to shared_preload_libraries
       working-directory: /home/runner/.pgrx/data-${{ inputs.pg_version }}/

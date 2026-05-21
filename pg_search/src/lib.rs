@@ -90,6 +90,22 @@ extension_sql!(
     finalize
 );
 
+unsafe fn configure_lindera_dictionary_root() {
+    let mut share_path = [0 as std::os::raw::c_char; pg_sys::MAXPGPATH as usize];
+    pg_sys::get_share_path(
+        std::ptr::addr_of!(pg_sys::my_exec_path).cast::<std::os::raw::c_char>(),
+        share_path.as_mut_ptr(),
+    );
+
+    let share_path = std::ffi::CStr::from_ptr(share_path.as_ptr()).to_string_lossy();
+    tokenizers::lindera_mmap::set_dictionary_root(
+        std::path::Path::new(share_path.as_ref())
+            .join("extension")
+            .join("pg_search")
+            .join("lindera"),
+    );
+}
+
 pub fn available_parallelism() -> usize {
     use once_cell::sync::Lazy;
 
@@ -118,6 +134,8 @@ pub unsafe extern "C-unwind" fn _PG_init() {
         // Use try_init() because parallel workers may call _PG_init() multiple times
         let _ = env_logger::try_init();
     }
+
+    configure_lindera_dictionary_root();
 
     if !pg_sys::process_shared_preload_libraries_in_progress {
         error!("pg_search must be loaded via shared_preload_libraries. Add 'pg_search' to shared_preload_libraries in postgresql.conf and restart Postgres.");

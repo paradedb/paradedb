@@ -51,34 +51,63 @@ use thiserror::Error;
 /// When working with large batches of TantivyValues, consider using the `types_arrow` module
 /// instead.
 #[derive(Clone, Debug, Eq, PartialEq, PostgresType)]
-pub struct TantivyValue(pub tantivy::schema::OwnedValue);
+pub struct TantivyValue(TantivyValueInner);
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum TantivyValueInner {
+    Owned(OwnedValue),
+    // tagged with date for serialization purposes
+    Date { date: PostgresDateTime },
+}
 
 impl Default for TantivyValue {
     fn default() -> Self {
-        TantivyValue(tantivy::schema::OwnedValue::Null)
-    }
-}
-
-impl From<TantivyValue> for tantivy::schema::OwnedValue {
-    fn from(v: TantivyValue) -> Self {
-        v.0
+        TantivyValue(TantivyValueInner::Owned(OwnedValue::Null))
     }
 }
 
 impl TantivyValue {
-    pub fn tantivy_schema_value(&self) -> tantivy::schema::OwnedValue {
-        self.0.clone()
+    pub fn new_owned(owned: OwnedValue) -> Self {
+        assert!(!matches!(owned, OwnedValue::Date(_)));
+        Self(TantivyValueInner::Owned(owned))
     }
+
+    pub fn new_date(date: PostgresDateTime) -> Self {
+        Self(TantivyValueInner::Date { date })
+    }
+
+    pub fn into_tantivy_value(self, index_created_by_version: Option<Version>) -> OwnedValue {
+        match self.0 {
+            TantivyValueInner::Owned(owned) => owned,
+            TantivyValueInner::Date { date } => {
+                if index_created_by_version
+                    .filter(|v| v >= &TIMESTAMP_I64_STORAGE_VERSION)
+                    .is_some()
+                {
+                    OwnedValue::I64(date.into_inner())
+                } else {
+                    OwnedValue::Date(
+                        date.try_into()
+                            .expect("legacy timestamps should always fit into tantivy's DateTime"),
+                    )
+                }
+            }
+        }
+    }
+
+    // pub fn tantivy_schema_value(&self) -> tantivy::schema::OwnedValue {
+    //     self.0.clone()
+    // }
 
     pub fn as_valid_datetime_repr(&self) -> Option<&Self> {
         match self.0 {
-            OwnedValue::Date(_) | OwnedValue::I64(_) => Some(self),
+            TantivyValueInner::Date { .. } => Some(self),
             _ => None,
         }
     }
 
     pub unsafe fn try_into_datum(self, oid: PgOid) -> Result<Option<Datum>, TantivyValueError> {
-        if matches!(self.0, OwnedValue::Null) {
+        if matches!(self.0, TantivyValueInner::Owned(OwnedValue::Null)) {
             return Ok(None);
         }
 
@@ -128,8 +157,12 @@ impl TantivyValue {
                     //     null-byte-separated internal Tantivy representation (e.g. `\0Top\0Science`).
                     // `facet_encoded_str_to_ltree_text` handles both cases uniformly.
                     let ltree_text = match self.0 {
-                        OwnedValue::Facet(ref facet) => facet.to_path().join("."),
-                        OwnedValue::Str(ref s) => facet_encoded_str_to_ltree_text(s),
+                        TantivyValueInner::Owned(OwnedValue::Facet(ref facet)) => {
+                            facet.to_path().join(".")
+                        }
+                        TantivyValueInner::Owned(OwnedValue::Str(ref s)) => {
+                            facet_encoded_str_to_ltree_text(s)
+                        }
                         _ => return Err(TantivyValueError::InvalidOid),
                     };
 
@@ -168,9 +201,9 @@ impl TantivyValue {
             // separate values out of each entry.
             Value::Array(value_vec) => value_vec
                 .into_iter()
-                .map(|value| TantivyValue(tantivy::schema::OwnedValue::from(value)))
+                .map(|value| TantivyValue::new_owned(OwnedValue::from(value)))
                 .collect(),
-            _ => vec![TantivyValue(tantivy::schema::OwnedValue::from(value))],
+            _ => vec![TantivyValue::new_owned(OwnedValue::from(value))],
         }
     }
 
@@ -404,7 +437,7 @@ impl TantivyValue {
                 // e.g. "Top.Science.Astronomy" -> Facet with path ["Top", "Science", "Astronomy"]
                 let path_components: Vec<&str> = text.split('.').collect();
                 let facet = Facet::from_path(path_components);
-                Ok(TantivyValue(OwnedValue::Facet(facet)))
+                Ok(TantivyValue::new_owned(OwnedValue::Facet(facet)))
             }
 
             PgOid::Custom(custom) => {
@@ -429,28 +462,26 @@ impl TantivyValue {
 
 impl fmt::Display for TantivyValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.tantivy_schema_value() {
-            tantivy::schema::OwnedValue::Str(string) => write!(f, "{}", string.clone()),
-            tantivy::schema::OwnedValue::U64(u64) => write!(f, "{u64}"),
-            tantivy::schema::OwnedValue::I64(i64) => write!(f, "{i64}"),
-            tantivy::schema::OwnedValue::F64(f64) => write!(f, "{f64}"),
-            tantivy::schema::OwnedValue::Bool(bool) => write!(f, "{bool}"),
-            tantivy::schema::OwnedValue::Date(datetime) => {
-                write!(f, "{}", datetime.into_primitive())
-            }
-            tantivy::schema::OwnedValue::Bytes(bytes) => {
+        match self.0 {
+            TantivyValueInner::Owned(OwnedValue::Str(string)) => write!(f, "{}", string.clone()),
+            TantivyValueInner::Owned(OwnedValue::U64(u64)) => write!(f, "{u64}"),
+            TantivyValueInner::Owned(OwnedValue::I64(i64)) => write!(f, "{i64}"),
+            TantivyValueInner::Owned(OwnedValue::F64(f64)) => write!(f, "{f64}"),
+            TantivyValueInner::Owned(OwnedValue::Bool(bool)) => write!(f, "{bool}"),
+            TantivyValueInner::Owned(OwnedValue::Bytes(bytes)) => {
                 write!(
                     f,
                     "{}",
                     String::from_utf8(bytes.clone()).expect("bytes should be valid utf-8")
                 )
             }
-            tantivy::schema::OwnedValue::IpAddr(addr) => write!(f, "{addr}"),
-            tantivy::schema::OwnedValue::Facet(facet) => {
+            TantivyValueInner::Owned(OwnedValue::IpAddr(addr)) => write!(f, "{addr}"),
+            TantivyValueInner::Owned(OwnedValue::Facet(facet)) => {
                 write!(f, "{}", facet.to_path().join("."))
             }
-            tantivy::schema::OwnedValue::Object(_) => write!(f, "json object"),
-            tantivy::schema::OwnedValue::Null => write!(f, "<null>"),
+            TantivyValueInner::Owned(OwnedValue::Object(_)) => write!(f, "json object"),
+            TantivyValueInner::Owned(OwnedValue::Null) => write!(f, "<null>"),
+            TantivyValueInner::Date { date } => write!(f, "{date}"),
             _ => panic!("tantivy owned value not supported"),
         }
     }
@@ -563,7 +594,7 @@ impl TryFrom<Vec<u8>> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: Vec<u8>) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::Bytes(val)))
+        Ok(TantivyValue::new_owned(OwnedValue::Bytes(val)))
     }
 }
 
@@ -571,7 +602,7 @@ impl TryFrom<TantivyValue> for Vec<u8> {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Bytes(val) = value.0 {
+        if let TantivyValueInner::Owned(OwnedValue::Bytes(val)) = value.0 {
             Ok(val)
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
@@ -585,7 +616,7 @@ impl TryFrom<String> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: String) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::Str(val)))
+        Ok(TantivyValue::new_owned(OwnedValue::Str(val)))
     }
 }
 
@@ -593,14 +624,16 @@ impl TryFrom<TantivyValue> for String {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        Ok(if let tantivy::schema::OwnedValue::Str(val) = value.0 {
-            val
-        } else {
-            // TODO(mdashti): make sure the string conversion for all values is aligned with the
-            // postgres logic, especially for JSON types (i.e., string, boolean, number, object, array).
-            // This is specially used for the `->>` JSON operator, as it returns a string.
-            value.to_string()
-        })
+        Ok(
+            if let TantivyValueInner::Owned(OwnedValue::Str(val)) = value.0 {
+                val
+            } else {
+                // TODO(mdashti): make sure the string conversion for all values is aligned with the
+                // postgres logic, especially for JSON types (i.e., string, boolean, number, object, array).
+                // This is specially used for the `->>` JSON operator, as it returns a string.
+                value.to_string()
+            },
+        )
     }
 }
 
@@ -608,7 +641,7 @@ impl TryFrom<i8> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: i8) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::I64(val as i64)))
+        Ok(TantivyValue::new_owned(OwnedValue::I64(val as i64)))
     }
 }
 
@@ -616,7 +649,7 @@ impl TryFrom<TantivyValue> for i8 {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::I64(val) = value.0 {
+        if let TantivyValueInner::Owned(OwnedValue::I64(val)) = value.0 {
             Ok(val as i8)
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
@@ -630,7 +663,7 @@ impl TryFrom<i16> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: i16) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::I64(val as i64)))
+        Ok(TantivyValue::new_owned(OwnedValue::I64(val as i64)))
     }
 }
 
@@ -639,9 +672,9 @@ impl TryFrom<TantivyValue> for i16 {
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         match value.0 {
-            OwnedValue::U64(val) => Ok(val as i16),
-            OwnedValue::I64(val) => Ok(val as i16),
-            OwnedValue::F64(val) => Ok(val as i16),
+            TantivyValueInner::Owned(OwnedValue::U64(val)) => Ok(val as i16),
+            TantivyValueInner::Owned(OwnedValue::I64(val)) => Ok(val as i16),
+            TantivyValueInner::Owned(OwnedValue::F64(val)) => Ok(val as i16),
             _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "i16".to_string(),
             )),
@@ -653,7 +686,7 @@ impl TryFrom<i32> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: i32) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::I64(val as i64)))
+        Ok(TantivyValue::new_owned(OwnedValue::I64(val as i64)))
     }
 }
 
@@ -662,9 +695,9 @@ impl TryFrom<TantivyValue> for i32 {
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         match value.0 {
-            OwnedValue::U64(val) => Ok(val as i32),
-            OwnedValue::I64(val) => Ok(val as i32),
-            OwnedValue::F64(val) => Ok(val as i32),
+            TantivyValueInner::Owned(OwnedValue::U64(val)) => Ok(val as i32),
+            TantivyValueInner::Owned(OwnedValue::I64(val)) => Ok(val as i32),
+            TantivyValueInner::Owned(OwnedValue::F64(val)) => Ok(val as i32),
             _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "i32".to_string(),
             )),
@@ -676,7 +709,7 @@ impl TryFrom<i64> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: i64) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::I64(val)))
+        Ok(TantivyValue::new_owned(OwnedValue::I64(val)))
     }
 }
 
@@ -685,9 +718,9 @@ impl TryFrom<TantivyValue> for i64 {
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         match value.0 {
-            OwnedValue::U64(val) => Ok(val as i64),
-            OwnedValue::I64(val) => Ok(val),
-            OwnedValue::F64(val) => Ok(val as i64),
+            TantivyValueInner::Owned(OwnedValue::U64(val)) => Ok(val as i64),
+            TantivyValueInner::Owned(OwnedValue::I64(val)) => Ok(val),
+            TantivyValueInner::Owned(OwnedValue::F64(val)) => Ok(val as i64),
             _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "i64".to_string(),
             )),
@@ -704,7 +737,7 @@ impl TryFrom<f32> for TantivyValue {
         let f32_string = format!("{val}");
         let val_as_f64 = f64::from_str(&f32_string)?;
 
-        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(val_as_f64)))
+        Ok(TantivyValue::new_owned(OwnedValue::F64(val_as_f64)))
     }
 }
 
@@ -712,7 +745,7 @@ impl TryFrom<TantivyValue> for f32 {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::F64(val) = value.0 {
+        if let TantivyValueInner::Owned(OwnedValue::F64(val)) = value.0 {
             // Casting f32 to f64 causes some precision errors when Tantivy writes the document.
             //     To avoid this, we string format the stored f64 and then read it as f32.
             let f64_string = format!("{val}");
@@ -731,7 +764,7 @@ impl TryFrom<f64> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: f64) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(val)))
+        Ok(TantivyValue::new_owned(OwnedValue::F64(val)))
     }
 }
 
@@ -740,9 +773,9 @@ impl TryFrom<TantivyValue> for f64 {
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         match value.0 {
-            OwnedValue::F64(val) => Ok(val),
-            OwnedValue::I64(val) => Ok(val as f64),
-            OwnedValue::U64(val) => Ok(val as f64),
+            TantivyValueInner::Owned(OwnedValue::F64(val)) => Ok(val),
+            TantivyValueInner::Owned(OwnedValue::I64(val)) => Ok(val as f64),
+            TantivyValueInner::Owned(OwnedValue::U64(val)) => Ok(val as f64),
             _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "f64".to_string(),
             )),
@@ -754,7 +787,7 @@ impl TryFrom<u32> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: u32) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::U64(val as u64)))
+        Ok(TantivyValue::new_owned(OwnedValue::U64(val as u64)))
     }
 }
 
@@ -763,9 +796,9 @@ impl TryFrom<TantivyValue> for u32 {
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         match value.0 {
-            OwnedValue::U64(val) => Ok(val as u32),
-            OwnedValue::I64(val) => Ok(val as u32),
-            OwnedValue::F64(val) => Ok(val as u32),
+            TantivyValueInner::Owned(OwnedValue::U64(val)) => Ok(val as u32),
+            TantivyValueInner::Owned(OwnedValue::I64(val)) => Ok(val as u32),
+            TantivyValueInner::Owned(OwnedValue::F64(val)) => Ok(val as u32),
             _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "u32".to_string(),
             )),
@@ -777,7 +810,7 @@ impl TryFrom<u64> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: u64) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::U64(val)))
+        Ok(TantivyValue::new_owned(OwnedValue::U64(val)))
     }
 }
 
@@ -786,9 +819,9 @@ impl TryFrom<TantivyValue> for u64 {
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         match value.0 {
-            OwnedValue::U64(val) => Ok(val),
-            OwnedValue::I64(val) => Ok(val as u64),
-            OwnedValue::F64(val) => Ok(val as u64),
+            TantivyValueInner::Owned(OwnedValue::U64(val)) => Ok(val),
+            TantivyValueInner::Owned(OwnedValue::I64(val)) => Ok(val as u64),
+            TantivyValueInner::Owned(OwnedValue::F64(val)) => Ok(val as u64),
             _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "u64".to_string(),
             )),
@@ -807,7 +840,7 @@ impl TryFrom<pgrx::AnyNumeric> for TantivyValue {
 
     fn try_from(val: pgrx::AnyNumeric) -> Result<Self, Self::Error> {
         // Store as string to preserve full precision until we know the field type
-        Ok(TantivyValue(tantivy::schema::OwnedValue::Str(
+        Ok(TantivyValue::new_owned(OwnedValue::Str(
             val.normalize().to_string(),
         )))
     }
@@ -839,7 +872,7 @@ impl TantivyValue {
             ))
         })?;
 
-        Ok(TantivyValue(tantivy::schema::OwnedValue::I64(scaled)))
+        Ok(TantivyValue::new_owned(OwnedValue::I64(scaled)))
     }
 
     /// Convert a PostgreSQL NUMERIC datum to a TantivyValue with raw bytes storage.
@@ -864,7 +897,7 @@ impl TantivyValue {
         })?;
 
         // Store as raw bytes for Bytes field storage
-        Ok(TantivyValue(tantivy::schema::OwnedValue::Bytes(
+        Ok(TantivyValue::new_owned(OwnedValue::Bytes(
             decimal.into_bytes(),
         )))
     }
@@ -897,7 +930,7 @@ impl TantivyValue {
                     ))
                 })?;
 
-                Ok(TantivyValue(tantivy::schema::OwnedValue::I64(scaled)))
+                Ok(TantivyValue::new_owned(OwnedValue::I64(scaled)))
             })
             .collect()
     }
@@ -929,7 +962,7 @@ impl TantivyValue {
                 })?;
 
                 // Store as raw bytes for Bytes field storage
-                Ok(TantivyValue(tantivy::schema::OwnedValue::Bytes(
+                Ok(TantivyValue::new_owned(OwnedValue::Bytes(
                     decimal.into_bytes(),
                 )))
             })
@@ -943,7 +976,7 @@ impl TantivyValue {
     pub unsafe fn try_from_numeric_f64(datum: Datum) -> Result<Self, TantivyValueError> {
         let numeric =
             pgrx::AnyNumeric::from_datum(datum, false).ok_or(TantivyValueError::DatumDeref)?;
-        Ok(TantivyValue(tantivy::schema::OwnedValue::F64(
+        Ok(TantivyValue::new_owned(OwnedValue::F64(
             numeric.try_into()?,
         )))
     }
@@ -960,7 +993,7 @@ impl TantivyValue {
             .map(|element_datum| {
                 let numeric = pgrx::AnyNumeric::from_datum(element_datum, false)
                     .ok_or(TantivyValueError::DatumDeref)?;
-                Ok(TantivyValue(tantivy::schema::OwnedValue::F64(
+                Ok(TantivyValue::new_owned(OwnedValue::F64(
                     numeric.try_into()?,
                 )))
             })
@@ -972,9 +1005,8 @@ impl TantivyValue {
         let val = pgrx::datum::Timestamp::from_datum(datum, false)
             .ok_or(TantivyValueError::DatumDeref)?;
         let pg_dt = PostgresDateTime::from(val);
-        let tantivy_date = tantivy::DateTime::try_from(pg_dt)?;
 
-        Ok(TantivyValue(OwnedValue::Date(tantivy_date)))
+        Ok(TantivyValue::new_date(pg_dt))
     }
 
     pub unsafe fn try_from_timestamp_array_date(
@@ -994,8 +1026,7 @@ impl TantivyValue {
         let val = pgrx::datum::TimestampWithTimeZone::from_datum(datum, false)
             .ok_or(TantivyValueError::DatumDeref)?;
         let pg_dt = PostgresDateTime::from(val);
-        let tantivy_date = tantivy::DateTime::try_from(pg_dt)?;
-        Ok(TantivyValue(OwnedValue::Date(tantivy_date)))
+        Ok(TantivyValue::new_date(pg_dt))
     }
 
     pub unsafe fn try_from_timestamptz_array_date(
@@ -1017,9 +1048,9 @@ impl TryFrom<TantivyValue> for pgrx::AnyNumeric {
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         match value.0 {
-            OwnedValue::U64(val) => Ok(pgrx::AnyNumeric::from(val)),
-            OwnedValue::I64(val) => Ok(pgrx::AnyNumeric::from(val)),
-            OwnedValue::F64(val) => Ok(val.try_into()?),
+            TantivyValueInner::Owned(OwnedValue::U64(val)) => Ok(pgrx::AnyNumeric::from(val)),
+            TantivyValueInner::Owned(OwnedValue::I64(val)) => Ok(pgrx::AnyNumeric::from(val)),
+            TantivyValueInner::Owned(OwnedValue::F64(val)) => Ok(val.try_into()?),
             _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "numeric".to_string(),
             )),
@@ -1031,7 +1062,7 @@ impl TryFrom<bool> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: bool) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::Bool(val)))
+        Ok(TantivyValue::new_owned(OwnedValue::Bool(val)))
     }
 }
 
@@ -1040,10 +1071,10 @@ impl TryFrom<TantivyValue> for bool {
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
         match value.0 {
-            OwnedValue::Bool(val) => Ok(val),
-            OwnedValue::U64(val) => Ok(val != 0),
-            OwnedValue::I64(val) => Ok(val != 0),
-            OwnedValue::F64(val) => Ok(val != 0.0),
+            TantivyValueInner::Owned(OwnedValue::Bool(val)) => Ok(val),
+            TantivyValueInner::Owned(OwnedValue::U64(val)) => Ok(val != 0),
+            TantivyValueInner::Owned(OwnedValue::I64(val)) => Ok(val != 0),
+            TantivyValueInner::Owned(OwnedValue::F64(val)) => Ok(val != 0.0),
             _ => Err(TantivyValueError::UnsupportedIntoConversion(
                 "bool".to_string(),
             )),
@@ -1056,19 +1087,19 @@ impl TryFrom<pgrx::datum::JsonString> for TantivyValue {
 
     fn try_from(val: pgrx::datum::JsonString) -> Result<Self, Self::Error> {
         let json_value: Value = serde_json::from_slice(&serde_json::to_vec(&val.0)?)?;
-        Ok(TantivyValue(tantivy::schema::OwnedValue::from(json_value)))
+        Ok(TantivyValue::new_owned(OwnedValue::from(json_value)))
     }
 }
 
 /// Helper function to convert Tantivy OwnedValue to serde_json::Value
 /// Handles both Object types and String types (which may be JSON strings)
 fn tantivy_to_json_value(
-    owned_value: tantivy::schema::OwnedValue,
+    tv: TantivyValueInner,
     is_jsonb: bool,
 ) -> Result<serde_json::Value, TantivyValueError> {
-    match owned_value {
-        tantivy::schema::OwnedValue::Object(val) => Ok(serde_json::to_value(val)?),
-        tantivy::schema::OwnedValue::Str(s) => {
+    match tv {
+        TantivyValueInner::Owned(OwnedValue::Object(val)) => Ok(serde_json::to_value(val)?),
+        TantivyValueInner::Owned(OwnedValue::Str(s)) => {
             // When grouping by JSON fields, the values come back as strings
             // Try to parse as JSON first, fall back to treating as plain string
             let json_value: serde_json::Value =
@@ -1094,7 +1125,7 @@ impl TryFrom<pgrx::JsonB> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::JsonB) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::from(
+        Ok(TantivyValue::new_owned(OwnedValue::from(
             serde_json::Value::Array(vec![val.0]),
         )))
     }
@@ -1113,7 +1144,7 @@ impl TryFrom<serde_json::Value> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: serde_json::Value) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(tantivy::schema::OwnedValue::from(
+        Ok(TantivyValue::new_owned(OwnedValue::from(
             serde_json::Value::Array(vec![val]),
         )))
     }
@@ -1123,7 +1154,7 @@ impl TryFrom<TantivyValue> for serde_json::Value {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Object(val) = value.0 {
+        if let TantivyValueInner::Owned(OwnedValue::Object(val)) = value.0 {
             Ok(serde_json::to_value(val)?)
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
@@ -1137,18 +1168,7 @@ impl TryFrom<pgrx::datum::Date> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::datum::Date) -> Result<Self, Self::Error> {
-        let posix_secs = val.to_posix_time();
-        // The resulting nanos must fit within MIN_SAFE_TANTIVY_NANOS and MAX_SAFE_TANTIVY_NANOS.
-        let nanos = posix_secs.checked_mul(1_000_000_000).ok_or_else(|| {
-            TantivyValueError::DateOutOfRange(
-                val,
-                "date is outside Tantivy DateTime nanosecond range (~year 1678 to ~year 2262)"
-                    .to_string(),
-            )
-        })?;
-        Ok(TantivyValue(OwnedValue::Date(
-            tantivy::DateTime::from_timestamp_nanos(nanos),
-        )))
+        Ok(TantivyValue::new_date(PostgresDateTime::from(val)))
     }
 }
 
@@ -1156,13 +1176,8 @@ impl TryFrom<TantivyValue> for pgrx::datum::Date {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let OwnedValue::Date(val) = value.0 {
-            let prim_dt = val.into_primitive();
-            Ok(pgrx::datum::Date::new(
-                prim_dt.year(),
-                prim_dt.month().into(),
-                prim_dt.day(),
-            )?)
+        if let TantivyValueInner::Date { date } = value.0 {
+            Ok(date.into())
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
                 "date".to_string(),
@@ -1175,11 +1190,7 @@ impl TryFrom<pgrx::datum::Time> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::datum::Time) -> Result<Self, Self::Error> {
-        let (v_h, v_m, v_s, v_ms) = val.to_hms_micro();
-        Ok(TantivyValue(datetime_components_to_tantivy_date(
-            None,
-            (v_h, v_m, v_s, v_ms),
-        )?))
+        Ok(TantivyValue::new_date(PostgresDateTime::from(val)))
     }
 }
 
@@ -1187,14 +1198,8 @@ impl TryFrom<TantivyValue> for pgrx::datum::Time {
     type Error = TantivyValueError;
 
     fn try_from(value: TantivyValue) -> Result<Self, Self::Error> {
-        if let tantivy::schema::OwnedValue::Date(val) = value.0 {
-            let prim_dt = val.into_primitive();
-            let (h, m, s, micro) = prim_dt.as_hms_micro();
-            Ok(pgrx::datum::Time::new(
-                h,
-                m,
-                s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
-            )?)
+        if let TantivyValueInner::Date { date } = value.0 {
+            Ok(date.into())
         } else {
             Err(TantivyValueError::UnsupportedIntoConversion(
                 "time".to_string(),

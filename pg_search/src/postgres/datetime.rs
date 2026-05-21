@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::fmt::Display;
 use std::str::FromStr;
 
 use chrono::{DateTime, NaiveDate};
@@ -127,6 +128,11 @@ impl PostgresDateTime {
     pub fn try_from_timestamptz_str(s: &str) -> Result<Self, DateTimeConversionError> {
         let ts = pgrx::datum::TimestampWithTimeZone::from_str(s)?;
         Ok(Self::from(ts))
+    }
+}
+impl Display for PostgresDateTime {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
     }
 }
 

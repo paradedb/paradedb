@@ -1542,6 +1542,12 @@ impl AggregateScan {
         let ps = state.planstate();
         let runtime_planstate = (!ps.is_null()).then_some(ps);
 
+        // Snapshot before the `custom_state_mut()` borrow below. Used at the leader's
+        // physical-plan build (`build_join_aggregate_plan`) to pass `Some(MppPlanContext)`
+        // so the leader-side `PgSearchTableProvider`s carry the same parallel-source
+        // markers that workers expect when decoding shipped subplans.
+        let mpp_partitioning_source_idx = state.custom_state().mpp_partitioning_source_idx;
+
         let df_state = state
             .custom_state_mut()
             .datafusion_state
@@ -1614,6 +1620,20 @@ impl AggregateScan {
                 None => create_aggregate_session_context(),
             };
 
+            // When MPP is active, the leader's physical plan must be built with the same
+            // `MppPlanContext` that `stash_mpp_plan_bytes` used for the logical plan shipped
+            // to workers. Otherwise the leader's per-source `PgSearchTableProvider`s carry
+            // `is_parallel=false` / `non_partitioning_index=None`, and the JSON serialized
+            // onto the shipped subplans (in `create_scan`) propagates those defaults to
+            // workers. Workers then take `MvccSatisfies::Snapshot` + the no-`parallel_state`
+            // branch in `scan_inner`, so every worker scans every segment instead of
+            // claiming a slice via `checkout_segment` — producing `n_workers ×` row
+            // duplication on aggregate queries.
+            let mpp_ctx = leader_mesh.as_ref().and_then(|_| {
+                mpp_partitioning_source_idx.map(|idx| MppPlanContext {
+                    partitioning_plan_position: idx,
+                })
+            });
             let custom_exprs = df_state.custom_exprs;
             let custom_scan_tlist = df_state.custom_scan_tlist;
             let physical_plan = runtime.block_on(async {
@@ -1628,7 +1648,7 @@ impl AggregateScan {
                     &ctx,
                     runtime_expr_context,
                     runtime_planstate,
-                    None,
+                    mpp_ctx,
                 )
                 .await?;
                 df_state.group_df_indices = group_df_indices;

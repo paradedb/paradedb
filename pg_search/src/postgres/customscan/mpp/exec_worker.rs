@@ -42,9 +42,7 @@ use tantivy::index::SegmentId;
 
 use crate::api::HashSet;
 use crate::postgres::customscan::datafusion::memory::create_memory_pool;
-use crate::postgres::customscan::mpp::runtime::{
-    proc_for_task, MppMesh, MppWorkerResolver, ShmMqWorkerTransport,
-};
+use crate::postgres::customscan::mpp::runtime::{proc_for_task, MppMesh, ShmMqWorkerTransport};
 use crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator;
 use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, MppFrameHeader, MppSender};
 use crate::postgres::customscan::mpp::worker::run_worker_fragment;
@@ -113,7 +111,12 @@ pub(crate) fn build_mpp_session_context(
     // distributed-planner knobs on top.
     let state_builder = SessionStateBuilder::new_from_existing(seed.state())
         .with_config(cfg)
-        .with_distributed_worker_resolver(MppWorkerResolver::new(n_workers))
+        // No `with_distributed_worker_resolver(...)` line is needed: fork PR
+        // paradedb/datafusion-distributed#10 made the `WorkerResolver` lookup conditional
+        // on `!in_process_mode`. Workers in our embedding are PG parallel workers in the
+        // same backend tree, not URL-addressed nodes; the fork substitutes a single
+        // placeholder URL internally so its planner's URL plumbing stays satisfied while
+        // we ship no resolver of our own.
         .with_distributed_worker_transport(ShmMqWorkerTransport::new(mesh))
         .with_distributed_in_process_mode(true)
         .expect("with_distributed_in_process_mode")

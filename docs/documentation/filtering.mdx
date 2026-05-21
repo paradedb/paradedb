@@ -63,6 +63,15 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAny(item.Description, "running shoes") && item.Rating > 2
+    )
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ## Filter Pushdown
@@ -195,6 +204,15 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.Term(item.Description, "shoes") && item.Category == "Footwear"
+    )
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 To push down the `category = 'Footwear'` filter, `category` must be indexed using the [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer:
@@ -261,6 +279,16 @@ MockItem.search(:description)
         .term("shoes")
         .where(category: ["Footwear", "Apparel"])
         .select(:description, :rating, :category)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.Term(item.Description, "shoes")
+        && new[] { "Footwear", "Apparel" }.Contains(item.Category)
+    )
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
 ```
 
 </CodeGroup>

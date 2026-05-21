@@ -28,6 +28,14 @@ indexing
   .where(isNotNull(mockItems.description));
 ```
 
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasBm25Index("search_idx", e => e.Id)
+    .HasField(e => e.Description)
+    .HasField(e => e.Category)
+    .HasFilter("description IS NOT NULL");
+```
+
 ```python Django
 from django.db import connection
 from django.db.models import Q

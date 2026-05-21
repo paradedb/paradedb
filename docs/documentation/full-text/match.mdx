@@ -62,9 +62,9 @@ MockItem.search(:description)
 ```
 
 ```cs EF Core
-var results = await dbContext
+await dbContext
     .MockItems.Where(item =>
-        EF.Functions.MatchDisjunction(item.Description, "running shoes")
+        EF.Functions.MatchAny(item.Description, "running shoes")
     )
     .Select(item => new { item.Description, item.Rating, item.Category })
     .ToListAsync();
@@ -160,6 +160,15 @@ with Session(engine) as session:
 MockItem.search(:description)
         .matching_all("running shoes")
         .select(:description, :rating, :category)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAll(item.Description, "running shoes")
+    )
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
 ```
 
 </CodeGroup>
@@ -271,6 +280,18 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAny(
+            item.Description,
+            EF.Functions.Tokenize("running shoes", Tokenizer.Whitespace())
+        )
+    )
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ## Using Pretokenized Text
@@ -324,6 +345,15 @@ with Session(engine) as session:
 MockItem.search(:description)
         .matching_all("running", "shoes")
         .select(:description, :rating, :category)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAll(item.Description, new[] { "running", "shoes" })
+    )
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
 ```
 
 </CodeGroup>

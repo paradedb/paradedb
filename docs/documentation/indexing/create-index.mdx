@@ -22,6 +22,13 @@ indexing
   .on(mockItems.id, mockItems.description, mockItems.category);
 ```
 
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasBm25Index("search_idx", e => e.Id)
+    .HasField(e => e.Description)
+    .HasField(e => e.Category);
+```
+
 ```python Django
 from django.db import connection
 from paradedb.indexes import BM25Index
@@ -93,6 +100,10 @@ import { sql } from "drizzle-orm";
 await db.execute(sql`DROP INDEX search_idx`);
 ```
 
+```cs EF Core
+await dbContext.Database.ExecuteSqlRawAsync("DROP INDEX search_idx");
+```
+
 ```python Django
 from django.db import connection
 
@@ -138,6 +149,13 @@ indexing
     indexing.bm25Field(mockItems.description, tokenizer.icu()),
     mockItems.category,
   );
+```
+
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasBm25Index("search_idx", e => e.Id)
+    .HasField(e => e.Description, Tokenizer.Icu())
+    .HasField(e => e.Category);
 ```
 
 ```python Django
@@ -220,6 +238,18 @@ indexing
     mockItems.metadata,
     mockItems.weightRange,
   );
+```
+
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasBm25Index("search_idx", e => e.Id)
+    .HasField(e => e.Description)
+    .HasField(e => e.Category)
+    .HasField(e => e.Rating)
+    .HasField(e => e.InStock)
+    .HasField(e => e.CreatedAt)
+    .HasField(e => e.Metadata)
+    .HasField(e => e.WeightRange);
 ```
 
 ```python Django
@@ -338,6 +368,13 @@ indexing
     ),
     mockItems.category,
   );
+```
+
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasBm25Index("search_idx", e => e.Id)
+    .HasField(e => e.Description, Tokenizer.Simple(new() { ["stemmer"] = "english" }))
+    .HasField(e => e.Category);
 ```
 
 ```python Django

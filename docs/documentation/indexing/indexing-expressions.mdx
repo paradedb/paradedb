@@ -32,6 +32,15 @@ indexing
   );
 ```
 
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasBm25Index("search_idx", e => e.Id)
+    .HasField(
+        "description || ' ' || category",
+        Tokenizer.Simple(new() { ["alias"] = "description_concat" })
+    );
+```
+
 ```python Django
 from django.db import connection, models
 from django.db.models import F, Func, Value
@@ -144,6 +153,13 @@ indexing
     mockItems.description,
     search.alias(sql`${mockItems.rating} + 1`, "rating"),
   );
+```
+
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasBm25Index("search_idx", e => e.Id)
+    .HasField(e => e.Description)
+    .HasField("rating + 1", new FieldAlias("rating"));
 ```
 
 ```python Django

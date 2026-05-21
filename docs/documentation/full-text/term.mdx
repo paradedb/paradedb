@@ -97,6 +97,18 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.Term(item.Description, "running"))
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
+
+await dbContext
+    .MockItems.Where(item => EF.Functions.Term(item.Description, "RUNNING"))
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 The first query returns:
@@ -198,6 +210,13 @@ with Session(engine) as session:
 MockItem.search(:description)
         .term_set("shoes", "running")
         .select(:description, :rating, :category)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.Term(item.Description, new[] { "shoes", "running" }))
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
 ```
 
 </CodeGroup>

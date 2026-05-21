@@ -70,6 +70,24 @@ MockItem.search(:id)
         )
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.All(item.Id))
+    .Select(item =>
+        EF.Functions.Agg(
+            new
+            {
+                range = new
+                {
+                    field = "rating",
+                    ranges = new object[] { new { to = 3.0 }, new { @from = 3.0, to = 6.0 } }
+                }
+            }
+        )
+    )
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ```ini Expected Response

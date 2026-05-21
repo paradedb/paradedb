@@ -146,6 +146,30 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAny(item.Description, Pdb.Fuzzy("runing shose", 2))
+    )
+    .Select(item => new { item.Id, item.Description })
+    .Take(5)
+    .ToListAsync();
+
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAll(item.Description, Pdb.Fuzzy("runing shose", 2))
+    )
+    .Select(item => new { item.Id, item.Description })
+    .Take(5)
+    .ToListAsync();
+
+await dbContext
+    .MockItems.Where(item => EF.Functions.Term(item.Description, Pdb.Fuzzy("shose", 2)))
+    .Select(item => new { item.Id, item.Description })
+    .Take(5)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ## How It Works
@@ -221,6 +245,14 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.Term(item.Description, Pdb.Fuzzy("rann", 1, true)))
+    .Select(item => new { item.Id, item.Description })
+    .Take(5)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 <Note>
@@ -281,6 +313,16 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAll(item.Description, Pdb.Fuzzy("slee rann", 1, true))
+    )
+    .Select(item => new { item.Id, item.Description })
+    .Take(5)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ## Transposition Cost
@@ -337,6 +379,16 @@ MockItem.search(:description)
         .term("shose", distance: 1, transposition_cost_one: true)
         .select(:id, :description)
         .limit(5)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.Term(item.Description, Pdb.Fuzzy("shose", 1, false, true))
+    )
+    .Select(item => new { item.Id, item.Description })
+    .Take(5)
+    .ToListAsync();
 ```
 
 </CodeGroup>

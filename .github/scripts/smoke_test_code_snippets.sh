@@ -285,7 +285,7 @@ if [[ $LANGUAGES =~ "csharp" ]]; then
   echo "Referencing local ParadeDB.EntityFrameworkCore..."
   dotnet new console --framework net10.0 --output "$CSHARP_ENV_DIR" >/dev/null
   dotnet add "$CSHARP_ENV_DIR" reference \
-    "${EFCORE_PARADEDB_DIR}/src/ParadeDB.EntityFrameworkCore/ParadeDB.EntityFrameworkCore.csproj" \
+    "${EFCORE_PARADEDB_DIR}/src/ParadeDB.EntityFrameworkCore.csproj" \
     >/dev/null
   dotnet restore "$CSHARP_ENV_DIR" -p:NuGetAudit=false >/dev/null
 
@@ -294,12 +294,21 @@ if [[ $LANGUAGES =~ "csharp" ]]; then
 
     run_psql_file "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql"
     drop_snippet_indexes
-    create_snippet_indexes
+    if ! grep -Fq 'CREATE INDEX' "$snippet_file"; then
+      create_snippet_indexes
+    fi
 
     while IFS= read -r harness_line; do
       if [[ $harness_line == "// __PARADEDB_SNIPPET__" ]]; then
-        printf '// Source: %s\n' "$rel_snippet"
-        cat "$snippet_file"
+        if ! grep -Fq 'modelBuilder.' "$snippet_file"; then
+          printf '// Source: %s\n' "$rel_snippet"
+          cat "$snippet_file"
+        fi
+      elif [[ $harness_line == "        // __PARADEDB_MODEL_SNIPPET__" ]]; then
+        if grep -Fq 'modelBuilder.' "$snippet_file"; then
+          printf '        // Source: %s\n' "$rel_snippet"
+          sed 's/^/        /' "$snippet_file"
+        fi
       else
         printf '%s\n' "$harness_line"
       fi

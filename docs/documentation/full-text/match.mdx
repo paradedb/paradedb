@@ -61,6 +61,15 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```cs EF Core
+var results = await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchDisjunction(item.Description, "running shoes")
+    )
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 This query returns:

@@ -148,11 +148,10 @@ impl MppFrameHeader {
     /// `Err` if the slice is too short or the magic doesn't match.
     fn parse(bytes: &[u8]) -> Result<Self, DataFusionError> {
         if bytes.len() < MPP_FRAME_HEADER_SIZE {
-            // Diagnostic: a recent benchmark run on origin/main produced a 12-byte frame on the
-            // leader's inbound queue for the `aggregate_join_groupby` query at 100k scale. No
-            // encoder in this file produces sub-16-byte output, so the source is something
-            // outside the MPP layer. Hex-dump the bytes so the next benchmark surfaces what's
-            // actually arriving and we can chase the producer.
+            // No encoder in this file emits sub-`MPP_FRAME_HEADER_SIZE` output, so a frame
+            // landing here means the underlying shm_mq stitched together payloads from
+            // different senders. Hex-dump the bytes so the source is identifiable from log
+            // output alone (without re-running under a debugger).
             let hex = bytes
                 .iter()
                 .map(|b| format!("{b:02x}"))
@@ -555,16 +554,11 @@ impl MppSender {
         let Some(drain) = self.cooperative_drain.as_ref() else {
             return self.channel.send_bytes(scratch);
         };
-        // No yield_now inside the spin — that's what makes this safe without a per-handle lock.
-        // PG's shm_mq partial-send invariant says: once `try_send_bytes` returns WOULD_BLOCK with
-        // partial bytes on the wire, the next call on the same handle must repeat the *same*
-        // `(nbytes, data)` or the queue corrupts. With no `.await` between WOULD_BLOCK and the
-        // retry, no other tokio task on the current-thread runtime can sneak in a `try_send_bytes`
-        // with different bytes — the spin is atomic from the scheduler's POV. Skipping the lock
-        // also skips the contention that made multiplexed senders serialize through one mutex.
-        // Cross-process deadlock breaking still works: `drain.try_drain_pass` pulls peer batches
-        // out of our inbound every iteration, freeing peers' outbound slots so their sends
-        // unblock and ours eventually fits.
+        // Same partial-send / no-`.await` invariant as `send_with_scratch`; see that comment
+        // for the full rationale. TL;DR: PG's `shm_mq_send` requires the same `(nbytes,
+        // data)` on retry after WOULD_BLOCK, so keeping the spin awaitless prevents another
+        // multiplexed sender on the current-thread runtime from interleaving a different
+        // payload on the same handle.
         let mut first_try = true;
         let t_wait_start = Instant::now();
         loop {
@@ -598,32 +592,18 @@ impl MppSender {
             // back to the blocking send path.
             return self.channel.send_bytes(scratch);
         };
-        // Why there's no yield_now in this spin (and no send_lock either):
+        // PG's `shm_mq_send` partial-send invariant: after WOULD_BLOCK, the next call on the
+        // same handle must repeat the same `(nbytes, data)`. Multiple `MppSender` clones can
+        // share one handle (multiplexed `(stage_id, partition)` channels), so an `.await`
+        // here would let another task interleave a different payload and corrupt the queue.
+        // Keep the spin awaitless — on the current-thread runtime that's enough to make it
+        // atomic from the scheduler's POV and a per-handle lock isn't needed. Cross-process
+        // deadlock breaking still works because `drain.try_drain_pass` frees peer outbound
+        // slots from a different OS process, which doesn't depend on us yielding here.
         //
-        // PG's `shm_mq_send` invariant: once a call returns SHM_MQ_WOULD_BLOCK with partial bytes
-        // on the wire, the next call on the same handle has to repeat the *same* `(nbytes, data)`
-        // or the queue corrupts. Two `MppSender` clones can share one underlying
-        // `Arc<dyn BatchChannelSender>` (that's how `(stage_id, partition)` channels multiplex
-        // onto one shm_mq), so a yield between the WOULD_BLOCK and the retry used to let another
-        // task slip in a `try_send_bytes` with different bytes.
-        //
-        // The earlier fix gated the spin behind a per-handle `tokio::sync::Mutex`, which was
-        // correct but serialized every multiplexed sender through one lock and tanked the
-        // aggregate_join benchmarks by ~2×. This version keeps correctness by removing the only
-        // `.await` inside the partial-send window. On the current-thread tokio runtime, with no
-        // await between WOULD_BLOCK and retry, no other tokio task can interleave a
-        // `try_send_bytes` — the spin is atomic from the scheduler's POV, so a lock is redundant.
-        //
-        // Cross-process deadlock breaking still works the same way. The two procs each spin on
-        // full outbounds; each one's `drain.try_drain_pass` pulls peer batches out of its own
-        // inbound queues, which frees the peer's outbound-to-us slots, which lets the peer's
-        // sender advance, which eventually drains our outbound and lets us advance too. Peer
-        // progress happens in a different OS process — it doesn't need us to yield to make it.
-        //
-        // Trade-off: while the spin is running, other tokio tasks on this thread (sibling
-        // producers, the local consumer draining the `DrainBuffer`) don't get a turn. In
-        // practice each spin completes within a few iterations once the peer drains its end, so
-        // the latency hit is bounded and a lot smaller than the lock contention it replaces.
+        // Long-term plan: replace `shm_mq` with an explicit ring buffer + async-friendly
+        // signaling (cf. #4184's strategy) so the partial-send invariant goes away and the
+        // spin can yield cooperatively.
         let mut first_try = true;
         let t_wait_start = Instant::now();
         loop {

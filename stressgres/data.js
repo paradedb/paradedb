@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779402428020,
+  "lastUpdate": 1779402460592,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20778,6 +20778,186 @@ window.BENCHMARK_DATA = {
             "value": 31.21484375,
             "unit": "median mem",
             "extra": "avg mem: 30.57436487975277, max mem: 31.63671875, count: 53837"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a3b5e61a3edc85110f13cda339aeb5ee47e92235",
+          "message": "fix(mpp): serialize concurrent sends on the same shm_mq handle (#5110)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nFixes the benchmark workflow that's been failing on `main` since #5082\nlanded\n(https://github.com/paradedb/paradedb/actions/runs/26077021525/job/76670054238).\nThe `aggregate_join_groupby - alternative 2` query (MPP + aggregate +\nGROUP BY over a JOIN at 100k stackoverflow scale) errors with either\n\"frame too short for header (12 < 16)\" or \"invalid message size\n1985348632576000 in shared memory queue\". Both shapes are the same\nunderlying corruption — a shm_mq queue's length prefix got stitched to\nsomeone else's payload.\n\n## Why\n\nPG's `shm_mq_send` documents it directly:\n\n> When nowait = true ... if the buffer becomes full, we return\nSHM_MQ_WOULD_BLOCK. In this case, the caller should call this function\nagain, with the same arguments. (Once begun, the sending of a message\ncannot be aborted except by detaching from the queue; changing the\nlength or payload will corrupt the queue.)\n\nOur cooperative-drain spin in `MppSender::send_*_traced` does\n`tokio::task::yield_now().await` between `try_send_bytes` retries so\npeer inbound queues keep draining. The multiplexed transport has\nmultiple `MppSender` clones sharing one underlying `Arc<dyn\nBatchChannelSender>` (that's how `(stage_id, partition)` channels share\nan shm_mq). Without serialization, after task A's `try_send_bytes`\nreturns `WOULD_BLOCK` with a partial write, the `yield_now().await` lets\ntask B call `try_send_bytes` on the same handle with different bytes. PG\nstitches A's length prefix to B's payload and the queue's now garbled.\n\n## How\n\n`BatchChannelSender::send_lock()` exposes a `tokio::sync::Mutex<()>` per\nshm_mq handle. The send paths (`MppSender::send_batch_traced` /\n`send_eof_traced`) acquire it before entering the cooperative-drain spin\nand hold it across `yield_now().await`. Two `MppSender` clones sharing\none underlying channel now serialize naturally, so the interleave that\ncorrupts the queue can't happen.\n\nThis PR has been through a couple of iterations:\n\n- An earlier revision (`c1a6bb1`, since reverted) dropped the lock and\ninstead removed the only `.await` from inside the partial-send window,\non the theory that an awaitless spin would be cheaper. The benchmark\ndidn't agree — see the standing perf section below.\n- The current version (`fbc5ed0f`) reverts that to keep the more\nobviously-correct lock-based serialization, matching the recommendation\nfrom review.\n\nThe hex-dump diagnostic from `b338f70e` stays. It cost nothing and would\ncatch a regression of the same shape if it recurs.\n\n## Standing perf regression (separate from this PR)\n\nThe CI benchmark on this branch reports `aggregate_join_groupby -\nalternative 2` ~1.88× slower and `aggregate_join_topk_count -\nalternative 2` ~2.17× slower than the pre-#5082 baseline at 20M rows.\nThe non-MPP alternatives on the same queries are flat (~1.00×), so the\nregression is on the multi-stage MPP path that landed in #5082 / #5092 —\nnot on the transport changes in this PR.\n\nThe earlier \"drop the lock\" revision was based on the theory that the\nper-handle `tokio::sync::Mutex` was the bottleneck. The bench data\ndidn't bear that out: removing the lock did not change the ratio, which\nis consistent with a held mutex and an awaitless spin having the same\neffect on a current-thread runtime (both block sibling tokio tasks until\nthe send completes). The regression's root cause is elsewhere in the\npost-#5082 multi-stage path and is tracked as separate follow-up work.\n\nLonger term, replacing `shm_mq` with an explicit ring buffer +\nasync-friendly signaling (cf. #4184's strategy) lifts the partial-send\ninvariant entirely and removes the need for per-handle send\nserialization at all. A code-comment pointer to that follow-up sits at\nthe top of `send_with_scratch`.\n\n## Tests\n\n- 30 sequential runs of the failing query locally on synthetic 100k\nposts / 1M comments. The bug doesn't reproduce reliably at that scale on\nmy hardware. The interleave needs `WOULD_BLOCK` pressure, which is more\nlikely at the CI scale (real Stack Overflow body sizes, 48 segments per\nindex, 96 cores). CI benchmark on this branch will be the final word.\n\n---------\n\nSigned-off-by: Moe <mdashti@gmail.com>",
+          "timestamp": "2026-05-21T14:10:19-07:00",
+          "tree_id": "c24f7c426f37a1c70b3729675945b028f38d0e71",
+          "url": "https://github.com/paradedb/paradedb/commit/a3b5e61a3edc85110f13cda339aeb5ee47e92235"
+        },
+        "date": 1779402429817,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.093711771511358, max cpu: 9.311348, count: 53865"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 52.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.93541688422445, max mem: 58.9453125, count: 53865"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.052713649836615, max cpu: 4.58891, count: 53865"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 29.8671875,
+            "unit": "median mem",
+            "extra": "avg mem: 29.115726526965563, max mem: 30.19921875, count: 53865"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.116809,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.627768010726644, max cpu: 18.461538, count: 53865"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 55.78125,
+            "unit": "median mem",
+            "extra": "avg mem: 55.54633125058015, max mem: 61.84375, count: 53865"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.007927194773164, max cpu: 9.275363, count: 53865"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 52.85546875,
+            "unit": "median mem",
+            "extra": "avg mem: 52.910510143994244, max mem: 58.890625, count: 53865"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.597975511264373, max cpu: 9.195402, count: 53865"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 33.65625,
+            "unit": "median mem",
+            "extra": "avg mem: 33.69772485322102, max mem: 38.8984375, count: 53865"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1115,
+            "unit": "median pages",
+            "extra": "avg pages: 1121.8052167455676, max pages: 1875.0, count: 53865"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.7109375,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.76410340086327, max relation_size:MB: 14.6484375, count: 53865"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.078733871716327, max segment_count: 20.0, count: 53865"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.427042969405326, max cpu: 4.597701, count: 53865"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 28.94140625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.243994317390698, max mem: 29.31640625, count: 53865"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5454545,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.309354698885956, max cpu: 4.5714283, count: 53865"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 28.96484375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.23376721607259, max mem: 29.31640625, count: 53865"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.164653060563603, max cpu: 23.054754, count: 53865"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 50.90625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.01331178060893, max mem: 57.046875, count: 53865"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000016194740776275178, max replication_lag:MB: 0.11885833740234375, count: 53865"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.261549083405965, max cpu: 13.819577, count: 107730"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 51.70703125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.762637496519076, max mem: 58.17578125, count: 107730"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.101127389529289, max cpu: 4.5801525, count: 53865"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 30.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.9318727228952, max mem: 30.99609375, count: 53865"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.549763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.521087387411758, max cpu: 4.597701, count: 53865"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 30.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 30.029405255035737, max mem: 30.8359375, count: 53865"
           }
         ]
       }

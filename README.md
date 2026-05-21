@@ -68,10 +68,10 @@ ParadeDB integrates with the tools you already use, with more on the way.
 
 ### ORMs & Frameworks
 
+- [Drizzle](https://github.com/paradedb/drizzle-paradedb)
 - [Django](https://github.com/paradedb/django-paradedb)
 - [SQLAlchemy](https://github.com/paradedb/sqlalchemy-paradedb)
 - [Rails](https://github.com/paradedb/rails-paradedb)
-- [Drizzle](https://github.com/paradedb/drizzle-paradedb)
 - More coming (Prisma, and others)
 
 ### AI Agents

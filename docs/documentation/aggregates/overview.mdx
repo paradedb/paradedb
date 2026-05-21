@@ -239,10 +239,10 @@ await db
 ```
 
 ```python Django
-from paradedb import Agg, Match, ParadeDB
+from paradedb import Agg, MatchAny, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('running shoes', operator='OR'))
+    description=ParadeDB(MatchAny('running shoes'))
 ).aggregate(
     agg=Agg('{"value_count": {"field": "id"}}', exact=False)
 )

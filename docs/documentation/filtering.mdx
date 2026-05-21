@@ -34,10 +34,10 @@ await db
 ```
 
 ```python Django
-from paradedb import Match, ParadeDB
+from paradedb import MatchAny, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('running shoes', operator='OR')),
+    description=ParadeDB(MatchAny('running shoes')),
     rating__gt=2
 ).values('description', 'rating', 'category')
 ```

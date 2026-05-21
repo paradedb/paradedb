@@ -41,10 +41,10 @@ await db
 ```
 
 ```python Django
-from paradedb import Match, ParadeDB
+from paradedb import MatchAny, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('running shoes', operator='OR')),
+    description=ParadeDB(MatchAny('running shoes')),
     rating__gt=2
 ).values('description', 'rating', 'category').order_by('rating')[:5]
 ```
@@ -121,10 +121,10 @@ await db
 ```
 
 ```python Django
-from paradedb import Match, ParadeDB
+from paradedb import MatchAll, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('running shoes', operator='AND')),
+    description=ParadeDB(MatchAll('running shoes')),
     rating__gt=2
 ).values('description', 'rating', 'category').order_by('rating')[:5]
 ```
@@ -197,10 +197,10 @@ await db
 ```
 
 ```python Django
-from paradedb import Match, ParadeDB, Score
+from paradedb import MatchAny, ParadeDB, Score
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('running shoes', operator='OR')),
+    description=ParadeDB(MatchAny('running shoes')),
     rating__gt=2
 ).annotate(
     score=Score()
@@ -280,10 +280,10 @@ await db
 ```
 
 ```python Django
-from paradedb import Match, ParadeDB, Score, Snippet
+from paradedb import MatchAny, ParadeDB, Score, Snippet
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('running shoes', operator='OR')),
+    description=ParadeDB(MatchAny('running shoes')),
     rating__gt=2
 ).annotate(
     snippet=Snippet('description'),
@@ -362,10 +362,10 @@ await db
 ```
 
 ```python Django
-from paradedb import Match, ParadeDB
+from paradedb import MatchAny, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('running shoes', operator='OR'))
+    description=ParadeDB(MatchAny('running shoes'))
 ).values('description', 'rating', 'category').order_by('rating')[:5]
 ```
 
@@ -439,11 +439,11 @@ await db
 ```
 
 ```python Django
-from paradedb import Match, ParadeDB
+from paradedb import MatchAny, ParadeDB
 
 (
     MockItem.objects
-    .filter(description=ParadeDB(Match('running shoes', operator='OR')))
+    .filter(description=ParadeDB(MatchAny('running shoes')))
     .order_by('rating')
     .values('description', 'rating', 'category')[:5]
     .facets(agg='{"value_count": {"field": "id"}}')

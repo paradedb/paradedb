@@ -34,10 +34,10 @@ await db
 ```
 
 ```python Django
-from paradedb import Match, ParadeDB
+from paradedb import MatchAny, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('running shoes', operator='OR'))
+    description=ParadeDB(MatchAny('running shoes'))
 ).values('description', 'rating', 'category')
 ```
 
@@ -126,10 +126,10 @@ await db
 ```
 
 ```python Django
-from paradedb import Match, ParadeDB
+from paradedb import MatchAll, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('running shoes', operator='AND'))
+    description=ParadeDB(MatchAll('running shoes'))
 ).values('description', 'rating', 'category')
 ```
 
@@ -233,11 +233,11 @@ await db
 ```
 
 ```python Django
-from paradedb import Match, ParadeDB, Tokenizer
+from paradedb import MatchAny, ParadeDB, Tokenized, Tokenizer
 
 MockItem.objects.filter(
     description=ParadeDB(
-        Match('running shoes', operator='OR', tokenizer=Tokenizer.whitespace())
+        MatchAny(Tokenized('running shoes', Tokenizer.whitespace()))
     )
 ).values('description', 'rating', 'category')
 ```
@@ -290,10 +290,10 @@ await db
 ```
 
 ```python Django
-from paradedb import Match, ParadeDB
+from paradedb import MatchAll, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('running', 'shoes', operator='AND'))
+    description=ParadeDB(MatchAll('running', 'shoes'))
 ).values('description', 'rating', 'category')
 ```
 

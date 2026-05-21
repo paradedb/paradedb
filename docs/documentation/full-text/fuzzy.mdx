@@ -77,21 +77,21 @@ await db
 ```
 
 ```python Django
-from paradedb import Match, ParadeDB, Term
+from paradedb import Fuzzy, MatchAll, MatchAny, ParadeDB, Term
 
 # Fuzzy match disjunction
 MockItem.objects.filter(
-    description=ParadeDB(Match('runing shose', operator='OR', distance=2))
+    description=ParadeDB(MatchAny(Fuzzy('runing shose', 2)))
 ).values('id', 'description')[:5]
 
 # Fuzzy match conjunction
 MockItem.objects.filter(
-    description=ParadeDB(Match('runing shose', operator='AND', distance=2))
+    description=ParadeDB(MatchAll(Fuzzy('runing shose', 2)))
 ).values('id', 'description')[:5]
 
 # Fuzzy term
 MockItem.objects.filter(
-    description=ParadeDB(Term('shose', distance=2))
+    description=ParadeDB(Fuzzy(Term('shose'), 2))
 ).values('id', 'description')[:5]
 ```
 
@@ -192,10 +192,10 @@ await db
 ```
 
 ```python Django
-from paradedb import ParadeDB, Term
+from paradedb import Fuzzy, ParadeDB, Term
 
 MockItem.objects.filter(
-    description=ParadeDB(Term('rann', distance=1, prefix=True))
+    description=ParadeDB(Fuzzy(Term('rann'), 1, prefix=True))
 ).values('id', 'description')[:5]
 ```
 
@@ -252,10 +252,10 @@ await db
 ```
 
 ```python Django
-from paradedb import Match, ParadeDB
+from paradedb import Fuzzy, MatchAll, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('slee rann', operator='AND', distance=1, prefix=True))
+    description=ParadeDB(MatchAll(Fuzzy('slee rann', 1, prefix=True)))
 ).values('id', 'description')[:5]
 ```
 
@@ -310,10 +310,10 @@ await db
 ```
 
 ```python Django
-from paradedb import ParadeDB, Term
+from paradedb import Fuzzy, ParadeDB, Term
 
 MockItem.objects.filter(
-    description=ParadeDB(Term('shose', distance=1, transposition_cost_one=True))
+    description=ParadeDB(Fuzzy(Term('shose'), 1, transposition_cost_one=True))
 ).values('id', 'description')[:5]
 ```
 

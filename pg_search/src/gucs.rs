@@ -218,10 +218,10 @@ static TERM_SET_BITSET_MAX_DENSITY_UNIQUE: GucSetting<f64> = GucSetting::<f64>::
 /// `tantivy::query::TermSetStrategyConfig::default()`.
 static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 200.0);
 
-/// Per-segment IVF cluster fanout cap for vector search. `0.5` means
-/// probe at most 50% of a segment's IVF clusters, rounded up; `1.0`
+/// Per-segment IVF cluster fanout cap for vector search. `0.1` means
+/// probe at most 10% of a segment's IVF clusters, rounded up; `1.0`
 /// means no cap beyond the segment's cluster count.
-static VECTOR_CLUSTER_PROBE_FANOUT: GucSetting<f64> = GucSetting::<f64>::new(0.5);
+static VECTOR_CLUSTER_PROBE_FANOUT: GucSetting<f64> = GucSetting::<f64>::new(0.1);
 
 pub fn vector_cluster_probe_fanout() -> f32 {
     VECTOR_CLUSTER_PROBE_FANOUT.get() as f32
@@ -424,7 +424,7 @@ pub fn init() {
     GucRegistry::define_float_guc(
         c"paradedb.vector_cluster_probe_fanout",
         c"IVF cluster probe fanout cap for vector ORDER BY queries",
-        c"Caps the fraction of IVF clusters per segment whose docs may be scored on a vector ORDER BY query. 0.5 probes at most 50% of clusters, rounded up; 1.0 allows all clusters. Lower values reduce latency at the cost of recall.",
+        c"Caps the fraction of IVF clusters per segment whose docs may be scored on a vector ORDER BY query. 0.1 probes at most 10% of clusters, rounded up; 1.0 allows all clusters. Lower values reduce latency at the cost of recall.",
         &VECTOR_CLUSTER_PROBE_FANOUT,
         0.000001,
         1.0,

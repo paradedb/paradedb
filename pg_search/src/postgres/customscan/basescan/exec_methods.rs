@@ -17,7 +17,6 @@
 
 pub(crate) mod fast_fields;
 pub(crate) mod normal;
-pub(crate) mod rerank;
 pub(crate) mod top_k;
 
 use crate::postgres::customscan::basescan::scan_state::BaseScanState;

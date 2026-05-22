@@ -496,6 +496,16 @@ impl SearchIndexSchema {
         self.schema.fields()
     }
 
+    pub fn has_vector_field(&self) -> bool {
+        self.fields().any(|(_, field_entry)| {
+            let field_name: FieldName = field_entry.name().into();
+            matches!(
+                self.bm25_options.get_field_type(&field_name),
+                Some(SearchFieldType::Vector(..))
+            )
+        })
+    }
+
     /// A lookup from a Postgres column name to search fields that have
     /// marked it as their source column with the 'column' key.
     pub fn alias_lookup(&self) -> HashMap<String, Vec<SearchField>> {

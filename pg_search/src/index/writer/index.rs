@@ -101,8 +101,20 @@ impl IndexWriterConfig {
     pub fn new(memory_budget: NonZeroUsize) -> Self {
         Self {
             memory_budget,
-            max_docs_per_segment: Some(DEFAULT_MAX_DOCS_PER_SEGMENT),
+            max_docs_per_segment: None,
         }
+    }
+
+    fn with_schema_defaults(mut self, schema: &SearchIndexSchema) -> Self {
+        self.max_docs_per_segment = if schema.has_vector_field() {
+            Some(
+                self.max_docs_per_segment
+                    .unwrap_or(DEFAULT_MAX_DOCS_PER_SEGMENT),
+            )
+        } else {
+            None
+        };
+        self
     }
 }
 
@@ -140,6 +152,9 @@ impl SerialIndexWriter {
         config: IndexWriterConfig,
         worker_number: i32,
     ) -> Result<Self> {
+        let schema = index_relation.schema()?;
+        let config = config.with_schema_defaults(&schema);
+
         if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
             pgrx::debug1!(
                 "writer {}: opening index writer with config: {:?}, satisfies: {:?}",
@@ -151,7 +166,6 @@ impl SerialIndexWriter {
 
         let directory = mvcc_satisfies.directory(index_relation);
         let mut index = Index::open(directory)?;
-        let schema = index_relation.schema()?;
         setup_tokenizers(index_relation, &mut index)?;
         let ctid_field = schema.ctid_field();
 
@@ -491,6 +505,22 @@ mod tests {
         .unwrap()
     }
 
+    fn get_vector_relation_oid() -> pg_sys::Oid {
+        Spi::run("SET client_min_messages = 'debug1';").unwrap();
+        Spi::run("CREATE EXTENSION IF NOT EXISTS vector;").unwrap();
+        Spi::run("CREATE TABLE t_vec (id SERIAL, data TEXT, embedding vector(3));").unwrap();
+        Spi::run("INSERT INTO t_vec (data, embedding) VALUES ('test', '[1,0,0]');").unwrap();
+        Spi::run(
+            "CREATE INDEX t_vec_idx ON t_vec USING bm25(id, data, embedding vector_l2_ops) WITH (key_field = 'id')",
+        )
+        .unwrap();
+        Spi::get_one::<pg_sys::Oid>(
+            "SELECT oid FROM pg_class WHERE relname = 't_vec_idx' AND relkind = 'i';",
+        )
+        .expect("spi should succeed")
+        .unwrap()
+    }
+
     fn simulate_index_writer(
         config: IndexWriterConfig,
         relation_oid: pg_sys::Oid,
@@ -537,9 +567,20 @@ mod tests {
 
     #[pg_test]
     fn test_index_writer_max_docs_per_segment() {
-        let relation_oid = get_relation_oid();
+        let relation_oid = get_vector_relation_oid();
         let config = IndexWriterConfig::new(NonZeroUsize::new(15 * 1024 * 1024).unwrap());
         let segment_ids = simulate_index_writer(config, relation_oid, 25000);
         assert_eq!(segment_ids.len(), 25);
+    }
+
+    #[pg_test]
+    fn test_index_writer_max_docs_per_segment_requires_vector_field() {
+        let relation_oid = get_relation_oid();
+        let config = IndexWriterConfig {
+            memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
+            max_docs_per_segment: Some(1000),
+        };
+        let segment_ids = simulate_index_writer(config, relation_oid, 5000);
+        assert_eq!(segment_ids.len(), 1);
     }
 }

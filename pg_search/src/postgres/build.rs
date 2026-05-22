@@ -18,7 +18,6 @@
 use crate::api::version::VersionInfo;
 use crate::api::FieldName;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::writer::index::DEFAULT_MAX_DOCS_PER_SEGMENT;
 use crate::postgres::build_parallel::build_index;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
@@ -28,7 +27,7 @@ use crate::postgres::utils::{extract_field_attributes, ExtractedFieldAttribute};
 use crate::schema::{SearchFieldConfig, SearchFieldType, SearchIndexSchema};
 use anyhow::Result;
 use pgrx::*;
-use tantivy::schema::{FieldType, Schema};
+use tantivy::schema::Schema;
 use tantivy::vector::VectorOptions;
 use tantivy::{Index, IndexSettings};
 use tokenizers::SearchTokenizer;
@@ -348,18 +347,9 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
     // Configure sort_by for segment sorting
     let sort_by_field = SearchIndexSchema::build_sort_by_field(&options.sort_by(), &schema);
 
-    let has_vector_field = schema
-        .fields()
-        .any(|(_, entry)| matches!(entry.field_type(), FieldType::Vector(_)));
-
     let settings = IndexSettings {
         sort_by_field,
         docstore_compress_dedicated_thread: false,
-        vector_clustering_threshold: if has_vector_field {
-            DEFAULT_MAX_DOCS_PER_SEGMENT as usize
-        } else {
-            usize::MAX
-        },
         codec_types: vec![
             tantivy::columnar::CodecType::Bitpacked,
             tantivy::columnar::CodecType::BlockwiseLinearV2,

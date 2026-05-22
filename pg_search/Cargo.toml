@@ -39,6 +39,7 @@ json5 = "0.4.1"
 memoffset = "0.9.1"
 once_cell = "1.21.4"
 parking_lot = "0.12.5"
+superkmeans = { path = "../superkmeans" }
 tokenizers = { path = "../tokenizers" }
 pgrx.workspace = true
 rustc-hash = "2.1.2"

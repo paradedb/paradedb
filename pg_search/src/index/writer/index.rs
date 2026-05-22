@@ -32,6 +32,7 @@ use crate::index::mvcc::{MVCCDirectory, MvccSatisfies};
 use crate::index::setup_tokenizers;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::SegmentMetaEntry;
+use crate::vector::clusterer::set_ivf_clusterer;
 use crate::{postgres::types::TantivyValueError, schema::SearchIndexSchema};
 
 struct PendingSegment {
@@ -141,7 +142,8 @@ impl SerialIndexWriter {
         worker_number: i32,
     ) -> Result<Self> {
         let schema = index_relation.schema()?;
-        let max_docs_per_segment = if schema.has_vector_field() {
+        let has_vector_field = schema.has_vector_field();
+        let max_docs_per_segment = if has_vector_field {
             Some(
                 config
                     .max_docs_per_segment
@@ -166,6 +168,9 @@ impl SerialIndexWriter {
 
         let directory = mvcc_satisfies.directory(index_relation);
         let mut index = Index::open(directory)?;
+        if has_vector_field {
+            set_ivf_clusterer(&mut index);
+        }
         setup_tokenizers(index_relation, &mut index)?;
         let ctid_field = schema.ctid_field();
 
@@ -207,6 +212,9 @@ impl SerialIndexWriter {
             ..IndexSettings::default()
         };
         let mut index = Index::create(directory, tantivy_schema, settings)?;
+        if schema.has_vector_field() {
+            set_ivf_clusterer(&mut index);
+        }
         setup_tokenizers(index_relation, &mut index)?;
         let ctid_field = schema.ctid_field();
         // We bound the input size instead: see the method doc.
@@ -383,7 +391,11 @@ pub struct SearchIndexMerger {
 impl SearchIndexMerger {
     pub fn open(indexrel: &PgSearchRelation) -> Result<SearchIndexMerger> {
         let directory = MvccSatisfies::Mergeable.directory(indexrel);
-        let index = Index::open(directory.clone())?;
+        let schema = indexrel.schema()?;
+        let mut index = Index::open(directory.clone())?;
+        if schema.has_vector_field() {
+            set_ivf_clusterer(&mut index);
+        }
         Ok(Self {
             index,
             merged_segment_ids: Default::default(),

@@ -693,8 +693,13 @@ impl CustomScan for BaseScan {
                 .schema()
                 .expect("custom_scan: should have a schema");
             let index_expressions = bm25_index.index_expressions();
-            let topk_pathkey_info =
-                pullup_topk_pathkeys(rti, &schema, root, Some(&index_expressions));
+            let topk_pathkey_info = pullup_topk_pathkeys(
+                rti,
+                &schema,
+                root,
+                Some(&index_expressions),
+                Some(&bm25_index),
+            );
 
             #[cfg(feature = "pg15")]
             let baserels = (*builder.args().root).all_baserels;
@@ -2250,7 +2255,10 @@ unsafe fn pullup_topk_pathkeys(
     schema: &SearchIndexSchema,
     root: *mut pg_sys::PlannerInfo,
     index_expressions: Option<&PgList<pg_sys::Expr>>,
+    index_relation: Option<&PgSearchRelation>,
 ) -> PathKeyInfo {
+    let json_sort_gate =
+        index_relation.map(crate::postgres::customscan::orderby::JsonSortGate::new);
     match extract_pathkey_styles_with_sortability_check(
         root,
         rti,
@@ -2258,6 +2266,7 @@ unsafe fn pullup_topk_pathkeys(
         |search_field| search_field.is_raw_sortable(),
         |search_field| search_field.is_lower_sortable(),
         index_expressions,
+        json_sort_gate.as_ref(),
     ) {
         PathKeyInfo::UsableAll(styles) if styles.len() <= MAX_TOPK_FEATURES => {
             // Top K is the base scan's only executor which supports sorting, and supports up to

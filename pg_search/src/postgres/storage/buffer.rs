@@ -202,11 +202,12 @@ impl Drop for Buffer {
                 block_tracker::forget!(pg_sys::BufferGetBlockNumber(self.pg_buffer));
 
                 // Skip PostgreSQL cleanup during panic unwinding to prevent double-panics.
-                // InterruptHoldoffCount check is a PostgreSQL-level indicator of error handling.
-                if !std::thread::panicking()
-                    && pg_sys::InterruptHoldoffCount > 0
-                    && crate::postgres::utils::IsTransactionState()
-                {
+                // Don't add an `InterruptHoldoffCount > 0` guard here. It looks like a safety
+                // belt but it's stricter than the panic check, so it can skip the unlock in
+                // normal flows whenever PG happens to have dropped the holdoff count for its
+                // own reasons. If the leaked lock is on the FSM root, the next caller that
+                // tries to upgrade SHARE to EXCLUSIVE on that page waits forever.
+                if !std::thread::panicking() && crate::postgres::utils::IsTransactionState() {
                     pg_sys::UnlockReleaseBuffer(self.pg_buffer);
                 }
             }

@@ -34,6 +34,7 @@
 use std::ffi::c_void;
 use std::sync::Arc;
 
+use datafusion_distributed::MultiChannelFrameHeader;
 use pgrx::pg_sys;
 
 use crate::gucs::{
@@ -42,8 +43,6 @@ use crate::gucs::{
 use crate::postgres::customscan::mpp::dsm::{
     compute_dsm_layout, leader_init, peer_proc_for_index, worker_attach,
 };
-use datafusion_distributed::MultiChannelFrameHeader;
-
 use crate::postgres::customscan::mpp::mesh::{ShmMqReceiver, ShmMqSender};
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 use crate::postgres::customscan::mpp::transport::{

@@ -317,7 +317,7 @@ impl MppSender {
         result
     }
 
-    /// Send a payload-less [`MppFrameKind::Eof`] frame so the receiver's `(stage_id, partition)`
+    /// Send a payload-less `Eof` frame so the receiver's `(stage_id, partition)`
     /// channel buffer transitions to `Eof` and the consumer's pull loop terminates cleanly.
     ///
     /// Producer fragments must call this exactly once per `(stage_id, partition)` channel after

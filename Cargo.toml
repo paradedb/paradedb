@@ -4,6 +4,7 @@ members = [
   "pg_search",
   "tests",
   "tokenizers",
+  "superkmeans",
   "benchmarks",
   "macros",
   "stressgres",

@@ -1313,6 +1313,34 @@ ORDER BY count DESC;
  Toys        |     1
 (2 rows)
 
+-- Test 8.10: DISTINCT should push down through aggregate scan
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT DISTINCT rating
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
+ORDER BY rating ASC;
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on public.products
+   Output: rating
+   Index: products_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"laptop OR keyboard","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: 
+     Group By: rating
+     Aggregate Definition: {"grouped":{"terms":{"field":"rating","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(7 rows)
+
+SELECT DISTINCT rating
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
+ORDER BY rating ASC;
+ rating 
+--------
+      3
+      4
+      5
+(3 rows)
+
 -- =====================================================================
 -- Cleanup
 -- =====================================================================

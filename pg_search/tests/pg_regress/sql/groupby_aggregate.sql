@@ -659,6 +659,18 @@ WHERE d.description @@@ 'laptop'
 GROUP BY d.category
 ORDER BY count DESC;
 
+-- Test 8.10: DISTINCT should push down through aggregate scan
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF, VERBOSE)
+SELECT DISTINCT rating
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
+ORDER BY rating ASC;
+
+SELECT DISTINCT rating
+FROM products
+WHERE description @@@ 'laptop OR keyboard'
+ORDER BY rating ASC;
+
 -- =====================================================================
 -- Cleanup
 -- =====================================================================

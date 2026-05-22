@@ -215,7 +215,10 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
                     "chinese" => LinderaLanguage::Chinese,
                     "japanese" => LinderaLanguage::Japanese,
                     "korean" => LinderaLanguage::Korean,
-                    _ => LinderaLanguage::default(),
+                    _ => pgrx::error!(
+                        "invalid Lindera language '{}'; allowed values are: chinese, japanese, korean",
+                        s
+                    ),
                 };
             }
             let new_filters = SearchTokenizerFilters::from(parsed);

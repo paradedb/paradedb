@@ -43,7 +43,6 @@ use tantivy::index::SegmentId;
 use crate::api::HashSet;
 use crate::postgres::customscan::datafusion::memory::create_memory_pool;
 use crate::postgres::customscan::mpp::runtime::{proc_for_task, MppMesh, ShmMqWorkerTransport};
-use crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator;
 use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, MppFrameHeader, MppSender};
 use crate::postgres::customscan::mpp::worker::run_worker_fragment;
 use crate::postgres::customscan::mpp::worker_fragments::{
@@ -92,7 +91,10 @@ pub(crate) fn build_mpp_session_context(
     //   1. target_partitions(N) — without this, EnforceDistribution skips every
     //      RepartitionExec, so the annotator never sees a Shuffle.
     //   2. distributed_task_estimator(N) — without this, leaves default to Maximum(1) and
-    //      `_distribute_plan` elides every shuffle.
+    //      `_distribute_plan` elides every shuffle. (The broadcast-subtree cap that used to
+    //      live in this crate as `BroadcastBuildSideOneTaskEstimator` now ships as a default
+    //      built-in inside the fork — see paradedb/datafusion-distributed#11 — gated by the
+    //      default-on `broadcast_subtree_max_one_task` flag.)
     //   3. distributed_broadcast_joins(true) — CollectLeft HashJoins otherwise cap their
     //      stage's task_count to Maximum(1) and propagate that cap upward, eliding shuffles
     //      above the join.
@@ -121,13 +123,11 @@ pub(crate) fn build_mpp_session_context(
         .with_distributed_worker_transport(ShmMqWorkerTransport::new(mesh))
         .with_distributed_in_process_mode(true)
         .expect("with_distributed_in_process_mode")
-        // Estimator chain order matters. The DF-D fork tries each estimator in registration
-        // order until one returns Some. The build-side one-task estimator has to come first.
-        // Otherwise the default `Desired(n_workers)` leaf estimator wins, the all-gather
-        // memory leaf gets task_count = n_workers, `_distribute_plan` builds
-        // `NetworkBroadcastExec` with `input_task_count = n_workers`, and the consumer's
-        // `select_all` over-counts by n_workers. See task_estimator.rs.
-        .with_distributed_task_estimator(BroadcastBuildSideOneTaskEstimator)
+        // Leaf-task estimator: every memory leaf (the per-source ScanExec in our customscan)
+        // becomes `Desired(n_workers)`, which is what makes `_distribute_plan` actually emit a
+        // shuffle. The broadcast-subtree cap that used to need to go before this one now lives
+        // upstream in the fork (paradedb/datafusion-distributed#11) as a default-on built-in,
+        // gated by `DistributedConfig::broadcast_subtree_max_one_task`.
         .with_distributed_task_estimator(n_workers)
         .with_distributed_broadcast_joins(true)
         .expect("with_distributed_broadcast_joins")
@@ -296,29 +296,28 @@ pub(crate) fn run_mpp_worker(
             //
             // The natural-shape plan canonical-replicates the build subtree via the `mpp build
             // all-gather` step. Every producer task would scan the full canonical data, and the
-            // consumer's `select_all` would over-count by `input_task_count`. The planner-level
-            // `BroadcastBuildSideOneTaskEstimator` caps the build subtree at task_count=1, so a
+            // consumer's `select_all` would over-count by `input_task_count`. The fork's default
+            // `broadcast_subtree_max_one_task` caps the build subtree at task_count=1, so a
             // correct plan produces exactly one Broadcast fragment with task_idx == 0.
             //
-            // A non-zero `task_idx` here means the cap silently failed: maybe the estimator
-            // wasn't installed, the chain order is wrong, or a future planner pass re-expanded
-            // the build subtree. We surface this as a hard error rather than silently
-            // EOF-only-ing the fragment.
+            // A non-zero `task_idx` here means the cap silently failed: maybe a future planner
+            // pass re-expanded the build subtree, or someone turned the default-on flag off.
+            // Surface as a hard error rather than silently EOF-only-ing the fragment.
             if matches!(fragment.routing, FragmentRouting::Broadcast { .. }) {
                 debug_assert!(
                     fragment.task_idx == 0,
-                    "mpp dispatcher: Broadcast fragment with task_idx={} but \
-                     BroadcastBuildSideOneTaskEstimator should have capped \
-                     input_task_count at 1; plan-walk drift?",
+                    "mpp dispatcher: Broadcast fragment with task_idx={} but the fork's \
+                     broadcast_subtree_max_one_task cap should have held input_task_count \
+                     at 1; plan-walk drift?",
                     fragment.task_idx,
                 );
                 if fragment.task_idx != 0 {
                     return Err(datafusion::common::DataFusionError::Internal(format!(
                         "mpp worker dispatch (proc={this_proc}): Broadcast fragment \
-                         (stage_id={}, task_idx={}) with task_idx > 0. The planner-level \
-                         BroadcastBuildSideOneTaskEstimator should cap input_task_count at 1. \
-                         A non-zero task_idx here indicates plan-walk drift or a missing \
-                         estimator chain on this session.",
+                         (stage_id={}, task_idx={}) with task_idx > 0. The fork's default \
+                         broadcast_subtree_max_one_task should cap input_task_count at 1. \
+                         A non-zero task_idx here indicates plan-walk drift or that the cap \
+                         was disabled on this session.",
                         fragment.stage_id, fragment.task_idx,
                     )));
                 }

@@ -998,16 +998,19 @@ WHERE id @@@ paradedb.exists('config.api.endpoints.users')
   AND id @@@ paradedb.exists('config.database.port')
 GROUP BY config->'api'->'endpoints'->>'users', config->'database'->>'port'
 ORDER BY users_endpoint, db_port;
-                                                                                                                               QUERY PLAN                                                                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Custom Scan (ParadeDB Aggregate Scan) on public.json_test_reconstruction
-   Output: (((config -> 'api'::text) -> 'endpoints'::text) ->> 'users'::text), ((config -> 'database'::text) ->> 'port'::text), pdb.agg_fn('COUNT(*)'::text)
-   Index: idx_json_reconstruction
-   Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"config.api.endpoints.users"}}}},{"with_index":{"query":{"exists":{"field":"config.database.port"}}}}]}}
-     Applies to Aggregates: COUNT(*)
-     Group By: config.api.endpoints.users, config.database.port
-     Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"config.database.port","order":{"_key":"asc"},"segment_size":65000,"size":65000}}},"terms":{"field":"config.api.endpoints.users","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(7 rows)
+                                                                                                           QUERY PLAN                                                                                                           
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Output: ((((config -> 'api'::text) -> 'endpoints'::text) ->> 'users'::text)), (((config -> 'database'::text) ->> 'port'::text)), (pdb.agg_fn('COUNT(*)'::text))
+   Sort Key: ((((json_test_reconstruction.config -> 'api'::text) -> 'endpoints'::text) ->> 'users'::text)), (((json_test_reconstruction.config -> 'database'::text) ->> 'port'::text))
+   ->  Custom Scan (ParadeDB Aggregate Scan) on public.json_test_reconstruction
+         Output: (((config -> 'api'::text) -> 'endpoints'::text) ->> 'users'::text), ((config -> 'database'::text) ->> 'port'::text), pdb.agg_fn('COUNT(*)'::text)
+         Index: idx_json_reconstruction
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"exists":{"field":"config.api.endpoints.users"}}}},{"with_index":{"query":{"exists":{"field":"config.database.port"}}}}]}}
+           Applies to Aggregates: COUNT(*)
+           Group By: config.api.endpoints.users, config.database.port
+           Aggregate Definition: {"grouped":{"aggs":{"grouped":{"terms":{"field":"config.database.port","segment_size":65000,"size":65000}}},"terms":{"field":"config.api.endpoints.users","segment_size":65000,"size":65000}}}
+(10 rows)
 
 -- Execute the query  
 SELECT 

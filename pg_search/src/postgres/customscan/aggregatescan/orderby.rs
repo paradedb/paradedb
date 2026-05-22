@@ -23,7 +23,7 @@ use crate::postgres::customscan::aggregatescan::{
 };
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::orderby::{
-    extract_pathkey_styles_with_sortability_check, PathKeyInfo,
+    extract_pathkey_styles_with_sortability_check, JsonSortGate, PathKeyInfo,
 };
 use crate::postgres::var::{find_one_var_and_fieldname, VarContext};
 use crate::postgres::PgSearchRelation;
@@ -102,6 +102,7 @@ impl CustomScanClause<AggregateScan> for OrderByClause {
                 .collect::<HashSet<String>>()
         };
 
+        let json_sort_gate = JsonSortGate::new(index);
         let pathkeys = unsafe {
             extract_pathkey_styles_with_sortability_check(
                 args.root,
@@ -110,6 +111,7 @@ impl CustomScanClause<AggregateScan> for OrderByClause {
                 |f| f.is_fast(),
                 |_| false,
                 Some(&index_expressions),
+                Some(&json_sort_gate),
             )
         };
 

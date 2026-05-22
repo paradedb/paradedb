@@ -93,6 +93,12 @@ pub(crate) fn build_mpp_session_context(
     // sizing and target_partitions; the WorkerTransport is never consulted because EXPLAIN
     // doesn't execute. Skip the transport install in that case and the fork's default
     // (FlightWorkerTransport) sits unused. `mesh = Some(_)` is required for actual execution.
+    //
+    // Both branches resolve to `mpp_worker_count() - 1` at call time — the leader's `MppMesh`
+    // is itself constructed from `mpp_worker_count()` in `leader_setup`. EXPLAIN reflects the
+    // GUC at EXPLAIN time; a subsequent `SET paradedb.mpp_worker_count` shifts the next
+    // execute path's stage shape away from what EXPLAIN rendered (same behavior as pre-R13,
+    // since the stub-mesh also read the GUC at EXPLAIN time).
     let n_workers = match mesh.as_ref() {
         Some(m) => m.n_workers() as usize,
         None => producer_worker_count() as usize,
@@ -122,6 +128,22 @@ pub(crate) fn build_mpp_session_context(
     // not to use any custom logical nodes but inheriting the planner is still the correct
     // default. We then override `with_config` (bumps `target_partitions`) and layer the
     // distributed-planner knobs on top.
+    // Both seeds (`create_aggregate_session_context`, `create_datafusion_session_context`) ship
+    // without a `DistributedConfig` extension installed. The bootstrap below would clobber one
+    // if a future change started adding `with_distributed_*` calls on the seed, so guard
+    // explicitly. Debug-only — release builds silently take the latter precedence (an honest
+    // mistake here would surface as missing `in_process_mode` / `broadcast_joins` knobs at
+    // execute time, which the existing regress suite catches).
+    debug_assert!(
+        seed.state()
+            .config()
+            .options()
+            .extensions
+            .get::<DistributedConfig>()
+            .is_none(),
+        "build_mpp_session_context: seed already carries a DistributedConfig; the bootstrap \
+         below would overwrite it"
+    );
     let mut state_builder = SessionStateBuilder::new_from_existing(seed.state())
         .with_config(cfg)
         // Explicit bootstrap: install a default `DistributedConfig` so the downstream

@@ -218,18 +218,13 @@ static TERM_SET_BITSET_MAX_DENSITY_UNIQUE: GucSetting<f64> = GucSetting::<f64>::
 /// `tantivy::query::TermSetStrategyConfig::default()`.
 static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 200.0);
 
-/// Per-segment cluster probe count for vector search. Caps the number
-/// of clusters whose docs are scored per query. Lower = faster but
-/// risks dropping valid top-K candidates whose cluster fell outside the
-/// probe set; higher = better recall but linearly more scoring work.
-/// Caps the adaptive probe iteration (initial pass + follow-up steps,
-/// terminating early when the top-K heap is full and the next
-/// un-probed centroid is too far). Defaults to 50, matching tantivy's
-/// internal `ProbeConfig` default.
-static VECTOR_CLUSTER_PROBES: GucSetting<i32> = GucSetting::<i32>::new(50);
+/// Per-segment IVF cluster fanout cap for vector search. `0.5` means
+/// probe at most 50% of a segment's IVF clusters, rounded up; `1.0`
+/// means no cap beyond the segment's cluster count.
+static VECTOR_CLUSTER_PROBE_FANOUT: GucSetting<f64> = GucSetting::<f64>::new(0.5);
 
-pub fn vector_cluster_probes() -> usize {
-    VECTOR_CLUSTER_PROBES.get() as usize
+pub fn vector_cluster_probe_fanout() -> f32 {
+    VECTOR_CLUSTER_PROBE_FANOUT.get() as f32
 }
 
 pub fn init() {
@@ -426,17 +421,13 @@ pub fn init() {
         GucFlags::default(),
     );
 
-    GucRegistry::define_int_guc(
-        c"paradedb.vector_cluster_probes",
-        c"Cluster probe count cap for vector ORDER BY queries",
-        c"Caps the number of clusters per segment whose docs are scored on a vector \
-ORDER BY query. The collector iterates clusters adaptively (initial pass then +step \
-per follow-up, terminating early when the top-K heap is full and the next un-probed \
-centroid is too far) up to this cap. Lower values reduce latency at the cost of recall \
-(relevant clusters may be missed). Defaults to 50.",
-        &VECTOR_CLUSTER_PROBES,
-        1,
-        4096,
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_cluster_probe_fanout",
+        c"IVF cluster probe fanout cap for vector ORDER BY queries",
+        c"Caps the fraction of IVF clusters per segment whose docs may be scored on a vector ORDER BY query. 0.5 probes at most 50% of clusters, rounded up; 1.0 allows all clusters. Lower values reduce latency at the cost of recall.",
+        &VECTOR_CLUSTER_PROBE_FANOUT,
+        0.000001,
+        1.0,
         GucContext::Userset,
         GucFlags::default(),
     );

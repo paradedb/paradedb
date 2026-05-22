@@ -27,11 +27,10 @@
 use std::ops::Bound;
 use std::str::FromStr;
 
-use crate::query::value::QueryValue;
+use crate::postgres::types::PdbOwnedValue;
 use crate::schema::SearchFieldType;
 use anyhow::Result;
 use decimal_bytes::Decimal;
-use tantivy::schema::OwnedValue;
 
 // ============================================================================
 // Numeric64 Scaling (I64 Fixed-Point)
@@ -61,7 +60,7 @@ pub fn scale_i64(numeric_str: &str, scale: i16) -> Result<i64> {
     Ok(decimal.value())
 }
 
-/// Scale an OwnedValue to I64 fixed-point representation.
+/// Scale an PdbOwnedValue to I64 fixed-point representation.
 ///
 /// Handles Str, I64, U64, and F64 values, converting to scaled I64.
 /// Uses direct primitive constructors (`from_i64`, `from_u64`, `from_f64`)
@@ -69,27 +68,27 @@ pub fn scale_i64(numeric_str: &str, scale: i16) -> Result<i64> {
 ///
 /// # Example
 /// ```ignore
-/// scale_owned_value(OwnedValue::Str("123.45"), 2) // Returns Ok(OwnedValue::I64(12345))
-/// scale_owned_value(OwnedValue::I64(100), 2) // Returns Ok(OwnedValue::I64(10000))
+/// scale_owned_value(PdbOwnedValue::Str("123.45"), 2) // Returns Ok(OwnedValue::I64(12345))
+/// scale_owned_value(PdbOwnedValue::I64(100), 2) // Returns Ok(OwnedValue::I64(10000))
 /// ```
-pub fn scale_owned_value(value: OwnedValue, scale: i16) -> Result<OwnedValue> {
+pub fn scale_owned_value(value: PdbOwnedValue, scale: i16) -> Result<PdbOwnedValue> {
     use decimal_bytes::Decimal64NoScale;
 
     let scale_i32 = scale as i32;
 
     let scaled = match &value {
         // Use direct primitive constructors for efficiency
-        OwnedValue::I64(i) => Decimal64NoScale::from_i64(*i, scale_i32)
+        PdbOwnedValue::I64(i) => Decimal64NoScale::from_i64(*i, scale_i32)
             .map_err(|e| anyhow::anyhow!("Failed to scale i64 {}: {:?}", i, e))?
             .value(),
-        OwnedValue::U64(u) => Decimal64NoScale::from_u64(*u, scale_i32)
+        PdbOwnedValue::U64(u) => Decimal64NoScale::from_u64(*u, scale_i32)
             .map_err(|e| anyhow::anyhow!("Failed to scale u64 {}: {:?}", u, e))?
             .value(),
-        OwnedValue::F64(f) => Decimal64NoScale::from_f64(*f, scale_i32)
+        PdbOwnedValue::F64(f) => Decimal64NoScale::from_f64(*f, scale_i32)
             .map_err(|e| anyhow::anyhow!("Failed to scale f64 {}: {:?}", f, e))?
             .value(),
         // Fall back to string parsing for string values
-        OwnedValue::Str(s) => scale_i64(s, scale)?,
+        PdbOwnedValue::Str(s) => scale_i64(s, scale)?,
         _ => {
             return Err(anyhow::anyhow!(
                 "Cannot scale non-numeric value: {:?}",
@@ -98,7 +97,7 @@ pub fn scale_owned_value(value: OwnedValue, scale: i16) -> Result<OwnedValue> {
         }
     };
 
-    Ok(OwnedValue::I64(scaled))
+    Ok(PdbOwnedValue::I64(scaled))
 }
 
 // ============================================================================
@@ -110,13 +109,13 @@ pub fn scale_owned_value(value: OwnedValue, scale: i16) -> Result<OwnedValue> {
 /// Used for NumericBytes storage where precision exceeds 18 digits.
 /// Convert a numeric value to its Decimal representation.
 /// Helper function used by both raw bytes and hex string conversions.
-fn value_to_decimal(value: &QueryValue) -> Result<Decimal> {
+fn value_to_decimal(value: &PdbOwnedValue) -> Result<Decimal> {
     match value {
-        QueryValue::Tantivy(OwnedValue::I64(i)) => Ok(Decimal::from(*i)),
-        QueryValue::Tantivy(OwnedValue::U64(u)) => Ok(Decimal::from(*u)),
-        QueryValue::Tantivy(OwnedValue::F64(f)) => Decimal::try_from(*f)
+        PdbOwnedValue::I64(i) => Ok(Decimal::from(*i)),
+        PdbOwnedValue::U64(u) => Ok(Decimal::from(*u)),
+        PdbOwnedValue::F64(f) => Decimal::try_from(*f)
             .map_err(|e| anyhow::anyhow!("Failed to convert f64 {} to Decimal: {:?}", f, e)),
-        QueryValue::Tantivy(OwnedValue::Str(s)) => Decimal::from_str(s)
+        PdbOwnedValue::Str(s) => Decimal::from_str(s)
             .map_err(|e| anyhow::anyhow!("Failed to parse numeric '{}': {:?}", s, e)),
         _ => Err(anyhow::anyhow!(
             "Cannot convert non-numeric value: {:?}",
@@ -131,9 +130,9 @@ fn value_to_decimal(value: &QueryValue) -> Result<Decimal> {
 /// The byte encoding is lexicographically sortable for range queries.
 ///
 /// Used for NumericBytes fields which are stored as Tantivy Bytes columns.
-pub fn numeric_value_to_decimal_bytes(value: QueryValue) -> Result<QueryValue> {
+pub fn numeric_value_to_decimal_bytes(value: PdbOwnedValue) -> Result<PdbOwnedValue> {
     let decimal = value_to_decimal(&value)?;
-    Ok(QueryValue::Tantivy(OwnedValue::Bytes(decimal.into_bytes())))
+    Ok(PdbOwnedValue::Bytes(decimal.into_bytes()))
 }
 
 /// Convert a numeric value to a hex-encoded string (OwnedValue::Str).
@@ -146,11 +145,9 @@ pub fn numeric_value_to_decimal_bytes(value: QueryValue) -> Result<QueryValue> {
 ///
 /// TODO: Consider changing Range field storage to support raw bytes instead of JSON,
 /// which would eliminate the hex encoding overhead.
-pub fn numeric_value_to_hex_string(value: QueryValue) -> Result<QueryValue> {
+pub fn numeric_value_to_hex_string(value: PdbOwnedValue) -> Result<PdbOwnedValue> {
     let decimal = value_to_decimal(&value)?;
-    Ok(QueryValue::Tantivy(OwnedValue::Str(bytes_to_hex(
-        decimal.as_bytes(),
-    ))))
+    Ok(PdbOwnedValue::Str(bytes_to_hex(decimal.as_bytes())))
 }
 
 /// Convert a byte slice to a hex-encoded string.
@@ -205,9 +202,9 @@ fn is_plain_integer(s: &str) -> bool {
 ///
 /// JSON distinguishes between integers (I64/U64) and floats (F64).
 /// Detection is based on whether the value contains a decimal point or scientific notation.
-pub fn string_to_json_numeric(value: QueryValue) -> QueryValue {
+pub fn string_to_json_numeric(value: PdbOwnedValue) -> PdbOwnedValue {
     let s = match &value {
-        QueryValue::Tantivy(OwnedValue::Str(s)) => s,
+        PdbOwnedValue::Str(s) => s,
         _ => return value,
     };
 
@@ -216,17 +213,17 @@ pub fn string_to_json_numeric(value: QueryValue) -> QueryValue {
     if is_plain_integer(trimmed) {
         // Try i64 first (handles negative and small positive integers)
         if let Ok(i) = trimmed.parse::<i64>() {
-            return QueryValue::Tantivy(OwnedValue::I64(i));
+            return PdbOwnedValue::I64(i);
         }
         // Try u64 for large positive integers beyond i64::MAX
         if let Ok(u) = trimmed.parse::<u64>() {
-            return QueryValue::Tantivy(OwnedValue::U64(u));
+            return PdbOwnedValue::U64(u);
         }
     }
 
     // For decimal values, scientific notation, or fallback, use F64
     if let Ok(f) = trimmed.parse::<f64>() {
-        return QueryValue::Tantivy(OwnedValue::F64(f));
+        return PdbOwnedValue::F64(f);
     }
 
     value
@@ -235,9 +232,9 @@ pub fn string_to_json_numeric(value: QueryValue) -> QueryValue {
 /// Convert a string-encoded numeric value to I64.
 ///
 /// Parses directly as i64 to preserve precision (f64 loses precision for large integers).
-pub fn string_to_i64(value: QueryValue) -> QueryValue {
+pub fn string_to_i64(value: PdbOwnedValue) -> PdbOwnedValue {
     let s = match &value {
-        QueryValue::Tantivy(OwnedValue::Str(s)) => s,
+        PdbOwnedValue::Str(s) => s,
         _ => return value,
     };
 
@@ -245,11 +242,11 @@ pub fn string_to_i64(value: QueryValue) -> QueryValue {
 
     // Try to parse directly as i64 first to preserve precision
     if let Ok(i) = trimmed.parse::<i64>() {
-        return QueryValue::Tantivy(OwnedValue::I64(i));
+        return PdbOwnedValue::I64(i);
     }
     // Fall back to f64 parsing for decimal values, then truncate
     if let Ok(f) = trimmed.parse::<f64>() {
-        return QueryValue::Tantivy(OwnedValue::I64(f as i64));
+        return PdbOwnedValue::I64(f as i64);
     }
 
     value
@@ -258,9 +255,9 @@ pub fn string_to_i64(value: QueryValue) -> QueryValue {
 /// Convert a string-encoded numeric value to U64.
 ///
 /// Parses directly as u64 to preserve precision (f64 loses precision for large integers).
-pub fn string_to_u64(value: QueryValue) -> QueryValue {
+pub fn string_to_u64(value: PdbOwnedValue) -> PdbOwnedValue {
     let s = match &value {
-        QueryValue::Tantivy(OwnedValue::Str(s)) => s,
+        PdbOwnedValue::Str(s) => s,
         _ => return value,
     };
 
@@ -268,12 +265,12 @@ pub fn string_to_u64(value: QueryValue) -> QueryValue {
 
     // Try to parse directly as u64 first to preserve precision
     if let Ok(u) = trimmed.parse::<u64>() {
-        return QueryValue::Tantivy(OwnedValue::U64(u));
+        return PdbOwnedValue::U64(u);
     }
     // Fall back to f64 parsing for decimal values, then truncate
     if let Ok(f) = trimmed.parse::<f64>() {
         if f >= 0.0 {
-            return QueryValue::Tantivy(OwnedValue::U64(f as u64));
+            return PdbOwnedValue::U64(f as u64);
         }
     }
 
@@ -281,10 +278,10 @@ pub fn string_to_u64(value: QueryValue) -> QueryValue {
 }
 
 /// Convert a string-encoded numeric value to F64.
-pub fn string_to_f64(value: QueryValue) -> QueryValue {
-    if let QueryValue::Tantivy(OwnedValue::Str(s)) = &value {
+pub fn string_to_f64(value: PdbOwnedValue) -> PdbOwnedValue {
+    if let PdbOwnedValue::Str(s) = &value {
         if let Ok(f) = s.parse::<f64>() {
-            return QueryValue::Tantivy(OwnedValue::F64(f));
+            return PdbOwnedValue::F64(f);
         }
     }
     value
@@ -297,9 +294,9 @@ pub fn string_to_f64(value: QueryValue) -> QueryValue {
 /// Convert a bound using a fallible conversion function.
 ///
 /// This generic helper eliminates the need for separate `convert_bound_to_*` functions.
-pub fn convert_bound<F>(bound: Bound<QueryValue>, converter: F) -> Result<Bound<QueryValue>>
+pub fn convert_bound<F>(bound: Bound<PdbOwnedValue>, converter: F) -> Result<Bound<PdbOwnedValue>>
 where
-    F: Fn(QueryValue) -> Result<QueryValue>,
+    F: Fn(PdbOwnedValue) -> Result<PdbOwnedValue>,
 {
     Ok(match bound {
         Bound::Included(v) => Bound::Included(converter(v)?),
@@ -311,9 +308,9 @@ where
 /// Convert a bound using an infallible conversion function.
 ///
 /// Used for JSON type conversions that always succeed (returning input on failure).
-pub fn map_bound<F>(bound: Bound<QueryValue>, converter: F) -> Bound<QueryValue>
+pub fn map_bound<F>(bound: Bound<PdbOwnedValue>, converter: F) -> Bound<PdbOwnedValue>
 where
-    F: Fn(QueryValue) -> QueryValue,
+    F: Fn(PdbOwnedValue) -> PdbOwnedValue,
 {
     match bound {
         Bound::Included(v) => Bound::Included(converter(v)),
@@ -323,18 +320,16 @@ where
 }
 
 /// Scale a numeric bound value for Numeric64 storage.
-pub fn scale_numeric_bound(bound: Bound<QueryValue>, scale: i16) -> Result<Bound<QueryValue>> {
-    convert_bound(bound, |v| {
-        let v = v
-            .as_tantivy()
-            .expect("provided value should always be a tantivy value");
-        scale_owned_value(v, scale).map(QueryValue::Tantivy)
-    })
+pub fn scale_numeric_bound(
+    bound: Bound<PdbOwnedValue>,
+    scale: i16,
+) -> Result<Bound<PdbOwnedValue>> {
+    convert_bound(bound, |v| scale_owned_value(v, scale))
 }
 
 /// Convert a numeric bound to lexicographically sortable raw bytes.
 /// Used for NumericBytes fields stored as Tantivy Bytes columns.
-pub fn numeric_bound_to_bytes(bound: Bound<QueryValue>) -> Result<Bound<QueryValue>> {
+pub fn numeric_bound_to_bytes(bound: Bound<PdbOwnedValue>) -> Result<Bound<PdbOwnedValue>> {
     convert_bound(bound, numeric_value_to_decimal_bytes)
 }
 
@@ -351,9 +346,9 @@ pub fn numeric_bound_to_bytes(bound: Bound<QueryValue>) -> Result<Bound<QueryVal
 ///
 /// Uses direct type conversions where possible to avoid unnecessary string intermediates.
 pub fn convert_value_for_range_field(
-    value: QueryValue,
+    value: PdbOwnedValue,
     field_type: &SearchFieldType,
-) -> QueryValue {
+) -> PdbOwnedValue {
     use pgrx::pg_sys::BuiltinOid;
 
     // Get the OID to determine the range element type
@@ -367,21 +362,17 @@ pub fn convert_value_for_range_field(
         Ok(BuiltinOid::INT4RANGEOID) | Ok(BuiltinOid::INT8RANGEOID) => {
             // Integer ranges: convert directly to i64
             match &value {
-                QueryValue::Tantivy(OwnedValue::I64(i)) => QueryValue::Tantivy(OwnedValue::I64(*i)),
-                QueryValue::Tantivy(OwnedValue::U64(u)) => {
-                    QueryValue::Tantivy(OwnedValue::I64(*u as i64))
-                }
-                QueryValue::Tantivy(OwnedValue::F64(f)) => {
-                    QueryValue::Tantivy(OwnedValue::I64(*f as i64))
-                }
-                QueryValue::Tantivy(OwnedValue::Str(s)) => {
+                PdbOwnedValue::I64(i) => PdbOwnedValue::I64(*i),
+                PdbOwnedValue::U64(u) => PdbOwnedValue::I64(*u as i64),
+                PdbOwnedValue::F64(f) => PdbOwnedValue::I64(*f as i64),
+                PdbOwnedValue::Str(s) => {
                     // Try parsing as i64 first to preserve precision
                     if let Ok(i) = s.parse::<i64>() {
-                        return QueryValue::Tantivy(OwnedValue::I64(i));
+                        return PdbOwnedValue::I64(i);
                     }
                     // Fallback: try parsing as f64 for decimal values
                     if let Ok(f) = s.parse::<f64>() {
-                        return QueryValue::Tantivy(OwnedValue::I64(f as i64));
+                        return PdbOwnedValue::I64(f as i64);
                     }
                     value
                 }
@@ -413,15 +404,11 @@ pub fn convert_value_for_range_field(
 /// # Returns
 /// The converted value, or an error if conversion fails for Numeric64/NumericBytes.
 pub fn convert_value_for_field(
-    value: QueryValue,
+    value: PdbOwnedValue,
     field_type: &SearchFieldType,
-) -> Result<QueryValue> {
+) -> Result<PdbOwnedValue> {
     match field_type {
-        SearchFieldType::Numeric64(_, scale) => scale_owned_value(
-            value.as_tantivy().expect("Expected a numeric value"),
-            *scale,
-        )
-        .map(QueryValue::Tantivy),
+        SearchFieldType::Numeric64(_, scale) => scale_owned_value(value, *scale),
         SearchFieldType::NumericBytes(..) => numeric_value_to_decimal_bytes(value),
         SearchFieldType::Json(_) => Ok(string_to_json_numeric(value)),
         SearchFieldType::I64(_) => Ok(string_to_i64(value)),
@@ -446,33 +433,33 @@ mod tests {
     fn test_scale_owned_value() {
         // String input
         assert_eq!(
-            scale_owned_value(OwnedValue::Str("123.45".to_string()), 2).unwrap(),
-            OwnedValue::I64(12345)
+            scale_owned_value(PdbOwnedValue::Str("123.45".to_string()), 2).unwrap(),
+            PdbOwnedValue::I64(12345)
         );
         // F64 input (uses from_f64 directly)
         assert_eq!(
-            scale_owned_value(OwnedValue::F64(0.999), 3).unwrap(),
-            OwnedValue::I64(999)
+            scale_owned_value(PdbOwnedValue::F64(0.999), 3).unwrap(),
+            PdbOwnedValue::I64(999)
         );
         // I64 input (uses from_i64 directly)
         assert_eq!(
-            scale_owned_value(OwnedValue::I64(50), 1).unwrap(),
-            OwnedValue::I64(500)
+            scale_owned_value(PdbOwnedValue::I64(50), 1).unwrap(),
+            PdbOwnedValue::I64(500)
         );
         // U64 input (uses from_u64 directly)
         assert_eq!(
-            scale_owned_value(OwnedValue::U64(100), 2).unwrap(),
-            OwnedValue::I64(10000)
+            scale_owned_value(PdbOwnedValue::U64(100), 2).unwrap(),
+            PdbOwnedValue::I64(10000)
         );
         // Negative value via string
         assert_eq!(
-            scale_owned_value(OwnedValue::Str("-50.5".to_string()), 1).unwrap(),
-            OwnedValue::I64(-505)
+            scale_owned_value(PdbOwnedValue::Str("-50.5".to_string()), 1).unwrap(),
+            PdbOwnedValue::I64(-505)
         );
         // Negative I64 (uses from_i64 directly)
         assert_eq!(
-            scale_owned_value(OwnedValue::I64(-25), 2).unwrap(),
-            OwnedValue::I64(-2500)
+            scale_owned_value(PdbOwnedValue::I64(-25), 2).unwrap(),
+            PdbOwnedValue::I64(-2500)
         );
     }
 
@@ -480,37 +467,34 @@ mod tests {
     fn test_string_to_json_numeric() {
         // Plain integers
         assert_eq!(
-            string_to_json_numeric(QueryValue::Tantivy(OwnedValue::Str("42".to_string()))),
-            QueryValue::Tantivy(OwnedValue::I64(42))
+            string_to_json_numeric(PdbOwnedValue::Str("42".to_string())),
+            PdbOwnedValue::I64(42)
         );
         assert_eq!(
-            string_to_json_numeric(QueryValue::Tantivy(OwnedValue::Str("-42".to_string()))),
-            QueryValue::Tantivy(OwnedValue::I64(-42))
+            string_to_json_numeric(PdbOwnedValue::Str("-42".to_string())),
+            PdbOwnedValue::I64(-42)
         );
 
         // Decimal values
         assert_eq!(
-            string_to_json_numeric(QueryValue::Tantivy(OwnedValue::Str("2.5".to_string()))),
-            QueryValue::Tantivy(OwnedValue::F64(2.5))
+            string_to_json_numeric(PdbOwnedValue::Str("2.5".to_string())),
+            PdbOwnedValue::F64(2.5)
         );
 
         // Scientific notation
         assert_eq!(
-            string_to_json_numeric(QueryValue::Tantivy(OwnedValue::Str("1e10".to_string()))),
-            QueryValue::Tantivy(OwnedValue::F64(1e10))
+            string_to_json_numeric(PdbOwnedValue::Str("1e10".to_string())),
+            PdbOwnedValue::F64(1e10)
         );
     }
 
     #[test]
     fn test_map_bound() {
-        let bound = Bound::Included(QueryValue::Tantivy(OwnedValue::Str("42".to_string())));
+        let bound = Bound::Included(PdbOwnedValue::Str("42".to_string()));
         let result = map_bound(bound, string_to_i64);
-        assert_eq!(
-            result,
-            Bound::Included(QueryValue::Tantivy(OwnedValue::I64(42)))
-        );
+        assert_eq!(result, Bound::Included(PdbOwnedValue::I64(42)));
 
-        let unbounded: Bound<QueryValue> = Bound::Unbounded;
+        let unbounded: Bound<PdbOwnedValue> = Bound::Unbounded;
         let result = map_bound(unbounded, string_to_i64);
         assert_eq!(result, Bound::Unbounded);
     }

@@ -42,7 +42,6 @@ use std::collections::{BTreeMap, HashSet};
 
 use std::ptr::addr_of_mut;
 use std::str::FromStr;
-use tantivy::schema::OwnedValue;
 use tokenizers::SearchNormalizer;
 
 extern "C-unwind" {
@@ -801,16 +800,21 @@ pub unsafe fn row_to_search_document<'a>(
                 panic!("could not parse field `{}`: {e}", search_field.field_name())
             });
             for value in converted_array {
-                document.add_field_value(search_field.field(), &OwnedValue::from(value));
+                document.add_field_value(
+                    search_field.field(),
+                    &value.into_tantivy_value(created_by_version),
+                );
             }
         } else if *is_json {
             for value in
-                TantivyValue::try_from_datum_json(actual_datum, *base_oid, created_by_version)
-                    .unwrap_or_else(|e| {
-                        panic!("could not parse field `{}`: {e}", search_field.field_name())
-                    })
+                TantivyValue::try_from_datum_json(actual_datum, *base_oid).unwrap_or_else(|e| {
+                    panic!("could not parse field `{}`: {e}", search_field.field_name())
+                })
             {
-                document.add_field_value(search_field.field(), &OwnedValue::from(value));
+                document.add_field_value(
+                    search_field.field(),
+                    &value.into_tantivy_value(created_by_version),
+                );
             }
         } else {
             // Check for field types that need special handling
@@ -838,7 +842,10 @@ pub unsafe fn row_to_search_document<'a>(
             .unwrap_or_else(|e| {
                 panic!("could not parse field `{}`: {e}", search_field.field_name())
             });
-            document.add_field_value(search_field.field(), &OwnedValue::from(tv));
+            document.add_field_value(
+                search_field.field(),
+                &tv.into_tantivy_value(created_by_version),
+            );
         }
     }
     Ok(())

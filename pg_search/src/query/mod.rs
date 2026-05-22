@@ -24,7 +24,6 @@ pub mod pdb_query;
 pub(crate) mod proximity;
 mod range;
 mod score;
-mod value;
 
 use builder::{QueryBuilder, QueryOnlyBuilder, QueryTreeBuilder};
 use estimate_tree::QueryWithEstimates;
@@ -37,11 +36,11 @@ use crate::postgres::customscan::explain::{format_for_explain, ExplainFormat};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::storage::metadata::Version;
 use crate::postgres::storage::metadata::TIMESTAMP_I64_STORAGE_VERSION;
+use crate::postgres::types::PdbOwnedValue;
 use crate::postgres::utils::convert_pg_date_string;
 use crate::query::more_like_this::MoreLikeThisQuery;
 use crate::query::pdb_query::pdb;
 use crate::query::score::ScoreFilter;
-use crate::query::value::QueryValue;
 use crate::schema::SearchFieldType;
 use crate::schema::SearchIndexSchema;
 use anyhow::Result;
@@ -648,10 +647,10 @@ impl SearchQueryInput {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TermInput {
     pub field: FieldName,
-    pub value: QueryValue,
+    pub value: PdbOwnedValue,
 }
 
 /// Serialize a [`SearchQueryInput`] node to a Postgres [`pg_sys::Const`] node, palloc'd
@@ -674,9 +673,9 @@ impl From<SearchQueryInput> for *mut pg_sys::Const {
 
 fn check_range_bounds(
     typeoid: PgOid,
-    lower_bound: Bound<QueryValue>,
-    upper_bound: Bound<QueryValue>,
-) -> Result<(Bound<QueryValue>, Bound<QueryValue>), QueryError> {
+    lower_bound: Bound<PdbOwnedValue>,
+    upper_bound: Bound<PdbOwnedValue>,
+) -> Result<(Bound<PdbOwnedValue>, Bound<PdbOwnedValue>), QueryError> {
     // For NUMRANGEOID, convert numeric values to hex-encoded sortable bytes
     // to match the indexed format (see SortableDecimal in range.rs)
     let lower_bound = convert_numrange_bound(typeoid, lower_bound);
@@ -684,20 +683,16 @@ fn check_range_bounds(
 
     let lower_bound = match (typeoid, lower_bound.clone()) {
         // Excluded U64 needs to be canonicalized
-        (_, Bound::Excluded(QueryValue::Tantivy(OwnedValue::U64(n)))) => {
-            Bound::Included(QueryValue::Tantivy(OwnedValue::U64(n + 1)))
-        }
+        (_, Bound::Excluded(PdbOwnedValue::U64(n))) => Bound::Included(PdbOwnedValue::U64(n + 1)),
         // Excluded I64 needs to be canonicalized
-        (_, Bound::Excluded(QueryValue::Tantivy(OwnedValue::I64(n)))) => {
-            Bound::Included(QueryValue::Tantivy(OwnedValue::I64(n + 1)))
-        }
+        (_, Bound::Excluded(PdbOwnedValue::I64(n))) => Bound::Included(PdbOwnedValue::I64(n + 1)),
         // Excluded Date needs to be canonicalized
         (
             PgOid::BuiltIn(PgBuiltInOids::DATEOID | PgBuiltInOids::DATERANGEOID),
-            Bound::Excluded(QueryValue::Tantivy(OwnedValue::Str(date_string))),
+            Bound::Excluded(PdbOwnedValue::Str(date_string)),
         ) => {
             let date = convert_pg_date_string(typeoid, &date_string);
-            Bound::Included(QueryValue::DateTime { date })
+            Bound::Included(PdbOwnedValue::Date(date))
         }
         (
             PgOid::BuiltIn(
@@ -706,10 +701,10 @@ fn check_range_bounds(
                 | PgBuiltInOids::TIMESTAMPTZOID
                 | pg_sys::BuiltinOid::TSTZRANGEOID,
             ),
-            Bound::Excluded(QueryValue::Tantivy(OwnedValue::Str(date_string))),
+            Bound::Excluded(PdbOwnedValue::Str(date_string)),
         ) => {
             let date = convert_pg_date_string(typeoid, &date_string);
-            Bound::Excluded(QueryValue::DateTime { date })
+            Bound::Excluded(PdbOwnedValue::Date(date))
         }
         (
             PgOid::BuiltIn(
@@ -720,10 +715,10 @@ fn check_range_bounds(
                 | PgBuiltInOids::TIMESTAMPTZOID
                 | pg_sys::BuiltinOid::TSTZRANGEOID,
             ),
-            Bound::Included(QueryValue::Tantivy(OwnedValue::Str(date_string))),
+            Bound::Included(PdbOwnedValue::Str(date_string)),
         ) => {
             let date = convert_pg_date_string(typeoid, &date_string);
-            Bound::Included(QueryValue::DateTime { date })
+            Bound::Included(PdbOwnedValue::Date(date))
         }
         // (
         //     PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID | PgBuiltInOids::TIMESTAMPTZOID),
@@ -744,20 +739,16 @@ fn check_range_bounds(
 
     let upper_bound = match (typeoid, upper_bound.clone()) {
         // Included U64 needs to be canonicalized
-        (_, Bound::Included(QueryValue::Tantivy(OwnedValue::U64(n)))) => {
-            Bound::Excluded(QueryValue::Tantivy(OwnedValue::U64(n + 1)))
-        }
+        (_, Bound::Included(PdbOwnedValue::U64(n))) => Bound::Excluded(PdbOwnedValue::U64(n + 1)),
         // Included I64 needs to be canonicalized
-        (_, Bound::Included(QueryValue::Tantivy(OwnedValue::I64(n)))) => {
-            Bound::Excluded(QueryValue::Tantivy(OwnedValue::I64(n + 1)))
-        }
+        (_, Bound::Included(PdbOwnedValue::I64(n))) => Bound::Excluded(PdbOwnedValue::I64(n + 1)),
         // Included Date needs to be canonicalized
         (
             PgOid::BuiltIn(PgBuiltInOids::DATEOID | PgBuiltInOids::DATERANGEOID),
-            Bound::Included(QueryValue::Tantivy(OwnedValue::Str(date_string))),
+            Bound::Included(PdbOwnedValue::Str(date_string)),
         ) => {
             let date = convert_pg_date_string(typeoid, &date_string);
-            Bound::Excluded(QueryValue::DateTime { date })
+            Bound::Excluded(PdbOwnedValue::Date(date))
         }
         (
             PgOid::BuiltIn(
@@ -766,10 +757,10 @@ fn check_range_bounds(
                 | PgBuiltInOids::TIMESTAMPTZOID
                 | pg_sys::BuiltinOid::TSTZRANGEOID,
             ),
-            Bound::Included(QueryValue::Tantivy(OwnedValue::Str(date_string))),
+            Bound::Included(PdbOwnedValue::Str(date_string)),
         ) => {
             let date = convert_pg_date_string(typeoid, &date_string);
-            Bound::Included(QueryValue::DateTime { date })
+            Bound::Included(PdbOwnedValue::Date(date))
         }
         (
             PgOid::BuiltIn(
@@ -780,10 +771,10 @@ fn check_range_bounds(
                 | PgBuiltInOids::TIMESTAMPTZOID
                 | pg_sys::BuiltinOid::TSTZRANGEOID,
             ),
-            Bound::Excluded(QueryValue::Tantivy(OwnedValue::Str(date_string))),
+            Bound::Excluded(PdbOwnedValue::Str(date_string)),
         ) => {
             let date = convert_pg_date_string(typeoid, &date_string);
-            Bound::Excluded(QueryValue::DateTime { date })
+            Bound::Excluded(PdbOwnedValue::Date(date))
         }
         _ => upper_bound,
     };
@@ -792,7 +783,7 @@ fn check_range_bounds(
 
 /// Convert numeric values in NUMRANGEOID bounds to hex-encoded sortable bytes.
 /// This matches the format used for indexing (see SortableDecimal in range.rs).
-fn convert_numrange_bound(typeoid: PgOid, bound: Bound<QueryValue>) -> Bound<QueryValue> {
+fn convert_numrange_bound(typeoid: PgOid, bound: Bound<PdbOwnedValue>) -> Bound<PdbOwnedValue> {
     use decimal_bytes::Decimal;
     use std::str::FromStr;
 
@@ -802,18 +793,18 @@ fn convert_numrange_bound(typeoid: PgOid, bound: Bound<QueryValue>) -> Bound<Que
     }
 
     // Helper to convert a numeric value to hex-encoded bytes
-    let convert_to_hex = |value: &QueryValue| -> Option<QueryValue> {
+    let convert_to_hex = |value: &PdbOwnedValue| -> Option<PdbOwnedValue> {
         let numeric_str = match value {
-            QueryValue::Tantivy(OwnedValue::Str(s)) => s.clone(),
-            QueryValue::Tantivy(OwnedValue::F64(f)) => f.to_string(),
-            QueryValue::Tantivy(OwnedValue::I64(i)) => i.to_string(),
-            QueryValue::Tantivy(OwnedValue::U64(u)) => u.to_string(),
+            PdbOwnedValue::Str(s) => s.clone(),
+            PdbOwnedValue::F64(f) => f.to_string(),
+            PdbOwnedValue::I64(i) => i.to_string(),
+            PdbOwnedValue::U64(u) => u.to_string(),
             _ => return None,
         };
 
         Decimal::from_str(&numeric_str)
             .ok()
-            .map(|dec| QueryValue::Tantivy(OwnedValue::Str(numeric::bytes_to_hex(dec.as_bytes()))))
+            .map(|dec| PdbOwnedValue::Str(numeric::bytes_to_hex(dec.as_bytes())))
     };
 
     match bound {
@@ -836,29 +827,21 @@ fn convert_numrange_bound(typeoid: PgOid, bound: Bound<QueryValue>) -> Bound<Que
 }
 
 fn coerce_bound_to_field_type(
-    bound: Bound<QueryValue>,
+    bound: Bound<PdbOwnedValue>,
     field_type: &FieldType,
-) -> Bound<QueryValue> {
+) -> Bound<PdbOwnedValue> {
     match bound {
-        Bound::Included(QueryValue::Tantivy(OwnedValue::U64(n)))
-            if matches!(field_type, FieldType::F64(_)) =>
-        {
-            Bound::Included(QueryValue::Tantivy(OwnedValue::F64(n as f64)))
+        Bound::Included(PdbOwnedValue::U64(n)) if matches!(field_type, FieldType::F64(_)) => {
+            Bound::Included(PdbOwnedValue::F64(n as f64))
         }
-        Bound::Included(QueryValue::Tantivy(OwnedValue::I64(n)))
-            if matches!(field_type, FieldType::F64(_)) =>
-        {
-            Bound::Included(QueryValue::Tantivy(OwnedValue::F64(n as f64)))
+        Bound::Included(PdbOwnedValue::I64(n)) if matches!(field_type, FieldType::F64(_)) => {
+            Bound::Included(PdbOwnedValue::F64(n as f64))
         }
-        Bound::Excluded(QueryValue::Tantivy(OwnedValue::U64(n)))
-            if matches!(field_type, FieldType::F64(_)) =>
-        {
-            Bound::Excluded(QueryValue::Tantivy(OwnedValue::F64(n as f64)))
+        Bound::Excluded(PdbOwnedValue::U64(n)) if matches!(field_type, FieldType::F64(_)) => {
+            Bound::Excluded(PdbOwnedValue::F64(n as f64))
         }
-        Bound::Excluded(QueryValue::Tantivy(OwnedValue::I64(n)))
-            if matches!(field_type, FieldType::F64(_)) =>
-        {
-            Bound::Excluded(QueryValue::Tantivy(OwnedValue::F64(n as f64)))
+        Bound::Excluded(PdbOwnedValue::I64(n)) if matches!(field_type, FieldType::F64(_)) => {
+            Bound::Excluded(PdbOwnedValue::F64(n as f64))
         }
         bound => bound,
     }
@@ -1368,13 +1351,13 @@ impl SearchQueryInput {
 
 /// Convert a string-encoded numeric value to the appropriate type based on field type.
 /// Used for JSON field comparisons where NUMERIC constants need to match stored JSON numbers.
-fn convert_for_field_type(value: &QueryValue, field_type: &FieldType) -> QueryValue {
+fn convert_for_field_type(value: &PdbOwnedValue, field_type: &FieldType) -> PdbOwnedValue {
     use crate::query::numeric::{
         string_to_f64, string_to_i64, string_to_json_numeric, string_to_u64,
     };
 
     // Only convert string values - other types pass through unchanged
-    if !matches!(value, QueryValue::Tantivy(OwnedValue::Str(_))) {
+    if !matches!(value, PdbOwnedValue::Str(_)) {
         return value.clone();
     }
 
@@ -1409,41 +1392,49 @@ fn append_optimistically_parsed_datetime_to_term(
 
 fn value_to_json_term(
     field: Field,
-    value: &QueryValue,
+    value: &PdbOwnedValue,
     path: Option<&str>,
     expand_dots: bool,
     index_created_by_version: Option<Version>,
 ) -> Result<Term> {
     let mut term = Term::from_field_json_path(field, path.unwrap_or_default(), expand_dots);
     match value {
-        QueryValue::Tantivy(OwnedValue::Str(text)) => {
+        PdbOwnedValue::Str(text) => {
             append_optimistically_parsed_datetime_to_term(
                 &mut term,
                 text.as_str(),
                 index_created_by_version,
             );
         }
-        QueryValue::Tantivy(OwnedValue::U64(value)) => {
+        PdbOwnedValue::U64(value) => {
             if let Ok(i64_val) = (*value).try_into() {
                 term.append_type_and_fast_value::<i64>(i64_val);
             } else {
                 term.append_type_and_fast_value(*value);
             }
         }
-        QueryValue::Tantivy(OwnedValue::I64(value)) => {
+        PdbOwnedValue::I64(value) => {
             term.append_type_and_fast_value(*value);
         }
-        QueryValue::Tantivy(OwnedValue::F64(value)) => {
+        PdbOwnedValue::F64(value) => {
             term.append_type_and_fast_value(*value);
         }
-        QueryValue::Tantivy(OwnedValue::Bool(value)) => {
+        PdbOwnedValue::Bool(value) => {
             term.append_type_and_fast_value(*value);
         }
-        QueryValue::Tantivy(OwnedValue::Date(value)) => {
-            term.append_type_and_fast_value(*value);
+        PdbOwnedValue::Date(value) => {
+            if index_created_by_version
+                .filter(|v| v >= &TIMESTAMP_I64_STORAGE_VERSION)
+                .is_some()
+            {
+                term.append_type_and_fast_value(value.into_inner());
+            } else {
+                let dt: tantivy::DateTime = (*value).try_into()?;
+                term.append_type_and_fast_value(dt.truncate(DATE_TIME_PRECISION_INDEXED));
+            }
         }
         unsupported => panic!(
-            "QueryValue type {:?} not supported for JSON term",
+            "PdbOwnedValue type {:?} not supported for JSON term",
             unsupported
         ),
     };
@@ -1458,7 +1449,7 @@ pub(super) fn dot_path_to_facet(text: &str) -> tantivy::schema::Facet {
 
 pub fn value_to_term(
     field: Field,
-    value: &QueryValue,
+    value: &PdbOwnedValue,
     field_type: &FieldType,
     search_field_type: &SearchFieldType,
     path: Option<&str>,
@@ -1480,7 +1471,7 @@ pub fn value_to_term(
     }
 
     match (value, field_type, search_field_type) {
-        (QueryValue::Tantivy(OwnedValue::Str(text)), FieldType::Date(_), _) => {
+        (PdbOwnedValue::Str(text), FieldType::Date(_), _) => {
             let pgdt = PostgresDateTime::try_from_timestamptz_str(text.as_str())?;
             let date = tantivy::DateTime::try_from(pgdt)?;
             return Ok(Term::from_field_date(
@@ -1489,19 +1480,15 @@ pub fn value_to_term(
             ));
         }
         // Timestamp/timestamptz are stored as i64, so convert to i64 if that's our target
-        (
-            QueryValue::Tantivy(OwnedValue::Str(text)),
-            FieldType::I64(_),
-            SearchFieldType::I64(oid),
-        ) if *oid == pg_sys::TIMESTAMPOID => {
+        (PdbOwnedValue::Str(text), FieldType::I64(_), SearchFieldType::I64(oid))
+            if *oid == pg_sys::TIMESTAMPOID =>
+        {
             let pg_dt = PostgresDateTime::try_from_timestamp_str(text.as_str())?;
             return Ok(Term::from_field_i64(field, pg_dt.into_inner()));
         }
-        (
-            QueryValue::Tantivy(OwnedValue::Str(text)),
-            FieldType::I64(_),
-            SearchFieldType::I64(oid),
-        ) if *oid == pg_sys::TIMESTAMPTZOID => {
+        (PdbOwnedValue::Str(text), FieldType::I64(_), SearchFieldType::I64(oid))
+            if *oid == pg_sys::TIMESTAMPTZOID =>
+        {
             let pg_dt = PostgresDateTime::try_from_timestamptz_str(text.as_str())?;
             return Ok(Term::from_field_i64(field, pg_dt.into_inner()));
         }
@@ -1509,11 +1496,9 @@ pub fn value_to_term(
         // uses Date, so we need to convert it.
         // The raw i64 values for timestamp and timestamptz are equivalent, so we can handle
         // them the same way.
-        (
-            QueryValue::Tantivy(OwnedValue::I64(pg_micros)),
-            FieldType::Date(_),
-            SearchFieldType::Date(oid),
-        ) if *oid == pg_sys::TIMESTAMPOID || *oid == pg_sys::TIMESTAMPTZOID => {
+        (PdbOwnedValue::I64(pg_micros), FieldType::Date(_), SearchFieldType::Date(oid))
+            if *oid == pg_sys::TIMESTAMPOID || *oid == pg_sys::TIMESTAMPTZOID =>
+        {
             let pg_dt = PostgresDateTime::try_from_raw(*pg_micros)?;
             let dt: tantivy::DateTime = pg_dt.try_into()?;
             return Ok(Term::from_field_date(
@@ -1526,17 +1511,17 @@ pub fn value_to_term(
 
     // For facet fields, convert string values to facet terms
     if matches!(field_type, FieldType::Facet(_)) {
-        if let QueryValue::Tantivy(OwnedValue::Str(text)) = value {
+        if let PdbOwnedValue::Str(text) = value {
             return Ok(Term::from_facet(field, &dot_path_to_facet(text)));
         }
     }
 
     Ok(match value {
-        QueryValue::Tantivy(OwnedValue::Str(text)) => Term::from_field_text(field, text),
-        QueryValue::Tantivy(OwnedValue::PreTokStr(_)) => {
+        PdbOwnedValue::Str(text) => Term::from_field_text(field, text),
+        PdbOwnedValue::PreTokStr(_) => {
             panic!("pre-tokenized text cannot be converted to term")
         }
-        QueryValue::Tantivy(OwnedValue::U64(u64)) => {
+        PdbOwnedValue::U64(u64) => {
             // Positive numbers seem to be automatically turned into u64s even if they are i64s,
             // so we should use the field type to assign the term type
             match field_type {
@@ -1545,10 +1530,10 @@ pub fn value_to_term(
                 _ => panic!("invalid field type for u64 value"),
             }
         }
-        QueryValue::Tantivy(OwnedValue::I64(i64)) => Term::from_field_i64(field, *i64),
-        QueryValue::Tantivy(OwnedValue::F64(f64)) => Term::from_field_f64(field, *f64),
-        QueryValue::Tantivy(OwnedValue::Bool(bool)) => Term::from_field_bool(field, *bool),
-        QueryValue::DateTime { date } => {
+        PdbOwnedValue::I64(i64) => Term::from_field_i64(field, *i64),
+        PdbOwnedValue::F64(f64) => Term::from_field_f64(field, *f64),
+        PdbOwnedValue::Bool(bool) => Term::from_field_bool(field, *bool),
+        PdbOwnedValue::Date(date) => {
             if index_created_by_version
                 .filter(|version| version >= &TIMESTAMP_I64_STORAGE_VERSION)
                 .is_some()
@@ -1559,11 +1544,11 @@ pub fn value_to_term(
                 Term::from_field_date(field, tantivy_date.truncate(DATE_TIME_PRECISION_INDEXED))
             }
         }
-        QueryValue::Tantivy(OwnedValue::Facet(facet)) => Term::from_facet(field, facet),
-        QueryValue::Tantivy(OwnedValue::Bytes(bytes)) => Term::from_field_bytes(field, bytes),
-        QueryValue::Tantivy(OwnedValue::Object(_)) => panic!("json cannot be converted to term"),
-        QueryValue::Tantivy(OwnedValue::IpAddr(ip)) => Term::from_field_ip_addr(field, *ip),
-        _ => panic!("QueryValue type {value:?} not supported"),
+        PdbOwnedValue::Facet(facet) => Term::from_facet(field, facet),
+        PdbOwnedValue::Bytes(bytes) => Term::from_field_bytes(field, bytes),
+        PdbOwnedValue::Object(_) => panic!("json cannot be converted to term"),
+        PdbOwnedValue::IpAddr(ip) => Term::from_field_ip_addr(field, *ip),
+        _ => panic!("PdbOwnedValue type {value:?} not supported"),
     })
 }
 
@@ -1740,17 +1725,16 @@ impl PostgresExpression {
 #[pgrx::pg_schema]
 mod tests {
     use super::{SearchQueryInput, TermInput};
+    use crate::postgres::types::PdbOwnedValue;
     use crate::query::pdb_query::pdb;
-    use crate::query::value::QueryValue;
 
     use pgrx::prelude::*;
-    use tantivy::schema::OwnedValue;
 
     fn create_term_query() -> SearchQueryInput {
         SearchQueryInput::TermSet {
             terms: vec![TermInput {
                 field: "test".into(),
-                value: QueryValue::Tantivy(OwnedValue::Str("value".to_string())),
+                value: PdbOwnedValue::Str("value".to_string()),
             }],
         }
     }

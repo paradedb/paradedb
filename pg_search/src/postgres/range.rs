@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::postgres::types::{TantivyValue, TantivyValueError};
+use crate::postgres::types::{PdbOwnedValue, TantivyValue, TantivyValueError};
 use crate::query::numeric::{bytes_to_hex, hex_to_decimal};
 use crate::schema::range::TantivyRangeBuilder;
 use decimal_bytes::Decimal;
@@ -119,9 +119,9 @@ where
 {
     fn from_range(val: pgrx::Range<T>) -> Result<TantivyValue, TantivyValueError> {
         match val.is_empty() {
-            true => Ok(TantivyValue(tantivy::schema::OwnedValue::from(
-                serde_json::to_value(TantivyRangeBuilder::<T>::new().empty(true).build())?,
-            ))),
+            true => Ok(TantivyValue(PdbOwnedValue::from(serde_json::to_value(
+                TantivyRangeBuilder::<T>::new().empty(true).build(),
+            )?))),
             false => {
                 let lower = match val.lower() {
                     Some(RangeBound::Inclusive(val)) => Some(S::try_from(val.clone()).unwrap()),
@@ -139,18 +139,16 @@ where
                 let lower_unbounded = matches!(val.lower(), Some(RangeBound::Infinite) | None);
                 let upper_unbounded = matches!(val.upper(), Some(RangeBound::Infinite) | None);
 
-                Ok(TantivyValue(tantivy::schema::OwnedValue::from(
-                    serde_json::to_value(
-                        TantivyRangeBuilder::new()
-                            .lower(lower)
-                            .upper(upper)
-                            .lower_inclusive(lower_inclusive)
-                            .upper_inclusive(upper_inclusive)
-                            .lower_unbounded(lower_unbounded)
-                            .upper_unbounded(upper_unbounded)
-                            .build(),
-                    )?,
-                )))
+                Ok(TantivyValue(PdbOwnedValue::from(serde_json::to_value(
+                    TantivyRangeBuilder::new()
+                        .lower(lower)
+                        .upper(upper)
+                        .lower_inclusive(lower_inclusive)
+                        .upper_inclusive(upper_inclusive)
+                        .lower_unbounded(lower_unbounded)
+                        .upper_unbounded(upper_unbounded)
+                        .build(),
+                )?)))
             }
         }
     }

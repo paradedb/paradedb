@@ -97,17 +97,15 @@ use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{range_table, CreateUpperPathsHookArgs, CustomScan};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::rel_get_bm25_index;
-use crate::postgres::types::{is_datetime_type, TantivyValue};
+use crate::postgres::types::{is_datetime_type, PdbOwnedValue, TantivyValue};
 use crate::postgres::utils::{add_vars_to_tlist, is_unnest_func, make_text_const};
 use crate::postgres::PgSearchRelation;
 use crate::postgres::{ParallelScanArgs, ParallelScanState};
 use crate::scan::codec::serialize_logical_plan;
-use chrono::{DateTime as ChronoDateTime, Utc};
 use futures::StreamExt;
 use pgrx::{pg_sys, PgList, PgMemoryContexts, PgTupleDesc};
 use std::ffi::CStr;
 use std::str::FromStr;
-use tantivy::schema::OwnedValue;
 
 #[derive(Default)]
 pub struct AggregateScan;
@@ -1690,7 +1688,7 @@ unsafe fn aggregate_value_to_datum(
 ) -> Option<pg_sys::Datum> {
     if row.is_empty() {
         return agg_type.nullish().value.and_then(|value| {
-            TantivyValue(OwnedValue::F64(value))
+            TantivyValue(PdbOwnedValue::F64(value))
                 .try_into_datum(target_typoid.into())
                 .unwrap()
         });
@@ -1799,12 +1797,12 @@ unsafe fn group_key_to_datum(
     // Bool uses string sentinels for both MIN and MAX.
     // DateTime columns don't have a missing sentinel (NULLs are excluded).
     let is_null_sentinel = match &key.0 {
-        OwnedValue::Str(s) => s == NULL_SENTINEL_MIN || s == NULL_SENTINEL_MAX,
+        PdbOwnedValue::Str(s) => s == NULL_SENTINEL_MIN || s == NULL_SENTINEL_MAX,
         // Postgres min and max timestamp values are far within the bounds of i64, so sentinel
         // collision is not an issue.
-        OwnedValue::I64(v) => *v == i64::MAX || *v == i64::MIN,
-        OwnedValue::U64(v) => *v == u64::MAX,
-        OwnedValue::F64(v) => *v == f64::MAX || *v == f64::MIN,
+        PdbOwnedValue::I64(v) => *v == i64::MAX || *v == i64::MIN,
+        PdbOwnedValue::U64(v) => *v == u64::MAX,
+        PdbOwnedValue::F64(v) => *v == f64::MAX || *v == f64::MIN,
         _ => false,
     };
     if is_null_sentinel {
@@ -1822,14 +1820,14 @@ unsafe fn group_key_to_datum(
     // we can convert this directly. For other time types, we need to parse this
     // string and convert it to the appropriate PostgreSQL date type.
     match &key.0 {
-        OwnedValue::Str(date_str) if expected_typoid == pg_sys::TIMESTAMPOID => {
+        PdbOwnedValue::Str(date_str) if expected_typoid == pg_sys::TIMESTAMPOID => {
             let ts = match pgrx::datum::Timestamp::from_str(date_str) {
                 Ok(ts) => ts,
                 Err(e) => pgrx::error!("Failed to parse datetime string '{}': {}", date_str, e),
             };
             ts.into_datum()
         }
-        OwnedValue::Str(date_str) if expected_typoid == pg_sys::TIMESTAMPTZOID => {
+        PdbOwnedValue::Str(date_str) if expected_typoid == pg_sys::TIMESTAMPTZOID => {
             // Tantivy DateTime's are stored in utc, so we need to convert as Timestamp first, then
             // convert to TimestampWithTimeZone, allowing postgres to do the correct timezone
             // adjustment
@@ -1840,27 +1838,24 @@ unsafe fn group_key_to_datum(
             let ts: pgrx::datum::TimestampWithTimeZone = pg_dt.into();
             ts.into_datum()
         }
-        OwnedValue::Str(date_str) => match date_str.parse::<ChronoDateTime<Utc>>() {
-            Ok(chrono_dt) => {
-                // Convert to nanoseconds since epoch for Tantivy DateTime
-                let nanos = chrono_dt.timestamp_nanos_opt().unwrap_or(0);
-                let datetime = tantivy::DateTime::from_timestamp_nanos(nanos);
-                TantivyValue(OwnedValue::Date(datetime))
+        PdbOwnedValue::Str(date_str) => {
+            match PostgresDateTime::try_from_timestamptz_str(date_str) {
+                Ok(dt) => TantivyValue(PdbOwnedValue::Date(dt))
                     .try_into_datum(pgrx::PgOid::from(expected_typoid))
-                    .expect("should be able to convert datetime to datum")
+                    .expect("should be able to convert datetime to datum"),
+                Err(e) => {
+                    pgrx::error!("Failed to parse datetime string '{}': {}", date_str, e);
+                }
             }
-            Err(e) => {
-                pgrx::error!("Failed to parse datetime string '{}': {}", date_str, e);
-            }
-        },
-        OwnedValue::I64(pg_micros) if expected_typoid == pg_sys::TIMESTAMPOID => {
+        }
+        PdbOwnedValue::I64(pg_micros) if expected_typoid == pg_sys::TIMESTAMPOID => {
             let ts = match pgrx::datum::Timestamp::try_from(*pg_micros) {
                 Ok(ts) => ts,
                 Err(e) => pgrx::error!("Invalid raw i64 value for timestamp: '{e}'"),
             };
             ts.into_datum()
         }
-        OwnedValue::I64(pg_micros) if expected_typoid == pg_sys::TIMESTAMPTZOID => {
+        PdbOwnedValue::I64(pg_micros) if expected_typoid == pg_sys::TIMESTAMPTZOID => {
             let ts = match pgrx::datum::TimestampWithTimeZone::try_from(*pg_micros) {
                 Ok(ts) => ts,
                 Err(e) => pgrx::error!("Invalid raw i64 value for timestamptz: '{e}'"),

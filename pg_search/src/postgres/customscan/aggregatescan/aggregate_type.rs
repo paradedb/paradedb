@@ -24,7 +24,7 @@ use crate::customscan::solve_expr::SolvePostgresExpressions;
 use crate::nodecast;
 use crate::postgres::customscan::opexpr::UnwrapFromExpr;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
-use crate::postgres::types::{ConstNode, TantivyValue};
+use crate::postgres::types::{ConstNode, PdbOwnedValue, TantivyValue};
 use crate::postgres::var::fieldname_from_var;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
@@ -44,7 +44,6 @@ use tantivy::aggregation::metric::{
     AverageAggregation, CountAggregation, MaxAggregation, MinAggregation, SingleMetricResult,
     SumAggregation,
 };
-use tantivy::schema::OwnedValue;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum AggregateType {
@@ -601,12 +600,12 @@ pub unsafe fn parse_coalesce_expression(
         .ok_or("second argument of COALESCE must resolve to a constant")?;
 
     let missing = match TantivyValue::try_from(const_node) {
-        Ok(TantivyValue(OwnedValue::U64(missing))) => missing.to_f64_lossless(),
-        Ok(TantivyValue(OwnedValue::I64(missing))) => missing.to_f64_lossless(),
-        Ok(TantivyValue(OwnedValue::F64(missing))) => Some(missing),
-        Ok(TantivyValue(OwnedValue::Null)) => None,
+        Ok(TantivyValue(PdbOwnedValue::U64(missing))) => missing.to_f64_lossless(),
+        Ok(TantivyValue(PdbOwnedValue::I64(missing))) => missing.to_f64_lossless(),
+        Ok(TantivyValue(PdbOwnedValue::F64(missing))) => Some(missing),
+        Ok(TantivyValue(PdbOwnedValue::Null)) => None,
         // Handle string values from NUMERIC - parse to f64 for missing value
-        Ok(TantivyValue(OwnedValue::Str(s))) => s.parse::<f64>().ok(),
+        Ok(TantivyValue(PdbOwnedValue::Str(s))) => s.parse::<f64>().ok(),
         _ => return Err("unsupported constant type in COALESCE default value".into()),
     };
 

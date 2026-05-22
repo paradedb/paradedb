@@ -20,6 +20,7 @@ use std::str::FromStr;
 
 use chrono::{DateTime, NaiveDate};
 use pgrx::datum::datetime_support::DateTimeConversionError;
+use pgrx::datum::ToIsoString;
 use serde;
 use serde::{Deserialize, Serialize};
 
@@ -106,8 +107,8 @@ pub fn datetime_components_to_tantivy_date(
 
 /// A wrapper type for working with postgres time values. Holds a postgres timestamp, which is
 /// really just a wrapper around an i64 representing microseconds from the PG epoch.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(into = "i64", try_from = "i64")]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd)]
+#[serde(into = "String", try_from = "String")]
 pub struct PostgresDateTime(pgrx::datum::Timestamp);
 impl PostgresDateTime {
     pub fn into_inner(self) -> i64 {
@@ -135,7 +136,18 @@ impl Display for PostgresDateTime {
         self.0.fmt(f)
     }
 }
+impl TryFrom<String> for PostgresDateTime {
+    type Error = DateTimeConversionError;
 
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::try_from_timestamptz_str(&value)
+    }
+}
+impl From<PostgresDateTime> for String {
+    fn from(value: PostgresDateTime) -> Self {
+        value.0.to_iso_string()
+    }
+}
 impl From<pgrx::datum::Date> for PostgresDateTime {
     fn from(value: pgrx::datum::Date) -> Self {
         let midnight_micros = (value.to_pg_epoch_days() as i64)
@@ -145,27 +157,42 @@ impl From<pgrx::datum::Date> for PostgresDateTime {
             .expect("Date->Timestamp conversion should always be valid")
     }
 }
-
-fn time_parts_to_micros(h: u8, m: u8, s: u8, micros: u32) -> Option<i64> {
-    (h as i64)
-        .checked_mul(HOUR_MICROS)?
-        .checked_add((m as i64).checked_mul(MINUTE_MICROS)?)?
-        .checked_add((s as i64).checked_mul(SECOND_MICROS)?)?
-        .checked_add(micros as i64)
+impl From<PostgresDateTime> for pgrx::datum::Date {
+    fn from(value: PostgresDateTime) -> Self {
+        let pg_days: i32 = (value.into_inner() / ONE_DAY_MICROS)
+            .try_into()
+            .expect("This should always fit");
+        unsafe { Self::from_pg_epoch_days(pg_days) }
+    }
 }
+
+// fn time_parts_to_micros(h: u8, m: u8, s: u8, micros: u32) -> Option<i64> {
+//     (h as i64)
+//         .checked_mul(HOUR_MICROS)?
+//         .checked_add((m as i64).checked_mul(MINUTE_MICROS)?)?
+//         .checked_add((s as i64).checked_mul(SECOND_MICROS)?)?
+//         .checked_add(micros as i64)
+// }
 
 impl From<pgrx::datum::Time> for PostgresDateTime {
     fn from(value: pgrx::datum::Time) -> Self {
-        let (h, m, s, micros) = value.to_hms_micro();
-        let time_micros = time_parts_to_micros(h, m, s, micros)
-            .expect("time->micros conversion should always work");
-        Self::try_from_raw(time_micros)
+        Self::try_from_raw(value.into_inner())
             .expect("time micros -> Timestamp conversion should always work")
+    }
+}
+impl From<PostgresDateTime> for pgrx::datum::Time {
+    fn from(value: PostgresDateTime) -> Self {
+        Self::modular_from_raw(value.into_inner())
     }
 }
 impl From<pgrx::datum::TimeWithTimeZone> for PostgresDateTime {
     fn from(value: pgrx::datum::TimeWithTimeZone) -> Self {
         Self::from(value.to_utc())
+    }
+}
+impl From<PostgresDateTime> for pgrx::datum::TimeWithTimeZone {
+    fn from(value: PostgresDateTime) -> Self {
+        Self::from(pgrx::datum::Time::from(value))
     }
 }
 impl From<pgrx::datum::Timestamp> for PostgresDateTime {

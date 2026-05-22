@@ -42,11 +42,11 @@ use crate::gucs::{
 use crate::postgres::customscan::mpp::dsm::{
     compute_dsm_layout, leader_init, peer_proc_for_index, worker_attach,
 };
+use crate::postgres::customscan::mpp::fork_portable::frame::MppFrameHeader;
 use crate::postgres::customscan::mpp::mesh::{ShmMqReceiver, ShmMqSender};
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 use crate::postgres::customscan::mpp::transport::{
-    in_proc_channel, BatchChannelSender, DrainHandle, MppFrameHeader, MppReceiver, MppSender,
-    SELF_LOOP_CAPACITY,
+    in_proc_channel, BatchChannelSender, DrainHandle, MppReceiver, MppSender, SELF_LOOP_CAPACITY,
 };
 
 /// Default stage id stamped on outbound sender headers before the per-fragment dispatcher

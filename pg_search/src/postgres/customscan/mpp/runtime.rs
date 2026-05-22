@@ -63,7 +63,7 @@ pub fn proc_for_task(n_workers: u32, task_idx: u32) -> u32 {
 /// on one queue, tagged by [`MppFrameHeader`]. The channel buffer registry on each [`DrainHandle`]
 /// fans them out to the matching consumers keyed on `(stage_id, partition)`.
 ///
-/// [`MppFrameHeader`]: crate::postgres::customscan::mpp::transport::MppFrameHeader
+/// [`MppFrameHeader`]: crate::postgres::customscan::mpp::fork_portable::frame::MppFrameHeader
 pub struct MppMesh {
     /// This process's `proc_idx` (= 0 for the leader, `ParallelWorkerNumber + 1` for workers).
     /// Frames addressed to this proc arrive on `slot(*, this_proc)`.

@@ -21,7 +21,7 @@ use crate::postgres::build_parallel::build_index;
 use crate::postgres::options::BM25IndexOptions;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::custom_rmgr;
-use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::storage::metadata::{MetaPage, VersionInfo};
 use crate::postgres::utils::{extract_field_attributes, ExtractedFieldAttribute};
 use crate::schema::{SearchFieldConfig, SearchFieldType, SearchIndexSchema};
 use anyhow::Result;
@@ -133,6 +133,7 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
         panic!("{}", BM25IndexOptions::MISSING_KEY_FIELD_CONFIG);
     }
 
+    let created_by_version = index_relation.created_by_version();
     let options = index_relation.options();
     let key_field_name = options.key_field_name();
 
@@ -187,10 +188,18 @@ unsafe fn validate_index_config(index_relation: &PgSearchRelation) {
     }
 
     let datetime_configs = options.datetime_config();
-    if datetime_configs.iter().flatten().next().is_some() {
-        panic!(
-            "As of v0.24.0, \"datetime_fields\" should be removed, as it's no longer necessary."
-        );
+    if created_by_version.stores_datetimes_in_i64() {
+        if datetime_configs.iter().flatten().next().is_some() {
+            panic!(
+                "As of v0.24.0, \"datetime_fields\" should be removed, as it's no longer necessary."
+            );
+        }
+    } else {
+        for (field_name, config) in datetime_configs.iter().flatten() {
+            validate_field_config(field_name, &key_field_name, config, options, |t| {
+                matches!(t, SearchFieldType::Date(_))
+            });
+        }
     }
 }
 

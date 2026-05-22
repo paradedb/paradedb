@@ -24,68 +24,136 @@
  * By using this file, you agree to comply with the AGPL v3.0 terms.
  *
  */
+use lindera::character_filter::unicode_normalize::{
+    UnicodeNormalizeCharacterFilter, UnicodeNormalizeKind,
+};
+use lindera::character_filter::BoxCharacterFilter;
 use lindera::dictionary::load_dictionary;
 use lindera::mode::Mode;
 use lindera::token::Token as LinderaToken;
+use lindera::token_filter::japanese_reading_form::JapaneseReadingFormTokenFilter;
+use lindera::token_filter::korean_reading_form::KoreanReadingFormTokenFilter;
+use lindera::token_filter::BoxTokenFilter;
 use lindera::tokenizer::Tokenizer as LinderaTokenizer;
-use once_cell::sync::Lazy;
+use once_cell::sync::{Lazy, OnceCell};
 use std::sync::Arc;
 use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 
-static CMN_TOKENIZER_KEEP_WHITESPACE: Lazy<Arc<LinderaTokenizer>> = Lazy::new(|| {
-    let dictionary = load_dictionary("embedded://cc-cedict")
-        .expect("Lindera `cc-cedict` dictionary must be present");
-    Arc::new(LinderaTokenizer::new(
-        lindera::segmenter::Segmenter::new(Mode::Normal, dictionary, None).keep_whitespace(true),
-    ))
-});
-static CMN_TOKENIZER: Lazy<Arc<LinderaTokenizer>> = Lazy::new(|| {
-    let dictionary = load_dictionary("embedded://cc-cedict")
-        .expect("Lindera `cc-cedict` dictionary must be present");
-    Arc::new(LinderaTokenizer::new(
-        lindera::segmenter::Segmenter::new(Mode::Normal, dictionary, None).keep_whitespace(false),
-    ))
-});
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct LinderaOptions {
+    keep_whitespace: bool,
+    nfkc: bool,
+    reading_form: bool,
+}
 
-static JPN_TOKENIZER_KEEP_WHITESPACE: Lazy<Arc<LinderaTokenizer>> = Lazy::new(|| {
-    let dictionary =
-        load_dictionary("embedded://ipadic").expect("Lindera `ipadic` dictionary must be present");
-    Arc::new(LinderaTokenizer::new(
-        lindera::segmenter::Segmenter::new(Mode::Normal, dictionary, None).keep_whitespace(true),
-    ))
-});
-static JPN_TOKENIZER: Lazy<Arc<LinderaTokenizer>> = Lazy::new(|| {
-    let dictionary =
-        load_dictionary("embedded://ipadic").expect("Lindera `ipadic` dictionary must be present");
-    Arc::new(LinderaTokenizer::new(
-        lindera::segmenter::Segmenter::new(Mode::Normal, dictionary, None).keep_whitespace(false),
-    ))
-});
+impl LinderaOptions {
+    const fn new(keep_whitespace: bool, nfkc: bool, reading_form: bool) -> Self {
+        Self {
+            keep_whitespace,
+            nfkc,
+            reading_form,
+        }
+    }
 
-static KOR_TOKENIZER_KEEP_WHITESPACE: Lazy<Arc<LinderaTokenizer>> = Lazy::new(|| {
-    let dictionary =
-        load_dictionary("embedded://ko-dic").expect("Lindera `ko-dic` dictionary must be present");
-    Arc::new(LinderaTokenizer::new(
-        lindera::segmenter::Segmenter::new(Mode::Normal, dictionary, None).keep_whitespace(true),
-    ))
-});
-static KOR_TOKENIZER: Lazy<Arc<LinderaTokenizer>> = Lazy::new(|| {
-    let dictionary =
-        load_dictionary("embedded://ko-dic").expect("Lindera `ko-dic` dictionary must be present");
-    Arc::new(LinderaTokenizer::new(
-        lindera::segmenter::Segmenter::new(Mode::Normal, dictionary, None).keep_whitespace(false),
-    ))
-});
+    const fn index(self) -> usize {
+        (self.keep_whitespace as usize)
+            | ((self.nfkc as usize) << 1)
+            | ((self.reading_form as usize) << 2)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ReadingForm {
+    None,
+    Japanese,
+    Korean,
+}
+
+fn build_lindera_tokenizer(
+    dictionary_uri: &str,
+    dictionary_name: &str,
+    options: LinderaOptions,
+    reading_form: ReadingForm,
+) -> Arc<LinderaTokenizer> {
+    let dictionary = load_dictionary(dictionary_uri)
+        .unwrap_or_else(|_| panic!("Lindera `{dictionary_name}` dictionary must be present"));
+    let mut tokenizer = LinderaTokenizer::new(
+        lindera::segmenter::Segmenter::new(Mode::Normal, dictionary, None)
+            .keep_whitespace(options.keep_whitespace),
+    );
+
+    if options.nfkc {
+        tokenizer.append_character_filter(BoxCharacterFilter::from(
+            UnicodeNormalizeCharacterFilter::new(UnicodeNormalizeKind::NFKC),
+        ));
+    }
+
+    if options.reading_form {
+        match reading_form {
+            ReadingForm::None => {}
+            ReadingForm::Japanese => {
+                tokenizer.append_token_filter(BoxTokenFilter::from(
+                    JapaneseReadingFormTokenFilter::new(),
+                ));
+            }
+            ReadingForm::Korean => {
+                tokenizer
+                    .append_token_filter(BoxTokenFilter::from(KoreanReadingFormTokenFilter::new()));
+            }
+        };
+    }
+
+    Arc::new(tokenizer)
+}
+
+static CMN_TOKENIZERS: Lazy<[OnceCell<Arc<LinderaTokenizer>>; 8]> =
+    Lazy::new(|| std::array::from_fn(|_| OnceCell::new()));
+static JPN_TOKENIZERS: Lazy<[OnceCell<Arc<LinderaTokenizer>>; 8]> =
+    Lazy::new(|| std::array::from_fn(|_| OnceCell::new()));
+static KOR_TOKENIZERS: Lazy<[OnceCell<Arc<LinderaTokenizer>>; 8]> =
+    Lazy::new(|| std::array::from_fn(|_| OnceCell::new()));
+
+fn chinese_tokenizer(options: LinderaOptions) -> &'static Arc<LinderaTokenizer> {
+    CMN_TOKENIZERS[options.index()].get_or_init(|| {
+        build_lindera_tokenizer(
+            "embedded://cc-cedict",
+            "cc-cedict",
+            options,
+            ReadingForm::None,
+        )
+    })
+}
+
+fn japanese_tokenizer(options: LinderaOptions) -> &'static Arc<LinderaTokenizer> {
+    JPN_TOKENIZERS[options.index()].get_or_init(|| {
+        build_lindera_tokenizer(
+            "embedded://ipadic",
+            "ipadic",
+            options,
+            ReadingForm::Japanese,
+        )
+    })
+}
+
+fn korean_tokenizer(options: LinderaOptions) -> &'static Arc<LinderaTokenizer> {
+    KOR_TOKENIZERS[options.index()].get_or_init(|| {
+        build_lindera_tokenizer("embedded://ko-dic", "ko-dic", options, ReadingForm::Korean)
+    })
+}
 
 #[derive(Clone, Default)]
 pub struct LinderaChineseTokenizer {
-    keep_whitespace: bool,
+    options: LinderaOptions,
     token: Token,
 }
 impl LinderaChineseTokenizer {
     pub fn new(keep_whitespace: bool) -> Self {
+        Self::with_options(keep_whitespace, false)
+    }
+
+    pub fn with_options(keep_whitespace: bool, nfkc: bool) -> Self {
         Self {
-            keep_whitespace,
+            options: LinderaOptions::new(keep_whitespace, nfkc, false),
             token: Default::default(),
         }
     }
@@ -94,12 +162,16 @@ impl LinderaChineseTokenizer {
 #[derive(Clone, Default)]
 pub struct LinderaJapaneseTokenizer {
     token: Token,
-    keep_whitespace: bool,
+    options: LinderaOptions,
 }
 impl LinderaJapaneseTokenizer {
     pub fn new(keep_whitespace: bool) -> Self {
+        Self::with_options(keep_whitespace, false, false)
+    }
+
+    pub fn with_options(keep_whitespace: bool, nfkc: bool, reading_form: bool) -> Self {
         Self {
-            keep_whitespace,
+            options: LinderaOptions::new(keep_whitespace, nfkc, reading_form),
             token: Default::default(),
         }
     }
@@ -107,13 +179,17 @@ impl LinderaJapaneseTokenizer {
 
 #[derive(Clone, Default)]
 pub struct LinderaKoreanTokenizer {
-    keep_whitespace: bool,
+    options: LinderaOptions,
     token: Token,
 }
 impl LinderaKoreanTokenizer {
     pub fn new(keep_whitespace: bool) -> Self {
+        Self::with_options(keep_whitespace, false, false)
+    }
+
+    pub fn with_options(keep_whitespace: bool, nfkc: bool, reading_form: bool) -> Self {
         Self {
-            keep_whitespace,
+            options: LinderaOptions::new(keep_whitespace, nfkc, reading_form),
             token: Default::default(),
         }
     }
@@ -127,11 +203,7 @@ impl Tokenizer for LinderaChineseTokenizer {
             return MultiLanguageTokenStream::Empty;
         }
 
-        let tokenizer = if self.keep_whitespace {
-            &CMN_TOKENIZER_KEEP_WHITESPACE
-        } else {
-            &CMN_TOKENIZER
-        };
+        let tokenizer = chinese_tokenizer(self.options);
 
         let lindera_token_stream = LinderaTokenStream {
             tokens: tokenizer
@@ -152,11 +224,7 @@ impl Tokenizer for LinderaJapaneseTokenizer {
             return MultiLanguageTokenStream::Empty;
         }
 
-        let tokenizer = if self.keep_whitespace {
-            &JPN_TOKENIZER_KEEP_WHITESPACE
-        } else {
-            &JPN_TOKENIZER
-        };
+        let tokenizer = japanese_tokenizer(self.options);
 
         let lindera_token_stream = LinderaTokenStream {
             tokens: tokenizer
@@ -177,11 +245,7 @@ impl Tokenizer for LinderaKoreanTokenizer {
             return MultiLanguageTokenStream::Empty;
         }
 
-        let tokenizer = if self.keep_whitespace {
-            &KOR_TOKENIZER_KEEP_WHITESPACE
-        } else {
-            &KOR_TOKENIZER
-        };
+        let tokenizer = korean_tokenizer(self.options);
 
         let lindera_token_stream = LinderaTokenStream {
             tokens: tokenizer
@@ -310,6 +374,17 @@ mod tests {
             assert_eq!(token.position, 0);
             assert_eq!(token.position_length, 1);
         }
+    }
+
+    #[rstest]
+    fn test_lindera_japanese_tokenizer_with_nfkc() {
+        let mut tokenizer = LinderaJapaneseTokenizer::with_options(false, true, false);
+        let tokens = test_helper(&mut tokenizer, "ＡＢＣ");
+
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].text, "ABC");
+        assert_eq!(tokens[0].offset_from, 0);
+        assert_eq!(tokens[0].offset_to, "ＡＢＣ".len());
     }
 
     #[rstest]

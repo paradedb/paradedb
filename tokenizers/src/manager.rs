@@ -421,6 +421,13 @@ pub enum SearchTokenizer {
         remove_emojis: bool,
         filters: SearchTokenizerFilters,
     },
+    LinderaWithOptions {
+        language: LinderaLanguage,
+        filters: SearchTokenizerFilters,
+        keep_whitespace: bool,
+        nfkc: bool,
+        reading_form: bool,
+    },
 }
 
 #[derive(Default, Serialize, Clone, Debug, PartialEq, Eq, strum_macros::VariantNames, AsRefStr)]
@@ -437,6 +444,40 @@ impl Default for SearchTokenizer {
         Self::UnicodeWords {
             remove_emojis: false,
             filters: SearchTokenizerFilters::default(),
+        }
+    }
+}
+
+fn parse_lindera_language(language: &str) -> Option<LinderaLanguage> {
+    let lcase = language.to_lowercase();
+    match lcase.as_str() {
+        "chinese" => Some(LinderaLanguage::Chinese),
+        "japanese" => Some(LinderaLanguage::Japanese),
+        "korean" => Some(LinderaLanguage::Korean),
+        _ => None,
+    }
+}
+
+fn lindera_tokenizer(
+    language: LinderaLanguage,
+    filters: SearchTokenizerFilters,
+    keep_whitespace: bool,
+    nfkc: bool,
+    reading_form: bool,
+) -> SearchTokenizer {
+    if nfkc || reading_form {
+        SearchTokenizer::LinderaWithOptions {
+            language,
+            filters,
+            keep_whitespace,
+            nfkc,
+            reading_form,
+        }
+    } else {
+        SearchTokenizer::Lindera {
+            language,
+            filters,
+            keep_whitespace,
         }
     }
 }
@@ -514,6 +555,34 @@ impl SearchTokenizer {
             "chinese_lindera" => Ok(SearchTokenizer::ChineseLinderaDeprecated(filters)),
             "japanese_lindera" => Ok(SearchTokenizer::JapaneseLinderaDeprecated(filters)),
             "korean_lindera" => Ok(SearchTokenizer::KoreanLinderaDeprecated(filters)),
+            "lindera" => {
+                let language = value
+                    .get("language")
+                    .and_then(|v| v.as_str())
+                    .and_then(parse_lindera_language)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "lindera tokenizer requires a valid 'language' field: chinese, japanese, or korean"
+                        )
+                    })?;
+                let keep_whitespace = value
+                    .get("keep_whitespace")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let nfkc = value.get("nfkc").and_then(|v| v.as_bool()).unwrap_or(false);
+                let reading_form = value
+                    .get("reading_form")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+
+                Ok(lindera_tokenizer(
+                    language,
+                    filters,
+                    keep_whitespace,
+                    nfkc,
+                    reading_form,
+                ))
+            }
             "icu" => Ok(SearchTokenizer::ICUTokenizer(filters)),
             "jieba" => {
                 let chinese_convert: Option<ConvertMode> = if value["chinese_convert"].is_null() {
@@ -636,6 +705,16 @@ impl SearchTokenizer {
             } => {
                 add_filters!(LinderaChineseTokenizer::new(*keep_whitespace), filters)
             }
+            SearchTokenizer::LinderaWithOptions {
+                language: LinderaLanguage::Chinese,
+                filters,
+                keep_whitespace,
+                nfkc,
+                reading_form: _,
+            } => add_filters!(
+                LinderaChineseTokenizer::with_options(*keep_whitespace, *nfkc),
+                filters
+            ),
             SearchTokenizer::JapaneseLinderaDeprecated(filters)
             | SearchTokenizer::LinderaDeprecated(LinderaLanguage::Japanese, filters) => {
                 add_filters!(LinderaJapaneseTokenizer::new(true), filters)
@@ -651,6 +730,16 @@ impl SearchTokenizer {
             } => {
                 add_filters!(LinderaJapaneseTokenizer::new(*keep_whitespace), filters)
             }
+            SearchTokenizer::LinderaWithOptions {
+                language: LinderaLanguage::Japanese,
+                filters,
+                keep_whitespace,
+                nfkc,
+                reading_form,
+            } => add_filters!(
+                LinderaJapaneseTokenizer::with_options(*keep_whitespace, *nfkc, *reading_form),
+                filters
+            ),
             SearchTokenizer::KoreanLinderaDeprecated(filters)
             | SearchTokenizer::LinderaDeprecated(LinderaLanguage::Korean, filters) => {
                 add_filters!(LinderaKoreanTokenizer::new(true), filters)
@@ -666,6 +755,16 @@ impl SearchTokenizer {
             } => {
                 add_filters!(LinderaKoreanTokenizer::new(*keep_whitespace), filters)
             }
+            SearchTokenizer::LinderaWithOptions {
+                language: LinderaLanguage::Korean,
+                filters,
+                keep_whitespace,
+                nfkc,
+                reading_form,
+            } => add_filters!(
+                LinderaKoreanTokenizer::with_options(*keep_whitespace, *nfkc, *reading_form),
+                filters
+            ),
             SearchTokenizer::ICUTokenizer(filters) => {
                 add_filters!(ICUTokenizer, filters)
             }
@@ -689,6 +788,10 @@ impl SearchTokenizer {
             }
             SearchTokenizer::LinderaDeprecated(LinderaLanguage::Unspecified, _)
             | SearchTokenizer::Lindera {
+                language: LinderaLanguage::Unspecified,
+                ..
+            }
+            | SearchTokenizer::LinderaWithOptions {
                 language: LinderaLanguage::Unspecified,
                 ..
             } => {
@@ -732,6 +835,7 @@ impl SearchTokenizer {
             SearchTokenizer::KoreanLindera { filters, .. } => filters,
             SearchTokenizer::LinderaDeprecated(_, filters) => filters,
             SearchTokenizer::Lindera { filters, .. } => filters,
+            SearchTokenizer::LinderaWithOptions { filters, .. } => filters,
             SearchTokenizer::ICUTokenizer(filters) => filters,
             SearchTokenizer::Jieba { filters, .. } => filters,
             SearchTokenizer::UnicodeWordsDeprecated { filters, .. } => filters,
@@ -866,6 +970,26 @@ impl SearchTokenizer {
                     format!("korean_lindera_keepwhitespace:{keep_whitespace}{filters_suffix}")
                 }
             },
+            SearchTokenizer::LinderaWithOptions {
+                language,
+                filters: _,
+                keep_whitespace,
+                nfkc,
+                reading_form,
+            } => match language {
+                LinderaLanguage::Unspecified => {
+                    panic!("LinderaStyle::Unspecified is not supported")
+                }
+                LinderaLanguage::Chinese => {
+                    format!("chinese_lindera_keepwhitespace:{keep_whitespace}_nfkc:{nfkc}_readingform:{reading_form}{filters_suffix}")
+                }
+                LinderaLanguage::Japanese => {
+                    format!("japanese_lindera_keepwhitespace:{keep_whitespace}_nfkc:{nfkc}_readingform:{reading_form}{filters_suffix}")
+                }
+                LinderaLanguage::Korean => {
+                    format!("korean_lindera_keepwhitespace:{keep_whitespace}_nfkc:{nfkc}_readingform:{reading_form}{filters_suffix}")
+                }
+            },
             SearchTokenizer::ICUTokenizer(_filters) => format!("icu{filters_suffix}"),
             SearchTokenizer::Jieba {
                 chinese_convert,
@@ -989,6 +1113,35 @@ mod tests {
         assert_eq!(
             tokenizer,
             SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap()
+        );
+    }
+
+    #[rstest]
+    fn test_lindera_tokenizer_with_nfkc_and_reading_form() {
+        let json = r#"{
+            "type": "lindera",
+            "language": "japanese",
+            "keep_whitespace": true,
+            "nfkc": true,
+            "reading_form": true
+        }"#;
+
+        let tokenizer =
+            SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap()).unwrap();
+
+        assert_eq!(
+            tokenizer,
+            SearchTokenizer::LinderaWithOptions {
+                language: LinderaLanguage::Japanese,
+                filters: SearchTokenizerFilters::default(),
+                keep_whitespace: true,
+                nfkc: true,
+                reading_form: true,
+            }
+        );
+        assert_eq!(
+            tokenizer.name(),
+            "japanese_lindera_keepwhitespace:true_nfkc:true_readingform:true"
         );
     }
 

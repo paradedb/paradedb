@@ -208,6 +208,51 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
             filters,
             keep_whitespace,
         } => {
+            let mut new_language = language.clone();
+            if let Some(s) = parsed.try_get("language", 0).and_then(|p| p.as_str()) {
+                let lcase = s.to_lowercase();
+                new_language = match lcase.as_str() {
+                    "chinese" => LinderaLanguage::Chinese,
+                    "japanese" => LinderaLanguage::Japanese,
+                    "korean" => LinderaLanguage::Korean,
+                    _ => LinderaLanguage::default(),
+                };
+            }
+            let new_filters = SearchTokenizerFilters::from(parsed);
+            let new_keep_whitespace = parsed
+                .get("keep_whitespace")
+                .and_then(|p| p.as_bool())
+                .unwrap_or(*keep_whitespace);
+            let nfkc = parsed
+                .get("nfkc")
+                .and_then(|p| p.as_bool())
+                .unwrap_or(false);
+            let reading_form = parsed
+                .get("reading_form")
+                .and_then(|p| p.as_bool())
+                .unwrap_or(false);
+
+            if nfkc || reading_form {
+                *tokenizer = SearchTokenizer::LinderaWithOptions {
+                    language: new_language,
+                    filters: new_filters,
+                    keep_whitespace: new_keep_whitespace,
+                    nfkc,
+                    reading_form,
+                };
+            } else {
+                *language = new_language;
+                *filters = new_filters;
+                *keep_whitespace = new_keep_whitespace;
+            }
+        }
+        SearchTokenizer::LinderaWithOptions {
+            language,
+            filters,
+            keep_whitespace,
+            nfkc,
+            reading_form,
+        } => {
             if let Some(s) = parsed.try_get("language", 0).and_then(|p| p.as_str()) {
                 let lcase = s.to_lowercase();
                 *language = match lcase.as_str() {
@@ -220,6 +265,12 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
             *filters = SearchTokenizerFilters::from(parsed);
             if let Some(v) = parsed.get("keep_whitespace").and_then(|p| p.as_bool()) {
                 *keep_whitespace = v;
+            }
+            if let Some(v) = parsed.get("nfkc").and_then(|p| p.as_bool()) {
+                *nfkc = v;
+            }
+            if let Some(v) = parsed.get("reading_form").and_then(|p| p.as_bool()) {
+                *reading_form = v;
             }
         }
         SearchTokenizer::Jieba {
@@ -412,17 +463,37 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             *style = lindera_typmod.language;
             *filters = lindera_typmod.filters;
         }
-        SearchTokenizer::Lindera {
-            language,
-            filters,
-            keep_whitespace,
-        } => {
+        SearchTokenizer::Lindera { .. } => {
             let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| {
                 panic!("{}", e);
             });
-            *language = lindera_typmod.language;
-            *filters = lindera_typmod.filters;
-            *keep_whitespace = lindera_typmod.keep_whitespace;
+            if lindera_typmod.nfkc || lindera_typmod.reading_form {
+                *tokenizer = SearchTokenizer::LinderaWithOptions {
+                    language: lindera_typmod.language,
+                    filters: lindera_typmod.filters,
+                    keep_whitespace: lindera_typmod.keep_whitespace,
+                    nfkc: lindera_typmod.nfkc,
+                    reading_form: lindera_typmod.reading_form,
+                };
+            } else {
+                *tokenizer = SearchTokenizer::Lindera {
+                    language: lindera_typmod.language,
+                    filters: lindera_typmod.filters,
+                    keep_whitespace: lindera_typmod.keep_whitespace,
+                };
+            }
+        }
+        SearchTokenizer::LinderaWithOptions { .. } => {
+            let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| {
+                panic!("{}", e);
+            });
+            *tokenizer = SearchTokenizer::LinderaWithOptions {
+                language: lindera_typmod.language,
+                filters: lindera_typmod.filters,
+                keep_whitespace: lindera_typmod.keep_whitespace,
+                nfkc: lindera_typmod.nfkc,
+                reading_form: lindera_typmod.reading_form,
+            };
         }
 
         SearchTokenizer::ChineseLindera {

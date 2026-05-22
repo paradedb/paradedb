@@ -58,3 +58,25 @@ SELECT 'Hello world! 你好!'::pdb.lindera(chinese, 'keep_whitespace=true')::tex
  {hello," ",world,!," ",你好,!}
 (1 row)
 ```
+
+## NFKC Normalization
+
+Set `nfkc` to `true` to normalize text with Unicode NFKC before Lindera segments it.
+This is useful when input may contain compatibility characters such as full-width Latin letters or digits.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, (description::pdb.lindera(japanese, 'nfkc=true')))
+WITH (key_field='id');
+```
+
+## Reading Form
+
+Set `reading_form` to `true` to index dictionary-provided reading forms for Japanese and Korean Lindera tokenization.
+For Japanese, this uses the IPADIC reading field.
+
+```sql
+CREATE INDEX search_idx ON mock_items
+USING bm25 (id, (description::pdb.lindera(japanese, 'reading_form=true')))
+WITH (key_field='id');
+```

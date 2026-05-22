@@ -19,8 +19,9 @@ use crate::api::{HashMap, HashSet};
 use crate::index::mvcc::{MvccSatisfies, PinCushion};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
-    CustomExtensionId, DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails,
-    SegmentMetaEntry, SegmentMetaEntryImmutable,
+    DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
+    SegmentMetaEntryImmutable, VECTOR_ASSIGNMENTS_EXT, VECTOR_FLAT_EXT, VECTOR_IVF_EXT,
+    VECTOR_META_EXT,
 };
 use crate::postgres::storage::metadata::MetaPage;
 use anyhow::Result;
@@ -133,9 +134,6 @@ pub unsafe fn save_new_metas(
             let created_segment = incoming_segments.get(id).unwrap();
             let mut files = new_files.remove(id)?;
 
-            let custom = files
-                .remove(&SegmentComponent::Custom("cluster".to_string()))
-                .map(|(fe, _)| (CustomExtensionId::Cluster, fe));
             let meta_entry = SegmentMetaEntry::new_immutable(
                 *id,
                 created_segment.max_doc(),
@@ -154,7 +152,20 @@ pub unsafe fn save_new_metas(
                             file_entry,
                             num_deleted_docs: created_segment.num_deleted_docs(),
                         }),
-                    custom,
+                    vecmeta: files
+                        .remove(&SegmentComponent::Custom(VECTOR_META_EXT.to_string()))
+                        .map(|e| e.0),
+                    flatvec: files
+                        .remove(&SegmentComponent::Custom(VECTOR_FLAT_EXT.to_string()))
+                        .map(|e| e.0),
+                    assignments: files
+                        .remove(&SegmentComponent::Custom(
+                            VECTOR_ASSIGNMENTS_EXT.to_string(),
+                        ))
+                        .map(|e| e.0),
+                    ivf_vec: files
+                        .remove(&SegmentComponent::Custom(VECTOR_IVF_EXT.to_string()))
+                        .map(|e| e.0),
                 },
             );
 

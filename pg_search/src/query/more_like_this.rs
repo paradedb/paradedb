@@ -18,15 +18,68 @@
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use pgrx::spi::SpiError;
-use tantivy::query::{
-    BooleanQuery, EnableScoring, MoreLikeThis as TantivyMoreLikeThis, Query, Weight,
-};
-use tantivy::schema::{Field, OwnedValue, Value};
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap};
+use tantivy::query::{BooleanQuery, BoostQuery, EnableScoring, Occur, Query, TermQuery, Weight};
+use tantivy::schema::{Field, FieldType, IndexRecordOption, OwnedValue, Term, Value};
+use tantivy::tokenizer::{FacetTokenizer, PreTokenizedStream, Token, TokenStream, Tokenizer};
 use tantivy::{Searcher, TantivyError};
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, PartialEq)]
+struct ScoreTerm {
+    term: Term,
+    score: f32,
+}
+
+impl ScoreTerm {
+    fn new(term: Term, score: f32) -> Self {
+        Self { term, score }
+    }
+}
+
+impl Eq for ScoreTerm {}
+
+impl PartialOrd for ScoreTerm {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ScoreTerm {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.score
+            .partial_cmp(&other.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct MoreLikeThis {
-    inner: TantivyMoreLikeThis,
+    min_doc_frequency: Option<u64>,
+    max_doc_frequency: Option<u64>,
+    min_term_frequency: Option<usize>,
+    max_term_frequency: Option<usize>,
+    max_query_terms: Option<usize>,
+    min_word_length: Option<usize>,
+    max_word_length: Option<usize>,
+    boost_factor: Option<f32>,
+    stop_words: Vec<String>,
+}
+
+impl Default for MoreLikeThis {
+    fn default() -> Self {
+        Self {
+            min_doc_frequency: Some(5),
+            max_doc_frequency: None,
+            min_term_frequency: Some(2),
+            max_term_frequency: None,
+            max_query_terms: Some(25),
+            min_word_length: None,
+            max_word_length: None,
+            boost_factor: Some(1.0),
+            stop_words: vec![],
+        }
+    }
 }
 
 impl MoreLikeThis {
@@ -35,7 +88,251 @@ impl MoreLikeThis {
         searcher: &Searcher,
         doc_fields: &[(Field, Vec<V>)],
     ) -> tantivy::Result<BooleanQuery> {
-        self.inner.query_with_document_fields(searcher, doc_fields)
+        if doc_fields.is_empty() {
+            return Err(TantivyError::InvalidArgument(
+                "Cannot create more like this query on empty field values. The document may not have stored fields"
+                    .to_string(),
+            ));
+        }
+
+        let mut per_field_term_frequencies = HashMap::new();
+        for (field, values) in doc_fields {
+            self.add_term_frequencies(searcher, *field, values, &mut per_field_term_frequencies)?;
+        }
+
+        let score_terms = self.create_score_terms(searcher, per_field_term_frequencies)?;
+        Ok(self.create_query(score_terms))
+    }
+
+    fn create_query(&self, mut score_terms: Vec<ScoreTerm>) -> BooleanQuery {
+        score_terms.sort_by(|left_ts, right_ts| right_ts.cmp(left_ts));
+        let best_score = score_terms.first().map_or(1f32, |x| x.score);
+        let queries = score_terms
+            .into_iter()
+            .map(|ScoreTerm { term, score }| {
+                let mut query: Box<dyn Query> =
+                    Box::new(TermQuery::new(term, IndexRecordOption::Basic));
+                if let Some(factor) = self.boost_factor {
+                    query = Box::new(BoostQuery::new(query, score * factor / best_score));
+                }
+                (Occur::Should, query)
+            })
+            .collect::<Vec<_>>();
+        BooleanQuery::from(queries)
+    }
+
+    fn add_term_frequencies<'a, V: Value<'a>>(
+        &self,
+        searcher: &Searcher,
+        field: Field,
+        values: &[V],
+        term_frequencies: &mut HashMap<Term, usize>,
+    ) -> tantivy::Result<()> {
+        let schema = searcher.schema();
+        let tokenizer_manager = searcher.index().tokenizers();
+
+        let field_entry = schema.get_field_entry(field);
+        if !field_entry.is_indexed() {
+            return Ok(());
+        }
+
+        match field_entry.field_type() {
+            FieldType::Facet(_) => {
+                let facets: Vec<&str> = values
+                    .iter()
+                    .map(|value| {
+                        value.as_facet().ok_or_else(|| {
+                            TantivyError::InvalidArgument("invalid field value".to_string())
+                        })
+                    })
+                    .collect::<tantivy::Result<Vec<_>>>()?;
+                for fake_str in facets {
+                    FacetTokenizer::default()
+                        .token_stream(fake_str)
+                        .process(&mut |token| {
+                            if !self.is_noise_word(token.text.clone()) {
+                                let term = Term::from_field_text(field, &token.text);
+                                *term_frequencies.entry(term).or_insert(0) += 1;
+                            }
+                        });
+                }
+            }
+            FieldType::Str(text_options) => {
+                let mut tokenizer_opt = text_options
+                    .get_indexing_options()
+                    .map(|options| options.tokenizer())
+                    .and_then(|tokenizer_name| tokenizer_manager.get(tokenizer_name));
+
+                let sink = &mut |token: &Token| {
+                    if !self.is_noise_word(token.text.clone()) {
+                        let term = Term::from_field_text(field, &token.text);
+                        *term_frequencies.entry(term).or_insert(0) += 1;
+                    }
+                };
+
+                for value in values {
+                    if let Some(text) = value.as_str() {
+                        let tokenizer = match &mut tokenizer_opt {
+                            None => continue,
+                            Some(tokenizer) => tokenizer,
+                        };
+
+                        let mut token_stream = tokenizer.token_stream(text);
+                        token_stream.process(sink);
+                    } else if let Some(tok_str) = value.as_pre_tokenized_text() {
+                        let mut token_stream = PreTokenizedStream::from(*tok_str.clone());
+                        token_stream.process(sink);
+                    }
+                }
+            }
+            FieldType::U64(_) => {
+                for value in values {
+                    let val = value.as_u64().ok_or_else(|| {
+                        TantivyError::InvalidArgument("invalid value".to_string())
+                    })?;
+                    if !self.is_noise_word(val.to_string()) {
+                        let term = Term::from_field_u64(field, val);
+                        *term_frequencies.entry(term).or_insert(0) += 1;
+                    }
+                }
+            }
+            FieldType::Date(_) => {
+                for value in values {
+                    let timestamp = value.as_datetime().ok_or_else(|| {
+                        TantivyError::InvalidArgument("invalid value".to_string())
+                    })?;
+                    let term = Term::from_field_date_for_search(field, timestamp);
+                    *term_frequencies.entry(term).or_insert(0) += 1;
+                }
+            }
+            FieldType::I64(_) => {
+                for value in values {
+                    let val = value.as_i64().ok_or_else(|| {
+                        TantivyError::InvalidArgument("invalid value".to_string())
+                    })?;
+                    if !self.is_noise_word(val.to_string()) {
+                        let term = Term::from_field_i64(field, val);
+                        *term_frequencies.entry(term).or_insert(0) += 1;
+                    }
+                }
+            }
+            FieldType::F64(_) => {
+                for value in values {
+                    let val = value.as_f64().ok_or_else(|| {
+                        TantivyError::InvalidArgument("invalid value".to_string())
+                    })?;
+                    if !self.is_noise_word(val.to_string()) {
+                        let term = Term::from_field_f64(field, val);
+                        *term_frequencies.entry(term).or_insert(0) += 1;
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+
+    fn create_score_terms(
+        &self,
+        searcher: &Searcher,
+        per_field_term_frequencies: HashMap<Term, usize>,
+    ) -> tantivy::Result<Vec<ScoreTerm>> {
+        let mut score_terms: BinaryHeap<Reverse<ScoreTerm>> = BinaryHeap::new();
+        let num_docs = searcher
+            .segment_readers()
+            .iter()
+            .map(|segment_reader| segment_reader.num_docs() as u64)
+            .sum::<u64>();
+
+        for (term, term_frequency) in per_field_term_frequencies.iter() {
+            if self
+                .min_term_frequency
+                .map(|min_term_frequency| *term_frequency < min_term_frequency)
+                .unwrap_or(false)
+            {
+                continue;
+            }
+
+            if self
+                .max_term_frequency
+                .map(|max_term_frequency| *term_frequency > max_term_frequency)
+                .unwrap_or(false)
+            {
+                continue;
+            }
+
+            let doc_freq = searcher.doc_freq(term)?;
+
+            if self
+                .min_doc_frequency
+                .map(|min_doc_frequency| doc_freq < min_doc_frequency)
+                .unwrap_or(false)
+            {
+                continue;
+            }
+
+            if self
+                .max_doc_frequency
+                .map(|max_doc_frequency| doc_freq > max_doc_frequency)
+                .unwrap_or(false)
+            {
+                continue;
+            }
+
+            if doc_freq == 0 {
+                continue;
+            }
+
+            let idf = Self::idf(doc_freq, num_docs);
+            let score = (*term_frequency as f32) * idf;
+            if let Some(limit) = self.max_query_terms {
+                if score_terms.len() > limit {
+                    let least_significant_term_score = score_terms.peek().unwrap().0.score;
+                    if least_significant_term_score < score {
+                        score_terms.peek_mut().unwrap().0 = ScoreTerm::new(term.clone(), score);
+                    }
+                } else {
+                    score_terms.push(Reverse(ScoreTerm::new(term.clone(), score)));
+                }
+            } else {
+                score_terms.push(Reverse(ScoreTerm::new(term.clone(), score)));
+            }
+        }
+
+        Ok(score_terms
+            .into_iter()
+            .map(|reverse_score_term| reverse_score_term.0)
+            .collect())
+    }
+
+    fn is_noise_word(&self, word: String) -> bool {
+        let word_length = word.len();
+        if word_length == 0 {
+            return true;
+        }
+        if self
+            .min_word_length
+            .map(|min| word_length < min)
+            .unwrap_or(false)
+        {
+            return true;
+        }
+        if self
+            .max_word_length
+            .map(|max| word_length > max)
+            .unwrap_or(false)
+        {
+            return true;
+        }
+
+        self.stop_words.contains(&word)
+    }
+
+    fn idf(doc_freq: u64, doc_count: u64) -> f32 {
+        assert!(doc_count >= doc_freq, "{doc_count} >= {doc_freq}");
+        let x = ((doc_count - doc_freq) as f32 + 0.5) / (doc_freq as f32 + 0.5);
+        (1.0 + x).ln()
     }
 }
 
@@ -81,55 +378,55 @@ pub struct MoreLikeThisQueryBuilder {
 impl MoreLikeThisQueryBuilder {
     #[must_use]
     pub fn with_min_doc_frequency(mut self, value: u64) -> Self {
-        self.mlt.inner.min_doc_frequency = Some(value);
+        self.mlt.min_doc_frequency = Some(value);
         self
     }
 
     #[must_use]
     pub fn with_max_doc_frequency(mut self, value: u64) -> Self {
-        self.mlt.inner.max_doc_frequency = Some(value);
+        self.mlt.max_doc_frequency = Some(value);
         self
     }
 
     #[must_use]
     pub fn with_min_term_frequency(mut self, value: usize) -> Self {
-        self.mlt.inner.min_term_frequency = Some(value);
+        self.mlt.min_term_frequency = Some(value);
         self
     }
 
     #[must_use]
     pub fn with_max_term_frequency(mut self, value: usize) -> Self {
-        self.mlt.inner.max_term_frequency = Some(value);
+        self.mlt.max_term_frequency = Some(value);
         self
     }
 
     #[must_use]
     pub fn with_max_query_terms(mut self, value: usize) -> Self {
-        self.mlt.inner.max_query_terms = Some(value);
+        self.mlt.max_query_terms = Some(value);
         self
     }
 
     #[must_use]
     pub fn with_min_word_length(mut self, value: usize) -> Self {
-        self.mlt.inner.min_word_length = Some(value);
+        self.mlt.min_word_length = Some(value);
         self
     }
 
     #[must_use]
     pub fn with_max_word_length(mut self, value: usize) -> Self {
-        self.mlt.inner.max_word_length = Some(value);
+        self.mlt.max_word_length = Some(value);
         self
     }
 
     #[must_use]
     pub fn with_boost_factor(mut self, value: f32) -> Self {
-        self.mlt.inner.boost_factor = Some(value);
+        self.mlt.boost_factor = Some(value);
         self
     }
 
     #[must_use]
     pub fn with_stop_words(mut self, value: Vec<String>) -> Self {
-        self.mlt.inner.stop_words = value;
+        self.mlt.stop_words = value;
         self
     }
 

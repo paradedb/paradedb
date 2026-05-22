@@ -96,14 +96,14 @@ pub enum FragmentRouting {
     /// Broadcast mesh ([`NetworkBroadcastExec`]). Wire-level math matches [`Self::Shuffle`]
     /// (`q → q / P_c`).
     ///
-    /// Delta from upstream: we cap the build subtree at `task_count = 1` via
-    /// [`BroadcastBuildSideOneTaskEstimator`], so the dispatcher only ever sees `task_idx == 0`
-    /// fragments here. The estimator relies on the AggregateScan all-gather step canonical-
-    /// replicating the build side; a future planner that emits `NetworkBroadcastExec` over a
-    /// sharded child would silently drop shards under this rule and needs a new routing variant.
+    /// The fork's default `broadcast_subtree_max_one_task` (paradedb/datafusion-distributed#11)
+    /// caps the build subtree at `task_count = 1`, so the dispatcher only ever sees
+    /// `task_idx == 0` fragments here. The cap relies on the AggregateScan all-gather step
+    /// canonical-replicating the build side; a future planner that emits `NetworkBroadcastExec`
+    /// over a sharded child would silently drop shards under this rule and needs a new routing
+    /// variant.
     ///
     /// [`NetworkBroadcastExec`]: datafusion_distributed::NetworkBroadcastExec
-    /// [`BroadcastBuildSideOneTaskEstimator`]: crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator
     Broadcast {
         /// `B.properties().output_partitioning().partition_count()`. Same
         /// semantics as

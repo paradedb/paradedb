@@ -307,16 +307,17 @@ pub(crate) fn run_mpp_worker(
                 debug_assert!(
                     fragment.task_idx == 0,
                     "mpp dispatcher: Broadcast fragment with task_idx={} but the fork's \
-                     broadcast_subtree_max_one_task cap should have held input_task_count \
-                     at 1; plan-walk drift?",
+                     broadcast_subtree_max_one_task caps the producer subtree, so \
+                     `NetworkBroadcastExec::input_task_count` should be 1 here; plan-walk drift?",
                     fragment.task_idx,
                 );
                 if fragment.task_idx != 0 {
                     return Err(datafusion::common::DataFusionError::Internal(format!(
                         "mpp worker dispatch (proc={this_proc}): Broadcast fragment \
                          (stage_id={}, task_idx={}) with task_idx > 0. The fork's default \
-                         broadcast_subtree_max_one_task should cap input_task_count at 1. \
-                         A non-zero task_idx here indicates plan-walk drift or that the cap \
+                         broadcast_subtree_max_one_task caps the producer subtree, so \
+                         `NetworkBroadcastExec::input_task_count` is expected to be 1. A \
+                         non-zero task_idx here indicates plan-walk drift or that the cap \
                          was disabled on this session.",
                         fragment.stage_id, fragment.task_idx,
                     )));

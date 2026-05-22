@@ -47,7 +47,7 @@ impl GroupByClause {
         args: &<AggregateScan as CustomScan>::Args,
         heap_rti: pg_sys::Index,
         schema: &crate::schema::SearchIndexSchema,
-        index_expressions: &[(String, String)],
+        index_expressions: &PgList<pg_sys::Expr>,
         categorized_fields: &[(
             crate::schema::SearchField,
             crate::schema::CategorizedFieldData,
@@ -184,7 +184,7 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                             break;
                         }
                         Err(err) => {
-                            last_error = Some(err.to_string());
+                            last_error = Some(format!("{err:?}"));
                         }
                     }
                 }

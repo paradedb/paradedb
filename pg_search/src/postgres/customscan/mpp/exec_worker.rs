@@ -86,7 +86,8 @@ pub(crate) fn build_mpp_session_context(
     mesh: Arc<MppMesh>,
 ) -> SessionContext {
     // Workers are procs 1..n_procs; leader is proc 0. The producer count is `n_procs - 1`.
-    let n_workers = mesh.n_procs.saturating_sub(1).max(1) as usize;
+    // `n_procs >= 3` is guaranteed by `mpp_is_active()` (callers gate before reaching this).
+    let n_workers = mesh.n_workers() as usize;
     // Four-knob unlock for actually inserting NetworkShuffleExec/etc.:
     //   1. target_partitions(N) — without this, EnforceDistribution skips every
     //      RepartitionExec, so the annotator never sees a Shuffle.
@@ -171,7 +172,6 @@ pub(crate) fn run_mpp_worker(
     } = inputs;
 
     let this_proc = worker_mesh.this_proc;
-    let total_procs = worker_mesh.n_procs;
 
     // Build per-source canonical segment ID sets. For the partitioning source, pull the full
     // list out of the populated ParallelScanState (workers will then claim individual segments
@@ -213,10 +213,12 @@ pub(crate) fn run_mpp_worker(
         Err(e) => pgrx::error!("mpp worker: create_physical_plan failed: {e}"),
     };
 
-    // Walk the plan and collect every `(stage_id, task_idx)` slot owned by this proc under the
-    // `proc_for_task` round-robin policy. The dispatcher spawns one async task per fragment;
-    // together they form the worker's complete contribution to the distributed plan.
-    let n_workers = total_procs.saturating_sub(1).max(1);
+    // Walk the plan and collect every `(stage_id, task_idx)` slot owned by this proc under
+    // the `proc_for_task` round-robin policy. The dispatcher spawns one async task per
+    // fragment; together they form the worker's complete contribution to the distributed
+    // plan. `worker_mesh.n_procs >= 3` is guaranteed by `mpp_is_active()` (callers gate
+    // before reaching this), so `n_workers() = n_procs - 1` is safe.
+    let n_workers = worker_mesh.n_workers();
     let fragments = find_worker_assignments(&physical_plan, this_proc, n_workers);
     if fragments.is_empty() {
         pgrx::warning!(

@@ -102,10 +102,23 @@ impl MppMesh {
             .and_then(|slot| slot.as_ref())
     }
 
-    /// Number of worker procs (= `n_procs - 1`, since the leader is proc 0).
-    /// Used as the modulus in [`proc_for_task`].
+    /// Number of worker procs (= `n_procs - 1`, since the leader is proc 0). Used as the
+    /// modulus in [`proc_for_task`].
+    ///
+    /// The `n_procs >= 3` invariant is enforced by
+    /// [`crate::postgres::customscan::mpp::glue::mpp_is_active`] via
+    /// `MIN_TOTAL_WORKER_COUNT`, so the subtraction is safe without a `saturating_sub` /
+    /// `max(1)` belt-and-braces: every code path that constructs an `MppMesh` (or reaches
+    /// this method) is gated on `mpp_is_active()` first. Asserted in debug builds so a
+    /// future misuse fails loudly.
     pub(super) fn n_workers(&self) -> u32 {
-        self.n_procs.saturating_sub(1).max(1)
+        debug_assert!(
+            self.n_procs >= 3,
+            "MppMesh::n_workers() called with n_procs={} (< 3); callers must gate on \
+             mpp_is_active()",
+            self.n_procs
+        );
+        self.n_procs - 1
     }
 
     /// Pull from every installed inbound drain. Called from

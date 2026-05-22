@@ -99,6 +99,7 @@ pub enum SearchQueryInput {
         min_doc_frequency: Option<u64>,
         max_doc_frequency: Option<u64>,
         min_term_frequency: Option<usize>,
+        max_term_frequency: Option<usize>,
         max_query_terms: Option<usize>,
         min_word_length: Option<usize>,
         max_word_length: Option<usize>,
@@ -1166,6 +1167,7 @@ impl SearchQueryInput {
                 min_doc_frequency,
                 max_doc_frequency,
                 min_term_frequency,
+                max_term_frequency,
                 max_query_terms,
                 min_word_length,
                 max_word_length,
@@ -1191,6 +1193,9 @@ impl SearchQueryInput {
                 }
                 if let Some(max_doc_frequency) = max_doc_frequency {
                     mlt_builder = mlt_builder.with_max_doc_frequency(max_doc_frequency);
+                }
+                if let Some(max_term_frequency) = max_term_frequency {
+                    mlt_builder = mlt_builder.with_max_term_frequency(max_term_frequency);
                 }
                 if let Some(max_query_terms) = max_query_terms {
                     mlt_builder = mlt_builder.with_max_query_terms(max_query_terms);

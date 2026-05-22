@@ -537,7 +537,7 @@ WHERE id @@@ pdb.more_like_this(1);
    Index: idx_recursive_estimates
    Exec Method: NormalScanExecState
    Scores: true
-   Tantivy Query: {"with_index":{"query":{"more_like_this":{"min_doc_frequency":null,"max_doc_frequency":null,"min_term_frequency":null,"max_query_terms":null,"min_word_length":null,"max_word_length":null,"boost_factor":null,"stopwords":null,"document":null,"key_value":1,"fields":null},"estimated_docs":19}},"estimated_docs":19}
+   Tantivy Query: {"with_index":{"query":{"more_like_this":{"min_doc_frequency":null,"max_doc_frequency":null,"min_term_frequency":null,"max_term_frequency":null,"max_query_terms":null,"min_word_length":null,"max_word_length":null,"boost_factor":null,"stopwords":null,"document":null,"key_value":1,"fields":null},"estimated_docs":19}},"estimated_docs":19}
 (7 rows)
 
 -- Test 5.16: Match query with explicit tokenizer

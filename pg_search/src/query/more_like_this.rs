@@ -98,6 +98,12 @@ impl MoreLikeThisQueryBuilder {
     }
 
     #[must_use]
+    pub fn with_max_term_frequency(mut self, value: usize) -> Self {
+        self.mlt.inner.max_term_frequency = Some(value);
+        self
+    }
+
+    #[must_use]
     pub fn with_max_query_terms(mut self, value: usize) -> Self {
         self.mlt.inner.max_query_terms = Some(value);
         self

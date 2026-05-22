@@ -24,6 +24,7 @@ SELECT * FROM mlt where id @@@ pdb.more_like_this(1, ARRAY['numeric_field']);
 -- Term must appear n times in the source doc to be considered
 SELECT * FROM mlt where id @@@ pdb.more_like_this(2, min_term_frequency => 2);
 SELECT * FROM mlt where id @@@ pdb.more_like_this(2, min_term_frequency => 3);
+SELECT * FROM mlt where id @@@ pdb.more_like_this(2, ARRAY['text_field_a'], max_term_frequency => 1);
 
 -- Term must appear in at least n docs to be considered
 SELECT * from mlt where id @@@ pdb.more_like_this(1, min_doc_frequency => 2);

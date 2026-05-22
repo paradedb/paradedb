@@ -64,6 +64,37 @@ fn mlt_datetime_key(mut conn: PgConnection) {
     assert_eq!(rows, vec![2]);
 }
 
+#[rstest]
+fn mlt_accepts_max_term_frequency_issue5117(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE mlt_max_term_frequency (
+        id SERIAL PRIMARY KEY,
+        flavour TEXT
+    );
+    INSERT INTO mlt_max_term_frequency (flavour) VALUES
+        ('aaa bbb ccc'),
+        ('aaa aaa'),
+        ('ddd eee fff'),
+        ('aaa aaa');
+    CREATE INDEX mlt_max_term_frequency_idx ON mlt_max_term_frequency
+        USING bm25 (id, flavour)
+        WITH (key_field = 'id');
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<i32> = r#"
+    SELECT id FROM mlt_max_term_frequency
+    WHERE id @@@ pdb.more_like_this(
+        2,
+        ARRAY['flavour'],
+        max_term_frequency => 1
+    )
+    ORDER BY id;
+    "#
+    .fetch_scalar(&mut conn);
+    assert!(rows.is_empty());
+}
+
 // Regression test for https://github.com/paradedb/paradedb/issues/5065:
 // pdb.more_like_this used to construct its internal SPI SELECT with the key_field
 // column name unquoted, so a mixed-case identifier like "Id" was folded to lower

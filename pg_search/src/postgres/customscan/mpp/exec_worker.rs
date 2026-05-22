@@ -35,13 +35,15 @@ use datafusion::execution::{SessionStateBuilder, TaskContext};
 use datafusion::physical_plan::ExecutionPlanProperties;
 use datafusion::prelude::SessionContext;
 use datafusion_distributed::{
-    DistributedExec, DistributedExt, DistributedTaskContext, SessionStateBuilderExt,
+    DistributedConfig, DistributedExec, DistributedExt, DistributedTaskContext,
+    SessionStateBuilderExt,
 };
 use pgrx::pg_sys;
 use tantivy::index::SegmentId;
 
 use crate::api::HashSet;
 use crate::postgres::customscan::datafusion::memory::create_memory_pool;
+use crate::postgres::customscan::mpp::glue::producer_worker_count;
 use crate::postgres::customscan::mpp::runtime::{proc_for_task, MppMesh, ShmMqWorkerTransport};
 use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, MppFrameHeader, MppSender};
 use crate::postgres::customscan::mpp::worker::run_worker_fragment;
@@ -82,11 +84,19 @@ pub(crate) struct MppWorkerInputs {
 /// The function copies its config and layers the distributed-planner knobs on top.
 pub(crate) fn build_mpp_session_context(
     seed: SessionContext,
-    mesh: Arc<MppMesh>,
+    mesh: Option<Arc<MppMesh>>,
 ) -> SessionContext {
     // Workers are procs 1..n_procs; leader is proc 0. The producer count is `n_procs - 1`.
     // `n_procs >= 3` is guaranteed by `mpp_is_active()` (callers gate before reaching this).
-    let n_workers = mesh.n_workers() as usize;
+    //
+    // `mesh = None` is the EXPLAIN-time variant: the planner only needs `n_workers` for stage
+    // sizing and target_partitions; the WorkerTransport is never consulted because EXPLAIN
+    // doesn't execute. Skip the transport install in that case and the fork's default
+    // (FlightWorkerTransport) sits unused. `mesh = Some(_)` is required for actual execution.
+    let n_workers = match mesh.as_ref() {
+        Some(m) => m.n_workers() as usize,
+        None => producer_worker_count() as usize,
+    };
     // Four-knob unlock for actually inserting NetworkShuffleExec/etc.:
     //   1. target_partitions(N) — without this, EnforceDistribution skips every
     //      RepartitionExec, so the annotator never sees a Shuffle.
@@ -112,17 +122,31 @@ pub(crate) fn build_mpp_session_context(
     // not to use any custom logical nodes but inheriting the planner is still the correct
     // default. We then override `with_config` (bumps `target_partitions`) and layer the
     // distributed-planner knobs on top.
-    let state_builder = SessionStateBuilder::new_from_existing(seed.state())
+    let mut state_builder = SessionStateBuilder::new_from_existing(seed.state())
         .with_config(cfg)
+        // Explicit bootstrap: install a default `DistributedConfig` so the downstream
+        // `with_distributed_*` setters have an extension to mutate. Previously
+        // `with_distributed_worker_transport` did this implicitly as a side effect of being
+        // first in the chain; with the transport now optional (EXPLAIN passes mesh = None),
+        // bootstrap explicitly so the order of setters doesn't matter.
+        .with_distributed_option_extension(DistributedConfig::default())
         // No `with_distributed_worker_resolver(...)` line is needed: fork PR
         // paradedb/datafusion-distributed#10 made the `WorkerResolver` lookup conditional
         // on `!in_process_mode`. Workers in our embedding are PG parallel workers in the
         // same backend tree, not URL-addressed nodes; the fork substitutes a single
         // placeholder URL internally so its planner's URL plumbing stays satisfied while
         // we ship no resolver of our own.
-        .with_distributed_worker_transport(ShmMqWorkerTransport::new(mesh))
         .with_distributed_in_process_mode(true)
-        .expect("with_distributed_in_process_mode")
+        .expect("with_distributed_in_process_mode");
+    // Install the shm_mq transport only when running for actual execution (mesh = Some).
+    // EXPLAIN-time plan rendering passes `mesh = None` and lets the fork's default
+    // (FlightWorkerTransport) sit unused — the planner never calls `WorkerConnection::open()`
+    // outside of streaming, so the default is fine for read-only plan introspection.
+    if let Some(mesh) = mesh {
+        state_builder =
+            state_builder.with_distributed_worker_transport(ShmMqWorkerTransport::new(mesh));
+    }
+    let state_builder = state_builder
         // Leaf-task estimator: every memory leaf (the per-source ScanExec in our customscan)
         // becomes `Desired(n_workers)`, which is what makes `_distribute_plan` actually emit a
         // shuffle. The broadcast-subtree cap that used to need to go before this one now lives
@@ -204,7 +228,7 @@ pub(crate) fn run_mpp_worker(
         Err(e) => pgrx::error!("mpp worker: deserialize_logical_plan failed: {e}"),
     };
 
-    let session = build_mpp_session_context(seed_ctx, Arc::clone(&worker_mesh));
+    let session = build_mpp_session_context(seed_ctx, Some(Arc::clone(&worker_mesh)));
 
     let physical_plan =
         runtime.block_on(async { session.state().create_physical_plan(&logical).await });

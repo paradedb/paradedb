@@ -625,7 +625,7 @@ ORDER BY id;
          Index: search_idx
          Exec Method: NormalScanExecState
          Scores: true
-         Tantivy Query: {"with_index":{"query":{"more_like_this":{"min_doc_frequency":null,"max_doc_frequency":null,"min_term_frequency":null,"max_term_frequency":null,"max_query_terms":null,"min_word_length":null,"max_word_length":null,"boost_factor":null,"stopwords":null,"document":null,"key_value":1,"fields":["description"]}}}}
+         Tantivy Query: {"with_index":{"query":{"more_like_this":{"min_doc_frequency":null,"max_doc_frequency":null,"min_term_frequency":null,"max_term_frequency":null,"min_query_terms":null,"max_query_terms":null,"min_word_length":null,"max_word_length":null,"boost_factor":null,"stopwords":null,"document":null,"key_value":1,"fields":["description"]}}}}
 (8 rows)
 
 SELECT * FROM products

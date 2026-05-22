@@ -130,6 +130,12 @@ SELECT * from mlt where id @@@ pdb.more_like_this(1, ARRAY['text_field_a'], max_
   4 | aaa aaa      | baz baz      |             3 | {"color": "aaa aaa"}
 (3 rows)
 
+-- Min query terms
+SELECT * from mlt where id @@@ pdb.more_like_this(1, ARRAY['text_field_a'], min_query_terms => 4);
+ id | text_field_a | text_field_b | numeric_field | json_field 
+----+--------------+--------------+---------------+------------
+(0 rows)
+
 -- JSON not supported
 SELECT * FROM mlt where id @@@ pdb.more_like_this(1, ARRAY['json_field']);
 ERROR:  json fields are not supported for more_like_this

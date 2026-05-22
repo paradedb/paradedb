@@ -59,6 +59,7 @@ pub struct MoreLikeThis {
     max_doc_frequency: Option<u64>,
     min_term_frequency: Option<usize>,
     max_term_frequency: Option<usize>,
+    min_query_terms: Option<usize>,
     max_query_terms: Option<usize>,
     min_word_length: Option<usize>,
     max_word_length: Option<usize>,
@@ -73,6 +74,7 @@ impl Default for MoreLikeThis {
             max_doc_frequency: None,
             min_term_frequency: Some(2),
             max_term_frequency: None,
+            min_query_terms: None,
             max_query_terms: Some(25),
             min_word_length: None,
             max_word_length: None,
@@ -118,7 +120,12 @@ impl MoreLikeThis {
                 (Occur::Should, query)
             })
             .collect::<Vec<_>>();
-        BooleanQuery::from(queries)
+
+        if let Some(min_query_terms) = self.min_query_terms {
+            BooleanQuery::with_minimum_required_clauses(queries, min_query_terms)
+        } else {
+            BooleanQuery::from(queries)
+        }
     }
 
     fn add_term_frequencies<'a, V: Value<'a>>(
@@ -397,6 +404,12 @@ impl MoreLikeThisQueryBuilder {
     #[must_use]
     pub fn with_max_term_frequency(mut self, value: usize) -> Self {
         self.mlt.max_term_frequency = Some(value);
+        self
+    }
+
+    #[must_use]
+    pub fn with_min_query_terms(mut self, value: usize) -> Self {
+        self.mlt.min_query_terms = Some(value);
         self
     }
 

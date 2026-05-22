@@ -44,6 +44,9 @@ SELECT * from mlt where id @@@ pdb.more_like_this(1, ARRAY['text_field_a'], stop
 -- Max query terms
 SELECT * from mlt where id @@@ pdb.more_like_this(1, ARRAY['text_field_a'], max_query_terms => 2);
 
+-- Min query terms
+SELECT * from mlt where id @@@ pdb.more_like_this(1, ARRAY['text_field_a'], min_query_terms => 4);
+
 -- JSON not supported
 SELECT * FROM mlt where id @@@ pdb.more_like_this(1, ARRAY['json_field']);
 -- Document ID doesn't exist

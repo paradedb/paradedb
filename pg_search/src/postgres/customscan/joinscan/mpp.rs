@@ -17,85 +17,75 @@
 
 //! JoinScan MPP worker exec path.
 //!
-//! Thin wrapper over [`mpp::exec_worker::run_mpp_worker`]: pulls JoinScan-specific inputs out
-//! of the typed state, builds the join-profile seed `SessionContext`, hands the whole thing
-//! to the shape-agnostic dispatcher.
+//! Thin [`MppHostState`] impl that exposes JoinScan's typed state to the shared
+//! dispatcher in [`mpp::host`]: the runtime lives directly on `custom_state`, and
+//! the seed `SessionContext` is built from the join profile.
 
 use std::sync::Arc;
 
+use datafusion::execution::context::SessionContext;
 use pgrx::pg_sys;
 
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
-use crate::postgres::customscan::joinscan::scan_state as join_scan_state;
-use crate::postgres::customscan::joinscan::scan_state::{MppExecState, SessionContextProfile};
+use crate::postgres::customscan::joinscan::scan_state::{
+    create_datafusion_session_context, MppExecState, SessionContextProfile,
+};
 use crate::postgres::customscan::joinscan::JoinScan;
-use crate::postgres::customscan::mpp::exec_worker::{run_mpp_worker, MppWorkerInputs};
+use crate::postgres::customscan::mpp::exec_worker::MppWorkerInputs;
+use crate::postgres::customscan::mpp::host::{exec_mpp_worker_impl, MppHostState};
 use crate::postgres::customscan::mpp::transport::MppSender;
-// `create_datafusion_session_context` lives in joinscan::scan_state and isn't pub from
-// crate root, so import via the joinscan module path.
-use crate::postgres::customscan::joinscan::scan_state::create_datafusion_session_context;
 
 impl JoinScan {
-    /// MPP worker exec: extract inputs from JoinScan's state, build the join-profile seed
-    /// context, hand off to the shape-agnostic dispatcher. Workers emit zero rows back to PG;
-    /// returning `null_mut()` signals end-of-stream.
     pub(super) fn exec_mpp_worker(
         state: &mut CustomScanStateWrapper<Self>,
     ) -> *mut pg_sys::TupleTableSlot {
-        let parallel_state = state.custom_state().parallel_state;
-        let non_partitioning_segments = state.custom_state().non_partitioning_segments.clone();
-        let partitioning_source_idx = state
-            .custom_state()
-            .mpp_partitioning_source_idx
-            .unwrap_or(0);
-        let plan_sources_count = state
+        exec_mpp_worker_impl(state)
+    }
+}
+
+impl MppHostState for CustomScanStateWrapper<JoinScan> {
+    fn already_drained(&self) -> bool {
+        self.custom_state().runtime.is_some()
+    }
+
+    fn take_worker_inputs(&mut self) -> MppWorkerInputs {
+        let parallel_state = self.custom_state().parallel_state;
+        let non_partitioning_segments = self.custom_state().non_partitioning_segments.clone();
+        let partitioning_source_idx = self.custom_state().mpp_partitioning_source_idx.unwrap_or(0);
+        let plan_sources_count = self
             .custom_state()
             .source_manifests
             .len()
             .max(non_partitioning_segments.len() + 1);
 
-        // Already drained on a prior call; just signal EOF.
-        if state.custom_state().runtime.is_some() {
-            return std::ptr::null_mut();
-        }
-
-        let join_scan_state::MppExecState::Worker(worker) =
-            state.custom_state().mpp.as_ref().expect("checked")
+        let MppExecState::Worker(worker) = self.custom_state().mpp.as_ref().expect("checked")
         else {
             unreachable!("exec_mpp_worker called outside Worker state");
         };
         let plan_bytes = worker.plan_bytes.clone();
         let worker_mesh = Arc::clone(&worker.mesh);
-        let outbound_senders: Vec<Option<MppSender>> = match state.custom_state_mut().mpp.as_mut() {
+        let outbound_senders: Vec<Option<MppSender>> = match self.custom_state_mut().mpp.as_mut() {
             Some(MppExecState::Worker(w)) => std::mem::take(&mut w.outbound_senders),
             _ => unreachable!(),
         };
 
-        let runtime = match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
-            Ok(rt) => rt,
-            Err(e) => pgrx::error!("mpp join worker: tokio runtime build failed: {e}"),
-        };
-        state.custom_state_mut().runtime = Some(runtime);
-        let runtime = state.custom_state().runtime.as_ref().unwrap();
+        MppWorkerInputs {
+            parallel_state,
+            non_partitioning_segments,
+            partitioning_source_idx,
+            plan_sources_count,
+            plan_bytes,
+            worker_mesh,
+            outbound_senders,
+        }
+    }
 
-        let seed_ctx = create_datafusion_session_context(SessionContextProfile::Join);
+    fn build_seed_ctx(&self) -> SessionContext {
+        create_datafusion_session_context(SessionContextProfile::Join)
+    }
 
-        run_mpp_worker(
-            MppWorkerInputs {
-                parallel_state,
-                non_partitioning_segments,
-                partitioning_source_idx,
-                plan_sources_count,
-                plan_bytes,
-                worker_mesh,
-                outbound_senders,
-            },
-            seed_ctx,
-            runtime,
-        );
-        std::ptr::null_mut()
+    fn install_runtime(&mut self, runtime: tokio::runtime::Runtime) -> &tokio::runtime::Runtime {
+        self.custom_state_mut().runtime = Some(runtime);
+        self.custom_state().runtime.as_ref().unwrap()
     }
 }

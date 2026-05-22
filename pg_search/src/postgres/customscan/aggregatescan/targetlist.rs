@@ -161,11 +161,12 @@ impl CustomScanClause<AggregateScan> for TargetList {
         heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
     ) -> Result<Self, CustomScanBuildError> {
-        // Check for DISTINCT - we can't handle DISTINCT queries
+        // DISTINCT ON has different semantics from plain DISTINCT and is not
+        // compatible with the grouping-based pushdown path used here.
         unsafe {
             let parse = args.root().parse;
-            if !parse.is_null() && (!(*parse).distinctClause.is_null() || (*parse).hasDistinctOn) {
-                return Err("Query has DISTINCT clause (see https://github.com/paradedb/paradedb/issues/new/choose)".into());
+            if !parse.is_null() && (*parse).hasDistinctOn {
+                return Err("DISTINCT ON is not supported (see https://github.com/paradedb/paradedb/issues/new/choose)".into());
             }
         }
 

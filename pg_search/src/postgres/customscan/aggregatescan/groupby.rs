@@ -42,6 +42,79 @@ impl GroupByClause {
     pub fn grouping_columns(&self) -> Vec<GroupingColumn> {
         self.grouping_columns.clone()
     }
+
+    fn resolve_grouping_expr(
+        args: &<AggregateScan as CustomScan>::Args,
+        heap_rti: pg_sys::Index,
+        schema: &crate::schema::SearchIndexSchema,
+        index_expressions: &[(String, String)],
+        categorized_fields: &[(
+            crate::schema::SearchField,
+            crate::schema::CategorizedFieldData,
+        )],
+        expr: *mut pg_sys::Node,
+    ) -> Result<GroupingColumn, CustomScanBuildError> {
+        unsafe {
+            let (expr, is_unnest) = strip_unnest_and_relabel(expr);
+            let var_context = VarContext::from_planner(args.root);
+
+            let (field_name, attno) =
+                if let Some((var, field_name)) = find_one_var_and_fieldname(var_context, expr) {
+                    let (heaprelid, attno, _) = find_var_relation(var, args.root);
+                    if heaprelid == pg_sys::InvalidOid {
+                        return Err("find_var_relation returned InvalidOid for var".into());
+                    }
+                    (field_name.to_string(), attno)
+                } else if let Some(ff) =
+                    find_matching_fast_field(expr, index_expressions, schema.clone(), heap_rti)
+                {
+                    (ff.name(), 0)
+                } else {
+                    return Err("could not resolve grouping column from expression".into());
+                };
+
+            let Some(search_field) = schema.search_field(&field_name) else {
+                return Err(format!("grouping column {} is missing from index", field_name).into());
+            };
+
+            if search_field.field_type().is_numeric() {
+                return Err(format!(
+                    "grouping field {} is numeric, which is not supported",
+                    field_name
+                )
+                .into());
+            }
+
+            if !search_field.is_fast() {
+                return Err(format!(
+                    "grouping column {} exists, but is not a fast field",
+                    field_name
+                )
+                .into());
+            }
+
+            let is_array = categorized_fields
+                .iter()
+                .find(|(sf, _)| sf.field_name().as_ref() == field_name)
+                .map(|(_, data)| data.is_array)
+                .unwrap_or(false);
+
+            if is_array && !is_unnest {
+                return Err(format!(
+                    "grouping field {} is an array, which requires UNNEST() to be used in GROUP BY",
+                    field_name
+                )
+                .into());
+            } else if !is_array && is_unnest {
+                unreachable!(
+                    "Postgres should not allow UNNEST() on a non-array column: {}",
+                    field_name
+                );
+            }
+
+            Ok(GroupingColumn { field_name, attno })
+        }
+    }
 }
 
 impl CustomScanClause<AggregateScan> for GroupByClause {
@@ -71,7 +144,7 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
 
     fn from_pg(
         args: &Self::Args,
-        _heap_rti: pg_sys::Index,
+        heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
     ) -> Result<Self, CustomScanBuildError> {
         let mut grouping_columns = Vec::new();
@@ -97,82 +170,22 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                 let mut last_error: Option<String> = None;
 
                 for member in members.iter_ptr() {
-                    let (expr, is_unnest) =
-                        strip_unnest_and_relabel((*member).em_expr as *mut pg_sys::Node);
-
-                    let var_context = VarContext::from_planner(args.root);
-
-                    let (field_name, attno) = if let Some((var, field_name)) =
-                        find_one_var_and_fieldname(var_context, expr)
-                    {
-                        // JSON operator expression or complex field access
-                        let (heaprelid, attno, _) = find_var_relation(var, args.root);
-                        if heaprelid == pg_sys::InvalidOid {
-                            last_error =
-                                Some("find_var_relation returned InvalidOid for var".to_string());
-                            continue;
-                        }
-                        (field_name.to_string(), attno)
-                    } else if let Some(ff) = find_matching_fast_field(
-                        expr,
+                    match Self::resolve_grouping_expr(
+                        args,
+                        heap_rti,
+                        &schema,
                         &index_expressions,
-                        schema.clone(),
-                        _heap_rti,
+                        &categorized_fields,
+                        (*member).em_expr as *mut pg_sys::Node,
                     ) {
-                        (ff.name(), 0) // Complex expressions don't have a single attno
-                    } else {
-                        last_error =
-                            Some("could not resolve grouping column from expression".to_string());
-                        continue;
-                    };
-
-                    // Check if this field exists in the index schema as a fast field
-                    if let Some(search_field) = schema.search_field(&field_name) {
-                        // Reject NUMERIC fields - GROUP BY pushdown not supported
-                        // (NUMERIC values are stored scaled and would need descaling)
-                        if search_field.field_type().is_numeric() {
-                            return Err(format!(
-                                "grouping field {} is numeric, which is not supported",
-                                field_name
-                            )
-                            .into());
-                        }
-                        if search_field.is_fast() {
-                            let is_array = categorized_fields
-                                .iter()
-                                .find(|(sf, _)| sf.field_name().as_ref() == field_name)
-                                .map(|(_, data)| data.is_array)
-                                .unwrap_or(false);
-
-                            if is_array && !is_unnest {
-                                return Err(format!(
-                                    "grouping field {} is an array, which requires UNNEST() to be used in GROUP BY",
-                                    field_name
-                                )
-                                .into());
-                            } else if !is_array && is_unnest {
-                                unreachable!(
-                                    "Postgres should not allow UNNEST() on a non-array column: {}",
-                                    field_name
-                                );
-                            }
-
-                            grouping_columns.push(GroupingColumn { field_name, attno });
+                        Ok(column) => {
+                            grouping_columns.push(column);
                             found_valid_column = true;
-                            break; // Found a valid grouping column for this pathkey
-                        } else {
-                            last_error = Some(format!(
-                                "grouping column {} exists, but is not a fast field",
-                                field_name
-                            ));
-                            // wait to return error until we check all members
+                            break;
                         }
-                    } else {
-                        last_error = Some(format!(
-                            "grouping column {} is missing from index",
-                            field_name
-                        ));
-                        // wait to return error
+                        Err(err) => {
+                            last_error = Some(err.to_string());
+                        }
                     }
                 }
 
@@ -181,6 +194,38 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
                         return Err(err.into());
                     } else {
                         return Err("grouping column could not be found".into());
+                    }
+                }
+            }
+        }
+
+        if grouping_columns.is_empty() {
+            unsafe {
+                let parse = args.root().parse;
+                if !parse.is_null() && !(*parse).distinctClause.is_null() && !(*parse).hasDistinctOn
+                {
+                    let distinct_list =
+                        PgList::<pg_sys::SortGroupClause>::from_pg((*parse).distinctClause);
+                    let target_list = PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList);
+
+                    for clause in distinct_list.iter_ptr() {
+                        let tle_ref = (*clause).tleSortGroupRef;
+                        let Some(target_entry) = target_list
+                            .iter_ptr()
+                            .find(|te| (**te).ressortgroupref == tle_ref)
+                        else {
+                            return Err("could not resolve DISTINCT target entry".into());
+                        };
+
+                        let column = Self::resolve_grouping_expr(
+                            args,
+                            heap_rti,
+                            &schema,
+                            &index_expressions,
+                            &categorized_fields,
+                            (*target_entry).expr as *mut pg_sys::Node,
+                        )?;
+                        grouping_columns.push(column);
                     }
                 }
             }

@@ -136,6 +136,25 @@ fn test_group_by(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn test_select_distinct_pushdown(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    "SET paradedb.enable_aggregate_custom_scan TO on;".execute(&mut conn);
+
+    let query = r#"
+        SELECT DISTINCT rating
+        FROM paradedb.bm25_search
+        WHERE description @@@ 'shoes'
+        ORDER BY rating
+    "#;
+
+    assert_uses_custom_scan(&mut conn, true, query);
+
+    let results: Vec<(i32,)> = query.fetch(&mut conn);
+    assert_eq!(results, vec![(3,), (4,), (5,)]);
+}
+
+#[rstest]
 fn test_group_by_null_bucket(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 

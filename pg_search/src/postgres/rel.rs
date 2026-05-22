@@ -399,10 +399,6 @@ impl PgSearchRelation {
     pub fn field_supports_aggregate(&self, field: &str) -> Result<bool, SchemaError> {
         self.schema().map(|s| s.field_supports_aggregate(field))
     }
-
-    pub fn needs_cluster_rebuild(&self) -> bool {
-        false
-    }
 }
 
 fn relation_needs_wal(relation: pg_sys::Relation) -> bool {

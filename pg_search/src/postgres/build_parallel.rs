@@ -18,6 +18,7 @@
 use crate::gucs;
 use crate::index::writer::index::{
     IndexWriterConfig, Mergeable, SearchIndexMerger, SerialIndexWriter,
+    DEFAULT_MAX_DOCS_PER_SEGMENT,
 };
 use crate::launch_parallel_process;
 use crate::parallel_worker::mqueue::MessageQueueSender;
@@ -330,20 +331,17 @@ impl WorkerBuildState {
         nlaunched: usize,
         worker_number: i32,
     ) -> anyhow::Result<Self> {
-        // if we're making more than one segment, do an early cutoff based on doc count in case
-        // the memory budget is so high that all the docs fit into one segment
         let max_docs_per_segment = if worker_segment_target > 1 {
-            Some(
-                plan::estimate_heap_reltuples(heaprel) as u32
-                    / nlaunched as u32
-                    / worker_segment_target as u32,
-            )
+            let planned_docs_per_segment = plan::estimate_heap_reltuples(heaprel) as u32
+                / nlaunched as u32
+                / worker_segment_target as u32;
+            planned_docs_per_segment.clamp(1, DEFAULT_MAX_DOCS_PER_SEGMENT)
         } else {
-            None
+            DEFAULT_MAX_DOCS_PER_SEGMENT
         };
         let config = IndexWriterConfig {
             memory_budget: per_worker_memory_budget,
-            max_docs_per_segment,
+            max_docs_per_segment: Some(max_docs_per_segment),
         };
         let writer = SerialIndexWriter::open(indexrel, config, worker_number)?;
         let schema = writer.schema();

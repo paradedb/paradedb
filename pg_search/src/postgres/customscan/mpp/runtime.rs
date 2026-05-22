@@ -60,10 +60,10 @@ pub fn proc_for_task(n_workers: u32, task_idx: u32) -> u32 {
 ///
 /// Each shm_mq queue (one per `(sender_proc, this_proc)` pair in the V2 DSM grid) is
 /// multi-channel. Frames from any number of `(stage_id, partition)` logical channels can arrive
-/// on one queue, tagged by [`MppFrameHeader`]. The channel buffer registry on each [`DrainHandle`]
+/// on one queue, tagged by [`MultiChannelFrameHeader`]. The channel buffer registry on each [`DrainHandle`]
 /// fans them out to the matching consumers keyed on `(stage_id, partition)`.
 ///
-/// [`MppFrameHeader`]: crate::postgres::customscan::mpp::fork_portable::frame::MppFrameHeader
+/// [`MultiChannelFrameHeader`]: datafusion_distributed::MultiChannelFrameHeader
 pub struct MppMesh {
     /// This process's `proc_idx` (= 0 for the leader, `ParallelWorkerNumber + 1` for workers).
     /// Frames addressed to this proc arrive on `slot(*, this_proc)`.

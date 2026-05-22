@@ -27,7 +27,6 @@
 
 pub mod dsm;
 pub mod exec_worker;
-pub mod fork_portable;
 pub mod glue;
 pub mod host;
 pub mod mesh;

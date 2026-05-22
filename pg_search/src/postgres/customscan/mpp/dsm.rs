@@ -40,7 +40,7 @@
 //!   **receiver** to its column (`slot(*, this)`). The grid is uniform and
 //!   independent of plan shape: a single multiplexed queue per process-pair
 //!   carries frames for any number of logical `(stage_id, partition)`
-//!   channels, demultiplexed on the receive side via the `MppFrameHeader`
+//!   channels, demultiplexed on the receive side via the `MultiChannelFrameHeader`
 //!   prefix.
 //! - Self-loop slots (`slot(k, k)`) are reserved in the layout and
 //!   `shm_mq_create`'d by the leader so the slot-offset math stays a simple

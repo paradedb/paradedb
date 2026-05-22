@@ -42,7 +42,8 @@ use crate::gucs::{
 use crate::postgres::customscan::mpp::dsm::{
     compute_dsm_layout, leader_init, peer_proc_for_index, worker_attach,
 };
-use crate::postgres::customscan::mpp::fork_portable::frame::MppFrameHeader;
+use datafusion_distributed::MultiChannelFrameHeader;
+
 use crate::postgres::customscan::mpp::mesh::{ShmMqReceiver, ShmMqSender};
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 use crate::postgres::customscan::mpp::transport::{
@@ -227,7 +228,7 @@ fn build_outbound_senders(
         let shared: Arc<dyn BatchChannelSender> = Arc::new(shm_send);
         senders[target_proc as usize] = Some(MppSender::with_header(
             shared,
-            MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION),
+            MultiChannelFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION),
         ));
     }
     senders
@@ -337,7 +338,7 @@ pub unsafe fn worker_setup(
     let self_tx_arc: Arc<dyn BatchChannelSender> = Arc::new(self_tx);
     outbound_senders[proc_idx as usize] = Some(MppSender::with_header(
         self_tx_arc,
-        MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION),
+        MultiChannelFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION),
     ));
     inbound_receivers[proc_idx as usize] =
         Some(Arc::new(DrainHandle::cooperative(vec![MppReceiver::new(

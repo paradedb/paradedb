@@ -18,9 +18,10 @@
 //! Transport layer for MPP shuffle.
 //!
 //! Layout:
-//! - The frame codec lives in [`super::fork_portable::frame`]
-//!   ([`MppFrameHeader`], `encode_frame_into`, `decode_frame`) — see that
-//!   submodule's doc for why it's separable from the rest of this file.
+//! - The frame codec lives upstream in
+//!   [`datafusion_distributed::MultiChannelFrameHeader`] +
+//!   `encode_frame_into` / `encode_eof_frame_into` / `decode_frame`. Promoted
+//!   to the fork in paradedb/datafusion-distributed#14.
 //! - [`DrainBuffer`] is the local per-proc queue that the drain thread
 //!   writes into and the DataFusion consumer reads from. It decouples
 //!   consumer-side backpressure from producer-side backpressure: the drain thread
@@ -40,9 +41,8 @@ use std::time::{Duration, Instant};
 
 use datafusion::arrow::array::RecordBatch;
 use datafusion::common::DataFusionError;
-
-use super::fork_portable::frame::{
-    decode_frame, encode_eof_frame_into, encode_frame_into, MppFrameHeader,
+use datafusion_distributed::{
+    decode_frame, encode_eof_frame_into, encode_frame_into, MultiChannelFrameHeader,
 };
 
 /// Local queue between a drain (either the cooperative `try_drain_pass` or the test-only thread
@@ -233,7 +233,7 @@ pub struct MppSender {
     /// `(stage_id, partition)` channel the receiver demultiplexes on. Per-sender rather than
     /// per-call: each partition gets its own `MppSender` via `clone_with_header`, all sharing
     /// the underlying `Arc<dyn BatchChannelSender>` of a single shm_mq queue.
-    header: MppFrameHeader,
+    header: MultiChannelFrameHeader,
     /// Scratch buffer reused across every `encode_frame_into` on this sender. Sized by the
     /// first batch; subsequent batches clear and re-fill without reallocating. Interior
     /// mutability lets the caller keep the `&self` signature (each producer fragment holds
@@ -253,11 +253,11 @@ unsafe impl Sync for MppSender {}
 impl MppSender {
     /// Construct a sender that tags every outgoing batch with `header`. Production call sites
     /// clone one shared `Arc<dyn BatchChannelSender>` across N senders, each with a different
-    /// `MppFrameHeader::batch(stage, p)`. That's the multiplexed pattern for fanning multiple
+    /// `MultiChannelFrameHeader::batch(stage, p)`. That's the multiplexed pattern for fanning multiple
     /// partitions over one shm_mq queue.
     pub(super) fn with_header(
         channel: Arc<dyn BatchChannelSender>,
-        header: MppFrameHeader,
+        header: MultiChannelFrameHeader,
     ) -> Self {
         Self {
             channel,
@@ -271,7 +271,7 @@ impl MppSender {
     /// but tags every frame with `header` instead. Used by callers that know
     /// the physical plan's output partition count and need one sender per
     /// partition, all multiplexed over the same shm_mq queue.
-    pub fn clone_with_header(&self, header: MppFrameHeader) -> Self {
+    pub fn clone_with_header(&self, header: MultiChannelFrameHeader) -> Self {
         Self {
             channel: Arc::clone(&self.channel),
             cooperative_drain: self.cooperative_drain.as_ref().map(Arc::clone),
@@ -475,12 +475,12 @@ impl MppReceiver {
 }
 
 /// Decoded result of an [`MppReceiver::try_recv_batch`]. Carries the
-/// parsed [`MppFrameHeader`] so the drain thread can route the payload to
+/// parsed [`MultiChannelFrameHeader`] so the drain thread can route the payload to
 /// the right `(stage_id, partition)` channel buffer.
 #[derive(Debug)]
 pub(super) enum RecvBatchOutcome {
     Batch {
-        header: MppFrameHeader,
+        header: MultiChannelFrameHeader,
         batch: RecordBatch,
     },
     /// A payload-less `Eof` frame for `header.(stage_id, partition)`. The
@@ -488,7 +488,7 @@ pub(super) enum RecvBatchOutcome {
     /// signalling that this logical channel is done, so we can EOF
     /// per-channel without dropping the whole queue.
     Eof {
-        header: MppFrameHeader,
+        header: MultiChannelFrameHeader,
     },
     Empty,
     Detached,
@@ -497,7 +497,7 @@ pub(super) enum RecvBatchOutcome {
 
 /// Per-`(stage_id, partition)` channel buffer registry owned by a cooperative [`DrainHandle`]. The
 /// handle serves one sender_proc, whose shm_mq queue carries frames for many logical channels,
-/// each tagged by the [`MppFrameHeader`] prefix. `try_drain_pass` looks up the right channel buffer
+/// each tagged by the [`MultiChannelFrameHeader`] prefix. `try_drain_pass` looks up the right channel buffer
 /// on every frame and pushes the payload into it. Consumers waiting on
 /// `(stage_id=s, partition=p)` only see frames matching that key.
 ///
@@ -820,7 +820,7 @@ mod tests {
         /// Construct a sender with the default `(stage_id=0, partition=0)` header. Used where
         /// the header carries no actionable routing info.
         fn new(channel: Arc<dyn BatchChannelSender>) -> Self {
-            Self::with_header(channel, MppFrameHeader::batch(0, 0))
+            Self::with_header(channel, MultiChannelFrameHeader::batch(0, 0))
         }
 
         /// Stats-less wrapper around `send_batch_traced`. Production call sites
@@ -1240,8 +1240,12 @@ mod tests {
         let mut enc_bytes = 0usize;
         let mut enc_buf = Vec::with_capacity(1024);
         for _ in 0..batches {
-            encode_frame_into(MppFrameHeader::batch(0, 0), &template, &mut enc_buf)
-                .expect("encode");
+            encode_frame_into(
+                MultiChannelFrameHeader::batch(0, 0),
+                &template,
+                &mut enc_buf,
+            )
+            .expect("encode");
             enc_bytes += enc_buf.len();
         }
         let enc_elapsed = enc_start.elapsed();
@@ -1326,7 +1330,7 @@ mod tests {
     // ---------------------------------------------------------------------
     // Per-`(stage_id, partition)` channel buffer registry on the cooperative `DrainHandle`.
     //
-    // Producers stamp `MppFrameHeader::batch(stage_id, partition)` on every outgoing frame, and
+    // Producers stamp `MultiChannelFrameHeader::batch(stage_id, partition)` on every outgoing frame, and
     // the receiver-side cooperative drain demuxes by header into a channel buffer per
     // `(stage_id, partition)`. These tests use the `in_proc_channel` backend to drive
     // `try_drain_pass` from the test thread. That mirrors how the production path runs the drain
@@ -1352,8 +1356,8 @@ mod tests {
         // channel buffer receives only its own batches.
         let (tx, rx) = in_proc_channel(8);
         let base = MppSender::new(Arc::new(tx));
-        let s00 = base.clone_with_header(MppFrameHeader::batch(0, 0));
-        let s01 = base.clone_with_header(MppFrameHeader::batch(0, 1));
+        let s00 = base.clone_with_header(MultiChannelFrameHeader::batch(0, 0));
+        let s01 = base.clone_with_header(MultiChannelFrameHeader::batch(0, 1));
         let receiver = MppReceiver::new(Box::new(rx));
         let handle = DrainHandle::cooperative(vec![receiver]);
 
@@ -1389,8 +1393,8 @@ mod tests {
         // `(0, 1)` continue to flow on the same queue.
         let (tx, rx) = in_proc_channel(8);
         let tx_arc: Arc<dyn BatchChannelSender> = Arc::new(tx);
-        let s00 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(0, 0));
-        let s01 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(0, 1));
+        let s00 = MppSender::with_header(Arc::clone(&tx_arc), MultiChannelFrameHeader::batch(0, 0));
+        let s01 = MppSender::with_header(Arc::clone(&tx_arc), MultiChannelFrameHeader::batch(0, 1));
         let receiver = MppReceiver::new(Box::new(rx));
         let handle = DrainHandle::cooperative(vec![receiver]);
 
@@ -1480,8 +1484,10 @@ mod tests {
         // The registry's compound key keeps them on separate channel buffers.
         let (tx, rx) = in_proc_channel(8);
         let tx_arc: Arc<dyn BatchChannelSender> = Arc::new(tx);
-        let s_stage0 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(0, 0));
-        let s_stage1 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(1, 0));
+        let s_stage0 =
+            MppSender::with_header(Arc::clone(&tx_arc), MultiChannelFrameHeader::batch(0, 0));
+        let s_stage1 =
+            MppSender::with_header(Arc::clone(&tx_arc), MultiChannelFrameHeader::batch(1, 0));
         let receiver = MppReceiver::new(Box::new(rx));
         let handle = DrainHandle::cooperative(vec![receiver]);
 

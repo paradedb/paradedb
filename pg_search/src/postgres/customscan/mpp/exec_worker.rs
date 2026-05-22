@@ -35,14 +35,14 @@ use datafusion::execution::{SessionStateBuilder, TaskContext};
 use datafusion::physical_plan::ExecutionPlanProperties;
 use datafusion::prelude::SessionContext;
 use datafusion_distributed::{
-    DistributedExec, DistributedExt, DistributedTaskContext, SessionStateBuilderExt,
+    DistributedExec, DistributedExt, DistributedTaskContext, MultiChannelFrameHeader,
+    SessionStateBuilderExt,
 };
 use pgrx::pg_sys;
 use tantivy::index::SegmentId;
 
 use crate::api::HashSet;
 use crate::postgres::customscan::datafusion::memory::create_memory_pool;
-use crate::postgres::customscan::mpp::fork_portable::frame::MppFrameHeader;
 use crate::postgres::customscan::mpp::glue::producer_worker_count;
 use crate::postgres::customscan::mpp::runtime::{proc_for_task, MppMesh, ShmMqWorkerTransport};
 use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, MppSender};
@@ -273,10 +273,13 @@ pub(crate) fn run_mpp_worker(
                 // queue doesn't block the backend thread. The spin pulls every inbound drain
                 // while retrying the send, breaking N×N symmetric stalls.
                 per_partition_senders.push(
-                    base.clone_with_header(MppFrameHeader::batch(fragment.stage_id, q_u32))
-                        .with_cooperative_drain(
-                            Arc::clone(&worker_mesh) as Arc<dyn CooperativeDrainSet>
-                        ),
+                    base.clone_with_header(MultiChannelFrameHeader::batch(
+                        fragment.stage_id,
+                        q_u32,
+                    ))
+                    .with_cooperative_drain(
+                        Arc::clone(&worker_mesh) as Arc<dyn CooperativeDrainSet>
+                    ),
                 );
             }
 

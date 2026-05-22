@@ -60,7 +60,7 @@ use crate::postgres::customscan::mpp::runtime::proc_for_task;
 pub struct FragmentAssignment {
     /// `input_stage.num` of the boundary whose producer side this fragment
     /// belongs to. Frames the fragment emits carry this in the
-    /// `MppFrameHeader::stage_id` field.
+    /// `MultiChannelFrameHeader::stage_id` field.
     pub stage_id: u32,
     /// Task index within the stage (0..task_count).
     pub task_idx: usize,

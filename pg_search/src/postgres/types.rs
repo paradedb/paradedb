@@ -22,12 +22,12 @@ use crate::postgres::catalog::{facet_encoded_str_to_ltree_text, is_ltree_oid};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::jsonb_support::jsonb_datum_to_serde_json_value;
 use crate::postgres::range::RangeToTantivyValue;
-use crate::postgres::storage::metadata::{Version, TIMESTAMP_I64_STORAGE_VERSION};
+use crate::postgres::storage::metadata::{Version, VersionInfo};
 use crate::schema::{AnyEnum, SearchField};
 use ordered_float::OrderedFloat;
 use pgrx::datum::datetime_support::DateTimeConversionError;
-use pgrx::pg_sys::Datum;
 use pgrx::pg_sys::Oid;
+use pgrx::pg_sys::{BuiltinOid, Datum};
 use pgrx::PostgresType;
 use pgrx::{pg_sys, IntoDatum};
 use pgrx::{FromDatum, PgBuiltInOids, PgOid};
@@ -53,7 +53,7 @@ pub struct TantivyValue(pub PdbOwnedValue);
 /// This is a "reimplimentation" of tantivy's OwnedValue. We need our own because we represent dates
 /// differently (as microseconds from PgEpoch, wheraas tantivy uses nanoseconds from the unix epoch)
 /// Other than the Date variant, this is equivalent to Tantivy's OwnedValue
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PdbOwnedValue {
     Null,
     Str(String),
@@ -72,18 +72,8 @@ pub enum PdbOwnedValue {
 impl PdbOwnedValue {
     pub fn into_tantivy_value(self, index_created_by_version: Option<Version>) -> OwnedValue {
         match self {
-            PdbOwnedValue::Null => OwnedValue::Null,
-            PdbOwnedValue::Str(val) => OwnedValue::Str(val),
-            PdbOwnedValue::PreTokStr(val) => OwnedValue::PreTokStr(val),
-            PdbOwnedValue::U64(val) => OwnedValue::U64(val),
-            PdbOwnedValue::I64(val) => OwnedValue::I64(val),
-            PdbOwnedValue::F64(val) => OwnedValue::F64(val),
-            PdbOwnedValue::Bool(val) => OwnedValue::Bool(val),
             PdbOwnedValue::Date(date) => {
-                if index_created_by_version
-                    .filter(|v| v >= &TIMESTAMP_I64_STORAGE_VERSION)
-                    .is_some()
-                {
+                if index_created_by_version.stores_datetimes_in_i64() {
                     OwnedValue::I64(date.into_inner())
                 } else {
                     OwnedValue::Date(
@@ -92,8 +82,6 @@ impl PdbOwnedValue {
                     )
                 }
             }
-            PdbOwnedValue::Facet(val) => OwnedValue::Facet(val),
-            PdbOwnedValue::Bytes(val) => OwnedValue::Bytes(val),
             PdbOwnedValue::Array(array) => OwnedValue::Array(
                 array
                     .into_iter()
@@ -106,11 +94,113 @@ impl PdbOwnedValue {
                     .map(|(k, v)| (k, Self::into_tantivy_value(v, index_created_by_version)))
                     .collect(),
             ),
+            _ => Self::into_tantivy_value_no_version_awareness(self),
+        }
+    }
+
+    /// Convert variants that don't require knowledge if the index_created_by version
+    /// Useful for locations where those variants are handled separately
+    pub fn into_tantivy_value_no_version_awareness(self) -> OwnedValue {
+        match self {
+            PdbOwnedValue::Null => OwnedValue::Null,
+            PdbOwnedValue::Str(val) => OwnedValue::Str(val),
+            PdbOwnedValue::PreTokStr(val) => OwnedValue::PreTokStr(val),
+            PdbOwnedValue::U64(val) => OwnedValue::U64(val),
+            PdbOwnedValue::I64(val) => OwnedValue::I64(val),
+            PdbOwnedValue::F64(val) => OwnedValue::F64(val),
+            PdbOwnedValue::Bool(val) => OwnedValue::Bool(val),
+            PdbOwnedValue::Facet(val) => OwnedValue::Facet(val),
+            PdbOwnedValue::Bytes(val) => OwnedValue::Bytes(val),
             PdbOwnedValue::IpAddr(val) => OwnedValue::IpAddr(val),
+            PdbOwnedValue::Date(_) | PdbOwnedValue::Array(_) | PdbOwnedValue::Object(_) => {
+                unreachable!(
+                    "This should be handled by PdbOwnedValue::into_tantivy_value or elsewhere"
+                )
+            }
         }
     }
 }
 impl Eq for PdbOwnedValue {}
+
+impl serde::Serialize for PdbOwnedValue {
+    /// For variants that can be cleanly converted to tantivy's OwnedValue, just do that and use its
+    /// serialize.
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+        // For variants that can be cleanly converted to tantivy's OwnedValue, just do that and use its
+        // serialize.
+        match *self {
+            PdbOwnedValue::Date(date) => date.serialize(serializer),
+            PdbOwnedValue::Object(ref obj) => {
+                let mut map = serializer.serialize_map(Some(obj.len()))?;
+                for (k, v) in obj {
+                    map.serialize_entry(k, v)?;
+                }
+                map.end()
+            }
+            PdbOwnedValue::Array(ref array) => array.serialize(serializer),
+            _ => self
+                .clone()
+                .into_tantivy_value_no_version_awareness()
+                .serialize(serializer),
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for PdbOwnedValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let tantivy_value = OwnedValue::deserialize(deserializer)?;
+        Ok(PdbOwnedValue::from_deserialized_tantivy_value(
+            tantivy_value,
+        ))
+    }
+}
+impl PdbOwnedValue {
+    /// This is intented only for use during deserialization to a PdbOwnedValue
+    fn from_deserialized_tantivy_value(tv: OwnedValue) -> Self {
+        match tv {
+            OwnedValue::Date(_) => unreachable!(
+                "We serialize PdbOwnedValue::Date as a string, so this should never happen"
+            ),
+            OwnedValue::Array(array) => PdbOwnedValue::Array(
+                array
+                    .into_iter()
+                    .map(Self::from_deserialized_tantivy_value)
+                    .collect(),
+            ),
+            OwnedValue::Object(object) => PdbOwnedValue::Object(
+                object
+                    .into_iter()
+                    .map(|(k, v)| (k, Self::from_deserialized_tantivy_value(v)))
+                    .collect(),
+            ),
+            OwnedValue::Null => PdbOwnedValue::Null,
+            OwnedValue::I64(val) => PdbOwnedValue::I64(val),
+            OwnedValue::U64(val) => PdbOwnedValue::U64(val),
+            OwnedValue::F64(val) => PdbOwnedValue::F64(val),
+            OwnedValue::Str(s) => {
+                // Strings that parse as a datetime must be assumed to be datetimes
+                if let Ok(pgdt) = PostgresDateTime::try_from_timestamptz_str(&s) {
+                    PdbOwnedValue::Date(pgdt)
+                } else {
+                    PdbOwnedValue::Str(s)
+                }
+            }
+            OwnedValue::Bool(val) => PdbOwnedValue::Bool(val),
+            OwnedValue::Facet(val) => PdbOwnedValue::Facet(val),
+            OwnedValue::Bytes(val) => PdbOwnedValue::Bytes(val),
+            OwnedValue::IpAddr(val) => PdbOwnedValue::IpAddr(val),
+            OwnedValue::PreTokStr(val) => PdbOwnedValue::PreTokStr(val),
+        }
+    }
+}
+
 impl From<String> for PdbOwnedValue {
     fn from(value: String) -> Self {
         Self::Str(value)
@@ -1493,12 +1583,20 @@ pub enum TantivyValueError {
 
 /// Check if the given OID is a date/time type that requires special conversion
 pub fn is_datetime_type(typoid: pg_sys::Oid) -> bool {
-    matches!(
-        typoid,
-        pg_sys::DATEOID
-            | pg_sys::TIMESTAMPOID
-            | pg_sys::TIMESTAMPTZOID
-            | pg_sys::TIMEOID
-            | pg_sys::TIMETZOID
-    )
+    is_pgoid_datetime_type(PgOid::from_untagged(typoid))
+}
+
+pub fn is_pgoid_datetime_type(pgoid: PgOid) -> bool {
+    match pgoid {
+        PgOid::Invalid => false,
+        PgOid::Custom(_) => false,
+        PgOid::BuiltIn(oid) => matches!(
+            oid,
+            BuiltinOid::DATEOID
+                | BuiltinOid::TIMESTAMPOID
+                | BuiltinOid::TIMESTAMPTZOID
+                | BuiltinOid::TIMEOID
+                | BuiltinOid::TIMETZOID
+        ),
+    }
 }

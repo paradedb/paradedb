@@ -41,8 +41,6 @@ mod pdb {
         boost_factor: default!(Option<f32>, "NULL"),
         stopwords: default!(Option<Vec<String>>, "NULL"),
     ) -> SearchQueryInput {
-        // TODO: Is this user-provided in the query, does this come out of tantivy,
-        // what kind of data is this?
         let document: HashMap<String, PdbOwnedValue> =
             json5::from_str(&document).expect("could not parse document_fields");
 

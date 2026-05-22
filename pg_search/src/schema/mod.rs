@@ -24,6 +24,10 @@ use crate::api::HashMap;
 use crate::postgres::catalog::is_citext_oid;
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::options::{BM25IndexOptions, SortByDirection, SortByField};
+use crate::postgres::storage::metadata::Version;
+use crate::postgres::storage::metadata::VersionInfo;
+use crate::postgres::types::is_datetime_type;
+use crate::postgres::types::is_pgoid_datetime_type;
 use crate::postgres::types::PdbOwnedValue;
 pub use crate::postgres::utils::{convert_pg_date_string, FieldSource};
 use crate::postgres::utils::{resolve_base_type, ExtractedFieldAttribute};
@@ -154,11 +158,11 @@ impl SearchFieldType {
         )
     }
 
-    pub fn is_i64_stored_timestamp(&self) -> bool {
-        matches!(self,
-            Self::I64(oid) if *oid == pg_sys::TIMESTAMPOID || *oid == pg_sys::TIMESTAMPTZOID
-        )
-    }
+    // pub fn is_i64_stored_timestamp(&self) -> bool {
+    //     matches!(self,
+    //         Self::I64(oid) if *oid == pg_sys::TIMESTAMPOID || *oid == pg_sys::TIMESTAMPTZOID
+    //     )
+    // }
 
     /// Returns the Arrow DataType used to store this field type in fast fields.
     ///
@@ -231,9 +235,7 @@ fn derive_field_type_from_schema(
         }
         // If computed_type was i64 but stored type id Date, this is a
         // legacy index - use Date.
-        (FieldType::Date(_), SearchFieldType::I64(oid))
-            if oid == pg_sys::TIMESTAMPOID || oid == pg_sys::TIMESTAMPTZOID =>
-        {
+        (FieldType::Date(_), SearchFieldType::I64(oid)) if is_datetime_type(oid) => {
             SearchFieldType::Date(oid)
         }
         _ => {
@@ -243,13 +245,13 @@ fn derive_field_type_from_schema(
     }
 }
 
-impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
-    type Error = SearchIndexSchemaError;
-    fn try_from(value: (PgOid, Typmod, pg_sys::Oid)) -> Result<Self, Self::Error> {
-        let pg_oid = value.0;
-        let typmod = value.1;
-        let inner_typoid = value.2;
-
+impl SearchFieldType {
+    pub fn try_from_type_info(
+        pg_oid: PgOid,
+        typmod: Typmod,
+        inner_typoid: pg_sys::Oid,
+        index_created_by_version: Option<Version>,
+    ) -> Result<Self, SearchIndexSchemaError> {
         if matches!(
             pg_oid,
             PgOid::BuiltIn(pg_sys::BuiltinOid::JSONBARRAYOID | pg_sys::BuiltinOid::JSONARRAYOID)
@@ -321,11 +323,16 @@ impl TryFrom<(PgOid, Typmod, pg_sys::Oid)> for SearchFieldType {
                 | PgBuiltInOids::DATERANGEOID
                 | PgBuiltInOids::TSRANGEOID
                 | PgBuiltInOids::TSTZRANGEOID => Ok(SearchFieldType::Range((*builtin).into())),
-                PgBuiltInOids::TIMESTAMPOID | PgBuiltInOids::TIMESTAMPTZOID => {
-                    Ok(SearchFieldType::I64((*builtin).into()))
-                }
-                PgBuiltInOids::DATEOID | PgBuiltInOids::TIMEOID | PgBuiltInOids::TIMETZOID => {
-                    Ok(SearchFieldType::Date((*builtin).into()))
+                PgBuiltInOids::TIMESTAMPOID
+                | PgBuiltInOids::TIMESTAMPTZOID
+                | PgBuiltInOids::DATEOID
+                | PgBuiltInOids::TIMEOID
+                | PgBuiltInOids::TIMETZOID => {
+                    if index_created_by_version.stores_datetimes_in_i64() {
+                        Ok(SearchFieldType::I64((*builtin).into()))
+                    } else {
+                        Ok(SearchFieldType::Date((*builtin).into()))
+                    }
                 }
                 _ => Err(SearchIndexSchemaError::InvalidPgOid(pg_oid)),
             },
@@ -801,7 +808,7 @@ impl SearchField {
                 Ok(())
             }
             (FieldType::I64(_), PdbOwnedValue::Str(s))
-                if self.field_type.is_i64_stored_timestamp() =>
+                if is_pgoid_datetime_type(self.field_type.typeoid()) =>
             {
                 match self.field_type.typeoid() {
                     PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID) => {

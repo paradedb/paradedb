@@ -505,6 +505,7 @@ pub unsafe fn extract_field_attributes(
     let heap_relation = PgSearchRelation::from_pg(indexrel).heap_relation().unwrap();
     let heap_tupdesc = heap_relation.tuple_desc();
     let pg_search_indexrel = PgSearchRelation::from_pg(indexrel);
+    let created_by_version = pg_search_indexrel.created_by_version();
     let index_info = pg_search_indexrel.index_info();
     let expressions = pg_search_indexrel.index_expressions();
     let mut expressions_iter = expressions.iter_ptr().enumerate();
@@ -553,11 +554,12 @@ pub unsafe fn extract_field_attributes(
                         }
 
                         let pg_type = PgOid::from_untagged(comp_field.type_oid);
-                        let tantivy_type = SearchFieldType::try_from((
+                        let tantivy_type = SearchFieldType::try_from_type_info(
                             pg_type,
                             comp_field.typmod,
                             comp_field.type_oid,
-                        ))
+                            created_by_version,
+                        )
                         .unwrap_or_else(|e| panic!("{e}"));
 
                         field_attributes.insert(
@@ -703,8 +705,13 @@ pub unsafe fn extract_field_attributes(
         }
 
         let pg_type = PgOid::from_untagged(attribute_type_oid);
-        let tantivy_type = SearchFieldType::try_from((pg_type, att_typmod, inner_typoid))
-            .unwrap_or_else(|e| panic!("{e}"));
+        let tantivy_type = SearchFieldType::try_from_type_info(
+            pg_type,
+            att_typmod,
+            inner_typoid,
+            created_by_version,
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
 
         // non-plain-attribute expressions that aren't cast to a tokenizer type are forced to use our `pdb.literal` tokenizer
         let missing_tokenizer_cast = expression.is_some()
@@ -828,14 +835,6 @@ pub unsafe fn row_to_search_document<'a>(
                 // Legacy pre-v0.22.0 indexes stored NUMERIC as F64 in the tantivy schema.
                 SearchFieldType::F64(oid) if oid == pg_sys::NUMERICOID => {
                     TantivyValue::try_from_numeric_f64(actual_datum)
-                }
-                // Legacy pre-v0.24.0 indexes stored TIMESTAMP and TIMESTAMP WITH TIMEZONE values
-                // as Date in the tantivy schema
-                SearchFieldType::Date(oid) if oid == pg_sys::TIMESTAMPOID => {
-                    TantivyValue::try_from_timestamp_date(actual_datum)
-                }
-                SearchFieldType::Date(oid) if oid == pg_sys::TIMESTAMPTZOID => {
-                    TantivyValue::try_from_timestamptz_date(actual_datum)
                 }
                 _ => TantivyValue::try_from_datum(actual_datum, *base_oid),
             }

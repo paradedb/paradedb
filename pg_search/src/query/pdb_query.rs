@@ -1528,10 +1528,6 @@ fn range(
         }
     };
 
-    if field.contains("tstz") {
-        panic!("\nlower_bound: {lower_bound:?}\nupper_bound: {upper_bound:?}\n");
-    }
-    #[allow(unreachable_code)]
     let lower_bound = match lower_bound {
         Bound::Included(value) => Bound::Included(value_to_term(
             search_field.field(),

@@ -56,6 +56,20 @@ impl std::fmt::Display for Version {
     }
 }
 
+pub trait VersionInfo {
+    fn stores_datetimes_in_i64(&self) -> bool;
+}
+impl VersionInfo for Version {
+    fn stores_datetimes_in_i64(&self) -> bool {
+        self >= &TIMESTAMP_I64_STORAGE_VERSION
+    }
+}
+impl VersionInfo for Option<Version> {
+    fn stores_datetimes_in_i64(&self) -> bool {
+        self.filter(|v| v.stores_datetimes_in_i64()).is_some()
+    }
+}
+
 /// Parses a decimal version component at compile time. Overflow or non-digit bytes
 /// produce a compile error via the const-eval rules.
 const fn parse_version_component(s: &str) -> u16 {

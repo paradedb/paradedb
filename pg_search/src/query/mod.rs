@@ -58,7 +58,7 @@ use tantivy::query::{
 };
 use tantivy::{
     query_grammar::Occur,
-    schema::{Field, FieldType, OwnedValue, DATE_TIME_PRECISION_INDEXED},
+    schema::{Field, FieldType, DATE_TIME_PRECISION_INDEXED},
     Searcher, Term,
 };
 use thiserror::Error;
@@ -108,8 +108,8 @@ pub enum SearchQueryInput {
         max_word_length: Option<usize>,
         boost_factor: Option<f32>,
         stopwords: Option<Vec<String>>,
-        document: Option<Vec<(String, OwnedValue)>>,
-        key_value: Option<OwnedValue>,
+        document: Option<Vec<(String, PdbOwnedValue)>>,
+        key_value: Option<PdbOwnedValue>,
         fields: Option<Vec<String>>,
     },
     Parse {

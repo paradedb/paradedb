@@ -47,7 +47,7 @@ use thiserror::Error;
 ///
 /// When working with large batches of TantivyValues, consider using the `types_arrow` module
 /// instead.
-#[derive(Clone, Debug, PartialEq, PostgresType)]
+#[derive(Clone, Debug, PartialEq, Eq, PostgresType)]
 pub struct TantivyValue(pub PdbOwnedValue);
 
 /// This is a "reimplimentation" of tantivy's OwnedValue. We need our own because we represent dates
@@ -110,6 +110,39 @@ impl PdbOwnedValue {
         }
     }
 }
+impl Eq for PdbOwnedValue {}
+impl From<String> for PdbOwnedValue {
+    fn from(value: String) -> Self {
+        Self::Str(value)
+    }
+}
+impl From<i64> for PdbOwnedValue {
+    fn from(value: i64) -> Self {
+        Self::I64(value)
+    }
+}
+impl From<u64> for PdbOwnedValue {
+    fn from(value: u64) -> Self {
+        Self::U64(value)
+    }
+}
+impl From<f64> for PdbOwnedValue {
+    fn from(value: f64) -> Self {
+        Self::F64(value)
+    }
+}
+impl From<bool> for PdbOwnedValue {
+    fn from(value: bool) -> Self {
+        Self::Bool(value)
+    }
+}
+impl From<tantivy::DateTime> for PdbOwnedValue {
+    fn from(value: tantivy::DateTime) -> Self {
+        let pg_dt = PostgresDateTime::try_from(value)
+            .expect("We should never see a timestamp that postgres can't represent");
+        Self::Date(pg_dt)
+    }
+}
 
 impl Default for TantivyValue {
     fn default() -> Self {
@@ -126,7 +159,7 @@ impl TantivyValue {
         self.0.clone()
     }
 
-    pub fn as_valid_datetime_repr(&self) -> Option<&Self> {
+    pub fn as_datetime(&self) -> Option<&Self> {
         match self.0 {
             PdbOwnedValue::Date(_) => Some(self),
             _ => None,
@@ -517,17 +550,17 @@ impl PartialOrd for TantivyValue {
             (PdbOwnedValue::Str(string), PdbOwnedValue::Str(other_string)) => {
                 string.partial_cmp(other_string)
             }
-            (PdbOwnedValue::U64(u64), PdbOwnedValue::U64(other_u64)) => u64.partial_cmp(&other_u64),
-            (PdbOwnedValue::I64(i64), PdbOwnedValue::I64(other_i64)) => i64.partial_cmp(&other_i64),
-            (PdbOwnedValue::F64(f64), PdbOwnedValue::F64(other_f64)) => f64.partial_cmp(&other_f64),
+            (PdbOwnedValue::U64(u64), PdbOwnedValue::U64(other_u64)) => u64.partial_cmp(other_u64),
+            (PdbOwnedValue::I64(i64), PdbOwnedValue::I64(other_i64)) => i64.partial_cmp(other_i64),
+            (PdbOwnedValue::F64(f64), PdbOwnedValue::F64(other_f64)) => f64.partial_cmp(other_f64),
             (PdbOwnedValue::Bool(bool), PdbOwnedValue::Bool(other_bool)) => {
-                bool.partial_cmp(&other_bool)
+                bool.partial_cmp(other_bool)
             }
             (PdbOwnedValue::Facet(facet), PdbOwnedValue::Facet(other_facet)) => {
-                facet.partial_cmp(&other_facet)
+                facet.partial_cmp(other_facet)
             }
             (PdbOwnedValue::Date(date), PdbOwnedValue::Date(other_date)) => {
-                date.partial_cmp(&other_date)
+                date.partial_cmp(other_date)
             }
             _ => None,
         }

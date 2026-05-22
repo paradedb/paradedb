@@ -18,7 +18,6 @@
 use std::fmt::Display;
 use std::str::FromStr;
 
-use chrono::{DateTime, NaiveDate};
 use pgrx::datum::datetime_support::DateTimeConversionError;
 use pgrx::datum::ToIsoString;
 use serde;
@@ -72,39 +71,6 @@ const MINUTE_MICROS: i64 = 60 * SECOND_MICROS;
 const HOUR_MICROS: i64 = 60 * MINUTE_MICROS;
 const ONE_DAY_MICROS: i64 = 24 * HOUR_MICROS;
 
-#[inline]
-pub fn unix_micros_to_tantivy_datetime(
-    micros: i64,
-) -> Result<tantivy::DateTime, DateTimeConversionError> {
-    let nanos = micros
-        .checked_mul(1_000)
-        .ok_or(DateTimeConversionError::OutOfRange)?;
-    Ok(tantivy::DateTime::from_timestamp_nanos(nanos))
-}
-
-pub fn datetime_components_to_tantivy_date(
-    ymd: Option<(i32, u8, u8)>,
-    hms_micro: (u8, u8, u8, u32),
-) -> Result<tantivy::schema::OwnedValue, DateTimeConversionError> {
-    let naive_dt = match ymd {
-        Some(ymd) => NaiveDate::from_ymd_opt(ymd.0, ymd.1.into(), ymd.2.into())
-            .expect("ymd should be valid for NaiveDate::from_ymd_opt"),
-        None => DateTime::UNIX_EPOCH.date_naive(),
-    }
-    .and_hms_micro_opt(
-        hms_micro.0.into(),
-        hms_micro.1.into(),
-        hms_micro.2.into(),
-        hms_micro.3 % MICROSECONDS_IN_SECOND,
-    )
-    .ok_or(DateTimeConversionError::OutOfRange)?
-    .and_utc();
-
-    Ok(tantivy::schema::OwnedValue::Date(
-        unix_micros_to_tantivy_datetime(naive_dt.timestamp_micros())?,
-    ))
-}
-
 /// A wrapper type for working with postgres time values. Holds a postgres timestamp, which is
 /// really just a wrapper around an i64 representing microseconds from the PG epoch.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd)]
@@ -119,6 +85,12 @@ impl PostgresDateTime {
         let ts = pgrx::datum::Timestamp::try_from(raw)
             .map_err(|_| DateTimeConversionError::OutOfRange)?;
         Ok(Self(ts))
+    }
+
+    pub fn try_from_unix_nanos(unix_nanos: i64) -> Result<Self, DateTimeConversionError> {
+        assert_eq!(unix_nanos % 1_000, 0, "We should never see a timestamp with greater than microsecond precision because postgres only supports microsecond precision");
+        let unix_micros = unix_nanos / 1_000;
+        Self::try_from_raw(unix_micros_to_pg_micros(unix_micros))
     }
 
     pub fn try_from_timestamp_str(s: &str) -> Result<Self, DateTimeConversionError> {
@@ -261,30 +233,30 @@ impl TryFrom<i64> for PostgresDateTime {
     }
 }
 
-pub fn rewrite_json_timestamp_strings_to_i64(value: &mut serde_json::Value) {
-    match value {
-        serde_json::Value::Null => (),
-        serde_json::Value::Bool(_) => (),
-        serde_json::Value::Number(_) => (),
-        serde_json::Value::Array(array) => {
-            for v in array {
-                rewrite_json_timestamp_strings_to_i64(v);
-            }
-        }
-        serde_json::Value::Object(obj) => {
-            for v in obj.values_mut() {
-                rewrite_json_timestamp_strings_to_i64(v);
-            }
-        }
-        serde_json::Value::String(s) => {
-            // if the string parses as a timestamp, then it's a timestamp and we can replace it
-            // with an i64
-            if let Ok(dt) = PostgresDateTime::try_from_timestamptz_str(s) {
-                *value = serde_json::Value::Number(serde_json::Number::from(dt.into_inner()));
-            }
-        }
-    }
-}
+// pub fn rewrite_json_timestamp_strings_to_i64(value: &mut serde_json::Value) {
+//     match value {
+//         serde_json::Value::Null => (),
+//         serde_json::Value::Bool(_) => (),
+//         serde_json::Value::Number(_) => (),
+//         serde_json::Value::Array(array) => {
+//             for v in array {
+//                 rewrite_json_timestamp_strings_to_i64(v);
+//             }
+//         }
+//         serde_json::Value::Object(obj) => {
+//             for v in obj.values_mut() {
+//                 rewrite_json_timestamp_strings_to_i64(v);
+//             }
+//         }
+//         serde_json::Value::String(s) => {
+//             // if the string parses as a timestamp, then it's a timestamp and we can replace it
+//             // with an i64
+//             if let Ok(dt) = PostgresDateTime::try_from_timestamptz_str(s) {
+//                 *value = serde_json::Value::Number(serde_json::Number::from(dt.into_inner()));
+//             }
+//         }
+//     }
+// }
 
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]

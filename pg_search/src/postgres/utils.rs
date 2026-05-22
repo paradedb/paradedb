@@ -863,16 +863,12 @@ pub fn convert_pg_date_string(typeoid: PgOid, date_string: &str) -> PostgresDate
             let t = pgrx::datum::Timestamp::from_str(date_string)
                 .expect("must be a valid postgres timestamp");
             PostgresDateTime::from(t)
-                .try_into()
-                .expect("timestamp exceeds Tantivy DateTime nanosecond range")
         }
         // For TIMESTAMPTZOID, Used only by legacy indexes as of v0.24.0.
         PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID | pg_sys::BuiltinOid::TSTZRANGEOID) => {
             let twtz = pgrx::datum::TimestampWithTimeZone::from_str(date_string)
                 .expect("must be a valid postgres timestamp with time zone");
             PostgresDateTime::from(twtz)
-                .try_into()
-                .expect("timestamp exceeds Tantivy DateTime nanosecond range")
         }
         PgOid::BuiltIn(PgBuiltInOids::TIMEOID) => {
             let t =

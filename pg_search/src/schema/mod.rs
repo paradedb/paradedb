@@ -24,6 +24,7 @@ use crate::api::HashMap;
 use crate::postgres::catalog::is_citext_oid;
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::options::{BM25IndexOptions, SortByDirection, SortByField};
+use crate::postgres::types::PdbOwnedValue;
 pub use crate::postgres::utils::{convert_pg_date_string, FieldSource};
 use crate::postgres::utils::{resolve_base_type, ExtractedFieldAttribute};
 pub use anyenum::AnyEnum;
@@ -46,7 +47,7 @@ use decimal_bytes::MAX_DECIMAL64_NO_SCALE_PRECISION;
 use derive_more::Into;
 use pgrx::{pg_sys, PgBuiltInOids, PgOid};
 use serde::{Deserialize, Serialize};
-use tantivy::schema::{Field, FieldEntry, FieldType, OwnedValue, Schema};
+use tantivy::schema::{Field, FieldEntry, FieldType, Schema};
 use thiserror::Error;
 use tokenizers::manager::SearchTokenizerFilters;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
@@ -777,17 +778,17 @@ impl SearchField {
             .unwrap_or(false)
     }
 
-    pub fn try_coerce(&self, value: &mut OwnedValue) -> Result<()> {
+    pub fn try_coerce(&self, value: &mut PdbOwnedValue) -> Result<()> {
         match (self.field_entry().field_type(), value.clone()) {
-            (FieldType::Str(_), OwnedValue::Str(_))
-            | (FieldType::U64(_), OwnedValue::U64(_))
-            | (FieldType::I64(_), OwnedValue::I64(_))
-            | (FieldType::F64(_), OwnedValue::F64(_))
-            | (FieldType::Bool(_), OwnedValue::Bool(_))
-            | (FieldType::Date(_), OwnedValue::Date(_))
-            | (FieldType::Facet(_), OwnedValue::Facet(_))
-            | (FieldType::JsonObject(_), OwnedValue::Object(_)) => Ok(()),
-            (FieldType::Date(_), OwnedValue::Str(s)) => {
+            (FieldType::Str(_), PdbOwnedValue::Str(_))
+            | (FieldType::U64(_), PdbOwnedValue::U64(_))
+            | (FieldType::I64(_), PdbOwnedValue::I64(_))
+            | (FieldType::F64(_), PdbOwnedValue::F64(_))
+            | (FieldType::Bool(_), PdbOwnedValue::Bool(_))
+            | (FieldType::Date(_), PdbOwnedValue::Date(_))
+            | (FieldType::Facet(_), PdbOwnedValue::Facet(_))
+            | (FieldType::JsonObject(_), PdbOwnedValue::Object(_)) => Ok(()),
+            (FieldType::Date(_), PdbOwnedValue::Str(s)) => {
                 let typeoid = match self.field_type {
                     SearchFieldType::Date(oid) => PgOid::from(oid),
                     _ => bail!(
@@ -796,31 +797,31 @@ impl SearchField {
                     ),
                 };
                 let datetime = convert_pg_date_string(typeoid, &s);
-                *value = OwnedValue::Date(datetime);
+                *value = PdbOwnedValue::Date(datetime);
                 Ok(())
             }
-            (FieldType::I64(_), OwnedValue::Str(s))
+            (FieldType::I64(_), PdbOwnedValue::Str(s))
                 if self.field_type.is_i64_stored_timestamp() =>
             {
                 match self.field_type.typeoid() {
                     PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID) => {
                         let pg_dt = PostgresDateTime::try_from_timestamp_str(&s)?;
-                        *value = OwnedValue::I64(pg_dt.into_inner());
+                        *value = PdbOwnedValue::I64(pg_dt.into_inner());
                     }
                     PgOid::BuiltIn(BuiltinOid::TIMESTAMPTZOID) => {
                         let pg_dt = PostgresDateTime::try_from_timestamptz_str(&s)?;
-                        *value = OwnedValue::I64(pg_dt.into_inner());
+                        *value = PdbOwnedValue::I64(pg_dt.into_inner());
                     }
                     _ => unreachable!(),
                 }
                 Ok(())
             }
-            (FieldType::U64(_), OwnedValue::I64(v)) => {
-                *value = OwnedValue::U64(v.try_into()?);
+            (FieldType::U64(_), PdbOwnedValue::I64(v)) => {
+                *value = PdbOwnedValue::U64(v.try_into()?);
                 Ok(())
             }
-            (FieldType::I64(_), OwnedValue::U64(v)) => {
-                *value = OwnedValue::I64(v.try_into()?);
+            (FieldType::I64(_), PdbOwnedValue::U64(v)) => {
+                *value = PdbOwnedValue::I64(v.try_into()?);
                 Ok(())
             }
             _ => bail!(

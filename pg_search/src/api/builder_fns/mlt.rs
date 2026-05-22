@@ -18,9 +18,9 @@
 /// Contains our various "more_like_this" functions which live in the `pdb` schema.
 #[pgrx::pg_schema]
 mod pdb {
-    use crate::api::HashMap;
     use crate::postgres::types::TantivyValue;
     use crate::query::SearchQueryInput;
+    use crate::{api::HashMap, postgres::types::PdbOwnedValue};
     use pgrx::{default, pg_extern, AnyElement, PgOid};
 
     #[pg_extern(name = "more_like_this", immutable, parallel_safe)]
@@ -41,7 +41,9 @@ mod pdb {
         boost_factor: default!(Option<f32>, "NULL"),
         stopwords: default!(Option<Vec<String>>, "NULL"),
     ) -> SearchQueryInput {
-        let document: HashMap<String, tantivy::schema::OwnedValue> =
+        // TODO: Is this user-provided in the query, does this come out of tantivy,
+        // what kind of data is this?
+        let document: HashMap<String, PdbOwnedValue> =
             json5::from_str(&document).expect("could not parse document_fields");
 
         SearchQueryInput::MoreLikeThis {

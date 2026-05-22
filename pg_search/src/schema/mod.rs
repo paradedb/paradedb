@@ -667,8 +667,13 @@ impl SearchField {
             FieldType::Bool(options) => options.is_fast(),
             FieldType::Date(options) => options.is_fast(),
             FieldType::Bytes(options) => options.is_fast(),
-            // TODO: JSON and range fields are not yet sortable by us
-            FieldType::JsonObject(_) => false,
+            // JSON sub-path sorts (e.g. `metadata->>'k'`) require an additional planner-side
+            // gate which verifies that the SQL expression's expected type matches the leaf
+            // fast-field type stored across all segments. Sorting the JSON object itself is
+            // not meaningful, so we only flag the column as raw-sortable here.
+            FieldType::JsonObject(options) => {
+                options.is_fast() && matches!(desired_normalizer, SearchNormalizer::Raw)
+            }
             _ => false,
         }
     }

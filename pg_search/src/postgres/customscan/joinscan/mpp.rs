@@ -35,12 +35,10 @@ use crate::postgres::customscan::mpp::exec_worker::MppWorkerInputs;
 use crate::postgres::customscan::mpp::host::{exec_mpp_worker_impl, MppHostState};
 use crate::postgres::customscan::mpp::transport::MppSender;
 
-impl JoinScan {
-    pub(super) fn exec_mpp_worker(
-        state: &mut CustomScanStateWrapper<Self>,
-    ) -> *mut pg_sys::TupleTableSlot {
-        exec_mpp_worker_impl(state)
-    }
+pub(super) fn exec_mpp_worker(
+    state: &mut CustomScanStateWrapper<JoinScan>,
+) -> *mut pg_sys::TupleTableSlot {
+    exec_mpp_worker_impl(state)
 }
 
 impl MppHostState for CustomScanStateWrapper<JoinScan> {

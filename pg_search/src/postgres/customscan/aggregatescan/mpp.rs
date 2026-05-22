@@ -93,8 +93,6 @@ impl MppHostState for CustomScanStateWrapper<AggregateScan> {
     }
 
     fn build_seed_ctx(&self) -> SessionContext {
-        // Bare aggregate-profile context for plan deserialization only; the distributed
-        // planner config is layered on top inside `run_mpp_worker`.
         create_aggregate_session_context()
     }
 

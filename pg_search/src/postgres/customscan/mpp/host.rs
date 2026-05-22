@@ -38,10 +38,16 @@ use crate::postgres::customscan::mpp::exec_worker::{run_mpp_worker, MppWorkerInp
 /// is the smallest interface that lets [`exec_mpp_worker_impl`] drive the worker
 /// without knowing which scan provider it's hosted under.
 pub(crate) trait MppHostState {
-    /// `true` if a tokio runtime is already installed in this state. Workers can call
-    /// `exec_mpp_worker` more than once (PG re-enters scan exec after EOS); only the
-    /// first call should build the runtime and drive the plan. Subsequent calls
-    /// short-circuit to EOF.
+    /// `true` if a tokio runtime is already installed in this state.
+    ///
+    /// **Contract:** must return `true` after a prior call to [`Self::install_runtime`]
+    /// on the same state. Implementations must check the same slot they wrote in
+    /// `install_runtime` — a slot-incoherent impl (write to slot A, check slot B)
+    /// would rebuild the runtime on every PG re-entry and crash on the second pass.
+    ///
+    /// Workers can call `exec_mpp_worker` more than once (PG re-enters scan exec after
+    /// EOS); only the first call should build the runtime and drive the plan, so
+    /// subsequent calls short-circuit to EOF.
     fn already_drained(&self) -> bool;
 
     /// Pulls worker-thread inputs out of the typed state. Called exactly once per
@@ -78,6 +84,9 @@ pub(crate) fn exec_mpp_worker_impl<S: MppHostState>(state: &mut S) -> *mut pg_sy
         Ok(rt) => rt,
         Err(e) => pgrx::error!("mpp worker: tokio runtime build failed: {e}"),
     };
+    // Extending the runtime borrow through `run_mpp_worker` is sound because `inputs`
+    // and `seed_ctx` are owned values (no `state` borrow held) and `run_mpp_worker`
+    // never reaches back into `state`.
     let runtime = state.install_runtime(runtime);
     run_mpp_worker(inputs, seed_ctx, runtime);
     std::ptr::null_mut()

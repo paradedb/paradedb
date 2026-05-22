@@ -81,7 +81,9 @@ pub struct MppFrameHeader {
 const FRAME_KIND_MASK: u32 = 0x0000_00FF;
 
 const _: () = {
-    // shm_mq slot layout calculations depend on this being exact.
+    // Downstream wire-layer slot-size math depends on this being exact (e.g. Postgres `shm_mq`
+    // grid sizing inside `super::super::dsm`). Asserted here so a future field reorder breaks
+    // the codec build before it can silently shift slot offsets.
     assert!(std::mem::size_of::<MppFrameHeader>() == MPP_FRAME_HEADER_SIZE);
 };
 

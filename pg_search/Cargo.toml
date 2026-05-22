@@ -79,7 +79,6 @@ bytes = { version = "1", features = ["serde"] }
 datafusion = { version = "53", default-features = false }
 datafusion-proto = { version = "53", default-features = false }
 datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", rev = "9b00331" }
-url = "2"
 futures = "0.3"
 async-stream = "0.3.6"
 prost = "0.14.3"

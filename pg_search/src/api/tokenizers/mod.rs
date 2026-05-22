@@ -128,6 +128,46 @@ fn tokenizer_from_name(name: &str) -> Option<SearchTokenizer> {
     })
 }
 
+pub(crate) fn parse_lindera_language(language: &str) -> Option<LinderaLanguage> {
+    let lcase = language.to_lowercase();
+    match lcase.as_str() {
+        "chinese" => Some(LinderaLanguage::Chinese),
+        "japanese" => Some(LinderaLanguage::Japanese),
+        "korean" => Some(LinderaLanguage::Korean),
+        _ => None,
+    }
+}
+
+fn lindera_tokenizer_from_options(
+    language: LinderaLanguage,
+    filters: SearchTokenizerFilters,
+    keep_whitespace: bool,
+    nfkc: bool,
+    reading_form: bool,
+) -> SearchTokenizer {
+    if language == LinderaLanguage::Chinese && reading_form {
+        pgrx::error!(
+            "reading_form=true is not supported for Lindera Chinese tokenizer options"
+        );
+    }
+
+    if nfkc || reading_form {
+        SearchTokenizer::LinderaWithOptions {
+            language,
+            filters,
+            keep_whitespace,
+            nfkc,
+            reading_form,
+        }
+    } else {
+        SearchTokenizer::Lindera {
+            language,
+            filters,
+            keep_whitespace,
+        }
+    }
+}
+
 pub(crate) fn tokenizer_from_expression(expr: &str) -> Option<SearchTokenizer> {
     let (name, inner) = match expr.find('(') {
         Some(idx) => (&expr[..idx], Some(&expr[idx + 1..expr.len() - 1])),
@@ -205,21 +245,17 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
         }
         SearchTokenizer::Lindera {
             language,
-            filters,
+            filters: _filters,
             keep_whitespace,
         } => {
             let mut new_language = language.clone();
             if let Some(s) = parsed.try_get("language", 0).and_then(|p| p.as_str()) {
-                let lcase = s.to_lowercase();
-                new_language = match lcase.as_str() {
-                    "chinese" => LinderaLanguage::Chinese,
-                    "japanese" => LinderaLanguage::Japanese,
-                    "korean" => LinderaLanguage::Korean,
-                    _ => pgrx::error!(
+                new_language = parse_lindera_language(s).unwrap_or_else(|| {
+                    pgrx::error!(
                         "invalid Lindera language '{}'; allowed values are: chinese, japanese, korean",
                         s
-                    ),
-                };
+                    )
+                });
             }
             let new_filters = SearchTokenizerFilters::from(parsed);
             let new_keep_whitespace = parsed
@@ -235,46 +271,46 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
                 .and_then(|p| p.as_bool())
                 .unwrap_or(false);
 
-            if nfkc || reading_form {
-                *tokenizer = SearchTokenizer::LinderaWithOptions {
-                    language: new_language,
-                    filters: new_filters,
-                    keep_whitespace: new_keep_whitespace,
-                    nfkc,
-                    reading_form,
-                };
-            } else {
-                *language = new_language;
-                *filters = new_filters;
-                *keep_whitespace = new_keep_whitespace;
-            }
+            *tokenizer = lindera_tokenizer_from_options(
+                new_language,
+                new_filters,
+                new_keep_whitespace,
+                nfkc,
+                reading_form,
+            );
         }
         SearchTokenizer::LinderaWithOptions {
             language,
-            filters,
+            filters: _filters,
             keep_whitespace,
             nfkc,
             reading_form,
         } => {
+            let mut new_language = language.clone();
             if let Some(s) = parsed.try_get("language", 0).and_then(|p| p.as_str()) {
-                let lcase = s.to_lowercase();
-                *language = match lcase.as_str() {
-                    "chinese" => LinderaLanguage::Chinese,
-                    "japanese" => LinderaLanguage::Japanese,
-                    "korean" => LinderaLanguage::Korean,
-                    _ => LinderaLanguage::default(),
-                };
+                new_language = parse_lindera_language(s).unwrap_or_else(LinderaLanguage::default);
             }
-            *filters = SearchTokenizerFilters::from(parsed);
+            let new_filters = SearchTokenizerFilters::from(parsed);
+            let mut new_keep_whitespace = *keep_whitespace;
             if let Some(v) = parsed.get("keep_whitespace").and_then(|p| p.as_bool()) {
-                *keep_whitespace = v;
+                new_keep_whitespace = v;
             }
+            let mut new_nfkc = *nfkc;
             if let Some(v) = parsed.get("nfkc").and_then(|p| p.as_bool()) {
-                *nfkc = v;
+                new_nfkc = v;
             }
+            let mut new_reading_form = *reading_form;
             if let Some(v) = parsed.get("reading_form").and_then(|p| p.as_bool()) {
-                *reading_form = v;
+                new_reading_form = v;
             }
+
+            *tokenizer = lindera_tokenizer_from_options(
+                new_language,
+                new_filters,
+                new_keep_whitespace,
+                new_nfkc,
+                new_reading_form,
+            );
         }
         SearchTokenizer::Jieba {
             chinese_convert,
@@ -466,37 +502,17 @@ pub fn apply_typmod(tokenizer: &mut SearchTokenizer, typmod: Typmod) {
             *style = lindera_typmod.language;
             *filters = lindera_typmod.filters;
         }
-        SearchTokenizer::Lindera { .. } => {
+        SearchTokenizer::Lindera { .. } | SearchTokenizer::LinderaWithOptions { .. } => {
             let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| {
                 panic!("{}", e);
             });
-            if lindera_typmod.nfkc || lindera_typmod.reading_form {
-                *tokenizer = SearchTokenizer::LinderaWithOptions {
-                    language: lindera_typmod.language,
-                    filters: lindera_typmod.filters,
-                    keep_whitespace: lindera_typmod.keep_whitespace,
-                    nfkc: lindera_typmod.nfkc,
-                    reading_form: lindera_typmod.reading_form,
-                };
-            } else {
-                *tokenizer = SearchTokenizer::Lindera {
-                    language: lindera_typmod.language,
-                    filters: lindera_typmod.filters,
-                    keep_whitespace: lindera_typmod.keep_whitespace,
-                };
-            }
-        }
-        SearchTokenizer::LinderaWithOptions { .. } => {
-            let lindera_typmod = LinderaTypmod::try_from(typmod).unwrap_or_else(|e| {
-                panic!("{}", e);
-            });
-            *tokenizer = SearchTokenizer::LinderaWithOptions {
-                language: lindera_typmod.language,
-                filters: lindera_typmod.filters,
-                keep_whitespace: lindera_typmod.keep_whitespace,
-                nfkc: lindera_typmod.nfkc,
-                reading_form: lindera_typmod.reading_form,
-            };
+            *tokenizer = lindera_tokenizer_from_options(
+                lindera_typmod.language,
+                lindera_typmod.filters,
+                lindera_typmod.keep_whitespace,
+                lindera_typmod.nfkc,
+                lindera_typmod.reading_form,
+            );
         }
 
         SearchTokenizer::ChineseLindera {

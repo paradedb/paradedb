@@ -388,6 +388,24 @@ mod tests {
     }
 
     #[rstest]
+    fn test_lindera_japanese_tokenizer_with_reading_form() {
+        let mut tokenizer_plain = LinderaJapaneseTokenizer::with_options(false, false, false);
+        let mut tokenizer_reading = LinderaJapaneseTokenizer::with_options(false, false, true);
+
+        let plain_tokens = test_helper(&mut tokenizer_plain, "東京");
+        let reading_tokens = test_helper(&mut tokenizer_reading, "東京");
+
+        assert_eq!(plain_tokens.len(), reading_tokens.len());
+        assert!(!plain_tokens.is_empty());
+        assert!(
+            plain_tokens
+                .iter()
+                .zip(reading_tokens.iter())
+                .any(|(plain, reading)| plain.text != reading.text)
+        );
+    }
+
+    #[rstest]
     #[case(LinderaKoreanTokenizer::new(true), 11)]
     #[case(LinderaKoreanTokenizer::new(false), 8)]
     fn test_lindera_korean_tokenizer(
@@ -405,6 +423,24 @@ mod tests {
             assert_eq!(token.position, 0);
             assert_eq!(token.position_length, 1);
         }
+    }
+
+    #[rstest]
+    fn test_lindera_korean_tokenizer_with_reading_form() {
+        let mut tokenizer_plain = LinderaKoreanTokenizer::with_options(false, false, false);
+        let mut tokenizer_reading = LinderaKoreanTokenizer::with_options(false, false, true);
+
+        let plain_tokens = test_helper(&mut tokenizer_plain, "大韓民國");
+        let reading_tokens = test_helper(&mut tokenizer_reading, "大韓民國");
+
+        assert_eq!(plain_tokens.len(), reading_tokens.len());
+        assert!(!plain_tokens.is_empty());
+        assert!(
+            plain_tokens
+                .iter()
+                .zip(reading_tokens.iter())
+                .any(|(plain, reading)| plain.text != reading.text)
+        );
     }
 
     #[rstest]

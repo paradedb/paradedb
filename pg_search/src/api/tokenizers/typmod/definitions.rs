@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::tokenizers::parse_lindera_language;
 use crate::api::tokenizers::typmod;
 use crate::api::tokenizers::typmod::validation::{rule, PropertyRule, ValueConstraint};
 use crate::api::tokenizers::typmod::{load_typmod, ParsedTypmod, TypmodSchema};
@@ -341,15 +342,8 @@ impl TryFrom<i32> for LinderaTypmod {
             .try_get("language", 0)
             .map(|p| match p.as_str() {
                 None => panic!("missing language"),
-                Some(s) => {
-                    let lcase = s.to_lowercase();
-                    match lcase.as_str() {
-                        "chinese" => LinderaLanguage::Chinese,
-                        "japanese" => LinderaLanguage::Japanese,
-                        "korean" => LinderaLanguage::Korean,
-                        other => panic!("unknown lindera language: {other}"),
-                    }
-                }
+                Some(s) => parse_lindera_language(s)
+                    .unwrap_or_else(|| panic!("unknown lindera language: {s}")),
             })
             .ok_or(typmod::Error::MissingKey("language"))?;
         let keep_whitespace = parsed
@@ -364,6 +358,9 @@ impl TryFrom<i32> for LinderaTypmod {
             .get("reading_form")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        if language == LinderaLanguage::Chinese && reading_form {
+            panic!("reading_form=true is not supported for Lindera Chinese tokenizer options");
+        }
         Ok(LinderaTypmod {
             language,
             filters,

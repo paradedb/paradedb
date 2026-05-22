@@ -574,6 +574,11 @@ impl SearchTokenizer {
                     .get("reading_form")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
+                if language == LinderaLanguage::Chinese && reading_form {
+                    return Err(anyhow::anyhow!(
+                        "reading_form=true is not supported for Lindera Chinese tokenizer options"
+                    ));
+                }
 
                 Ok(lindera_tokenizer(
                     language,
@@ -710,11 +715,18 @@ impl SearchTokenizer {
                 filters,
                 keep_whitespace,
                 nfkc,
-                reading_form: _,
-            } => add_filters!(
-                LinderaChineseTokenizer::with_options(*keep_whitespace, *nfkc),
-                filters
-            ),
+                reading_form,
+            } => {
+                if *reading_form {
+                    panic!(
+                        "reading_form=true is not supported for Lindera Chinese tokenizer options"
+                    );
+                }
+                add_filters!(
+                    LinderaChineseTokenizer::with_options(*keep_whitespace, *nfkc),
+                    filters
+                )
+            }
             SearchTokenizer::JapaneseLinderaDeprecated(filters)
             | SearchTokenizer::LinderaDeprecated(LinderaLanguage::Japanese, filters) => {
                 add_filters!(LinderaJapaneseTokenizer::new(true), filters)
@@ -981,7 +993,7 @@ impl SearchTokenizer {
                     panic!("LinderaStyle::Unspecified is not supported")
                 }
                 LinderaLanguage::Chinese => {
-                    format!("chinese_lindera_keepwhitespace:{keep_whitespace}_nfkc:{nfkc}_readingform:{reading_form}{filters_suffix}")
+                    format!("chinese_lindera_keepwhitespace:{keep_whitespace}_nfkc:{nfkc}_readingform:false{filters_suffix}")
                 }
                 LinderaLanguage::Japanese => {
                     format!("japanese_lindera_keepwhitespace:{keep_whitespace}_nfkc:{nfkc}_readingform:{reading_form}{filters_suffix}")
@@ -1143,6 +1155,21 @@ mod tests {
             tokenizer.name(),
             "japanese_lindera_keepwhitespace:true_nfkc:true_readingform:true"
         );
+    }
+
+    #[rstest]
+    fn test_lindera_chinese_reading_form_rejected() {
+        let json = r#"{
+            "type": "lindera",
+            "language": "chinese",
+            "reading_form": true
+        }"#;
+
+        let err = SearchTokenizer::from_json_value(&serde_json::from_str(json).unwrap())
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("reading_form=true is not supported"));
     }
 
     #[rstest]

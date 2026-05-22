@@ -128,6 +128,20 @@ pub fn find_worker_assignments(
 ) -> Vec<FragmentAssignment> {
     let mut out = Vec::new();
     for_each_worker_fragment(root, |frag| {
+        // Boundary-visit trace: logged for every fragment the visitor yields, regardless of
+        // proc ownership. Useful when debugging "why does proc N have zero fragments?" —
+        // without this, only fragments that pass the ownership filter below get logged.
+        #[cfg(not(test))]
+        crate::mpp_log!(
+            "mpp worker_fragments::visit boundary kind={:?} stage_id={} task_idx={} \
+             task_count={} p_c={} nested={}",
+            frag.kind,
+            frag.stage_id,
+            frag.task_idx,
+            frag.task_count,
+            frag.partitions_per_consumer_task,
+            frag.nested,
+        );
         let owner = proc_for_task(n_workers, frag.task_idx as u32);
         if owner != this_proc {
             return;

@@ -24,7 +24,7 @@
  * By using this file, you agree to comply with the AGPL v3.0 terms.
  *
  */
-use lindera::dictionary::load_dictionary;
+use lindera::dictionary::Dictionary;
 use lindera::mode::Mode;
 use lindera::token::Token as LinderaToken;
 use lindera::tokenizer::Tokenizer as LinderaTokenizer;
@@ -32,48 +32,52 @@ use once_cell::sync::Lazy;
 use std::sync::Arc;
 use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 
+static CMN_DICTIONARY: Lazy<Dictionary> = Lazy::new(|| load_mmap_dictionary("cc-cedict"));
+static JPN_DICTIONARY: Lazy<Dictionary> = Lazy::new(|| load_mmap_dictionary("ipadic"));
+static KOR_DICTIONARY: Lazy<Dictionary> = Lazy::new(|| load_mmap_dictionary("ko-dic"));
+
+fn load_mmap_dictionary(name: &str) -> Dictionary {
+    crate::lindera_mmap::load_dictionary(name).unwrap_or_else(|err| {
+        panic!("Lindera `{name}` dictionary must be installed as mmap component files: {err:#}")
+    })
+}
+
 static CMN_TOKENIZER_KEEP_WHITESPACE: Lazy<Arc<LinderaTokenizer>> = Lazy::new(|| {
-    let dictionary = load_dictionary("embedded://cc-cedict")
-        .expect("Lindera `cc-cedict` dictionary must be present");
     Arc::new(LinderaTokenizer::new(
-        lindera::segmenter::Segmenter::new(Mode::Normal, dictionary, None).keep_whitespace(true),
+        lindera::segmenter::Segmenter::new(Mode::Normal, CMN_DICTIONARY.clone(), None)
+            .keep_whitespace(true),
     ))
 });
 static CMN_TOKENIZER: Lazy<Arc<LinderaTokenizer>> = Lazy::new(|| {
-    let dictionary = load_dictionary("embedded://cc-cedict")
-        .expect("Lindera `cc-cedict` dictionary must be present");
     Arc::new(LinderaTokenizer::new(
-        lindera::segmenter::Segmenter::new(Mode::Normal, dictionary, None).keep_whitespace(false),
+        lindera::segmenter::Segmenter::new(Mode::Normal, CMN_DICTIONARY.clone(), None)
+            .keep_whitespace(false),
     ))
 });
 
 static JPN_TOKENIZER_KEEP_WHITESPACE: Lazy<Arc<LinderaTokenizer>> = Lazy::new(|| {
-    let dictionary =
-        load_dictionary("embedded://ipadic").expect("Lindera `ipadic` dictionary must be present");
     Arc::new(LinderaTokenizer::new(
-        lindera::segmenter::Segmenter::new(Mode::Normal, dictionary, None).keep_whitespace(true),
+        lindera::segmenter::Segmenter::new(Mode::Normal, JPN_DICTIONARY.clone(), None)
+            .keep_whitespace(true),
     ))
 });
 static JPN_TOKENIZER: Lazy<Arc<LinderaTokenizer>> = Lazy::new(|| {
-    let dictionary =
-        load_dictionary("embedded://ipadic").expect("Lindera `ipadic` dictionary must be present");
     Arc::new(LinderaTokenizer::new(
-        lindera::segmenter::Segmenter::new(Mode::Normal, dictionary, None).keep_whitespace(false),
+        lindera::segmenter::Segmenter::new(Mode::Normal, JPN_DICTIONARY.clone(), None)
+            .keep_whitespace(false),
     ))
 });
 
 static KOR_TOKENIZER_KEEP_WHITESPACE: Lazy<Arc<LinderaTokenizer>> = Lazy::new(|| {
-    let dictionary =
-        load_dictionary("embedded://ko-dic").expect("Lindera `ko-dic` dictionary must be present");
     Arc::new(LinderaTokenizer::new(
-        lindera::segmenter::Segmenter::new(Mode::Normal, dictionary, None).keep_whitespace(true),
+        lindera::segmenter::Segmenter::new(Mode::Normal, KOR_DICTIONARY.clone(), None)
+            .keep_whitespace(true),
     ))
 });
 static KOR_TOKENIZER: Lazy<Arc<LinderaTokenizer>> = Lazy::new(|| {
-    let dictionary =
-        load_dictionary("embedded://ko-dic").expect("Lindera `ko-dic` dictionary must be present");
     Arc::new(LinderaTokenizer::new(
-        lindera::segmenter::Segmenter::new(Mode::Normal, dictionary, None).keep_whitespace(false),
+        lindera::segmenter::Segmenter::new(Mode::Normal, KOR_DICTIONARY.clone(), None)
+            .keep_whitespace(false),
     ))
 });
 
@@ -270,6 +274,18 @@ mod tests {
         tokens
     }
 
+    fn skip_if_lindera_dictionaries_are_missing() -> bool {
+        if crate::lindera_mmap::installed_dictionaries_ready() {
+            return false;
+        }
+
+        eprintln!(
+            "skipping Lindera tokenizer test; set {} to a preinstalled dictionary root",
+            crate::lindera_mmap::DICTIONARY_ROOT_ENV
+        );
+        true
+    }
+
     #[rstest]
     #[case(LinderaChineseTokenizer::new(true), 19)]
     #[case(LinderaChineseTokenizer::new(false), 18)]
@@ -277,6 +293,10 @@ mod tests {
         #[case] mut tokenizer: LinderaChineseTokenizer,
         #[case] expected_token_count: usize,
     ) {
+        if skip_if_lindera_dictionaries_are_missing() {
+            return;
+        }
+
         let tokens = test_helper(
             &mut tokenizer,
             "地址1，包含無效的字元 (包括符號與不標準的asci阿爾發字元",
@@ -300,6 +320,10 @@ mod tests {
         #[case] mut tokenizer: LinderaJapaneseTokenizer,
         #[case] expected_token_count: usize,
     ) {
+        if skip_if_lindera_dictionaries_are_missing() {
+            return;
+        }
+
         let tokens = test_helper(&mut tokenizer, "すもも もももももものうち");
         assert_eq!(tokens.len(), expected_token_count);
         {
@@ -319,6 +343,10 @@ mod tests {
         #[case] mut tokenizer: LinderaKoreanTokenizer,
         #[case] expected_token_count: usize,
     ) {
+        if skip_if_lindera_dictionaries_are_missing() {
+            return;
+        }
+
         // With keep_whitespace=true (backward compatible behavior), whitespace is included as tokens
         let tokens = test_helper(&mut tokenizer, "일본입니다. 매우 멋진 단어입니다.");
         assert_eq!(tokens.len(), expected_token_count);

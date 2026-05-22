@@ -104,18 +104,6 @@ impl IndexWriterConfig {
             max_docs_per_segment: None,
         }
     }
-
-    fn with_schema_defaults(mut self, schema: &SearchIndexSchema) -> Self {
-        self.max_docs_per_segment = if schema.has_vector_field() {
-            Some(
-                self.max_docs_per_segment
-                    .unwrap_or(DEFAULT_MAX_DOCS_PER_SEGMENT),
-            )
-        } else {
-            None
-        };
-        self
-    }
 }
 
 /// Unlike Tantivy's IndexWriter, the SerialIndexWriter does not spin up any threads.
@@ -153,7 +141,19 @@ impl SerialIndexWriter {
         worker_number: i32,
     ) -> Result<Self> {
         let schema = index_relation.schema()?;
-        let config = config.with_schema_defaults(&schema);
+        let max_docs_per_segment = if schema.has_vector_field() {
+            Some(
+                config
+                    .max_docs_per_segment
+                    .unwrap_or(DEFAULT_MAX_DOCS_PER_SEGMENT),
+            )
+        } else {
+            None
+        };
+        let config = IndexWriterConfig {
+            max_docs_per_segment,
+            ..config
+        };
 
         if unsafe { pg_sys::message_level_is_interesting(pg_sys::DEBUG1 as _) } {
             pgrx::debug1!(

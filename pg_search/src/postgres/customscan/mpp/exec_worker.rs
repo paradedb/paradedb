@@ -53,7 +53,7 @@ use crate::postgres::customscan::mpp::worker_fragments::{
 };
 use crate::postgres::customscan::parallel::list_segment_ids;
 use crate::postgres::ParallelScanState;
-use crate::scan::codec::{deserialize_logical_plan_with_runtime, PgSearchPhysicalCodecStub};
+use crate::scan::codec::deserialize_logical_plan_with_runtime;
 
 /// Bundle of inputs the worker dispatcher needs. Per-scan `exec_mpp_worker` wrappers populate
 /// this from their typed state and hand it to [`run_mpp_worker`].
@@ -127,7 +127,6 @@ pub(crate) fn build_mpp_session_context(
         .with_distributed_task_estimator(n_workers)
         .with_distributed_broadcast_joins(true)
         .expect("with_distributed_broadcast_joins")
-        .with_distributed_user_codec(PgSearchPhysicalCodecStub)
         .with_distributed_planner();
     SessionContext::new_with_state(state_builder.build())
 }

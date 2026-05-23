@@ -497,11 +497,32 @@ fn execute_range_test<T>(
                         }
                     };
 
-                    println!(
-                        "expected: {expected:?}, {result:?} {} {}",
-                        postgres_contains_query(&range, table, field, range_type),
-                        pg_search_contains_query(&range, table, field, range_type),
-                    );
+                    match relation {
+                        RangeRelation::Contains => {
+                            println!(
+                                "expected: {expected:?}, {result:?} {} {} {}",
+                                postgres_contains_query(&range, table, field, range_type),
+                                pg_search_contains_query(&range, table, field, range_type),
+                                pg_search_contains_json_query(&range, table, field, range_type)
+                            );
+                        }
+                        RangeRelation::Within => {
+                            println!(
+                                "expected: {expected:?}, {result:?} {} {} {}",
+                                postgres_within_query(&range, table, field, range_type),
+                                pg_search_within_query(&range, table, field, range_type),
+                                pg_search_within_json_query(&range, table, field, range_type)
+                            );
+                        }
+                        RangeRelation::Intersects => {
+                            println!(
+                                "expected: {expected:?}, {result:?} {} {} {}",
+                                postgres_intersects_query(&range, table, field, range_type),
+                                pg_search_intersects_query(&range, table, field, range_type),
+                                pg_search_intersects_json_query(&range, table, field, range_type)
+                            );
+                        }
+                    }
 
                     assert_eq!(expected, result, "query failed for range: {:?}", range);
                     assert_eq!(

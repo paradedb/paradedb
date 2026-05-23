@@ -15,59 +15,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::types::{PdbOwnedValue, TantivyValue, TantivyValueError};
 use crate::query::numeric::{bytes_to_hex, hex_to_decimal};
 use crate::schema::range::TantivyRangeBuilder;
 use decimal_bytes::Decimal;
-use pgrx::datum::{Date, DateTimeConversionError, RangeBound, Timestamp, TimestampWithTimeZone};
+use pgrx::datum::{Date, RangeBound, Timestamp, TimestampWithTimeZone};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::str::FromStr;
-
-// When Tantivy reads JSON objects, it only recognizes RFC 3339 formatted strings as DateTime values.
-// Dates like "2021-01-01" or ISO formatted strings like "2021-01-01T00:00:00" are not recognized.
-// To work around this, we convert Date and Timestamp values to TimestampWithTimeZone values with the UTC timezone,
-// which gets serialized to RFC 3339 ie "2021-01-01T00:00:00Z".
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(transparent)]
-pub(crate) struct TimestampWithTimeZoneUtc(pub TimestampWithTimeZone);
-
-impl TryFrom<Date> for TimestampWithTimeZoneUtc {
-    type Error = DateTimeConversionError;
-
-    fn try_from(val: Date) -> Result<Self, Self::Error> {
-        let tstz = TimestampWithTimeZone::from(val);
-        Ok(TimestampWithTimeZoneUtc(
-            TimestampWithTimeZone::with_timezone(
-                tstz.year(),
-                tstz.month(),
-                tstz.day(),
-                0,
-                0,
-                0.0,
-                "UTC",
-            )?,
-        ))
-    }
-}
-
-impl TryFrom<Timestamp> for TimestampWithTimeZoneUtc {
-    type Error = DateTimeConversionError;
-
-    fn try_from(val: Timestamp) -> Result<Self, Self::Error> {
-        let tstz = TimestampWithTimeZone::from(val);
-        Ok(TimestampWithTimeZoneUtc(
-            TimestampWithTimeZone::with_timezone(
-                tstz.year(),
-                tstz.month(),
-                tstz.day(),
-                tstz.hour(),
-                tstz.minute(),
-                tstz.second(),
-                "UTC",
-            )?,
-        ))
-    }
-}
 
 /// A wrapper around `Decimal` that serializes to hex-encoded lexicographically sortable bytes.
 /// This allows string comparison in Tantivy's JSON fields to give correct numeric ordering.
@@ -139,6 +94,8 @@ where
                 let lower_unbounded = matches!(val.lower(), Some(RangeBound::Infinite) | None);
                 let upper_unbounded = matches!(val.upper(), Some(RangeBound::Infinite) | None);
 
+                // TODO: This may not need to be serialized. We can just implement the
+                // From<TantivyRangeBuilder>
                 Ok(TantivyValue(PdbOwnedValue::from(serde_json::to_value(
                     TantivyRangeBuilder::new()
                         .lower(lower)
@@ -159,6 +116,6 @@ impl RangeToTantivyValue<i64, i64> for TantivyValue {}
 // numrange uses SortableDecimal which serializes as hex-encoded lexicographically sortable bytes.
 // This preserves full NUMERIC precision while allowing string comparison to give correct ordering.
 impl RangeToTantivyValue<pgrx::AnyNumeric, SortableDecimal> for TantivyValue {}
-impl RangeToTantivyValue<Date, TimestampWithTimeZoneUtc> for TantivyValue {}
-impl RangeToTantivyValue<Timestamp, TimestampWithTimeZoneUtc> for TantivyValue {}
-impl RangeToTantivyValue<TimestampWithTimeZone, TimestampWithTimeZone> for TantivyValue {}
+impl RangeToTantivyValue<Date, PostgresDateTime> for TantivyValue {}
+impl RangeToTantivyValue<Timestamp, PostgresDateTime> for TantivyValue {}
+impl RangeToTantivyValue<TimestampWithTimeZone, PostgresDateTime> for TantivyValue {}

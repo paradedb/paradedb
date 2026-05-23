@@ -1000,7 +1000,7 @@ impl AggregateScan {
     /// Build the leader's distributed session context for this AggregateScan query. Thin
     /// wrapper over the shape-agnostic [`crate::postgres::customscan::mpp::exec_worker::
     /// build_mpp_session_context`] that seeds with `create_aggregate_session_context()`.
-    /// `mesh = None` is the EXPLAIN-time variant — see the shared helper's doc.
+    /// `mesh = None` is the EXPLAIN-time path. See the shared helper's doc.
     fn build_mpp_session_context(
         mesh: Option<Arc<MppMesh>>,
     ) -> datafusion::prelude::SessionContext {

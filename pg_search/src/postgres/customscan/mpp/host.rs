@@ -18,12 +18,10 @@
 //! Shape-agnostic MPP worker exec dispatcher.
 //!
 //! Each CustomScan provider that hosts an MPP plan implements [`MppHostState`] on its
-//! `CustomScanStateWrapper<T>` to expose its provider-specific state to the shared
-//! [`exec_mpp_worker_impl`]. AggregateScan and JoinScan used to keep two ~100-LOC
-//! near-duplicate `exec_mpp_worker` functions; the only real differences are where the
-//! tokio runtime lives in the typed state and which `SessionContext` profile is used
-//! to deserialize the plan. The trait isolates those two concerns; the rest of the
-//! body is shared.
+//! `CustomScanStateWrapper<T>` so the shared [`exec_mpp_worker_impl`] can drive it
+//! without knowing which provider it's hosted under. The trait isolates the two
+//! provider-specific concerns (runtime-slot location and seed `SessionContext` profile);
+//! everything else is shared.
 
 use datafusion::execution::context::SessionContext;
 use pgrx::pg_sys;
@@ -38,39 +36,38 @@ use crate::postgres::customscan::mpp::exec_worker::{run_mpp_worker, MppWorkerInp
 /// is the smallest interface that lets [`exec_mpp_worker_impl`] drive the worker
 /// without knowing which scan provider it's hosted under.
 pub(crate) trait MppHostState {
-    /// `true` if a tokio runtime is already installed in this state.
+    /// `true` if a tokio runtime is already installed.
     ///
-    /// **Contract:** must return `true` after a prior call to [`Self::install_runtime`]
-    /// on the same state. Implementations must check the same slot they wrote in
-    /// `install_runtime` — a slot-incoherent impl (write to slot A, check slot B)
-    /// would rebuild the runtime on every PG re-entry and crash on the second pass.
+    /// Workers can call `exec_mpp_worker` more than once: PG re-enters scan exec after
+    /// EOS, so only the first call should build the runtime and drive the plan.
+    /// Subsequent calls short-circuit to EOF.
     ///
-    /// Workers can call `exec_mpp_worker` more than once (PG re-enters scan exec after
-    /// EOS); only the first call should build the runtime and drive the plan, so
-    /// subsequent calls short-circuit to EOF.
+    /// Contract: must return `true` after a prior [`Self::install_runtime`] on the same
+    /// state. Implementations must check the same slot they wrote in `install_runtime`;
+    /// a slot-incoherent impl (write A, check B) would rebuild the runtime on every PG
+    /// re-entry and crash on the second pass.
     fn already_drained(&self) -> bool;
 
-    /// Pulls worker-thread inputs out of the typed state. Called exactly once per
-    /// worker exec — implementations are expected to `mem::take` `outbound_senders`
-    /// out of the `MppExecState::Worker` variant rather than cloning it.
+    /// Pull worker inputs out of the typed state. Called exactly once per worker exec;
+    /// implementations should `mem::take` `outbound_senders` out of `MppExecState::Worker`
+    /// rather than cloning.
     fn take_worker_inputs(&mut self) -> MppWorkerInputs;
 
-    /// Builds the seed `SessionContext` used only for plan deserialization
+    /// Build the seed `SessionContext` used only for plan deserialization
     /// (`ctx.task_ctx()`). The distributed planner config (worker resolver, transport,
-    /// estimators, codec) is layered on top inside `run_mpp_worker` via
+    /// estimators, codec) gets layered on top inside `run_mpp_worker` via
     /// `build_mpp_session_context`. Both procs have to agree on stage shape; this is how.
     fn build_seed_ctx(&self) -> SessionContext;
 
-    /// Installs the tokio runtime in the provider-specific slot and returns a borrowed
-    /// reference to it. The runtime must live for the entire body of `run_mpp_worker`,
-    /// which is why we return the reference rather than dropping the value back in
-    /// after install.
+    /// Install the tokio runtime in the provider-specific slot and return a borrowed
+    /// reference. The runtime needs to live for the entire body of `run_mpp_worker`, so
+    /// we hand back the reference rather than dropping the value back in after install.
     fn install_runtime(&mut self, runtime: tokio::runtime::Runtime) -> &tokio::runtime::Runtime;
 }
 
 /// Shape-agnostic body of `exec_mpp_worker`. Workers emit zero rows back to PG;
-/// `null_mut()` signals end-of-stream. Per-scan wrappers should simply call this with
-/// `self` after their wrapper-side state checks.
+/// `null_mut()` signals end-of-stream. Per-scan wrappers call this with `self` after
+/// their wrapper-side state checks.
 pub(crate) fn exec_mpp_worker_impl<S: MppHostState>(state: &mut S) -> *mut pg_sys::TupleTableSlot {
     if state.already_drained() {
         return std::ptr::null_mut();

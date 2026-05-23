@@ -50,12 +50,11 @@ impl MppHostState for CustomScanStateWrapper<AggregateScan> {
     }
 
     fn take_worker_inputs(&mut self) -> MppWorkerInputs {
-        // Pull state-level inputs out before borrowing df_state mutably. parallel_state
-        // and non_partitioning_segments pin each worker's PgSearchTableProvider to the
-        // right segment slice (the partitioning source) and the leader's canonical
-        // replica (the non-partitioning sources). Without them, every worker re-scans
-        // the full data and the leader-side hash partitions get the same rows from
-        // every worker.
+        // Read these out before we borrow df_state mutably. `parallel_state` and
+        // `non_partitioning_segments` pin the worker's PgSearchTableProvider to the right
+        // segment slice (partitioning source) and the leader's canonical replica
+        // (non-partitioning sources). Without them every worker re-scans the full data
+        // and the leader-side hash partitions see the same rows from every worker.
         let parallel_state = self.custom_state().parallel_state;
         let non_partitioning_segments = self.custom_state().non_partitioning_segments.clone();
         let partitioning_source_idx = self.custom_state().mpp_partitioning_source_idx.unwrap_or(0);

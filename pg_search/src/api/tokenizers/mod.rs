@@ -146,9 +146,7 @@ fn lindera_tokenizer_from_options(
     reading_form: bool,
 ) -> SearchTokenizer {
     if language == LinderaLanguage::Chinese && reading_form {
-        pgrx::error!(
-            "reading_form=true is not supported for Lindera Chinese tokenizer options"
-        );
+        pgrx::error!("reading_form=true is not supported for Lindera Chinese tokenizer options");
     }
 
     if nfkc || reading_form {
@@ -288,7 +286,7 @@ fn apply_expression_params(tokenizer: &mut SearchTokenizer, parsed: &typmod::Par
         } => {
             let mut new_language = language.clone();
             if let Some(s) = parsed.try_get("language", 0).and_then(|p| p.as_str()) {
-                new_language = parse_lindera_language(s).unwrap_or_else(LinderaLanguage::default);
+                new_language = parse_lindera_language(s).unwrap_or_default();
             }
             let new_filters = SearchTokenizerFilters::from(parsed);
             let mut new_keep_whitespace = *keep_whitespace;

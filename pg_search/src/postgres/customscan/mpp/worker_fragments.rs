@@ -43,7 +43,7 @@ use std::sync::Arc;
 use datafusion::physical_plan::ExecutionPlan;
 #[cfg(not(test))]
 use datafusion::physical_plan::ExecutionPlanProperties;
-use datafusion_distributed::NetworkBoundaryExt;
+use datafusion_distributed::{NetworkBoundaryExt, NetworkBoundaryKind};
 
 use crate::postgres::customscan::mpp::runtime::proc_for_task;
 
@@ -178,66 +178,85 @@ fn collect(
     if let Some(nb) = plan.as_ref().as_network_boundary() {
         let stage = nb.input_stage();
         let stage_id = stage.num() as u32;
-        let name = plan.name();
+        let kind = nb.kind();
         // Per-consumer-task partition count from upstream's `NetworkShuffleExec::execute`
         // receive-side formula `off = P_c * task_index`.
         let p_c = plan.properties().partitioning.partition_count();
 
-        // Why we classify by `(boundary_kind, top_level)`. Upstream DF-D dispatches producers via
-        // gRPC keyed on the resolver's URLs, so worker code never has to decide where a producer's
+        // Classify by `(boundary_kind, top_level)`. Upstream DF-D dispatches producers via gRPC
+        // keyed on the resolver's URLs, so worker code never has to decide where a producer's
         // output partitions land. We don't have URLs: each shm_mq peer is push-driven, and the
-        // dispatcher here picks the destination proc for every output partition. The routing math
-        // differs by boundary kind (Shuffle / Broadcast share receive-side math but Broadcast caps
-        // to task 0; Coalesce collapses to one consumer task), and the top-level case routes to
-        // the leader.
-        let routing = match (name, nested) {
+        // dispatcher here picks the destination proc for every output partition. The routing
+        // math differs by boundary kind (Shuffle / Broadcast share receive-side math but
+        // Broadcast caps to task 0; Coalesce collapses to one consumer task), and the
+        // top-level case (`nested == false`) routes to the leader.
+        //
+        // `nb.kind()` returns a typed enum from the DF-D fork
+        // (paradedb/datafusion-distributed#9), replacing the older `plan.name()` string match.
+        // A future fork rename of any of the three exec types is now a compile error here.
+        // `NetworkBoundaryKind` is `#[non_exhaustive]`, so the `_ =>` arm at the end is
+        // required and serves as the drift detector for a future fork-side variant addition.
+        let routing = match (kind, nested) {
             // Top-level NetworkBroadcastExec isn't a shape the natural-shape AggregateScan plan
             // produces (broadcast is always nested inside the HashJoin build subtree). Falling
-            // through to `Coalesce { dest_proc: 0 }` would silently send every input task's full
-            // canonical replica to the leader and `select_all` would over-count by
+            // through to `Coalesce { dest_proc: 0 }` would silently send every input task's
+            // full canonical replica to the leader and `select_all` would over-count by
             // `input_task_count`. Surface it as an error so a future planner change that hits
             // this shape doesn't silently produce wrong answers.
-            ("NetworkBroadcastExec", false) => {
+            (NetworkBoundaryKind::Broadcast, false) => {
                 crate::postgres::customscan::mpp::fail_loud(format!(
                     "mpp worker_fragments: top-level NetworkBroadcastExec is unsupported \
                      (stage_id={stage_id}). The natural-shape AggregateScan plan does not \
                      produce this shape; route via a NetworkCoalesceExec gather instead."
                 ))
             }
-            // Top-level boundary (gather to leader): consumer is leader proc 0.
-            (_, false) => FragmentRouting::Coalesce { dest_proc: 0 },
-            // Nested NetworkShuffleExec: hash-partitioned mesh. Each output partition q maps to
-            // consumer task q / p_c.
-            ("NetworkShuffleExec", true) => FragmentRouting::Shuffle {
+            // Top-level NetworkShuffleExec is also not a shape any of our customscan plans
+            // produce — shuffles emit hash-partitioned output into a parent consumer stage,
+            // not directly into the leader. Routing the partitions through
+            // `Coalesce { dest_proc: 0 }` would technically work (`select_all` would receive
+            // every batch exactly once) but it would be silently treating a hash-partitioned
+            // output as one logical stream, masking a planner anomaly. Mirror the top-level
+            // Broadcast stance: fail loudly so a future planner change is visible.
+            (NetworkBoundaryKind::Shuffle, false) => {
+                crate::postgres::customscan::mpp::fail_loud(format!(
+                    "mpp worker_fragments: top-level NetworkShuffleExec is unsupported \
+                     (stage_id={stage_id}). Shuffles emit hash-partitioned output into a \
+                     parent consumer stage; a top-level shuffle is a planner anomaly."
+                ))
+            }
+            // Top-level NetworkCoalesceExec (gather to leader): consumer is leader proc 0.
+            (NetworkBoundaryKind::Coalesce, false) => FragmentRouting::Coalesce { dest_proc: 0 },
+            // Nested NetworkShuffleExec: hash-partitioned mesh. Each output partition q maps
+            // to consumer task q / p_c.
+            (NetworkBoundaryKind::Shuffle, true) => FragmentRouting::Shuffle {
                 partitions_per_consumer_task: p_c,
             },
-            // Nested NetworkBroadcastExec: same wire-level math as Shuffle, but the dispatcher
-            // only runs the producer plan on task 0 to avoid the canonical-replica duplication
-            // described on `FragmentRouting::Broadcast`.
-            ("NetworkBroadcastExec", true) => FragmentRouting::Broadcast {
+            // Nested NetworkBroadcastExec: same wire-level math as Shuffle, but the
+            // dispatcher only runs the producer plan on task 0 to avoid the canonical-replica
+            // duplication described on `FragmentRouting::Broadcast`.
+            (NetworkBoundaryKind::Broadcast, true) => FragmentRouting::Broadcast {
                 partitions_per_consumer_task: p_c,
             },
             // Nested NetworkCoalesceExec: consumer is a single task in the parent stage. The
             // receive math collapses to task 0 of the parent group, so the destination proc is
             // `proc_for_task(n_workers, 0)`.
-            ("NetworkCoalesceExec", true) => FragmentRouting::Coalesce {
+            (NetworkBoundaryKind::Coalesce, true) => FragmentRouting::Coalesce {
                 dest_proc: proc_for_task(n_workers, 0),
             },
-            // Any other nested boundary kind is unknown territory. Fall through to a hard error
-            // rather than silently routing to task 0 of `proc_for_task`, which would over-count
-            // or drop batches for a shape we haven't reasoned about. Surface as error so
-            // plan-walk drift is visible.
-            (other, true) => crate::postgres::customscan::mpp::fail_loud(format!(
-                "mpp worker_fragments: unsupported nested boundary kind {other} \
-                 (stage_id={stage_id}). Only NetworkShuffleExec, NetworkBroadcastExec, \
-                 and NetworkCoalesceExec are recognised; routing this shape would silently \
-                 mis-route batches."
+            // `NetworkBoundaryKind` is `#[non_exhaustive]`. This arm catches any variant the
+            // fork adds in a future release that we haven't reasoned about yet. Fail loudly
+            // rather than guess at routing — the alternative (a default destination) would
+            // silently produce wrong answers under a shape we haven't seen.
+            _ => crate::postgres::customscan::mpp::fail_loud(format!(
+                "mpp worker_fragments: unrecognized NetworkBoundaryKind {kind:?} \
+                 (stage_id={stage_id}). The DF-D fork has added a variant the embedder \
+                 hasn't been updated for; add a routing arm before bumping the rev."
             )),
         };
         #[cfg(not(test))]
         {
             crate::mpp_log!(
-                "mpp worker_fragments::collect boundary name={name} stage_id={stage_id} \
+                "mpp worker_fragments::collect boundary kind={kind:?} stage_id={stage_id} \
                  p_c={p_c} nested={nested}"
             );
         }

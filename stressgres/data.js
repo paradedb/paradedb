@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779499268769,
+  "lastUpdate": 1779499300938,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -5162,6 +5162,138 @@ window.BENCHMARK_DATA = {
             "value": 57.83203125,
             "unit": "median mem",
             "extra": "avg mem: 55.92244565636978, max mem: 69.671875, count: 55049"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ad2db25b3b03ea248c51eadf5d7720bc858440d6",
+          "message": "refactor(mpp): drop PgSearchPhysicalCodecStub (#5128)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDeletes `PgSearchPhysicalCodecStub` and the\n`.with_distributed_user_codec(...)` registration. Cleans up a couple of\norphan imports in `codec.rs`.\n\n## Why\n\nThe codec was a stub. Workers re-plan from the logical plan in DSM, so\nthey never actually deserialize the encoded physical bytes. But the\nencode still ran inside `CoordinatorToWorkerTaskSpawner::new` and\nwould've blown up if our codec didn't claim every custom exec.\n\nFork PR paradedb/datafusion-distributed#8 now gates that encode behind\n`!in_process_mode`, so the stub has no reason to exist.\n\n## How\n\n- Bump `datafusion-distributed` rev so the spawner is only constructed\nwhen `!in_process_mode`.\n- Delete `PgSearchPhysicalCodecStub` (struct + impl + doc).\n- Drop `.with_distributed_user_codec(...)` from\n`build_mpp_session_context` plus the import.\n- Tighten the surrounding comment so it's clear what would need to come\nback if we ever flip `in_process_mode = false`.\n\nDepends on paradedb/datafusion-distributed#8. Before merging, re-pin the\nfork rev from the PR branch HEAD to the post-merge fork-`main` SHA.\n\n## Tests\n\n- `mpp_smoke`, `mpp_joinscan`, `mpp_aggregate`, `mpp_aggregate_postagg`\nall pass on pgrx-arm64.\n- CI green.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-22T17:50:54-07:00",
+          "tree_id": "ed718dfa206315082195c33bba69a016e1c89c1a",
+          "url": "https://github.com/paradedb/paradedb/commit/ad2db25b3b03ea248c51eadf5d7720bc858440d6"
+        },
+        "date": 1779499270402,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.257474,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.514387557814597, max cpu: 23.880596, count: 54542"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 66.2265625,
+            "unit": "median mem",
+            "extra": "avg mem: 66.10169986547065, max mem: 77.3125, count: 54542"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.706340263426394, max cpu: 18.461538, count: 54542"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 64.671875,
+            "unit": "median mem",
+            "extra": "avg mem: 64.51074172197572, max mem: 75.73046875, count: 54542"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.638419407854029, max cpu: 9.311348, count: 54542"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.8828125,
+            "unit": "median mem",
+            "extra": "avg mem: 35.81946187972113, max mem: 37.75390625, count: 54542"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.658222420946366, max cpu: 9.329447, count: 54542"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 62.875,
+            "unit": "median mem",
+            "extra": "avg mem: 62.28829295256408, max mem: 74.0703125, count: 54542"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.62651914878904, max cpu: 9.29332, count: 109084"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 60.81640625,
+            "unit": "median mem",
+            "extra": "avg mem: 59.59518463838647, max mem: 72.82421875, count: 109084"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1720,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1723.4310806351068, max block_count: 3070.0, count: 54542"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 12,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 11.327674086025448, max segment_count: 23.0, count: 54542"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.715481012861606, max cpu: 19.104477, count: 54542"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 64.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 64.02019387009094, max mem: 75.26953125, count: 54542"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.550836572084995, max cpu: 9.347614, count: 54542"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 53.55078125,
+            "unit": "median mem",
+            "extra": "avg mem: 53.044482706561, max mem: 63.95703125, count: 54542"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.728378456677379, max cpu: 4.6875, count: 54542"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 56.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 55.17190307469473, max mem: 67.84765625, count: 54542"
           }
         ]
       }

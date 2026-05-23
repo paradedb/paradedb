@@ -203,11 +203,10 @@ pub(crate) fn run_mpp_worker(
         Err(e) => pgrx::error!("mpp worker: create_physical_plan failed: {e}"),
     };
 
-    // Walk the plan and collect every `(stage_id, task_idx)` slot owned by this proc under
-    // the `proc_for_task` round-robin policy. The dispatcher spawns one async task per
-    // fragment; together they form the worker's complete contribution to the distributed
-    // plan. `worker_mesh.n_procs >= 3` is guaranteed by `mpp_is_active()` (callers gate
-    // before reaching this), so `n_workers() = n_procs - 1` is safe.
+    // Collect every `(stage_id, task_idx)` slot this proc owns under the `proc_for_task`
+    // round-robin. The dispatcher spawns one async task per fragment; together they form
+    // the worker's full contribution to the distributed plan. `mpp_is_active()` already
+    // guarantees `n_procs >= 3`, so `n_workers() = n_procs - 1` is safe.
     let n_workers = worker_mesh.n_workers();
     let fragments = find_worker_assignments(&physical_plan, this_proc, n_workers);
     if fragments.is_empty() {

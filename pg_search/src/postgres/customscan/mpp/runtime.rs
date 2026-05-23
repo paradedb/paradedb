@@ -15,22 +15,21 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Runtime glue between the leader's DataFusion execution and the
-//! shm_mq mesh.
+//! Runtime glue between the leader's DataFusion execution and the shm_mq mesh.
 //!
-//! - [`MppMesh`] — runtime handle the leader builds at DSM-init time,
-//!   carrying one [`crate::postgres::customscan::mpp::transport::DrainHandle`]
-//!   per producer worker for each consumer partition. Installed on the
-//!   leader's `SessionConfig` extensions before plan execution.
-//! - [`ShmMqWorkerTransport`] — implements the DF-D fork's [`WorkerTransport`]
-//!   trait, consulted by `NetworkShuffleExec`/`NetworkCoalesceExec`/
-//!   `NetworkBroadcastExec` at execute time. `open(target_task=worker)`
-//!   returns a [`ShmMqWorkerConnection`] that yields one stream per
-//!   consumer partition from the corresponding [`DrainHandle`].
+//! [`MppMesh`] is the runtime handle the leader builds at DSM-init time. It carries one
+//! [`crate::postgres::customscan::mpp::transport::DrainHandle`] per producer worker for
+//! each consumer partition and gets installed on the leader's `SessionConfig` extensions
+//! before plan execution.
 //!
-//! Fork PR paradedb/datafusion-distributed#10 made the `WorkerResolver` optional under
-//! `in_process_mode = true` (the fork substitutes a single placeholder URL internally), so
-//! we no longer register one here.
+//! [`ShmMqWorkerTransport`] implements the fork's [`WorkerTransport`] trait, consulted by
+//! `NetworkShuffleExec`/`NetworkCoalesceExec`/`NetworkBroadcastExec` at execute time.
+//! `open(target_task=worker)` returns a [`ShmMqWorkerConnection`] that yields one stream
+//! per consumer partition from the matching [`DrainHandle`].
+//!
+//! No `WorkerResolver` impl. Under `in_process_mode = true` the fork makes the resolver
+//! optional and substitutes a placeholder URL internally; our embedding never resolves
+//! anything by URL.
 
 use std::ops::Range;
 use std::sync::Arc;

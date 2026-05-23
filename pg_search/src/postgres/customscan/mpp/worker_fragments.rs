@@ -183,26 +183,22 @@ fn collect(
         // receive-side formula `off = P_c * task_index`.
         let p_c = plan.properties().partitioning.partition_count();
 
-        // Classify by `(boundary_kind, top_level)`. Upstream DF-D dispatches producers via gRPC
-        // keyed on the resolver's URLs, so worker code never has to decide where a producer's
-        // output partitions land. We don't have URLs: each shm_mq peer is push-driven, and the
-        // dispatcher here picks the destination proc for every output partition. The routing
-        // math differs by boundary kind (Shuffle / Broadcast share receive-side math but
-        // Broadcast caps to task 0; Coalesce collapses to one consumer task), and the
-        // top-level case (`nested == false`) routes to the leader.
+        // Classify by `(boundary_kind, top_level)` and pick a destination proc for every
+        // output partition. The fork's gRPC path keys dispatch on resolver URLs and never
+        // has to decide this; our shm_mq peers are push-driven without URLs, so the
+        // dispatcher has to. Shuffle and Broadcast share the receive-side math but Broadcast
+        // caps to task 0; Coalesce collapses to one consumer task; top-level (`nested ==
+        // false`) routes to the leader.
         //
-        // `nb.kind()` returns a typed enum from the DF-D fork
-        // (paradedb/datafusion-distributed#9), replacing the older `plan.name()` string match.
-        // A future fork rename of any of the three exec types is now a compile error here.
-        // `NetworkBoundaryKind` is `#[non_exhaustive]`, so the `_ =>` arm at the end is
-        // required and serves as the drift detector for a future fork-side variant addition.
+        // `NetworkBoundaryKind` is `#[non_exhaustive]`, so the catch-all `_ =>` arm is
+        // required. It also surfaces any future fork variant we haven't reasoned about.
         let routing = match (kind, nested) {
-            // Top-level NetworkBroadcastExec isn't a shape the natural-shape AggregateScan plan
-            // produces (broadcast is always nested inside the HashJoin build subtree). Falling
-            // through to `Coalesce { dest_proc: 0 }` would silently send every input task's
+            // Top-level NetworkBroadcastExec isn't a shape the natural-shape AggregateScan
+            // plan produces; broadcast always sits nested inside the HashJoin build subtree.
+            // Falling through to `Coalesce { dest_proc: 0 }` would send every input task's
             // full canonical replica to the leader and `select_all` would over-count by
-            // `input_task_count`. Surface it as an error so a future planner change that hits
-            // this shape doesn't silently produce wrong answers.
+            // `input_task_count`. Fail loudly so a future planner change that hits this
+            // shape can't silently produce wrong answers.
             (NetworkBoundaryKind::Broadcast, false) => {
                 crate::postgres::customscan::mpp::fail_loud(format!(
                     "mpp worker_fragments: top-level NetworkBroadcastExec is unsupported \
@@ -210,13 +206,12 @@ fn collect(
                      produce this shape; route via a NetworkCoalesceExec gather instead."
                 ))
             }
-            // Top-level NetworkShuffleExec is also not a shape any of our customscan plans
-            // produce — shuffles emit hash-partitioned output into a parent consumer stage,
-            // not directly into the leader. Routing the partitions through
-            // `Coalesce { dest_proc: 0 }` would technically work (`select_all` would receive
-            // every batch exactly once) but it would be silently treating a hash-partitioned
-            // output as one logical stream, masking a planner anomaly. Mirror the top-level
-            // Broadcast stance: fail loudly so a future planner change is visible.
+            // Top-level NetworkShuffleExec isn't a shape our customscan plans produce
+            // either. Shuffles emit hash-partitioned output into a parent consumer stage,
+            // not directly into the leader. Coalescing the partitions to proc 0 would
+            // technically work (each batch reaches `select_all` exactly once) but it would
+            // mask a planner anomaly by silently treating hash-partitioned output as one
+            // logical stream. Same stance as the Broadcast case above.
             (NetworkBoundaryKind::Shuffle, false) => {
                 crate::postgres::customscan::mpp::fail_loud(format!(
                     "mpp worker_fragments: top-level NetworkShuffleExec is unsupported \
@@ -243,14 +238,12 @@ fn collect(
             (NetworkBoundaryKind::Coalesce, true) => FragmentRouting::Coalesce {
                 dest_proc: proc_for_task(n_workers, 0),
             },
-            // `NetworkBoundaryKind` is `#[non_exhaustive]`. This arm catches any variant the
-            // fork adds in a future release that we haven't reasoned about yet. Fail loudly
-            // rather than guess at routing — the alternative (a default destination) would
-            // silently produce wrong answers under a shape we haven't seen.
+            // Catch-all for `#[non_exhaustive]` future variants. Fail loudly rather than
+            // guess routing; a default destination would silently produce wrong answers
+            // under a shape we haven't seen.
             _ => crate::postgres::customscan::mpp::fail_loud(format!(
                 "mpp worker_fragments: unrecognized NetworkBoundaryKind {kind:?} \
-                 (stage_id={stage_id}). The DF-D fork has added a variant the embedder \
-                 hasn't been updated for; add a routing arm before bumping the rev."
+                 (stage_id={stage_id}). Add a routing arm before bumping the fork rev."
             )),
         };
         #[cfg(not(test))]

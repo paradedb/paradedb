@@ -59,12 +59,11 @@ const NATURAL_GATHER_STAGE_ID: u32 = 0;
 /// partition on the leader.
 const NATURAL_GATHER_PARTITION: u32 = 0;
 
-/// Minimum total proc count for MPP to be active: leader (consumer-only) + at least 2
-/// producers. Below this, [`producer_worker_count`] would drop to 1 while
-/// `build_mpp_session_context` would still call `with_target_partitions(n_workers.max(2))`
-/// (where `n_workers = mesh.n_procs - 1`), clamping the shuffle width up to 2 — the mesh
-/// wouldn't have a queue for the second partition. Stays as a single source of truth so
-/// [`mpp_is_active`] and [`mpp_worker_count`] don't drift on the threshold.
+/// Minimum total procs for MPP: leader (consumer-only) plus at least 2 producers. Single
+/// source of truth so [`mpp_is_active`] and [`mpp_worker_count`] don't drift on the
+/// threshold. Below 3, [`producer_worker_count`] would be 1 while
+/// `build_mpp_session_context` still clamps `target_partitions` to 2; the mesh wouldn't
+/// have a queue for the second partition.
 const MIN_TOTAL_WORKER_COUNT: i32 = 3;
 
 /// True iff `paradedb.enable_mpp = on` and `paradedb.mpp_worker_count >=
@@ -73,11 +72,10 @@ pub fn mpp_is_active() -> bool {
     enable_mpp() && gucs_mpp_worker_count() >= MIN_TOTAL_WORKER_COUNT
 }
 
-/// Total proc count: leader + producers. Equal to the GUC value when [`mpp_is_active`] is
-/// true. **Callers must gate on [`mpp_is_active`] first.** In debug builds the
-/// `debug_assert!` aborts on misuse; in release builds the function silently returns the
-/// raw GUC value, and downstream [`producer_worker_count`] may underflow or fall below 2,
-/// breaking the planner's `target_partitions` / mesh-width invariant.
+/// Total proc count: leader + producers. Equals the GUC value when [`mpp_is_active`] is
+/// true. Callers must gate on [`mpp_is_active`] first. Debug builds assert; release builds
+/// return the raw GUC, which can leave [`producer_worker_count`] below 2 and break the
+/// planner's `target_partitions` / mesh-width invariant.
 pub fn mpp_worker_count() -> u32 {
     debug_assert!(
         mpp_is_active(),

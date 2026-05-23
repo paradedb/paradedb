@@ -1266,9 +1266,7 @@ impl AggregateScan {
         // `Single Copy: true` Gather where the customscan never actually
         // runs in multiple workers.
         let builder = if mpp_is_active() {
-            let n_workers = mpp_worker_count();
-            let workers_to_launch = (n_workers.saturating_sub(1) as usize).max(1);
-            builder.set_parallel(workers_to_launch)
+            builder.set_parallel(producer_worker_count() as usize)
         } else {
             builder
         };

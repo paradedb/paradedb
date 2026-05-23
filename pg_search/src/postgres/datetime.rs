@@ -102,6 +102,17 @@ impl PostgresDateTime {
         let ts = pgrx::datum::TimestampWithTimeZone::from_str(s)?;
         Ok(Self::from(ts))
     }
+
+    pub fn add_days(&self, days: i64) -> Result<Self, DateTimeConversionError> {
+        let plus_days_micros = ONE_DAY_MICROS
+            .checked_mul(days)
+            .ok_or(DateTimeConversionError::FieldOverflow)?;
+        let new_micros = self
+            .into_inner()
+            .checked_add(plus_days_micros)
+            .ok_or(DateTimeConversionError::FieldOverflow)?;
+        Self::try_from_raw(new_micros)
+    }
 }
 impl Display for PostgresDateTime {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

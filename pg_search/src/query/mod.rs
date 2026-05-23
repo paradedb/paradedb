@@ -37,7 +37,6 @@ use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::storage::metadata::Version;
 use crate::postgres::storage::metadata::TIMESTAMP_I64_STORAGE_VERSION;
 use crate::postgres::types::PdbOwnedValue;
-use crate::postgres::utils::convert_pg_date_string;
 use crate::query::more_like_this::MoreLikeThisQuery;
 use crate::query::pdb_query::pdb;
 use crate::query::score::ScoreFilter;
@@ -686,54 +685,13 @@ fn check_range_bounds(
         (_, Bound::Excluded(PdbOwnedValue::U64(n))) => Bound::Included(PdbOwnedValue::U64(n + 1)),
         // Excluded I64 needs to be canonicalized
         (_, Bound::Excluded(PdbOwnedValue::I64(n))) => Bound::Included(PdbOwnedValue::I64(n + 1)),
-        // Excluded Date needs to be canonicalized
+        // Excluded date needs to be canonicalized
         (
-            PgOid::BuiltIn(PgBuiltInOids::DATEOID | PgBuiltInOids::DATERANGEOID),
-            Bound::Excluded(PdbOwnedValue::Str(date_string)),
-        ) => {
-            let date = convert_pg_date_string(typeoid, &date_string);
-            Bound::Included(PdbOwnedValue::Date(date))
-        }
-        (
-            PgOid::BuiltIn(
-                PgBuiltInOids::TIMESTAMPOID
-                | PgBuiltInOids::TSRANGEOID
-                | PgBuiltInOids::TIMESTAMPTZOID
-                | pg_sys::BuiltinOid::TSTZRANGEOID,
-            ),
-            Bound::Excluded(PdbOwnedValue::Str(date_string)),
-        ) => {
-            let date = convert_pg_date_string(typeoid, &date_string);
-            Bound::Excluded(PdbOwnedValue::Date(date))
-        }
-        (
-            PgOid::BuiltIn(
-                PgBuiltInOids::DATEOID
-                | PgBuiltInOids::DATERANGEOID
-                | PgBuiltInOids::TIMESTAMPOID
-                | PgBuiltInOids::TSRANGEOID
-                | PgBuiltInOids::TIMESTAMPTZOID
-                | pg_sys::BuiltinOid::TSTZRANGEOID,
-            ),
-            Bound::Included(PdbOwnedValue::Str(date_string)),
-        ) => {
-            let date = convert_pg_date_string(typeoid, &date_string);
-            Bound::Included(PdbOwnedValue::Date(date))
-        }
-        // (
-        //     PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID | PgBuiltInOids::TIMESTAMPTZOID),
-        //     Bound::Included(OwnedValue::I64(pg_micros)),
-        // ) => {
-        //     if index_created_by_version
-        //         .filter(|version| version >= &TIMESTAMP_I64_STORAGE_VERSION)
-        //         .is_some()
-        //     {
-        //         lower_bound
-        //     } else {
-        //         let datetime: tantivy::DateTime = PostgresDateTime::try_from_raw(pg_micros).expect("This value should always be in range because it is derived from a valid timestmap").try_into().expect("DateTime exceeds tantivy DateTime range");
-        //         Bound::Included(OwnedValue::Date(datetime))
-        //     }
-        // }
+            PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
+            Bound::Excluded(PdbOwnedValue::Date(date)),
+        ) => Bound::Included(PdbOwnedValue::Date(
+            date.add_days(1).map_err(|e| anyhow::anyhow!("{e:?}"))?,
+        )),
         _ => lower_bound,
     };
 
@@ -744,38 +702,11 @@ fn check_range_bounds(
         (_, Bound::Included(PdbOwnedValue::I64(n))) => Bound::Excluded(PdbOwnedValue::I64(n + 1)),
         // Included Date needs to be canonicalized
         (
-            PgOid::BuiltIn(PgBuiltInOids::DATEOID | PgBuiltInOids::DATERANGEOID),
-            Bound::Included(PdbOwnedValue::Str(date_string)),
-        ) => {
-            let date = convert_pg_date_string(typeoid, &date_string);
-            Bound::Excluded(PdbOwnedValue::Date(date))
-        }
-        (
-            PgOid::BuiltIn(
-                PgBuiltInOids::TIMESTAMPOID
-                | PgBuiltInOids::TSRANGEOID
-                | PgBuiltInOids::TIMESTAMPTZOID
-                | pg_sys::BuiltinOid::TSTZRANGEOID,
-            ),
-            Bound::Included(PdbOwnedValue::Str(date_string)),
-        ) => {
-            let date = convert_pg_date_string(typeoid, &date_string);
-            Bound::Included(PdbOwnedValue::Date(date))
-        }
-        (
-            PgOid::BuiltIn(
-                PgBuiltInOids::DATEOID
-                | PgBuiltInOids::DATERANGEOID
-                | PgBuiltInOids::TIMESTAMPOID
-                | PgBuiltInOids::TSRANGEOID
-                | PgBuiltInOids::TIMESTAMPTZOID
-                | pg_sys::BuiltinOid::TSTZRANGEOID,
-            ),
-            Bound::Excluded(PdbOwnedValue::Str(date_string)),
-        ) => {
-            let date = convert_pg_date_string(typeoid, &date_string);
-            Bound::Excluded(PdbOwnedValue::Date(date))
-        }
+            PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
+            Bound::Included(PdbOwnedValue::Date(date)),
+        ) => Bound::Excluded(PdbOwnedValue::Date(
+            date.add_days(1).map_err(|e| anyhow::anyhow!("{e:?}"))?,
+        )),
         _ => upper_bound,
     };
     Ok((lower_bound, upper_bound))

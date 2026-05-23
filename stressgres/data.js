@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779500724173,
+  "lastUpdate": 1779501371641,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13020,6 +13020,60 @@ window.BENCHMARK_DATA = {
             "value": 15.307884189877083,
             "unit": "median tps",
             "extra": "avg tps: 15.31246706337243, max tps: 21.598079481494043, count: 55486"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ad2db25b3b03ea248c51eadf5d7720bc858440d6",
+          "message": "refactor(mpp): drop PgSearchPhysicalCodecStub (#5128)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDeletes `PgSearchPhysicalCodecStub` and the\n`.with_distributed_user_codec(...)` registration. Cleans up a couple of\norphan imports in `codec.rs`.\n\n## Why\n\nThe codec was a stub. Workers re-plan from the logical plan in DSM, so\nthey never actually deserialize the encoded physical bytes. But the\nencode still ran inside `CoordinatorToWorkerTaskSpawner::new` and\nwould've blown up if our codec didn't claim every custom exec.\n\nFork PR paradedb/datafusion-distributed#8 now gates that encode behind\n`!in_process_mode`, so the stub has no reason to exist.\n\n## How\n\n- Bump `datafusion-distributed` rev so the spawner is only constructed\nwhen `!in_process_mode`.\n- Delete `PgSearchPhysicalCodecStub` (struct + impl + doc).\n- Drop `.with_distributed_user_codec(...)` from\n`build_mpp_session_context` plus the import.\n- Tighten the surrounding comment so it's clear what would need to come\nback if we ever flip `in_process_mode = false`.\n\nDepends on paradedb/datafusion-distributed#8. Before merging, re-pin the\nfork rev from the PR branch HEAD to the post-merge fork-`main` SHA.\n\n## Tests\n\n- `mpp_smoke`, `mpp_joinscan`, `mpp_aggregate`, `mpp_aggregate_postagg`\nall pass on pgrx-arm64.\n- CI green.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-22T17:50:54-07:00",
+          "tree_id": "ed718dfa206315082195c33bba69a016e1c89c1a",
+          "url": "https://github.com/paradedb/paradedb/commit/ad2db25b3b03ea248c51eadf5d7720bc858440d6"
+        },
+        "date": 1779501338187,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 30.79003112384952,
+            "unit": "median tps",
+            "extra": "avg tps: 30.45800104994352, max tps: 33.2456801666948, count: 55596"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 245.9179134064021,
+            "unit": "median tps",
+            "extra": "avg tps: 276.74206775925626, max tps: 3068.507583235963, count: 55596"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 557.354742296119,
+            "unit": "median tps",
+            "extra": "avg tps: 541.8497364529978, max tps: 754.3102575965851, count: 55596"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 163.5117060988369,
+            "unit": "median tps",
+            "extra": "avg tps: 178.2998480459801, max tps: 1000.9448137053241, count: 111192"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.997826371677398,
+            "unit": "median tps",
+            "extra": "avg tps: 15.790638072460784, max tps: 20.6060023347837, count: 55596"
           }
         ]
       }

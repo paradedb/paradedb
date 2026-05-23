@@ -91,51 +91,43 @@ pub(crate) fn build_mpp_session_context(
     seed: SessionContext,
     mesh: Option<Arc<MppMesh>>,
 ) -> SessionContext {
-    // Workers are procs 1..n_procs; leader is proc 0. The producer count is `n_procs - 1`.
-    // `n_procs >= 3` is guaranteed by `mpp_is_active()` (callers gate before reaching this).
+    // Workers are procs 1..n_procs; leader is proc 0. Producer count = n_procs - 1.
+    // `mpp_is_active()` already guarantees n_procs >= 3 (callers gate first).
     //
-    // `mesh = None` is the EXPLAIN-time variant: the planner only needs `n_workers` for stage
-    // sizing and target_partitions; the WorkerTransport is never consulted because EXPLAIN
-    // doesn't execute. Skip the transport install in that case and the fork's default
-    // (FlightWorkerTransport) sits unused. `mesh = Some(_)` is required for actual execution.
-    //
-    // Both branches resolve to `mpp_worker_count() - 1` at call time — the leader's `MppMesh`
-    // is itself constructed from `mpp_worker_count()` in `leader_setup`. EXPLAIN reflects the
-    // GUC at EXPLAIN time; a subsequent `SET paradedb.mpp_worker_count` shifts the next
-    // execute path's stage shape away from what EXPLAIN rendered (same behavior as pre-R13,
-    // since the stub-mesh also read the GUC at EXPLAIN time).
+    // `mesh = None` is the EXPLAIN-time path: the planner only needs `n_workers` for stage
+    // sizing and target_partitions. EXPLAIN never opens a `WorkerConnection`, so we skip
+    // the transport install and the fork's default sits unused. Both branches resolve to
+    // `mpp_worker_count() - 1` at call time, so EXPLAIN reflects the GUC at the time it
+    // ran; a later `SET paradedb.mpp_worker_count` shifts the next execute path.
     let n_workers = match mesh.as_ref() {
         Some(m) => m.n_workers() as usize,
         None => producer_worker_count() as usize,
     };
-    // Four-knob unlock for actually inserting NetworkShuffleExec/etc.:
-    //   1. target_partitions(N) — without this, EnforceDistribution skips every
-    //      RepartitionExec, so the annotator never sees a Shuffle.
-    //   2. distributed_task_estimator(N) — without this, leaves default to Maximum(1) and
+    // Four knobs that have to be set for the planner to actually emit `NetworkShuffleExec`:
+    //   1. target_partitions(N): without it, EnforceDistribution skips every
+    //      RepartitionExec so the annotator never sees a Shuffle.
+    //   2. distributed_task_estimator(N): without it, leaves default to Maximum(1) and
     //      `_distribute_plan` elides every shuffle.
-    //   3. distributed_broadcast_joins(true) — CollectLeft HashJoins otherwise cap their
-    //      stage's task_count to Maximum(1) and propagate that cap upward, eliding shuffles
-    //      above the join.
-    //   4. distributed_user_codec — the DF-D fork's prepare_plan unconditionally encodes
-    //      worker subplans for gRPC shipment; without a codec for our custom physical execs,
-    //      encoding errors before execution. In our model the encoded bytes are never observed
-    //      (workers re-plan from the logical plan in DSM), so the codec is a stub.
+    //   3. distributed_broadcast_joins(true): otherwise CollectLeft HashJoins cap their
+    //      stage at Maximum(1) and propagate the cap upward, eliding shuffles above the join.
+    //   4. distributed_in_process_mode(true): skips the gRPC plan-send / metrics /
+    //      work-unit-feed tasks. Workers re-plan from the logical plan in DSM.
     let cfg = seed
         .copied_config()
         .with_target_partitions(n_workers.max(2));
 
-    // Start from the seed's existing state so the customscan's query planner (`PgSearchQueryPlanner`),
-    // optimizer rules, and registered extensions all carry over. JoinScan relies on this for
-    // `VisibilityFilterNode` -> `VisibilityFilterExec` translation; AggregateScan's plan happens
-    // not to use any custom logical nodes but inheriting the planner is still the correct
-    // default. We then override `with_config` (bumps `target_partitions`) and layer the
-    // distributed-planner knobs on top.
-    // Both seeds (`create_aggregate_session_context`, `create_datafusion_session_context`) ship
-    // without a `DistributedConfig` extension installed. The bootstrap below would clobber one
-    // if a future change started adding `with_distributed_*` calls on the seed, so guard
-    // explicitly. Debug-only — release builds silently take the latter precedence (an honest
-    // mistake here would surface as missing `in_process_mode` / `broadcast_joins` knobs at
-    // execute time, which the existing regress suite catches).
+    // Start from the seed's existing state so the customscan's query planner
+    // (`PgSearchQueryPlanner`), optimizer rules, and registered extensions all carry over.
+    // JoinScan needs this for `VisibilityFilterNode` -> `VisibilityFilterExec` translation;
+    // AggregateScan's plan doesn't use custom logical nodes but inheriting the planner is
+    // still the right default. We then override `with_config` (bumps target_partitions)
+    // and layer the distributed-planner knobs on top.
+    //
+    // Both seeds ship without a `DistributedConfig` extension. The bootstrap below would
+    // clobber one if a future change started adding `with_distributed_*` calls on the
+    // seed, so guard explicitly. Debug-only; release builds silently let the bootstrap
+    // win, which would surface as missing `in_process_mode` / `broadcast_joins` knobs at
+    // execute time and trip the regress suite.
     debug_assert!(
         seed.state()
             .config()
@@ -148,18 +140,16 @@ pub(crate) fn build_mpp_session_context(
     );
     let mut state_builder = SessionStateBuilder::new_from_existing(seed.state())
         .with_config(cfg)
-        // Explicit bootstrap: install a default `DistributedConfig` so the downstream
-        // `with_distributed_*` setters have an extension to mutate. Previously
-        // `with_distributed_worker_transport` did this implicitly as a side effect of being
-        // first in the chain; with the transport now optional (EXPLAIN passes mesh = None),
-        // bootstrap explicitly so the order of setters doesn't matter.
+        // Explicit `DistributedConfig` bootstrap so the downstream `with_distributed_*`
+        // setters have something to mutate. `with_distributed_worker_transport` used to
+        // bootstrap this implicitly when it was first in the chain; with the transport
+        // now optional (EXPLAIN passes mesh = None) we install the extension explicitly
+        // so order doesn't matter.
         .with_distributed_option_extension(DistributedConfig::default())
-        // No `with_distributed_worker_resolver(...)` line is needed: fork PR
-        // paradedb/datafusion-distributed#10 made the `WorkerResolver` lookup conditional
-        // on `!in_process_mode`. Workers in our embedding are PG parallel workers in the
-        // same backend tree, not URL-addressed nodes; the fork substitutes a single
-        // placeholder URL internally so its planner's URL plumbing stays satisfied while
-        // we ship no resolver of our own.
+        // No `with_distributed_worker_resolver(...)`: under `in_process_mode = true`, the
+        // fork gates the resolver lookup and substitutes a single placeholder URL. Our
+        // "workers" are PG parallel workers in the same backend tree, not URL-addressed
+        // nodes, so we have nothing meaningful to resolve.
         .with_distributed_in_process_mode(true)
         .expect("with_distributed_in_process_mode");
     // Install the shm_mq transport only when running for actual execution (mesh = Some).
@@ -178,20 +168,12 @@ pub(crate) fn build_mpp_session_context(
         .with_distributed_task_estimator(n_workers)
         .with_distributed_broadcast_joins(true)
         .expect("with_distributed_broadcast_joins")
-        // No `with_distributed_user_codec(...)` line is needed because:
-        //   (a) we hard-wire `with_distributed_in_process_mode(true)` two lines above, and
-        //   (b) fork PR paradedb/datafusion-distributed#8 short-circuits the eager
-        //       `PhysicalPlanNode::try_from_physical_plan(stage.plan, codec).encode_to_vec()`
-        //       inside `CoordinatorToWorkerTaskSpawner::new` whenever in-process mode is
-        //       on. With (a) + (b), no physical codec is consulted at any point. Workers
-        //       re-plan from the logical plan we ship via DSM and never decode a physical
-        //       subplan over the wire.
-        //
-        // If `in_process_mode = false` is ever exercised (e.g. a remote-worker mode
-        // appears), restore `.with_distributed_user_codec(...)` here for our custom execs
-        // (`PgSearchScan`, `VisibilityFilterExec`, `SegmentedTopKExec`, `TantivyLookupExec`,
-        // `FilterPassthroughExec`); the default `DistributedCodec` will otherwise fail with
-        // `Unexpected plan {name}` from `try_encode` on the first one it meets.
+        // No `with_distributed_user_codec(...)`: under `in_process_mode = true`, the fork
+        // skips constructing `CoordinatorToWorkerTaskSpawner`, so its eager codec encode
+        // never runs. Workers re-plan from the logical plan we ship via DSM and never
+        // decode a physical subplan over the wire. If `in_process_mode = false` ever gets
+        // exercised, restore a codec here for our custom execs or `try_encode` will reject
+        // the first one it meets.
         .with_distributed_planner();
     SessionContext::new_with_state(state_builder.build())
 }

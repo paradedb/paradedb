@@ -1060,7 +1060,7 @@ impl JoinScan {
     /// Build the leader's distributed session context for this JoinScan query. Thin wrapper
     /// over the shared [`crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context`]
     /// that seeds with `create_datafusion_session_context(SessionContextProfile::Join)`.
-    /// `mesh = None` is the EXPLAIN-time variant — see the shared helper's doc.
+    /// `mesh = None` is the EXPLAIN-time path. See the shared helper's doc.
     fn build_mpp_session_context(
         mesh: Option<Arc<MppMesh>>,
     ) -> datafusion::prelude::SessionContext {

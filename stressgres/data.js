@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779402460592,
+  "lastUpdate": 1779499268769,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1794,6 +1794,78 @@ window.BENCHMARK_DATA = {
             "value": 75.62908272943658,
             "unit": "median tps",
             "extra": "avg tps: 113.99960776432232, max tps: 346.88981626026936, count: 55049"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ad2db25b3b03ea248c51eadf5d7720bc858440d6",
+          "message": "refactor(mpp): drop PgSearchPhysicalCodecStub (#5128)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDeletes `PgSearchPhysicalCodecStub` and the\n`.with_distributed_user_codec(...)` registration. Cleans up a couple of\norphan imports in `codec.rs`.\n\n## Why\n\nThe codec was a stub. Workers re-plan from the logical plan in DSM, so\nthey never actually deserialize the encoded physical bytes. But the\nencode still ran inside `CoordinatorToWorkerTaskSpawner::new` and\nwould've blown up if our codec didn't claim every custom exec.\n\nFork PR paradedb/datafusion-distributed#8 now gates that encode behind\n`!in_process_mode`, so the stub has no reason to exist.\n\n## How\n\n- Bump `datafusion-distributed` rev so the spawner is only constructed\nwhen `!in_process_mode`.\n- Delete `PgSearchPhysicalCodecStub` (struct + impl + doc).\n- Drop `.with_distributed_user_codec(...)` from\n`build_mpp_session_context` plus the import.\n- Tighten the surrounding comment so it's clear what would need to come\nback if we ever flip `in_process_mode = false`.\n\nDepends on paradedb/datafusion-distributed#8. Before merging, re-pin the\nfork rev from the PR branch HEAD to the post-merge fork-`main` SHA.\n\n## Tests\n\n- `mpp_smoke`, `mpp_joinscan`, `mpp_aggregate`, `mpp_aggregate_postagg`\nall pass on pgrx-arm64.\n- CI green.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-22T17:50:54-07:00",
+          "tree_id": "ed718dfa206315082195c33bba69a016e1c89c1a",
+          "url": "https://github.com/paradedb/paradedb/commit/ad2db25b3b03ea248c51eadf5d7720bc858440d6"
+        },
+        "date": 1779499238193,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 129.65399781922346,
+            "unit": "median tps",
+            "extra": "avg tps: 130.08441112846216, max tps: 147.0324447634174, count: 54542"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 489.90478824165274,
+            "unit": "median tps",
+            "extra": "avg tps: 493.01448152972165, max tps: 662.9896269725397, count: 54542"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3241.424077332918,
+            "unit": "median tps",
+            "extra": "avg tps: 3235.699086032199, max tps: 3368.8470194173665, count: 54542"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 433.1441598836742,
+            "unit": "median tps",
+            "extra": "avg tps: 435.83361966476434, max tps: 526.5322681351535, count: 54542"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2914.6077177233,
+            "unit": "median tps",
+            "extra": "avg tps: 2889.973306316271, max tps: 2944.6412632531988, count: 109084"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 494.7627552255176,
+            "unit": "median tps",
+            "extra": "avg tps: 496.54319907218184, max tps: 657.0272347896932, count: 54542"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1974.8117750673905,
+            "unit": "median tps",
+            "extra": "avg tps: 1959.6991865115817, max tps: 1980.210369780092, count: 54542"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 93.29865889366651,
+            "unit": "median tps",
+            "extra": "avg tps: 91.01545172412101, max tps: 704.0562794427535, count: 54542"
           }
         ]
       }

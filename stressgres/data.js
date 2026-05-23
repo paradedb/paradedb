@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779499300938,
+  "lastUpdate": 1779499969139,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6190,6 +6190,42 @@ window.BENCHMARK_DATA = {
             "value": 5.482598309388016,
             "unit": "median tps",
             "extra": "avg tps: 4.914650268404189, max tps: 6.148669554526043, count: 57751"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ad2db25b3b03ea248c51eadf5d7720bc858440d6",
+          "message": "refactor(mpp): drop PgSearchPhysicalCodecStub (#5128)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDeletes `PgSearchPhysicalCodecStub` and the\n`.with_distributed_user_codec(...)` registration. Cleans up a couple of\norphan imports in `codec.rs`.\n\n## Why\n\nThe codec was a stub. Workers re-plan from the logical plan in DSM, so\nthey never actually deserialize the encoded physical bytes. But the\nencode still ran inside `CoordinatorToWorkerTaskSpawner::new` and\nwould've blown up if our codec didn't claim every custom exec.\n\nFork PR paradedb/datafusion-distributed#8 now gates that encode behind\n`!in_process_mode`, so the stub has no reason to exist.\n\n## How\n\n- Bump `datafusion-distributed` rev so the spawner is only constructed\nwhen `!in_process_mode`.\n- Delete `PgSearchPhysicalCodecStub` (struct + impl + doc).\n- Drop `.with_distributed_user_codec(...)` from\n`build_mpp_session_context` plus the import.\n- Tighten the surrounding comment so it's clear what would need to come\nback if we ever flip `in_process_mode = false`.\n\nDepends on paradedb/datafusion-distributed#8. Before merging, re-pin the\nfork rev from the PR branch HEAD to the post-merge fork-`main` SHA.\n\n## Tests\n\n- `mpp_smoke`, `mpp_joinscan`, `mpp_aggregate`, `mpp_aggregate_postagg`\nall pass on pgrx-arm64.\n- CI green.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-22T17:50:54-07:00",
+          "tree_id": "ed718dfa206315082195c33bba69a016e1c89c1a",
+          "url": "https://github.com/paradedb/paradedb/commit/ad2db25b3b03ea248c51eadf5d7720bc858440d6"
+        },
+        "date": 1779499938378,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.891109374729723,
+            "unit": "median tps",
+            "extra": "avg tps: 6.7502641134706325, max tps: 10.273238787655893, count: 57726"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.565107202340839,
+            "unit": "median tps",
+            "extra": "avg tps: 5.007844398006974, max tps: 6.260018367327647, count: 57726"
           }
         ]
       }

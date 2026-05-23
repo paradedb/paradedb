@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779500691867,
+  "lastUpdate": 1779500724173,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11572,6 +11572,108 @@ window.BENCHMARK_DATA = {
             "value": 164.14453125,
             "unit": "median mem",
             "extra": "avg mem: 182.4027891260658, max mem: 222.515625, count: 56413"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ad2db25b3b03ea248c51eadf5d7720bc858440d6",
+          "message": "refactor(mpp): drop PgSearchPhysicalCodecStub (#5128)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDeletes `PgSearchPhysicalCodecStub` and the\n`.with_distributed_user_codec(...)` registration. Cleans up a couple of\norphan imports in `codec.rs`.\n\n## Why\n\nThe codec was a stub. Workers re-plan from the logical plan in DSM, so\nthey never actually deserialize the encoded physical bytes. But the\nencode still ran inside `CoordinatorToWorkerTaskSpawner::new` and\nwould've blown up if our codec didn't claim every custom exec.\n\nFork PR paradedb/datafusion-distributed#8 now gates that encode behind\n`!in_process_mode`, so the stub has no reason to exist.\n\n## How\n\n- Bump `datafusion-distributed` rev so the spawner is only constructed\nwhen `!in_process_mode`.\n- Delete `PgSearchPhysicalCodecStub` (struct + impl + doc).\n- Drop `.with_distributed_user_codec(...)` from\n`build_mpp_session_context` plus the import.\n- Tighten the surrounding comment so it's clear what would need to come\nback if we ever flip `in_process_mode = false`.\n\nDepends on paradedb/datafusion-distributed#8. Before merging, re-pin the\nfork rev from the PR branch HEAD to the post-merge fork-`main` SHA.\n\n## Tests\n\n- `mpp_smoke`, `mpp_joinscan`, `mpp_aggregate`, `mpp_aggregate_postagg`\nall pass on pgrx-arm64.\n- CI green.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-22T17:50:54-07:00",
+          "tree_id": "ed718dfa206315082195c33bba69a016e1c89c1a",
+          "url": "https://github.com/paradedb/paradedb/commit/ad2db25b3b03ea248c51eadf5d7720bc858440d6"
+        },
+        "date": 1779500693592,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07491029239350552, max background_merging: 2.0, count: 56294"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.716803111707172, max cpu: 14.799589, count: 56294"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 25.6919353500151, max mem: 25.70703125, count: 56294"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.037839338792165, max cpu: 28.015566, count: 56294"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 170.4609375,
+            "unit": "median mem",
+            "extra": "avg mem: 173.47324301324298, max mem: 184.83984375, count: 56294"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51046,
+            "unit": "median block_count",
+            "extra": "avg block_count: 50900.90650868654, max block_count: 51046.0, count: 56294"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.23359505453512, max segment_count: 54.0, count: 56294"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6880173803114324, max cpu: 27.826086, count: 56294"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 142.06640625,
+            "unit": "median mem",
+            "extra": "avg mem: 134.20757103610066, max mem: 167.03515625, count: 56294"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.74118456484355, max cpu: 23.27837, count: 56294"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 187.1484375,
+            "unit": "median mem",
+            "extra": "avg mem: 182.9058261648666, max mem: 187.28125, count: 56294"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.893646092957994, max cpu: 33.768845, count: 56294"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 164.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 182.73744121265145, max mem: 222.7578125, count: 56294"
           }
         ]
       }

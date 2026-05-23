@@ -1988,7 +1988,7 @@ unsafe fn replace_aggrefs_in_target_list(plan: *mut pg_sys::Plan) {
         // For all other nodes, use the standard mutator to walk children
         #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
         {
-            let fnptr = aggref_mutator as usize as *const ();
+            let fnptr = aggref_mutator as *const ();
             let mutator: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
                 std::mem::transmute(fnptr);
             pg_sys::expression_tree_mutator(node, Some(mutator), context)

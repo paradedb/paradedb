@@ -26,6 +26,19 @@ FROM mock_items
 WHERE description ### 'running shoes';
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.phrase(mockItems.description, "running shoes"));
+```
+
 ```python Django
 from paradedb import ParadeDB, Phrase
 
@@ -52,19 +65,6 @@ with Session(engine) as session:
 MockItem.search(:description)
         .phrase("running shoes")
         .select(:description, :rating, :category)
-```
-
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(search.phrase(mockItems.description, "running shoes"));
 ```
 
 </CodeGroup>
@@ -121,11 +121,24 @@ FROM mock_items
 WHERE description ### 'shoes running'::pdb.slop(2);
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.phrase(mockItems.description, search.slop("shoes running", 2)));
+```
+
 ```python Django
-from paradedb import ParadeDB, Phrase
+from paradedb import ParadeDB, Phrase, Slop
 
 MockItem.objects.filter(
-    description=ParadeDB(Phrase('shoes running', slop=2))
+    description=ParadeDB(Phrase(Slop('shoes running', 2)))
 ).values('description', 'rating', 'category')
 ```
 
@@ -149,19 +162,6 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(search.phrase(mockItems.description, search.slop("shoes running", 2)));
-```
-
 </CodeGroup>
 
 ## Using a Custom Tokenizer
@@ -175,11 +175,29 @@ FROM mock_items
 WHERE description ### 'running shoes'::pdb.whitespace;
 ```
 
+```ts Drizzle
+import { search, tokenizer } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.phrase(
+      mockItems.description,
+      search.tokenize("running shoes", tokenizer.whitespace()),
+    ),
+  );
+```
+
 ```python Django
-from paradedb import ParadeDB, Phrase, Tokenizer
+from paradedb import ParadeDB, Phrase, Tokenized, Tokenizer
 
 MockItem.objects.filter(
-    description=ParadeDB(Phrase('running shoes', tokenizer=Tokenizer.whitespace()))
+    description=ParadeDB(Phrase(Tokenized('running shoes', Tokenizer.whitespace())))
 ).values('description', 'rating', 'category')
 ```
 
@@ -203,24 +221,6 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
-```ts Drizzle
-import { search, tokenizer } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(
-    search.phrase(
-      mockItems.description,
-      search.tokenize("running shoes", tokenizer.whitespace()),
-    ),
-  );
-```
-
 </CodeGroup>
 
 ## Using Pretokenized Text
@@ -235,6 +235,19 @@ The following query matches documents containing the token `shoes` immediately f
 SELECT description, rating, category
 FROM mock_items
 WHERE description ### ARRAY['running', 'shoes'];
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.phrase(mockItems.description, ["running", "shoes"]));
 ```
 
 ```python Django
@@ -263,6 +276,17 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+</CodeGroup>
+
+Adding slop is supported:
+
+<CodeGroup>
+```sql SQL
+SELECT description, rating, category
+FROM mock_items
+WHERE description ### ARRAY['shoes', 'running']::pdb.slop(2);
+```
+
 ```ts Drizzle
 import { search } from "@paradedb/drizzle-paradedb";
 
@@ -273,18 +297,9 @@ await db
     category: mockItems.category,
   })
   .from(mockItems)
-  .where(search.phrase(mockItems.description, ["running", "shoes"]));
-```
-
-</CodeGroup>
-
-Adding slop is supported:
-
-<CodeGroup>
-```sql SQL
-SELECT description, rating, category
-FROM mock_items
-WHERE description ### ARRAY['shoes', 'running']::pdb.slop(2);
+  .where(
+    search.phrase(mockItems.description, search.slop(["shoes", "running"], 2)),
+  );
 ```
 
 ```python Django
@@ -311,21 +326,6 @@ with Session(engine) as session:
 MockItem.search(:description)
         .phrase(%w[shoes running], slop: 2)
         .select(:description, :rating, :category)
-```
-
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(
-    search.phrase(mockItems.description, search.slop(["shoes", "running"], 2)),
-  );
 ```
 
 </CodeGroup>

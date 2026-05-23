@@ -14,6 +14,12 @@ USING bm25 (id, metadata)
 WITH (key_field='id');
 ```
 
+```ts Drizzle
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+indexing.bm25Index("search_idx").on(mockItems.id, mockItems.metadata);
+```
+
 ```python Django
 from django.db import connection
 from paradedb.indexes import BM25Index
@@ -60,12 +66,6 @@ ActiveRecord::Base.connection.add_bm25_index(
 )
 ```
 
-```ts Drizzle
-import { indexing } from "@paradedb/drizzle-paradedb";
-
-indexing.bm25Index("search_idx").on(mockItems.id, mockItems.metadata);
-```
-
 </CodeGroup>
 
 A single `metadata` JSON may look like:
@@ -83,6 +83,17 @@ By default, all text sub-fields of a JSON object use the same tokenizer. The tok
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (metadata::pdb.ngram(2,3)))
 WITH (key_field='id');
+```
+
+```ts Drizzle
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(
+    mockItems.id,
+    indexing.bm25Field(mockItems.metadata, tokenizer.ngram(2, 3)),
+  );
 ```
 
 ```python Django
@@ -137,17 +148,6 @@ ActiveRecord::Base.connection.add_bm25_index(
 )
 ```
 
-```ts Drizzle
-import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
-
-indexing
-  .bm25Index("search_idx")
-  .on(
-    mockItems.id,
-    indexing.bm25Field(mockItems.metadata, tokenizer.ngram(2, 3)),
-  );
-```
-
 </CodeGroup>
 
 Instead of indexing the entire JSON, sub-fields of the JSON can be indexed individually. This allows for configuring separate tokenizers
@@ -158,6 +158,20 @@ within a larger JSON:
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, ((metadata->>'color')::pdb.ngram(2,3)))
 WITH (key_field='id');
+```
+
+```ts Drizzle
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(
+    mockItems.id,
+    indexing.bm25Field(
+      indexing.jsonText(mockItems.metadata, "color"),
+      tokenizer.ngram(2, 3),
+    ),
+  );
 ```
 
 ```python Django
@@ -214,20 +228,6 @@ ActiveRecord::Base.connection.add_bm25_index(
   key_field: :id,
   name: :search_idx
 )
-```
-
-```ts Drizzle
-import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
-
-indexing
-  .bm25Index("search_idx")
-  .on(
-    mockItems.id,
-    indexing.bm25Field(
-      indexing.jsonText(mockItems.metadata, "color"),
-      tokenizer.ngram(2, 3),
-    ),
-  );
 ```
 
 </CodeGroup>

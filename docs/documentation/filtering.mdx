@@ -14,11 +14,30 @@ FROM mock_items
 WHERE description ||| 'running shoes' AND rating > 2;
 ```
 
+```ts Drizzle
+import { and, gt } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    and(
+      search.matchAny(mockItems.description, "running shoes"),
+      gt(mockItems.rating, 2),
+    ),
+  );
+```
+
 ```python Django
-from paradedb import Match, ParadeDB
+from paradedb import MatchAny, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('running shoes', operator='OR')),
+    description=ParadeDB(MatchAny('running shoes')),
     rating__gt=2
 ).values('description', 'rating', 'category')
 ```
@@ -42,25 +61,6 @@ MockItem.search(:description)
         .matching_any("running shoes")
         .where(rating: 3..)
         .select(:description, :rating, :category)
-```
-
-```ts Drizzle
-import { and, gt } from "drizzle-orm";
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(
-    and(
-      search.matchAny(mockItems.description, "running shoes"),
-      gt(mockItems.rating, 2),
-    ),
-  );
 ```
 
 </CodeGroup>
@@ -146,6 +146,25 @@ FROM mock_items
 WHERE description @@@ 'shoes' AND category = 'Footwear';
 ```
 
+```ts Drizzle
+import { and, eq } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    and(
+      search.term(mockItems.description, "shoes"),
+      eq(mockItems.category, "Footwear"),
+    ),
+  );
+```
+
 ```python Django
 from paradedb import ParadeDB, Term
 
@@ -176,25 +195,6 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
-```ts Drizzle
-import { and, eq } from "drizzle-orm";
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(
-    and(
-      search.term(mockItems.description, "shoes"),
-      eq(mockItems.category, "Footwear"),
-    ),
-  );
-```
-
 </CodeGroup>
 
 To push down the `category = 'Footwear'` filter, `category` must be indexed using the [literal](/documentation/tokenizers/available-tokenizers/literal) tokenizer:
@@ -212,6 +212,25 @@ Pushdown of set filters over text fields also requires the literal tokenizer:
 SELECT description, rating, category
 FROM mock_items
 WHERE description @@@ 'shoes' AND category IN ('Footwear', 'Apparel');
+```
+
+```ts Drizzle
+import { and, inArray } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    and(
+      search.term(mockItems.description, "shoes"),
+      inArray(mockItems.category, ["Footwear", "Apparel"]),
+    ),
+  );
 ```
 
 ```python Django
@@ -242,25 +261,6 @@ MockItem.search(:description)
         .term("shoes")
         .where(category: ["Footwear", "Apparel"])
         .select(:description, :rating, :category)
-```
-
-```ts Drizzle
-import { and, inArray } from "drizzle-orm";
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(
-    and(
-      search.term(mockItems.description, "shoes"),
-      inArray(mockItems.category, ["Footwear", "Apparel"]),
-    ),
-  );
 ```
 
 </CodeGroup>

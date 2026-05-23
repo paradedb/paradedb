@@ -63,6 +63,14 @@ pub(super) fn align_up_maxalign_checked(n: usize) -> Option<usize> {
 pub(super) struct ShmMqSender {
     inner: MessageQueueSender,
     attach_thread: std::thread::ThreadId,
+    /// Async serialization lock around the shm_mq handle. Held by [`MppSender::send_*_traced`]
+    /// across the cooperative-drain spin to keep partial sends from interleaving — see the
+    /// [`BatchChannelSender::send_lock`] doc and PG's `shm_mq_send` invariants. Multiple
+    /// [`MppSender`] clones share the same `Arc<dyn BatchChannelSender>` to multiplex
+    /// `(stage_id, partition)` channels onto one shm_mq, and yielding between `try_send_bytes`
+    /// retries can otherwise stitch one sender's length prefix to another sender's payload and
+    /// corrupt the queue.
+    send_lock: tokio::sync::Mutex<()>,
 }
 
 // SAFETY: see struct doc.
@@ -86,6 +94,7 @@ impl ShmMqSender {
             Self {
                 inner: MessageQueueSender::new(seg, mq),
                 attach_thread: std::thread::current().id(),
+                send_lock: tokio::sync::Mutex::new(()),
             }
         }
     }
@@ -132,6 +141,10 @@ impl BatchChannelSender for ShmMqSender {
                 )))
             }
         }
+    }
+
+    fn send_lock(&self) -> &tokio::sync::Mutex<()> {
+        &self.send_lock
     }
 }
 

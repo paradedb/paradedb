@@ -17,6 +17,21 @@ USING bm25 (id, ((description || ' ' || category)::pdb.simple('alias=description
 WITH (key_field='id');
 ```
 
+```ts Drizzle
+import { sql } from "drizzle-orm";
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(
+    mockItems.id,
+    indexing.bm25Field(
+      sql`${mockItems.description} || ' ' || ${mockItems.category}`,
+      tokenizer.simple({ alias: "description_concat" }),
+    ),
+  );
+```
+
 ```python Django
 from django.db import connection, models
 from django.db.models import F, Func, Value
@@ -83,21 +98,6 @@ ActiveRecord::Base.connection.add_bm25_index(
 )
 ```
 
-```ts Drizzle
-import { sql } from "drizzle-orm";
-import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
-
-indexing
-  .bm25Index("search_idx")
-  .on(
-    mockItems.id,
-    indexing.bm25Field(
-      sql`${mockItems.description} || ' ' || ${mockItems.category}`,
-      tokenizer.simple({ alias: "description_concat" }),
-    ),
-  );
-```
-
 </CodeGroup>
 
 To index a text/JSON expression:
@@ -131,6 +131,19 @@ the expression `rating + 1`, which returns an integer:
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description, ((rating + 1)::pdb.alias('rating')))
 WITH (key_field='id');
+```
+
+```ts Drizzle
+import { sql } from "drizzle-orm";
+import { indexing, search } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(
+    mockItems.id,
+    mockItems.description,
+    search.alias(sql`${mockItems.rating} + 1`, "rating"),
+  );
 ```
 
 ```python Django
@@ -185,19 +198,6 @@ ActiveRecord::Base.connection.add_bm25_index(
   key_field: :id,
   name: :search_idx
 )
-```
-
-```ts Drizzle
-import { sql } from "drizzle-orm";
-import { indexing, search } from "@paradedb/drizzle-paradedb";
-
-indexing
-  .bm25Index("search_idx")
-  .on(
-    mockItems.id,
-    mockItems.description,
-    search.alias(sql`${mockItems.rating} + 1`, "rating"),
-  );
 ```
 
 </CodeGroup>

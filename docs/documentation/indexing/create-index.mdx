@@ -14,6 +14,14 @@ USING bm25 (id, description, category)
 WITH (key_field='id');
 ```
 
+```ts Drizzle
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(mockItems.id, mockItems.description, mockItems.category);
+```
+
 ```python Django
 from django.db import connection
 from paradedb.indexes import BM25Index
@@ -63,14 +71,6 @@ ActiveRecord::Base.connection.add_bm25_index(
 )
 ```
 
-```ts Drizzle
-import { indexing } from "@paradedb/drizzle-paradedb";
-
-indexing
-  .bm25Index("search_idx")
-  .on(mockItems.id, mockItems.description, mockItems.category);
-```
-
 </CodeGroup>
 
 <Note>
@@ -85,6 +85,12 @@ You'll need to drop the existing `search_idx` before you can create a new one:
 
 ```sql SQL
 DROP INDEX search_idx;
+```
+
+```ts Drizzle
+import { sql } from "drizzle-orm";
+
+await db.execute(sql`DROP INDEX search_idx`);
 ```
 
 ```python Django
@@ -105,12 +111,6 @@ with engine.begin() as conn:
 ActiveRecord::Base.connection.remove_bm25_index(:mock_items, name: :search_idx)
 ```
 
-```ts Drizzle
-import { sql } from "drizzle-orm";
-
-await db.execute(sql`DROP INDEX search_idx`);
-```
-
 </CodeGroup>
 
 </Note>
@@ -126,6 +126,18 @@ For instance, if a column contains multiple languages, the ICU tokenizer may be 
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.icu), category)
 WITH (key_field='id');
+```
+
+```ts Drizzle
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(
+    mockItems.id,
+    indexing.bm25Field(mockItems.description, tokenizer.icu()),
+    mockItems.category,
+  );
 ```
 
 ```python Django
@@ -181,18 +193,6 @@ ActiveRecord::Base.connection.add_bm25_index(
 )
 ```
 
-```ts Drizzle
-import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
-
-indexing
-  .bm25Index("search_idx")
-  .on(
-    mockItems.id,
-    indexing.bm25Field(mockItems.description, tokenizer.icu()),
-    mockItems.category,
-  );
-```
-
 </CodeGroup>
 
 Only one BM25 index can exist per table. We recommend indexing all columns in a table that may be present in a search query,
@@ -203,6 +203,23 @@ including columns used for sorting, grouping, filtering, and aggregations.
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
 WITH (key_field='id');
+```
+
+```ts Drizzle
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(
+    mockItems.id,
+    mockItems.description,
+    mockItems.category,
+    mockItems.rating,
+    mockItems.inStock,
+    mockItems.createdAt,
+    mockItems.metadata,
+    mockItems.weightRange,
+  );
 ```
 
 ```python Django
@@ -269,23 +286,6 @@ ActiveRecord::Base.connection.add_bm25_index(
 )
 ```
 
-```ts Drizzle
-import { indexing } from "@paradedb/drizzle-paradedb";
-
-indexing
-  .bm25Index("search_idx")
-  .on(
-    mockItems.id,
-    mockItems.description,
-    mockItems.category,
-    mockItems.rating,
-    mockItems.inStock,
-    mockItems.createdAt,
-    mockItems.metadata,
-    mockItems.weightRange,
-  );
-```
-
 </CodeGroup>
 
 Most Postgres types, including text, JSON, numeric, timestamp, range, boolean, and arrays, can be indexed.
@@ -323,6 +323,21 @@ For example, the following code block adds English stemming to `description`:
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.simple('stemmer=english')), category)
 WITH (key_field='id');
+```
+
+```ts Drizzle
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(
+    mockItems.id,
+    indexing.bm25Field(
+      mockItems.description,
+      tokenizer.simple({ stemmer: "english" }),
+    ),
+    mockItems.category,
+  );
 ```
 
 ```python Django
@@ -382,21 +397,6 @@ ActiveRecord::Base.connection.add_bm25_index(
   key_field: :id,
   name: :search_idx
 )
-```
-
-```ts Drizzle
-import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
-
-indexing
-  .bm25Index("search_idx")
-  .on(
-    mockItems.id,
-    indexing.bm25Field(
-      mockItems.description,
-      tokenizer.simple({ stemmer: "english" }),
-    ),
-    mockItems.category,
-  );
 ```
 
 </CodeGroup>

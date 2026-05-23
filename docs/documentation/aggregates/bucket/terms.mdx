@@ -21,6 +21,20 @@ GROUP BY rating
 LIMIT 10;
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    rating: mockItems.rating,
+    agg: search.agg({ value_count: { field: "id" } }),
+  })
+  .from(mockItems)
+  .where(search.all(mockItems.id))
+  .groupBy(mockItems.rating)
+  .limit(10);
+```
+
 ```python Django
 from paradedb import Agg, All, ParadeDB
 
@@ -57,20 +71,6 @@ MockItem.search(:id)
         .limit(10)
 ```
 
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    rating: mockItems.rating,
-    agg: search.agg({ value_count: { field: "id" } }),
-  })
-  .from(mockItems)
-  .where(search.all(mockItems.id))
-  .groupBy(mockItems.rating)
-  .limit(10);
-```
-
 </CodeGroup>
 
 ```ini Expected Response
@@ -93,6 +93,21 @@ WHERE id @@@ pdb.all()
 GROUP BY rating
 ORDER BY rating
 LIMIT 10;
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    rating: mockItems.rating,
+    agg: search.agg({ value_count: { field: "id" } }),
+  })
+  .from(mockItems)
+  .where(search.all(mockItems.id))
+  .groupBy(mockItems.rating)
+  .orderBy(mockItems.rating)
+  .limit(10);
 ```
 
 ```python Django
@@ -131,21 +146,6 @@ MockItem.search(:id)
         )
         .order(:rating)
         .limit(10)
-```
-
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    rating: mockItems.rating,
-    agg: search.agg({ value_count: { field: "id" } }),
-  })
-  .from(mockItems)
-  .where(search.all(mockItems.id))
-  .groupBy(mockItems.rating)
-  .orderBy(mockItems.rating)
-  .limit(10);
 ```
 
 </CodeGroup>

@@ -37,8 +37,37 @@ FROM mock_items
 WHERE description ||| 'Sleek running shoes';
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+// Query against `description_simple`
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.matchAny(
+      search.alias(mockItems.description, "description_simple"),
+      "Sleek running shoes",
+    ),
+  );
+
+// Query against `description`
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "Sleek running shoes"));
+```
+
 ```python Django
-from paradedb import Match, ParadeDB
+from paradedb import MatchAny, ParadeDB
 
 # Query against `description_simple`
 MockItem.objects.extra(
@@ -47,7 +76,7 @@ MockItem.objects.extra(
 
 # Query against `description`
 MockItem.objects.filter(
-    description=ParadeDB(Match('Sleek running shoes', operator='OR'))
+    description=ParadeDB(MatchAny('Sleek running shoes'))
 ).values('description', 'rating', 'category')
 ```
 
@@ -85,35 +114,6 @@ MockItem.search(:description_simple)
 MockItem.search(:description)
         .matching_any("Sleek running shoes")
         .select(:description, :rating, :category)
-```
-
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-// Query against `description_simple`
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(
-    search.matchAny(
-      search.alias(mockItems.description, "description_simple"),
-      "Sleek running shoes",
-    ),
-  );
-
-// Query against `description`
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(search.matchAny(mockItems.description, "Sleek running shoes"));
 ```
 
 </CodeGroup>

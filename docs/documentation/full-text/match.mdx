@@ -20,11 +20,24 @@ FROM mock_items
 WHERE description ||| 'running shoes';
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "running shoes"));
+```
+
 ```python Django
-from paradedb import Match, ParadeDB
+from paradedb import MatchAny, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('running shoes', operator='OR'))
+    description=ParadeDB(MatchAny('running shoes'))
 ).values('description', 'rating', 'category')
 ```
 
@@ -46,19 +59,6 @@ with Session(engine) as session:
 MockItem.search(:description)
         .matching_any("running shoes")
         .select(:description, :rating, :category)
-```
-
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(search.matchAny(mockItems.description, "running shoes"));
 ```
 
 </CodeGroup>
@@ -112,11 +112,24 @@ FROM mock_items
 WHERE description &&& 'running shoes';
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.matchAll(mockItems.description, "running shoes"));
+```
+
 ```python Django
-from paradedb import Match, ParadeDB
+from paradedb import MatchAll, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('running shoes', operator='AND'))
+    description=ParadeDB(MatchAll('running shoes'))
 ).values('description', 'rating', 'category')
 ```
 
@@ -138,19 +151,6 @@ with Session(engine) as session:
 MockItem.search(:description)
         .matching_all("running shoes")
         .select(:description, :rating, :category)
-```
-
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(search.matchAll(mockItems.description, "running shoes"));
 ```
 
 </CodeGroup>
@@ -214,12 +214,30 @@ FROM mock_items
 WHERE description ||| 'running shoes'::pdb.whitespace;
 ```
 
+```ts Drizzle
+import { search, tokenizer } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.matchAny(
+      mockItems.description,
+      search.tokenize("running shoes", tokenizer.whitespace()),
+    ),
+  );
+```
+
 ```python Django
-from paradedb import Match, ParadeDB, Tokenizer
+from paradedb import MatchAny, ParadeDB, Tokenized, Tokenizer
 
 MockItem.objects.filter(
     description=ParadeDB(
-        Match('running shoes', operator='OR', tokenizer=Tokenizer.whitespace())
+        MatchAny(Tokenized('running shoes', Tokenizer.whitespace()))
     )
 ).values('description', 'rating', 'category')
 ```
@@ -244,24 +262,6 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
-```ts Drizzle
-import { search, tokenizer } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(
-    search.matchAny(
-      mockItems.description,
-      search.tokenize("running shoes", tokenizer.whitespace()),
-    ),
-  );
-```
-
 </CodeGroup>
 
 ## Using Pretokenized Text
@@ -276,11 +276,24 @@ FROM mock_items
 WHERE description &&& ARRAY['running', 'shoes'];
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.matchAll(mockItems.description, ["running", "shoes"]));
+```
+
 ```python Django
-from paradedb import Match, ParadeDB
+from paradedb import MatchAll, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('running', 'shoes', operator='AND'))
+    description=ParadeDB(MatchAll('running', 'shoes'))
 ).values('description', 'rating', 'category')
 ```
 
@@ -302,19 +315,6 @@ with Session(engine) as session:
 MockItem.search(:description)
         .matching_all("running", "shoes")
         .select(:description, :rating, :category)
-```
-
-```ts Drizzle
-import { search } from "@paradedb/drizzle-paradedb";
-
-await db
-  .select({
-    description: mockItems.description,
-    rating: mockItems.rating,
-    category: mockItems.category,
-  })
-  .from(mockItems)
-  .where(search.matchAll(mockItems.description, ["running", "shoes"]));
 ```
 
 </CodeGroup>

@@ -18,6 +18,16 @@ WITH (key_field='id')
 WHERE description IS NOT NULL;
 ```
 
+```ts Drizzle
+import { isNotNull } from "drizzle-orm";
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(mockItems.id, mockItems.description, mockItems.category)
+  .where(isNotNull(mockItems.description));
+```
+
 ```python Django
 from django.db import connection
 from django.db.models import Q
@@ -69,16 +79,6 @@ ActiveRecord::Base.connection.add_bm25_index(
   name: :search_idx,
   where: "description IS NOT NULL"
 )
-```
-
-```ts Drizzle
-import { isNotNull } from "drizzle-orm";
-import { indexing } from "@paradedb/drizzle-paradedb";
-
-indexing
-  .bm25Index("search_idx")
-  .on(mockItems.id, mockItems.description, mockItems.category)
-  .where(isNotNull(mockItems.description));
 ```
 
 </CodeGroup>

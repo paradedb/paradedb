@@ -1152,6 +1152,22 @@ impl AggregateScan {
             Ok((builder, aggregate_clause)) => {
                 Self::mark_contexts_successful(unsafe { rte_alias_or_unknown(heap_rte) });
 
+                // At UPPERREL_DISTINCT the planner leaves output_rel.reltarget.exprs
+                // empty, so the CustomPath's pathtarget has no column list. Plan nodes
+                // above the custom scan (Sort, Limit) need to find their Var references
+                // in the pathtarget; build one from parse->targetList.
+                let builder =
+                    if builder.args().stage == pg_sys::UpperRelationKind::UPPERREL_DISTINCT {
+                        unsafe {
+                            let pathtarget = pg_sys::make_pathtarget_from_tlist(
+                                (*builder.args().root().parse).targetList,
+                            );
+                            builder.set_pathtarget(pathtarget)
+                        }
+                    } else {
+                        builder
+                    };
+
                 vec![builder.build(PrivateData::Tantivy {
                     heap_rti,
                     indexrelid: index.oid(),

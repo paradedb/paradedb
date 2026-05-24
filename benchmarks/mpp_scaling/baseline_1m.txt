@@ -1,0 +1,21 @@
+query                  config       run1_ms run2_ms run3_ms median_ms
+q1_join_count          baseline     1382.197 1182.864 1196.036  1196.036
+q1_join_count          mpp_n2       1262.400 1206.284 1186.934  1206.284
+q1_join_count          mpp_n4       1188.286 1247.576 1185.443  1188.286
+q1_join_count          mpp_n8       1186.785 1186.196 1184.977  1186.196
+---
+q2_join_low_gb         baseline     1401.604 1393.350 1393.341  1393.350
+q2_join_low_gb         mpp_n2       1183.368 1169.826 1184.285  1183.368
+q2_join_low_gb         mpp_n4       9766.661 10409.608 10847.925 10409.608
+q2_join_low_gb         mpp_n8       4574.924 4825.680 4417.211  4574.924
+---
+q3_join_high_gb        baseline     1591.333 1453.169 1456.788  1456.788
+q3_join_high_gb        mpp_n2       1356.157 1362.624 1359.409  1359.409
+q3_join_high_gb        mpp_n4       10925.676 11293.580 11526.842 11293.580
+q3_join_high_gb        mpp_n8       5003.442 4646.917 4857.308  4857.308
+---
+q4_join_multi_agg      baseline     1388.865 1342.985 1305.034  1342.985
+q4_join_multi_agg      mpp_n2       1313.017 1320.918 1318.818  1318.818
+q4_join_multi_agg      mpp_n4       1314.300 1321.891 1304.894  1314.300
+q4_join_multi_agg      mpp_n8       1305.298 1313.550 1304.625  1305.298
+---

@@ -138,6 +138,45 @@ pub fn compute_nworkers(
     nworkers
 }
 
+/// Maximum number of useful parallel workers given structural constraints only.
+///
+/// Unlike `compute_nworkers`, this does NOT gate on row count or the
+/// `min_rows_per_worker` GUC. The caller uses the returned upper bound in its
+/// serial-vs-parallel cost comparison before emitting one chosen path (see
+/// #4664).
+///
+/// Returns 0 if parallelism is structurally impossible:
+/// - External quals (parameterized scan in a nested loop).
+/// - Correlated PARAM_EXEC nodes.
+///
+/// Otherwise returns `min(segment_count - 1, max_parallel_workers_per_gather,
+/// max_parallel_workers)`. The leader is excluded from `segment_count - 1`.
+pub fn max_useful_workers(
+    segment_count: usize,
+    has_external_quals: bool,
+    has_correlated_param: bool,
+) -> usize {
+    if has_external_quals || has_correlated_param {
+        return 0;
+    }
+
+    let mut nworkers = segment_count.saturating_sub(1);
+    nworkers = unsafe {
+        nworkers
+            .min(pg_sys::max_parallel_workers_per_gather as usize)
+            .min(pg_sys::max_parallel_workers as usize)
+    };
+
+    #[cfg(not(feature = "pg15"))]
+    unsafe {
+        if nworkers == 0 && pg_sys::debug_parallel_query != 0 {
+            nworkers = 1;
+        }
+    }
+
+    nworkers
+}
+
 pub unsafe fn checkout_segment(pscan_state: *mut ParallelScanState) -> Option<SegmentId> {
     (*pscan_state).checkout_segment()
 }

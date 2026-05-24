@@ -45,7 +45,9 @@ use tantivy::collector::sort_key::{
 };
 use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::index::{Index, Order, SegmentId};
-use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
+use tantivy::query::{
+    BooleanQuery, EnableScoring, Occur, QueryClone, QueryParser, TermQuery, Weight,
+};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::{
     query::Query, schema::OwnedValue, DateTime, DocAddress, DocId, DocSet, Executor, IndexReader,
@@ -411,24 +413,20 @@ impl SearchIndexReader {
         } = components;
 
         let need_scores = need_scores || search_query_input.need_scores();
-        let query = {
-            search_query_input
-                .into_tantivy_query(
-                    &schema,
-                    &|| {
-                        QueryParser::for_index(
-                            &index,
-                            schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
-                        )
-                    },
-                    &searcher,
-                    index_relation.oid(),
-                    index_relation.rel_oid(),
-                    expr_context,
-                    planstate,
+        let query = search_query_input.into_tantivy_query(
+            &schema,
+            &|| {
+                QueryParser::for_index(
+                    &index,
+                    schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
                 )
-                .unwrap_or_else(|e| panic!("{e}"))
-        };
+            },
+            &searcher,
+            index_relation.oid(),
+            index_relation.rel_oid(),
+            expr_context,
+            planstate,
+        )?;
         let segment_ord_by_id = searcher
             .segment_readers()
             .iter()
@@ -464,7 +462,7 @@ impl SearchIndexReader {
     }
 
     pub fn query(&self) -> &dyn Query {
-        &self.query
+        self.query.as_ref()
     }
 
     pub fn and_query(&mut self, additional_query: Box<dyn Query>) {
@@ -738,6 +736,28 @@ impl SearchIndexReader {
                 .take(n)
                 .collect(),
             None,
+        )
+    }
+
+    /// Returns true when `search_top_k_in_segments` will use the score-only
+    /// DESC collector and this reader's already-built Tantivy query can use
+    /// Tantivy's Block-WAND `for_each_pruning` override.
+    pub(crate) fn topk_uses_limit_bounded_score_collection(
+        &self,
+        orderby_info: &[OrderByInfo],
+    ) -> bool {
+        Self::orderby_uses_score_desc_topk_collector(orderby_info)
+            && query_supports_block_wand_score_pruning(self.query())
+    }
+
+    /// Mirrors the sort-shape branch in `search_top_k_in_segments`.
+    pub(crate) fn orderby_uses_score_desc_topk_collector(orderby_info: &[OrderByInfo]) -> bool {
+        matches!(
+            orderby_info,
+            [OrderByInfo {
+                feature: OrderByFeature::Score { .. },
+                direction,
+            }] if !direction.is_asc()
         )
     }
 
@@ -1416,6 +1436,34 @@ impl SearchIndexReader {
             })
             .collect()
     }
+}
+
+fn query_supports_block_wand_score_pruning(query: &dyn Query) -> bool {
+    let query = unbox_query(query);
+
+    // Conservative mirror of Tantivy's Block-WAND overrides: TermWeight uses
+    // block_wand_single_scorer, and BooleanWeight uses block_wand for pure term
+    // unions. Other query shapes use the general worker-selection path.
+    if query.is::<TermQuery>() {
+        return true;
+    }
+
+    let Some(boolean_query) = query.downcast_ref::<BooleanQuery>() else {
+        return false;
+    };
+
+    boolean_query.get_minimum_number_should_match() == 1
+        && !boolean_query.clauses().is_empty()
+        && boolean_query.clauses().iter().all(|(occur, subquery)| {
+            matches!(occur, Occur::Should) && unbox_query(subquery.as_ref()).is::<TermQuery>()
+        })
+}
+
+fn unbox_query(mut query: &dyn Query) -> &dyn Query {
+    while let Some(boxed) = query.downcast_ref::<Box<dyn Query>>() {
+        query = boxed.as_ref();
+    }
+    query
 }
 
 impl SearchIndexManifest {

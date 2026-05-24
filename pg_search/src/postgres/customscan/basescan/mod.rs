@@ -190,7 +190,7 @@ impl BaseScan {
             std::ptr::NonNull::new(planstate),
             needs_tokenizer_manager,
         )
-        .expect("should be able to open the search index reader");
+        .unwrap_or_else(|e| panic!("{e}"));
         state.custom_state_mut().set_search_reader(search_reader);
 
         let csstate = addr_of_mut!(state.csstate);
@@ -1575,7 +1575,7 @@ impl CustomScan for BaseScan {
                         None,                          // No planstate needed for estimates
                         base_query.needs_tokenizer(),
                     )
-                    .expect("opening temporary search reader for estimates should not fail");
+                    .unwrap_or_else(|e| panic!("{e}"));
 
                     temp_reader
                         .build_query_tree_with_estimates(base_query.clone())

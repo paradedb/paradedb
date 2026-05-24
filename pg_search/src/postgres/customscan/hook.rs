@@ -289,7 +289,9 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
 ) where
     CS: CustomScan<Args = CreateUpperPathsHookArgs> + 'static,
 {
-    if stage != pg_sys::UpperRelationKind::UPPERREL_GROUP_AGG {
+    if stage != pg_sys::UpperRelationKind::UPPERREL_GROUP_AGG
+        && stage != pg_sys::UpperRelationKind::UPPERREL_DISTINCT
+    {
         return;
     }
 

@@ -80,10 +80,18 @@ impl CustomScanClause<AggregateScan> for GroupByClause {
         let index_expressions = index.index_expressions();
         let categorized_fields = schema.categorized_fields();
 
-        let pathkeys = if args.root().group_pathkeys.is_null() {
+        // For SELECT DISTINCT the planner populates distinct_pathkeys (not group_pathkeys).
+        // Both have the same PathKey structure, so the iteration below works for both cases.
+        let is_distinct = args.stage == pg_sys::UpperRelationKind::UPPERREL_DISTINCT;
+        let raw_pathkeys = if is_distinct {
+            args.root().distinct_pathkeys
+        } else {
+            args.root().group_pathkeys
+        };
+        let pathkeys = if raw_pathkeys.is_null() {
             PgList::<pg_sys::PathKey>::new()
         } else {
-            unsafe { PgList::<pg_sys::PathKey>::from_pg(args.root().group_pathkeys) }
+            unsafe { PgList::<pg_sys::PathKey>::from_pg(raw_pathkeys) }
         };
 
         for pathkey in pathkeys.iter_ptr() {

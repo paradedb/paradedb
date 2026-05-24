@@ -791,6 +791,7 @@ fn parallel_custom_scan_with_jsonb_issue2432(mut conn: PgConnection) {
         SET enable_indexonlyscan to OFF;
         SET enable_indexscan to OFF;
         SET max_parallel_workers = 32;
+        SET paradedb.per_segment_cost = 1000;
     "#
     .execute(&mut conn);
 

@@ -338,7 +338,6 @@ impl JoinPathlistHookArgs {
 #[derive(Debug, Clone, Copy)]
 pub struct CreateUpperPathsHookArgs {
     pub root: *mut pg_sys::PlannerInfo,
-    #[allow(dead_code)]
     pub stage: pg_sys::UpperRelationKind::Type,
     pub input_rel: *mut pg_sys::RelOptInfo,
     pub output_rel: *mut pg_sys::RelOptInfo,

@@ -142,8 +142,8 @@ WHERE category === 'Electronics'
 ORDER BY category DESC  -- Should warn
 LIMIT 10;
 WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: test_products)
-                                                          QUERY PLAN                                                           
--------------------------------------------------------------------------------------------------------------------------------
+                                                QUERY PLAN                                                 
+-----------------------------------------------------------------------------------------------------------
  Limit
    ->  Sort
          Sort Key: category DESC
@@ -152,7 +152,7 @@ WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead).
                Index: products_lower_idx
                Exec Method: NormalScanExecState
                Scores: false
-               Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"Electronics","is_datetime":false}}}}
+               Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"Electronics"}}}}
 (9 rows)
 
 -- Test 8: Disable validation mid-session

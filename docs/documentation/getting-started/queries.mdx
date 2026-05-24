@@ -19,11 +19,32 @@ ORDER BY rating
 LIMIT 5;
 ```
 
+```ts Drizzle
+import { and, gt } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    and(
+      search.matchAny(mockItems.description, "running shoes"),
+      gt(mockItems.rating, 2),
+    ),
+  )
+  .orderBy(mockItems.rating)
+  .limit(5);
+```
+
 ```python Django
-from paradedb import Match, ParadeDB
+from paradedb import MatchAny, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('running shoes', operator='OR')),
+    description=ParadeDB(MatchAny('running shoes')),
     rating__gt=2
 ).values('description', 'rating', 'category').order_by('rating')[:5]
 ```
@@ -78,11 +99,32 @@ ORDER BY rating
 LIMIT 5;
 ```
 
+```ts Drizzle
+import { and, gt } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    and(
+      search.matchAll(mockItems.description, "running shoes"),
+      gt(mockItems.rating, 2),
+    ),
+  )
+  .orderBy(mockItems.rating)
+  .limit(5);
+```
+
 ```python Django
-from paradedb import Match, ParadeDB
+from paradedb import MatchAll, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('running shoes', operator='AND')),
+    description=ParadeDB(MatchAll('running shoes')),
     rating__gt=2
 ).values('description', 'rating', 'category').order_by('rating')[:5]
 ```
@@ -134,11 +176,31 @@ ORDER BY score DESC
 LIMIT 5;
 ```
 
+```ts Drizzle
+import { and, desc, gt } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    score: search.score(mockItems.id),
+  })
+  .from(mockItems)
+  .where(
+    and(
+      search.matchAny(mockItems.description, "running shoes"),
+      gt(mockItems.rating, 2),
+    ),
+  )
+  .orderBy(desc(search.score(mockItems.id)))
+  .limit(5);
+```
+
 ```python Django
-from paradedb import Match, ParadeDB, Score
+from paradedb import MatchAny, ParadeDB, Score
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('running shoes', operator='OR')),
+    description=ParadeDB(MatchAny('running shoes')),
     rating__gt=2
 ).annotate(
     score=Score()
@@ -196,11 +258,32 @@ ORDER BY score DESC
 LIMIT 5;
 ```
 
+```ts Drizzle
+import { and, desc, gt } from "drizzle-orm";
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    snippet: search.snippet(mockItems.description),
+    score: search.score(mockItems.id),
+  })
+  .from(mockItems)
+  .where(
+    and(
+      search.matchAny(mockItems.description, "running shoes"),
+      gt(mockItems.rating, 2),
+    ),
+  )
+  .orderBy(desc(search.score(mockItems.id)))
+  .limit(5);
+```
+
 ```python Django
-from paradedb import Match, ParadeDB, Score, Snippet
+from paradedb import MatchAny, ParadeDB, Score, Snippet
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('running shoes', operator='OR')),
+    description=ParadeDB(MatchAny('running shoes')),
     rating__gt=2
 ).annotate(
     snippet=Snippet('description'),
@@ -263,11 +346,26 @@ ORDER BY rating
 LIMIT 5;
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "running shoes"))
+  .orderBy(mockItems.rating)
+  .limit(5);
+```
+
 ```python Django
-from paradedb import Match, ParadeDB
+from paradedb import MatchAny, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('running shoes', operator='OR'))
+    description=ParadeDB(MatchAny('running shoes'))
 ).values('description', 'rating', 'category').order_by('rating')[:5]
 ```
 
@@ -324,12 +422,28 @@ ORDER BY rating
 LIMIT 5;
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+    agg: search.agg({ value_count: { field: "id" } }).over(),
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, "running shoes"))
+  .orderBy(mockItems.rating)
+  .limit(5);
+```
+
 ```python Django
-from paradedb import Match, ParadeDB
+from paradedb import MatchAny, ParadeDB
 
 (
     MockItem.objects
-    .filter(description=ParadeDB(Match('running shoes', operator='OR')))
+    .filter(description=ParadeDB(MatchAny('running shoes')))
     .order_by('rating')
     .values('description', 'rating', 'category')[:5]
     .facets(agg='{"value_count": {"field": "id"}}')

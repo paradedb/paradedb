@@ -9,12 +9,13 @@ license = { workspace = true }
 crate-type = ["cdylib"]
 
 [features]
-default = ["pg18"]
+default = ["pg18", "deferred_wal"]
 pg15 = ["pgrx/pg15", "pgrx-tests/pg15"]
 pg16 = ["pgrx/pg16", "pgrx-tests/pg16"]
 pg17 = ["pgrx/pg17", "pgrx-tests/pg17"]
 pg18 = ["pgrx/pg18", "pgrx-tests/pg18"]
 pg_test = ["dep:proptest"]
+deferred_wal = []
 unsafe-postgres = ["pgrx/unsafe-postgres"]
 block_tracker = [] # for debugging when blocks are acquired and released
 debug-logging = [
@@ -77,8 +78,7 @@ tokio = { version = "1", features = ["rt"] }
 bytes = { version = "1", features = ["serde"] }
 datafusion = { version = "53", default-features = false }
 datafusion-proto = { version = "53", default-features = false }
-datafusion-datasource = { version = "53", default-features = false }
-datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", rev = "490af86" }
+datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", rev = "c618b5a" }
 url = "2"
 futures = "0.3"
 async-stream = "0.3.6"

@@ -215,13 +215,23 @@ static HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: GucSetting<i32> =
 /// back to the legacy linear scan even for sorted segments.
 static TERM_SET_GALLOP_ENABLED: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// Density gate for the gallop dispatch path. Gallop is selected when
-/// `K' / N` is below this threshold on a sorted segment, where `K'` is
-/// the number of distinct terms surviving min/max pruning and `N` is the
-/// segment size. Larger values admit gallop more aggressively; smaller
-/// values are more conservative. Default `1/100 = 0.01` matches
+/// First-column `BitsetFromPostings` density gate for unique-valued
+/// columns (`D = 1`, i.e. `dict_size >= N`, e.g. primary keys). Bitset
+/// is admitted when `K' / N <= bitset_max_density_unique`. Default
+/// `1/2000 = 0.0005` (Phase 6.11) — calibrated against the SSTable
+/// backend where per-`dict.get` zstd block decompress dominates per-K
+/// cost on unique columns. Matches
 /// `tantivy::query::TermSetStrategyConfig::default()`.
-static TERM_SET_GALLOP_MAX_DENSITY: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 100.0);
+static TERM_SET_BITSET_MAX_DENSITY_UNIQUE: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 2000.0);
+
+/// First-column `BitsetFromPostings` density gate for non-unique
+/// columns (`D >= 2`, e.g. foreign-key shape). Bitset is admitted when
+/// `K' / N <= bitset_max_density_multi`. Default `1/200 = 0.005`
+/// (Phase 6.13) — 10× looser than the unique threshold because batched
+/// dictionary lookups amortize the zstd block decompress across
+/// multiple keys per block on non-unique columns. Matches
+/// `tantivy::query::TermSetStrategyConfig::default()`.
+static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 200.0);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
@@ -524,10 +534,10 @@ pub fn init() {
 
     // TermSet strategy density thresholds (issue #4895). The kill-switch
     // (paradedb.term_set_gallop_enabled) is the safety override if the
-    // gallop optimization regresses unexpectedly; the five density values
-    // tune the planner without recompiling. Each density is unitless and
-    // bounded to [0.0, 1.0] (a density above 1.0 would mean more matches
-    // than corpus rows, which is impossible).
+    // gallop optimization regresses unexpectedly; the three density
+    // values tune the planner without recompiling. Each density is
+    // unitless and bounded to [0.0, 1.0]. Gates use `<=` so a threshold
+    // value at the cell's density admits the more-aggressive strategy.
     GucRegistry::define_bool_guc(
         c"paradedb.term_set_gallop_enabled",
         c"Enable galloping execution of FastFieldTermSetQuery on sorted segments.",
@@ -537,10 +547,20 @@ pub fn init() {
         GucFlags::default(),
     );
     GucRegistry::define_float_guc(
-        c"paradedb.term_set_gallop_max_density",
-        c"Gallop is selected when K' / N is below this density on a sorted segment.",
-        c"K' is the number of distinct terms surviving min/max pruning; N is the segment size. Larger values admit gallop more aggressively; smaller values are more conservative. Default 1/100 = 0.01 (matches tantivy::query::TermSetStrategyConfig::default()).",
-        &TERM_SET_GALLOP_MAX_DENSITY,
+        c"paradedb.term_set_bitset_max_density_unique",
+        c"BitsetFromPostings is selected over LinearScan when K' / N is at or below this density on unique-valued columns (D = 1).",
+        c"For columns where every doc has a distinct value (primary keys, UUIDs). K' is the number of distinct terms surviving min/max pruning; N is the segment size. Default 0.0005 (= 1/2000) calibrated against the SSTable backend in Phase 6.11. Lower values route more queries to LinearScan.",
+        &TERM_SET_BITSET_MAX_DENSITY_UNIQUE,
+        0.0,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_float_guc(
+        c"paradedb.term_set_bitset_max_density_multi",
+        c"BitsetFromPostings is selected over LinearScan when K' / N is at or below this density on non-unique columns (D >= 2).",
+        c"For columns where multiple docs share the same value (foreign keys, status enums). Default 0.005 (= 1/200), 10x looser than the unique threshold because batched dictionary lookups amortize the SSTable zstd block decompress across multiple keys per block on non-unique columns (Phase 6.13). Lower values route more queries to LinearScan.",
+        &TERM_SET_BITSET_MAX_DENSITY_MULTI,
         0.0,
         1.0,
         GucContext::Userset,
@@ -849,8 +869,12 @@ pub fn term_set_gallop_enabled() -> bool {
     TERM_SET_GALLOP_ENABLED.get()
 }
 
-pub fn term_set_gallop_max_density() -> f64 {
-    TERM_SET_GALLOP_MAX_DENSITY.get()
+pub fn term_set_bitset_max_density_unique() -> f64 {
+    TERM_SET_BITSET_MAX_DENSITY_UNIQUE.get()
+}
+
+pub fn term_set_bitset_max_density_multi() -> f64 {
+    TERM_SET_BITSET_MAX_DENSITY_MULTI.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

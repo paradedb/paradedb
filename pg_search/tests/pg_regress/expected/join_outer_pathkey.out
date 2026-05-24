@@ -92,7 +92,7 @@ WARNING:  For SEMI/ANTI/LeftMark join correctness, JoinScan needs to use a subop
            :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Acme OR Globex OR Initech","lenient":null,"conjunction_mode":null}}}}
            :         HashJoinExec: mode=CollectLeft, join_type=RightAnti, on=[(product_id@0, id@2)]
            :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"with_index":{"query":{"term":{"field":"tag","value":"niche","is_datetime":false}}}}
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"term":{"field":"tag","value":"niche"}}}}
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"widget OR gadget OR gizmo OR boring","lenient":null,"conjunction_mode":null}}}}
 (18 rows)

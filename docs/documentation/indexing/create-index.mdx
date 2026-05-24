@@ -14,6 +14,14 @@ USING bm25 (id, description, category)
 WITH (key_field='id');
 ```
 
+```ts Drizzle
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(mockItems.id, mockItems.description, mockItems.category);
+```
+
 ```python Django
 from django.db import connection
 from paradedb.indexes import BM25Index
@@ -79,6 +87,12 @@ You'll need to drop the existing `search_idx` before you can create a new one:
 DROP INDEX search_idx;
 ```
 
+```ts Drizzle
+import { sql } from "drizzle-orm";
+
+await db.execute(sql`DROP INDEX search_idx`);
+```
+
 ```python Django
 from django.db import connection
 
@@ -112,6 +126,18 @@ For instance, if a column contains multiple languages, the ICU tokenizer may be 
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.icu), category)
 WITH (key_field='id');
+```
+
+```ts Drizzle
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(
+    mockItems.id,
+    indexing.bm25Field(mockItems.description, tokenizer.icu()),
+    mockItems.category,
+  );
 ```
 
 ```python Django
@@ -177,6 +203,23 @@ including columns used for sorting, grouping, filtering, and aggregations.
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, description, category, rating, in_stock, created_at, metadata, weight_range)
 WITH (key_field='id');
+```
+
+```ts Drizzle
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(
+    mockItems.id,
+    mockItems.description,
+    mockItems.category,
+    mockItems.rating,
+    mockItems.inStock,
+    mockItems.createdAt,
+    mockItems.metadata,
+    mockItems.weightRange,
+  );
 ```
 
 ```python Django
@@ -280,6 +323,21 @@ For example, the following code block adds English stemming to `description`:
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, (description::pdb.simple('stemmer=english')), category)
 WITH (key_field='id');
+```
+
+```ts Drizzle
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(
+    mockItems.id,
+    indexing.bm25Field(
+      mockItems.description,
+      tokenizer.simple({ stemmer: "english" }),
+    ),
+    mockItems.category,
+  );
 ```
 
 ```python Django

@@ -246,7 +246,7 @@ fn classify_aggregate_by_name(aggfnoid: u32) -> Option<AggKind> {
 /// Returns an error if:
 /// - An expression is neither a `Var` nor an `Aggref`
 /// - An aggregate uses DISTINCT (`aggdistinct` is set)
-/// - An aggregate is `pdb.agg()` (not supported on joins in M1)
+/// - An aggregate is `pdb.agg()` (not supported on joins)
 /// - An aggregate OID is unknown/unsupported
 /// - A `Var` references a table not in `sources`
 /// - A field name cannot be resolved

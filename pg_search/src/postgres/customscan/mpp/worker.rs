@@ -17,17 +17,14 @@
 
 //! MPP worker fragment runner.
 //!
-//! "Worker" matches the DF-D fork's terminology — every distributed task is
-//! a `WorkerConnection` on the receive side, and the fragment runner is
-//! that worker's push side.
+//! "Worker" matches the DF-D fork's terminology. Every distributed task is a `WorkerConnection`
+//! on the receive side, and the fragment runner is that worker's push side.
 //!
-//! - [`run_worker_fragment`] — PG-parallel-worker push loop. Runs the
-//!   `n_partitions` output partitions of `plan` concurrently; each batch
-//!   yielded by partition `p` is encoded and pushed through
-//!   `outbound_senders[p]`. Returns when every output stream is exhausted.
-//!   The leader is consumer-only in this iteration (see
-//!   [`crate::postgres::customscan::mpp::glue::producer_worker_count`]);
-//!   leader-as-worker-0 is a deferred follow-up.
+//! - [`run_worker_fragment`]: PG-parallel-worker push loop. Runs the `n_partitions` output
+//!   partitions of `plan` concurrently; each batch yielded by partition `p` is encoded and pushed
+//!   through `outbound_senders[p]`. Returns when every output stream is exhausted. Only producer
+//!   workers call this; the leader is consumer-only (see
+//!   [`crate::postgres::customscan::mpp::glue::producer_worker_count`]).
 
 use std::sync::Arc;
 
@@ -66,24 +63,41 @@ pub async fn run_worker_fragment(
         let plan = Arc::clone(&plan);
         let ctx = Arc::clone(&ctx);
         let sender = Arc::clone(sender);
+        // Each partition must send a per-channel EOF when the stream ends, regardless of how it
+        // ended (success or error). The shm_mq queue is shared across fragments, so dropping the
+        // sender doesn't signal end-of-channel — only the EOF frame does. A `Drop`-based guard
+        // would be cleaner in principle, but `send_eof_traced` is async and runs through the
+        // cooperative-drain spin which must execute on the backend thread, so we sequence it
+        // explicitly here.
         futures.push(async move {
-            let mut stream = plan.execute(partition, ctx)?;
             let mut stats = SendBatchStats::default();
-            while let Some(batch) = stream.next().await {
-                let batch = batch?;
-                if batch.num_rows() == 0 {
-                    continue;
+            let stream_result: Result<(), DataFusionError> = async {
+                let mut stream = plan.execute(partition, ctx)?;
+                while let Some(batch) = stream.next().await {
+                    let batch = batch?;
+                    if batch.num_rows() == 0 {
+                        continue;
+                    }
+                    sender
+                        .as_ref()
+                        .send_batch_traced(&batch, &mut stats)
+                        .await?;
                 }
-                sender
-                    .as_ref()
-                    .send_batch_traced(&batch, &mut stats)
-                    .await?;
+                Ok(())
             }
-            Ok::<(), DataFusionError>(())
+            .await;
+            let eof_result = sender.as_ref().send_eof_traced(&mut stats).await;
+            // Stream error first, then any EOF-send error so neither failure mode disappears.
+            stream_result.and(eof_result)
         });
     }
-    futures::future::try_join_all(futures).await?;
-    // Drop senders so peers observe Detached on their next try_recv.
+    // `join_all`, not `try_join_all`: fail-fast would cancel sibling partitions mid-await before
+    // they hit `send_eof_traced`, leaving the consumer's channel buffer stuck and the leader's
+    // `select_all` blocked.
+    let results = futures::future::join_all(futures).await;
     drop(senders);
+    for r in results {
+        r?;
+    }
     Ok(())
 }

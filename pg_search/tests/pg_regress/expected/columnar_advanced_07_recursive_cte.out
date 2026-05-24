@@ -594,8 +594,8 @@ WITH RECURSIVE category_tree AS (
 SELECT name, level, description, item_count
 FROM category_tree
 ORDER BY level, name;
-                                                                                                                                                    QUERY PLAN                                                                                                                                                    
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                          QUERY PLAN                                                                                                                                          
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: category_tree.level, category_tree.name
    CTE category_tree
@@ -612,7 +612,7 @@ ORDER BY level, name;
                              Exec Method: ColumnarExecState
                              Fast Fields: description, id, item_count, level, name, parent_id
                              Scores: false
-                             Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"computer","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"item_count","lower_bound":{"excluded":30},"upper_bound":null,"is_datetime":false}}]}}
+                             Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"computer","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"item_count","lower_bound":{"excluded":30},"upper_bound":null}}]}}
    ->  CTE Scan on category_tree
 (18 rows)
 

@@ -1,0 +1,104 @@
+-- Range queries against JSON-column subpaths, exercising both supported syntaxes:
+--   * New syntax:    paradedb.range('<json.path>', <native range type>)
+--   * Legacy syntax: raw JSONB '{"range": {"field": "<json.path>", ...}}'::jsonb
+-- Covers numeric subpaths and datetime subpaths (which require is_datetime in the
+-- legacy form) so future cleanups that drop is_datetime don't silently regress.
+
+CREATE EXTENSION IF NOT EXISTS pg_search;
+
+CREATE TABLE json_range_test (
+    id SERIAL PRIMARY KEY,
+    metadata JSONB
+);
+
+INSERT INTO json_range_test (metadata) VALUES
+    ('{"attributes": {"score": 3, "tstz": "2023-05-01T08:12:34Z"}}'),
+    ('{"attributes": {"score": 4, "tstz": "2023-05-01T09:12:34Z"}}'),
+    ('{"attributes": {"score": 5, "tstz": "2023-05-01T10:12:34Z"}}');
+
+CREATE INDEX json_range_test_idx ON json_range_test
+USING bm25 (id, metadata)
+WITH (
+    key_field = 'id',
+    json_fields = '{"metadata": {"fast": true}}'
+);
+
+-- ============================================================================
+-- Numeric subpath: new syntax (paradedb.range + int4range)
+-- ============================================================================
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM json_range_test
+WHERE id @@@ paradedb.range('metadata.attributes.score', int4range(4, NULL, '[)'))
+ORDER BY id;
+
+SELECT id FROM json_range_test
+WHERE id @@@ paradedb.range('metadata.attributes.score', int4range(4, NULL, '[)'))
+ORDER BY id;
+
+-- ============================================================================
+-- Numeric subpath: legacy JSONB syntax
+-- ============================================================================
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM json_range_test
+WHERE id @@@ '{
+    "range": {
+        "field": "metadata.attributes.score",
+        "lower_bound": {"included": 4},
+        "upper_bound": null
+    }
+}'::jsonb
+ORDER BY id;
+
+SELECT id FROM json_range_test
+WHERE id @@@ '{
+    "range": {
+        "field": "metadata.attributes.score",
+        "lower_bound": {"included": 4},
+        "upper_bound": null
+    }
+}'::jsonb
+ORDER BY id;
+
+-- ============================================================================
+-- Datetime subpath: new syntax (paradedb.range + tstzrange)
+-- ============================================================================
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM json_range_test
+WHERE id @@@ paradedb.range('metadata.attributes.tstz', tstzrange('2023-05-01T09:12:00Z', NULL, '[)'))
+ORDER BY id;
+
+SELECT id FROM json_range_test
+WHERE id @@@ paradedb.range('metadata.attributes.tstz', tstzrange('2023-05-01T09:12:00Z', NULL, '[)'))
+ORDER BY id;
+
+-- ============================================================================
+-- Datetime subpath: legacy JSONB syntax with is_datetime
+-- ============================================================================
+
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id FROM json_range_test
+WHERE id @@@ '{
+    "range": {
+        "field": "metadata.attributes.tstz",
+        "lower_bound": {"included": "2023-05-01T09:12:00Z"},
+        "upper_bound": null,
+        "is_datetime": true
+    }
+}'::jsonb
+ORDER BY id;
+
+SELECT id FROM json_range_test
+WHERE id @@@ '{
+    "range": {
+        "field": "metadata.attributes.tstz",
+        "lower_bound": {"included": "2023-05-01T09:12:00Z"},
+        "upper_bound": null,
+        "is_datetime": true
+    }
+}'::jsonb
+ORDER BY id;
+
+DROP TABLE json_range_test;

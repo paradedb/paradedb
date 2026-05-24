@@ -50,6 +50,9 @@ jobs:
   # - workflow_dispatch: from `inputs.workload` (default all)
   # - pull_request labeled: `antithesis` => all, `antithesis-stressgres` => stressgres,
   #   `antithesis-proptests` => proptests, anything else => skip
+  #
+  # For pull_request triggers, also removes the triggering label up front so it
+  # can be re-applied to re-run.
   setup:
     name: Resolve Workloads
     runs-on: ubuntu-latest
@@ -57,9 +60,20 @@ jobs:
       (github.event_name == 'schedule' && github.repository == 'paradedb/paradedb-enterprise')
       || github.event_name == 'workflow_dispatch'
       || (github.event_name == 'pull_request' && contains(fromJSON('["antithesis","antithesis-stressgres","antithesis-proptests"]'), github.event.label.name))
+    permissions:
+      pull-requests: write
     outputs:
       workloads: ${{ steps.compute.outputs.workloads }}
     steps:
+      - name: Remove Trigger Label
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr edit ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --remove-label "${{ github.event.label.name }}"
+
       - id: compute
         env:
           EVENT: ${{ github.event_name }}
@@ -249,16 +263,6 @@ jobs:
         workload: ${{ fromJSON(needs.setup.outputs.workloads) }}
 
     steps:
-      # The job can be triggered manually by attaching the `antithesis`,
-      # `antithesis-stressgres`, or `antithesis-proptests` label to a PR. This
-      # step removes the triggering label once the job has started so it can be
-      # applied again if needed.
-      - name: Maybe Remove Label
-        uses: actions-ecosystem/action-remove-labels@v1
-        if: github.event_name == 'pull_request' && contains(fromJSON('["antithesis","antithesis-stressgres","antithesis-proptests"]'), github.event.label.name)
-        with:
-          labels: ${{ github.event.label.name }}
-
       - name: Checkout Git Repository
         uses: actions/checkout@v6
         with:
@@ -274,7 +278,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: pg-search-antithesis-deb-${{ env.COMMIT_SHA }}
-          path: .
+          path: docker
 
       - name: Log Into Antithesis Registry
         uses: docker/login-action@v4
@@ -298,7 +302,7 @@ jobs:
       - name: Build and Push Workload Docker Image to Antithesis Registry
         uses: docker/build-push-action@v7
         with:
-          context: .
+          context: docker
           platforms: linux/amd64
           file: docker/Dockerfile.antithesis-${{ env.PG_VERSION }}
           push: true
@@ -379,5 +383,62 @@ jobs:
             antithesis.is_ephemeral=${{ github.event_name == 'pull_request' }}
             antithesis.source=paradedb
             custom.network_fault_exclusion_patterns=coredns,${{ matrix.workload }}
-            custom.container_faults_stop_exclusion_patterns=coredns,${{ matrix.workload }},paradedb,cloudnative-pg
-            custom.container_faults_kill_exclusion_patterns=coredns,${{ matrix.workload }},paradedb,cloudnative-pg
+            custom.container_faults_stop_exclusion_patterns=coredns,${{ matrix.workload }},paradedb,cloudnative-pg,logical-replication-publisher
+            custom.container_faults_kill_exclusion_patterns=coredns,${{ matrix.workload }},paradedb,cloudnative-pg,logical-replication-publisher
+
+  # Ping Slack if any of the nightly (scheduled) jobs failed. Scheduled runs only execute on
+  # paradedb-enterprise (see the `if` on `setup`), so this notification only fires there.
+  notify-slack-on-failure:
+    name: Notify Slack on Failure
+    needs: [setup, build-antithesis-pg_search-deb, antithesis-trigger-test-run]
+    if: |
+      always()
+      && github.event_name == 'schedule'
+      && (needs.setup.result == 'failure'
+          || needs.build-antithesis-pg_search-deb.result == 'failure'
+          || needs.antithesis-trigger-test-run.result == 'failure')
+    runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}
+    steps:
+      - name: Determine failed jobs
+        id: failed-jobs
+        run: |
+          FAILED_JOBS=""
+          if [ "${{ needs.setup.result }}" == "failure" ]; then
+            FAILED_JOBS="Resolve Workloads, $FAILED_JOBS"
+          fi
+          if [ "${{ needs.build-antithesis-pg_search-deb.result }}" == "failure" ]; then
+            FAILED_JOBS="Build Antithesis pg_search .deb, $FAILED_JOBS"
+          fi
+          if [ "${{ needs.antithesis-trigger-test-run.result }}" == "failure" ]; then
+            FAILED_JOBS="Test pg_search via Antithesis, $FAILED_JOBS"
+          fi
+          FAILED_JOBS="${FAILED_JOBS%, }"
+          echo "failed_jobs=$FAILED_JOBS" >> "$GITHUB_OUTPUT"
+
+      - name: Send Slack notification
+        run: |
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            JSON_DATA="{
+              \"text\": \"🚨 Nightly Antithesis Run Failed - <!here>\",
+              \"attachments\": [
+                {
+                  \"color\": \"danger\",
+                  \"fields\": [
+                    {\"title\": \"Repository\", \"value\": \"${{ github.repository }}\", \"short\": true},
+                    {\"title\": \"Workflow\", \"value\": \"${{ github.workflow }}\", \"short\": true},
+                    {\"title\": \"Run ID\", \"value\": \"${{ github.run_id }}\", \"short\": true},
+                    {\"title\": \"View Logs\", \"value\": \"<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Click here>\", \"short\": true},
+                    {\"title\": \"Failed Jobs\", \"value\": \"${{ steps.failed-jobs.outputs.failed_jobs }}\", \"short\": false}
+                  ]
+                }
+              ]
+            }"
+
+            curl -X POST -H 'Content-type: application/json' \
+              --data "$JSON_DATA" \
+              "$SLACK_WEBHOOK_URL"
+          else
+            echo "Slack webhook not configured, skipping notification"
+          fi

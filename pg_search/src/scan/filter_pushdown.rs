@@ -234,10 +234,7 @@ impl<'a> FilterAnalyzer<'a> {
     fn term_query(&self, field: FieldName, value: OwnedValue) -> SearchQueryInput {
         SearchQueryInput::FieldedQuery {
             field,
-            query: pdb::Query::Term {
-                value,
-                is_datetime: false,
-            },
+            query: pdb::Query::Term { value },
         }
     }
 
@@ -259,7 +256,6 @@ impl<'a> FilterAnalyzer<'a> {
             query: pdb::Query::Range {
                 lower_bound: lower,
                 upper_bound: upper,
-                is_datetime: false,
             },
         }
     }

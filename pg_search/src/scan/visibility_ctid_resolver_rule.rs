@@ -121,7 +121,7 @@ mod tests {
 
     #[pg_test]
     fn matches_scan_by_deferred_ctid_plan_position() {
-        let ffhelper = Arc::new(FFHelper::default());
+        let ffhelper = Arc::new(FFHelper::empty());
         let scan = PgSearchScanPlan::new(
             vec![],
             empty_schema(),

@@ -21,6 +21,7 @@ use std::sync::{Arc, OnceLock};
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::types_arrow::date_time_to_ts_nanos;
+use crate::scan::deferred_encode::unpack_doc_address;
 use crate::schema::SearchFieldType;
 
 use arrow_array::builder::{BinaryViewBuilder, StringViewBuilder};
@@ -66,17 +67,8 @@ pub struct FFHelper {
 }
 
 impl FFHelper {
-    /// Build an FFHelper that only tracks the ctid fast field (no named columns).
-    pub fn ctid_only(reader: &SearchIndexReader) -> Self {
-        let segment_caches = reader
-            .segment_readers()
-            .iter()
-            .map(|reader| {
-                let fast_fields_reader = reader.fast_fields().clone();
-                (fast_fields_reader, Vec::new(), OnceLock::default())
-            })
-            .collect();
-        Self { segment_caches }
+    pub fn empty() -> Self {
+        Self::default()
     }
 
     pub fn with_fields(reader: &SearchIndexReader, fields: &[WhichFastField]) -> Self {
@@ -111,14 +103,6 @@ impl FFHelper {
         ctid.get_or_init(|| FFType::new_ctid(ff_readers))
     }
 
-    /// Look up the u64 ctid for a [`DocAddress`], panicking if absent.
-    #[inline(always)]
-    pub fn ctid_u64(&self, doc_address: DocAddress) -> u64 {
-        self.ctid(doc_address.segment_ord)
-            .as_u64(doc_address.doc_id)
-            .expect("ctid should be present")
-    }
-
     pub fn column(&self, segment_ord: SegmentOrdinal, field: FFIndex) -> &FFType {
         let (ff_readers, columns, _) = &self.segment_caches[segment_ord as usize];
         let column = &columns[field];
@@ -135,6 +119,10 @@ impl FFHelper {
                 .get_or_init(|| FFType::new(ff_readers, &column.0))
                 .value(doc_address.doc_id),
         )
+    }
+
+    pub fn num_segments(&self) -> usize {
+        self.segment_caches.len()
     }
 }
 
@@ -426,6 +414,64 @@ pub fn build_arrow_schema(which_fast_fields: &[WhichFastField]) -> arrow_schema:
         .map(|wff| Field::new(wff.name(), wff.arrow_data_type(), true))
         .collect();
     Arc::new(Schema::new(fields))
+}
+
+/// Partitions packed doc addresses by segment ordinal and invokes `process`
+/// once per segment (in sorted segment order) with the segment ordinal and
+/// its `(row_index, doc_id)` pairs.
+///
+/// The `packed_iter` argument yields `(row_index, packed_doc_address)`
+pub fn for_each_segment<F>(
+    num_segments: usize,
+    packed_iter: impl Iterator<Item = (usize, u64)>,
+    mut process: F,
+) -> Result<()>
+where
+    F: FnMut(SegmentOrdinal, Vec<(usize, DocId)>) -> Result<()>,
+{
+    let mut by_seg: Vec<Vec<(usize, DocId)>> = vec![Vec::new(); num_segments];
+    for (row_idx, packed) in packed_iter {
+        let (seg_ord, doc_id) = unpack_doc_address(packed);
+        by_seg[seg_ord as usize].push((row_idx, doc_id));
+    }
+    for (seg_ord, rows) in by_seg.into_iter().enumerate() {
+        if rows.is_empty() {
+            continue;
+        }
+
+        process(seg_ord as SegmentOrdinal, rows)?;
+    }
+    Ok(())
+}
+
+/// Resolve the `ctid` for a single `doc_address` using a cached per-segment [`FFType`].
+///
+/// On the first call for a given segment, this opens the `ctid` fast-field column and stores
+/// it in `cache`.  Subsequent calls for the same segment reuse the cached reader, avoiding the
+/// overhead of re-opening the column on every row.
+///
+/// # Panics
+/// Panics if the `ctid` fast field is absent for the given doc (should never happen in a
+/// well-formed ParadeDB index).
+#[inline]
+pub fn resolve_ctid(
+    cache: &mut Option<(tantivy::SegmentOrdinal, FFType)>,
+    searcher: &tantivy::Searcher,
+    doc_address: tantivy::DocAddress,
+) -> u64 {
+    let seg_ord = doc_address.segment_ord;
+    if cache.as_ref().is_none_or(|(o, _)| *o != seg_ord) {
+        *cache = Some((
+            seg_ord,
+            FFType::new_ctid(searcher.segment_reader(seg_ord).fast_fields()),
+        ));
+    }
+    cache
+        .as_ref()
+        .unwrap()
+        .1
+        .as_u64(doc_address.doc_id)
+        .expect("ctid should be present")
 }
 
 pub(crate) const NULL_TERM_ORDINAL: TermOrdinal = u64::MAX;

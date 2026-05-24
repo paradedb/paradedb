@@ -7,13 +7,14 @@
 -- Sizing (Option B from review):
 --   t1: 30,000 rows, three independent FK columns (fk_a sorted, fk_b/fk_c
 --   unsorted), all D = 1 within the corpus.
---   t2_a/b/c: 1,100 rows each (just over the FastField cardinality
---   threshold of 1024 so the FastFieldTermSetWeight dispatch path is
---   reached — below that, TermSetQuery routes to AutomatonWeight and
---   neither gallop nor smart-seek is exercised).
---   K/N for each pushed-down InList = 1100/30000 ≈ 0.0367. With
---   paradedb.term_set_gallop_max_density forced to 0.05 (vs the default
---   1/100 = 0.01), gallop is admitted on the sorted fk_a column.
+--   t2_a/b/c: 1,100 rows each, sized to put K well into the regime
+--   where the strategy framework picks a non-trivial dispatch on the
+--   inner scan (so the gallop + smart-seek path on fk_a is actually
+--   exercised against a meaningful inner workload).
+--   K/N for each pushed-down InList = 1100/30000 ≈ 0.0367. Gallop is
+--   admitted by default on the sorted fk_a column whenever the
+--   structural preconditions hold (sorted segment + matching field +
+--   `term_set_gallop_enabled` on).
 --   LIMIT 10 on each query is required for the ParadeDB Join Scan custom
 --   scan's cost model to pick it over a vanilla Hash Join (this also
 --   matches the shape of the existing TEST 1/2 fixtures in join_hash.sql).
@@ -41,9 +42,6 @@ SET enable_nestloop = OFF;
 SET enable_mergejoin = OFF;
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_join_custom_scan = ON;
--- Admit gallop on K/N ≈ 0.0367. The default 1/100 = 0.01 would reject
--- this corpus; the override mirrors TEST 2b in join_hash.sql.
-SET paradedb.term_set_gallop_max_density = 0.05;
 -- ===========================================================================
 -- Fixture
 -- ===========================================================================
@@ -314,7 +312,7 @@ LIMIT 10;
            :           CooperativeExec
            :             PgSearchScan: segments=1, dynamic_filters=1, dynamic_filter_pushdown=linear, query="all", metrics=[output_rows=601, output_bytes=9.4 KB, output_batches=1, rows_pruned=0, rows_scanned=601]
            :         CooperativeExec
-           :           PgSearchScan: segments=1, dynamic_filters=1, dynamic_filter_pushdown=true, query="all", metrics=[output_rows=301, output_bytes=4.7 KB, output_batches=1, rows_pruned=0, rows_scanned=301]
+           :           PgSearchScan: segments=1, dynamic_filters=1, dynamic_filter_pushdown=linear, query="all", metrics=[output_rows=301, output_bytes=4.7 KB, output_batches=1, rows_pruned=0, rows_scanned=301]
 (21 rows)
 
 SET paradedb.term_set_gallop_enabled = OFF;
@@ -373,7 +371,6 @@ DROP TABLE IF EXISTS t2_a CASCADE;
 DROP TABLE IF EXISTS t2_b CASCADE;
 DROP TABLE IF EXISTS t2_c CASCADE;
 RESET paradedb.term_set_gallop_enabled;
-RESET paradedb.term_set_gallop_max_density;
 RESET paradedb.enable_join_custom_scan;
 RESET enable_nestloop;
 RESET enable_mergejoin;

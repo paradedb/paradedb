@@ -64,6 +64,44 @@ fn mlt_datetime_key(mut conn: PgConnection) {
     assert_eq!(rows, vec![2]);
 }
 
+// Regression test for https://github.com/paradedb/paradedb/issues/5065:
+// pdb.more_like_this used to construct its internal SPI SELECT with the key_field
+// column name unquoted, so a mixed-case identifier like "Id" was folded to lower
+// case and triggered `column "id" does not exist`.
+#[rstest]
+fn mlt_mixed_case_key_field_issue5065(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE mlt_mixed_case (
+        "Id" SERIAL PRIMARY KEY,
+        "Content" TEXT
+    );
+    INSERT INTO mlt_mixed_case ("Content") VALUES
+        ('aaa bbb ccc'),
+        ('aaa aaa'),
+        ('ddd eee fff'),
+        ('aaa aaa');
+    CREATE INDEX mlt_mixed_case_idx ON mlt_mixed_case
+        USING bm25 ("Id", "Content")
+        WITH (key_field = 'Id');
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<i32> = r#"
+    SELECT "Id" FROM mlt_mixed_case
+    WHERE "Id" @@@ pdb.more_like_this(1)
+    ORDER BY "Id";
+    "#
+    .fetch_scalar(&mut conn);
+    assert!(
+        !rows.is_empty(),
+        "more_like_this on a mixed-case key_field should return matches, got none"
+    );
+    assert!(
+        rows.contains(&1),
+        "more_like_this(1) should include the seed document, got {rows:?}"
+    );
+}
+
 #[rstest]
 fn mlt_scoring_nested(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);

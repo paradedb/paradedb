@@ -19,7 +19,7 @@ export PROPTEST_CASES="${PROPTEST_CASES:-128}"
 # Disable proptest's source-relative regression file persistence: the qgen
 # binary runs air-gapped from /home/app and can't resolve lib.rs/main.rs, which
 # otherwise spams a warning on every iteration.
-export PROPTEST_FAILURE_PERSISTENCE=off
+export PROPTEST_DISABLE_FAILURE_PERSISTENCE=1
 export RUST_BACKTRACE=1
 
 echo ""

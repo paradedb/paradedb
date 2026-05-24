@@ -59,4 +59,4 @@ The following are not supported and will produce an error:
 
 - **Anonymous ROW expressions**: `ROW(a, b)` without a type cast is not allowed. Always cast to a named composite type.
 - **Nested composites**: A composite type cannot contain another composite type as a field.
-- **Duplicate field names**: Field names must be unique across all composite types and regular columns in the index.
+- **Duplicate field names**: Field names must be unique within a single BM25 index, across all composite types and regular columns in that index.

@@ -578,9 +578,24 @@ impl ExecutionPlan for PgSearchScanPlan {
                 scanner.set_batch_size(df_batch_size as usize);
             }
 
+            // `build_filters` rebuilds the dynamic filter's `CaseExpr` tree on every call
+            // (via `DynamicFilterPhysicalExpr::current()` -> `remap_children` -> `transform_up`).
+            // That's expensive and the result doesn't change between batches unless a snapshot
+            // ticks, so cache it and only rebuild when any filter's `snapshot_generation` moves.
+            let mut pre_filters: Vec<crate::scan::pre_filter::PreFilter> = Vec::new();
+            let mut last_gen: u64 = 0;
+            let mut filters_built = false;
             loop {
                 let timer = baseline_metrics.elapsed_compute().timer();
-                let pre_filters = build_filters(&dynamic_filters, &schema);
+                let cur_gen: u64 = dynamic_filters
+                    .iter()
+                    .map(datafusion::physical_expr_common::physical_expr::snapshot_generation)
+                    .fold(0u64, u64::wrapping_add);
+                if !filters_built || cur_gen != last_gen {
+                    pre_filters = build_filters(&dynamic_filters, &schema);
+                    last_gen = cur_gen;
+                    filters_built = true;
+                }
                 let pre_filters_wrapper = if pre_filters.is_empty() {
                     None
                 } else {

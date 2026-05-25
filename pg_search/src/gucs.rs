@@ -859,7 +859,6 @@ pub fn mpp_scalar_agg_threshold_rows() -> i32 {
     MPP_SCALAR_AGG_THRESHOLD_ROWS.get()
 }
 
-
 pub fn hash_join_inlist_pushdown_max_size() -> i32 {
     HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE.get()
 }

@@ -248,16 +248,18 @@ Gather  (cost=0.00..0.00 rows=0 width=8) (actual rows=1.00 loops=1)
 
 ### Bench impact (5M parent / 25M child, median of 3 runs, mpp_target_partitions=2 + mpp_queue_size=4MB)
 
+Canonical results against the final `add_upper_path` implementation (commit `2ab7849c2`); raw runs in `path_b_lever3_results.txt`:
+
 | Query          | baseline_serial | mpp_n4 BEFORE fix | mpp_n4 AFTER fix |               speedup |
 | -------------- | --------------: | ----------------: | ---------------: | --------------------: |
-| q_narrow_count |            5825 |       5873 (flat) |         **2978** |             **1.96×** |
-| q_medium_count |            7909 |       8004 (flat) |         **3603** |             **2.19×** |
-| q_wide_count   |            7808 |       7898 (flat) |         **3938** |             **1.98×** |
-| q_narrow_gb    |            6862 |              4488 |         **4148** | **1.65×** (was 1.53×) |
-| q_medium_gb    |           10348 |              6821 |         **6363** |             **1.63×** |
-| q_wide_gb      |           11243 |              8531 |         **8007** |             **1.40×** |
+| q_narrow_count |            5808 |       5873 (flat) |         **2797** |             **2.08×** |
+| q_medium_count |            7908 |       8004 (flat) |         **3401** |             **2.32×** |
+| q_wide_count   |            7798 |       7898 (flat) |         **3863** |             **2.02×** |
+| q_narrow_gb    |            6840 |              4488 |         **4118** | **1.66×** (was 1.53×) |
+| q_medium_gb    |           10327 |              6821 |         **6207** |             **1.66×** |
+| q_wide_gb      |           11252 |              8531 |         **8046** |             **1.40×** |
 
-Scalar count went from flat (no parallelism win) to **~2× speedup at producers=4** across all build widths. GROUP BY shapes also improved 5-10% because the explicit Gather generation closes the same gap when no upstream Sort drives Gather Merge generation.
+Scalar count went from flat (no parallelism win) to **~2× speedup at producers=4** across all build widths. GROUP BY shapes also improved 5-10% because the explicit Gather generation closes the same gap when no upstream Sort drives Gather Merge generation. The `add_upper_path` variant is slightly faster than the initial `generate_gather_paths` attempt (`f4e96cefd`) across all queries — `create_gather_path` doesn't speculatively generate a `GatherMergePath` so the planner does less work.
 
 ### Why the senior reviewer's instinct was right
 

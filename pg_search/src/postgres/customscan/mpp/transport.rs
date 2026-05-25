@@ -499,11 +499,13 @@ impl MppSender {
         self
     }
 
-    /// Attach a [`crate::postgres::customscan::mpp::ffi_relay::FfiRelay`] so the spin loop
-    /// routes its `try_send_bytes` calls through a backend-pinned service task instead of
-    /// invoking pgrx FFI directly. Required when compute futures run on a non-backend tokio
-    /// worker thread (G7-MT multi-thread runtime); a no-op when the runtime is
-    /// `current_thread` because the service runs on the same OS thread anyway.
+    /// Attach a [`crate::postgres::customscan::mpp::ffi_relay::FfiRelay`] handle to this
+    /// sender. The handle is just stored — no current send-path call site routes through it
+    /// yet (that's G7-MT phase 3b). When phase 3b lands, the spin loop in
+    /// [`Self::send_with_scratch`] / [`Self::send_eof_with_scratch`] will branch on
+    /// `self.ffi_relay.as_ref()` and prefer `relay.shm_mq_try_send(channel.clone(), bytes)`
+    /// so producers running on a non-backend tokio worker thread don't violate pgrx 0.18's
+    /// single-thread FFI invariant.
     pub fn with_ffi_relay(
         mut self,
         relay: Arc<crate::postgres::customscan::mpp::ffi_relay::FfiRelay>,
@@ -632,6 +634,14 @@ impl MppSender {
             // symbols (`ProcessInterrupts`, etc.) that the `--tests` / llvm-cov build can't
             // link. `InProc` channels used in tests never block, so the loop returns on the
             // first iteration anyway.
+            //
+            // G7-MT phase 3b TODO: this is itself a backend-thread FFI call. Once the runtime
+            // flips to multi_thread, executing it on a tokio worker thread panics under
+            // pgrx 0.18's `check_active_thread`. Either add a `CheckForInterrupts` op to
+            // `FfiOp` (round-trip per spin iter, adds latency) or hoist the interrupt check
+            // onto the LocalSet service task — the service can call `ProcessInterrupts()` in
+            // its main loop and surface cancellation via a `tokio::sync::watch` the spin
+            // observes. The second shape is cheaper and avoids per-iteration round-trips.
             #[cfg(not(test))]
             pgrx::check_for_interrupts!();
             if self.channel.try_send_bytes(scratch)? {

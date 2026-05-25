@@ -300,10 +300,20 @@ pub(crate) fn run_mpp_worker(
     // the direct path — wiring the spin loop to actually call `relay.shm_mq_try_send` is the
     // next phase. The relay handle is held under an `Arc` so multiple `MppSender` clones can
     // share the producer side cheaply.
+    //
+    // **Multi-thread caveat (G7-MT phase 3d).** This `runtime.block_on(local_set.run_until(..))`
+    // pattern only pins the service to the backend thread when `runtime` is a `current_thread`
+    // runtime, which it is today (see `host.rs::exec_mpp_worker_impl`). When phase 3d switches
+    // the runtime to `new_multi_thread`, `block_on` parks the caller and the future runs on a
+    // worker thread — the LocalSet would then bind to that worker, *not* the backend, and
+    // the relay would round-trip via the wrong thread. Phase 3d must restructure to a
+    // dedicated current_thread driver runtime for the LocalSet + a separate multi_thread
+    // runtime for compute. See `FfiRelayService::run` doc for the two viable shapes.
     let local_set = tokio::task::LocalSet::new();
     let (ffi_relay, ffi_service) = crate::postgres::customscan::mpp::ffi_relay::FfiRelay::new();
     let ffi_relay = Arc::new(ffi_relay);
-    let _service_handle = local_set.spawn_local(ffi_service.run());
+    // Bind the JoinHandle so a service-task panic surfaces instead of being silently dropped.
+    let service_handle = local_set.spawn_local(ffi_service.run());
     let result = runtime.block_on(local_set.run_until(async move {
         let mut futures: Vec<FragmentFuture> = Vec::with_capacity(fragments.len());
         for fragment in &fragments {
@@ -484,6 +494,18 @@ pub(crate) fn run_mpp_worker(
                 .collect::<Result<Vec<_>, _>>()
                 .map(|_| ())
         };
+        // Drop the relay's producer side so the service task observes the channel close and
+        // exits cleanly. We then await the service JoinHandle inside the same `run_until` so
+        // a service-side panic surfaces as the dispatcher's error rather than getting swallowed
+        // by the LocalSet shutdown when `run_until` returns.
+        drop(ffi_relay);
+        if let Err(join_err) = service_handle.await {
+            if join_err.is_panic() {
+                // Re-raise so the outer pgrx::error! tags it correctly.
+                std::panic::resume_unwind(join_err.into_panic());
+            }
+            // Cancellation is the expected shutdown path; nothing to do.
+        }
         outcome
     }));
     if let Err(e) = result {

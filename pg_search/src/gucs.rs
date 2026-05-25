@@ -643,7 +643,9 @@ pub fn init() {
           shuffle stage carry N² mesh edges. A positive value pins the fanout so the \
           mesh edge count grows linearly with N instead. Each producer runs on a \
           single-thread Tokio runtime, so inner partitions are pure overhead — most \
-          workloads benefit from a small constant (2 is a sensible starting point).",
+          workloads benefit from a small constant (2 is a sensible starting point). \
+          Values of 1 are silently clamped to 2: the distributed planner elides shuffles \
+          when target_partitions=1, which would disable MPP for the whole query.",
         &MPP_TARGET_PARTITIONS,
         0,
         64,

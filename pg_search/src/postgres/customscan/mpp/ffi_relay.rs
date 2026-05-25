@@ -83,6 +83,14 @@ impl FfiRelay {
     ///
     /// Takes ownership of `bytes` because the buffer has to outlive the await point on
     /// the compute side without holding a borrow into the caller's scratch.
+    ///
+    /// G7-MT phase 3b perf TODO: the spin loop calls into this on every queue-full retry,
+    /// which at 25M-row shuffles can be tens of millions of round-trips. Each round-trip
+    /// allocates a fresh `tokio::sync::oneshot` here. Before phase 3b lands, switch to
+    /// either a per-sender preallocated reply slot (e.g. `Arc<Notify> + AtomicResult`) or
+    /// a batched op variant (`ShmMqTrySendMany { slices: Vec<Vec<u8>>, response: oneshot<Vec<...>> }`).
+    /// Measure on the bench before committing — naive oneshot allocation could eat the
+    /// multi-thread win.
     pub async fn shm_mq_try_send(
         &self,
         channel: Arc<dyn BatchChannelSender>,
@@ -117,7 +125,9 @@ impl FfiRelayService {
     /// which the caller is responsible for being the backend thread (the one holding
     /// `PGPROC`).
     ///
-    /// The intended call shape under multi-thread Tokio is:
+    /// # LocalSet pinning under multi_thread Tokio
+    ///
+    /// The intended call shape **today** (current_thread runtime, single-thread world):
     ///
     /// ```ignore
     /// let local = tokio::task::LocalSet::new();
@@ -125,9 +135,26 @@ impl FfiRelayService {
     /// runtime.block_on(local.run_until(compute_future));
     /// ```
     ///
-    /// `LocalSet` pins the service to whatever thread enters `run_until`, which by
-    /// construction is the backend. Compute futures spawned via [`tokio::task::spawn`]
-    /// run on the multi-thread pool and call into the [`FfiRelay`] handle.
+    /// Works because `runtime.block_on` is a blocking call on the caller's thread, so
+    /// `LocalSet::run_until` pins to that same (backend) thread.
+    ///
+    /// **Under a multi_thread runtime this pattern is wrong.** `runtime.block_on(...)`
+    /// parks the caller and the future runs on a worker thread; `LocalSet::run_until`
+    /// would then pin the service to whichever worker woke first, *not* the backend.
+    /// The relay would round-trip via a non-backend Tokio worker — same panic the relay
+    /// was supposed to prevent.
+    ///
+    /// Phase 3d must restructure this. Two viable shapes:
+    ///
+    /// 1. Keep a dedicated `current_thread` driver runtime for the FFI service + LocalSet
+    ///    on the backend, and a separate `multi_thread` runtime for compute. Compute
+    ///    futures hold an `FfiRelay` handle and call into it from any worker thread; the
+    ///    relay's mpsc crosses thread boundaries.
+    /// 2. Use `LocalRuntime` (tokio-unstable) with `local_set.block_on(&runtime, future)`
+    ///    so the LocalSet drives the runtime on the backend thread directly. Not stable yet.
+    ///
+    /// Option 1 is what the design intends. The `runtime: &Runtime` parameter shape of
+    /// `run_mpp_worker` hides this distinction today; tighten it before the flip.
     ///
     /// Returns when the channel closes (every [`FfiRelay`] handle has been dropped).
     pub async fn run(mut self) {
@@ -152,40 +179,52 @@ impl FfiRelayService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use crate::postgres::customscan::mpp::transport::{in_proc_channel, RecvOutcome};
 
-    /// A throwaway op variant the test injects directly into the service receiver, so we
-    /// don't need to build a real [`ShmMqSender`] to exercise the channel + LocalSet
-    /// plumbing. Validates: the producer side sends an op + awaits, the service pulls
-    /// it off the channel on the LocalSet's thread, replies via the oneshot, and the
-    /// producer wakes up with the result.
+    /// End-to-end: a producer task sends ops through `FfiRelay`, the service runs them
+    /// through a real `BatchChannelSender` (in-proc channel here, shm_mq in production),
+    /// and the bytes the receiver pulls off the channel match what the producer sent.
+    /// Exercises the actual `FfiRelay` / `FfiRelayService` types so a future refactor
+    /// of either catches breakage instead of slipping past a stub.
     #[tokio::test(flavor = "current_thread")]
-    async fn relay_round_trip_resolves_on_oneshot_reply() {
+    async fn relay_round_trip_through_real_channel() {
         let local = tokio::task::LocalSet::new();
         local
             .run_until(async {
-                let (tx, mut rx) = mpsc::unbounded_channel::<oneshot::Sender<u32>>();
+                let (in_proc_tx, in_proc_rx) = in_proc_channel(8);
+                let channel: Arc<dyn BatchChannelSender> = Arc::new(in_proc_tx);
 
-                let counter = Arc::new(AtomicUsize::new(0));
-                let counter_for_service = Arc::clone(&counter);
-                let service = tokio::task::spawn_local(async move {
-                    while let Some(resp) = rx.recv().await {
-                        counter_for_service.fetch_add(1, Ordering::SeqCst);
-                        let _ = resp.send(42);
-                    }
-                });
+                let (relay, service) = FfiRelay::new();
+                let service_handle = tokio::task::spawn_local(service.run());
 
-                let (r1_tx, r1_rx) = oneshot::channel();
-                tx.send(r1_tx).unwrap();
-                assert_eq!(r1_rx.await.unwrap(), 42);
+                assert!(
+                    relay
+                        .shm_mq_try_send(Arc::clone(&channel), vec![1, 2, 3])
+                        .await
+                        .expect("first send"),
+                    "in-proc channel has capacity, send should succeed"
+                );
+                assert!(relay
+                    .shm_mq_try_send(Arc::clone(&channel), vec![4, 5, 6])
+                    .await
+                    .expect("second send"),);
 
-                let (r2_tx, r2_rx) = oneshot::channel();
-                tx.send(r2_tx).unwrap();
-                assert_eq!(r2_rx.await.unwrap(), 42);
+                // Receiver sees both payloads in order.
+                use crate::postgres::customscan::mpp::transport::BatchChannelReceiver;
+                let outcomes = [in_proc_rx.try_recv(), in_proc_rx.try_recv()];
+                let bytes: Vec<Vec<u8>> = outcomes
+                    .into_iter()
+                    .map(|o| match o {
+                        RecvOutcome::Bytes(b) => b.to_vec(),
+                        other => panic!("expected Bytes, got {other:?}"),
+                    })
+                    .collect();
+                assert_eq!(bytes[0], vec![1, 2, 3]);
+                assert_eq!(bytes[1], vec![4, 5, 6]);
 
-                drop(tx);
-                service.await.unwrap();
-                assert_eq!(counter.load(Ordering::SeqCst), 2);
+                // Drop the relay's producer side so the service observes channel close + exits.
+                drop(relay);
+                service_handle.await.unwrap();
             })
             .await;
     }

@@ -118,9 +118,16 @@ pub(crate) fn build_mpp_session_context(
     } else {
         n_workers.max(2)
     };
+    // Snapshot every GUC compute paths read, on the backend thread, before the worker
+    // dispatches any future. Stashed on the per-query SessionConfig so compute futures
+    // resolve them via `runtime_gucs_from_ctx(&TaskContext)` rather than calling back into
+    // pgrx — required for G7-MT (multi-thread tokio per producer).
     let cfg = seed
         .copied_config()
-        .with_target_partitions(target_partitions);
+        .with_target_partitions(target_partitions)
+        .with_option_extension(
+            crate::postgres::customscan::mpp::runtime_gucs::MppRuntimeGucs::snapshot(),
+        );
 
     // Start from the seed's existing state so the customscan's query planner
     // (`PgSearchQueryPlanner`), optimizer rules, and registered extensions all carry over.
@@ -265,6 +272,18 @@ pub(crate) fn run_mpp_worker(
     let work_mem_bytes = unsafe { pg_sys::work_mem as usize * 1024 };
     let hash_mem_multiplier = unsafe { pg_sys::hash_mem_multiplier };
     let session_arc = Arc::new(session);
+
+    // Lift `paradedb.mpp_debug` out of the dispatcher closure so the deadlock-detector branch
+    // doesn't need a backend-thread FFI call. Pulled from the per-query GUC snapshot installed
+    // by `build_mpp_session_context`.
+    let mpp_debug = session_arc
+        .state()
+        .config()
+        .options()
+        .extensions
+        .get::<crate::postgres::customscan::mpp::runtime_gucs::MppRuntimeGucs>()
+        .map(|g| g.mpp_debug)
+        .unwrap_or_else(crate::gucs::mpp_debug);
 
     // Two `Future` shapes share this vector: real producer-fragment futures and broadcast
     // short-circuit EOF-only stubs. The alias keeps the `Vec<_>` declaration legible and silences
@@ -426,7 +445,7 @@ pub(crate) fn run_mpp_worker(
         // within 30 s the dispatcher surfaces an error instead of letting the backend spin
         // forever.
         let join_fut = futures::future::join_all(futures);
-        let outcome: Result<(), datafusion::common::DataFusionError> = if crate::gucs::mpp_debug() {
+        let outcome: Result<(), datafusion::common::DataFusionError> = if mpp_debug {
             match tokio::time::timeout(std::time::Duration::from_secs(30), join_fut).await {
                 Ok(results) => results
                     .into_iter()

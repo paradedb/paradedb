@@ -34,6 +34,7 @@ use datafusion::execution::TaskContext;
 use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use futures::stream::StreamExt;
 
+use crate::postgres::customscan::mpp::runtime_gucs::runtime_gucs_from_ctx;
 use crate::postgres::customscan::mpp::transport::{MppSender, SendBatchStats};
 
 /// Run a producer fragment plan to exhaustion and push every output batch
@@ -55,6 +56,14 @@ pub async fn run_worker_fragment(
         )));
     }
 
+    // `paradedb.mpp_trace` is pulled from the per-query GUC snapshot installed by
+    // `build_mpp_session_context`, not from the live pgrx GUC, so this stays safe once the
+    // tokio runtime goes multi-thread. Fall back to the live read when there's no snapshot
+    // (the non-MPP serial path that shares this module).
+    let trace_on = runtime_gucs_from_ctx(&ctx)
+        .map(|g| g.mpp_trace)
+        .unwrap_or_else(crate::gucs::mpp_trace);
+
     // Execute every output partition concurrently. Each partition gets its
     // own sender; pushes are independent. `Arc<MppSender>` so each
     // partition's future has its own clone (MppSender is `Sync`).
@@ -72,7 +81,6 @@ pub async fn run_worker_fragment(
         // explicitly here.
         futures.push(async move {
             let mut stats = SendBatchStats::default();
-            let trace_on = crate::gucs::mpp_trace();
             let wall_start = trace_on.then(Instant::now);
             let mut first_batch_ms: f64 = 0.0;
             let mut pull_ns: u64 = 0;

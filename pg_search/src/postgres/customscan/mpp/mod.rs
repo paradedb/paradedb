@@ -31,6 +31,7 @@ pub mod glue;
 pub mod host;
 pub mod mesh;
 pub mod runtime;
+pub mod runtime_gucs;
 pub mod task_estimator;
 pub mod transport;
 pub mod worker;

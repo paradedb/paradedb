@@ -294,7 +294,17 @@ pub(crate) fn run_mpp_worker(
                 + Send,
         >,
     >;
-    let result = runtime.block_on(async move {
+    // Stand up the FFI relay scaffold even on the current-thread runtime: this proves the
+    // LocalSet plumbing is correct and gives Phase 3 (the multi-thread flip) a single line to
+    // change. Today the service runs on the same OS thread as the compute futures, so the
+    // round-trip through the channel is wasted work — the senders below still call into
+    // `MppSender::send_*_traced` directly. When Phase 3 routes the spin loop through
+    // `relay.shm_mq_try_send`, the service stays pinned to the backend while compute migrates
+    // to the multi-thread pool.
+    let local_set = tokio::task::LocalSet::new();
+    let (_ffi_relay, ffi_service) = crate::postgres::customscan::mpp::ffi_relay::FfiRelay::new();
+    let _service_handle = local_set.spawn_local(ffi_service.run());
+    let result = runtime.block_on(local_set.run_until(async move {
         let mut futures: Vec<FragmentFuture> = Vec::with_capacity(fragments.len());
         for fragment in &fragments {
             let n_out = fragment.plan.output_partitioning().partition_count();
@@ -469,7 +479,7 @@ pub(crate) fn run_mpp_worker(
                 .map(|_| ())
         };
         outcome
-    });
+    }));
     if let Err(e) = result {
         pgrx::error!("mpp worker: fragment dispatch failed: {e}");
     }

@@ -38,17 +38,21 @@ use crate::postgres::customscan::mpp::runtime_gucs::runtime_gucs_from_ctx;
 use crate::postgres::customscan::mpp::transport::{MppSender, SendBatchStats};
 
 /// Read this thread's accumulated CPU time in nanoseconds, via
-/// `CLOCK_THREAD_CPUTIME_ID`. Available on Linux and macOS 10.12+.
-/// Returns 0 if the clock isn't readable — diagnostics shouldn't propagate.
-fn thread_cpu_ns() -> u64 {
+/// `CLOCK_THREAD_CPUTIME_ID`. Returns `None` if the clock isn't readable
+/// (rare on supported platforms) so callers can distinguish "thread was
+/// idle" from "measurement failed".
+pub(super) fn thread_cpu_ns() -> Option<u64> {
     let mut ts: libc::timespec = unsafe { std::mem::zeroed() };
     let rc = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
     if rc != 0 {
-        return 0;
+        return None;
     }
-    (ts.tv_sec as u64)
-        .saturating_mul(1_000_000_000)
-        .saturating_add(ts.tv_nsec as u64)
+    Some(
+        u64::try_from(ts.tv_sec)
+            .unwrap_or(0)
+            .saturating_mul(1_000_000_000)
+            .saturating_add(ts.tv_nsec as u64),
+    )
 }
 
 /// Run a producer fragment plan to exhaustion and push every output batch
@@ -158,31 +162,7 @@ pub async fn run_worker_fragment(
     // `join_all`, not `try_join_all`: fail-fast would cancel sibling partitions mid-await before
     // they hit `send_eof_traced`, leaving the consumer's channel buffer stuck and the leader's
     // `select_all` blocked.
-    //
-    // Fragment-level CPU saturation: with a current-thread tokio runtime, all partition futures
-    // share this thread. Sampling CPU around the whole join_all answers "did this PG worker's
-    // thread max out a core during the fragment, or was it blocked on shm_mq / upstream?" — a
-    // ~100% reading means adding cores per producer (G7-MT) would unlock parallelism; a low
-    // reading means shuffle or scan blocking is the binding constraint.
-    let frag_wall_start = trace_on.then(Instant::now);
-    let frag_cpu_start = trace_on.then(thread_cpu_ns);
     let results = futures::future::join_all(futures).await;
-    if trace_on {
-        let wall_ms = frag_wall_start.unwrap().elapsed().as_secs_f64() * 1000.0;
-        let cpu_ms = thread_cpu_ns().saturating_sub(frag_cpu_start.unwrap()) as f64 / 1.0e6;
-        let cpu_pct = if wall_ms > 0.0 {
-            cpu_ms / wall_ms * 100.0
-        } else {
-            0.0
-        };
-        pgrx::warning!(
-            "mpp_trace fragment_cpu partitions={} wall_ms={:.2} cpu_ms={:.2} cpu_pct={:.1}",
-            n_partitions,
-            wall_ms,
-            cpu_ms,
-            cpu_pct,
-        );
-    }
     drop(senders);
     for r in results {
         r?;

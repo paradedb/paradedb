@@ -90,4 +90,4 @@ rstest = "0.25.0"
 proptest = "1.11.0"
 
 [package.metadata.cargo-machete]
-ignored = ["indexmap", "libc", "tantivy-common"]
+ignored = ["indexmap", "tantivy-common"]

@@ -285,6 +285,17 @@ pub(crate) fn run_mpp_worker(
         .map(|g| g.mpp_debug)
         .unwrap_or_else(crate::gucs::mpp_debug);
 
+    // Same pattern as `mpp_debug` above: read once from the per-query GUC snapshot so the
+    // dispatcher closure stays off the backend-thread FFI path.
+    let mpp_trace = session_arc
+        .state()
+        .config()
+        .options()
+        .extensions
+        .get::<crate::postgres::customscan::mpp::runtime_gucs::MppRuntimeGucs>()
+        .map(|g| g.mpp_trace)
+        .unwrap_or_else(crate::gucs::mpp_trace);
+
     // Read `paradedb.mpp_use_ffi_relay` once on the backend thread. The invariant is
     // strictly "read before `runtime.block_on`" — that's still satisfied under phase 3d's
     // multi_thread runtime because the FFI service driver runtime / LocalSet is created
@@ -481,6 +492,23 @@ pub(crate) fn run_mpp_worker(
         // Deadlock detector. Under `paradedb.mpp_debug`, if any fragment hasn't completed
         // within 30 s the dispatcher surfaces an error instead of letting the backend spin
         // forever.
+        // Per-worker thread-CPU saturation. Sampled around the outer join_all so cpu_ms covers
+        // the ENTIRE worker's fragment dispatch, not just one fragment — a worker can hold
+        // multiple fragments (producer + nested consumer) that share the current-thread runtime,
+        // and per-fragment CPU would double-count. cpu_pct = cpu_ms / wall_ms * 100. A reading
+        // near 100% means this PG worker's thread is CPU-bound during the dispatch; lower
+        // readings mean we're blocked on shm_mq / upstream and adding cores per worker would
+        // not help.
+        //
+        // NOTE: this assumes the tokio runtime is current-thread (as constructed in `host.rs`).
+        // G7-MT phase 3d flips to `new_multi_thread`, after which the start/end CPU samples
+        // can be taken from different OS threads and the reading becomes meaningless. When
+        // that lands, switch to per-fragment `RUSAGE_THREAD` accounting wrapped inside each
+        // fragment future, or to process-wide `RUSAGE_SELF` deltas.
+        let worker_wall_start = mpp_trace.then(std::time::Instant::now);
+        let worker_cpu_start = mpp_trace
+            .then(crate::postgres::customscan::mpp::worker::thread_cpu_ns)
+            .flatten();
         let join_fut = futures::future::join_all(futures);
         let outcome: Result<(), datafusion::common::DataFusionError> = if mpp_debug {
             match tokio::time::timeout(std::time::Duration::from_secs(30), join_fut).await {
@@ -505,6 +533,44 @@ pub(crate) fn run_mpp_worker(
                 .collect::<Result<Vec<_>, _>>()
                 .map(|_| ())
         };
+        if mpp_trace {
+            let wall_ms = worker_wall_start.unwrap().elapsed().as_secs_f64() * 1000.0;
+            let cpu_ns_end =
+                crate::postgres::customscan::mpp::worker::thread_cpu_ns();
+            let fragments_summary = fragments
+                .iter()
+                .map(|f| format!("({},{})", f.stage_id, f.task_idx))
+                .collect::<Vec<_>>()
+                .join(",");
+            match (worker_cpu_start, cpu_ns_end) {
+                (Some(start), Some(end)) => {
+                    let cpu_ms = end.saturating_sub(start) as f64 / 1.0e6;
+                    let cpu_pct = if wall_ms > 0.0 {
+                        cpu_ms / wall_ms * 100.0
+                    } else {
+                        0.0
+                    };
+                    pgrx::warning!(
+                        "mpp_trace worker_cpu this_proc={} n_fragments={} fragments=[{}] wall_ms={:.2} cpu_ms={:.2} cpu_pct={:.1}",
+                        this_proc,
+                        fragments.len(),
+                        fragments_summary,
+                        wall_ms,
+                        cpu_ms,
+                        cpu_pct,
+                    );
+                }
+                _ => {
+                    pgrx::warning!(
+                        "mpp_trace worker_cpu this_proc={} n_fragments={} fragments=[{}] wall_ms={:.2} cpu_ms=NA cpu_pct=NA",
+                        this_proc,
+                        fragments.len(),
+                        fragments_summary,
+                        wall_ms,
+                    );
+                }
+            }
+        }
         // Drop the relay's producer side so the service task observes the channel close and
         // exits cleanly. We then await the service JoinHandle inside the same `run_until` so
         // a service-side panic surfaces as the dispatcher's error rather than getting swallowed

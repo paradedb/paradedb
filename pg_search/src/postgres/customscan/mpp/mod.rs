@@ -27,6 +27,7 @@
 
 pub mod dsm;
 pub mod exec_worker;
+pub mod ffi_relay;
 pub mod glue;
 pub mod host;
 pub mod mesh;

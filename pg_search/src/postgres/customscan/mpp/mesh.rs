@@ -60,7 +60,7 @@ pub(super) fn align_up_maxalign_checked(n: usize) -> Option<usize> {
 /// dedicated parallel-worker backend. The blocking `shm_mq_send(nowait=false)`
 /// path uses `WaitLatch` + `CHECK_FOR_INTERRUPTS` — both process-global
 /// Postgres primitives, not thread-safe off a backend thread.
-pub(super) struct ShmMqSender {
+pub(crate) struct ShmMqSender {
     inner: MessageQueueSender,
     attach_thread: std::thread::ThreadId,
     /// Async serialization lock around the shm_mq handle. Held by [`MppSender::send_*_traced`]

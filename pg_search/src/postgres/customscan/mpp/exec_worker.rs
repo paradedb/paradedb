@@ -101,9 +101,19 @@ pub(crate) fn build_mpp_session_context(
     //      worker subplans for gRPC shipment; without a codec for our custom physical execs,
     //      encoding errors before execution. In our model the encoded bytes are never observed
     //      (workers re-plan from the logical plan in DSM), so the codec is a stub.
+    // `paradedb.mpp_target_partitions = 0` (default) preserves the historical N²-edge mesh by
+    // scaling inner fanout with n_workers. A positive value pins the fanout to a constant so
+    // edges grow linearly with N. Single-thread Tokio runtimes per producer don't parallelize
+    // across inner partitions, so a small constant is usually pure overhead savings.
+    let configured = crate::gucs::mpp_target_partitions();
+    let target_partitions = if configured > 0 {
+        (configured as usize).max(2)
+    } else {
+        n_workers.max(2)
+    };
     let cfg = seed
         .copied_config()
-        .with_target_partitions(n_workers.max(2));
+        .with_target_partitions(target_partitions);
 
     // Start from the seed's existing state so the customscan's query planner (`PgSearchQueryPlanner`),
     // optimizer rules, and registered extensions all carry over. JoinScan relies on this for

@@ -347,6 +347,7 @@ impl CustomScan for AggregateScan {
             PrivateData::Tantivy {
                 indexrelid,
                 aggregate_clause,
+                distinct_overflow_plan,
                 ..
             } => {
                 if !aggregate_clause.planner_should_replace_aggrefs() {
@@ -360,6 +361,7 @@ impl CustomScan for AggregateScan {
                 builder.custom_state().execution_rti =
                     unsafe { (*builder.args().cscan).scan.scanrelid as pg_sys::Index };
                 builder.custom_state().aggregate_clause = *aggregate_clause;
+                builder.custom_state().distinct_overflow_plan = distinct_overflow_plan.map(|b| *b);
                 builder.build()
             }
             PrivateData::DataFusion {
@@ -1152,6 +1154,19 @@ impl AggregateScan {
             Ok((builder, aggregate_clause)) => {
                 Self::mark_contexts_successful(unsafe { rte_alias_or_unknown(heap_rte) });
 
+                // For DISTINCT queries, pre-compute a DataFusion overflow fallback plan.
+                // Statistics-based routing cannot reliably detect overflow for BM25
+                // queries (Postgres lacks a custom selectivity estimator for @@@), so
+                // Tantivy always gets the first attempt. If it truncates at execution
+                // time (sum_other_doc_count > 0), the executor discards the partial
+                // result and re-runs via DataFusion, which has no bucket cap.
+                let distinct_overflow_plan =
+                    if builder.args().stage == pg_sys::UpperRelationKind::UPPERREL_DISTINCT {
+                        Self::build_distinct_overflow_plan(builder.args()).map(Box::new)
+                    } else {
+                        None
+                    };
+
                 // At UPPERREL_DISTINCT the planner leaves output_rel.reltarget.exprs
                 // empty, so the CustomPath's pathtarget has no column list. Plan nodes
                 // above the custom scan (Sort, Limit) need to find their Var references
@@ -1172,6 +1187,7 @@ impl AggregateScan {
                     heap_rti,
                     indexrelid: index.oid(),
                     aggregate_clause: Box::new(aggregate_clause),
+                    distinct_overflow_plan,
                 })]
             }
             Err(CustomScanBuildError::Incompatible(e)) => {
@@ -1192,6 +1208,48 @@ impl AggregateScan {
                 Vec::new()
             }
             Err(CustomScanBuildError::NotInteresting) => Vec::new(),
+        }
+    }
+
+    /// Build a DataFusion overflow fallback plan for a `SELECT DISTINCT` query.
+    ///
+    /// Called at planning time for `UPPERREL_DISTINCT` Tantivy paths. The
+    /// returned plan is stored in `PrivateData::Tantivy::distinct_overflow_plan`
+    /// and used at execution time when Tantivy's TermsAggregation truncates
+    /// (`sum_other_doc_count > 0`). Returns `None` if the DataFusion plan
+    /// cannot be constructed (e.g. no BM25 sources found), in which case
+    /// Tantivy's (potentially truncated) result is returned as-is.
+    fn build_distinct_overflow_plan(
+        args: &CreateUpperPathsHookArgs,
+    ) -> Option<privdat::DistinctOverflowPlan> {
+        unsafe {
+            let root = args.root;
+            let input_rel = args.input_rel();
+
+            let sources = collect_join_agg_sources(root, input_rel);
+            if sources.is_empty() || !all_have_bm25_index(&sources) {
+                return None;
+            }
+
+            let (mut plan, _, _, multi_table_clauses) =
+                extract_join_tree_from_parse(root, &sources, input_rel).ok()?;
+
+            let targetlist = extract_aggregate_targetlist(args, &sources, &plan).ok()?;
+
+            datafusion_build::populate_required_fields(
+                &mut plan,
+                &targetlist,
+                &multi_table_clauses,
+            )
+            .ok()?;
+
+            let topk = detect_join_aggregate_topk(args, &targetlist);
+
+            Some(privdat::DistinctOverflowPlan {
+                plan,
+                targetlist,
+                topk,
+            })
         }
     }
 
@@ -1363,6 +1421,19 @@ impl AggregateScan {
             builder
         };
 
+        // At UPPERREL_DISTINCT output_rel.reltarget.exprs is empty. Build a
+        // proper pathtarget from parse->targetList so Sort/Limit nodes above
+        // this path can resolve their column Var references.
+        let builder = if builder.args().stage == pg_sys::UpperRelationKind::UPPERREL_DISTINCT {
+            unsafe {
+                let pathtarget =
+                    pg_sys::make_pathtarget_from_tlist((*builder.args().root().parse).targetList);
+                builder.set_pathtarget(pathtarget)
+            }
+        } else {
+            builder
+        };
+
         // Build the custom path with DataFusion private data
         let multi_table_clause_count = multi_table_clauses.len();
         let mut custom_path = builder.build(PrivateData::DataFusion {
@@ -1399,6 +1470,11 @@ impl AggregateScan {
         state: &mut CustomScanStateWrapper<Self>,
     ) -> *mut pg_sys::TupleTableSlot {
         let Some(row) = Self::advance_tantivy_state(state) else {
+            // Truncation was detected and DataFusion fallback was initialised —
+            // re-route to DataFusion for the complete result set.
+            if state.custom_state().is_datafusion_backend() {
+                return Self::exec_datafusion_aggregate(state);
+            }
             return std::ptr::null_mut();
         };
 
@@ -1421,14 +1497,53 @@ impl AggregateScan {
     /// aggregate iterator on the first call, return the next row on
     /// subsequent calls, and transition to `Completed` when the iterator
     /// is exhausted.
+    ///
+    /// On the first call (`NotStarted`), after Tantivy executes, checks
+    /// `was_truncated`. If truncation occurred and a `distinct_overflow_plan`
+    /// is available, initialises `datafusion_state` and returns `None` to
+    /// signal `exec_tantivy_aggregate` to re-route to DataFusion.
     fn advance_tantivy_state(
         state: &mut CustomScanStateWrapper<Self>,
     ) -> Option<AggregationResultsRow> {
         let row = match &mut state.custom_state_mut().state {
             ExecutionState::Completed => return None,
             ExecutionState::NotStarted => {
-                // Execute the aggregate, and change the state to Emitting.
-                let mut row_iter = aggregation_results_iter(state);
+                // Execute Tantivy and capture the truncation signal.
+                let (mut row_iter, was_truncated) = aggregation_results_iter(state);
+
+                if was_truncated {
+                    // Tantivy hit its bucket cap and returned partial results.
+                    // If a pre-computed DataFusion fallback plan exists (set for
+                    // DISTINCT queries at planning time), discard the partial
+                    // Tantivy results and switch to DataFusion for a complete answer.
+                    if let Some(overflow_plan) =
+                        state.custom_state_mut().distinct_overflow_plan.take()
+                    {
+                        state.custom_state_mut().datafusion_state =
+                            Some(scan_state::DataFusionAggState {
+                                plan: overflow_plan.plan,
+                                targetlist: overflow_plan.targetlist,
+                                topk: overflow_plan.topk,
+                                join_level_predicates: Vec::new(),
+                                multi_table_predicates: Vec::new(),
+                                custom_exprs: std::ptr::null_mut(),
+                                custom_scan_tlist: std::ptr::null_mut(),
+                                having_filter: None,
+                                runtime: None,
+                                stream: None,
+                                current_batch: None,
+                                batch_row_idx: 0,
+                                group_df_indices: Vec::new(),
+                                mpp: None,
+                                mpp_plan_bytes: None,
+                            });
+                        // Mark Tantivy state as done; caller will re-route to DataFusion.
+                        state.custom_state_mut().state = ExecutionState::Completed;
+                        return None;
+                    }
+                    // No overflow plan available — return the partial Tantivy result.
+                }
+
                 let first = row_iter.next();
                 state.custom_state_mut().state = ExecutionState::Emitting(row_iter);
                 first

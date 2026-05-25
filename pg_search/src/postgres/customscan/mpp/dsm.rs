@@ -282,6 +282,10 @@ pub(super) unsafe fn leader_init(
     // it only attaches to its own row and column below.
     let header = MppDsmHeader::from_layout(layout);
     let n_procs = layout.n_procs;
+    // `crate::gucs::mpp_trace()` reads a pgrx GucSetting, which requires the backend thread.
+    // Safe here because `leader_init` runs synchronously from `initialize_dsm_custom_scan`
+    // on the backend before any tokio runtime spins up — same property the surrounding
+    // `pgrx::warning!` callers rely on.
     let trace_on = crate::gucs::mpp_trace();
     let t_create = trace_on.then(Instant::now);
     for s in 0..n_procs {
@@ -297,19 +301,20 @@ pub(super) unsafe fn leader_init(
     let attach = unsafe { attach_proc_row_and_column(base, &header, 0, seg) };
     let attach_ms = t_attach.map(|t| t.elapsed().as_secs_f64() * 1000.0);
 
-    if let (Some(create_ms), Some(attach_ms)) = (create_ms, attach_ms) {
-        // Peer-attach count excludes the self-loop slot, so N×(N-1). create touched all N² slots.
-        let peer_attaches = (n_procs as usize).saturating_sub(1);
+    if trace_on {
+        // attach_proc_row_and_column makes 2*(N-1) shm_mq_attach calls per proc:
+        // N-1 row senders + N-1 column receivers. create touched all N² slots.
+        let peer_attach_calls = 2 * (n_procs as usize).saturating_sub(1);
         let total_slots = (n_procs as usize) * (n_procs as usize);
         pgrx::warning!(
-            "mpp_trace mesh_init role=leader procs={} slots_created={} peer_attaches={} queue_bytes={} plan_bytes={} create_ms={:.2} attach_ms={:.2}",
+            "mpp_trace mesh_init role=leader procs={} slots_created={} peer_attach_calls={} queue_bytes={} plan_bytes={} create_ms={:.2} attach_ms={:.2}",
             n_procs,
             total_slots,
-            peer_attaches,
+            peer_attach_calls,
             layout.queue_bytes,
             plan_bytes.len(),
-            create_ms,
-            attach_ms,
+            create_ms.unwrap(),
+            attach_ms.unwrap(),
         );
     }
 
@@ -407,17 +412,20 @@ pub(super) unsafe fn worker_attach(
         .to_vec()
     };
 
+    // Same backend-thread safety story as leader_init: `initialize_worker_custom_scan` runs on
+    // the parallel-worker backend before tokio starts, so reading `mpp_trace` directly is safe.
     let trace_on = crate::gucs::mpp_trace();
     let t_attach = trace_on.then(Instant::now);
     let attach = unsafe { attach_proc_row_and_column(base, &header, proc_idx, seg) };
-    if let Some(t_attach) = t_attach {
-        let attach_ms = t_attach.elapsed().as_secs_f64() * 1000.0;
-        let peer_attaches = (header.n_procs as usize).saturating_sub(1);
+    if trace_on {
+        let attach_ms = t_attach.unwrap().elapsed().as_secs_f64() * 1000.0;
+        // 2*(N-1) shm_mq_attach calls: N-1 row senders + N-1 column receivers.
+        let peer_attach_calls = 2 * (header.n_procs as usize).saturating_sub(1);
         pgrx::warning!(
-            "mpp_trace mesh_init role=worker proc_idx={} procs={} peer_attaches={} attach_ms={:.2}",
+            "mpp_trace mesh_init role=worker proc_idx={} procs={} peer_attach_calls={} attach_ms={:.2}",
             proc_idx,
             header.n_procs,
-            peer_attaches,
+            peer_attach_calls,
             attach_ms,
         );
     }

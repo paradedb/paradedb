@@ -684,6 +684,7 @@ fn try_convert_in_list_to_query(
     in_list: &InListExpr,
     schema: &crate::schema::SearchIndexSchema,
     strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
+    pushdown_config: &InListPushdownConfig,
 ) -> Option<Box<dyn Query>> {
     if in_list.negated() {
         return None;
@@ -698,22 +699,18 @@ fn try_convert_in_list_to_query(
 
     let field_type = field.field_type();
 
-    // Check GUC thresholds
-    let max_size = crate::gucs::hash_join_inlist_pushdown_max_size() as usize;
-    let max_distinct = crate::gucs::hash_join_inlist_pushdown_max_distinct_values() as usize;
-
     // K cap. Default 20,000 is bench-tuned to the win/lose crossover for
     // pushdown vs PreFilter at N=1M sorted. See
     // gucs::HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES doc for the
     // reasoning and trade-off. Set to 0 to disable pushdown.
-    if in_list.list().len() > max_distinct {
+    if in_list.list().len() > pushdown_config.max_distinct_values {
         return None;
     }
 
     // Estimate size: this is a rough estimate based on the number of elements
     // and their typical size.
     let estimated_size = in_list.list().len() * 32; // Assume ~32 bytes per element
-    if estimated_size > max_size {
+    if estimated_size > pushdown_config.max_size {
         return None;
     }
 
@@ -754,9 +751,9 @@ fn try_convert_in_list_to_query(
     // optional `strategy_sink` is a per-scan AtomicU8 the planner stores
     // its decision into so EXPLAIN ANALYZE can report which strategy fired.
     let cfg = TermSetStrategyConfig {
-        gallop_enabled: crate::gucs::term_set_gallop_enabled(),
-        bitset_max_density_unique: crate::gucs::term_set_bitset_max_density_unique(),
-        bitset_max_density_multi: crate::gucs::term_set_bitset_max_density_multi(),
+        gallop_enabled: pushdown_config.gallop_enabled,
+        bitset_max_density_unique: pushdown_config.bitset_max_density_unique,
+        bitset_max_density_multi: pushdown_config.bitset_max_density_multi,
         strategy_sink,
         ..TermSetStrategyConfig::default()
     };
@@ -764,6 +761,50 @@ fn try_convert_in_list_to_query(
     let term_set_query = TermSetQuery::new(terms).with_strategy_config(cfg);
     let const_score_query = ConstScoreQuery::new(Box::new(term_set_query), 0.0);
     Some(Box::new(const_score_query) as Box<dyn Query>)
+}
+
+/// GUC values that gate the `InList` → `TermSet` rewrite.
+///
+/// Bundled into a single struct so it can be snapshotted on the backend thread once per query
+/// (in MPP) and threaded through the per-batch scan path without any further pgrx reads.
+/// Callers on the non-MPP serial path can use [`InListPushdownConfig::from_live_gucs`], which
+/// is safe to call on the backend thread directly.
+#[derive(Debug, Clone)]
+pub struct InListPushdownConfig {
+    pub max_size: usize,
+    pub max_distinct_values: usize,
+    pub gallop_enabled: bool,
+    pub bitset_max_density_unique: f64,
+    pub bitset_max_density_multi: f64,
+}
+
+impl InListPushdownConfig {
+    /// Read every value from the live GUC registry. MUST be called on the backend thread
+    /// (the one holding `PGPROC`); pgrx's `check_active_thread()` will panic otherwise.
+    pub fn from_live_gucs() -> Self {
+        Self {
+            max_size: crate::gucs::hash_join_inlist_pushdown_max_size().max(0) as usize,
+            max_distinct_values: crate::gucs::hash_join_inlist_pushdown_max_distinct_values().max(0)
+                as usize,
+            gallop_enabled: crate::gucs::term_set_gallop_enabled(),
+            bitset_max_density_unique: crate::gucs::term_set_bitset_max_density_unique(),
+            bitset_max_density_multi: crate::gucs::term_set_bitset_max_density_multi(),
+        }
+    }
+
+    /// Build from a per-query MPP GUC snapshot. Pure copy, no FFI — safe to call from any
+    /// thread once the snapshot has been built on the backend.
+    pub fn from_runtime_gucs(
+        gucs: &crate::postgres::customscan::mpp::runtime_gucs::MppRuntimeGucs,
+    ) -> Self {
+        Self {
+            max_size: gucs.hash_join_inlist_pushdown_max_size,
+            max_distinct_values: gucs.hash_join_inlist_pushdown_max_distinct_values,
+            gallop_enabled: gucs.term_set_gallop_enabled,
+            bitset_max_density_unique: gucs.term_set_bitset_max_density_unique,
+            bitset_max_density_multi: gucs.term_set_bitset_max_density_multi,
+        }
+    }
 }
 
 /// Try to push down `InList` expressions from `dynamic_filters` into the search query.
@@ -784,6 +825,7 @@ pub fn try_dynamic_filter_pushdown(
     reader: &mut crate::index::reader::index::SearchIndexReader,
     dynamic_filters: &mut [Arc<dyn PhysicalExpr>],
     strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
+    pushdown_config: &InListPushdownConfig,
 ) -> bool {
     let mut pushed_down_queries: Vec<Box<dyn Query>> = Vec::new();
     let mut pushed_down_pointers = HashSet::default();
@@ -803,9 +845,12 @@ pub fn try_dynamic_filter_pushdown(
         for in_list_arc in extracted_in_lists {
             let in_list = in_list_arc.as_any().downcast_ref::<InListExpr>().unwrap();
 
-            if let Some(query) =
-                try_convert_in_list_to_query(in_list, schema, strategy_sink.clone())
-            {
+            if let Some(query) = try_convert_in_list_to_query(
+                in_list,
+                schema,
+                strategy_sink.clone(),
+                pushdown_config,
+            ) {
                 pushed_down_queries.push(query);
                 pushed_down_pointers.insert(Arc::as_ptr(in_list_arc) as *const () as usize);
             }

@@ -66,7 +66,9 @@ use crate::postgres::options::{SortByDirection, SortByField};
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
 use crate::scan::late_materialization::DeferredField;
-use crate::scan::pre_filter::{collect_filters, try_dynamic_filter_pushdown, PreFilter};
+use crate::scan::pre_filter::{
+    collect_filters, try_dynamic_filter_pushdown, InListPushdownConfig, PreFilter,
+};
 use crate::scan::Scanner;
 
 /// A wrapper that implements Send + Sync unconditionally.
@@ -467,10 +469,14 @@ impl ExecutionPlan for PgSearchScanPlan {
         // pgrx from a non-backend tokio worker once the runtime goes multi-thread. Falls back
         // to the live reader for the non-MPP serial DataFusion path, which is always on the
         // backend thread.
-        let df_batch_size =
-            crate::postgres::customscan::mpp::runtime_gucs::runtime_gucs_from_ctx(&context)
-                .map(|g| g.dynamic_filter_batch_size as i32)
-                .unwrap_or_else(crate::gucs::dynamic_filter_batch_size);
+        let runtime_gucs =
+            crate::postgres::customscan::mpp::runtime_gucs::runtime_gucs_from_ctx(&context);
+        let df_batch_size = runtime_gucs
+            .map(|g| g.dynamic_filter_batch_size as i32)
+            .unwrap_or_else(crate::gucs::dynamic_filter_batch_size);
+        let inlist_pushdown_config = runtime_gucs
+            .map(InListPushdownConfig::from_runtime_gucs)
+            .unwrap_or_else(InListPushdownConfig::from_live_gucs);
 
         let stream_gen = async_stream::try_stream! {
             // Optimized Search Integration:
@@ -483,6 +489,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                     &mut reader,
                     &mut dynamic_filters,
                     Some(dynamic_filter_strategy.clone()),
+                    &inlist_pushdown_config,
                 )
             {
                 dynamic_filter_pushdown.store(true, Ordering::Relaxed);

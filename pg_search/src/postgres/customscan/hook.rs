@@ -323,8 +323,29 @@ pub extern "C-unwind" fn paradedb_upper_paths_callback<CS>(
             },
         ));
 
+        let mut any_parallel = false;
         for path in paths {
+            if path.path.parallel_aware {
+                any_parallel = true;
+            }
             add_path(output_rel, path);
+        }
+
+        // If we added a parallel-aware path to an upper rel, ask PG to consider
+        // Gather over it. PG's own `gather_grouping_paths` runs inside
+        // `add_paths_to_grouping_rel` **before** our hook fires, so any partial
+        // path we added afterward sits in `partial_pathlist` with no Gather
+        // consumer. For aggregate shapes that have an upstream Sort/Limit the
+        // standard path-key machinery generates Gather Merge later and the
+        // partial path gets used; for **scalar aggregate** queries with no
+        // upstream consumer (e.g. `SELECT COUNT(*) FROM ...`) PG would
+        // otherwise pick the dummy 1e9 regular path that `add_path` inserted as
+        // a non-parallel fallback, MPP never deploys, and the user sees a
+        // serial plan despite `paradedb.enable_mpp=on`. Explicitly generating
+        // a Gather here closes that gap. Idempotent for upper rels that
+        // already had Gather paths generated upstream.
+        if any_parallel && !(*output_rel).partial_pathlist.is_null() {
+            pg_sys::generate_gather_paths(root, output_rel, false);
         }
     }
 }

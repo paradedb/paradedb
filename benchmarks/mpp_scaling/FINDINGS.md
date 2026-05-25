@@ -212,3 +212,66 @@ Hypothesis: at n>4 the DSM-init cost (mmap + page-fault-in for `n_procs² × mpp
 ### Lever 2 decision
 
 Don't change the default. The 64MB default was sized for the 25M-row gb_postagg shuffle (per the `MPP_QUEUE_SIZE` doc), and dropping to 4MB risks `send_wait` backpressure on larger workloads. Operators tune per workload — update the GUC docstring noting that 4-8MB is a sweet spot for n=4 on the bench shape, while 64MB stays the safe default for production data sizes where the post-agg burst exceeds the smaller queue.
+
+## Path B lever 3 — explicit Gather over upper-rel partial paths (2026-05-25)
+
+**Biggest win of the entire session.** Scalar count queries went from flat under MPP to **~2× speedup**.
+
+### Root cause
+
+The Path C analysis observed scalar count was flat under every parallelism config and concluded "PG already segment-parallelizes the scan via CooperativeExec, MPP can't beat it". The senior review of the threshold-rows GUC pushed back: "the real lever is to make PG actually launch workers for scalar count — then MPP would deploy". Investigation confirmed the review was right.
+
+What was happening: `pg_search/src/postgres/customscan/hook.rs::add_path` correctly adds parallel-aware paths as both a partial path (in `partial_pathlist`) and a dummy 1e9-cost regular path (in `pathlist`, so PG always has a `cheapest_total_path` to pick). PG's `add_paths_to_grouping_rel` runs **before** our upper-paths hook fires, so by the time our partial path lands no subsequent Gather-generation pass runs. The dummy 1e9 path is then the only entry in `pathlist`, `set_cheapest` picks it, and the planner produces a serial plan with cost=1e9. For GROUP BY shapes with an upstream Sort/ORDER BY, PG's pathkey machinery generates a Gather Merge later and the partial path gets used — that's why GROUP BY worked. For **scalar aggregate** with no upstream consumer, no Gather formed.
+
+EXPLAIN before the fix on q_narrow_count at mpp_n4:
+
+```text
+Custom Scan (ParadeDB Aggregate Scan)  (cost=1000000000.00..1000000000.00 rows=0 width=8) (actual rows=1.00 loops=1)
+```
+
+That cost is the dummy 1e9 the hook inserts. No `Workers Launched` line.
+
+EXPLAIN after the fix:
+
+```text
+Gather  (cost=0.00..0.00 rows=0 width=8) (actual rows=1.00 loops=1)
+  Workers Planned: 4
+  Workers Launched: 4
+  ->  Parallel Custom Scan (ParadeDB Aggregate Scan)  (actual rows=0.20 loops=5)
+```
+
+### Fix
+
+`paradedb_upper_paths_callback` (`pg_search/src/postgres/customscan/hook.rs`) now calls `pg_sys::generate_gather_paths(root, output_rel, false)` after adding paths, if any added path was `parallel_aware` and `output_rel->partial_pathlist` is non-empty. That's PG's standard API for generating Gather over partial paths; it's idempotent for upper rels that already had Gather paths generated upstream (no double-Gather).
+
+### Bench impact (5M parent / 25M child, median of 3 runs, mpp_target_partitions=2 + mpp_queue_size=4MB)
+
+| Query          | baseline_serial | mpp_n4 BEFORE fix | mpp_n4 AFTER fix |               speedup |
+| -------------- | --------------: | ----------------: | ---------------: | --------------------: |
+| q_narrow_count |            5825 |       5873 (flat) |         **2978** |             **1.96×** |
+| q_medium_count |            7909 |       8004 (flat) |         **3603** |             **2.19×** |
+| q_wide_count   |            7808 |       7898 (flat) |         **3938** |             **1.98×** |
+| q_narrow_gb    |            6862 |              4488 |         **4148** | **1.65×** (was 1.53×) |
+| q_medium_gb    |           10348 |              6821 |         **6363** |             **1.63×** |
+| q_wide_gb      |           11243 |              8531 |         **8007** |             **1.40×** |
+
+Scalar count went from flat (no parallelism win) to **~2× speedup at producers=4** across all build widths. GROUP BY shapes also improved 5-10% because the explicit Gather generation closes the same gap when no upstream Sort drives Gather Merge generation.
+
+### Why the senior reviewer's instinct was right
+
+The Path C analysis correctly identified that scalar count's bottleneck wasn't "serial Final agg" but didn't pinpoint the actual cause. The reviewer's instinct — "make PG actually launch workers, then MPP would deploy" — was both the diagnosis and the prescription. The fix is 12 lines in `hook.rs`. Lesson: when the bench shows "every parallelism config is flat", check whether PG is _actually_ parallelizing the path, not just whether the path is _marked_ parallel-aware. Look for `Workers Launched: N` in `EXPLAIN ANALYZE` before believing parallelism is on.
+
+### Combined cumulative win on this branch (vs main baseline at 5M/25M)
+
+GROUP BY (q_narrow_gb): 6862ms → 4148ms = **1.65×**. Path components:
+
+- build_filters cache: catastrophic 8-10× regression eliminated (no measurable wall-time win on its own since baseline already avoided that path)
+- mpp_target_partitions=2: 5312 → 4814 = 1.10×
+- mpp_queue_size=4MB: 4814 → 4244 → ~3978 at sweet spot = ~1.10×
+- generate_gather_paths fix: GROUP BY 5-10% additional + scalar 2×
+
+Scalar count (q_narrow_count): 5825ms → 2978ms = **1.96×**. Path components:
+
+- generate_gather_paths fix: from flat (1.0×) → 1.96×
+
+These are deployable now. G7-MT remains parked behind its GUC for the day a workload shows the underlying multi-thread compute is the bottleneck — but scalar count and GROUP BY are no longer that workload.

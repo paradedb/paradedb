@@ -1,0 +1,43 @@
+query              config             run1_ms run2_ms run3_ms median_ms
+q_narrow_count     baseline_serial    6089.025 5824.890 5819.819  5824.890
+q_narrow_count     pg_parallel_n4     5830.359 5804.318 5812.219  5812.219
+q_narrow_count     pg_parallel_n8     5840.908 5812.864 5819.129  5819.129
+q_narrow_count     mpp_n4             2977.511 2849.078 3324.129  2977.511
+q_narrow_count     mpp_n8             2895.034 2912.739 2929.285  2912.739
+q_narrow_count     mpp_n12            3549.662 3542.391 3648.147  3549.662
+---
+q_medium_count     baseline_serial    7926.351 7909.395 7902.303  7909.395
+q_medium_count     pg_parallel_n4     8107.068 8023.960 7903.746  8023.960
+q_medium_count     pg_parallel_n8     7926.416 7916.328 7900.675  7916.328
+q_medium_count     mpp_n4             3331.875 3681.445 3603.351  3603.351
+q_medium_count     mpp_n8             3831.548 3982.408 3883.878  3883.878
+q_medium_count     mpp_n12            4780.220 4784.413 5088.973  4784.413
+---
+q_wide_count       baseline_serial    7883.516 7808.325 7807.436  7808.325
+q_wide_count       pg_parallel_n4     7811.779 7808.367 7858.992  7811.779
+q_wide_count       pg_parallel_n8     7822.705 7814.578 7827.116  7822.705
+q_wide_count       mpp_n4             3834.672 3937.967 4231.184  3937.967
+q_wide_count       mpp_n8             4453.362 4529.558 4561.335  4529.558
+q_wide_count       mpp_n12            5897.031 5731.827 5863.195  5863.195
+---
+q_narrow_gb        baseline_serial    6912.181 6861.946 6848.647  6861.946
+q_narrow_gb        pg_parallel_n4     6879.895 6847.798 6843.213  6847.798
+q_narrow_gb        pg_parallel_n8     6851.486 6842.367 6851.515  6851.486
+q_narrow_gb        mpp_n4             4075.660 4148.143 4313.721  4148.143
+q_narrow_gb        mpp_n8             4786.860 4805.897 4844.714  4805.897
+q_narrow_gb        mpp_n12            6195.212 6139.616 6432.158  6195.212
+---
+q_medium_gb        baseline_serial    10494.307 10347.938 10299.264 10347.938
+q_medium_gb        pg_parallel_n4     10306.904 10302.310 10325.360 10306.904
+q_medium_gb        pg_parallel_n8     10306.505 10302.552 10312.333 10306.505
+q_medium_gb        mpp_n4             6157.514 6362.616 6491.550  6362.616
+q_medium_gb        mpp_n8             8068.718 8151.267 8143.605  8143.605
+q_medium_gb        mpp_n12            10699.229 10923.742 11234.982 10923.742
+---
+q_wide_gb          baseline_serial    11310.672 11242.980 11234.468 11242.980
+q_wide_gb          pg_parallel_n4     11202.719 11182.307 11196.103 11196.103
+q_wide_gb          pg_parallel_n8     11185.533 11189.054 11186.704 11186.704
+q_wide_gb          mpp_n4             7718.504 8006.909 8157.125  8006.909
+q_wide_gb          mpp_n8             10542.987 10683.078 10657.781 10657.781
+q_wide_gb          mpp_n12            14093.051 13938.321 14536.225 14093.051
+---

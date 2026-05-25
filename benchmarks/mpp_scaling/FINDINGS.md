@@ -96,6 +96,14 @@ The remaining gap to linear is per-row shuffle overhead: Arrow IPC encode → sh
 
 Three architectural options:
 
-1. **Zero-copy in-process shuffle.** Producers and consumers are in the same `mpp_worker_count` cohort within one query. Pass `Arc<RecordBatch>` through shared in-memory channels instead of encode → shm_mq → decode. Biggest leverage; touches the transport.
-2. **Mesh-edge reduction (N² → N).** Two-level shuffle: sort by hash, then merge into N outputs. Less per-stage parallelism but linear edges.
-3. **Multi-thread compute within a producer.** G7-MT plan per memory `project_mpp_g7mt.md`. Switches `exec_mpp_worker`'s current-thread Tokio runtime to multi-thread + an FFI relay so producers actually parallelize internal partitions. Limited by pgrx 0.18 single-thread FFI invariant; 3 days of work to break that.
+1. **Zero-copy in-process shuffle** _(investigated, deferred)_. Post-fix per-seat trace showed `send_ms = 0.4ms` out of `wall_ms = 1097ms` — encode/transport is 0.04% of stage wall. Not the bottleneck at this scale. Revisit only when shuffle bytes dominate (much larger batches or wider rows).
+2. **Mesh-edge reduction (N² → N)** _(landed as opt-in GUC)_. `paradedb.mpp_target_partitions` pins the inner fanout instead of scaling with `mpp_worker_count`. Default 0 keeps historical behavior. At `paradedb.mpp_target_partitions = 2` on 5M/25M, producers=4 medians (5 runs):
+
+   | Query           | baseline | n4 target=0 | n4 target=2 |                                     win |
+   | --------------- | -------: | ----------: | ----------: | --------------------------------------: |
+   | Q2 low-card GB  |     6893 |        5312 |    **4814** | 1.10× over t=0; **1.43×** over baseline |
+   | Q3 high-card GB |     7288 |        5806 |    **5349** |     1.09× over t=0; 1.36× over baseline |
+
+   At producers=8 the low-card win holds but high-card regresses ~15% — so this stays an opt-in knob per workload rather than a default change.
+
+3. **Multi-thread compute within a producer**. G7-MT plan per memory `project_mpp_g7mt.md`. Switches `exec_mpp_worker`'s current-thread Tokio runtime to multi-thread + an FFI relay so producers actually parallelize internal partitions. Limited by pgrx 0.18 single-thread FFI invariant; 3 days of work to break that. Still the highest-leverage path remaining.

@@ -49,6 +49,7 @@
 
 use std::ffi::c_void;
 use std::mem::size_of;
+use std::time::Instant;
 
 use pgrx::pg_sys;
 
@@ -281,6 +282,8 @@ pub(super) unsafe fn leader_init(
     // it only attaches to its own row and column below.
     let header = MppDsmHeader::from_layout(layout);
     let n_procs = layout.n_procs;
+    let trace_on = crate::gucs::mpp_trace();
+    let t_create = trace_on.then(Instant::now);
     for s in 0..n_procs {
         for r in 0..n_procs {
             let off = header.slot_offset(s, r) as usize;
@@ -288,8 +291,29 @@ pub(super) unsafe fn leader_init(
             unsafe { pg_sys::shm_mq_create(mq_addr.cast(), layout.queue_bytes) };
         }
     }
+    let create_ms = t_create.map(|t| t.elapsed().as_secs_f64() * 1000.0);
 
-    Ok(unsafe { attach_proc_row_and_column(base, &header, 0, seg) })
+    let t_attach = trace_on.then(Instant::now);
+    let attach = unsafe { attach_proc_row_and_column(base, &header, 0, seg) };
+    let attach_ms = t_attach.map(|t| t.elapsed().as_secs_f64() * 1000.0);
+
+    if let (Some(create_ms), Some(attach_ms)) = (create_ms, attach_ms) {
+        // Peer-attach count excludes the self-loop slot, so N×(N-1). create touched all N² slots.
+        let peer_attaches = (n_procs as usize).saturating_sub(1);
+        let total_slots = (n_procs as usize) * (n_procs as usize);
+        pgrx::warning!(
+            "mpp_trace mesh_init role=leader procs={} slots_created={} peer_attaches={} queue_bytes={} plan_bytes={} create_ms={:.2} attach_ms={:.2}",
+            n_procs,
+            total_slots,
+            peer_attaches,
+            layout.queue_bytes,
+            plan_bytes.len(),
+            create_ms,
+            attach_ms,
+        );
+    }
+
+    Ok(attach)
 }
 
 /// Attach to the leader-initialized DSM region as `proc_idx` (`0 = leader`,
@@ -383,7 +407,20 @@ pub(super) unsafe fn worker_attach(
         .to_vec()
     };
 
+    let trace_on = crate::gucs::mpp_trace();
+    let t_attach = trace_on.then(Instant::now);
     let attach = unsafe { attach_proc_row_and_column(base, &header, proc_idx, seg) };
+    if let Some(t_attach) = t_attach {
+        let attach_ms = t_attach.elapsed().as_secs_f64() * 1000.0;
+        let peer_attaches = (header.n_procs as usize).saturating_sub(1);
+        pgrx::warning!(
+            "mpp_trace mesh_init role=worker proc_idx={} procs={} peer_attaches={} attach_ms={:.2}",
+            proc_idx,
+            header.n_procs,
+            peer_attaches,
+            attach_ms,
+        );
+    }
     Ok((header, plan_bytes, attach))
 }
 

@@ -44,7 +44,6 @@ use std::sync::Arc;
 use datafusion::common::DataFusionError;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::postgres::customscan::mpp::mesh::ShmMqSender;
 use crate::postgres::customscan::mpp::transport::BatchChannelSender;
 
 /// FFI operations that compute futures may need to perform via the backend thread.
@@ -56,7 +55,7 @@ pub(crate) enum FfiOp {
     /// Non-blocking shm_mq send. Returns `Ok(true)` on success, `Ok(false)` if the queue
     /// is full (caller spins + retries), `Err` on detach or unknown PG error.
     ShmMqTrySend {
-        sender: Arc<ShmMqSender>,
+        channel: Arc<dyn BatchChannelSender>,
         bytes: Vec<u8>,
         response: oneshot::Sender<Result<bool, DataFusionError>>,
     },
@@ -86,13 +85,13 @@ impl FfiRelay {
     /// the compute side without holding a borrow into the caller's scratch.
     pub async fn shm_mq_try_send(
         &self,
-        sender: Arc<ShmMqSender>,
+        channel: Arc<dyn BatchChannelSender>,
         bytes: Vec<u8>,
     ) -> Result<bool, DataFusionError> {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.tx
             .send(FfiOp::ShmMqTrySend {
-                sender,
+                channel,
                 bytes,
                 response: resp_tx,
             })
@@ -135,11 +134,11 @@ impl FfiRelayService {
         while let Some(op) = self.rx.recv().await {
             match op {
                 FfiOp::ShmMqTrySend {
-                    sender,
+                    channel,
                     bytes,
                     response,
                 } => {
-                    let result = sender.try_send_bytes(&bytes);
+                    let result = channel.try_send_bytes(&bytes);
                     // The compute future may have been cancelled before our reply landed.
                     // Drop the result silently in that case — the response channel's
                     // close is the signal.

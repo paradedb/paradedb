@@ -381,7 +381,7 @@ pub(super) trait BatchChannelReceiver: Send + Sync {
 /// (`nowait=false`) touches `WaitLatch`/`CHECK_FOR_INTERRUPTS`, which is not
 /// safe off-thread. See [`crate::postgres::customscan::mpp::mesh::ShmMqSender`]
 /// for the safety contract.
-pub(super) trait BatchChannelSender: Send + Sync {
+pub(crate) trait BatchChannelSender: Send + Sync {
     fn send_bytes(&self, bytes: &[u8]) -> Result<(), DataFusionError>;
 
     /// Non-blocking variant. Returns `Ok(true)` on success, `Ok(false)`

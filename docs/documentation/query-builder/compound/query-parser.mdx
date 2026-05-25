@@ -15,6 +15,19 @@ SELECT description, rating, category FROM mock_items
 WHERE id @@@ pdb.parse('description:(sleek shoes) AND rating:>3');
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.parse(mockItems.id, "description:(sleek shoes) AND rating:>3"));
+```
+
 ```python Django
 from paradedb import ParadeDB, Parse
 
@@ -59,6 +72,23 @@ SELECT description, rating, category FROM mock_items
 WHERE id @@@ pdb.parse('description:(sleek shoes) AND rating:>3', lenient => true);
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.parse(mockItems.id, "description:(sleek shoes) AND rating:>3", {
+      lenient: true,
+    }),
+  );
+```
+
 ```python Django
 from paradedb import ParadeDB, Parse
 
@@ -98,6 +128,23 @@ For instance, the following query returns documents containing both `sleek` and 
 ```sql SQL
 SELECT description, rating, category FROM mock_items
 WHERE id @@@ pdb.parse('description:(sleek shoes)', conjunction_mode => true);
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(
+    search.parse(mockItems.id, "description:(sleek shoes)", {
+      conjunctionMode: true,
+    }),
+  );
 ```
 
 ```python Django

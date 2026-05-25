@@ -25,6 +25,30 @@ FROM mock_items
 WHERE description === 'RUNNING';
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+// Term query 1
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.description, "running"));
+
+// Term query 2
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.description, "RUNNING"));
+```
+
 ```python Django
 from paradedb import ParadeDB, Term
 
@@ -128,6 +152,19 @@ Passing a text array to the right-hand side of `===` means "find all documents c
 SELECT description, rating, category
 FROM mock_items
 WHERE description === ARRAY['shoes', 'running'];
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.description, ["shoes", "running"]));
 ```
 
 ```python Django

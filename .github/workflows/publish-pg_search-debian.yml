@@ -246,7 +246,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.cargo/bin/cargo-pgrx
-          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
+          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}-debian-${{ matrix.image }}
 
       - name: Install pgrx
         if: steps.cache-pgrx.outputs.cache-hit != 'true'
@@ -309,7 +309,7 @@ jobs:
         id: upload_url
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           RESPONSE=$(gh api \
             -H "Authorization: token $GH_TOKEN" \
@@ -323,7 +323,7 @@ jobs:
       - name: Upload pg_search .deb to GitHub Release
         uses: shogo82148/actions-upload-release-asset@v1
         with:
-          github_token: ${{ secrets.PARADEDB_BOT_GITHUB_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
           asset_path: ./pg_search-${{ steps.version.outputs.tag_version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
           asset_name: postgresql-${{ matrix.pg_version }}-pg-search_${{ steps.version.outputs.tag_version }}-1PARADEDB-${{ steps.version.outputs.os_version }}_${{ matrix.arch }}.deb

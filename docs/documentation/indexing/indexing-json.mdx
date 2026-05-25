@@ -14,6 +14,12 @@ USING bm25 (id, metadata)
 WITH (key_field='id');
 ```
 
+```ts Drizzle
+import { indexing } from "@paradedb/drizzle-paradedb";
+
+indexing.bm25Index("search_idx").on(mockItems.id, mockItems.metadata);
+```
+
 ```python Django
 from django.db import connection
 from paradedb.indexes import BM25Index
@@ -79,6 +85,17 @@ USING bm25 (id, (metadata::pdb.ngram(2,3)))
 WITH (key_field='id');
 ```
 
+```ts Drizzle
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(
+    mockItems.id,
+    indexing.bm25Field(mockItems.metadata, tokenizer.ngram(2, 3)),
+  );
+```
+
 ```python Django
 from django.db import connection
 from paradedb.indexes import BM25Index
@@ -141,6 +158,20 @@ within a larger JSON:
 CREATE INDEX search_idx ON mock_items
 USING bm25 (id, ((metadata->>'color')::pdb.ngram(2,3)))
 WITH (key_field='id');
+```
+
+```ts Drizzle
+import { indexing, tokenizer } from "@paradedb/drizzle-paradedb";
+
+indexing
+  .bm25Index("search_idx")
+  .on(
+    mockItems.id,
+    indexing.bm25Field(
+      indexing.jsonText(mockItems.metadata, "color"),
+      tokenizer.ngram(2, 3),
+    ),
+  );
 ```
 
 ```python Django

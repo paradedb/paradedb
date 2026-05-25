@@ -22,8 +22,8 @@ use crate::index::fast_fields_helper::FFHelper;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::rel_get_bm25_index;
 use crate::postgres::types::TantivyValue;
-use crate::postgres::utils::locate_bm25_index;
 use crate::query::SearchQueryInput;
 use crate::{nodecast, PARAMETERIZED_SELECTIVITY, UNKNOWN_SELECTIVITY};
 use pgrx::callconv::{Arg, ArgAbi};
@@ -282,7 +282,7 @@ pub fn query_input_restrict(
                 pg_sys::NodeTag::T_Const => {
                     let const_ = rhs.cast::<pg_sys::Const>();
                     let (heaprelid, _, _) = find_var_relation(var, info);
-                    let indexrel = locate_bm25_index(heaprelid)?;
+                    let indexrel = rel_get_bm25_index(heaprelid)?.1;
                     let search_query_input =
                         SearchQueryInput::from_datum((*const_).constvalue, (*const_).constisnull)?;
                     estimate_selectivity(&indexrel, search_query_input)

@@ -12,6 +12,17 @@ SELECT pdb.agg('{"stats": {"field": "rating"}}') FROM mock_items
 WHERE id @@@ pdb.all();
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    agg: search.agg({ stats: { field: "rating" } }),
+  })
+  .from(mockItems)
+  .where(search.all(mockItems.id));
+```
+
 ```python Django
 from paradedb import Agg, All, ParadeDB
 

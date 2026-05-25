@@ -87,7 +87,7 @@ use crate::index::reader::index::SearchIndexManifest;
 use crate::postgres::customscan::datafusion::translator::{
     apply_join_level_filter, build_join_df_with_filter, make_col, make_source_col,
     make_source_score_col, translate_pg_node_string, ColumnMapper, CombinedMapper,
-    JoinTypeAllowList, PredicateTranslator,
+    PredicateTranslator,
 };
 use crate::postgres::customscan::joinscan::privdat::{
     OutputColumnInfo, PrivateData, SCORE_COL_NAME,
@@ -250,6 +250,24 @@ pub struct JoinScanState {
     /// Dropping manifests early would release the pins and allow segment recycling
     /// before workers can open them.
     pub source_manifests: Vec<SearchIndexManifest>,
+
+    /// MPP-specific state. `Some` only when `paradedb.enable_mpp = on` and the query qualifies.
+    /// On the leader this carries the runtime mesh; on workers it carries the worker's outbound
+    /// senders, mesh, and plan bytes copied out of DSM.
+    pub mpp: Option<MppExecState>,
+    /// Serialized logical-plan bytes that the leader writes into DSM and workers read back.
+    /// Stashed in `begin_custom_scan` when MPP is active; consumed by `estimate_dsm` /
+    /// `initialize_dsm`.
+    pub mpp_plan_bytes: Option<Vec<u8>>,
+    /// Which entry in `plan.sources()` is the partitioning source. Stamped into the DSM header
+    /// by the leader; read back by workers in `exec_mpp_worker` to key `index_segment_ids`.
+    pub mpp_partitioning_source_idx: Option<usize>,
+}
+
+/// Per-query MPP state for JoinScan. Same shape as `aggregatescan::scan_state::MppExecState`.
+pub enum MppExecState {
+    Leader(crate::postgres::customscan::mpp::glue::MppLeaderState),
+    Worker(crate::postgres::customscan::mpp::glue::MppWorkerState),
 }
 
 impl JoinScanState {
@@ -340,6 +358,12 @@ pub fn create_datafusion_session_context(profile: SessionContextProfile) -> Sess
         .optimizer
         .hash_join_inlist_pushdown_max_size =
         crate::gucs::hash_join_inlist_pushdown_max_size() as usize;
+    // 0 is also DataFusion's kill switch: HashJoinExec rejects InList
+    // materialization when num_of_distinct_key() > max_distinct_values, and
+    // any non-empty build side has at least one distinct key. So setting
+    // the GUC to 0 disables the InList path on both sides of the boundary
+    // — paradedb's try_convert_in_list_to_query and DataFusion's hash-join
+    // pushdown agree on disable semantics.
     config
         .options_mut()
         .optimizer
@@ -553,14 +577,7 @@ fn build_relnode_df<'a>(
                 let right_df = build_relnode_df(rctx, &join.right).await?;
                 let mut sources = join.left.sources();
                 sources.extend(join.right.sources());
-                build_join_df_with_filter(
-                    left_df,
-                    right_df,
-                    join,
-                    &sources,
-                    rctx.output_columns,
-                    JoinTypeAllowList::All,
-                )
+                build_join_df_with_filter(left_df, right_df, join, &sources, rctx.output_columns)
             }
             RelNode::Filter(filter) => {
                 let df = build_relnode_df(rctx, &filter.input).await?;

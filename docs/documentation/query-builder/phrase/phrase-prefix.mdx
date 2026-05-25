@@ -13,6 +13,19 @@ FROM mock_items
 WHERE description @@@ pdb.phrase_prefix(ARRAY['running', 'sh']);
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    description: mockItems.description,
+    rating: mockItems.rating,
+    category: mockItems.category,
+  })
+  .from(mockItems)
+  .where(search.phrasePrefix(mockItems.description, ["running", "sh"]));
+```
+
 ```python Django
 from paradedb import ParadeDB, PhrasePrefix
 

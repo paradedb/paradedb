@@ -82,7 +82,7 @@ LIMIT 5;
          Scores: true
             TopK Order By: pdb.score() desc
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"education","lenient":true,"conjunction_mode":null}}}},{"term":{"field":"is_irs_active","value":true,"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"education","lenient":true,"conjunction_mode":null}}}},{"term":{"field":"is_irs_active","value":true}}]}}
 (11 rows)
 
 SELECT
@@ -127,7 +127,7 @@ LIMIT 5;
          Exec Method: TopKScanExecState
          Scores: false
             TopK Limit: 5
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"education","lenient":true,"conjunction_mode":null}}}},{"term":{"field":"is_irs_active","value":true,"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"education","lenient":true,"conjunction_mode":null}}}},{"term":{"field":"is_irs_active","value":true}}]}}
 (10 rows)
 
 SELECT

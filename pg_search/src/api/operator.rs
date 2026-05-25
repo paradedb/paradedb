@@ -44,7 +44,8 @@ use crate::postgres::customscan::opexpr::{
 };
 use crate::postgres::deparse::deparse_expr;
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::utils::{locate_bm25_index_from_heaprel, ToPalloc};
+use crate::postgres::rel_get_bm25_index;
+use crate::postgres::utils::ToPalloc;
 #[cfg(feature = "pg18")]
 use crate::postgres::var::resolve_rte_group_var;
 use crate::postgres::var::{
@@ -373,9 +374,12 @@ pub unsafe fn tantivy_field_name_from_node(
     if heaprelid == pg_sys::Oid::INVALID {
         return None;
     }
-    let heaprel = PgSearchRelation::open(heaprelid);
-    let indexrel = locate_bm25_index_from_heaprel(&heaprel)
-        .unwrap_or_else(|| panic!("`{}` does not contain a `USING bm25` index", heaprel.name()));
+    let (heaprel, indexrel) = rel_get_bm25_index(heaprelid).unwrap_or_else(|| {
+        panic!(
+            "`{}` does not contain a `USING bm25` index",
+            PgSearchRelation::open(heaprelid).name()
+        )
+    });
 
     let field_name =
         field_name_from_node(VarContext::from_planner(root), &heaprel, &indexrel, node)?;

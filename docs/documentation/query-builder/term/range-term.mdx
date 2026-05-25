@@ -18,6 +18,18 @@ SELECT id, weight_range FROM mock_items
 WHERE weight_range @@@ pdb.range_term(1);
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    weightRange: mockItems.weightRange,
+  })
+  .from(mockItems)
+  .where(search.rangeTerm(mockItems.weightRange, 1));
+```
+
 ```python Django
 from paradedb import ParadeDB, RangeTerm
 
@@ -57,6 +69,18 @@ point with the query range:
 ```sql SQL
 SELECT id, weight_range FROM mock_items
 WHERE weight_range @@@ pdb.range_term('(10, 12]'::int4range, 'Intersects');
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    weightRange: mockItems.weightRange,
+  })
+  .from(mockItems)
+  .where(search.rangeTerm(mockItems.weightRange, "(10, 12]", "Intersects"));
 ```
 
 ```python Django
@@ -106,6 +130,18 @@ SELECT id, weight_range FROM mock_items
 WHERE weight_range @@@ pdb.range_term('(3, 9]'::int4range, 'Contains');
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    weightRange: mockItems.weightRange,
+  })
+  .from(mockItems)
+  .where(search.rangeTerm(mockItems.weightRange, "(3, 9]", "Contains"));
+```
+
 ```python Django
 from paradedb import ParadeDB, RangeTerm
 
@@ -151,6 +187,18 @@ The following query finds all ranges that contain the query range:
 ```sql SQL
 SELECT id, weight_range FROM mock_items
 WHERE weight_range @@@ pdb.range_term('(2, 11]'::int4range, 'Within');
+```
+
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    weightRange: mockItems.weightRange,
+  })
+  .from(mockItems)
+  .where(search.rangeTerm(mockItems.weightRange, "(2, 11]", "Within"));
 ```
 
 ```python Django

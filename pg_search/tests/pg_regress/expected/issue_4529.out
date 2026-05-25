@@ -45,8 +45,8 @@ JOIN typmod_suppliers s ON p.supplier_id = s.id
 WHERE p.description === 'widget'
 ORDER BY s.name
 LIMIT 10;
-                                                                          QUERY PLAN                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Custom Scan (ParadeDB Join Scan)
@@ -62,7 +62,7 @@ LIMIT 10;
                  :       ProjectionExec: expr=[ctid_0@1 as ctid_0, name@2 as name, ctid_1@0 as ctid_1]
                  :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(supplier_id@1, id@1)], projection=[ctid_1@0, ctid_0@2, name@4]
                  :           CooperativeExec
-                 :             PgSearchScan: segments=1, query={"with_index":{"query":{"term":{"field":"description","value":"widget","is_datetime":false}}}}
+                 :             PgSearchScan: segments=1, query={"with_index":{"query":{"term":{"field":"description","value":"widget"}}}}
                  :           CooperativeExec
                  :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (18 rows)
@@ -103,8 +103,8 @@ WHERE p.description === 'widget'
 ORDER BY s.name
 LIMIT 10;
 WARNING:  JoinScan not used: DISTINCT columns must be fast fields (tables: p, s)
-                                                               QUERY PLAN                                                                
------------------------------------------------------------------------------------------------------------------------------------------
+                                                     QUERY PLAN                                                      
+---------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Unique
          ->  Sort
@@ -117,7 +117,7 @@ WARNING:  JoinScan not used: DISTINCT columns must be fast fields (tables: p, s)
                            Exec Method: ColumnarExecState
                            Fast Fields: supplier_id
                            Scores: false
-                           Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"widget","is_datetime":false}}}}
+                           Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"widget"}}}}
                      ->  Seq Scan on typmod_suppliers s
 (14 rows)
 

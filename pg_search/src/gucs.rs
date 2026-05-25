@@ -52,9 +52,9 @@ static ENABLE_FAST_FIELD_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 /// Allows the user to enable or disable the ColumnarExecState executor. Default is `true`.
 static ENABLE_COLUMNAR_EXEC: GucSetting<bool> = GucSetting::<bool>::new(true);
 
-/// Allows the user to enable or disable sorted execution for ColumnarExecState.
-/// When disabled, sorted paths will not be created even if the index has sort_by.
-static ENABLE_COLUMNAR_SORT: GucSetting<bool> = GucSetting::<bool>::new(true);
+/// When enabled, columnar scans use the index sort order if the query's ORDER BY matches the index's sort_by configuration.
+/// Defaults to false due to stability issues (see https://github.com/paradedb/paradedb/issues/4293).
+static ENABLE_COLUMNAR_SORT: GucSetting<bool> = GucSetting::<bool>::new(false);
 
 /// In a Top K query, the limit is multiplied by this factor to determine the chunk size.
 static LIMIT_FETCH_MULTIPLIER: GucSetting<f64> = GucSetting::<f64>::new(1.0);
@@ -165,18 +165,58 @@ static MPP_WORKER_COUNT: GucSetting<i32> = GucSetting::<i32>::new(4);
 /// likely a per-query DSM cap than a raw per-edge byte count.
 static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(64 * 1024 * 1024);
 
+/// Per-source-per-worker build-side cache slot size (bytes). The build-side
+/// all-gather reserves N slots of this size in DSM; total cache reservation
+/// is `n_cache_sources × n_workers × mpp_cache_per_slot`. Sized so a 1.25M-row
+/// build side encoded in Arrow IPC (~400 MB total at our 25M bench, accounting
+/// for Utf8View widening + schema overhead) fits split across N workers with
+/// headroom for the worst single-worker slice. A future heuristic should
+/// derive this from index stats per query.
+static MPP_CACHE_PER_SLOT: GucSetting<i32> = GucSetting::<i32>::new(256 * 1024 * 1024);
+
 /// The maximum size of an InList that can be pushed down to a TermSet Query.
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
     GucSetting::<i32>::new(16 * 1024 * 1024);
 
-/// The maximum number of distinct values in an InList that can be pushed down to a TermSet Query.
+/// The maximum number of distinct values in an InList that can be pushed down
+/// to a TermSetQuery. Above this K, the predicate stays in PostgreSQL /
+/// DataFusion (HashExpr at the join, or PreFilter when the join feeds a
+/// dynamic filter).
 ///
-/// TODO: Adjust this as https://github.com/paradedb/paradedb/issues/4895 and followups land: if
-/// the TermSet scans the entire fast field column (without taking advantage of its shape to skip
-/// data), then creating a Query can be a pessimization, because the HashExpr that DataFusion uses
-/// is ~directly calculated from the pre-hashed values in the HashJoin's hash table.
+/// Bench-tuned: on a sorted-segment index, pushdown wins through K=14K
+/// (1.08×–9.27× over PreFilter at N=1M) and loses at K=20K (0.90×). 20,000
+/// is the upper edge of the crossover band — admits K=15K–19K (interpolated
+/// wins) at the cost of one boundary cell (K=20,000 exact: 11% slowdown).
+///
+/// The byte cap `hash_join_inlist_pushdown_max_size` provides the memory
+/// belt (~524K elements at 32 bytes/term); this cap is the perf-tuned upper
+/// bound. Set to 0 to disable pushdown entirely.
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES: GucSetting<i32> =
-    GucSetting::<i32>::new(16_000);
+    GucSetting::<i32>::new(20_000);
+
+/// Kill-switch for galloping execution of `FastFieldTermSetQuery` on
+/// sorted segments. When `false`, the planner never returns the gallop
+/// strategy regardless of density, and pushed-down InList filters fall
+/// back to the legacy linear scan even for sorted segments.
+static TERM_SET_GALLOP_ENABLED: GucSetting<bool> = GucSetting::<bool>::new(true);
+
+/// First-column `BitsetFromPostings` density gate for unique-valued
+/// columns (`D = 1`, i.e. `dict_size >= N`, e.g. primary keys). Bitset
+/// is admitted when `K' / N <= bitset_max_density_unique`. Default
+/// `1/2000 = 0.0005` (Phase 6.11) — calibrated against the SSTable
+/// backend where per-`dict.get` zstd block decompress dominates per-K
+/// cost on unique columns. Matches
+/// `tantivy::query::TermSetStrategyConfig::default()`.
+static TERM_SET_BITSET_MAX_DENSITY_UNIQUE: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 2000.0);
+
+/// First-column `BitsetFromPostings` density gate for non-unique
+/// columns (`D >= 2`, e.g. foreign-key shape). Bitset is admitted when
+/// `K' / N <= bitset_max_density_multi`. Default `1/200 = 0.005`
+/// (Phase 6.13) — 10× looser than the unique threshold because batched
+/// dictionary lookups amortize the zstd block decompress across
+/// multiple keys per block on non-unique columns. Matches
+/// `tantivy::query::TermSetStrategyConfig::default()`.
+static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 200.0);
 
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
@@ -258,12 +298,12 @@ pub fn init() {
 
     GucRegistry::define_bool_guc(
         c"paradedb.enable_columnar_sort",
-        c"Enable sorted execution for ColumnarExecState",
-        c"Enable sorted execution for ColumnarExecState when the index has sort_by and the query ORDER BY matches the prefix. Disabling this forces unsorted execution.",
-                &ENABLE_COLUMNAR_SORT,
-                GucContext::Userset,
-                GucFlags::default(),
-            );
+        c"Enable sorted execution for columnar scans",
+        c"When enabled, columnar scans use the index sort order if the query's ORDER BY or join keys match the index's sort_by configuration. This also enables SortMergeJoin for joins on sorted index fields. Default is false.",
+        &ENABLE_COLUMNAR_SORT,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 
     GucRegistry::define_int_guc(
                 COLUMNAR_EXEC_COLUMN_THRESHOLD_NAME,        c"Threshold of fetched columns below which ColumnarExecState will be used.",
@@ -452,8 +492,8 @@ pub fn init() {
 
     GucRegistry::define_int_guc(
         c"paradedb.hash_join_inlist_pushdown_max_distinct_values",
-        c"The maximum number of distinct values in an InList that can be pushed down to a TermSet Query.",
-        c"The maximum number of distinct values in an InList that can be pushed down to a TermSet Query.",
+        c"Maximum number of distinct values in an InList that can be pushed down to a TermSetQuery. Set to 0 to disable pushdown.",
+        c"Maximum number of distinct values in an InList that can be pushed down to a TermSetQuery; above this K the predicate stays in PostgreSQL. Set to 0 to disable pushdown entirely.",
         &HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES,
         0,
         i32::MAX,
@@ -461,6 +501,40 @@ pub fn init() {
         GucFlags::default(),
     );
 
+    // TermSet strategy density thresholds (issue #4895). The kill-switch
+    // (paradedb.term_set_gallop_enabled) is the safety override if the
+    // gallop optimization regresses unexpectedly; the three density
+    // values tune the planner without recompiling. Each density is
+    // unitless and bounded to [0.0, 1.0]. Gates use `<=` so a threshold
+    // value at the cell's density admits the more-aggressive strategy.
+    GucRegistry::define_bool_guc(
+        c"paradedb.term_set_gallop_enabled",
+        c"Enable galloping execution of FastFieldTermSetQuery on sorted segments.",
+        c"When false, FastFieldTermSetQuery falls back to the legacy linear scan even on sorted segments. Acts as a kill-switch for the issue #4895 optimization.",
+        &TERM_SET_GALLOP_ENABLED,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_float_guc(
+        c"paradedb.term_set_bitset_max_density_unique",
+        c"BitsetFromPostings is selected over LinearScan when K' / N is at or below this density on unique-valued columns (D = 1).",
+        c"For columns where every doc has a distinct value (primary keys, UUIDs). K' is the number of distinct terms surviving min/max pruning; N is the segment size. Default 0.0005 (= 1/2000) calibrated against the SSTable backend in Phase 6.11. Lower values route more queries to LinearScan.",
+        &TERM_SET_BITSET_MAX_DENSITY_UNIQUE,
+        0.0,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_float_guc(
+        c"paradedb.term_set_bitset_max_density_multi",
+        c"BitsetFromPostings is selected over LinearScan when K' / N is at or below this density on non-unique columns (D >= 2).",
+        c"For columns where multiple docs share the same value (foreign keys, status enums). Default 0.005 (= 1/200), 10x looser than the unique threshold because batched dictionary lookups amortize the SSTable zstd block decompress across multiple keys per block on non-unique columns (Phase 6.13). Lower values route more queries to LinearScan.",
+        &TERM_SET_BITSET_MAX_DENSITY_MULTI,
+        0.0,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
     GucRegistry::define_int_guc(
         c"paradedb.dynamic_filter_batch_size",
         c"Scanner batch size override for dynamic filter pushdown",
@@ -532,6 +606,21 @@ pub fn init() {
         &MPP_QUEUE_SIZE,
         64 * 1024,
         1024 * 1024 * 1024,
+        GucContext::Userset,
+        GucFlags::UNIT_BYTE,
+    );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.mpp_cache_per_slot",
+        c"Per-source-per-worker build-side cache slot size",
+        c"Sets the per-source-per-worker build-side all-gather cache slot size, in \
+          bytes. Total cache reservation per query is \
+          `n_cache_sources × n_workers × mpp_cache_per_slot`. The default 256 MiB is \
+          sized for a 1.25M-row build side encoded in Arrow IPC (~400 MB total at the \
+          25M bench scale) split across N workers; raise it for larger build sides.",
+        &MPP_CACHE_PER_SLOT,
+        1024 * 1024,
+        i32::MAX,
         GucContext::Userset,
         GucFlags::UNIT_BYTE,
     );
@@ -729,12 +818,28 @@ pub fn mpp_queue_size() -> usize {
     MPP_QUEUE_SIZE.get() as usize
 }
 
+pub fn mpp_cache_per_slot() -> usize {
+    MPP_CACHE_PER_SLOT.get() as usize
+}
+
 pub fn hash_join_inlist_pushdown_max_size() -> i32 {
     HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE.get()
 }
 
 pub fn hash_join_inlist_pushdown_max_distinct_values() -> i32 {
     HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES.get()
+}
+
+pub fn term_set_gallop_enabled() -> bool {
+    TERM_SET_GALLOP_ENABLED.get()
+}
+
+pub fn term_set_bitset_max_density_unique() -> f64 {
+    TERM_SET_BITSET_MAX_DENSITY_UNIQUE.get()
+}
+
+pub fn term_set_bitset_max_density_multi() -> f64 {
+    TERM_SET_BITSET_MAX_DENSITY_MULTI.get()
 }
 
 #[cfg(any(test, feature = "pg_test"))]

@@ -9,12 +9,13 @@ license = { workspace = true }
 crate-type = ["cdylib"]
 
 [features]
-default = ["pg18"]
+default = ["pg18", "deferred_wal"]
 pg15 = ["pgrx/pg15", "pgrx-tests/pg15"]
 pg16 = ["pgrx/pg16", "pgrx-tests/pg16"]
 pg17 = ["pgrx/pg17", "pgrx-tests/pg17"]
 pg18 = ["pgrx/pg18", "pgrx-tests/pg18"]
 pg_test = ["dep:proptest"]
+deferred_wal = []
 unsafe-postgres = ["pgrx/unsafe-postgres"]
 block_tracker = [] # for debugging when blocks are acquired and released
 debug-logging = [
@@ -29,9 +30,6 @@ arrow-array = "58.1.0"
 arrow-buffer = "58.1.0"
 arrow-schema = "58.1.0"
 arrow-select = "58.1.0"
-# Match the version datafusion 53 and arrow use for ahash::RandomState, which
-# DataFusion's `create_hashes` helper requires as input.
-ahash = "0.8"
 bitpacking = "0.9.3"
 chrono = "0.4.44"
 time = "0.3.47"
@@ -80,7 +78,8 @@ tokio = { version = "1", features = ["rt"] }
 bytes = { version = "1", features = ["serde"] }
 datafusion = { version = "53", default-features = false }
 datafusion-proto = { version = "53", default-features = false }
-datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", rev = "dfa96e74b365e56c83fae81d5dcae24528f1c090" }
+datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distributed", rev = "c618b5a" }
+url = "2"
 futures = "0.3"
 async-stream = "0.3.6"
 prost = "0.14.3"

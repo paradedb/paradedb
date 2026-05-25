@@ -122,7 +122,9 @@ use crate::index::fast_fields_helper::{FFHelper, FFType, NULL_TERM_ORDINAL};
 use crate::query::value_to_term;
 use crate::scan::filter_pushdown::scalar_to_owned_value;
 use crate::schema::SearchFieldType;
-use tantivy::query::{BooleanQuery, ConstScoreQuery, Occur, Query, TermSetQuery};
+use tantivy::query::{
+    BooleanQuery, ConstScoreQuery, Occur, Query, TermSetQuery, TermSetStrategyConfig,
+};
 use tantivy::Term;
 
 /// A pre-materialization filter applied inside `Scanner::next()`.
@@ -197,7 +199,8 @@ impl PreFilter {
         let rewritten_expr = rewritten_string_expr
             .transform(|node| {
                 if let Some(col) = node.as_any().downcast_ref::<Column>() {
-                    if let Ok(orig_idx) = schema.index_of(col.name()) {
+                    let orig_idx = col.index();
+                    if orig_idx < schema.fields().len() {
                         if let Some(new_idx) = self
                             .required_columns
                             .iter()
@@ -326,9 +329,17 @@ fn is_supported(
 
         if let Some(col) = node_any.downcast_ref::<Column>() {
             // Must map to a valid column index
-            if let Ok(idx) = schema.index_of(col.name()) {
+            let idx = col.index();
+            if idx < schema.fields().len() {
                 required_columns.push(idx);
             } else {
+                pgrx::warning!(
+                    "pre_filter: column '{}' has physical index {} which is out of bounds \
+                     for schema with {} fields — marking filter as unsupported",
+                    col.name(),
+                    idx,
+                    schema.fields().len()
+                );
                 supported = false;
                 return Ok(datafusion::common::tree_node::TreeNodeRecursion::Stop);
             }
@@ -363,7 +374,8 @@ fn is_supported(
             // We manually inspect the subtree to check the data types of the columns it uses
             let _ = node.apply(|sub_node| {
                 if let Some(col) = sub_node.as_any().downcast_ref::<Column>() {
-                    if let Ok(idx) = schema.index_of(col.name()) {
+                    let idx = col.index();
+                    if idx < schema.fields().len() {
                         let data_type = schema.field(idx).data_type();
 
                         if is_string_like_type(data_type) {
@@ -461,10 +473,10 @@ fn try_rewrite_in_list(
         Some(col) => col,
         None => return Ok(None),
     };
-    let ff_index = match schema.index_of(col.name()) {
-        Ok(idx) => idx,
-        Err(_) => return Ok(None),
-    };
+    let ff_index = col.index();
+    if ff_index >= schema.fields().len() {
+        return Ok(None);
+    }
     let ff_type = ffhelper.column(segment_ord, ff_index);
 
     let dict = match ff_type {
@@ -524,10 +536,10 @@ fn rewrite_col_op_lit(
     segment_ord: SegmentOrdinal,
     schema: &SchemaRef,
 ) -> datafusion::error::Result<Option<Arc<dyn PhysicalExpr>>> {
-    let ff_index = match schema.index_of(col.name()) {
-        Ok(idx) => idx,
-        Err(_) => return Ok(None),
-    };
+    let ff_index = col.index();
+    if ff_index >= schema.fields().len() {
+        return Ok(None);
+    }
     let ff_type = ffhelper.column(segment_ord, ff_index);
 
     let bytes = match extract_bytes_from_scalar(lit.value()) {
@@ -671,6 +683,7 @@ fn extract_in_list_exprs<'a>(
 fn try_convert_in_list_to_query(
     in_list: &InListExpr,
     schema: &crate::schema::SearchIndexSchema,
+    strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
 ) -> Option<Box<dyn Query>> {
     if in_list.negated() {
         return None;
@@ -689,6 +702,10 @@ fn try_convert_in_list_to_query(
     let max_size = crate::gucs::hash_join_inlist_pushdown_max_size() as usize;
     let max_distinct = crate::gucs::hash_join_inlist_pushdown_max_distinct_values() as usize;
 
+    // K cap. Default 20,000 is bench-tuned to the win/lose crossover for
+    // pushdown vs PreFilter at N=1M sorted. See
+    // gucs::HASH_JOIN_INLIST_PUSHDOWN_MAX_DISTINCT_VALUES doc for the
+    // reasoning and trade-off. Set to 0 to disable pushdown.
     if in_list.list().len() > max_distinct {
         return None;
     }
@@ -727,7 +744,24 @@ fn try_convert_in_list_to_query(
         return None;
     }
 
-    let term_set_query = TermSetQuery::new(terms);
+    // Build a strategy config from the paradedb.term_set_* GUCs so the
+    // dispatch thresholds (kill switch, gallop density gate, the two
+    // first-column bitset density gates) can be tuned in production
+    // without a recompile. Defaults mirror `TermSetStrategyConfig::default()`
+    // in tantivy. `subsequent_bitset_max_density` is not exposed because
+    // it gates a branch tantivy doesn't reach in production today;
+    // leave it at the tantivy default via struct update syntax. The
+    // optional `strategy_sink` is a per-scan AtomicU8 the planner stores
+    // its decision into so EXPLAIN ANALYZE can report which strategy fired.
+    let cfg = TermSetStrategyConfig {
+        gallop_enabled: crate::gucs::term_set_gallop_enabled(),
+        bitset_max_density_unique: crate::gucs::term_set_bitset_max_density_unique(),
+        bitset_max_density_multi: crate::gucs::term_set_bitset_max_density_multi(),
+        strategy_sink,
+        ..TermSetStrategyConfig::default()
+    };
+
+    let term_set_query = TermSetQuery::new(terms).with_strategy_config(cfg);
     let const_score_query = ConstScoreQuery::new(Box::new(term_set_query), 0.0);
     Some(Box::new(const_score_query) as Box<dyn Query>)
 }
@@ -749,6 +783,7 @@ fn try_convert_in_list_to_query(
 pub fn try_dynamic_filter_pushdown(
     reader: &mut crate::index::reader::index::SearchIndexReader,
     dynamic_filters: &mut [Arc<dyn PhysicalExpr>],
+    strategy_sink: Option<Arc<std::sync::atomic::AtomicU8>>,
 ) -> bool {
     let mut pushed_down_queries: Vec<Box<dyn Query>> = Vec::new();
     let mut pushed_down_pointers = HashSet::default();
@@ -768,7 +803,9 @@ pub fn try_dynamic_filter_pushdown(
         for in_list_arc in extracted_in_lists {
             let in_list = in_list_arc.as_any().downcast_ref::<InListExpr>().unwrap();
 
-            if let Some(query) = try_convert_in_list_to_query(in_list, schema) {
+            if let Some(query) =
+                try_convert_in_list_to_query(in_list, schema, strategy_sink.clone())
+            {
                 pushed_down_queries.push(query);
                 pushed_down_pointers.insert(Arc::as_ptr(in_list_arc) as *const () as usize);
             }

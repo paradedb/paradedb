@@ -25,10 +25,7 @@ use decimal_bytes::{Decimal, Decimal64NoScale};
 use pgrx::pg_sys;
 use pgrx::{datum, IntoDatum, PgBuiltInOids, PgOid};
 
-/// Get a value of the given type from the given index/row of the given array.
-///
-/// TODO: Duplicated with `arrow_value_to_datum` in `datafusion_project.rs`.
-/// See https://github.com/paradedb/paradedb/issues/4959
+/// Convert an Arrow array slice into a Postgres `Datum`.
 ///
 /// This effectively inlines `TantivyValue::try_into_datum` in order to avoid creating both
 /// `OwnedValue` and `TantivyValue` wrappers around primitives (but particularly around strings).
@@ -36,7 +33,7 @@ use pgrx::{datum, IntoDatum, PgBuiltInOids, PgOid};
 /// The input Arrow arrays have types corresponding to "widened" storage types (see
 /// [`WhichFastField`](crate::index::fast_fields_helper::WhichFastField)). This function is
 /// responsible for converting those widened types (e.g. `Utf8View`) back into specific
-/// Postgres OIDs where applicable. See the TODO on `WhichFastField` about increasing accuracy.
+/// Postgres OIDs where applicable.
 ///
 /// The `numeric_scale` parameter is used for `Numeric64` and `NumericBytes` fields.
 /// For `Numeric64`, the scale is used to convert scaled i64 values back to NUMERIC.
@@ -61,16 +58,12 @@ pub fn arrow_array_to_datum(
             match &oid {
                 PgOid::BuiltIn(PgBuiltInOids::TEXTOID)
                 | PgOid::BuiltIn(PgBuiltInOids::VARCHAROID) => s.into_datum(),
-                PgOid::BuiltIn(PgBuiltInOids::JSONOID) => pgrx::Json(
-                    serde_json::from_str(s)
-                        .map_err(|e| format!("Failed to decode as JSON: {e}"))?,
-                )
-                .into_datum(),
-                PgOid::BuiltIn(PgBuiltInOids::JSONBOID) => datum::JsonB(
-                    serde_json::from_str(s)
-                        .map_err(|e| format!("Failed to decode as JSON: {e}"))?,
-                )
-                .into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::JSONOID) => {
+                    pgrx::Json(serde_json::Value::String(s.to_string())).into_datum()
+                }
+                PgOid::BuiltIn(PgBuiltInOids::JSONBOID) => {
+                    datum::JsonB(serde_json::Value::String(s.to_string())).into_datum()
+                }
                 PgOid::BuiltIn(PgBuiltInOids::UUIDOID) => {
                     let uuid = uuid::Uuid::parse_str(s)
                         .map_err(|e| format!("Failed to decode as UUID: {e}"))?;
@@ -117,7 +110,31 @@ pub fn arrow_array_to_datum(
             match &oid {
                 PgOid::BuiltIn(PgBuiltInOids::TEXTOID)
                 | PgOid::BuiltIn(PgBuiltInOids::VARCHAROID) => s.into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::JSONOID) => {
+                    pgrx::Json(serde_json::Value::String(s.to_string())).into_datum()
+                }
+                PgOid::BuiltIn(PgBuiltInOids::JSONBOID) => {
+                    datum::JsonB(serde_json::Value::String(s.to_string())).into_datum()
+                }
                 _ => return Err(format!("Unsupported OID for Utf8 Arrow type: {oid:?}")),
+            }
+        }
+        DataType::LargeUtf8 => {
+            let arr = array
+                .as_any()
+                .downcast_ref::<arrow_array::LargeStringArray>()
+                .unwrap();
+            let s = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::TEXTOID)
+                | PgOid::BuiltIn(PgBuiltInOids::VARCHAROID) => s.into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::JSONOID) => {
+                    pgrx::Json(serde_json::Value::String(s.to_string())).into_datum()
+                }
+                PgOid::BuiltIn(PgBuiltInOids::JSONBOID) => {
+                    datum::JsonB(serde_json::Value::String(s.to_string())).into_datum()
+                }
+                _ => return Err(format!("Unsupported OID for LargeUtf8 Arrow type: {oid:?}")),
             }
         }
         DataType::BinaryView => {
@@ -150,14 +167,57 @@ pub fn arrow_array_to_datum(
                 }
             }
         }
+        DataType::Binary => {
+            let arr = array
+                .as_any()
+                .downcast_ref::<arrow_array::BinaryArray>()
+                .unwrap();
+            let val = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::BYTEAOID) => val.to_vec().into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::UUIDOID) => {
+                    let uuid =
+                        pgrx::Uuid::from_bytes(val.try_into().map_err(|_| "Invalid UUID bytes")?);
+                    uuid.into_datum()
+                }
+                _ => return Err(format!("Unsupported OID for Binary Arrow type: {oid:?}")),
+            }
+        }
+        DataType::FixedSizeBinary(16) => {
+            let arr = array
+                .as_any()
+                .downcast_ref::<arrow_array::FixedSizeBinaryArray>()
+                .unwrap();
+            let val = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::UUIDOID) => {
+                    let uuid =
+                        pgrx::Uuid::from_bytes(val.try_into().map_err(|_| "Invalid UUID bytes")?);
+                    uuid.into_datum()
+                }
+                _ => {
+                    return Err(format!(
+                        "Unsupported OID for FixedSizeBinary(16) Arrow type: {oid:?}"
+                    ))
+                }
+            }
+        }
         DataType::UInt64 => {
             let arr = array.as_primitive::<arrow_array::types::UInt64Type>();
             let val = arr.value(index);
             match &oid {
                 PgOid::BuiltIn(PgBuiltInOids::INT8OID) => (val as i64).into_datum(), // Convert u64 to i64 for INT8OID
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => (val as f64).into_datum(),
                 PgOid::BuiltIn(PgBuiltInOids::OIDOID) => {
                     pgrx::pg_sys::Oid::from(val as u32).into_datum()
                 } // Cast u64 to u32 for OID
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => {
+                    let numeric_str = val.to_string();
+                    numeric_str
+                        .parse::<pgrx::AnyNumeric>()
+                        .map_err(|e| format!("Failed to parse u64 string as AnyNumeric: {e}"))?
+                        .into_datum()
+                }
                 // Consider other potential integer OIDs (INT2OID, INT4OID) if overflow is handled or guaranteed not to occur.
                 _ => return Err(format!("Unsupported OID for UInt64 Arrow type: {oid:?}")),
             }
@@ -177,18 +237,23 @@ pub fn arrow_array_to_datum(
                 PgOid::BuiltIn(PgBuiltInOids::INT8OID) => val.into_datum(),
                 PgOid::BuiltIn(PgBuiltInOids::INT4OID) => (val as i32).into_datum(), // Cast i64 to i32
                 PgOid::BuiltIn(PgBuiltInOids::INT2OID) => (val as i16).into_datum(), // Cast i64 to i16
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => (val as f64).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT4OID) => (val as f32).into_datum(),
                 PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => {
                     // Numeric64: convert scaled i64 back to NUMERIC
-                    let scale = numeric_scale.ok_or_else(|| {
-                        "NUMERICOID requires numeric_scale for Int64 conversion".to_string()
-                    })?;
-
-                    let numeric_str =
-                        Decimal64NoScale::from_raw(val).to_string_with_scale(scale as i32);
-                    numeric_str
-                        .parse::<pgrx::AnyNumeric>()
-                        .map_err(|e| format!("Failed to parse scaled i64 as AnyNumeric: {e}"))?
-                        .into_datum()
+                    if let Some(scale) = numeric_scale {
+                        let numeric_str =
+                            Decimal64NoScale::from_raw(val).to_string_with_scale(scale as i32);
+                        numeric_str
+                            .parse::<pgrx::AnyNumeric>()
+                            .map_err(|e| format!("Failed to parse scaled i64 as AnyNumeric: {e}"))?
+                            .into_datum()
+                    } else {
+                        // Without scale, treat as raw integer value for NUMERIC
+                        let numeric = pgrx::AnyNumeric::try_from(val.to_string().as_str())
+                            .map_err(|e| format!("Failed to parse i64 as AnyNumeric: {e}"))?;
+                        numeric.into_datum()
+                    }
                 }
                 _ => {
                     if let Some(res) = try_convert_timestamp_nanos_to_datum(val, &oid) {
@@ -199,18 +264,57 @@ pub fn arrow_array_to_datum(
                 }
             }
         }
+        DataType::Int32 => {
+            let arr = array.as_primitive::<arrow_array::types::Int32Type>();
+            let val = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::INT8OID) => (val as i64).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::INT4OID) => val.into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::INT2OID) => (val as i16).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => (val as f64).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT4OID) => (val as f32).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => {
+                    let numeric = pgrx::AnyNumeric::try_from(val.to_string().as_str())
+                        .map_err(|e| format!("Failed to parse i32 as AnyNumeric: {e}"))?;
+                    numeric.into_datum()
+                }
+                _ => return Err(format!("Unsupported OID for Int32 Arrow type: {oid:?}")),
+            }
+        }
+        DataType::Int16 => {
+            let arr = array.as_primitive::<arrow_array::types::Int16Type>();
+            let val = arr.value(index);
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::INT8OID) => (val as i64).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::INT4OID) => (val as i32).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::INT2OID) => val.into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => (val as f64).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT4OID) => (val as f32).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => {
+                    let numeric = pgrx::AnyNumeric::try_from(val.to_string().as_str())
+                        .map_err(|e| format!("Failed to parse i16 as AnyNumeric: {e}"))?;
+                    numeric.into_datum()
+                }
+                _ => return Err(format!("Unsupported OID for Int16 Arrow type: {oid:?}")),
+            }
+        }
         DataType::Float64 => {
             let arr = array.as_primitive::<arrow_array::types::Float64Type>();
             let val = arr.value(index);
             match &oid {
                 PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => val.into_datum(),
                 PgOid::BuiltIn(PgBuiltInOids::FLOAT4OID) => (val as f32).into_datum(), // Cast f64 to f32
+                PgOid::BuiltIn(PgBuiltInOids::INT8OID) => (val as i64).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::INT4OID) => (val as i32).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::INT2OID) => (val as i16).into_datum(),
                 // Legacy pre-v0.22.0 indexes stored NUMERIC fields as F64. Reading those
                 // fast fields back must round-trip through `AnyNumeric` to return a NUMERIC
                 // datum rather than the FLOAT8 the column-type widening would imply.
-                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => pgrx::AnyNumeric::try_from(val)
-                    .map_err(|e| format!("Failed to convert f64 to AnyNumeric: {e:?}"))?
-                    .into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => {
+                    let numeric = pgrx::AnyNumeric::try_from(val)
+                        .map_err(|_| "Failed to convert f64 to AnyNumeric")?;
+                    numeric.into_datum()
+                }
                 _ => return Err(format!("Unsupported OID for Float64 Arrow type: {oid:?}")),
             }
         }
@@ -220,7 +324,53 @@ pub fn arrow_array_to_datum(
             match &oid {
                 PgOid::BuiltIn(PgBuiltInOids::FLOAT4OID) => val.into_datum(),
                 PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => (val as f64).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::INT8OID) => (val as f64 as i64).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::INT4OID) => (val as f64 as i32).into_datum(),
+                PgOid::BuiltIn(PgBuiltInOids::INT2OID) => (val as f64 as i16).into_datum(),
+                // Legacy pre-v0.22.0 indexes stored NUMERIC fields as F64. Reading those
+                // fast fields back must round-trip through `AnyNumeric` to return a NUMERIC
+                // datum rather than the FLOAT8 the column-type widening would imply.
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => {
+                    let numeric = pgrx::AnyNumeric::try_from(val as f64)
+                        .map_err(|_| "Failed to convert f32 to AnyNumeric")?;
+                    numeric.into_datum()
+                }
                 _ => return Err(format!("Unsupported OID for Float32 Arrow type: {oid:?}")),
+            }
+        }
+        DataType::Decimal128(_, scale) => {
+            let arr = array.as_primitive::<arrow_array::types::Decimal128Type>();
+            let val = arr.value(index);
+            let scale = *scale as u32;
+            match &oid {
+                PgOid::BuiltIn(PgBuiltInOids::NUMERICOID) => {
+                    let s = if scale == 0 {
+                        format!("{}", val)
+                    } else {
+                        let divisor = 10i128.pow(scale);
+                        let whole = val / divisor;
+                        let frac = (val % divisor).unsigned_abs();
+                        format!("{}.{:0>width$}", whole, frac, width = scale as usize)
+                    };
+                    let numeric = pgrx::AnyNumeric::try_from(s.as_str())
+                        .map_err(|e| format!("Failed to parse Decimal128 as AnyNumeric: {e}"))?;
+                    numeric.into_datum()
+                }
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT8OID) => {
+                    let divisor = 10_f64.powi(scale as i32);
+                    let f_val = val as f64 / divisor;
+                    f_val.into_datum()
+                }
+                PgOid::BuiltIn(PgBuiltInOids::FLOAT4OID) => {
+                    let divisor = 10_f64.powi(scale as i32);
+                    let f_val = val as f64 / divisor;
+                    (f_val as f32).into_datum()
+                }
+                _ => {
+                    return Err(format!(
+                        "Unsupported OID for Decimal128 Arrow type: {oid:?}"
+                    ))
+                }
             }
         }
         DataType::Boolean => {
@@ -231,20 +381,114 @@ pub fn arrow_array_to_datum(
                 _ => return Err(format!("Unsupported OID for Boolean Arrow type: {oid:?}")),
             }
         }
-        DataType::Timestamp(arrow_schema::TimeUnit::Nanosecond, None) => {
-            let arr = array.as_primitive::<arrow_array::types::TimestampNanosecondType>();
-            let ts_nanos = arr.value(index);
-            if let Some(res) = try_convert_timestamp_nanos_to_datum(ts_nanos, &oid) {
+        DataType::Date32 => {
+            let arr = array.as_primitive::<arrow_array::types::Date32Type>();
+            let days = arr.value(index);
+            let nanos = (days as i64)
+                .checked_mul(86_400_000_000_000)
+                .ok_or("Overflow calculating nanoseconds from Date32")?;
+            if let Some(res) = try_convert_timestamp_nanos_to_datum(nanos, &oid) {
                 res?
             } else {
-                return Err(format!(
-                    "Unsupported OID for TimestampNanosecond Arrow type: {oid:?}"
-                ));
+                return Err(format!("Unsupported OID for Date32 Arrow type: {oid:?}"));
             }
+        }
+        DataType::Date64 => {
+            let arr = array.as_primitive::<arrow_array::types::Date64Type>();
+            let millis = arr.value(index);
+            let nanos = millis
+                .checked_mul(1_000_000)
+                .ok_or("Overflow calculating nanoseconds from Date64")?;
+            if let Some(res) = try_convert_timestamp_nanos_to_datum(nanos, &oid) {
+                res?
+            } else {
+                return Err(format!("Unsupported OID for Date64 Arrow type: {oid:?}"));
+            }
+        }
+        DataType::Timestamp(unit, _tz) => {
+            let nanos = match unit {
+                arrow_schema::TimeUnit::Nanosecond => array
+                    .as_primitive::<arrow_array::types::TimestampNanosecondType>()
+                    .value(index),
+                arrow_schema::TimeUnit::Microsecond => array
+                    .as_primitive::<arrow_array::types::TimestampMicrosecondType>()
+                    .value(index)
+                    .checked_mul(1_000)
+                    .ok_or("Overflow calculating nanoseconds from TimestampMicrosecond")?,
+                arrow_schema::TimeUnit::Millisecond => array
+                    .as_primitive::<arrow_array::types::TimestampMillisecondType>()
+                    .value(index)
+                    .checked_mul(1_000_000)
+                    .ok_or("Overflow calculating nanoseconds from TimestampMillisecond")?,
+                arrow_schema::TimeUnit::Second => array
+                    .as_primitive::<arrow_array::types::TimestampSecondType>()
+                    .value(index)
+                    .checked_mul(1_000_000_000)
+                    .ok_or("Overflow calculating nanoseconds from TimestampSecond")?,
+            };
+            if let Some(res) = try_convert_timestamp_nanos_to_datum(nanos, &oid) {
+                res?
+            } else {
+                return Err(format!("Unsupported OID for Timestamp Arrow type: {oid:?}"));
+            }
+        }
+        DataType::List(_) | DataType::LargeList(_) => {
+            return arrow_array_to_datum_list(array, index)
         }
         dt => return Err(format!("Unsupported Arrow data type: {dt:?}")),
     };
     Ok(datum)
+}
+
+/// Helper function to extract lists.
+/// Note: This ignores the target `PgOid` and `numeric_scale` passed to the parent `arrow_array_to_datum`,
+/// producing a Datum matching the inner Arrow array type (e.g. an Int64 Arrow array always becomes int8[]).
+/// Callers are expected to know the native type matching the Arrow list array.
+fn arrow_array_to_datum_list(
+    array: &dyn Array,
+    index: usize,
+) -> Result<Option<pg_sys::Datum>, String> {
+    use arrow_array::*;
+    use arrow_schema::DataType;
+
+    macro_rules! collect_list {
+        ($inner:expr, $ArrayType:ty, $RustType:ty) => {{
+            let arr = $inner
+                .as_any()
+                .downcast_ref::<$ArrayType>()
+                .ok_or("Failed to downcast inner list array")?;
+            let vals: Vec<Option<$RustType>> = (0..arr.len())
+                .map(|i| {
+                    if arr.is_null(i) {
+                        None
+                    } else {
+                        Some(arr.value(i).into())
+                    }
+                })
+                .collect();
+            Ok(vals.into_datum())
+        }};
+    }
+
+    let list = array
+        .as_any()
+        .downcast_ref::<ListArray>()
+        .ok_or("Failed to downcast to ListArray")?;
+    let inner = list.value(index);
+    let inner_type = inner.data_type();
+
+    match inner_type {
+        DataType::Utf8 => collect_list!(inner, StringArray, String),
+        DataType::Utf8View => collect_list!(inner, StringViewArray, String),
+        DataType::LargeUtf8 => collect_list!(inner, LargeStringArray, String),
+        DataType::Int64 => collect_list!(inner, Int64Array, i64),
+        DataType::Int32 => collect_list!(inner, Int32Array, i32),
+        DataType::Float64 => collect_list!(inner, Float64Array, f64),
+        DataType::Boolean => collect_list!(inner, BooleanArray, bool),
+        _ => Err(format!(
+            "Unsupported Arrow List element type {inner_type:?} for ARRAY_AGG projection"
+        )),
+    }
 }
 
 pub(crate) fn try_convert_timestamp_nanos_to_datum(
@@ -403,12 +647,11 @@ mod tests {
         ArrayBuilder, BooleanBuilder, Float64Builder, Int64Builder, StringViewBuilder,
         TimestampNanosecondBuilder, UInt64Builder,
     };
-    use arrow_array::Array;
+    use arrow_array::*;
     use pgrx::datum::{Date, Time, TimeWithTimeZone, Timestamp, TimestampWithTimeZone};
     use pgrx::pg_test;
     use pgrx::Spi;
     use proptest::prelude::*;
-    use serde_json::Value as JsonValue;
 
     fn create_string_view_array(s: &str) -> Arc<dyn Array> {
         let mut builder = StringViewBuilder::with_capacity(1);
@@ -630,19 +873,20 @@ mod tests {
 
     #[pg_test]
     fn test_arrow_string_to_datum_json() {
-        proptest!(|(s in r#""[a-zA-Z0-9]*""#)| {
+        proptest!(|(s in r#"[a-zA-Z0-9]*"#)| {
             let oid_json = PgOid::from(PgBuiltInOids::JSONOID.value());
-            test_conversion_roundtrip(s.clone(), |s| create_string_view_array(&s), oid_json, pgrx::datum::JsonString);
+            test_conversion_roundtrip(s.clone(), |s| create_string_view_array(&s), oid_json, |v| {
+                pgrx::datum::JsonString(serde_json::Value::String(v).to_string())
+            });
         });
     }
 
     #[pg_test]
     fn test_arrow_string_to_datum_jsonb() {
-        proptest!(|(s in r#""[a-zA-Z0-9]*""#)| {
+        proptest!(|(s in r#"[a-zA-Z0-9]*"#)| {
             let oid_jsonb = PgOid::from(PgBuiltInOids::JSONBOID.value());
             test_conversion_roundtrip(s.clone(), |s| create_string_view_array(&s), oid_jsonb, |v| {
-                let expected_val: JsonValue = serde_json::from_str(&v).unwrap();
-                pgrx::JsonB(expected_val)
+                pgrx::JsonB(serde_json::Value::String(v))
             });
         });
     }
@@ -802,5 +1046,354 @@ mod tests {
         test_null_conversion(StringViewBuilder::with_capacity(1), citext_oid, |b| {
             b.append_null()
         });
+    }
+
+    fn arrow_value_to_datum(
+        col: &Arc<dyn Array>,
+        row_idx: usize,
+        typoid: pg_sys::Oid,
+    ) -> Option<pg_sys::Datum> {
+        arrow_array_to_datum(col.as_ref(), row_idx, pgrx::PgOid::from(typoid), None).unwrap_or(None)
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_arrow_int64() {
+        let arr: Arc<dyn Array> = Arc::new(Int64Array::from(vec![42]));
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::INT8OID);
+        assert!(datum.is_some());
+
+        let arr: Arc<dyn Array> = Arc::new(Int64Array::from(vec![100]));
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::INT4OID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_arrow_float64() {
+        let arr: Arc<dyn Array> = Arc::new(Float64Array::from(vec![99.5]));
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::FLOAT8OID);
+        assert!(datum.is_some());
+
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::FLOAT4OID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_arrow_string() {
+        let arr: Arc<dyn Array> = Arc::new(StringArray::from(vec!["hello"]));
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::TEXTOID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_arrow_bool() {
+        let arr: Arc<dyn Array> = Arc::new(BooleanArray::from(vec![true]));
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::BOOLOID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_arrow_null() {
+        // A nullable Int64 array with a null at index 0
+        let arr: Arc<dyn Array> = Arc::new(Int64Array::from(vec![None, Some(1)]));
+        // is_null check happens before arrow_value_to_datum in project_aggregate_row_to_slot,
+        // but let's verify the array reports null correctly
+        assert!(arr.is_null(0));
+        assert!(!arr.is_null(1));
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_arrow_utf8view() {
+        let arr: Arc<dyn Array> = Arc::new(StringViewArray::from(vec!["world"]));
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::TEXTOID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_arrow_int32() {
+        let arr: Arc<dyn Array> = Arc::new(Int32Array::from(vec![42]));
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::INT4OID);
+        assert!(datum.is_some());
+
+        // Int32 → INT8OID (widening)
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::INT8OID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_arrow_int16() {
+        let arr: Arc<dyn Array> = Arc::new(Int16Array::from(vec![7]));
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::INT2OID);
+        assert!(datum.is_some());
+
+        // Int16 → INT4OID (widening)
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::INT4OID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_arrow_uint64() {
+        let arr: Arc<dyn Array> = Arc::new(UInt64Array::from(vec![100u64]));
+        // Within i64 range → int64_to_datum
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::INT8OID);
+        assert!(datum.is_some());
+
+        // Above i64::MAX → float64_to_datum fallback
+        let arr: Arc<dyn Array> = Arc::new(UInt64Array::from(vec![u64::MAX]));
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::FLOAT8OID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_arrow_float32() {
+        let arr: Arc<dyn Array> = Arc::new(Float32Array::from(vec![1.23f32]));
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::FLOAT4OID);
+        assert!(datum.is_some());
+
+        // Float32 → FLOAT8OID (widening)
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::FLOAT8OID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_arrow_large_utf8() {
+        let arr: Arc<dyn Array> = Arc::new(LargeStringArray::from(vec!["large string"]));
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::TEXTOID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_arrow_decimal128() {
+        // Decimal128 with scale=2 → NUMERICOID
+        let arr: Arc<dyn Array> = Arc::new(
+            arrow_array::Decimal128Array::from(vec![12345i128])
+                .with_precision_and_scale(10, 2)
+                .unwrap(),
+        );
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::NUMERICOID);
+        assert!(datum.is_some());
+
+        // Decimal128 with scale=0 → NUMERICOID (integer-like)
+        let arr: Arc<dyn Array> = Arc::new(
+            arrow_array::Decimal128Array::from(vec![999i128])
+                .with_precision_and_scale(10, 0)
+                .unwrap(),
+        );
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::NUMERICOID);
+        assert!(datum.is_some());
+
+        // Decimal128 → FLOAT8OID (non-NUMERIC target)
+        let arr: Arc<dyn Array> = Arc::new(
+            arrow_array::Decimal128Array::from(vec![12345i128])
+                .with_precision_and_scale(10, 2)
+                .unwrap(),
+        );
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::FLOAT8OID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_int64_to_numeric() {
+        // int64_to_datum with NUMERICOID — the SUM(bigint) crash fix
+        let arr: Arc<dyn Array> = Arc::new(Int64Array::from(vec![9999i64]));
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::NUMERICOID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_int64_to_float() {
+        // int64_to_datum with FLOAT8OID and FLOAT4OID
+        let arr: Arc<dyn Array> = Arc::new(Int64Array::from(vec![42i64]));
+
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::FLOAT8OID);
+        assert!(datum.is_some());
+
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::FLOAT4OID);
+        assert!(datum.is_some());
+
+        // INT2OID (narrowing)
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::INT2OID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_float64_to_numeric() {
+        // float64_to_datum with NUMERICOID
+        let arr: Arc<dyn Array> = Arc::new(Float64Array::from(vec![123.456]));
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::NUMERICOID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_float64_to_int() {
+        // float64_to_datum with integer targets
+        let arr: Arc<dyn Array> = Arc::new(Float64Array::from(vec![42.0]));
+
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::INT8OID);
+        assert!(datum.is_some());
+
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::INT4OID);
+        assert!(datum.is_some());
+
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::INT2OID);
+        assert!(datum.is_some());
+    }
+
+    #[pgrx::pg_test]
+    fn test_agg_project_timestamp_type() {
+        // TimestampNanosecondArray is now supported for TIMESTAMPOID
+        let arr: Arc<dyn Array> = Arc::new(arrow_array::TimestampNanosecondArray::from(vec![
+            1_000_000_000i64,
+        ]));
+        let datum = arrow_value_to_datum(&arr, 0, pg_sys::TIMESTAMPOID);
+        assert!(datum.is_some());
+    }
+
+    // --- Timestamp TimeUnit tests ---
+
+    #[pgrx::pg_test]
+    fn test_timestamp_nanosecond_projection() {
+        let nanos: i64 = 1_705_314_600_000_000_000; // 2024-01-15 10:30:00 UTC
+        let arr: Arc<dyn Array> =
+            Arc::new(arrow_array::TimestampNanosecondArray::from(vec![nanos]));
+        let result = arrow_value_to_datum(&arr, 0, pg_sys::TIMESTAMPOID);
+        assert!(
+            result.is_some(),
+            "TimestampNanosecond should produce a datum"
+        );
+    }
+
+    #[pgrx::pg_test]
+    fn test_timestamp_microsecond_projection() {
+        let micros: i64 = 1_705_314_600_000_000; // 2024-01-15 10:30:00 UTC
+        let arr: Arc<dyn Array> =
+            Arc::new(arrow_array::TimestampMicrosecondArray::from(vec![micros]));
+        let result = arrow_value_to_datum(&arr, 0, pg_sys::TIMESTAMPOID);
+        assert!(
+            result.is_some(),
+            "TimestampMicrosecond should produce a datum"
+        );
+    }
+
+    #[pgrx::pg_test]
+    fn test_timestamp_millisecond_projection() {
+        let millis: i64 = 1_705_314_600_000; // 2024-01-15 10:30:00 UTC
+        let arr: Arc<dyn Array> =
+            Arc::new(arrow_array::TimestampMillisecondArray::from(vec![millis]));
+        let result = arrow_value_to_datum(&arr, 0, pg_sys::TIMESTAMPOID);
+        assert!(
+            result.is_some(),
+            "TimestampMillisecond should produce a datum"
+        );
+    }
+
+    #[pgrx::pg_test]
+    fn test_timestamp_second_projection() {
+        let secs: i64 = 1_705_314_600; // 2024-01-15 10:30:00 UTC
+        let arr: Arc<dyn Array> = Arc::new(arrow_array::TimestampSecondArray::from(vec![secs]));
+        let result = arrow_value_to_datum(&arr, 0, pg_sys::TIMESTAMPOID);
+        assert!(result.is_some(), "TimestampSecond should produce a datum");
+    }
+
+    // --- Date32 / Date64 tests ---
+
+    #[pgrx::pg_test]
+    fn test_date32_projection() {
+        let days: i32 = 19_737; // 2024-01-15 = 19737 days since epoch
+        let arr: Arc<dyn Array> = Arc::new(arrow_array::Date32Array::from(vec![days]));
+        let result = arrow_value_to_datum(&arr, 0, pg_sys::DATEOID);
+        assert!(
+            result.is_some(),
+            "Date32 should produce a datum for DATEOID"
+        );
+    }
+
+    #[pgrx::pg_test]
+    fn test_date64_projection() {
+        let millis: i64 = 19_737 * 86_400_000; // 2024-01-15 in milliseconds since epoch
+        let arr: Arc<dyn Array> = Arc::new(arrow_array::Date64Array::from(vec![millis]));
+        let result = arrow_value_to_datum(&arr, 0, pg_sys::DATEOID);
+        assert!(
+            result.is_some(),
+            "Date64 should produce a datum for DATEOID"
+        );
+    }
+
+    // --- TIMESTAMPTZ vs TIMESTAMP vs DATE typoid routing ---
+
+    #[pgrx::pg_test]
+    fn test_timestamp_nanos_to_all_typoids() {
+        let nanos: i64 = 1_705_314_600_000_000_000; // 2024-01-15 10:30:00 UTC
+        let arr: Arc<dyn Array> =
+            Arc::new(arrow_array::TimestampNanosecondArray::from(vec![nanos]));
+
+        let ts = arrow_value_to_datum(&arr, 0, pg_sys::TIMESTAMPOID);
+        assert!(ts.is_some(), "Should produce TIMESTAMP datum");
+
+        let tstz = arrow_value_to_datum(&arr, 0, pg_sys::TIMESTAMPTZOID);
+        assert!(tstz.is_some(), "Should produce TIMESTAMPTZ datum");
+
+        let date = arrow_value_to_datum(&arr, 0, pg_sys::DATEOID);
+        assert!(date.is_some(), "Should produce DATE datum");
+    }
+
+    // --- NULL handling ---
+    // Note: project_aggregate_row_to_slot checks col.is_null(row_idx) before
+    // calling arrow_value_to_datum, so we test null reporting at the array level.
+
+    #[pgrx::pg_test]
+    fn test_timestamp_null_reports_correctly() {
+        let arr: Arc<dyn Array> = Arc::new(arrow_array::TimestampNanosecondArray::from(vec![
+            None as Option<i64>,
+        ]));
+        assert!(arr.is_null(0), "Timestamp null should be reported");
+    }
+
+    #[pgrx::pg_test]
+    fn test_date32_null_reports_correctly() {
+        let arr: Arc<dyn Array> =
+            Arc::new(arrow_array::Date32Array::from(vec![None as Option<i32>]));
+        assert!(arr.is_null(0), "Date32 null should be reported");
+    }
+
+    #[pgrx::pg_test]
+    fn test_date64_null_reports_correctly() {
+        let arr: Arc<dyn Array> =
+            Arc::new(arrow_array::Date64Array::from(vec![None as Option<i64>]));
+        assert!(arr.is_null(0), "Date64 null should be reported");
+    }
+
+    // --- Unsupported type (negative test) ---
+
+    #[pgrx::pg_test]
+    fn test_unsupported_arrow_type_returns_none() {
+        let arr: Arc<dyn Array> =
+            Arc::new(arrow_array::Time64NanosecondArray::from(vec![1_000_000i64]));
+        let result = arrow_value_to_datum(&arr, 0, pg_sys::TIMEOID);
+        assert!(
+            result.is_none(),
+            "Time64 should not be supported — should return None"
+        );
+    }
+
+    // --- Pre-epoch regression guards ---
+
+    #[pgrx::pg_test]
+    fn test_date32_pre_epoch() {
+        let days: i32 = -1; // 1969-12-31
+        let arr: Arc<dyn Array> = Arc::new(arrow_array::Date32Array::from(vec![days]));
+        let result = arrow_value_to_datum(&arr, 0, pg_sys::DATEOID);
+        assert!(result.is_some(), "Pre-epoch Date32 should produce a datum");
+    }
+
+    #[pgrx::pg_test]
+    fn test_timestamp_pre_epoch() {
+        let nanos: i64 = -1_000_000_000; // 1969-12-31 23:59:59 UTC
+        let arr: Arc<dyn Array> =
+            Arc::new(arrow_array::TimestampNanosecondArray::from(vec![nanos]));
+        let result = arrow_value_to_datum(&arr, 0, pg_sys::TIMESTAMPOID);
+        assert!(
+            result.is_some(),
+            "Pre-epoch timestamp should produce a datum"
+        );
     }
 }

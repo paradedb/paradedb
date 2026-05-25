@@ -42,22 +42,56 @@ WHERE description === 'shose'::pdb.fuzzy(2)
 LIMIT 5;
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+// Fuzzy match disjunction
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+  })
+  .from(mockItems)
+  .where(search.matchAny(mockItems.description, search.fuzzy("runing shose", 2)))
+  .limit(5);
+
+// Fuzzy match conjunction
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+  })
+  .from(mockItems)
+  .where(search.matchAll(mockItems.description, search.fuzzy("runing shose", 2)))
+  .limit(5);
+
+// Fuzzy term
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.description, search.fuzzy("shose", 2)))
+  .limit(5);
+```
+
 ```python Django
-from paradedb import Match, ParadeDB, Term
+from paradedb import Fuzzy, MatchAll, MatchAny, ParadeDB, Term
 
 # Fuzzy match disjunction
 MockItem.objects.filter(
-    description=ParadeDB(Match('runing shose', operator='OR', distance=2))
+    description=ParadeDB(MatchAny(Fuzzy('runing shose', 2)))
 ).values('id', 'description')[:5]
 
 # Fuzzy match conjunction
 MockItem.objects.filter(
-    description=ParadeDB(Match('runing shose', operator='AND', distance=2))
+    description=ParadeDB(MatchAll(Fuzzy('runing shose', 2)))
 ).values('id', 'description')[:5]
 
 # Fuzzy term
 MockItem.objects.filter(
-    description=ParadeDB(Term('shose', distance=2))
+    description=ParadeDB(Fuzzy(Term('shose'), 2))
 ).values('id', 'description')[:5]
 ```
 
@@ -144,11 +178,24 @@ WHERE description === 'rann'::pdb.fuzzy(1, t)
 LIMIT 5;
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.description, search.fuzzy("rann", 1, true)))
+  .limit(5);
+```
+
 ```python Django
-from paradedb import ParadeDB, Term
+from paradedb import Fuzzy, ParadeDB, Term
 
 MockItem.objects.filter(
-    description=ParadeDB(Term('rann', distance=1, prefix=True))
+    description=ParadeDB(Fuzzy(Term('rann'), 1, prefix=True))
 ).values('id', 'description')[:5]
 ```
 
@@ -191,11 +238,24 @@ WHERE description &&& 'slee rann'::pdb.fuzzy(1, t)
 LIMIT 5;
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+  })
+  .from(mockItems)
+  .where(search.matchAll(mockItems.description, search.fuzzy("slee rann", 1, true)))
+  .limit(5);
+```
+
 ```python Django
-from paradedb import Match, ParadeDB
+from paradedb import Fuzzy, MatchAll, ParadeDB
 
 MockItem.objects.filter(
-    description=ParadeDB(Match('slee rann', operator='AND', distance=1, prefix=True))
+    description=ParadeDB(MatchAll(Fuzzy('slee rann', 1, prefix=True)))
 ).values('id', 'description')[:5]
 ```
 
@@ -236,11 +296,24 @@ WHERE description === 'shose'::pdb.fuzzy(1, f, t)
 LIMIT 5;
 ```
 
+```ts Drizzle
+import { search } from "@paradedb/drizzle-paradedb";
+
+await db
+  .select({
+    id: mockItems.id,
+    description: mockItems.description,
+  })
+  .from(mockItems)
+  .where(search.term(mockItems.description, search.fuzzy("shose", 1, false, true)))
+  .limit(5);
+```
+
 ```python Django
-from paradedb import ParadeDB, Term
+from paradedb import Fuzzy, ParadeDB, Term
 
 MockItem.objects.filter(
-    description=ParadeDB(Term('shose', distance=1, transposition_cost_one=True))
+    description=ParadeDB(Fuzzy(Term('shose'), 1, transposition_cost_one=True))
 ).values('id', 'description')[:5]
 ```
 

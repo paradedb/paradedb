@@ -224,7 +224,6 @@ fn joinscan_self_join_matches_fallback(mut conn: PgConnection) -> Result<(), sql
 }
 
 #[rstest]
-#[ignore = "known issue: duplicate-name sort keys above JoinScan can diverge from fallback ordering"]
 fn joinscan_self_join_duplicate_name_sort_matches_fallback(
     mut conn: PgConnection,
 ) -> Result<(), sqlx::Error> {
@@ -287,6 +286,12 @@ fn joinscan_self_join_duplicate_name_sort_matches_fallback(
     assert!(explain.contains("VisibilityFilterExec"), "{explain}");
     assert!(explain.contains("TantivyLookupExec"), "{explain}");
     assert!(explain.contains("SegmentedTopKExec"), "{explain}");
+    // Regression guard: both sort keys must appear at distinct physical indices.
+    // A single-key collapse would silently return wrong ordering.
+    assert!(
+        explain.contains("ord@3") && explain.contains("ord@1"),
+        "Expected both sort keys at distinct physical indices in plan:\n{explain}"
+    );
 
     type Row = (String, String, i32, i32);
 
@@ -305,6 +310,124 @@ fn joinscan_self_join_duplicate_name_sort_matches_fallback(
             ("z100".into(), "a003".into(), 100, 3),
         ]
     );
+
+    Ok(())
+}
+
+#[rstest]
+fn joinscan_cross_table_duplicate_output_name_matches_fallback(
+    mut conn: PgConnection,
+) -> Result<(), sqlx::Error> {
+    r#"
+    SET max_parallel_workers_per_gather = 0;
+    SET enable_indexscan = off;
+
+    DROP TABLE IF EXISTS misbind_products CASCADE;
+    DROP TABLE IF EXISTS misbind_suppliers CASCADE;
+
+    CREATE TABLE misbind_products (
+        id INTEGER PRIMARY KEY,
+        name TEXT,
+        description TEXT,
+        supplier_id INTEGER
+    );
+
+    CREATE TABLE misbind_suppliers (
+        id INTEGER PRIMARY KEY,
+        name TEXT,
+        info TEXT
+    );
+
+    INSERT INTO misbind_products (id, name, description, supplier_id) VALUES
+        (1,  'a_item', 'wireless product one',      1),
+        (2,  'b_item', 'wireless product two',      2),
+        (3,  'c_item', 'wireless product three',    3),
+        (4,  'd_item', 'wireless product four',     4),
+        (5,  'e_item', 'wireless product five',     5),
+        (6,  'f_item', 'wireless product six',      6),
+        (7,  'g_item', 'wireless product seven',    7),
+        (8,  'h_item', 'wireless product eight',    8),
+        (9,  'i_item', 'wireless product nine',     9),
+        (10, 'j_item', 'wireless product ten',      10),
+        (11, 'k_item', 'wireless product eleven',   11),
+        (12, 'l_item', 'wireless product twelve',   12),
+        (13, 'm_item', 'wireless product thirteen', 13),
+        (14, 'n_item', 'wireless product fourteen', 14),
+        (15, 'o_item', 'wireless product fifteen',  15);
+
+    INSERT INTO misbind_suppliers (id, name, info) VALUES
+        (1,  'zzz_sup', 'electronics supplier one'),
+        (2,  'yyy_sup', 'electronics supplier two'),
+        (3,  'xxx_sup', 'electronics supplier three'),
+        (4,  'www_sup', 'electronics supplier four'),
+        (5,  'vvv_sup', 'electronics supplier five'),
+        (6,  'uuu_sup', 'electronics supplier six'),
+        (7,  'ttt_sup', 'electronics supplier seven'),
+        (8,  'sss_sup', 'electronics supplier eight'),
+        (9,  'rrr_sup', 'electronics supplier nine'),
+        (10, 'qqq_sup', 'electronics supplier ten'),
+        (11, 'ppp_sup', 'electronics supplier eleven'),
+        (12, 'ooo_sup', 'electronics supplier twelve'),
+        (13, 'nnn_sup', 'electronics supplier thirteen'),
+        (14, 'mmm_sup', 'electronics supplier fourteen'),
+        (15, 'lll_sup', 'electronics supplier fifteen');
+
+    CREATE INDEX misbind_products_bm25 ON misbind_products
+    USING bm25 (id, name, description, supplier_id)
+    WITH (
+        key_field = 'id',
+        text_fields = '{"name": {"fast": true}, "description": {"fast": true}}',
+        numeric_fields = '{"supplier_id": {"fast": true}}'
+    );
+
+    CREATE INDEX misbind_suppliers_bm25 ON misbind_suppliers
+    USING bm25 (id, name, info)
+    WITH (
+        key_field = 'id',
+        text_fields = '{"name": {"fast": true}}'
+    );
+
+    ANALYZE misbind_products;
+    ANALYZE misbind_suppliers;
+    "#
+    .execute(&mut conn);
+
+    // Both tables have a column called `name`. Ordering by p.name (a fast field)
+    // while s.name is also a fast field exposes the duplicate-name misbinding bug
+    // where JoinScan was sorting on the wrong physical column index.
+    let query = r#"
+        SELECT p.name AS p_name, s.name AS s_name
+        FROM misbind_products p
+        JOIN misbind_suppliers s ON p.supplier_id = s.id
+        WHERE p.description @@@ 'wireless' AND s.info @@@ 'electronics'
+        ORDER BY p.name ASC
+        LIMIT 10
+    "#;
+
+    type Row = (String, String);
+
+    "SET paradedb.enable_custom_scan = on; SET paradedb.enable_join_custom_scan = on; DISCARD PLANS;"
+        .execute(&mut conn);
+    let joinscan_rows = query.fetch_result::<Row>(&mut conn)?;
+
+    "SET paradedb.enable_custom_scan = off; SET paradedb.enable_join_custom_scan = off; DISCARD PLANS;"
+        .execute(&mut conn);
+    let fallback_rows = query.fetch_result::<Row>(&mut conn)?;
+
+    assert_eq!(
+        joinscan_rows, fallback_rows,
+        "JoinScan returned different rows than Postgres fallback -- likely a column misbinding bug"
+    );
+
+    r#"
+    SET paradedb.enable_custom_scan = on;
+    SET paradedb.enable_join_custom_scan = on;
+    DROP TABLE IF EXISTS misbind_products CASCADE;
+    DROP TABLE IF EXISTS misbind_suppliers CASCADE;
+    RESET max_parallel_workers_per_gather;
+    RESET enable_indexscan;
+    "#
+    .execute(&mut conn);
 
     Ok(())
 }

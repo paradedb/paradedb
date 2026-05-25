@@ -1395,6 +1395,86 @@ SELECT COUNT(*) AS default_no_stem FROM stemmer_test WHERE id @@@ pdb.parse('con
 (1 row)
 
 ------------------------------------------------------------
+-- TEST: Non-TEXT tokenizer casts in composite ROW (#5033)
+-- Pre-fix, the wrapper used by `text[]::pdb.tokenizer(...)` casts was
+-- short-form-packed by heap_form_tuple inside ROW(...)::composite, and
+-- recognition failed -> ERROR: cache lookup failed for type 0.
+------------------------------------------------------------
+-- text[] field with typmod
+CREATE TYPE arr_search AS (b pdb.literal_normalized('fieldnorms=false'));
+CREATE TABLE arr_test (id int PRIMARY KEY, b text[]);
+CREATE INDEX arr_idx ON arr_test USING bm25 (
+    id,
+    (ROW((b)::pdb.literal_normalized('fieldnorms=false'))::arr_search)
+) WITH (key_field='id');
+INSERT INTO arr_test VALUES (1, ARRAY['x']), (2, ARRAY['y','z']);
+SELECT id FROM arr_test WHERE id @@@ 'b:x' ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+SELECT id FROM arr_test WHERE id @@@ 'b:y' ORDER BY id;
+ id 
+----
+  2
+(1 row)
+
+SELECT id FROM arr_test WHERE id @@@ 'b:nope';
+ id 
+----
+(0 rows)
+
+-- Implicit cast (no explicit cast in ROW; PG inserts it from composite type)
+CREATE TYPE arr_search_imp AS (b pdb.literal_normalized('fieldnorms=false'));
+CREATE TABLE arr_test_imp (id int PRIMARY KEY, b text[]);
+CREATE INDEX arr_idx_imp ON arr_test_imp USING bm25 (
+    id, (ROW(b)::arr_search_imp)
+) WITH (key_field='id');
+INSERT INTO arr_test_imp VALUES (1, ARRAY['hello']);
+SELECT id FROM arr_test_imp WHERE id @@@ 'b:hello';
+ id 
+----
+  1
+(1 row)
+
+-- Multi-field composite mixing text, text[], and bigint casts
+CREATE TYPE multi_search AS (
+    txt pdb.simple,
+    arr pdb.literal_normalized('fieldnorms=false'),
+    n   bigint
+);
+CREATE TABLE multi_test (id int PRIMARY KEY, txt text, arr text[], n int);
+CREATE INDEX multi_idx ON multi_test USING bm25 (
+    id,
+    (ROW(
+        (txt)::pdb.simple,
+        (arr)::pdb.literal_normalized('fieldnorms=false'),
+        (n)::bigint
+    )::multi_search)
+) WITH (key_field='id');
+INSERT INTO multi_test VALUES
+    (1, 'hello world', ARRAY['action','adventure'], 10),
+    (2, 'foo bar',     ARRAY['comedy'],             20);
+SELECT id FROM multi_test WHERE id @@@ 'txt:hello'  ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+SELECT id FROM multi_test WHERE id @@@ 'arr:action' ORDER BY id;
+ id 
+----
+  1
+(1 row)
+
+SELECT id FROM multi_test WHERE id @@@ 'arr:comedy' ORDER BY id;
+ id 
+----
+  2
+(1 row)
+
+------------------------------------------------------------
 -- SMOKE TESTS: Comprehensive feature coverage
 ------------------------------------------------------------
 -- Create composite type for smoke tests (using pdb tokenizer types)
@@ -1866,8 +1946,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, price FROM smoke_test
 WHERE price @@@ pdb.range(numrange(50.0, 100.0, '[]'))
 ORDER BY price, id;
-                                                                            QUERY PLAN                                                                            
-------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: price, id
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
@@ -1875,7 +1955,7 @@ ORDER BY price, id;
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"range":{"field":"price","lower_bound":{"included":"50"},"upper_bound":{"included":"100"},"is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"range":{"field":"price","lower_bound":{"included":"50"},"upper_bound":{"included":"100"}}}}}
 (8 rows)
 
 SELECT id, name, price FROM smoke_test
@@ -1893,8 +1973,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, rating FROM smoke_test
 WHERE id @@@ pdb.parse('description:shoes OR description:boots') AND rating >= 4.0
 ORDER BY rating DESC, id;
-                                                                                                                                      QUERY PLAN                                                                                                                                      
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                            QUERY PLAN                                                                                                                            
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: rating DESC, id
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
@@ -1902,7 +1982,7 @@ ORDER BY rating DESC, id;
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:boots","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4.0},"upper_bound":null,"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:boots","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"included":4.0},"upper_bound":null}}]}}
 (8 rows)
 
 SELECT id, name, rating FROM smoke_test
@@ -2033,8 +2113,8 @@ SELECT id, name, rating, in_stock
 FROM smoke_test
 WHERE id @@@ pdb.parse('category:Electronics') AND rating > 4.0 AND in_stock = true
 ORDER BY rating DESC, id;
-                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                      QUERY PLAN                                                                                                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: rating DESC, id
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
@@ -2042,7 +2122,7 @@ ORDER BY rating DESC, id;
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null,"is_datetime":false}}]}},"field_filters":[{"heap_filter":"in_stock"}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"rating","lower_bound":{"excluded":4.0},"upper_bound":null}}]}},"field_filters":[{"heap_filter":"in_stock"}]}}]}}
 (8 rows)
 
 SELECT id, name, rating, in_stock
@@ -2062,8 +2142,8 @@ SELECT id, name, price
 FROM smoke_test
 WHERE id @@@ pdb.parse('description:shoes OR description:boots') AND price BETWEEN 50 AND 150
 ORDER BY price, id;
-                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                        
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                    QUERY PLAN                                                                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: price, id
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
@@ -2071,7 +2151,7 @@ ORDER BY price, id;
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:boots","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"price","lower_bound":{"included":50.0},"upper_bound":null,"is_datetime":false}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":150.0},"is_datetime":false}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:boots","lenient":null,"conjunction_mode":null}}}},{"range":{"field":"price","lower_bound":{"included":50.0},"upper_bound":null}},{"range":{"field":"price","lower_bound":null,"upper_bound":{"included":150.0}}}]}}
 (8 rows)
 
 SELECT id, name, price
@@ -2090,8 +2170,8 @@ SELECT id, name, category
 FROM smoke_test
 WHERE id @@@ pdb.all() AND category IN ('Electronics', 'Footwear')
 ORDER BY id;
-                                                                                                                    QUERY PLAN                                                                                                                     
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                QUERY PLAN                                                                                                 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
@@ -2099,7 +2179,7 @@ ORDER BY id;
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"Electronics","is_datetime":false},{"field":"category","value":"Footwear","is_datetime":false}]}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"term_set":{"terms":[{"field":"category","value":"Electronics"},{"field":"category","value":"Footwear"}]}}]}}
 (8 rows)
 
 SELECT id, name, category
@@ -2255,8 +2335,8 @@ ORDER BY id;
 -- pdb.term() on composite field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name FROM smoke_test WHERE name @@@ pdb.term('running') ORDER BY id;
-                                                   QUERY PLAN                                                    
------------------------------------------------------------------------------------------------------------------
+                                         QUERY PLAN                                          
+---------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
@@ -2264,7 +2344,7 @@ SELECT id, name FROM smoke_test WHERE name @@@ pdb.term('running') ORDER BY id;
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"name","value":"running","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"name","value":"running"}}}}
 (8 rows)
 
 SELECT id, name FROM smoke_test WHERE name @@@ pdb.term('running') ORDER BY id;
@@ -2381,8 +2461,8 @@ SELECT id, name FROM smoke_test WHERE description @@@ pdb.phrase_prefix(ARRAY['l
 -- pdb.range() on FLOAT field (not composite, but verify it works alongside)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, rating FROM smoke_test WHERE rating @@@ pdb.range(numrange(4.0, 5.0, '[]')) ORDER BY id;
-                                                                           QUERY PLAN                                                                           
-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
@@ -2390,7 +2470,7 @@ SELECT id, name, rating FROM smoke_test WHERE rating @@@ pdb.range(numrange(4.0,
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":"4"},"upper_bound":{"included":"5"},"is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"range":{"field":"rating","lower_bound":{"included":"4"},"upper_bound":{"included":"5"}}}}}
 (8 rows)
 
 SELECT id, name, rating FROM smoke_test WHERE rating @@@ pdb.range(numrange(4.0, 5.0, '[]')) ORDER BY id;
@@ -2410,8 +2490,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name FROM smoke_test
 WHERE name @@@ pdb.term('running') AND description @@@ pdb.match('lightweight')
 ORDER BY id;
-                                                                                                                                                          QUERY PLAN                                                                                                                                                          
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                QUERY PLAN                                                                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
@@ -2419,7 +2499,7 @@ ORDER BY id;
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"name","value":"running","is_datetime":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"lightweight","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}]}}
+         Tantivy Query: {"boolean":{"must":[{"with_index":{"query":{"term":{"field":"name","value":"running"}}}},{"with_index":{"query":{"match":{"field":"description","value":"lightweight","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}]}}
 (8 rows)
 
 SELECT id, name FROM smoke_test
@@ -2433,8 +2513,8 @@ ORDER BY id;
 -- pdb.term() with different composite fields (category uses pdb.literal - case sensitive)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name FROM smoke_test WHERE category @@@ pdb.term('Footwear') ORDER BY id;
-                                                      QUERY PLAN                                                      
-----------------------------------------------------------------------------------------------------------------------
+                                            QUERY PLAN                                            
+--------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
@@ -2442,7 +2522,7 @@ SELECT id, name FROM smoke_test WHERE category @@@ pdb.term('Footwear') ORDER BY
          Index: smoke_idx
          Exec Method: NormalScanExecState
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"Footwear","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"Footwear"}}}}
 (8 rows)
 
 SELECT id, name FROM smoke_test WHERE category @@@ pdb.term('Footwear') ORDER BY id;
@@ -2462,8 +2542,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test WHERE name @@@ pdb.term('shoes')
 ORDER BY score DESC, id LIMIT 3;
-                                                  QUERY PLAN                                                   
----------------------------------------------------------------------------------------------------------------
+                                        QUERY PLAN                                         
+-------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
@@ -2472,7 +2552,7 @@ ORDER BY score DESC, id LIMIT 3;
          Scores: true
             TopK Order By: pdb.score() desc, id asc
             TopK Limit: 3
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"name","value":"shoes","is_datetime":false}}}}
+         Tantivy Query: {"with_index":{"query":{"term":{"field":"name","value":"shoes"}}}}
 (9 rows)
 
 SELECT id, name, pdb.score(id) as score
@@ -2541,8 +2621,8 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, name, pdb.score(id) as score
 FROM smoke_test WHERE name @@@ pdb.term('wireless') OR description @@@ pdb.match('keyboard')
 ORDER BY score DESC, id LIMIT 2;
-                                                                                                                                                          QUERY PLAN                                                                                                                                                          
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                QUERY PLAN                                                                                                                                                
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Custom Scan (ParadeDB Base Scan) on smoke_test
          Table: smoke_test
@@ -2551,7 +2631,7 @@ ORDER BY score DESC, id LIMIT 2;
          Scores: true
             TopK Order By: pdb.score() desc, id asc
             TopK Limit: 2
-         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"term":{"field":"name","value":"wireless","is_datetime":false}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}]}}
+         Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"term":{"field":"name","value":"wireless"}}}},{"with_index":{"query":{"match":{"field":"description","value":"keyboard","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":null}}}}]}}
 (9 rows)
 
 SELECT id, name, pdb.score(id) as score
@@ -2842,15 +2922,15 @@ INSERT INTO numeric_expr_test (price) VALUES (100.00), (200.00), (50.00);
 -- Range query on original price (use the expression 'price' which maps to 'original_price' field)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, price FROM numeric_expr_test WHERE price @@@ pdb.range(numrange(75, 150, '[]'));
-                                                                             QUERY PLAN                                                                              
----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                   QUERY PLAN                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on numeric_expr_test
    Table: numeric_expr_test
    Index: idx_numeric_expr
    Exec Method: ColumnarExecState
    Fast Fields: id, original_price
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"range":{"field":"original_price","lower_bound":{"included":"75"},"upper_bound":{"included":"150"},"is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"range":{"field":"original_price","lower_bound":{"included":"75"},"upper_bound":{"included":"150"}}}}}
 (7 rows)
 
 SELECT id, price FROM numeric_expr_test WHERE price @@@ pdb.range(numrange(75, 150, '[]'));
@@ -2862,15 +2942,15 @@ SELECT id, price FROM numeric_expr_test WHERE price @@@ pdb.range(numrange(75, 1
 -- Range query on calculated discounted price (use the expression 'price * 0.9' which maps to 'discounted_price' field)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT id, price FROM numeric_expr_test WHERE (price * 0.9) @@@ pdb.range(numrange(80, 100, '[]'));
-                                                                              QUERY PLAN                                                                               
------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Base Scan) on numeric_expr_test
    Table: numeric_expr_test
    Index: idx_numeric_expr
    Exec Method: ColumnarExecState
    Fast Fields: id, original_price
    Scores: false
-   Tantivy Query: {"with_index":{"query":{"range":{"field":"discounted_price","lower_bound":{"included":"80"},"upper_bound":{"included":"100"},"is_datetime":false}}}}
+   Tantivy Query: {"with_index":{"query":{"range":{"field":"discounted_price","lower_bound":{"included":"80"},"upper_bound":{"included":"100"}}}}}
 (7 rows)
 
 SELECT id, price FROM numeric_expr_test WHERE (price * 0.9) @@@ pdb.range(numrange(80, 100, '[]'));

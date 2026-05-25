@@ -19,15 +19,20 @@ use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
 use datafusion::catalog::TableProvider;
-use datafusion::common::TableReference;
-use datafusion::common::{DataFusionError, Result};
+use datafusion::common::{DFSchemaRef, DataFusionError, Result, TableReference};
 use datafusion::execution::TaskContext;
-use datafusion::logical_expr::{Extension, LogicalPlan, ScalarUDF};
+use datafusion::functions_aggregate as dfa;
+use datafusion::logical_expr::{AggregateUDF, Extension, LogicalPlan, ScalarUDF};
 use datafusion_proto::logical_plan::LogicalExtensionCodec;
+use datafusion_proto::protobuf::DfSchema;
+use pgrx::pg_sys::{ExprContext, Oid, PlanState};
 use tantivy::index::SegmentId;
 
+use crate::api::HashSet;
 use crate::postgres::customscan::joinscan::visibility_filter::VisibilityFilterNode;
 use crate::postgres::customscan::pg_expr_udf::{PgExprUdf, PG_EXPR_UDF_PREFIX};
+use crate::postgres::ParallelScanState;
+use crate::scan::late_materialization::{DeferredField, LateMaterializeNode};
 use crate::scan::search_predicate_udf::SearchPredicateUDF;
 use crate::scan::table_provider::PgSearchTableProvider;
 
@@ -37,16 +42,16 @@ use crate::scan::table_provider::PgSearchTableProvider;
 #[derive(Debug, Default)]
 struct PgSearchExtensionCodec {
     /// Shared state for parallel scans, containing the list of segments to be processed.
-    parallel_state: Option<*mut crate::postgres::ParallelScanState>,
+    parallel_state: Option<*mut ParallelScanState>,
     /// Postgres expression context, needed for heap filtering and runtime parameters.
-    expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
+    expr_context: Option<*mut ExprContext>,
     /// Executor planstate, needed to initialize runtime Postgres expressions in source queries.
-    planstate: Option<*mut pgrx::pg_sys::PlanState>,
+    planstate: Option<*mut PlanState>,
     /// Canonical segment ID sets for non-partitioning sources, indexed by position in the
     /// non-partitioning source list.
-    non_partitioning_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
+    non_partitioning_segment_ids: Vec<HashSet<SegmentId>>,
     /// Canonical segment ID sets for all join sources, indexed by plan_position.
-    index_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
+    index_segment_ids: Vec<HashSet<SegmentId>>,
 }
 
 unsafe impl Send for PgSearchExtensionCodec {}
@@ -57,7 +62,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         &self,
         buf: &[u8],
         inputs: &[LogicalPlan],
-        _ctx: &datafusion::execution::context::TaskContext,
+        _ctx: &TaskContext,
     ) -> Result<Extension> {
         if buf.is_empty() {
             return Err(DataFusionError::Internal(
@@ -90,13 +95,12 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
             })?;
             offset += schema_len;
 
-            let df_schema_proto: datafusion_proto::protobuf::DfSchema =
-                prost::Message::decode(schema_bytes).map_err(|e| {
-                    DataFusionError::Internal(format!("Failed to decode schema: {}", e))
-                })?;
+            let df_schema_proto: DfSchema = prost::Message::decode(schema_bytes).map_err(|e| {
+                DataFusionError::Internal(format!("Failed to decode schema: {}", e))
+            })?;
 
-            let output_schema: datafusion::common::DFSchemaRef =
-                std::sync::Arc::new((&df_schema_proto).try_into().map_err(|e| {
+            let output_schema: DFSchemaRef =
+                Arc::new((&df_schema_proto).try_into().map_err(|e| {
                     DataFusionError::Internal(format!("Failed to parse schema: {}", e))
                 })?);
 
@@ -112,20 +116,19 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
                         "truncated buffer: incomplete deferred fields data".into(),
                     )
                 })?;
-            let deferred_fields: Vec<crate::scan::late_materialization::DeferredField> =
-                serde_json::from_slice(deferred_fields_bytes).map_err(|e| {
+            let deferred_fields: Vec<DeferredField> = serde_json::from_slice(deferred_fields_bytes)
+                .map_err(|e| {
                     DataFusionError::Internal(format!(
                         "Failed to deserialize deferred fields: {}",
                         e
                     ))
                 })?;
 
-            let node =
-                std::sync::Arc::new(crate::scan::late_materialization::LateMaterializeNode {
-                    input: input_plan,
-                    output_schema,
-                    deferred_fields,
-                });
+            let node = Arc::new(LateMaterializeNode {
+                input: input_plan,
+                output_schema,
+                deferred_fields,
+            });
 
             return Ok(Extension { node });
         }
@@ -144,7 +147,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
             let payload = buf.get(5..5 + payload_len).ok_or_else(|| {
                 DataFusionError::Internal("truncated buffer: incomplete visibility payload".into())
             })?;
-            let (plan_pos_oids, table_names): (Vec<(usize, pgrx::pg_sys::Oid)>, Vec<String>) =
+            let (plan_pos_oids, table_names): (Vec<(usize, Oid)>, Vec<String>) =
                 serde_json::from_slice(payload).map_err(|e| {
                     DataFusionError::Internal(format!(
                         "Failed to deserialize visibility payload: {e}"
@@ -166,12 +169,8 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
     }
 
     fn try_encode(&self, node: &Extension, buf: &mut Vec<u8>) -> Result<()> {
-        if let Some(mat_node) =
-            node.node
-                .as_any()
-                .downcast_ref::<crate::scan::late_materialization::LateMaterializeNode>()
-        {
-            let schema_proto: datafusion_proto::protobuf::DfSchema =
+        if let Some(mat_node) = node.node.as_any().downcast_ref::<LateMaterializeNode>() {
+            let schema_proto: DfSchema =
                 mat_node.output_schema.as_ref().try_into().map_err(|e| {
                     DataFusionError::Internal(format!("Failed to convert schema: {}", e))
                 })?;
@@ -191,7 +190,7 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         }
 
         if let Some(vis_node) = node.node.as_any().downcast_ref::<VisibilityFilterNode>() {
-            let payload: (&[(usize, pgrx::pg_sys::Oid)], &[String]) =
+            let payload: (&[(usize, Oid)], &[String]) =
                 (&vis_node.plan_pos_oids, &vis_node.table_names);
             let bytes = serde_json::to_vec(&payload).map_err(|e| {
                 DataFusionError::Internal(format!(
@@ -259,24 +258,20 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         Ok(())
     }
 
-    fn try_decode_udaf(
-        &self,
-        name: &str,
-        _buf: &[u8],
-    ) -> Result<Arc<datafusion::logical_expr::AggregateUDF>> {
+    fn try_decode_udaf(&self, name: &str, _buf: &[u8]) -> Result<Arc<AggregateUDF>> {
         match name {
-            "min" => Ok(datafusion::functions_aggregate::min_max::min_udaf()),
+            "min" => Ok(dfa::min_max::min_udaf()),
+            "max" => Ok(dfa::min_max::max_udaf()),
+            "count" => Ok(dfa::count::count_udaf()),
+            "sum" => Ok(dfa::sum::sum_udaf()),
+            "avg" => Ok(dfa::average::avg_udaf()),
             _ => Err(DataFusionError::NotImplemented(format!(
                 "LogicalExtensionCodec is not provided for aggregate function {name}"
             ))),
         }
     }
 
-    fn try_encode_udaf(
-        &self,
-        node: &datafusion::logical_expr::AggregateUDF,
-        buf: &mut Vec<u8>,
-    ) -> Result<()> {
+    fn try_encode_udaf(&self, node: &AggregateUDF, buf: &mut Vec<u8>) -> Result<()> {
         // Built-in aggregates are looked up by name on decode, no state to serialize
         buf.extend_from_slice(node.name().as_bytes());
         Ok(())
@@ -359,29 +354,17 @@ pub fn serialize_logical_plan(plan: &LogicalPlan) -> Result<bytes::Bytes> {
     )
 }
 
-/// Deserializes a DataFusion `LogicalPlan` from bytes using the `PgSearchExtensionCodec`.
-#[cfg(any(test, feature = "pg_test"))]
-pub fn deserialize_logical_plan(
-    bytes: &[u8],
-    ctx: &datafusion::execution::TaskContext,
-) -> Result<LogicalPlan> {
-    datafusion_proto::bytes::logical_plan_from_bytes_with_extension_codec(
-        bytes,
-        ctx,
-        &PgSearchExtensionCodec::default(),
-    )
-}
-
 /// Deserializes a DataFusion `LogicalPlan` using a codec populated with the
 /// runtime state required by execution.
+#[allow(clippy::too_many_arguments)]
 pub fn deserialize_logical_plan_with_runtime(
     bytes: &[u8],
-    ctx: &datafusion::execution::TaskContext,
-    parallel_state: Option<*mut crate::postgres::ParallelScanState>,
-    expr_context: Option<*mut pgrx::pg_sys::ExprContext>,
-    planstate: Option<*mut pgrx::pg_sys::PlanState>,
-    non_partitioning_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
-    index_segment_ids: Vec<crate::api::HashSet<SegmentId>>,
+    ctx: &TaskContext,
+    parallel_state: Option<*mut ParallelScanState>,
+    expr_context: Option<*mut ExprContext>,
+    planstate: Option<*mut PlanState>,
+    non_partitioning_segment_ids: Vec<HashSet<SegmentId>>,
+    index_segment_ids: Vec<HashSet<SegmentId>>,
 ) -> Result<LogicalPlan> {
     let codec = PgSearchExtensionCodec {
         parallel_state,

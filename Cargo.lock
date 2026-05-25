@@ -788,11 +788,14 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "benchmarks"
-version = "0.23.3"
+version = "0.23.5"
 dependencies = [
  "anyhow",
+ "approx",
  "clap",
+ "distrs",
  "duckdb",
+ "rstest",
  "serde",
  "serde_json",
  "sqlx",
@@ -2201,7 +2204,7 @@ dependencies = [
 [[package]]
 name = "datafusion-distributed"
 version = "1.0.0"
-source = "git+https://github.com/paradedb/datafusion-distributed?rev=dfa96e74b365e56c83fae81d5dcae24528f1c090#dfa96e74b365e56c83fae81d5dcae24528f1c090"
+source = "git+https://github.com/paradedb/datafusion-distributed?rev=c618b5a#c618b5a620f1eea793df66ae82c3f340f367cbf5"
 dependencies = [
  "arrow-flight",
  "arrow-ipc",
@@ -2827,6 +2830,12 @@ dependencies = [
  "quote",
  "syn 2.0.117",
 ]
+
+[[package]]
+name = "distrs"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2906d3628a885aa49a23b88e71f63e51ae8df41cd76652287f0a6179a11833a9"
 
 [[package]]
 name = "dlib"
@@ -3997,7 +4006,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.62.2",
+ "windows-core",
 ]
 
 [[package]]
@@ -4999,7 +5008,7 @@ dependencies = [
 
 [[package]]
 name = "macros"
-version = "0.23.3"
+version = "0.23.5"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5515,7 +5524,7 @@ dependencies = [
 [[package]]
 name = "ownedbytes"
 version = "0.9.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=52dfd549ef27428bd92863757440a214dd0c8d41#52dfd549ef27428bd92863757440a214dd0c8d41"
+source = "git+https://github.com/paradedb/tantivy.git?rev=8230dfc84604dab0a0a5fdd4e4edda6ac2ba23b0#8230dfc84604dab0a0a5fdd4e4edda6ac2ba23b0"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -5714,9 +5723,8 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
-version = "0.23.3"
+version = "0.23.5"
 dependencies = [
- "ahash 0.8.12",
  "anyhow",
  "arrow-array",
  "arrow-buffer",
@@ -5767,6 +5775,7 @@ dependencies = [
  "tokenizers",
  "tokio",
  "typetag",
+ "url",
  "uuid",
 ]
 
@@ -7269,7 +7278,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8021,7 +8030,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stressgres"
-version = "0.23.3"
+version = "0.23.5"
 dependencies = [
  "anyhow",
  "clap",
@@ -8190,7 +8199,7 @@ checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
 [[package]]
 name = "tantivy"
 version = "0.26.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=52dfd549ef27428bd92863757440a214dd0c8d41#52dfd549ef27428bd92863757440a214dd0c8d41"
+source = "git+https://github.com/paradedb/tantivy.git?rev=8230dfc84604dab0a0a5fdd4e4edda6ac2ba23b0#8230dfc84604dab0a0a5fdd4e4edda6ac2ba23b0"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -8245,7 +8254,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.9.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=52dfd549ef27428bd92863757440a214dd0c8d41#52dfd549ef27428bd92863757440a214dd0c8d41"
+source = "git+https://github.com/paradedb/tantivy.git?rev=8230dfc84604dab0a0a5fdd4e4edda6ac2ba23b0#8230dfc84604dab0a0a5fdd4e4edda6ac2ba23b0"
 dependencies = [
  "bitpacking",
 ]
@@ -8253,7 +8262,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=52dfd549ef27428bd92863757440a214dd0c8d41#52dfd549ef27428bd92863757440a214dd0c8d41"
+source = "git+https://github.com/paradedb/tantivy.git?rev=8230dfc84604dab0a0a5fdd4e4edda6ac2ba23b0#8230dfc84604dab0a0a5fdd4e4edda6ac2ba23b0"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -8268,7 +8277,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.10.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=52dfd549ef27428bd92863757440a214dd0c8d41#52dfd549ef27428bd92863757440a214dd0c8d41"
+source = "git+https://github.com/paradedb/tantivy.git?rev=8230dfc84604dab0a0a5fdd4e4edda6ac2ba23b0#8230dfc84604dab0a0a5fdd4e4edda6ac2ba23b0"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -8301,7 +8310,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.25.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=52dfd549ef27428bd92863757440a214dd0c8d41#52dfd549ef27428bd92863757440a214dd0c8d41"
+source = "git+https://github.com/paradedb/tantivy.git?rev=8230dfc84604dab0a0a5fdd4e4edda6ac2ba23b0#8230dfc84604dab0a0a5fdd4e4edda6ac2ba23b0"
 dependencies = [
  "fnv",
  "nom 7.1.3",
@@ -8313,7 +8322,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=52dfd549ef27428bd92863757440a214dd0c8d41#52dfd549ef27428bd92863757440a214dd0c8d41"
+source = "git+https://github.com/paradedb/tantivy.git?rev=8230dfc84604dab0a0a5fdd4e4edda6ac2ba23b0#8230dfc84604dab0a0a5fdd4e4edda6ac2ba23b0"
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -8326,7 +8335,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=52dfd549ef27428bd92863757440a214dd0c8d41#52dfd549ef27428bd92863757440a214dd0c8d41"
+source = "git+https://github.com/paradedb/tantivy.git?rev=8230dfc84604dab0a0a5fdd4e4edda6ac2ba23b0#8230dfc84604dab0a0a5fdd4e4edda6ac2ba23b0"
 dependencies = [
  "fixedbitset",
  "murmurhash32",
@@ -8363,7 +8372,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=52dfd549ef27428bd92863757440a214dd0c8d41#52dfd549ef27428bd92863757440a214dd0c8d41"
+source = "git+https://github.com/paradedb/tantivy.git?rev=8230dfc84604dab0a0a5fdd4e4edda6ac2ba23b0#8230dfc84604dab0a0a5fdd4e4edda6ac2ba23b0"
 dependencies = [
  "serde",
 ]
@@ -8409,7 +8418,7 @@ dependencies = [
 
 [[package]]
 name = "tests"
-version = "0.23.3"
+version = "0.23.5"
 dependencies = [
  "anyhow",
  "approx",
@@ -8588,7 +8597,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokenizers"
-version = "0.23.3"
+version = "0.23.5"
 dependencies = [
  "anyhow",
  "emoji",
@@ -9439,7 +9448,7 @@ version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "12342cb4d8e3b046f3d80effd474a7a02447231330ef77d71daa6fbc40681143"
 dependencies = [
- "windows-core 0.57.0",
+ "windows-core",
  "windows-targets 0.52.6",
 ]
 
@@ -9449,23 +9458,10 @@ version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2ed2439a290666cd67ecce2b0ffaad89c2a56b976b736e6ece670297897832d"
 dependencies = [
- "windows-implement 0.57.0",
- "windows-interface 0.57.0",
- "windows-result 0.1.2",
+ "windows-implement",
+ "windows-interface",
+ "windows-result",
  "windows-targets 0.52.6",
-]
-
-[[package]]
-name = "windows-core"
-version = "0.62.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8e83a14d34d0623b51dce9581199302a221863196a1dde71a7663a4c2be9deb"
-dependencies = [
- "windows-implement 0.60.2",
- "windows-interface 0.59.3",
- "windows-link",
- "windows-result 0.4.1",
- "windows-strings",
 ]
 
 [[package]]
@@ -9480,32 +9476,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "windows-implement"
-version = "0.60.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "053e2e040ab57b9dc951b72c264860db7eb3b0200ba345b4e4c3b14f67855ddf"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
 name = "windows-interface"
 version = "0.57.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29bee4b38ea3cde66011baa44dba677c432a78593e202392d1e9070cf2a7fca7"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "windows-interface"
-version = "0.59.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f316c4a2570ba26bbec722032c4099d8c8bc095efccdc15688708623367e358"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -9528,24 +9502,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "windows-result"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7781fa89eaf60850ac3d2da7af8e5242a5ea78d1a11c49bf2910bb5a73853eb5"
-dependencies = [
- "windows-link",
-]
-
-[[package]]
-name = "windows-strings"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7837d08f69c77cf6b07689544538e017c1bfcf57e34b4c0ff58e6c2cd3b37091"
-dependencies = [
- "windows-link",
-]
-
-[[package]]
 name = "windows-sys"
 version = "0.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9559,15 +9515,6 @@ name = "windows-sys"
 version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d"
-dependencies = [
- "windows-targets 0.52.6",
-]
-
-[[package]]
-name = "windows-sys"
-version = "0.59.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
 dependencies = [
  "windows-targets 0.52.6",
 ]

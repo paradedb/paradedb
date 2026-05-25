@@ -616,15 +616,17 @@ impl MppSender {
     }
 
     /// Spin-loop helper: call `channel.try_send_bytes(scratch)`. Routes through `ffi_relay`
-    /// when attached. The relay path takes ownership of an owned `Vec<u8>` copy of the
-    /// scratch, which is an extra allocation per attempt — acceptable on the success path
-    /// (one attempt per batch) but a target for the M2 pooling/batching optimization on
-    /// heavily-contended spins.
-    async fn spin_try_send_bytes(&self, scratch: &[u8]) -> Result<bool, DataFusionError> {
+    /// when attached. The relay-routed path moves the encoded buffer through the channel
+    /// and the service returns it back, so there's exactly one alloc per batch (the
+    /// initial `encode_frame_into`) regardless of spin depth — no per-attempt copy.
+    async fn spin_try_send_bytes(&self, scratch: &mut Vec<u8>) -> Result<bool, DataFusionError> {
         if let Some(relay) = self.ffi_relay.as_ref() {
-            return relay
-                .shm_mq_try_send(Arc::clone(&self.channel), scratch.to_vec())
+            let bytes = std::mem::take(scratch);
+            let (result, returned) = relay
+                .shm_mq_try_send(Arc::clone(&self.channel), bytes)
                 .await;
+            *scratch = returned;
+            return result;
         }
         self.channel.try_send_bytes(scratch)
     }
@@ -659,6 +661,15 @@ impl MppSender {
         // partial write through the shared shm_mq handle. See `BatchChannelSender::send_lock`.
         // Long-term, switching shm_mq for an async-friendly ring buffer (cf. #4184) drops the
         // partial-send invariant entirely and removes the need for this lock.
+        //
+        // G7-MT phase 3d TODO: under the multi_thread runtime, holding `_send_guard` across
+        // a relay round-trip + `yield_now().await` lets one fragment task starve a sibling
+        // that shares the same `Arc<dyn BatchChannelSender>` (the multi-partition fan-out
+        // pattern). The `tokio::sync::Mutex` is FIFO-fair, so the sibling can sit blocked
+        // for an entire 25M-row shuffle. The real fix is moving the whole spin to the
+        // service task so the lock contention happens on the backend thread at FFI speed,
+        // not at compute-thread round-trip speed. Today's linear topology has at most one
+        // sender per `Arc`, so this is latent until phase 3d ships.
         let _send_guard = self.channel.send_lock().lock().await;
         let mut first_try = true;
         let t_wait_start = Instant::now();

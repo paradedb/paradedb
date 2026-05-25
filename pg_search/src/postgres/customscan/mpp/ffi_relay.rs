@@ -53,10 +53,15 @@ use crate::postgres::customscan::mpp::transport::{BatchChannelSender, Cooperativ
 pub(crate) enum FfiOp {
     /// Non-blocking shm_mq send. Returns `Ok(true)` on success, `Ok(false)` if the queue
     /// is full (caller spins + retries), `Err` on detach or unknown PG error.
+    ///
+    /// The response carries the byte buffer back so the producer can reuse its encode
+    /// scratch instead of allocating a fresh `Vec<u8>` on every spin attempt. Eliminates
+    /// the `scratch.to_vec()` per-iteration copy that dominated the +25% phase 3b
+    /// overhead on shuffle-heavy queries.
     ShmMqTrySend {
         channel: Arc<dyn BatchChannelSender>,
         bytes: Vec<u8>,
-        response: oneshot::Sender<Result<bool, DataFusionError>>,
+        response: oneshot::Sender<(Result<bool, DataFusionError>, Vec<u8>)>,
     },
     /// Run one cooperative-drain pass. Pulls inbound peer frames off the local mesh so
     /// the producer's full-outbound stall has a chance to unblock. Calls
@@ -67,10 +72,19 @@ pub(crate) enum FfiOp {
         response: oneshot::Sender<Result<(), DataFusionError>>,
     },
     /// Honor pending Postgres cancel / timeout / SIGINT. Calls
-    /// `pgrx::check_for_interrupts!()` underneath. On cancel the macro `longjmp`s
-    /// through the call stack, so the service caller never observes a normal return —
-    /// the dispatcher unwinds and the query aborts. On no-interrupt the call is a
-    /// few-ns flag check and the oneshot resolves with `()`.
+    /// `pgrx::check_for_interrupts!()` underneath.
+    ///
+    /// On no-interrupt the call is a few-ns flag check and the oneshot resolves with `()`.
+    ///
+    /// On cancel the macro expands to `siglongjmp` that unwinds to the nearest `PG_TRY`
+    /// frame **on the current OS thread**. The service task is running under
+    /// `local_set.run_until(...)` inside `runtime.block_on(...)` on the backend thread,
+    /// so the `longjmp` skips out of `block_on`, out of `run_mpp_worker`, and pops up at
+    /// whatever `PG_TRY` `exec_mpp_worker_impl`'s caller installed. The Tokio runtime,
+    /// the LocalSet, every in-flight oneshot, and every compute future are abandoned;
+    /// PG's resource owner reclaims them on the way out. This is the same teardown shape
+    /// as the direct (non-relay) interrupt-check path — query aborts, no per-future
+    /// orderly error.
     CheckForInterrupts { response: oneshot::Sender<()> },
 }
 
@@ -93,33 +107,42 @@ impl FfiRelay {
     /// Forward a non-blocking shm_mq send to the backend thread and await its result.
     ///
     /// Takes ownership of `bytes` because the buffer has to outlive the await point on
-    /// the compute side without holding a borrow into the caller's scratch.
-    ///
-    /// G7-MT phase 3b perf TODO: the spin loop calls into this on every queue-full retry,
-    /// which at 25M-row shuffles can be tens of millions of round-trips. Each round-trip
-    /// allocates a fresh `tokio::sync::oneshot` here. Before phase 3b lands, switch to
-    /// either a per-sender preallocated reply slot (e.g. `Arc<Notify> + AtomicResult`) or
-    /// a batched op variant (`ShmMqTrySendMany { slices: Vec<Vec<u8>>, response: oneshot<Vec<...>> }`).
-    /// Measure on the bench before committing — naive oneshot allocation could eat the
-    /// multi-thread win.
+    /// the compute side without holding a borrow into the caller's scratch. The service
+    /// returns the buffer back through the tuple so the producer can reuse it without
+    /// allocating a fresh `Vec<u8>` on every spin attempt.
     pub async fn shm_mq_try_send(
         &self,
         channel: Arc<dyn BatchChannelSender>,
         bytes: Vec<u8>,
-    ) -> Result<bool, DataFusionError> {
+    ) -> (Result<bool, DataFusionError>, Vec<u8>) {
         let (resp_tx, resp_rx) = oneshot::channel();
-        self.tx
-            .send(FfiOp::ShmMqTrySend {
-                channel,
-                bytes,
-                response: resp_tx,
-            })
-            .map_err(|_| DataFusionError::Execution("ffi_relay: service task closed".into()))?;
+        let op = FfiOp::ShmMqTrySend {
+            channel,
+            bytes,
+            response: resp_tx,
+        };
+        if let Err(send_err) = self.tx.send(op) {
+            // Recover the bytes from the rejected op so the caller can keep its scratch
+            // buffer intact across a service-shutdown error.
+            let recovered = match send_err.0 {
+                FfiOp::ShmMqTrySend { bytes, .. } => bytes,
+                _ => Vec::new(),
+            };
+            return (
+                Err(DataFusionError::Execution(
+                    "ffi_relay: service task closed".into(),
+                )),
+                recovered,
+            );
+        }
         match resp_rx.await {
-            Ok(result) => result,
-            Err(_) => Err(DataFusionError::Execution(
-                "ffi_relay: service dropped the response without replying".into(),
-            )),
+            Ok(pair) => pair,
+            Err(_) => (
+                Err(DataFusionError::Execution(
+                    "ffi_relay: service dropped the response without replying".into(),
+                )),
+                Vec::new(),
+            ),
         }
     }
 
@@ -145,11 +168,14 @@ impl FfiRelay {
         }
     }
 
-    /// Forward a `pgrx::check_for_interrupts!()` call to the backend thread. On no-interrupt
-    /// the oneshot resolves quickly; on cancel/timeout the pgrx macro `longjmp`s through the
-    /// service task and the query aborts before we ever wake — the compute future's
-    /// `resp_rx.await` then fails with "service dropped the response", which surfaces as a
-    /// dispatcher error that pgrx::error! tags.
+    /// Forward a `pgrx::check_for_interrupts!()` call to the backend thread.
+    ///
+    /// On no-interrupt the oneshot resolves with `()` after a quick flag check.
+    /// On cancel the pgrx macro `siglongjmp`s out of the service task → out of `block_on`
+    /// → out of `run_mpp_worker`, tearing down the runtime, the LocalSet, the in-flight
+    /// oneshots, and every compute future. The caller's `.await` never wakes; the query
+    /// abort is surfaced by PG's normal cancel teardown path. See the doc on
+    /// [`FfiOp::CheckForInterrupts`] for the full unwinding shape.
     pub async fn check_for_interrupts(&self) -> Result<(), DataFusionError> {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.tx
@@ -215,10 +241,11 @@ impl FfiRelayService {
                     response,
                 } => {
                     let result = channel.try_send_bytes(&bytes);
-                    // The compute future may have been cancelled before our reply landed.
-                    // Drop the result silently in that case — the response channel's
-                    // close is the signal.
-                    let _ = response.send(result);
+                    // Return the buffer so the producer reuses it on the next attempt
+                    // instead of allocating fresh. The compute future may have been
+                    // cancelled before our reply landed — drop the result silently in
+                    // that case, the response channel's close is the signal.
+                    let _ = response.send((result, bytes));
                 }
                 FfiOp::TryDrainPass { drain, response } => {
                     let result = drain.try_drain_pass();
@@ -257,17 +284,22 @@ mod tests {
                 let (relay, service) = FfiRelay::new();
                 let service_handle = tokio::task::spawn_local(service.run());
 
+                let (r1, returned1) = relay
+                    .shm_mq_try_send(Arc::clone(&channel), vec![1, 2, 3])
+                    .await;
                 assert!(
-                    relay
-                        .shm_mq_try_send(Arc::clone(&channel), vec![1, 2, 3])
-                        .await
-                        .expect("first send"),
+                    r1.expect("first send"),
                     "in-proc channel has capacity, send should succeed"
                 );
-                assert!(relay
+                // The relay returns the byte buffer so the producer can reuse it; the test
+                // doesn't reuse here, just asserts the round-trip preserves the contents.
+                assert_eq!(returned1, vec![1, 2, 3]);
+
+                let (r2, returned2) = relay
                     .shm_mq_try_send(Arc::clone(&channel), vec![4, 5, 6])
-                    .await
-                    .expect("second send"),);
+                    .await;
+                assert!(r2.expect("second send"));
+                assert_eq!(returned2, vec![4, 5, 6]);
 
                 // Receiver sees both payloads in order.
                 use crate::postgres::customscan::mpp::transport::BatchChannelReceiver;
@@ -327,6 +359,44 @@ mod tests {
                     relay.check_for_interrupts().await.expect("interrupt check");
                 }
                 assert_eq!(drain.passes.load(std::sync::atomic::Ordering::SeqCst), 3);
+
+                drop(relay);
+                service_handle.await.unwrap();
+            })
+            .await;
+    }
+
+    /// Higher-fidelity drain test: build a real `DrainHandle::cooperative` over an in-proc
+    /// channel, attach it through the relay, and verify the drain pass acquires the inner
+    /// mutexes + returns `Ok` without contention. Catches a regression where the inner
+    /// `std::sync::Mutex` is swapped for a `tokio::sync::Mutex` and breaks the
+    /// cross-thread invariant the relay relies on.
+    #[tokio::test(flavor = "current_thread")]
+    async fn relay_routes_drain_pass_through_real_drain_handle() {
+        use crate::postgres::customscan::mpp::transport::{
+            in_proc_channel, DrainHandle, MppReceiver,
+        };
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (_sender_kept_alive, receiver) = in_proc_channel(4);
+                let drain_handle: Arc<dyn CooperativeDrainSet> = Arc::new(
+                    DrainHandle::cooperative(vec![MppReceiver::new(Box::new(receiver))]),
+                );
+
+                let (relay, service) = FfiRelay::new();
+                let service_handle = tokio::task::spawn_local(service.run());
+
+                // Two drain passes over an empty receiver: both should return Ok(()) and
+                // not panic on the mutex locking inside `DrainHandle::try_drain_pass`.
+                relay
+                    .try_drain_pass(Arc::clone(&drain_handle))
+                    .await
+                    .expect("first drain pass");
+                relay
+                    .try_drain_pass(Arc::clone(&drain_handle))
+                    .await
+                    .expect("second drain pass");
 
                 drop(relay);
                 service_handle.await.unwrap();

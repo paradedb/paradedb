@@ -285,9 +285,12 @@ pub(crate) fn run_mpp_worker(
         .map(|g| g.mpp_debug)
         .unwrap_or_else(crate::gucs::mpp_debug);
 
-    // Read `paradedb.mpp_use_ffi_relay` once on the backend thread. Read directly from the
-    // live GUC registry (not the per-query snapshot) because this is consumed only in the
-    // dispatcher prep below, which always runs on the backend.
+    // Read `paradedb.mpp_use_ffi_relay` once on the backend thread. The invariant is
+    // strictly "read before `runtime.block_on`" — that's still satisfied under phase 3d's
+    // multi_thread runtime because the FFI service driver runtime / LocalSet is created
+    // here on the backend before any compute future spawns. Direct read (not the
+    // `MppRuntimeGucs` snapshot) is fine because this value is consumed only here, by the
+    // dispatcher prep, never on a tokio worker thread.
     let use_ffi_relay = crate::gucs::mpp_use_ffi_relay();
 
     // Two `Future` shapes share this vector: real producer-fragment futures and broadcast

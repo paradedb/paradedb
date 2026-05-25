@@ -1,9 +1,11 @@
 -- Tests for SELECT DISTINCT pushdown into the BM25 index.
 --
 -- Plain SELECT DISTINCT (no DISTINCT ON) on a fast field maps to a
--- GROUP BY without aggregates. The AggregateScan hook now fires at
--- UPPERREL_DISTINCT in addition to UPPERREL_GROUP_AGG, routing through
--- Tantivy's TermsAggregation or DataFusion depending on cardinality.
+-- GROUP BY without aggregates. The AggregateScan hook fires at
+-- UPPERREL_DISTINCT in addition to UPPERREL_GROUP_AGG. Tantivy's
+-- TermsAggregation is always attempted first; if it truncates
+-- (sum_other_doc_count > 0) a pre-computed DataFusion fallback plan
+-- is activated transparently to return the complete result set.
 CREATE EXTENSION IF NOT EXISTS pg_search;
 SET paradedb.enable_aggregate_custom_scan TO on;
 -- =============================================================================
@@ -301,6 +303,256 @@ ORDER BY category;
  Sports
 (5 rows)
 
+-- =============================================================================
+-- TEST 9: SELECT DISTINCT via AggregateScan DataFusion path (JOIN scenario)
+--
+-- JOINs always route to AggregateScan's DataFusion backend (RELOPT_JOINREL).
+-- At UPPERREL_DISTINCT, output_rel.reltarget.exprs is empty — the DataFusion
+-- path must fall back to parse->targetList to extract the target list.
+--
+-- No LIMIT on the outer query so JoinScan does not activate; only
+-- AggregateScan handles the GROUP BY (DISTINCT) deduplication.
+-- =============================================================================
+DROP TABLE IF EXISTS dist_regions CASCADE;
+CREATE TABLE dist_regions (
+    id       SERIAL PRIMARY KEY,
+    category TEXT,
+    region   TEXT
+);
+INSERT INTO dist_regions (category, region) VALUES
+    ('Electronics', 'North'),
+    ('Accessories', 'South'),
+    ('Sports',      'North'),
+    ('Clothing',    'East'),
+    ('Furniture',   'West');
+CREATE INDEX dist_regions_idx ON dist_regions
+USING bm25 (id, category, region)
+WITH (
+    key_field = 'id',
+    text_fields = '{"category": {"fast": true}, "region": {"fast": true}}'
+);
+ANALYZE dist_regions;
+-- Disable JoinScan so AggregateScan (DataFusion) owns the DISTINCT deduplication.
+SET paradedb.enable_join_custom_scan TO off;
+-- EXPLAIN: should show Custom Scan (ParadeDB Aggregate Scan) with Backend: DataFusion.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT dp.category
+FROM dist_products dp
+JOIN dist_regions dr ON dp.category = dr.category
+WHERE dp.name @@@ 'laptop OR jacket OR shoes'
+ORDER BY dp.category;
+                                                                                                      QUERY PLAN                                                                                                       
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort
+   Sort Key: dp.category
+   ->  Custom Scan (ParadeDB Aggregate Scan)
+         Backend: DataFusion
+         Indexes: dist_products_idx (dp), dist_regions_idx (dr)
+         Group By: category
+         DataFusion Physical Plan: 
+           : AggregateExec: mode=Single, gby=[category@0 as category], aggr=[]
+           :   HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(category@0, category@0)], projection=[category@1]
+           :     CooperativeExec
+           :       PgSearchScan: segments=1, query="all"
+           :     CooperativeExec
+           :       PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"laptop OR jacket OR shoes","lenient":null,"conjunction_mode":null}}}}
+(13 rows)
+
+SELECT DISTINCT dp.category
+FROM dist_products dp
+JOIN dist_regions dr ON dp.category = dr.category
+WHERE dp.name @@@ 'laptop OR jacket OR shoes'
+ORDER BY dp.category;
+  category   
+-------------
+ Clothing
+ Electronics
+ Sports
+(3 rows)
+
+-- Correctness: results must match native PG.
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT DISTINCT dp.category
+FROM dist_products dp
+JOIN dist_regions dr ON dp.category = dr.category
+WHERE dp.name @@@ 'laptop OR jacket OR shoes'
+ORDER BY dp.category;
+  category   
+-------------
+ Clothing
+ Electronics
+ Sports
+(3 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+SET paradedb.enable_join_custom_scan TO on;
+DROP TABLE IF EXISTS dist_regions CASCADE;
+-- =============================================================================
+-- TEST 10: SELECT DISTINCT on a pdb.literal (raw tokenizer) fast field
+-- =============================================================================
+DROP TABLE IF EXISTS dist_urls CASCADE;
+CREATE TABLE dist_urls (
+    id   SERIAL PRIMARY KEY,
+    name TEXT,
+    url  TEXT
+);
+INSERT INTO dist_urls (name, url) VALUES
+    ('Page A', 'https://example.com/a'),
+    ('Page B', 'https://example.com/b'),
+    ('Page C', 'https://example.com/a'),
+    ('Page D', 'https://example.com/c'),
+    ('Page E', 'https://example.com/b');
+-- Index the url column using the pdb.literal cast expression (raw tokenizer, fast field).
+CREATE INDEX dist_urls_idx ON dist_urls
+USING bm25 (id, name, (url::pdb.literal))
+WITH (key_field = 'id');
+ANALYZE dist_urls;
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT url
+FROM dist_urls
+WHERE name @@@ 'Page'
+ORDER BY url;
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on dist_urls
+   Index: dist_urls_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: 
+     Group By: url
+     Aggregate Definition: {"grouped":{"terms":{"field":"url","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(6 rows)
+
+SELECT DISTINCT url
+FROM dist_urls
+WHERE name @@@ 'Page'
+ORDER BY url;
+          url          
+-----------------------
+ https://example.com/a
+ https://example.com/b
+ https://example.com/c
+(3 rows)
+
+-- Correctness: must match native PG
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT DISTINCT url
+FROM dist_urls
+WHERE name @@@ 'Page'
+ORDER BY url;
+          url          
+-----------------------
+ https://example.com/a
+ https://example.com/b
+ https://example.com/c
+(3 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+DROP TABLE IF EXISTS dist_urls CASCADE;
+-- =============================================================================
+-- TEST 11: NULL semantics — DISTINCT on a nullable fast field
+-- =============================================================================
+DROP TABLE IF EXISTS dist_nullable CASCADE;
+CREATE TABLE dist_nullable (
+    id       SERIAL PRIMARY KEY,
+    name     TEXT,
+    category TEXT        -- nullable: some rows will have NULL
+);
+INSERT INTO dist_nullable (name, category) VALUES
+    ('Laptop',    'Electronics'),
+    ('Keyboard',  'Accessories'),
+    ('Widget',    NULL),              -- NULL category
+    ('Gadget',    'Electronics'),
+    ('Thingamajig', NULL);            -- second NULL category
+CREATE INDEX dist_nullable_idx ON dist_nullable
+USING bm25 (id, name, category)
+WITH (
+    key_field   = 'id',
+    text_fields = '{"name": {}, "category": {"fast": true}}'
+);
+ANALYZE dist_nullable;
+-- DISTINCT must return: Accessories, Electronics, NULL (three rows)
+SELECT DISTINCT category
+FROM dist_nullable
+WHERE name @@@ 'laptop OR keyboard OR widget OR gadget OR thingamajig'
+ORDER BY category;
+  category   
+-------------
+ Accessories
+ Electronics
+ 
+(3 rows)
+
+-- Correctness: compare with native PG
+SET paradedb.enable_aggregate_custom_scan TO off;
+SELECT DISTINCT category
+FROM dist_nullable
+WHERE name @@@ 'laptop OR keyboard OR widget OR gadget OR thingamajig'
+ORDER BY category;
+  category   
+-------------
+ Accessories
+ Electronics
+ 
+(3 rows)
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+DROP TABLE IF EXISTS dist_nullable CASCADE;
+-- =============================================================================
+-- TEST 12: High-cardinality DISTINCT — DataFusion guarantees completeness
+--
+-- 70 000 rows, each with a unique URL, indexed as (url::pdb.literal) so the
+-- field is a fast keyword field. SELECT DISTINCT url routes to DataFusion
+-- (no bucket cap), proving all 70 000 distinct values are returned even
+-- though default max_term_agg_buckets = 65 000 (Tantivy would truncate).
+-- =============================================================================
+DROP TABLE IF EXISTS dist_highcard CASCADE;
+CREATE TABLE dist_highcard (
+    id   SERIAL PRIMARY KEY,
+    name TEXT,
+    url  TEXT
+);
+INSERT INTO dist_highcard (name, url)
+SELECT
+    'Page ' || i,
+    'https://example.com/page/' || i
+FROM generate_series(1, 70000) AS i;
+CREATE INDEX dist_highcard_idx ON dist_highcard
+USING bm25 (id, name, (url::pdb.literal))
+WITH (key_field = 'id');
+ANALYZE dist_highcard;
+-- EXPLAIN shows the Tantivy plan (DataFusion fallback activates at execution time,
+-- not at planning time). The COUNT below proves all 70 000 values are returned.
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT url
+FROM dist_highcard
+WHERE name @@@ 'Page'
+ORDER BY url;
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on dist_highcard
+   Index: dist_highcard_idx
+   Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Page","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: 
+     Group By: url
+     Aggregate Definition: {"grouped":{"terms":{"field":"url","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
+(6 rows)
+
+-- Verify all 70 000 distinct values are returned, not just 65 000.
+-- Raise work_mem so DataFusion can materialise the full 70 000-URL result set.
+SET work_mem = '256MB';
+SELECT COUNT(*)
+FROM (
+    SELECT DISTINCT url
+    FROM dist_highcard
+    WHERE name @@@ 'Page'
+) t;
+ count 
+-------
+ 70000
+(1 row)
+
+RESET work_mem;
+DROP TABLE IF EXISTS dist_highcard CASCADE;
 -- =============================================================================
 -- Cleanup
 -- =============================================================================

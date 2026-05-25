@@ -251,7 +251,29 @@ pub unsafe fn extract_aggregate_targetlist(
     plan: &crate::postgres::customscan::joinscan::build::RelNode,
 ) -> Result<JoinAggregateTargetList, String> {
     let output_rel = args.output_rel();
-    let target_exprs = PgList::<pg_sys::Expr>::from_pg((*output_rel.reltarget).exprs);
+
+    // At UPPERREL_DISTINCT the planner leaves output_rel.reltarget.exprs empty.
+    // Fall back to parse->targetList (non-junk entries), which always contains
+    // the DISTINCT columns as T_Var nodes at this stage.
+    let target_exprs: Vec<*mut pg_sys::Expr> = {
+        let from_reltarget = PgList::<pg_sys::Expr>::from_pg((*output_rel.reltarget).exprs);
+        if from_reltarget.is_empty() {
+            if args.stage != pg_sys::UpperRelationKind::UPPERREL_DISTINCT {
+                return Err("target list is empty".into());
+            }
+            let parse = args.root().parse;
+            if parse.is_null() {
+                return Err("target list is empty".into());
+            }
+            PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList)
+                .iter_ptr()
+                .filter(|te| !(**te).resjunk)
+                .map(|te| (*te).expr)
+                .collect()
+        } else {
+            from_reltarget.iter_ptr().collect()
+        }
+    };
     if target_exprs.is_empty() {
         return Err("target list is empty".into());
     }
@@ -262,7 +284,7 @@ pub unsafe fn extract_aggregate_targetlist(
     let mut group_columns = Vec::new();
     let mut aggregates = Vec::new();
 
-    for (idx, expr) in target_exprs.iter_ptr().enumerate() {
+    for (idx, expr) in target_exprs.iter().copied().enumerate() {
         let tag = (*(expr as *mut pg_sys::Node)).type_;
 
         if tag == pg_sys::NodeTag::T_Var {

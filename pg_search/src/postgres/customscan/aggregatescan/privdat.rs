@@ -129,6 +129,24 @@ pub struct DataFusionTopK {
     pub k: usize,
 }
 
+/// Pre-computed DataFusion overflow fallback for `SELECT DISTINCT` queries.
+///
+/// Populated at planning time only when `stage == UPPERREL_DISTINCT`. When
+/// Tantivy's TermsAggregation detects truncation at execution time
+/// (`sum_other_doc_count > 0`), the executor initialises a `DataFusionAggState`
+/// from this plan and re-executes the query via DataFusion, which has no
+/// bucket cap.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DistinctOverflowPlan {
+    /// Single-table scan node for the base relation.
+    pub plan: RelNode,
+    /// DISTINCT columns as a DataFusion aggregate target list
+    /// (group columns only, no aggregate functions).
+    pub targetlist: JoinAggregateTargetList,
+    /// TopK sort+limit, if `ORDER BY ... LIMIT k` is present.
+    pub topk: Option<DataFusionTopK>,
+}
+
 /// Private data serialized between planning and execution for AggregateScan.
 ///
 /// The `Tantivy` variant is the existing single-table path. The `DataFusion`
@@ -141,6 +159,12 @@ pub enum PrivateData {
         indexrelid: pg_sys::Oid,
         heap_rti: pg_sys::Index,
         aggregate_clause: Box<AggregateCSClause>,
+        /// Pre-computed DataFusion overflow fallback for high-cardinality
+        /// `SELECT DISTINCT`. When Tantivy returns truncated results with
+        /// `sum_other_doc_count > 0` the executor discards the
+        /// truncated Tantivy result and re-executes via DataFusion.
+        #[serde(default)]
+        distinct_overflow_plan: Option<Box<DistinctOverflowPlan>>,
     },
 
     /// New DataFusion-backed aggregation path (for JOINs).

@@ -5747,6 +5747,7 @@ dependencies = [
  "half 2.7.1",
  "json5",
  "lazy_static",
+ "libc",
  "macros",
  "memoffset",
  "once_cell",

@@ -57,3 +57,22 @@ Total: ~3 days of focused work. Tracked in `project_mpp_g7mt.md`.
 
 - Q1, Q4 (flat): profile to find why parallel workers don't help. Hypothesis: HashJoinExec build phase is serial; probe phase is parallel but build dominates at this scale.
 - Q2, Q3 (regress): profile the post-agg shuffle mesh. Hypothesis: G7-MT pgrx FFI bottleneck is the root cause.
+
+## Update 2026-05-24 — build_filters cache landed, Q2/Q3 cliff is gone
+
+After wiring `paradedb.mpp_trace` to emit per-seat shuffle stats, the trace revealed `send_wait_ms = 0` everywhere — the pgrx-FFI / shm_mq backpressure hypothesis was wrong at this scale. Stage 2 (child probe) had `pull_ms ≈ 9000ms` while the actual data transfer was instant.
+
+`sample` on a parallel worker pinned 91% of CPU to `pg_search::scan::execution_plan::build_filters` → `DynamicFilterPhysicalExpr::current()` → `remap_children()` → `transform_up()` rebuilding the dynamic filter's `CaseExpr` tree on **every batch poll**. With N=4 producers the tree grew complex enough to dominate scan wall time.
+
+Fix: cache the `Vec<PreFilter>` across iterations, rebuild only when `datafusion::physical_expr_common::physical_expr::snapshot_generation` changes on any filter (the dynamic filter increments its generation counter on every `update()`).
+
+New numbers at 1M / 5M:
+
+| Query                         | baseline (MPP off) | mpp_n2 | mpp_n4 | mpp_n8 |
+| ----------------------------- | -----------------: | -----: | -----: | -----: |
+| Q1 join_count (scalar)        |               1179 |   1182 |   1213 |   1188 |
+| Q2 join_low_gb (10 groups)    |               1389 |   1168 |   1229 |   1500 |
+| Q3 join_high_gb (100K groups) |               1441 |   1287 |   1340 |   1609 |
+| Q4 join_multi_agg (4 scalars) |               1296 |   1306 |   1303 |   1306 |
+
+The 8× regression at N=4 is gone (Q2: 10,900ms → 1,229ms). Now no query regresses. But none scale linearly either — adding workers stays flat. Next: identify what's bounding wall time now (Stage 2 still ~1100ms per producer, despite per-producer rows shrinking).

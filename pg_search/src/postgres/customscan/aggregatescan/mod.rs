@@ -69,7 +69,9 @@ use crate::postgres::customscan::aggregatescan::exec::{
     aggregation_results_iter, AggregateResult, AggregationResultsRow,
 };
 use crate::postgres::customscan::aggregatescan::groupby::GroupByClause;
-use crate::postgres::customscan::aggregatescan::join_targetlist::extract_aggregate_targetlist;
+use crate::postgres::customscan::aggregatescan::join_targetlist::{
+    extract_aggregate_targetlist, JoinAggregateTargetList,
+};
 use crate::postgres::customscan::aggregatescan::privdat::PrivateData;
 use crate::postgres::customscan::aggregatescan::scan_state::{
     AggregateScanState, ExecutionState, WrappedAggregateProjection,
@@ -883,14 +885,15 @@ impl AggregateScan {
     /// path. Caller already gated on `mpp_is_active()`.
     ///
     /// Today this only suppresses MPP for scalar aggregates (no GROUP BY) when
-    /// the planner-estimated input row count sits below
-    /// `paradedb.mpp_scalar_agg_threshold_rows`. The default 0 always enables
-    /// MPP, preserving historical behavior; a positive value lets operators
-    /// opt into "skip MPP at small/medium scale" for the scalar-count shape
-    /// where the Path C bench showed MPP can't beat the baseline.
+    /// the planner-estimated **join-output cardinality** (`input_rel.rows`)
+    /// sits below `paradedb.mpp_scalar_agg_threshold_rows`. `input_rel.rows`
+    /// is what PG's cost model itself uses when deciding parallelism cost, so
+    /// thresholding on the same number keeps the GUC behavior aligned with
+    /// the planner's other parallel-path decisions. Default 0 always enables
+    /// MPP, preserving historical behavior.
     fn should_use_mpp_for_aggregate(
-        args: &crate::postgres::customscan::CreateUpperPathsHookArgs,
-        targetlist: &crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList,
+        args: &CreateUpperPathsHookArgs,
+        targetlist: &JoinAggregateTargetList,
     ) -> bool {
         let threshold = crate::gucs::mpp_scalar_agg_threshold_rows();
         if threshold <= 0 {
@@ -1294,15 +1297,27 @@ impl AggregateScan {
         // `Single Copy: true` Gather where the customscan never actually
         // runs in multiple workers.
         //
-        // Suppression: `paradedb.mpp_scalar_agg_threshold_rows > 0` skips MPP
-        // for scalar aggregates (no GROUP BY) when the planner-estimated input
-        // row count is below the threshold. Without GROUP BY, baseline's
-        // `HashJoinExec mode=CollectLeft` wrapped in `CooperativeExec` already
-        // parallelizes the BM25 scan via segment-claim, and MPP's shuffle
-        // overhead can't beat it at small/medium scale. The bench data lives
-        // in `benchmarks/mpp_scaling/FINDINGS.md` under "Path C validation".
+        // Suppression: `paradedb.mpp_scalar_agg_threshold_rows > 0` skips the
+        // `set_parallel` call for scalar aggregates (no GROUP BY) when the
+        // planner-estimated **join-output** cardinality is below the threshold.
+        // This is primarily an EXPLAIN-cleanup lever: PG already declines to
+        // Gather over a 1-row return regardless of `set_parallel`, so the gate
+        // doesn't change wall time. It does drop the misleading "Parallel"
+        // marker on a path that wouldn't actually parallelize, and skips a tiny
+        // amount of planner work building the parallel sibling. Real perf
+        // levers for scalar count live elsewhere — see Path C analysis in
+        // `benchmarks/mpp_scaling/FINDINGS.md`. JoinScan has a different
+        // activation site (`joinscan/mod.rs::compute_nworkers`) and is out of
+        // scope for this gate.
         let mpp_active = mpp_is_active();
         let use_mpp = mpp_active && Self::should_use_mpp_for_aggregate(builder.args(), &targetlist);
+        if mpp_active && !use_mpp {
+            crate::mpp_log!(
+                "mpp suppressed for scalar aggregate: input_rel.rows={} < threshold={}",
+                builder.args().input_rel().rows,
+                crate::gucs::mpp_scalar_agg_threshold_rows()
+            );
+        }
         let builder = if use_mpp {
             builder.set_parallel(producer_worker_count() as usize)
         } else {

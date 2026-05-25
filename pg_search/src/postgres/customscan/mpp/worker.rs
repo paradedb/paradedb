@@ -144,10 +144,25 @@ pub async fn run_worker_fragment(
                 // spin_iters and drain_in_spin_ms split send_wait_ms into "why":
                 //   spin_iters > 0 means the outbound shm_mq was full at least once.
                 //   drain_in_spin_ms is the subset of send_wait_ms this partition spent
-                //   pulling frames OFF its own inbound during the spin (cooperative drain
-                //   to unblock the mesh). The remainder (send_wait_ms - drain_in_spin_ms)
-                //   is pure yield-and-retry against a full outbound — i.e. consumer-side
-                //   drain isn't keeping up.
+                //   in try_drain_pass during the spin (cooperative drain to unblock the mesh).
+                //
+                // The remainder (send_wait_ms - drain_in_spin_ms) is everything else inside
+                // the spin loop: try_send_bytes calls, check_for_interrupts, yield_now().await,
+                // and scheduler wait between iterations. Under today's current_thread runtime
+                // with mpp_use_ffi_relay=off, those are sub-µs and the remainder is dominated
+                // by "consumer-side drain isn't keeping up." Under G7-MT (multi_thread runtime
+                // and/or ffi_relay routing), try_send/check_interrupts can hop through a relay
+                // round-trip per iter and the remainder no longer cleanly maps to "consumer slow."
+                //
+                // Per-edge attribution holds only under today's 1-partition-per-queue topology.
+                // MppSender supports multiplexing K partitions onto one shm_mq queue via per-frame
+                // headers; if that gets used, all partitions sharing a queue see the same spins
+                // and these counters become ambiguous on the producer side.
+                //
+                // Counters include the trailing send_eof_traced spin, so symmetric-EOF stalls
+                // (every peer full at the same instant) inflate spin_iters with a roughly
+                // constant offset across partitions — that's by design, but worth knowing when
+                // reading the trace.
                 pgrx::warning!(
                     "mpp_trace stage={} part={} rows_in={} batches={} wall_ms={:.1} first_batch_ms={:.1} pull_ms={:.1} send_ms={:.1} encode_ms={:.1} send_wait_ms={:.1} spin_iters={} drain_in_spin_ms={:.1}",
                     header.stage_id,

@@ -418,7 +418,7 @@ impl ExecutionPlan for PgSearchScanPlan {
     fn execute(
         &self,
         partition: usize,
-        _context: Arc<TaskContext>,
+        context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
         let mut states = self.states.lock().map_err(|e| {
             DataFusionError::Internal(format!("Failed to lock PgSearchScanPlan state: {e}"))
@@ -462,6 +462,15 @@ impl ExecutionPlan for PgSearchScanPlan {
         // Capture self-references for the async block
         let dynamic_filter_pushdown = self.dynamic_filter_pushdown.clone();
         let dynamic_filter_strategy = self.dynamic_filter_strategy.clone();
+
+        // Snapshot GUCs read inside the async block now so the closure doesn't reach back into
+        // pgrx from a non-backend tokio worker once the runtime goes multi-thread. Falls back
+        // to the live reader for the non-MPP serial DataFusion path, which is always on the
+        // backend thread.
+        let df_batch_size =
+            crate::postgres::customscan::mpp::runtime_gucs::runtime_gucs_from_ctx(&context)
+                .map(|g| g.dynamic_filter_batch_size as i32)
+                .unwrap_or_else(crate::gucs::dynamic_filter_batch_size);
 
         let stream_gen = async_stream::try_stream! {
             // Optimized Search Integration:
@@ -508,7 +517,6 @@ impl ExecutionPlan for PgSearchScanPlan {
                     )
                 }
             };
-            let df_batch_size = crate::gucs::dynamic_filter_batch_size();
             if df_batch_size > 0 {
                 scanner.set_batch_size(df_batch_size as usize);
             }

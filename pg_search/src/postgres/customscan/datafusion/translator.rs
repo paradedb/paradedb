@@ -48,43 +48,43 @@ pub(crate) unsafe fn type_name(oid: pg_sys::Oid) -> String {
 
 /// Deparse a PG expression into readable SQL for debug logs. Builds a
 /// deparse context that covers every join source so Var nodes resolve to
-/// qualified column names (e.g. `e.pattern`).
-///
-/// Only reached when a DEBUG-level log is enabled (the call sites are all
-/// inside `pgrx::debug1!` and the macro skips evaluating its args when the
-/// log level isn't interesting). Any PG error raised by `deparse_context_for`
-/// or `deparse_expression` on an unhandled node shape propagates -- the
-/// query will fail. That's the honest behavior. Catching here would leak
-/// catalog locks / open heap rels into the rest of the query, because
-/// `errfinish` resets `InterruptHoldoffCount` to 0 on its way to the
-/// longjmp; the catcher would continue with held locks but unreachable
-/// Rust state, and `Buffer::drop` would fall into the diagnostic skip path
-/// for every subsequent buffer in the backend.
+/// qualified column names (e.g. `e.pattern`). Wrapped in
+/// [`pgrx::PgTryBuilder`] so a PG error inside `deparse_expression` (which
+/// doesn't handle every possible node shape) degrades to a short tag
+/// fallback instead of unwinding the caller.
 pub(crate) unsafe fn deparse_expr_for_debug(
     node: *mut pg_sys::Node,
     sources: &[&JoinSource],
 ) -> String {
+    use std::panic::AssertUnwindSafe;
     if node.is_null() {
         return "<null>".to_string();
     }
 
-    let mut context: *mut pg_sys::List = std::ptr::null_mut();
-    for source in sources {
-        let alias = source.scan_info.alias.as_deref().unwrap_or("?");
-        let relname = match std::ffi::CString::new(alias) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-        let rel_context = pg_sys::deparse_context_for(relname.as_ptr(), source.scan_info.heaprelid);
-        context = pg_sys::list_concat(context, rel_context);
-    }
-    let deparsed = pg_sys::deparse_expression(node.cast(), context, sources.len() > 1, false);
-    if deparsed.is_null() {
-        return format!("{:?}", (*node).type_);
-    }
-    std::ffi::CStr::from_ptr(deparsed)
-        .to_string_lossy()
-        .into_owned()
+    let tag_fallback = || format!("{:?}", (*node).type_);
+
+    pgrx::PgTryBuilder::new(AssertUnwindSafe(|| {
+        let mut context: *mut pg_sys::List = std::ptr::null_mut();
+        for source in sources {
+            let alias = source.scan_info.alias.as_deref().unwrap_or("?");
+            let relname = match std::ffi::CString::new(alias) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let rel_context =
+                pg_sys::deparse_context_for(relname.as_ptr(), source.scan_info.heaprelid);
+            context = pg_sys::list_concat(context, rel_context);
+        }
+        let deparsed = pg_sys::deparse_expression(node.cast(), context, sources.len() > 1, false);
+        if deparsed.is_null() {
+            return tag_fallback();
+        }
+        std::ffi::CStr::from_ptr(deparsed)
+            .to_string_lossy()
+            .into_owned()
+    }))
+    .catch_others(|_| tag_fallback())
+    .execute()
 }
 
 /// Short label for a node tag (strips the `T_` prefix). Used in debug

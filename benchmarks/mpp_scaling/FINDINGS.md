@@ -182,3 +182,33 @@ The 1.5× at producers=4 on GROUP BY shapes is the achievable speedup with the c
 
 - **Dynamic filter pushdown** (`try_dynamic_filter_pushdown` in `pg_search/src/scan/pre_filter.rs:824`) DOES fire in MPP plans — the bench-time plan annotation shows `PgSearchScan: ... dynamic_filters=1` on the child scan, and the earlier 2026-05-24 trace showed only ~3.1M child rows reach the consumer (vs 25M total in the table), confirming the TermSet filter cuts upstream. So Stu's "push dynamic filter to Tantivy across the wire" lever is already on; no Path B work needed there.
 - **Reviewer hypothesis that broadcast-build was redundantly rebuilding per producer** turned out not to apply to these queries — the MPP plan uses `mode=Partitioned`, not `CollectLeft`/Broadcast. `BroadcastBuildSideOneTaskEstimator` only caps actual `BroadcastExec` nodes, which the Partitioned path never inserts. The real scalar-count flatness cause is point 2 above (baseline's segment-claim scan already uses multiple cores).
+
+## Path B lever 2 — DSM queue-size sweep (2026-05-25)
+
+Hypothesis: at n>4 the DSM-init cost (mmap + page-fault-in for `n_procs² × mpp_queue_size`) dominates the parallelism gain, so smaller queues should let n=8/12 actually scale. Tested two GROUP BY queries × producers {4, 8, 12} × queue {4MB, 8MB, 16MB, 64MB}. See `path_b_queue_sweep_results.txt`.
+
+### q_narrow_gb (1.5M parent matches, low-card GROUP BY)
+
+| producers |      4MB |  8MB | 16MB | 64MB |
+| --------: | -------: | ---: | ---: | ---: |
+|       n=4 | **3978** | 4108 | 4225 | 4244 |
+|       n=8 |     4759 | 4844 | 4914 | 4999 |
+|      n=12 |     6467 | 6469 | 6669 | 6607 |
+
+### q_wide_gb (5M parent matches, full-table)
+
+| producers |   4MB |   8MB |  16MB |  64MB |
+| --------: | ----: | ----: | ----: | ----: |
+|       n=4 |  8773 |  8880 |  9123 |  8908 |
+|       n=8 | 11146 | 11078 | 11394 | 11478 |
+|      n=12 | 15248 | 15455 | 16096 | 17187 |
+
+### Lever 2 findings
+
+- **Smaller queues win 2-11% across the board.** Biggest absolute win at n=12 (q_wide_gb: -1.9s by going 64MB → 4MB), because mesh edge count goes as N² (169 edges at n=12 vs 25 at n=4) so DSM allocation latency compounds.
+- **The win is real but doesn't unbreak n>4 scaling.** q_narrow_gb at n=12 with 4MB queues is still 6467ms vs n=4 at 3978ms (1.63× slower). DSM init is a contributor but not the dominant n>4 cost; per-row shuffle compute is.
+- **New best at n=4 sweet spot:** `mpp_target_partitions=2` + `mpp_queue_size=4MB` → q_narrow_gb 3978ms vs baseline 6853ms = **1.72×** (up from 1.53× with the default queue size).
+
+### Lever 2 decision
+
+Don't change the default. The 64MB default was sized for the 25M-row gb_postagg shuffle (per the `MPP_QUEUE_SIZE` doc), and dropping to 4MB risks `send_wait` backpressure on larger workloads. Operators tune per workload — update the GUC docstring noting that 4-8MB is a sweet spot for n=4 on the bench shape, while 64MB stays the safe default for production data sizes where the post-agg burst exceeds the smaller queue.

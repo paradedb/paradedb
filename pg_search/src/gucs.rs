@@ -636,6 +636,12 @@ pub fn init() {
           `num_meshes × N×(N-1) × mpp_queue_size`; at the default 64MB and N=4 with \
           3 meshes that is ~2.3GB per query. Lower this on memory-constrained boxes; \
           raise it only if a single shuffle batch routinely backs up the queue. \
+          Tuning note (per `benchmarks/mpp_scaling/FINDINGS.md` Path B lever 2 sweep): \
+          on small/medium workloads where the post-agg shuffle stays under a few MB \
+          per consumer, dropping to '4MB' or '8MB' saves DSM-init latency for a \
+          5-10% wall-time win (biggest at higher producer counts where mesh edge \
+          count scales as N²). The default stays 64MB because larger production \
+          datasets can burst 100MB+ into the post-agg mesh and need the headroom. \
           Foundation-era knob — likely to be replaced by a per-query DSM cap once \
           mesh multiplexing lands.",
         &MPP_QUEUE_SIZE,

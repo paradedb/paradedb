@@ -174,6 +174,16 @@ static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(64 * 1024 * 1024
 /// derive this from index stats per query.
 static MPP_CACHE_PER_SLOT: GucSetting<i32> = GucSetting::<i32>::new(256 * 1024 * 1024);
 
+/// Inner partition fanout per producer task (passed as
+/// `SessionConfig::target_partitions` when building the distributed plan). A
+/// value of `0` keeps the historical behavior of scaling with
+/// `mpp_worker_count`, which gives each shuffle stage `N²` mesh edges. A
+/// positive value pins the fanout to a constant so the mesh edge count grows
+/// linearly with `N` instead. Single-thread Tokio runtimes per producer don't
+/// actually parallelize across inner partitions, so a small constant is
+/// usually pure overhead savings; the right value depends on workload.
+static MPP_TARGET_PARTITIONS: GucSetting<i32> = GucSetting::<i32>::new(0);
+
 /// The maximum size of an InList that can be pushed down to a TermSet Query.
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
     GucSetting::<i32>::new(16 * 1024 * 1024);
@@ -624,6 +634,22 @@ pub fn init() {
         GucContext::Userset,
         GucFlags::UNIT_BYTE,
     );
+
+    GucRegistry::define_int_guc(
+        c"paradedb.mpp_target_partitions",
+        c"Inner partition fanout per producer task; 0 = scale with mpp_worker_count",
+        c"Sets `target_partitions` on the per-query distributed SessionConfig. 0 keeps \
+          the historical behavior of scaling with mpp_worker_count, which makes each \
+          shuffle stage carry N² mesh edges. A positive value pins the fanout so the \
+          mesh edge count grows linearly with N instead. Each producer runs on a \
+          single-thread Tokio runtime, so inner partitions are pure overhead — most \
+          workloads benefit from a small constant (2 is a sensible starting point).",
+        &MPP_TARGET_PARTITIONS,
+        0,
+        64,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
 }
 
 pub fn enable_custom_scan() -> bool {
@@ -820,6 +846,10 @@ pub fn mpp_queue_size() -> usize {
 
 pub fn mpp_cache_per_slot() -> usize {
     MPP_CACHE_PER_SLOT.get() as usize
+}
+
+pub fn mpp_target_partitions() -> i32 {
+    MPP_TARGET_PARTITIONS.get()
 }
 
 pub fn hash_join_inlist_pushdown_max_size() -> i32 {

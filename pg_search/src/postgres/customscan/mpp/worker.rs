@@ -27,6 +27,7 @@
 //!   [`crate::postgres::customscan::mpp::glue::producer_worker_count`]).
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
@@ -71,22 +72,63 @@ pub async fn run_worker_fragment(
         // explicitly here.
         futures.push(async move {
             let mut stats = SendBatchStats::default();
+            let trace_on = crate::gucs::mpp_trace();
+            let wall_start = trace_on.then(Instant::now);
+            let mut first_batch_ms: f64 = 0.0;
+            let mut pull_ns: u64 = 0;
+            let mut send_ns: u64 = 0;
+            let mut rows_in: u64 = 0;
+            let mut batches: u64 = 0;
             let stream_result: Result<(), DataFusionError> = async {
                 let mut stream = plan.execute(partition, ctx)?;
-                while let Some(batch) = stream.next().await {
+                let mut t = Instant::now();
+                loop {
+                    let next = stream.next().await;
+                    if trace_on {
+                        let dt = t.elapsed();
+                        pull_ns = pull_ns.saturating_add(dt.as_nanos() as u64);
+                        if batches == 0 && next.is_some() {
+                            first_batch_ms = wall_start.unwrap().elapsed().as_secs_f64() * 1000.0;
+                        }
+                    }
+                    let Some(batch) = next else { break };
                     let batch = batch?;
                     if batch.num_rows() == 0 {
+                        if trace_on { t = Instant::now(); }
                         continue;
                     }
+                    rows_in += batch.num_rows() as u64;
+                    batches += 1;
+                    let t_send = trace_on.then(Instant::now);
                     sender
                         .as_ref()
                         .send_batch_traced(&batch, &mut stats)
                         .await?;
+                    if let Some(t_send) = t_send {
+                        send_ns = send_ns.saturating_add(t_send.elapsed().as_nanos() as u64);
+                    }
+                    if trace_on { t = Instant::now(); }
                 }
                 Ok(())
             }
             .await;
             let eof_result = sender.as_ref().send_eof_traced(&mut stats).await;
+            if let Some(wall_start) = wall_start {
+                let header = sender.as_ref().header;
+                pgrx::warning!(
+                    "mpp_trace stage={} part={} rows_in={} batches={} wall_ms={:.1} first_batch_ms={:.1} pull_ms={:.1} send_ms={:.1} encode_ms={:.1} send_wait_ms={:.1}",
+                    header.stage_id,
+                    header.partition,
+                    rows_in,
+                    batches,
+                    wall_start.elapsed().as_secs_f64() * 1000.0,
+                    first_batch_ms,
+                    pull_ns as f64 / 1.0e6,
+                    send_ns as f64 / 1.0e6,
+                    stats.encode.as_secs_f64() * 1000.0,
+                    stats.send_wait.as_secs_f64() * 1000.0,
+                );
+            }
             // Stream error first, then any EOF-send error so neither failure mode disappears.
             stream_result.and(eof_result)
         });

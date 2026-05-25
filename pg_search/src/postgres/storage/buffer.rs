@@ -201,15 +201,37 @@ impl Drop for Buffer {
                 // block_tracker bookkeeping must run unconditionally
                 block_tracker::forget!(pg_sys::BufferGetBlockNumber(self.pg_buffer));
 
-                // Skip PostgreSQL cleanup during panic unwinding to prevent double-panics.
-                // Don't add an `InterruptHoldoffCount > 0` guard here. It looks like a safety
-                // belt but it's stricter than the panic check, so it can skip the unlock in
-                // normal flows whenever PG happens to have dropped the holdoff count for its
-                // own reasons. If the leaked lock is on the FSM root, the next caller that
-                // tries to upgrade SHARE to EXCLUSIVE on that page waits forever.
-                if !std::thread::panicking() && crate::postgres::utils::IsTransactionState() {
-                    pg_sys::UnlockReleaseBuffer(self.pg_buffer);
+                if std::thread::panicking() || !crate::postgres::utils::IsTransactionState() {
+                    // Panic unwind or post-abort. Don't touch PG; AtEOXact_Buffers /
+                    // LWLockReleaseAll will reclaim everything.
+                    return;
                 }
+
+                if pg_sys::InterruptHoldoffCount > 0 {
+                    pg_sys::UnlockReleaseBuffer(self.pg_buffer);
+                    return;
+                }
+
+                // InterruptHoldoffCount == 0 while we still own the Buffer means PG dropped
+                // the holdoff count without us calling LWLockRelease, almost certainly because
+                // an `ereport(ERROR)` was caught (e.g. by a `PgTryBuilder` whose handler
+                // continued instead of re-raising). Either the LWLock is already released
+                // (calling UnlockReleaseBuffer would assert in debug or underflow the holdoff
+                // count in release), or it's still held but unreachable through Rust state
+                // (the lock will leak until end-of-xact cleanup runs).
+                //
+                // Both outcomes point to a bug *somewhere else*, so log a backtrace and skip
+                // the unlock. Skipping matches the historical behavior of this Drop and is
+                // the safer of the two failure modes.
+                let blockno = pg_sys::BufferGetBlockNumber(self.pg_buffer);
+                pgrx::warning!(
+                    "pg_search: Buffer::drop with InterruptHoldoffCount == 0 on blockno {}. \
+                     A PG error was likely caught upstream without re-raising. \
+                     Skipping UnlockReleaseBuffer to avoid corrupting the holdoff count. \
+                     Backtrace:\n{}",
+                    blockno,
+                    std::backtrace::Backtrace::force_capture()
+                );
             }
         }
     }

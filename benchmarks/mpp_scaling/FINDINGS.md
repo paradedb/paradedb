@@ -110,6 +110,53 @@ Three architectural options:
 
    **Phase 1 (GUC snapshot) landed.** `MppRuntimeGucs` (`pg_search/src/postgres/customscan/mpp/runtime_gucs.rs`) is a `ConfigExtension` that snapshots every GUC compute paths read on the backend thread at `exec_mpp_worker_impl` entry and stashes it on the per-query `SessionConfig`. Converted callsites: `paradedb.mpp_trace`, `paradedb.mpp_debug`, `paradedb.dynamic_filter_batch_size`, the five `hash_join_inlist_pushdown_*` / `term_set_*` knobs in `pre_filter.rs` (bundled into `InListPushdownConfig`). Each callsite falls back to the live reader when no snapshot is installed so the non-MPP serial DataFusion path keeps working.
 
-   **Phase 2 (FFI relay scaffold + LocalSet) landed.** `ffi_relay.rs` defines `FfiOp` / `FfiRelay` / `FfiRelayService`: a producer-side handle, an mpsc-backed service, and a `oneshot`-based round-trip for `ShmMqTrySend`. `run_mpp_worker` now stands the relay + service up before the dispatcher `block_on`, spawning the service on a `tokio::task::LocalSet` and driving the dispatcher under `local_set.run_until`. Today nothing routes through the relay so this is a no-op overhead path: the service stays idle for the whole query, the dispatcher behaves identically, regress still green, bench unchanged. The plumbing proves the LocalSet pattern works under `current_thread` tokio.
+   **Phase 2 (FFI relay scaffold + LocalSet) landed.** `ffi_relay.rs` defines `FfiOp` / `FfiRelay` / `FfiRelayService`: a producer-side handle, an mpsc-backed service, and a `oneshot`-based round-trip for `ShmMqTrySend`. `run_mpp_worker` stands the relay + service up before the dispatcher `block_on`, spawning the service on a `tokio::task::LocalSet` and driving the dispatcher under `local_set.run_until`. The plumbing proves the LocalSet pattern works under `current_thread` tokio.
 
-   **Phase 3 (remaining):** (a) plumb the relay handle into `MppSender` so per-fragment senders know about it, (b) modify the spin loop in `MppSender::send_with_scratch` to route through `relay.shm_mq_try_send(...)` when attached, (c) convert the still-direct compute-path GUC reads (`segmented_topk_rule::optimize`, `is_columnar_sort_enabled` callsites, `aggregatescan/exec.rs`'s `max_term_agg_buckets` / `adjust_work_mem`), (d) flip `host.rs:77` from `new_current_thread()` to `new_multi_thread().worker_threads(N)`. Each step is independently testable; (d) is the only one with deadlock blast radius and should be the last commit before re-bench.
+   **Phase 3a (plumb FfiRelay through MppSender) landed.** `with_ffi_relay` builder, `clone_with_header` forwards the handle, `run_mpp_worker` attaches the relay to each per-fragment sender.
+
+   **Phase 3b (spin loop routes through relay when GUC is on) landed.** New `FfiOp` variants `TryDrainPass` + `CheckForInterrupts`, three `spin_*` helpers on `MppSender` that branch on `self.ffi_relay.as_ref()`. New GUC `paradedb.mpp_use_ffi_relay` (default off) gates attachment. Bench at producers=4 (5M/25M): relay=off Q2 4842, relay=on Q2 6232 (+29% overhead from channel-hop + oneshot round-trip on the same OS thread — that's the fundamental cost the multi-thread runtime would have to amortize over).
+
+   **Phase 3 (remaining):** (c) convert the still-direct compute-path GUC reads (verified mostly not required — `joinscan/scan_state.rs` is in builders, `aggregatescan/exec.rs` is non-MPP path), (d) restructure to dedicated current_thread driver runtime + multi_thread compute runtime (the reviewer-flagged BLOCKER B1 must ship with this).
+
+## Path C validation (2026-05-25)
+
+Sweeps 3 build widths × 6 configs to decide between continuing G7-MT (Path A) and pivoting to a different lever (Path B). `paradedb.mpp_target_partitions=2` throughout, median of 3 runs, 5M parent / 25M child.
+
+### Scalar count — all configs flat
+
+| Query                         | baseline | pg_n4 | pg_n8 | mpp_n4 | mpp_n8 | mpp_n12 |
+| ----------------------------- | -------: | ----: | ----: | -----: | -----: | ------: |
+| q_narrow_count (1.5M parents) |     5887 |  5857 |  5837 |   5873 |   5859 |    5862 |
+| q_medium_count (3.5M parents) |     7970 |  7997 |  7999 |   8004 |   8011 |    8064 |
+| q_wide_count (5M parents)     |     7897 |  8417 |  7871 |   7898 |   7855 |    7830 |
+
+**Nothing helps.** PG-native parallel doesn't help (DataFusion's plan ignores PG workers without MPP). MPP doesn't help either — even at producers=12. The bottleneck for scalar count is somewhere downstream of parallelism — most likely the serial Final aggregate gathering scalars from N producers, or HashJoinExec's serial build phase.
+
+### GROUP BY — MPP wins, peaking at n=4
+
+| Query                      | baseline | pg_n4 | pg_n8 |   mpp_n4 | mpp_n8 | mpp_n12 |
+| -------------------------- | -------: | ----: | ----: | -------: | -----: | ------: |
+| q_narrow_gb (1.5M parents) |     6853 |  6857 |  6857 | **4488** |   5021 |    6565 |
+| q_medium_gb (3.5M parents) |    10323 | 10306 | 10309 | **6821** |   8511 |   11887 |
+| q_wide_gb (5M parents)     |    11300 | 11211 | 11198 | **8531** |  11128 |   17640 |
+
+Speedups vs baseline at the mpp_n4 sweet spot:
+
+- q_narrow_gb: **1.53×**
+- q_medium_gb: **1.51×**
+- q_wide_gb: **1.32×**
+
+Above n=4 the N²-edge mesh overhead grows faster than the parallelism gain — at n=12 the wide-build GROUP BY is 1.56× _slower_ than baseline. n=16 crashes the server (DSM overflow).
+
+### Decision
+
+The data points away from G7-MT (Path A):
+
+1. **MPP overhead scales O(N²) with the mesh; parallelism scales O(N).** Crossover at n=4 today. Multi-thread compute per producer (G7-MT) doesn't fix the mesh overhead — it would have to come with a much-reduced shuffle topology to be net positive at higher N.
+2. **Scalar count is flat under every parallelism config.** That bottleneck is not solvable by adding producers; G7-MT wouldn't touch it. A different lever (broadcast-build hint, lift the serial Final agg, Tantivy-side aggregate pushdown) is needed.
+3. **The 1.5× GROUP BY speedup at n=4 is what's deployable today.** Further G7-MT investment would optimistically add another 1.5× (multi-thread within producer), but only if the +25% relay overhead can be removed first — and tantivy buffer reads through the PG buffer manager remain an unmeasured risk for the multi-thread path.
+
+**Next: Path B — pivot to broadcast-build hint or Tantivy filter pushdown.** Specifically:
+
+- Q1/Q4 (scalar) are flat. If the planner can detect "parent build side fits in `mpp_cache_per_slot`" and force broadcast in MPP, those shapes might lift from 1.0× to 2-3×.
+- The dynamic filter pushdown into Tantivy (`try_dynamic_filter_pushdown`) already exists for InList. Verify it actually fires in MPP plans, and if not, extend it.

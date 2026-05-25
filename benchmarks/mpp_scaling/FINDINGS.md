@@ -75,4 +75,27 @@ New numbers at 1M / 5M:
 | Q3 join_high_gb (100K groups) |               1441 |   1287 |   1340 |   1609 |
 | Q4 join_multi_agg (4 scalars) |               1296 |   1306 |   1303 |   1306 |
 
-The 8× regression at N=4 is gone (Q2: 10,900ms → 1,229ms). Now no query regresses. But none scale linearly either — adding workers stays flat. Next: identify what's bounding wall time now (Stage 2 still ~1100ms per producer, despite per-producer rows shrinking).
+The 8× regression at N=4 is gone (Q2: 10,900ms → 1,229ms). Now no query regresses. But at 1M scale baseline (MPP off) is already using the optimal `HashJoinExec mode=CollectLeft` plan that needs no shuffle, so MPP and baseline are near-tied.
+
+## 5M parent / 25M child numbers
+
+Same harness scaled up so the parent build side is large enough that baseline can't use CollectLeft and falls back to the same Partitioned path MPP uses:
+
+| Query                         | baseline | mpp_n2 |   mpp_n4 | mpp_n8 |
+| ----------------------------- | -------: | -----: | -------: | -----: |
+| Q1 join_count (scalar)        |     7106 |   7105 |     7600 |   6537 |
+| Q2 join_low_gb (10 groups)    |     7242 |   6024 | **5137** |   6456 |
+| Q3 join_high_gb (100K groups) |     7786 |   6750 | **5796** |   6772 |
+| Q4 join_multi_agg (4 scalars) |     7215 |   6580 |     6454 |   6448 |
+
+Speedups at producers=4: Q1 0.94×, Q2 1.41×, Q3 1.34×, Q4 1.12×. Real wins on GROUP BY shapes. Beyond producers=4 the N²-edge mesh overhead takes back what was won.
+
+## What linear scaling would actually need
+
+The remaining gap to linear is per-row shuffle overhead: Arrow IPC encode → shm_mq → decode adds ~1-2 µs/row, and shuffles run N² edges per stage. At producers > 3 the added edge cost exceeds the per-producer gain.
+
+Three architectural options:
+
+1. **Zero-copy in-process shuffle.** Producers and consumers are in the same `mpp_worker_count` cohort within one query. Pass `Arc<RecordBatch>` through shared in-memory channels instead of encode → shm_mq → decode. Biggest leverage; touches the transport.
+2. **Mesh-edge reduction (N² → N).** Two-level shuffle: sort by hash, then merge into N outputs. Less per-stage parallelism but linear edges.
+3. **Multi-thread compute within a producer.** G7-MT plan per memory `project_mpp_g7mt.md`. Switches `exec_mpp_worker`'s current-thread Tokio runtime to multi-thread + an FFI relay so producers actually parallelize internal partitions. Limited by pgrx 0.18 single-thread FFI invariant; 3 days of work to break that.

@@ -152,11 +152,33 @@ Above n=4 the N²-edge mesh overhead grows faster than the parallelism gain — 
 
 The data points away from G7-MT (Path A):
 
-1. **MPP overhead scales O(N²) with the mesh; parallelism scales O(N).** Crossover at n=4 today. Multi-thread compute per producer (G7-MT) doesn't fix the mesh overhead — it would have to come with a much-reduced shuffle topology to be net positive at higher N.
-2. **Scalar count is flat under every parallelism config.** That bottleneck is not solvable by adding producers; G7-MT wouldn't touch it. A different lever (broadcast-build hint, lift the serial Final agg, Tantivy-side aggregate pushdown) is needed.
+1. **MPP DSM mesh scales O(N²); parallelism scales O(N).** The DSM allocates `n_procs² × mpp_queue_size` queues regardless of `mpp_target_partitions` (the GUC only affects DataFusion's inner fanout, not the DSM mesh — every proc attaches to every other proc). At producers=12 → 169 queues × 64 MiB ≈ 10.8 GiB DSM allocated up front. Crossover at n=4 today. Multi-thread compute per producer (G7-MT) doesn't shrink the mesh — it would have to come with a much-reduced shuffle topology to be net positive at higher N.
+
+2. **Scalar count is flat under every parallelism config — but not for the original "serial Final agg" reason.** Baseline's plan is `HashJoinExec mode=CollectLeft` wrapped under DataFusion's `CooperativeExec`, which already parallelizes the BM25 scan across segments inside one DataFusion task via the parallel segment-claim mechanism. The scan IS using multiple cores even at "baseline serial". MPP's `mode=Partitioned` adds shuffle overhead without unlocking new parallelism — the per-producer scan still runs on a single-thread Tokio runtime, just over fewer segments per producer. Net is a wash. G7-MT wouldn't touch this either; the lever is somewhere else (force CollectLeft when the build fits, or skip MPP entirely on small builds).
+
 3. **The 1.5× GROUP BY speedup at n=4 is what's deployable today.** Further G7-MT investment would optimistically add another 1.5× (multi-thread within producer), but only if the +25% relay overhead can be removed first — and tantivy buffer reads through the PG buffer manager remain an unmeasured risk for the multi-thread path.
 
-**Next: Path B — pivot to broadcast-build hint or Tantivy filter pushdown.** Specifically:
+### Known bugs uncovered by the bench
 
-- Q1/Q4 (scalar) are flat. If the planner can detect "parent build side fits in `mpp_cache_per_slot`" and force broadcast in MPP, those shapes might lift from 1.0× to 2-3×.
-- The dynamic filter pushdown into Tantivy (`try_dynamic_filter_pushdown`) already exists for InList. Verify it actually fires in MPP plans, and if not, extend it.
+- **n=16 crashes the server** with the existing half-MPP fallback bug (see memory `project_mpp_aggregatescan_half_mpp_crash.md`). `compute_dsm_layout` returns `Err` when `n_procs² × mpp_queue_size > MPP_DSM_MAX_BYTES = 16 GiB` (17² × 64 MiB = 18.5 GiB). `estimate_dsm_custom_scan` catches the error, warns, and returns 0 — but `maybe_flip_mpp_parallel` has already committed `set_parallel(nworkers)` at planning time. PG launches workers that attach an empty DSM region and segfault on the missing `MPP_DSM_MAGIC`. Fix: gate `maybe_flip_mpp_parallel` on a cheap upfront DSM-size check, or move the fallback into the existing plan-time `init_mpp_strip_dynamic_filters` hook.
+
+- **PG-native parallel does nothing** (`pg_parallel_n4`/`n8` ≈ `baseline_serial`) because AggregateScan's custom path leaves `parallel_workers=0` in the non-MPP branch. PG never launches workers for the path; it's not "allocates them and discards" — they're never requested. Worth documenting in the AggregateScan README but not a separate bug.
+
+### Next: Path B — pivot to a different lever
+
+The 1.5× at producers=4 on GROUP BY shapes is the achievable speedup with the current architecture. Two levers to explore:
+
+- **For scalar shapes (q\_\*\_count flat):** the planner picks `mode=Partitioned` even when CollectLeft would win. Detect "parent build side fits in memory" and either force CollectLeft in MPP (already supported via the fork's `with_distributed_broadcast_joins` flag, but apparently not firing in our test cases) or skip MPP entirely and let the serial CollectLeft + `CooperativeExec` path run.
+
+- **For GROUP BY shapes at n>4:** the DSM mesh is the wall. Lowering `mpp_queue_size` per query could let n=8 or n=12 actually scale — worth a 1h spike with `paradedb.mpp_queue_size = '8MB'` to measure where DSM allocation latency caps the parallelism gain.
+
+- **G7-MT scaffolding stays parked, not deleted.** The MppRuntimeGucs snapshot, FfiRelay, and spin-loop routing all sit behind `paradedb.mpp_use_ffi_relay=off` by default. If a future investigation pinpoints a scalar-shape bottleneck that needs shared per-producer state across threads, G7-MT is the right substrate.
+
+### Harness sensitivity
+
+3 runs / config gives ±2-5% noise on GROUP BY (the 1.5× wins and 1.5× n=12 regressions are both ≫ 3σ). On scalar count the spread is ±0.4% — at noise floor, not enough resolution to detect a 5% effect that future G7-MT might deliver. Bump to ≥10 runs for n>8 configs when re-benching.
+
+### Verified during review
+
+- **Dynamic filter pushdown** (`try_dynamic_filter_pushdown` in `pg_search/src/scan/pre_filter.rs:824`) DOES fire in MPP plans — the bench-time plan annotation shows `PgSearchScan: ... dynamic_filters=1` on the child scan, and the earlier 2026-05-24 trace showed only ~3.1M child rows reach the consumer (vs 25M total in the table), confirming the TermSet filter cuts upstream. So Stu's "push dynamic filter to Tantivy across the wire" lever is already on; no Path B work needed there.
+- **Reviewer hypothesis that broadcast-build was redundantly rebuilding per producer** turned out not to apply to these queries — the MPP plan uses `mode=Partitioned`, not `CollectLeft`/Broadcast. `BroadcastBuildSideOneTaskEstimator` only caps actual `BroadcastExec` nodes, which the Partitioned path never inserts. The real scalar-count flatness cause is point 2 above (baseline's segment-claim scan already uses multiple cores).

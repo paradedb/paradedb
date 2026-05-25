@@ -108,9 +108,19 @@ pub(crate) fn build_mpp_session_context(
     //      stage at Maximum(1) and propagate the cap upward, eliding shuffles above the join.
     //   4. distributed_in_process_mode(true): skips the gRPC plan-send / metrics /
     //      work-unit-feed tasks. Workers re-plan from the logical plan in DSM.
+    // `paradedb.mpp_target_partitions = 0` (default) preserves the historical N²-edge mesh by
+    // scaling inner fanout with n_workers. A positive value pins the fanout to a constant so
+    // edges grow linearly with N. Single-thread Tokio runtimes per producer don't parallelize
+    // across inner partitions, so a small constant is usually pure overhead savings.
+    let configured = crate::gucs::mpp_target_partitions();
+    let target_partitions = if configured > 0 {
+        (configured as usize).max(2)
+    } else {
+        n_workers.max(2)
+    };
     let cfg = seed
         .copied_config()
-        .with_target_partitions(n_workers.max(2));
+        .with_target_partitions(target_partitions);
 
     // Start from the seed's existing state so the customscan's query planner
     // (`PgSearchQueryPlanner`), optimizer rules, and registered extensions all carry over.

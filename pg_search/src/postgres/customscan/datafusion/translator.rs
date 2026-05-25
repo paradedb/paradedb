@@ -48,10 +48,21 @@ pub(crate) unsafe fn type_name(oid: pg_sys::Oid) -> String {
 
 /// Deparse a PG expression into readable SQL for debug logs. Builds a
 /// deparse context that covers every join source so Var nodes resolve to
-/// qualified column names (e.g. `e.pattern`). Wrapped in
-/// [`pgrx::PgTryBuilder`] so a PG error inside `deparse_expression` (which
-/// doesn't handle every possible node shape) degrades to a short tag
-/// fallback instead of unwinding the caller.
+/// qualified column names (e.g. `e.pattern`).
+///
+/// `deparse_context_for` / `deparse_expression` can raise a PG error on
+/// node shapes they don't handle. We want to fall back to a short tag
+/// rather than crash the query, but we can't just wrap a `PgTryBuilder`
+/// with `catch_others` around the call: those C functions open heap
+/// relations and take catalog locks before they fail, and a bare catch
+/// swallows the longjmp without releasing any of it. PG's `errfinish`
+/// also force-resets `InterruptHoldoffCount` to 0 on its way to the
+/// longjmp, which puts every subsequent `Buffer::drop` in this backend
+/// into the diagnostic skip path.
+///
+/// So we wrap in an internal subtransaction: on the error path we roll
+/// it back, which fires PG's normal resource-owner cleanup and releases
+/// everything `deparse_*` was holding.
 pub(crate) unsafe fn deparse_expr_for_debug(
     node: *mut pg_sys::Node,
     sources: &[&JoinSource],
@@ -63,28 +74,53 @@ pub(crate) unsafe fn deparse_expr_for_debug(
 
     let tag_fallback = || format!("{:?}", (*node).type_);
 
-    pgrx::PgTryBuilder::new(AssertUnwindSafe(|| {
-        let mut context: *mut pg_sys::List = std::ptr::null_mut();
-        for source in sources {
-            let alias = source.scan_info.alias.as_deref().unwrap_or("?");
-            let relname = match std::ffi::CString::new(alias) {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
-            let rel_context =
-                pg_sys::deparse_context_for(relname.as_ptr(), source.scan_info.heaprelid);
-            context = pg_sys::list_concat(context, rel_context);
+    let old_context = pg_sys::CurrentMemoryContext;
+    let old_owner = pg_sys::CurrentResourceOwner;
+    pg_sys::BeginInternalSubTransaction(std::ptr::null());
+
+    let result: Result<String, ()> =
+        pgrx::PgTryBuilder::new(AssertUnwindSafe(|| -> Result<String, ()> {
+            let mut context: *mut pg_sys::List = std::ptr::null_mut();
+            for source in sources {
+                let alias = source.scan_info.alias.as_deref().unwrap_or("?");
+                let relname = match std::ffi::CString::new(alias) {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
+                let rel_context =
+                    pg_sys::deparse_context_for(relname.as_ptr(), source.scan_info.heaprelid);
+                context = pg_sys::list_concat(context, rel_context);
+            }
+            let deparsed =
+                pg_sys::deparse_expression(node.cast(), context, sources.len() > 1, false);
+            if deparsed.is_null() {
+                return Ok(tag_fallback());
+            }
+            Ok(std::ffi::CStr::from_ptr(deparsed)
+                .to_string_lossy()
+                .into_owned())
+        }))
+        .catch_others(move |_| {
+            // Switch out of the subtxn's memory context before rolling it back,
+            // otherwise we'd be sitting in a context that's about to be freed.
+            // Restore CurrentResourceOwner explicitly per the PG_TRY/PG_CATCH
+            // convention -- RollbackAndReleaseCurrentSubTransaction doesn't.
+            pg_sys::MemoryContextSwitchTo(old_context);
+            pg_sys::RollbackAndReleaseCurrentSubTransaction();
+            pg_sys::CurrentResourceOwner = old_owner;
+            Err(())
+        })
+        .execute();
+
+    match result {
+        Ok(s) => {
+            pg_sys::ReleaseCurrentSubTransaction();
+            pg_sys::MemoryContextSwitchTo(old_context);
+            pg_sys::CurrentResourceOwner = old_owner;
+            s
         }
-        let deparsed = pg_sys::deparse_expression(node.cast(), context, sources.len() > 1, false);
-        if deparsed.is_null() {
-            return tag_fallback();
-        }
-        std::ffi::CStr::from_ptr(deparsed)
-            .to_string_lossy()
-            .into_owned()
-    }))
-    .catch_others(|_| tag_fallback())
-    .execute()
+        Err(()) => tag_fallback(),
+    }
 }
 
 /// Short label for a node tag (strips the `T_` prefix). Used in debug

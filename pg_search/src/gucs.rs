@@ -184,6 +184,15 @@ static MPP_CACHE_PER_SLOT: GucSetting<i32> = GucSetting::<i32>::new(256 * 1024 *
 /// usually pure overhead savings; the right value depends on workload.
 static MPP_TARGET_PARTITIONS: GucSetting<i32> = GucSetting::<i32>::new(0);
 
+/// Opt-in toggle for routing the spin loop's FFI calls (`shm_mq_try_send`,
+/// `try_drain_pass`, `check_for_interrupts`) through the per-query `FfiRelay`
+/// service task instead of calling pgrx directly. Default `off` keeps today's
+/// direct-call path; turning it `on` exercises the relay-routed spin under the
+/// current-thread runtime so the architecture can be validated before the
+/// G7-MT phase 3d multi_thread flip. Adds round-trip overhead per spin
+/// iteration today, so leave off in production until phase 3d ships.
+static MPP_USE_FFI_RELAY: GucSetting<bool> = GucSetting::<bool>::new(false);
+
 /// The maximum size of an InList that can be pushed down to a TermSet Query.
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
     GucSetting::<i32>::new(16 * 1024 * 1024);
@@ -635,6 +644,21 @@ pub fn init() {
         GucFlags::UNIT_BYTE,
     );
 
+    GucRegistry::define_bool_guc(
+        c"paradedb.mpp_use_ffi_relay",
+        c"Route MPP spin-loop FFI calls through the per-query FfiRelay service task",
+        c"When `on`, MppSender's send/EOF spin loop routes its `shm_mq_try_send`, \
+          `try_drain_pass`, and `check_for_interrupts` calls through the FfiRelay handle \
+          attached at `run_mpp_worker` startup. The relay service runs those FFI calls on \
+          the backend thread (via a Tokio LocalSet) so compute futures can stay safe under \
+          a future multi_thread runtime (G7-MT phase 3d). Off by default because the relay \
+          adds a per-iteration channel hop + oneshot await that is pure overhead today, \
+          when compute already runs on the same thread.",
+        &MPP_USE_FFI_RELAY,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_int_guc(
         c"paradedb.mpp_target_partitions",
         c"Inner partition fanout per producer task; 0 = scale with mpp_worker_count",
@@ -852,6 +876,10 @@ pub fn mpp_cache_per_slot() -> usize {
 
 pub fn mpp_target_partitions() -> i32 {
     MPP_TARGET_PARTITIONS.get()
+}
+
+pub fn mpp_use_ffi_relay() -> bool {
+    MPP_USE_FFI_RELAY.get()
 }
 
 pub fn hash_join_inlist_pushdown_max_size() -> i32 {

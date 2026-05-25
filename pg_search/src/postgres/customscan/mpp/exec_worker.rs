@@ -285,6 +285,11 @@ pub(crate) fn run_mpp_worker(
         .map(|g| g.mpp_debug)
         .unwrap_or_else(crate::gucs::mpp_debug);
 
+    // Read `paradedb.mpp_use_ffi_relay` once on the backend thread. Read directly from the
+    // live GUC registry (not the per-query snapshot) because this is consumed only in the
+    // dispatcher prep below, which always runs on the backend.
+    let use_ffi_relay = crate::gucs::mpp_use_ffi_relay();
+
     // Two `Future` shapes share this vector: real producer-fragment futures and broadcast
     // short-circuit EOF-only stubs. The alias keeps the `Vec<_>` declaration legible and silences
     // clippy::type_complexity.
@@ -359,17 +364,20 @@ pub(crate) fn run_mpp_worker(
                 // queue doesn't block the backend thread. The spin pulls every inbound drain
                 // while retrying the send, breaking N×N symmetric stalls.
                 //
-                // Attach the FFI relay handle too — dormant on the current-thread runtime, but
-                // Phase 3 of G7-MT routes the spin loop's `try_send_bytes` through it so
-                // compute futures running on a non-backend tokio worker thread can still call
-                // shm_mq without violating pgrx's single-thread FFI invariant.
-                per_partition_senders.push(
-                    base.clone_with_header(MppFrameHeader::batch(fragment.stage_id, q_u32))
-                        .with_cooperative_drain(
-                            Arc::clone(&worker_mesh) as Arc<dyn CooperativeDrainSet>
-                        )
-                        .with_ffi_relay(Arc::clone(&ffi_relay)),
-                );
+                // Conditionally attach the FFI relay handle: only when `paradedb.mpp_use_ffi_relay`
+                // is on. Without the GUC the spin loop falls through to the direct FFI path
+                // (today's default, zero overhead). With it, the spin routes through the relay
+                // service task — exercises the architecture under the current-thread runtime so
+                // we can validate before phase 3d flips to multi_thread.
+                let mut sender = base
+                    .clone_with_header(MppFrameHeader::batch(fragment.stage_id, q_u32))
+                    .with_cooperative_drain(
+                        Arc::clone(&worker_mesh) as Arc<dyn CooperativeDrainSet>
+                    );
+                if use_ffi_relay {
+                    sender = sender.with_ffi_relay(Arc::clone(&ffi_relay));
+                }
+                per_partition_senders.push(sender);
             }
 
             // Broadcast invariant: fail-loud cap check.

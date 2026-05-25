@@ -44,13 +44,12 @@ use std::sync::Arc;
 use datafusion::common::DataFusionError;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::postgres::customscan::mpp::transport::BatchChannelSender;
+use crate::postgres::customscan::mpp::transport::{BatchChannelSender, CooperativeDrainSet};
 
 /// FFI operations that compute futures may need to perform via the backend thread.
 ///
 /// Add a new variant per Postgres API that the multi-thread compute path needs to call.
 /// Keep payloads owned (no borrows) so they cross thread boundaries cleanly.
-#[allow(dead_code)] // wired up in G7-MT Phase 3 (the runtime flip).
 pub(crate) enum FfiOp {
     /// Non-blocking shm_mq send. Returns `Ok(true)` on success, `Ok(false)` if the queue
     /// is full (caller spins + retries), `Err` on detach or unknown PG error.
@@ -59,16 +58,28 @@ pub(crate) enum FfiOp {
         bytes: Vec<u8>,
         response: oneshot::Sender<Result<bool, DataFusionError>>,
     },
+    /// Run one cooperative-drain pass. Pulls inbound peer frames off the local mesh so
+    /// the producer's full-outbound stall has a chance to unblock. Calls
+    /// `shm_mq_receive(nowait=true)` underneath, which is FFI and must run on the
+    /// backend thread.
+    TryDrainPass {
+        drain: Arc<dyn CooperativeDrainSet>,
+        response: oneshot::Sender<Result<(), DataFusionError>>,
+    },
+    /// Honor pending Postgres cancel / timeout / SIGINT. Calls
+    /// `pgrx::check_for_interrupts!()` underneath. On cancel the macro `longjmp`s
+    /// through the call stack, so the service caller never observes a normal return —
+    /// the dispatcher unwinds and the query aborts. On no-interrupt the call is a
+    /// few-ns flag check and the oneshot resolves with `()`.
+    CheckForInterrupts { response: oneshot::Sender<()> },
 }
 
 /// Producer-side handle. Cheap to clone; shares one mpsc sender with the service task.
-#[allow(dead_code)] // wired up in G7-MT Phase 3 (the runtime flip).
 #[derive(Clone)]
 pub(crate) struct FfiRelay {
     tx: mpsc::UnboundedSender<FfiOp>,
 }
 
-#[allow(dead_code)] // wired up in G7-MT Phase 3 (the runtime flip).
 impl FfiRelay {
     /// Construct a relay paired with the service that drives it.
     ///
@@ -111,15 +122,53 @@ impl FfiRelay {
             )),
         }
     }
+
+    /// Forward a cooperative-drain pass to the backend thread and await its result.
+    /// The drain pulls inbound peer frames so a full-outbound spin in the same producer
+    /// can make progress.
+    pub async fn try_drain_pass(
+        &self,
+        drain: Arc<dyn CooperativeDrainSet>,
+    ) -> Result<(), DataFusionError> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(FfiOp::TryDrainPass {
+                drain,
+                response: resp_tx,
+            })
+            .map_err(|_| DataFusionError::Execution("ffi_relay: service task closed".into()))?;
+        match resp_rx.await {
+            Ok(result) => result,
+            Err(_) => Err(DataFusionError::Execution(
+                "ffi_relay: service dropped the response without replying".into(),
+            )),
+        }
+    }
+
+    /// Forward a `pgrx::check_for_interrupts!()` call to the backend thread. On no-interrupt
+    /// the oneshot resolves quickly; on cancel/timeout the pgrx macro `longjmp`s through the
+    /// service task and the query aborts before we ever wake — the compute future's
+    /// `resp_rx.await` then fails with "service dropped the response", which surfaces as a
+    /// dispatcher error that pgrx::error! tags.
+    pub async fn check_for_interrupts(&self) -> Result<(), DataFusionError> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.tx
+            .send(FfiOp::CheckForInterrupts { response: resp_tx })
+            .map_err(|_| DataFusionError::Execution("ffi_relay: service task closed".into()))?;
+        match resp_rx.await {
+            Ok(()) => Ok(()),
+            Err(_) => Err(DataFusionError::Execution(
+                "ffi_relay: service dropped the interrupt check (likely cancelled)".into(),
+            )),
+        }
+    }
 }
 
 /// Service-side handle. Owns the receiver; consumed by [`FfiRelayService::run`].
-#[allow(dead_code)] // wired up in G7-MT Phase 3 (the runtime flip).
 pub(crate) struct FfiRelayService {
     rx: mpsc::UnboundedReceiver<FfiOp>,
 }
 
-#[allow(dead_code)] // wired up in G7-MT Phase 3 (the runtime flip).
 impl FfiRelayService {
     /// Polling loop. Pulls ops off the channel and replays them on the current OS thread,
     /// which the caller is responsible for being the backend thread (the one holding
@@ -170,6 +219,17 @@ impl FfiRelayService {
                     // Drop the result silently in that case — the response channel's
                     // close is the signal.
                     let _ = response.send(result);
+                }
+                FfiOp::TryDrainPass { drain, response } => {
+                    let result = drain.try_drain_pass();
+                    let _ = response.send(result);
+                }
+                FfiOp::CheckForInterrupts { response } => {
+                    // pgrx::check_for_interrupts! is gated out of test builds because the
+                    // macro pulls in PG symbols the lib-test binary doesn't link.
+                    #[cfg(not(test))]
+                    pgrx::check_for_interrupts!();
+                    let _ = response.send(());
                 }
             }
         }
@@ -223,6 +283,51 @@ mod tests {
                 assert_eq!(bytes[1], vec![4, 5, 6]);
 
                 // Drop the relay's producer side so the service observes channel close + exits.
+                drop(relay);
+                service_handle.await.unwrap();
+            })
+            .await;
+    }
+
+    /// A `CooperativeDrainSet` stub the test installs to count drain-pass calls.
+    struct CountingDrain {
+        passes: std::sync::atomic::AtomicUsize,
+    }
+
+    impl CooperativeDrainSet for CountingDrain {
+        fn try_drain_pass(&self) -> Result<(), DataFusionError> {
+            self.passes
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    /// Verify `TryDrainPass` + `CheckForInterrupts` ops both round-trip through the relay.
+    /// On the production path the spin loop calls these between `try_send_bytes` retries
+    /// when the outbound queue is full; today's tests never hit a full queue so coverage
+    /// in transport.rs doesn't exercise either op.
+    #[tokio::test(flavor = "current_thread")]
+    async fn relay_routes_drain_and_interrupt_ops() {
+        let local = tokio::task::LocalSet::new();
+        local
+            .run_until(async {
+                let (relay, service) = FfiRelay::new();
+                let service_handle = tokio::task::spawn_local(service.run());
+
+                let drain = Arc::new(CountingDrain {
+                    passes: std::sync::atomic::AtomicUsize::new(0),
+                });
+                let drain_handle: Arc<dyn CooperativeDrainSet> = Arc::clone(&drain) as _;
+
+                for _ in 0..3 {
+                    relay
+                        .try_drain_pass(Arc::clone(&drain_handle))
+                        .await
+                        .expect("drain pass");
+                    relay.check_for_interrupts().await.expect("interrupt check");
+                }
+                assert_eq!(drain.passes.load(std::sync::atomic::Ordering::SeqCst), 3);
+
                 drop(relay);
                 service_handle.await.unwrap();
             })

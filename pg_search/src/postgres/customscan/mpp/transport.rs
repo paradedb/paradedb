@@ -585,9 +585,9 @@ impl MppSender {
         let mut first_try = true;
         let t_wait_start = Instant::now();
         loop {
-            #[cfg(not(test))]
-            pgrx::check_for_interrupts!();
-            if self.channel.try_send_bytes(scratch)? {
+            self.spin_check_for_interrupts().await?;
+            let send_ok = self.spin_try_send_bytes(scratch).await?;
+            if send_ok {
                 if !first_try {
                     stats.send_wait += t_wait_start.elapsed();
                 }
@@ -596,10 +596,49 @@ impl MppSender {
             first_try = false;
             stats.spin_iters += 1;
             let t_drain = Instant::now();
-            drain.try_drain_pass()?;
+            self.spin_try_drain_pass(drain).await?;
             stats.coop_drain_in_spin += t_drain.elapsed();
             tokio::task::yield_now().await;
         }
+    }
+
+    /// Spin-loop helper: call `check_for_interrupts`. Routes through `ffi_relay` when
+    /// attached (the relay's service task runs the FFI call on the backend thread); falls
+    /// through to a direct call when not. The direct call is gated out of test builds
+    /// because the pgrx macro pulls in symbols the lib-test binary doesn't link.
+    async fn spin_check_for_interrupts(&self) -> Result<(), DataFusionError> {
+        if let Some(relay) = self.ffi_relay.as_ref() {
+            return relay.check_for_interrupts().await;
+        }
+        #[cfg(not(test))]
+        pgrx::check_for_interrupts!();
+        Ok(())
+    }
+
+    /// Spin-loop helper: call `channel.try_send_bytes(scratch)`. Routes through `ffi_relay`
+    /// when attached. The relay path takes ownership of an owned `Vec<u8>` copy of the
+    /// scratch, which is an extra allocation per attempt — acceptable on the success path
+    /// (one attempt per batch) but a target for the M2 pooling/batching optimization on
+    /// heavily-contended spins.
+    async fn spin_try_send_bytes(&self, scratch: &[u8]) -> Result<bool, DataFusionError> {
+        if let Some(relay) = self.ffi_relay.as_ref() {
+            return relay
+                .shm_mq_try_send(Arc::clone(&self.channel), scratch.to_vec())
+                .await;
+        }
+        self.channel.try_send_bytes(scratch)
+    }
+
+    /// Spin-loop helper: call `drain.try_drain_pass()`. Routes through `ffi_relay` when
+    /// attached.
+    async fn spin_try_drain_pass(
+        &self,
+        drain: &Arc<dyn CooperativeDrainSet>,
+    ) -> Result<(), DataFusionError> {
+        if let Some(relay) = self.ffi_relay.as_ref() {
+            return relay.try_drain_pass(Arc::clone(drain)).await;
+        }
+        drain.try_drain_pass()
     }
 
     async fn send_with_scratch(
@@ -630,21 +669,14 @@ impl MppSender {
         // sends advance. `yield_now().await` between iterations hands the runtime back to
         // siblings if any are ready, mostly a no-op under today's linear MPP topology.
         loop {
-            // Gate the check out of test builds. `pgrx::check_for_interrupts!()` pulls in PG
-            // symbols (`ProcessInterrupts`, etc.) that the `--tests` / llvm-cov build can't
-            // link. `InProc` channels used in tests never block, so the loop returns on the
-            // first iteration anyway.
-            //
-            // G7-MT phase 3b TODO: this is itself a backend-thread FFI call. Once the runtime
-            // flips to multi_thread, executing it on a tokio worker thread panics under
-            // pgrx 0.18's `check_active_thread`. Either add a `CheckForInterrupts` op to
-            // `FfiOp` (round-trip per spin iter, adds latency) or hoist the interrupt check
-            // onto the LocalSet service task — the service can call `ProcessInterrupts()` in
-            // its main loop and surface cancellation via a `tokio::sync::watch` the spin
-            // observes. The second shape is cheaper and avoids per-iteration round-trips.
-            #[cfg(not(test))]
-            pgrx::check_for_interrupts!();
-            if self.channel.try_send_bytes(scratch)? {
+            // FFI calls inside the spin (interrupt check + try_send + drain) route through
+            // `self.ffi_relay` when attached so producers running on a non-backend tokio
+            // worker (G7-MT multi-thread runtime) don't violate pgrx's single-thread
+            // FFI invariant. When the relay is `None` the helpers fall through to the
+            // direct calls — that's today's default behavior and the path tests exercise.
+            self.spin_check_for_interrupts().await?;
+            let send_ok = self.spin_try_send_bytes(scratch).await?;
+            if send_ok {
                 if !first_try {
                     stats.send_wait += t_wait_start.elapsed();
                 }
@@ -657,7 +689,7 @@ impl MppSender {
             // propagate so a peer detaching mid-spin doesn't leave us spinning on a closed
             // mesh.
             let t_drain = Instant::now();
-            drain.try_drain_pass()?;
+            self.spin_try_drain_pass(drain).await?;
             stats.coop_drain_in_spin += t_drain.elapsed();
             tokio::task::yield_now().await;
         }

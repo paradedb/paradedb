@@ -129,8 +129,15 @@ pub async fn run_worker_fragment(
             let eof_result = sender.as_ref().send_eof_traced(&mut stats).await;
             if let Some(wall_start) = wall_start {
                 let header = sender.as_ref().header;
+                // spin_iters and drain_in_spin_ms split send_wait_ms into "why":
+                //   spin_iters > 0 means the outbound shm_mq was full at least once.
+                //   drain_in_spin_ms is the subset of send_wait_ms this partition spent
+                //   pulling frames OFF its own inbound during the spin (cooperative drain
+                //   to unblock the mesh). The remainder (send_wait_ms - drain_in_spin_ms)
+                //   is pure yield-and-retry against a full outbound — i.e. consumer-side
+                //   drain isn't keeping up.
                 pgrx::warning!(
-                    "mpp_trace stage={} part={} rows_in={} batches={} wall_ms={:.1} first_batch_ms={:.1} pull_ms={:.1} send_ms={:.1} encode_ms={:.1} send_wait_ms={:.1}",
+                    "mpp_trace stage={} part={} rows_in={} batches={} wall_ms={:.1} first_batch_ms={:.1} pull_ms={:.1} send_ms={:.1} encode_ms={:.1} send_wait_ms={:.1} spin_iters={} drain_in_spin_ms={:.1}",
                     header.stage_id,
                     header.partition,
                     rows_in,
@@ -141,6 +148,8 @@ pub async fn run_worker_fragment(
                     send_ns as f64 / 1.0e6,
                     stats.encode.as_secs_f64() * 1000.0,
                     stats.send_wait.as_secs_f64() * 1000.0,
+                    stats.spin_iters,
+                    stats.coop_drain_in_spin.as_secs_f64() * 1000.0,
                 );
             }
             // Stream error first, then any EOF-send error so neither failure mode disappears.

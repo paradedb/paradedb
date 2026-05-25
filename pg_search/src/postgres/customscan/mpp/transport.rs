@@ -434,7 +434,7 @@ pub struct MppSender {
     /// `(stage_id, partition)` channel the receiver demultiplexes on. Per-sender rather than
     /// per-call: each partition gets its own `MppSender` via `clone_with_header`, all sharing
     /// the underlying `Arc<dyn BatchChannelSender>` of a single shm_mq queue.
-    header: MppFrameHeader,
+    pub(super) header: MppFrameHeader,
     /// Scratch buffer reused across every `encode_frame_into` on this sender. Sized by the
     /// first batch; subsequent batches clear and re-fill without reallocating. Interior
     /// mutability lets the caller keep the `&self` signature (each producer fragment holds

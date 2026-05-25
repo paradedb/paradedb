@@ -428,8 +428,14 @@ pub struct MppSender {
     /// `shm_mq` queue while tagging frames with different `(stage_id, partition)` headers, which
     /// is the multiplexed path's natural pattern. Clone the Arc, build a new `MppSender` with a
     /// different header, both write into the same queue.
-    channel: Arc<dyn BatchChannelSender>,
+    pub(super) channel: Arc<dyn BatchChannelSender>,
     cooperative_drain: Option<Arc<dyn CooperativeDrainSet>>,
+    /// Optional backend-thread FFI relay. When present, the spin loop in
+    /// [`Self::send_with_scratch`] / [`Self::send_eof_with_scratch`] routes `try_send_bytes`
+    /// through the relay so producers running on a non-backend tokio worker thread (G7-MT
+    /// multi-thread runtime) can still call into Postgres APIs safely. `None` keeps the
+    /// historical direct path and stays zero-overhead under the current_thread runtime.
+    pub(super) ffi_relay: Option<Arc<crate::postgres::customscan::mpp::ffi_relay::FfiRelay>>,
     /// Frame header prepended to every outgoing batch. Identifies the logical
     /// `(stage_id, partition)` channel the receiver demultiplexes on. Per-sender rather than
     /// per-call: each partition gets its own `MppSender` via `clone_with_header`, all sharing
@@ -463,6 +469,7 @@ impl MppSender {
         Self {
             channel,
             cooperative_drain: None,
+            ffi_relay: None,
             header,
             scratch: std::cell::RefCell::new(Vec::new()),
         }
@@ -476,6 +483,7 @@ impl MppSender {
         Self {
             channel: Arc::clone(&self.channel),
             cooperative_drain: self.cooperative_drain.as_ref().map(Arc::clone),
+            ffi_relay: self.ffi_relay.as_ref().map(Arc::clone),
             header,
             scratch: std::cell::RefCell::new(Vec::new()),
         }
@@ -488,6 +496,19 @@ impl MppSender {
     /// single-threaded Tokio runtime.
     pub fn with_cooperative_drain(mut self, drain: Arc<dyn CooperativeDrainSet>) -> Self {
         self.cooperative_drain = Some(drain);
+        self
+    }
+
+    /// Attach a [`crate::postgres::customscan::mpp::ffi_relay::FfiRelay`] so the spin loop
+    /// routes its `try_send_bytes` calls through a backend-pinned service task instead of
+    /// invoking pgrx FFI directly. Required when compute futures run on a non-backend tokio
+    /// worker thread (G7-MT multi-thread runtime); a no-op when the runtime is
+    /// `current_thread` because the service runs on the same OS thread anyway.
+    pub fn with_ffi_relay(
+        mut self,
+        relay: Arc<crate::postgres::customscan::mpp::ffi_relay::FfiRelay>,
+    ) -> Self {
+        self.ffi_relay = Some(relay);
         self
     }
 

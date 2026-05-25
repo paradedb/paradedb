@@ -294,15 +294,15 @@ pub(crate) fn run_mpp_worker(
                 + Send,
         >,
     >;
-    // Stand up the FFI relay scaffold even on the current-thread runtime: this proves the
-    // LocalSet plumbing is correct and gives Phase 3 (the multi-thread flip) a single line to
-    // change. Today the service runs on the same OS thread as the compute futures, so the
-    // round-trip through the channel is wasted work — the senders below still call into
-    // `MppSender::send_*_traced` directly. When Phase 3 routes the spin loop through
-    // `relay.shm_mq_try_send`, the service stays pinned to the backend while compute migrates
-    // to the multi-thread pool.
+    // Stand up the FFI relay + service before the dispatcher. Today the service runs on the
+    // same OS thread as the compute futures (current_thread runtime), so the relay handle the
+    // per-partition senders carry is reachable but the spin loop's `try_send_bytes` still hits
+    // the direct path — wiring the spin loop to actually call `relay.shm_mq_try_send` is the
+    // next phase. The relay handle is held under an `Arc` so multiple `MppSender` clones can
+    // share the producer side cheaply.
     let local_set = tokio::task::LocalSet::new();
-    let (_ffi_relay, ffi_service) = crate::postgres::customscan::mpp::ffi_relay::FfiRelay::new();
+    let (ffi_relay, ffi_service) = crate::postgres::customscan::mpp::ffi_relay::FfiRelay::new();
+    let ffi_relay = Arc::new(ffi_relay);
     let _service_handle = local_set.spawn_local(ffi_service.run());
     let result = runtime.block_on(local_set.run_until(async move {
         let mut futures: Vec<FragmentFuture> = Vec::with_capacity(fragments.len());
@@ -348,11 +348,17 @@ pub(crate) fn run_mpp_worker(
                 // Attach the worker mesh as the cooperative drain so a full outbound shm_mq
                 // queue doesn't block the backend thread. The spin pulls every inbound drain
                 // while retrying the send, breaking N×N symmetric stalls.
+                //
+                // Attach the FFI relay handle too — dormant on the current-thread runtime, but
+                // Phase 3 of G7-MT routes the spin loop's `try_send_bytes` through it so
+                // compute futures running on a non-backend tokio worker thread can still call
+                // shm_mq without violating pgrx's single-thread FFI invariant.
                 per_partition_senders.push(
                     base.clone_with_header(MppFrameHeader::batch(fragment.stage_id, q_u32))
                         .with_cooperative_drain(
                             Arc::clone(&worker_mesh) as Arc<dyn CooperativeDrainSet>
-                        ),
+                        )
+                        .with_ffi_relay(Arc::clone(&ffi_relay)),
                 );
             }
 

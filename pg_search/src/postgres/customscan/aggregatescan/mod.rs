@@ -877,6 +877,33 @@ pub trait CustomScanClause<CS: CustomScan> {
 }
 
 impl AggregateScan {
+    /// Decide whether to set `parallel_workers` on the path builder for an MPP
+    /// run. Returns `true` to enable MPP, `false` to fall through to the
+    /// serial `HashJoinExec mode=CollectLeft` + `CooperativeExec` segment-claim
+    /// path. Caller already gated on `mpp_is_active()`.
+    ///
+    /// Today this only suppresses MPP for scalar aggregates (no GROUP BY) when
+    /// the planner-estimated input row count sits below
+    /// `paradedb.mpp_scalar_agg_threshold_rows`. The default 0 always enables
+    /// MPP, preserving historical behavior; a positive value lets operators
+    /// opt into "skip MPP at small/medium scale" for the scalar-count shape
+    /// where the Path C bench showed MPP can't beat the baseline.
+    fn should_use_mpp_for_aggregate(
+        args: &crate::postgres::customscan::CreateUpperPathsHookArgs,
+        targetlist: &crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList,
+    ) -> bool {
+        let threshold = crate::gucs::mpp_scalar_agg_threshold_rows();
+        if threshold <= 0 {
+            return true;
+        }
+        let is_scalar_agg = targetlist.group_columns.is_empty();
+        if !is_scalar_agg {
+            return true;
+        }
+        let estimated_rows = args.input_rel().rows;
+        estimated_rows >= threshold as f64
+    }
+
     /// Capture per-source `SearchIndexManifest`s for every PgSearchScan
     /// reachable from the aggregate's `RelNode` plan tree. Mirrors
     /// `JoinScan::ensure_source_manifests`. Required at DSM-init time so
@@ -1266,7 +1293,17 @@ impl AggregateScan {
         // parallel flags at build time, and setting them after produces a
         // `Single Copy: true` Gather where the customscan never actually
         // runs in multiple workers.
-        let builder = if mpp_is_active() {
+        //
+        // Suppression: `paradedb.mpp_scalar_agg_threshold_rows > 0` skips MPP
+        // for scalar aggregates (no GROUP BY) when the planner-estimated input
+        // row count is below the threshold. Without GROUP BY, baseline's
+        // `HashJoinExec mode=CollectLeft` wrapped in `CooperativeExec` already
+        // parallelizes the BM25 scan via segment-claim, and MPP's shuffle
+        // overhead can't beat it at small/medium scale. The bench data lives
+        // in `benchmarks/mpp_scaling/FINDINGS.md` under "Path C validation".
+        let mpp_active = mpp_is_active();
+        let use_mpp = mpp_active && Self::should_use_mpp_for_aggregate(builder.args(), &targetlist);
+        let builder = if use_mpp {
             builder.set_parallel(producer_worker_count() as usize)
         } else {
             builder

@@ -193,6 +193,22 @@ static MPP_TARGET_PARTITIONS: GucSetting<i32> = GucSetting::<i32>::new(0);
 /// iteration today, so leave off in production until phase 3d ships.
 static MPP_USE_FFI_RELAY: GucSetting<bool> = GucSetting::<bool>::new(false);
 
+/// Threshold (input rows) below which MPP is suppressed for scalar aggregate
+/// queries (no GROUP BY). Default `0` keeps the historical behavior of always
+/// using MPP for scalar agg when `enable_mpp` is on. A positive value skips
+/// MPP when `input_rel.rows < threshold`, letting the serial path
+/// (`HashJoinExec mode=CollectLeft` + `CooperativeExec`'s parallel
+/// segment-claim) run instead.
+///
+/// Background: the 2026-05-25 Path C bench showed scalar count queries are
+/// flat under every parallelism config (PG-native parallel, MPP n=4..n=12)
+/// because baseline already parallelizes the BM25 scan across segments via
+/// `CooperativeExec`'s segment-claim. MPP adds shuffle overhead without
+/// unlocking new parallelism. At sufficiently large scale (~25M+ rows per
+/// `project_mpp_25m_cliff` memory) MPP wins again, so this is a per-workload
+/// knob rather than a default behavior change.
+static MPP_SCALAR_AGG_THRESHOLD_ROWS: GucSetting<i32> = GucSetting::<i32>::new(0);
+
 /// The maximum size of an InList that can be pushed down to a TermSet Query.
 static HASH_JOIN_INLIST_PUSHDOWN_MAX_SIZE: GucSetting<i32> =
     GucSetting::<i32>::new(16 * 1024 * 1024);
@@ -644,6 +660,24 @@ pub fn init() {
         GucFlags::UNIT_BYTE,
     );
 
+    GucRegistry::define_int_guc(
+        c"paradedb.mpp_scalar_agg_threshold_rows",
+        c"Input-row threshold below which MPP is suppressed for scalar aggregates",
+        c"Default 0 keeps the historical behavior — always use MPP for scalar aggregates \
+          when `enable_mpp` is on. A positive value skips MPP when the planner-estimated \
+          input row count is below the threshold, letting the serial path \
+          (HashJoinExec mode=CollectLeft + CooperativeExec parallel segment-claim) run \
+          instead. Path C bench at 5M parent / 25M child showed scalar count is flat \
+          under every parallelism config because baseline already segment-parallelizes \
+          the BM25 scan; MPP adds shuffle overhead without unlocking new parallelism. \
+          At larger scales (~25M+ rows) MPP can still win — tune per workload.",
+        &MPP_SCALAR_AGG_THRESHOLD_ROWS,
+        0,
+        i32::MAX,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     GucRegistry::define_bool_guc(
         c"paradedb.mpp_use_ffi_relay",
         c"Route MPP spin-loop FFI calls through the per-query FfiRelay service task",
@@ -880,6 +914,10 @@ pub fn mpp_target_partitions() -> i32 {
 
 pub fn mpp_use_ffi_relay() -> bool {
     MPP_USE_FFI_RELAY.get()
+}
+
+pub fn mpp_scalar_agg_threshold_rows() -> i32 {
+    MPP_SCALAR_AGG_THRESHOLD_ROWS.get()
 }
 
 pub fn hash_join_inlist_pushdown_max_size() -> i32 {

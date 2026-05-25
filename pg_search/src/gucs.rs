@@ -196,17 +196,18 @@ static MPP_USE_FFI_RELAY: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// Threshold (input rows) below which MPP is suppressed for scalar aggregate
 /// queries (no GROUP BY). Default `0` keeps the historical behavior of always
 /// using MPP for scalar agg when `enable_mpp` is on. A positive value skips
-/// MPP when `input_rel.rows < threshold`, letting the serial path
-/// (`HashJoinExec mode=CollectLeft` + `CooperativeExec`'s parallel
-/// segment-claim) run instead.
+/// MPP when `input_rel.rows < threshold`, letting the serial path run instead.
 ///
-/// Background: the 2026-05-25 Path C bench showed scalar count queries are
-/// flat under every parallelism config (PG-native parallel, MPP n=4..n=12)
-/// because baseline already parallelizes the BM25 scan across segments via
-/// `CooperativeExec`'s segment-claim. MPP adds shuffle overhead without
-/// unlocking new parallelism. At sufficiently large scale (~25M+ rows per
-/// `project_mpp_25m_cliff` memory) MPP wins again, so this is a per-workload
-/// knob rather than a default behavior change.
+/// Before Path B lever 3 landed the explicit `add_upper_path` Gather wrapper,
+/// PG silently declined to launch workers for scalar count queries (no
+/// upstream Sort/ORDER BY → no Gather Merge), so MPP-marked paths never
+/// actually parallelized and this knob was an EXPLAIN-cleanup-only lever.
+/// Now that PG actually deploys workers (q_narrow_count went from flat to
+/// ~2× speedup at producers=4), the threshold has a genuine perf
+/// justification: at small input sizes the worker launch + DSM init +
+/// shm_mq attach overhead can exceed the parallelism gain. Operators tune
+/// per workload — start with a low threshold (e.g. 100_000) and raise it
+/// if MPP isn't earning its overhead.
 static MPP_SCALAR_AGG_THRESHOLD_ROWS: GucSetting<i32> = GucSetting::<i32>::new(0);
 
 /// The maximum size of an InList that can be pushed down to a TermSet Query.
@@ -671,12 +672,13 @@ pub fn init() {
         c"Input-row threshold below which MPP is suppressed for scalar aggregates",
         c"Default 0 keeps the historical behavior — always use MPP for scalar aggregates \
           when `enable_mpp` is on. A positive value skips MPP when the planner-estimated \
-          input row count is below the threshold, letting the serial path \
-          (HashJoinExec mode=CollectLeft + CooperativeExec parallel segment-claim) run \
-          instead. Path C bench at 5M parent / 25M child showed scalar count is flat \
-          under every parallelism config because baseline already segment-parallelizes \
-          the BM25 scan; MPP adds shuffle overhead without unlocking new parallelism. \
-          At larger scales (~25M+ rows) MPP can still win — tune per workload.",
+          input row count is below the threshold, letting the serial path run instead. \
+          After Path B lever 3 landed the explicit add_upper_path Gather wrapper, scalar \
+          count queries actually deploy parallel workers (q_narrow_count at producers=4 \
+          went from flat → ~2x speedup vs serial baseline). For small input sizes the \
+          worker launch + DSM init + shm_mq attach overhead can outweigh the parallelism \
+          gain — this GUC suppresses MPP at the path-build time below the threshold so \
+          the simpler serial plan runs. Tune per workload.",
         &MPP_SCALAR_AGG_THRESHOLD_ROWS,
         0,
         i32::MAX,

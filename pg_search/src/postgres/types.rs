@@ -1214,9 +1214,7 @@ impl TryFrom<pgrx::JsonB> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: pgrx::JsonB) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(PdbOwnedValue::from(serde_json::Value::Array(
-            vec![val.0],
-        ))))
+        Self::try_from(val.0)
     }
 }
 

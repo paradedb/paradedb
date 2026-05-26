@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779822350819,
+  "lastUpdate": 1779822383737,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9522,6 +9522,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 82.1136926565498, max segment_count: 128.0, count: 57330"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "59bbbe58d9c07aacd6ff87a90a955843ab3ed266",
+          "message": "refactor(mpp): drop dead strip_dynamic_filters_from_dyn helper (#5136)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDeletes `PgSearchScanPlan::strip_dynamic_filters_from_dyn`.\n\n## Why\n\nDCE.\n\n## How\n\nDelete the function.\n\n## Tests\n\n- `cargo check --package pg_search --features pg18\n--no-default-features` clean.\n- All 4 MPP regress tests pass.\n- CI green.",
+          "timestamp": "2026-05-26T11:23:16-07:00",
+          "tree_id": "819962fbe27c5c425bc12fc1d4f305ab1658b9a6",
+          "url": "https://github.com/paradedb/paradedb/commit/59bbbe58d9c07aacd6ff87a90a955843ab3ed266"
+        },
+        "date": 1779822352692,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.743511216040105, max cpu: 42.942345, count: 57297"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.51953125,
+            "unit": "median mem",
+            "extra": "avg mem: 235.3156178006702, max mem: 237.0078125, count: 57297"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.3686423469868, max cpu: 33.366436, count: 57297"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 177.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 177.46821325451157, max mem: 178.3046875, count: 57297"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34681,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33898.81449290539, max block_count: 36737.0, count: 57297"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.92776236103111, max segment_count: 132.0, count: 57297"
           }
         ]
       }

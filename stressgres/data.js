@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779822995434,
+  "lastUpdate": 1779823028388,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14122,6 +14122,108 @@ window.BENCHMARK_DATA = {
             "value": 163.984375,
             "unit": "median mem",
             "extra": "avg mem: 182.00064163746157, max mem: 222.5390625, count: 56283"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ced0995fa5b5def18fe44bb821cf82b80cc9c8bb",
+          "message": "refactor(mpp): drop EXPLAIN-time stub mesh (#5135)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDrops the drain-less stub `MppMesh` that EXPLAIN was building purely to\nsatisfy `with_distributed_worker_transport`'s non-optional argument.\n`build_mpp_session_context` now takes `Option<Arc<MppMesh>>`.\n\n## Why\n\nThe fork's `get_distributed_worker_transport` already falls back to a\ndefault `WorkerTransport` (`FlightWorkerTransport`) when none is\nregistered. EXPLAIN never executes anything that consults the transport,\nso the stub was protecting against a phantom problem.\n\n## How\n\n- `build_mpp_session_context(seed, mesh: Option<Arc<MppMesh>>)`. When\n`Some`, install `ShmMqWorkerTransport`. When `None`, skip and let the\nfork's default sit unused.\n- `n_workers` resolves from `mesh.n_workers()` when present and\n`producer_worker_count()` when not. Same value at runtime, but the\nlatter doesn't need a mesh.\n- Explicitly bootstrap `DistributedConfig::default()` via\n`with_distributed_option_extension` so the rest of the chain doesn't\ndepend on `with_distributed_worker_transport` running first.\n- `aggregatescan::render_df_physical_plan` and JoinScan's EXPLAIN-time\n`build_displayable_explain_string` both pass `None` instead of\nconstructing a stub mesh. Drop the now-unused `mpp_worker_count`\nimports.\n\n## Tests\n\n- `cargo check --package pg_search --features pg18\n--no-default-features` clean.\n- All 4 MPP regress tests pass. EXPLAIN output unchanged — no\nexpected-file drift.\n- CI green.",
+          "timestamp": "2026-05-26T11:23:00-07:00",
+          "tree_id": "a912a337d434f577a86e304fdbca7840272bc19e",
+          "url": "https://github.com/paradedb/paradedb/commit/ced0995fa5b5def18fe44bb821cf82b80cc9c8bb"
+        },
+        "date": 1779822997388,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.05498464760484887, max background_merging: 2.0, count: 56343"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.661417554905562, max cpu: 9.504951, count: 56343"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 27.7265625,
+            "unit": "median mem",
+            "extra": "avg mem: 27.71720235044726, max mem: 27.73046875, count: 56343"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.024738610889894, max cpu: 32.71665, count: 56343"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 187.8984375,
+            "unit": "median mem",
+            "extra": "avg mem: 184.6598631928545, max mem: 192.7890625, count: 56343"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 59136,
+            "unit": "median block_count",
+            "extra": "avg block_count: 58908.278898887176, max block_count: 59136.0, count: 56343"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.32719237527288, max segment_count: 58.0, count: 56343"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.709724115682879, max cpu: 28.180038, count: 56343"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 158.03515625,
+            "unit": "median mem",
+            "extra": "avg mem: 144.7657546467618, max mem: 170.5546875, count: 56343"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.1367814354202475, max cpu: 32.684826, count: 56343"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 199.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 197.81015554283584, max mem: 223.25390625, count: 56343"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.806781290832596, max cpu: 33.768845, count: 56343"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 164.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 182.64076962200272, max mem: 222.6875, count: 56343"
           }
         ]
       }

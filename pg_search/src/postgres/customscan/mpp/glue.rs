@@ -59,23 +59,29 @@ const NATURAL_GATHER_STAGE_ID: u32 = 0;
 /// partition on the leader.
 const NATURAL_GATHER_PARTITION: u32 = 0;
 
-/// True iff `paradedb.enable_mpp = on` and `paradedb.mpp_worker_count >= 3`. Customscan
-/// path-builders gate `parallel_workers` on this.
-///
-/// `>= 3` (not `>= 2`) because the leader is consumer-only: with `mpp_worker_count = 2`,
-/// [`producer_worker_count`] returns 1 and the DSM mesh has one producer row, while
-/// `with_target_partitions(2)` (clamped by `n_workers.max(2)` in `build_mpp_session_context`)
-/// makes the planner build a 2-partition shuffle. The mesh wouldn't have a queue for the
-/// second partition. Gating at `>= 3` keeps `producer_worker_count >= 2` so mesh shape and
-/// shuffle width line up.
+/// Minimum total procs for MPP: leader (consumer-only) plus at least 2 producers. Single
+/// source of truth so [`mpp_is_active`] and [`mpp_worker_count`] don't drift on the
+/// threshold. Below 3, [`producer_worker_count`] would be 1 while
+/// `build_mpp_session_context` still clamps `target_partitions` to 2; the mesh wouldn't
+/// have a queue for the second partition.
+const MIN_TOTAL_WORKER_COUNT: i32 = 3;
+
+/// True iff `paradedb.enable_mpp = on` and `paradedb.mpp_worker_count >=
+/// MIN_TOTAL_WORKER_COUNT`. Customscan path-builders gate `parallel_workers` on this.
 pub fn mpp_is_active() -> bool {
-    enable_mpp() && gucs_mpp_worker_count() >= 3
+    enable_mpp() && gucs_mpp_worker_count() >= MIN_TOTAL_WORKER_COUNT
 }
 
-/// Total proc count: leader + producers. Clamped at 3 so the mesh
-/// shape matches the planner's `target_partitions` (see [`mpp_is_active`]).
+/// Total proc count: leader + producers. Equals the GUC value when [`mpp_is_active`] is
+/// true. Callers must gate on [`mpp_is_active`] first. Debug builds assert; release builds
+/// return the raw GUC, which can leave [`producer_worker_count`] below 2 and break the
+/// planner's `target_partitions` / mesh-width invariant.
 pub fn mpp_worker_count() -> u32 {
-    gucs_mpp_worker_count().max(3) as u32
+    debug_assert!(
+        mpp_is_active(),
+        "mpp_worker_count() called when mpp_is_active() is false — callers must gate first"
+    );
+    gucs_mpp_worker_count() as u32
 }
 
 /// Customscan-side header at offset 0 of the DSM coordinate that the leader hands to
@@ -149,21 +155,17 @@ pub(super) fn mpp_queue_size() -> usize {
 /// plan, the multiplexed `n_procs × n_procs` queue mesh, and the worker plan. `n_procs` is the
 /// total proc count (leader + `producer_worker_count()` parallel workers).
 pub fn estimate_dsm_size(plan_bytes_len: usize) -> Result<usize, String> {
-    let layout = compute_dsm_layout(n_procs(), mpp_queue_size(), plan_bytes_len)
+    let layout = compute_dsm_layout(mpp_worker_count(), mpp_queue_size(), plan_bytes_len)
         .map_err(|e| format!("mpp: estimate_dsm_size: {e}"))?;
     Ok(layout.region_total)
 }
 
 /// Number of producer workers PG should launch as `parallel_workers`.
-/// `mpp_worker_count - 1` because proc 0 is the leader.
+/// `mpp_worker_count - 1` because proc 0 is the leader (consumer-only). Callers must gate
+/// on [`mpp_is_active`] first; when active, [`MIN_TOTAL_WORKER_COUNT`] guarantees this is
+/// `>= 2` without further clamping.
 pub fn producer_worker_count() -> u32 {
-    mpp_worker_count().saturating_sub(1).max(1)
-}
-
-/// Total proc count: 1 leader + N producer workers. This is the
-/// dimension of the multiplexed `n_procs × n_procs` shm_mq grid.
-pub(super) fn n_procs() -> u32 {
-    mpp_worker_count()
+    mpp_worker_count() - 1
 }
 
 /// Returned to the leader from [`leader_setup`]. The customscan stashes this on its execution
@@ -206,7 +208,8 @@ fn build_inbound_receivers(
 }
 
 /// Wrap each peer-indexed `ShmMqSender` into an outbound `MppSender` keyed by `target_proc`. The
-/// per-fragment dispatcher in `aggregatescan::exec_mpp_worker` immediately `clone_with_header`s
+/// per-fragment dispatcher driven by [`mpp::host::exec_mpp_worker`] immediately
+/// `clone_with_header`s
 /// these to the right `(stage_id, partition)`, so the default placeholder header is never
 /// observed on the wire. Slot at index `this_proc` is `None`; the worker's self-loop install
 /// fills it in afterward.
@@ -244,7 +247,7 @@ pub unsafe fn leader_setup(
     pcxt: *mut pg_sys::ParallelContext,
     plan_bytes: Vec<u8>,
 ) -> Result<MppLeaderState, String> {
-    let total_procs = n_procs();
+    let total_procs = mpp_worker_count();
     let layout = compute_dsm_layout(total_procs, mpp_queue_size(), plan_bytes.len())
         .map_err(|e| format!("mpp: leader_setup compute layout: {e}"))?;
 
@@ -282,7 +285,7 @@ pub struct MppWorkerState {
     /// Worker's MppMesh, same shape as the leader's. `inbound_receivers[sender_proc]` pulls frames
     /// from `slot(sender_proc, this_proc)`. Workers consume from peers when running consumer
     /// fragments (e.g. a `FinalPartitioned` aggregate above a `NetworkShuffleExec` peer-mesh).
-    /// Read by the multi-fragment dispatcher in `aggregatescan::exec_mpp_worker`.
+    /// Read by the multi-fragment dispatcher driven by [`mpp::host::exec_mpp_worker`].
     pub mesh: Arc<MppMesh>,
 }
 

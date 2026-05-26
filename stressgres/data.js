@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779823707205,
+  "lastUpdate": 1779823754733,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16044,6 +16044,60 @@ window.BENCHMARK_DATA = {
             "value": 15.213464443145432,
             "unit": "median tps",
             "extra": "avg tps: 14.998164476252022, max tps: 21.241513802820634, count: 55652"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "59bbbe58d9c07aacd6ff87a90a955843ab3ed266",
+          "message": "refactor(mpp): drop dead strip_dynamic_filters_from_dyn helper (#5136)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDeletes `PgSearchScanPlan::strip_dynamic_filters_from_dyn`.\n\n## Why\n\nDCE.\n\n## How\n\nDelete the function.\n\n## Tests\n\n- `cargo check --package pg_search --features pg18\n--no-default-features` clean.\n- All 4 MPP regress tests pass.\n- CI green.",
+          "timestamp": "2026-05-26T11:23:16-07:00",
+          "tree_id": "819962fbe27c5c425bc12fc1d4f305ab1658b9a6",
+          "url": "https://github.com/paradedb/paradedb/commit/59bbbe58d9c07aacd6ff87a90a955843ab3ed266"
+        },
+        "date": 1779823720217,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 28.113993854474895,
+            "unit": "median tps",
+            "extra": "avg tps: 28.14691653522551, max tps: 32.73414209819414, count: 55509"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 247.18888419433415,
+            "unit": "median tps",
+            "extra": "avg tps: 277.2070798496608, max tps: 3096.3568219418753, count: 55509"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 559.3034800117246,
+            "unit": "median tps",
+            "extra": "avg tps: 547.1860193395646, max tps: 729.4680603957113, count: 55509"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 155.71550110771494,
+            "unit": "median tps",
+            "extra": "avg tps: 171.8389179227851, max tps: 1188.5809462748534, count: 111018"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.563797471426305,
+            "unit": "median tps",
+            "extra": "avg tps: 15.503710275076319, max tps: 20.236163310856487, count: 55509"
           }
         ]
       }

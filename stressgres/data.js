@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779502087130,
+  "lastUpdate": 1779774041081,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1866,6 +1866,78 @@ window.BENCHMARK_DATA = {
             "value": 93.29865889366651,
             "unit": "median tps",
             "extra": "avg tps: 91.01545172412101, max tps: 704.0562794427535, count: 54542"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "afde291c230f9f22ae406893c8949a660c34e418",
+          "message": "refactor(mpp): switch worker_fragments to NetworkBoundaryKind enum match (#5129)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nSwitches `worker_fragments::collect` from a `plan.name()` string match\nto a typed `NetworkBoundaryKind` enum match.\n\n## Why\n\nString-matching against fork-internal type names was fragile. If the\nfork ever renamed `NetworkShuffleExec` (or either of the other two), our\nwalker would silently fall through to the \"unsupported nested boundary\nkind\" arm and refuse to classify the boundary at runtime. Fork PR\nparadedb/datafusion-distributed#9 exposes `kind()`, so a rename surfaces\nas a compile error here instead.\n\n## How\n\n- Replace the string match with `nb.kind()` enum match.\n- Split the wildcard top-level arm into explicit `(Coalesce, false)` and\n`(Shuffle, false) => fail_loud(...)`. Mirrors the existing top-level\nBroadcast guard. A top-level shuffle is a planner anomaly worth\nsurfacing.\n- Add a `_ => fail_loud(...)` catch-all for the fork's\n`#[non_exhaustive]` enum. Doubles as a drift detector if the fork adds a\nnew variant.\n\n## Tests\n\n- `mpp_smoke`, `mpp_joinscan`, `mpp_aggregate`, `mpp_aggregate_postagg`\nall pass on pgrx-arm64.\n- CI green.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-25T22:10:05-07:00",
+          "tree_id": "7a1b93999b654c5d4c8db4f73e3de92ebafe702f",
+          "url": "https://github.com/paradedb/paradedb/commit/afde291c230f9f22ae406893c8949a660c34e418"
+        },
+        "date": 1779774010162,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 132.2105686829423,
+            "unit": "median tps",
+            "extra": "avg tps: 131.86666805876115, max tps: 150.64426929098022, count: 55059"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 479.03050553638894,
+            "unit": "median tps",
+            "extra": "avg tps: 477.6308328206916, max tps: 578.5127518614297, count: 55059"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3301.3477165430477,
+            "unit": "median tps",
+            "extra": "avg tps: 3278.139240395243, max tps: 3325.8244133148073, count: 55059"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 408.4511867352474,
+            "unit": "median tps",
+            "extra": "avg tps: 406.8024987997497, max tps: 502.81382999495673, count: 55059"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2952.2751268641796,
+            "unit": "median tps",
+            "extra": "avg tps: 2910.2879140730215, max tps: 2968.777803365616, count: 110118"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 482.8547143278606,
+            "unit": "median tps",
+            "extra": "avg tps: 480.6178819475357, max tps: 623.3801598866606, count: 55059"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1933.6232701928602,
+            "unit": "median tps",
+            "extra": "avg tps: 1933.7629633412753, max tps: 1980.4244553105473, count: 55059"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 48.061606714594824,
+            "unit": "median tps",
+            "extra": "avg tps: 58.57903122427513, max tps: 204.67425233109645, count: 55059"
           }
         ]
       }

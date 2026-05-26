@@ -28,6 +28,11 @@ use crate::mpp_log;
 use crate::parallel_worker::mqueue::{
     MessageQueueReceiver, MessageQueueRecvError, MessageQueueSendError, MessageQueueSender,
 };
+#[cfg(test)]
+use crate::postgres::customscan::mpp::dsm_mpsc_ring::{self, DsmMpscRingHeader};
+use crate::postgres::customscan::mpp::dsm_mpsc_ring::{
+    DsmMpscReceiver, DsmMpscSender, RecvOutcome as MpscRecvOutcome, SendError as MpscSendError,
+};
 use crate::postgres::customscan::mpp::transport::{
     BatchChannelReceiver, BatchChannelSender, RecvOutcome,
 };
@@ -205,6 +210,186 @@ impl BatchChannelReceiver for ShmMqReceiver {
     }
 }
 
+// The new DSM-MPSC adapter types are reachable only from the in-file tests until Phase 4
+// wires them into `dsm.rs` / `glue.rs`. Suppress dead-code warnings on the type + impl
+// blocks in the meantime — pre-commit elevates -D warnings to a hard error.
+
+/// DSM-MPSC-ring-backed `BatchChannelSender`. Wraps a `DsmMpscSender` so the existing
+/// `MppSender` / cooperative-drain machinery can drive it through the same trait surface
+/// as `ShmMqSender`. Multiple producer processes hold their own `DsmInboxSender` clones
+/// targeting the same receiver inbox; the underlying ring serializes them via
+/// Vyukov-style CAS on `tail`.
+///
+/// Phase 4 swaps `ShmMqSender` for this in the DSM layout. Until then, the type is
+/// exercised by unit tests only and the `#[allow(dead_code)]` is module-level via the
+/// `dsm_mpsc_ring` mod attribute.
+#[allow(dead_code)]
+pub(super) struct DsmInboxSender {
+    inner: DsmMpscSender,
+    send_lock: tokio::sync::Mutex<()>,
+}
+
+// SAFETY: `DsmMpscSender` is already Send + Sync (the ring's atomic operations are the
+// synchronization point). Wrapping it adds only `tokio::sync::Mutex<()>` which is Send +
+// Sync on its own.
+unsafe impl Send for DsmInboxSender {}
+unsafe impl Sync for DsmInboxSender {}
+
+#[allow(dead_code)]
+impl DsmInboxSender {
+    /// Wrap a `DsmMpscSender` for use through the `BatchChannelSender` trait.
+    pub(super) fn new(inner: DsmMpscSender) -> Self {
+        Self {
+            inner,
+            send_lock: tokio::sync::Mutex::new(()),
+        }
+    }
+
+    fn map_send_err(err: MpscSendError) -> DataFusionError {
+        match err {
+            MpscSendError::Detached => {
+                DataFusionError::Execution("mpp: DSM MPSC inbox detached".into())
+            }
+            MpscSendError::MessageTooLarge => {
+                DataFusionError::Execution("mpp: DSM MPSC frame exceeds slot_capacity".into())
+            }
+            MpscSendError::Full => DataFusionError::Execution(
+                "mpp: DSM MPSC inbox full (caller should retry via try_send_bytes)".into(),
+            ),
+        }
+    }
+}
+
+impl BatchChannelSender for DsmInboxSender {
+    fn send_bytes(&self, bytes: &[u8]) -> Result<(), DataFusionError> {
+        // Blocking send by spin-yield. The cooperative-drain spin in MppSender already
+        // gives us the right outer loop; this fallback exists so the trait shape stays
+        // identical to ShmMqSender's. Callers that need backpressure use try_send_bytes.
+        loop {
+            match self.inner.try_send(bytes) {
+                Ok(()) => return Ok(()),
+                Err(MpscSendError::Full) => std::thread::yield_now(),
+                Err(e) => return Err(Self::map_send_err(e)),
+            }
+        }
+    }
+
+    fn try_send_bytes(&self, bytes: &[u8]) -> Result<bool, DataFusionError> {
+        match self.inner.try_send(bytes) {
+            Ok(()) => Ok(true),
+            Err(MpscSendError::Full) => Ok(false),
+            Err(e) => Err(Self::map_send_err(e)),
+        }
+    }
+
+    fn send_lock(&self) -> &tokio::sync::Mutex<()> {
+        &self.send_lock
+    }
+}
+
+/// DSM-MPSC-ring-backed `BatchChannelReceiver`. Wraps a `DsmMpscReceiver` and a single
+/// reusable scratch `Vec<u8>` so each `try_recv` materializes the frame without
+/// reallocating per-call.
+///
+/// The single-consumer invariant comes from how this is used: one `DsmInboxReceiver`
+/// per process, owned by `DrainHandle::cooperative_receivers`, polled inline from the
+/// drain's `try_drain_pass`. No two threads ever race on the same receiver.
+#[allow(dead_code)]
+pub(super) struct DsmInboxReceiver {
+    inner: DsmMpscReceiver,
+    /// Reused per-call buffer. `try_recv` clears + refills it on each Bytes outcome.
+    scratch: parking_lot::Mutex<Vec<u8>>,
+}
+
+// SAFETY: same reasoning as ShmMqReceiver — production has exactly one drain thread
+// touching this. The Mutex on `scratch` is for interior mutability; lock is uncontended
+// in practice.
+unsafe impl Send for DsmInboxReceiver {}
+unsafe impl Sync for DsmInboxReceiver {}
+
+#[allow(dead_code)]
+impl DsmInboxReceiver {
+    /// Wrap a `DsmMpscReceiver` for use through the `BatchChannelReceiver` trait.
+    pub(super) fn new(inner: DsmMpscReceiver) -> Self {
+        Self {
+            inner,
+            scratch: parking_lot::Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Tell the underlying ring to stop accepting sends. Mirrors
+    /// `MessageQueueReceiver::detach` semantics for symmetry with the shm_mq path.
+    pub(super) fn set_detached(&self) {
+        self.inner.set_detached();
+    }
+}
+
+impl BatchChannelReceiver for DsmInboxReceiver {
+    fn try_recv(&self) -> RecvOutcome {
+        let mut buf = self.scratch.lock();
+        match self.inner.try_recv(&mut buf) {
+            MpscRecvOutcome::Bytes => {
+                // Move the bytes out into an owned Vec so the trait's Bytes variant can
+                // hold them. Leave scratch capacity in place for the next call by
+                // mem::replace; the new scratch starts empty but with reserved capacity
+                // after the first batch.
+                let cap = buf.capacity();
+                let out = std::mem::replace(&mut *buf, Vec::with_capacity(cap));
+                RecvOutcome::Bytes(out)
+            }
+            MpscRecvOutcome::Empty => RecvOutcome::Empty,
+            MpscRecvOutcome::Detached => RecvOutcome::Detached,
+        }
+    }
+}
+
+/// Allocate a fresh ring (heap, aligned) and return (sender, receiver, owning region).
+/// Test-only helper that pairs `DsmInboxSender` + `DsmInboxReceiver` over a heap-allocated
+/// ring matching the alignment contract `create_at` requires. Production allocates the
+/// region inside a `dsm_segment`; this helper exists so the BatchChannel trait impls can
+/// be exercised in unit tests without a PG backend.
+#[cfg(test)]
+pub(super) fn test_dsm_inbox_pair(
+    ring_size: u32,
+    slot_capacity: u32,
+) -> (DsmInboxSender, DsmInboxReceiver, AlignedTestRegion) {
+    let bytes = DsmMpscRingHeader::region_bytes(ring_size, slot_capacity);
+    let region = AlignedTestRegion::new(bytes);
+    let header_ptr =
+        unsafe { dsm_mpsc_ring::create_at(region.as_mut_ptr(), ring_size, slot_capacity) };
+    let nn = std::ptr::NonNull::new(header_ptr).expect("create_at returned null");
+    let sender = DsmInboxSender::new(unsafe { DsmMpscSender::new(nn) });
+    let receiver = DsmInboxReceiver::new(unsafe { DsmMpscReceiver::new(nn) });
+    (sender, receiver, region)
+}
+
+#[cfg(test)]
+pub(super) struct AlignedTestRegion {
+    ptr: *mut u8,
+    layout: std::alloc::Layout,
+}
+
+#[cfg(test)]
+impl AlignedTestRegion {
+    fn new(bytes: usize) -> Self {
+        let align = std::mem::align_of::<DsmMpscRingHeader>();
+        let layout = std::alloc::Layout::from_size_align(bytes, align).expect("layout");
+        let ptr = unsafe { std::alloc::alloc_zeroed(layout) };
+        assert!(!ptr.is_null());
+        Self { ptr, layout }
+    }
+    fn as_mut_ptr(&self) -> *mut u8 {
+        self.ptr
+    }
+}
+
+#[cfg(test)]
+impl Drop for AlignedTestRegion {
+    fn drop(&mut self) {
+        unsafe { std::alloc::dealloc(self.ptr, self.layout) };
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,5 +415,99 @@ mod tests {
             assert!(got - req < maxalign);
         }
         assert!(align_up_maxalign_checked(usize::MAX).is_none());
+    }
+
+    #[test]
+    fn dsm_inbox_batch_channel_round_trip() {
+        let (tx, rx, _region) = test_dsm_inbox_pair(4, 64);
+        // Sanity: try_send_bytes succeeds, try_recv hands back the bytes, send_lock
+        // returns a usable Mutex.
+        assert!(tx.try_send_bytes(b"hello").unwrap());
+        assert!(tx.try_send_bytes(b"world").unwrap());
+        match rx.try_recv() {
+            RecvOutcome::Bytes(b) => assert_eq!(&b[..], b"hello"),
+            other => panic!("expected Bytes(hello), got {other:?}"),
+        }
+        match rx.try_recv() {
+            RecvOutcome::Bytes(b) => assert_eq!(&b[..], b"world"),
+            other => panic!("expected Bytes(world), got {other:?}"),
+        }
+        assert!(matches!(rx.try_recv(), RecvOutcome::Empty));
+        // send_lock is just exercised — the per-instance Mutex satisfies the trait.
+        let _guard = tx.send_lock();
+    }
+
+    #[test]
+    fn dsm_inbox_try_send_returns_false_when_full() {
+        let (tx, rx, _region) = test_dsm_inbox_pair(2, 64);
+        assert!(tx.try_send_bytes(b"a").unwrap());
+        assert!(tx.try_send_bytes(b"b").unwrap());
+        // Third send should hit Full (returns Ok(false), not Err).
+        assert!(!tx.try_send_bytes(b"c").unwrap());
+        // Drain one, then send again succeeds.
+        assert!(matches!(rx.try_recv(), RecvOutcome::Bytes(_)));
+        assert!(tx.try_send_bytes(b"c").unwrap());
+    }
+
+    #[test]
+    fn dsm_inbox_recv_signals_detached_after_set_detached() {
+        let (tx, rx, _region) = test_dsm_inbox_pair(4, 64);
+        tx.try_send_bytes(b"keep").unwrap();
+        rx.set_detached();
+        // Subsequent send rejected with an Execution error (mapped from MpscSendError::Detached).
+        let err = tx
+            .try_send_bytes(b"drop")
+            .expect_err("expected detached error");
+        assert!(format!("{err}").contains("detached"));
+        // Already-queued frame still drains; then recv returns Detached.
+        assert!(matches!(rx.try_recv(), RecvOutcome::Bytes(_)));
+        assert!(matches!(rx.try_recv(), RecvOutcome::Detached));
+    }
+
+    #[test]
+    fn dsm_inbox_multi_producer_through_trait_surface() {
+        use std::sync::Arc;
+        // Build a real Arc<dyn BatchChannelSender> shared across threads to confirm
+        // dyn dispatch + Send/Sync impls compile and behave.
+        let (tx, rx, _region) = test_dsm_inbox_pair(64, 32);
+        let tx: Arc<dyn BatchChannelSender> = Arc::new(tx);
+        let mut handles = Vec::new();
+        const K: usize = 4;
+        const M: u32 = 200;
+        for producer_id in 0..K {
+            let tx = Arc::clone(&tx);
+            handles.push(std::thread::spawn(move || {
+                let mut payload = [0u8; 8];
+                payload[0..4].copy_from_slice(&(producer_id as u32).to_le_bytes());
+                let mut sent = 0u32;
+                while sent < M {
+                    payload[4..8].copy_from_slice(&sent.to_le_bytes());
+                    match tx.try_send_bytes(&payload) {
+                        Ok(true) => sent += 1,
+                        Ok(false) => std::thread::yield_now(),
+                        Err(e) => panic!("send failed: {e}"),
+                    }
+                }
+            }));
+        }
+        let target = K * M as usize;
+        let mut seen = vec![vec![false; M as usize]; K];
+        let mut got = 0usize;
+        while got < target {
+            match rx.try_recv() {
+                RecvOutcome::Bytes(b) => {
+                    let producer_id = u32::from_le_bytes(b[0..4].try_into().unwrap()) as usize;
+                    let idx = u32::from_le_bytes(b[4..8].try_into().unwrap()) as usize;
+                    let already = std::mem::replace(&mut seen[producer_id][idx], true);
+                    assert!(!already, "dup ({producer_id}, {idx})");
+                    got += 1;
+                }
+                RecvOutcome::Empty => std::thread::yield_now(),
+                RecvOutcome::Detached => panic!("unexpected detach"),
+            }
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
     }
 }

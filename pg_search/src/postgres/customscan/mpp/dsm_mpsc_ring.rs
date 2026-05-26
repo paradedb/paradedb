@@ -151,7 +151,15 @@ const CACHE_LINE: usize = 64;
 /// false-sharing footgun Vyukov's MPMC writeups call out; the Disruptor literature
 /// shows 5-10x throughput loss from this on x86. Padding keeps each hot field on its
 /// own line.
-#[repr(C, align(64))]
+/// Note: NOT `#[repr(C, align(64))]`. PG `dsm_segment` base addresses are only guaranteed
+/// MAXALIGN (8-byte) aligned in practice (on macOS, the user-data offset within an mmap
+/// region can land on a 16-aligned but not 64-aligned address). Forcing align(64) on the
+/// struct would mandate a 64-aligned destination in `create_at` / `attach_at`, which we
+/// can't guarantee from the DSM region. False-sharing protection still holds: the
+/// `_pad_*` fields below put `head`, `tail`, and the first slot on separate 64-byte
+/// regions in absolute address space (the *distance* between hot fields is what matters,
+/// not their absolute alignment).
+#[repr(C)]
 pub(super) struct DsmMpscRingHeader {
     /// Magic constant; equals `MPSC_RING_MAGIC` for a valid ring. Checked in `attach_at`.
     magic: u32,
@@ -369,9 +377,10 @@ pub(super) unsafe fn create_at(
         slot_capacity as usize > SLOT_HEADER_BYTES,
         "slot_capacity must leave room for at least one payload byte"
     );
-    // The header is `repr(C, align(64))`, so `std::ptr::write` requires the destination
-    // address to be 64-byte aligned. PG `dsm_segment`s are page-aligned in production;
-    // tests must use an aligned-Vec helper rather than `vec![0u8; n]`.
+    // The header's natural alignment (from its largest field, AtomicU64) is 8 bytes.
+    // PG MAXALIGN is 8 on every supported platform, so dsm_segment user-data offsets
+    // computed via `align_up_maxalign_checked` always satisfy this. Tests use an
+    // aligned-Vec helper just to keep the assertion clean across allocators.
     debug_assert!(
         (base as usize).is_multiple_of(std::mem::align_of::<DsmMpscRingHeader>()),
         "create_at base must be aligned to {} bytes",
@@ -939,10 +948,11 @@ mod tests {
             (header_size - tail_off) >= CACHE_LINE,
             "first slot must start on its own cache line: header_size={header_size}, tail_off={tail_off}, CACHE_LINE={CACHE_LINE}"
         );
-        // Header itself should be CACHE_LINE-aligned so the padding math holds when
-        // the ring starts at the beginning of a DSM segment (DSM regions are
-        // page-aligned in PG, so this is satisfied in production).
-        assert_eq!(std::mem::align_of::<DsmMpscRingHeader>(), CACHE_LINE);
+        // Header's natural alignment is determined by its largest field (AtomicU64 →
+        // 8 bytes). Cache-line padding between hot fields still ensures separation in
+        // absolute address space regardless of the struct's starting alignment, as long
+        // as the inter-field distance is >= CACHE_LINE.
+        assert_eq!(std::mem::align_of::<DsmMpscRingHeader>(), 8);
     }
 
     /// Magic + version validation: an attach against a region with the wrong magic or

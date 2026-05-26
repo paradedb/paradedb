@@ -65,6 +65,19 @@ use crate::postgres::customscan::mpp::mesh::{align_up_maxalign_checked, aligned_
 /// sweet spot.
 const RING_SLOTS: u32 = 8;
 
+/// Cache-line alignment for the per-inbox DsmMpscRing header. The ring's
+/// `#[repr(C, align(64))]` mandates 64-byte alignment at every `create_at`/`attach_at`
+/// site; both `queues_offset` and per-inbox `queue_bytes` are aligned up to this so the
+/// computed `inbox_offset(r) = queues_offset + r * queue_bytes` lands at a 64-aligned
+/// address for every `r`.
+const RING_ALIGN: usize = 64;
+
+#[inline]
+fn align_up_ring(n: usize) -> Option<usize> {
+    let mask = RING_ALIGN - 1;
+    n.checked_add(mask).map(|x| x & !mask)
+}
+
 const MPP_DSM_MAGIC: u32 = 0x4D50_5052; // "MPPR" (RPC variant)
 /// Bumped on any wire-incompatible change to the DSM header layout or to the inbox-offset math,
 /// so attaching workers reject mismatched leaders loudly rather than reading garbage. Validated
@@ -178,10 +191,15 @@ pub(super) fn compute_dsm_layout(
     if n_procs < 2 {
         return Err("mpp: n_procs must be >= 2 (leader + at least one worker)");
     }
+    // MAXALIGN-round-down first (operator-friendly), then round up to the ring's
+    // 64-byte alignment requirement. Doing it in this order means each per-inbox
+    // region is both MAXALIGN-aligned (PG DSM convention) AND cache-line aligned
+    // (DsmMpscRingHeader's repr(C, align(64)) requirement).
     let queue_bytes = aligned_queue_bytes(queue_bytes);
     if queue_bytes == 0 {
         return Err("mpp: queue_bytes too small after alignment");
     }
+    let queue_bytes = align_up_ring(queue_bytes).ok_or("mpp: queue_bytes alignment overflow")?;
     // Sanity: each inbox must have room for the ring header + at least RING_SLOTS slots
     // of one byte each (we don't pin a minimum payload size, just that the ring is
     // constructible).
@@ -194,8 +212,10 @@ pub(super) fn compute_dsm_layout(
     let plan_end = plan_offset
         .checked_add(plan_len)
         .ok_or("mpp: plan offset+len overflow")?;
-    let queues_offset =
-        align_up_maxalign_checked(plan_end).ok_or("mpp: queues alignment overflow")?;
+    // Round queues_offset up to RING_ALIGN so the first inbox starts at a 64-aligned
+    // address; subsequent inboxes are queue_bytes apart and queue_bytes is RING_ALIGN-
+    // aligned, so they all land on cache-line boundaries.
+    let queues_offset = align_up_ring(plan_end).ok_or("mpp: queues alignment overflow")?;
     let queues_bytes = (n_procs as usize)
         .checked_mul(queue_bytes)
         .ok_or("mpp: queues bytes overflow")?;
@@ -318,7 +338,9 @@ pub(super) unsafe fn leader_init(
     let create_ms = t_create.map(|t| t.elapsed().as_secs_f64() * 1000.0);
 
     let t_attach = trace_on.then(Instant::now);
-    let attach = unsafe { attach_proc(base, &header, 0) };
+    let attach = unsafe {
+        attach_proc(base, &header, 0, /* attach_senders */ false)
+    };
     let attach_ms = t_attach.map(|t| t.elapsed().as_secs_f64() * 1000.0);
 
     if trace_on {
@@ -349,33 +371,45 @@ pub(super) unsafe fn leader_init(
 
 /// Attach to the leader-initialized DSM region as `proc_idx` (`0 = leader`, `1..N = parallel
 /// workers`) under the mesh-multiplexed layout: attach as receiver to this proc's own MPSC
-/// inbox + as sender to every peer's inbox.
+/// inbox, and (if `attach_senders` is true) as sender to every peer's inbox.
 ///
-/// Workers use this from `initialize_worker_custom_scan` via `worker_attach`; the leader
-/// uses it inline at the end of `leader_init`. DsmMpscRing is many-producer-one-consumer
-/// (MPSC) so the own-inbox is the single point of frame ingress for this process; peers
-/// stamp `MppFrameHeader::sender_proc` and the drain demultiplexes by source.
+/// Workers use this from `initialize_worker_custom_scan` via `worker_attach` with
+/// `attach_senders = true`; the leader uses it from `leader_init` with
+/// `attach_senders = false` because the leader is consumer-only and never hosts a
+/// producer fragment.
+///
+/// **Why the leader skips outbound attach**: `DsmMpscSender::new` increments the ring's
+/// `sender_count`, and `Drop` decrements it; the 1 → 0 transition flips `detached`. If
+/// the leader attached as sender to each peer inbox before any worker had, the leader's
+/// subsequent drop would prematurely mark every inbox detached and workers' later sends
+/// would all fail with `SendError::Detached`. Skipping the attach entirely keeps
+/// `sender_count` accurate (only workers ever increment for peer inboxes).
 ///
 /// # Safety
 /// - `base` must point to a DSM region whose header has been validated.
 /// - `header.inbox_offset(r)` must already point at a ring initialized by
 ///   `DsmMpscRing::create_at` (the leader does this in `leader_init`).
-unsafe fn attach_proc(base: *mut u8, header: &MppDsmHeader, this_proc: u32) -> ProcAttach {
+unsafe fn attach_proc(
+    base: *mut u8,
+    header: &MppDsmHeader,
+    this_proc: u32,
+    attach_senders: bool,
+) -> ProcAttach {
     let n_procs = header.n_procs;
-    let peer_count = (n_procs - 1) as usize; // n_procs >= 2 is layout invariant
-    let mut outbound_senders = Vec::with_capacity(peer_count);
+    let peer_count = (n_procs - 1) as usize;
+    let mut outbound_senders = Vec::with_capacity(if attach_senders { peer_count } else { 0 });
 
     let (ring_slots, slot_capacity) = ring_dims_for(header.queue_bytes as usize);
 
-    // Outbound: one DsmMpscSender per peer, attached to each peer's inbox. attach_at
-    // validates the magic / version / shape from the leader's create_at.
-    for peer_idx in 0..(n_procs - 1) {
-        let r = peer_proc_for_index(this_proc, peer_idx);
-        let off = header.inbox_offset(r) as usize;
-        let inbox_addr = unsafe { base.add(off) };
-        let nn = unsafe { dsm_mpsc_ring::attach_at(inbox_addr, ring_slots, slot_capacity) }
-            .expect("DsmMpscRing attach_at: leader-initialized region must validate");
-        outbound_senders.push(unsafe { DsmMpscSender::new(nn) });
+    if attach_senders {
+        for peer_idx in 0..(n_procs - 1) {
+            let r = peer_proc_for_index(this_proc, peer_idx);
+            let off = header.inbox_offset(r) as usize;
+            let inbox_addr = unsafe { base.add(off) };
+            let nn = unsafe { dsm_mpsc_ring::attach_at(inbox_addr, ring_slots, slot_capacity) }
+                .expect("DsmMpscRing attach_at: leader-initialized region must validate");
+            outbound_senders.push(unsafe { DsmMpscSender::new(nn) });
+        }
     }
 
     // Inbound: this proc's own inbox. Single receiver per ring (MPSC contract).
@@ -439,7 +473,9 @@ pub(super) unsafe fn worker_attach(
     // the parallel-worker backend before tokio starts, so reading `mpp_trace` directly is safe.
     let trace_on = crate::gucs::mpp_trace();
     let t_attach = trace_on.then(Instant::now);
-    let attach = unsafe { attach_proc(base, &header, proc_idx) };
+    let attach = unsafe {
+        attach_proc(base, &header, proc_idx, /* attach_senders */ true)
+    };
     let _ = seg; // DsmMpscRing doesn't use the dsm_segment handle today.
     if trace_on {
         let attach_ms = t_attach.unwrap().elapsed().as_secs_f64() * 1000.0;

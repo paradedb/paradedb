@@ -131,6 +131,7 @@ mod tests {
             Some(ffhelper.clone()),
             0,
             Some(7),
+            false,
         );
 
         let found = find_ffhelper_for_plan_position(&scan, 7)

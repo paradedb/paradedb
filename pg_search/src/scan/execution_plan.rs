@@ -55,6 +55,7 @@ use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, PlanProperties,
 };
 use futures::Stream;
+use pgrx::pg_sys;
 use tantivy::index::SegmentId;
 
 use crate::index::fast_fields_helper::FFHelper;
@@ -177,6 +178,14 @@ pub struct PgSearchScanPlan {
     /// this scan to write a tag — the EXPLAIN renderer falls back to
     /// `=true` in that case.
     dynamic_filter_strategy: Arc<AtomicU8>,
+    /// True when this scan is a replicated (non-partitioning) source under MPP. At
+    /// `execute()` time the scan reads `runtime_gucs_from_ctx(&ctx)` to learn the
+    /// distributed worker count; combined with `pg_sys::ParallelWorkerNumber` that lets
+    /// each worker keep only the docs assigned to its slice (`doc_id % n_workers ==
+    /// worker_number`). Without this, the downstream NetworkShuffleExec would ship N
+    /// copies of the replicated source's data to consumer tasks and inflate any
+    /// join + aggregate above it by a factor of N. Set in `PgSearchTableProvider`.
+    replicated_under_mpp: bool,
 }
 
 impl std::fmt::Debug for PgSearchScanPlan {
@@ -206,6 +215,7 @@ impl PgSearchScanPlan {
         ffhelper: Option<Arc<FFHelper>>,
         indexrelid: u32,
         deferred_ctid_plan_position: Option<usize>,
+        replicated_under_mpp: bool,
     ) -> Self {
         let needs_ffhelper = !deferred_fields.is_empty() || deferred_ctid_plan_position.is_some();
         if needs_ffhelper && ffhelper.is_none() {
@@ -261,6 +271,7 @@ impl PgSearchScanPlan {
             dynamic_filter_pushdown: Arc::new(AtomicBool::new(false)),
             sort_order: sort_order.cloned(),
             dynamic_filter_strategy: Arc::new(AtomicU8::new(0)),
+            replicated_under_mpp,
         }
     }
 
@@ -478,6 +489,28 @@ impl ExecutionPlan for PgSearchScanPlan {
             .map(InListPushdownConfig::from_runtime_gucs)
             .unwrap_or_else(InListPushdownConfig::from_live_gucs);
 
+        // Decide whether this scan needs to apply the per-worker doc-modulo slice. The flag
+        // is set by the customscans (see `PgSearchTableProvider::set_replicated_under_mpp`)
+        // for non-partitioning sources whose data would otherwise be replicated by every
+        // worker and shipped N times through `NetworkShuffleExec`. We only activate the
+        // filter when the runtime GUC snapshot is installed (i.e. we're inside an MPP plan)
+        // and `ParallelWorkerNumber` is a valid worker index — leaders never run a
+        // replicated producer scan in MPP, and non-MPP parallel hash join handles its own
+        // worker scheduling.
+        let mpp_worker_mask: Option<(u32, u32)> = if self.replicated_under_mpp {
+            let n_workers = runtime_gucs
+                .map(|g| g.mpp_worker_count.saturating_sub(1))
+                .unwrap_or(0);
+            let worker_num = unsafe { pg_sys::ParallelWorkerNumber };
+            if n_workers >= 2 && worker_num >= 0 && (worker_num as usize) < n_workers {
+                Some((worker_num as u32, n_workers as u32))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let stream_gen = async_stream::try_stream! {
             // Optimized Search Integration:
             // We initialize the search here, inside the stream, because for HashJoin
@@ -526,6 +559,9 @@ impl ExecutionPlan for PgSearchScanPlan {
             };
             if df_batch_size > 0 {
                 scanner.set_batch_size(df_batch_size as usize);
+            }
+            if let Some((worker_idx, n_workers)) = mpp_worker_mask {
+                scanner.set_mpp_worker_mask(worker_idx, n_workers);
             }
 
             // `build_filters` recursively rebuilds the dynamic filter's `CaseExpr` tree on every
@@ -658,6 +694,7 @@ impl ExecutionPlan for PgSearchScanPlan {
                 dynamic_filter_strategy: Arc::new(AtomicU8::new(
                     self.dynamic_filter_strategy.load(Ordering::Relaxed),
                 )),
+                replicated_under_mpp: self.replicated_under_mpp,
             });
             Ok(
                 FilterPushdownPropagation::with_parent_pushdown_result(filters)
@@ -767,6 +804,7 @@ pub fn create_sorted_scan(
         None,
         indexrelid,
         None,
+        /* replicated_under_mpp */ false,
     ));
 
     // For a single segment, no merging is needed
@@ -822,6 +860,7 @@ mod tests {
             None,
             0,
             Some(1),
+            false,
         );
     }
 
@@ -836,6 +875,7 @@ mod tests {
             None,
             0,
             None,
+            false,
         );
     }
 }

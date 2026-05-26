@@ -131,6 +131,19 @@ pub struct PgSearchTableProvider {
     /// and load (in get_schema) execute sequentially within the same single-threaded optimization pass.
     #[serde(with = "atomic_bool_serde")]
     late_materialization_active: AtomicBool,
+
+    /// True when this provider is a non-partitioning ("replicated") source under MPP.
+    ///
+    /// Under MPP, the customscans pick one source as the "partitioning" source (its segments
+    /// are split across workers via `checkout_segment`) and treat every other source as
+    /// replicated: every worker opens the same frozen `canonical_segment_ids` and scans the
+    /// full data. Combined with the downstream `RepartitionExec → NetworkShuffleExec`, that
+    /// shipped N copies of the data to the consumer tasks and inflated the join count by a
+    /// factor of N. When this flag is set, the scan applies a per-worker doc-modulo filter
+    /// (`doc_id % n_workers == ParallelWorkerNumber`) so each worker emits exactly its slice
+    /// of the data and the union across workers is the full data once.
+    #[serde(default)]
+    replicated_under_mpp: bool,
 }
 
 mod atomic_bool_serde {
@@ -171,6 +184,7 @@ impl PgSearchTableProvider {
             canonical_segment_ids: None,
             visibility_mode: VisibilityMode::Eager,
             late_materialization_active: AtomicBool::new(false),
+            replicated_under_mpp: false,
         }
     }
 
@@ -212,6 +226,12 @@ impl PgSearchTableProvider {
 
     pub(crate) fn set_planstate(&mut self, planstate: Option<*mut pg_sys::PlanState>) {
         self.planstate = planstate;
+    }
+
+    /// Mark this provider as a replicated non-partitioning source under MPP. See
+    /// [`PgSearchTableProvider::replicated_under_mpp`] for the wedge it prevents.
+    pub(crate) fn set_replicated_under_mpp(&mut self, v: bool) {
+        self.replicated_under_mpp = v;
     }
     fn enable_deferred_columns(&mut self, required_early_columns: &HashSet<String>) {
         for wff in self.fields.iter_mut() {
@@ -448,6 +468,7 @@ impl PgSearchTableProvider {
         query_for_display: SearchQueryInput,
         sort_order: Option<&crate::postgres::options::SortByField>,
         ffhelper: Arc<FFHelper>,
+        replicated_under_mpp: bool,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         // Only declare sort order if the field exists in the schema
         let actual_sort_order = sort_order.and_then(|so| {
@@ -480,6 +501,7 @@ impl PgSearchTableProvider {
             ffhelper_arg,
             self.scan_info.indexrelid.to_u32(),
             deferred_ctid_plan_position,
+            replicated_under_mpp,
         )))
     }
 
@@ -541,7 +563,17 @@ impl PgSearchTableProvider {
             segments.push(partition);
         }
 
-        self.create_scan(segments, schema, query_for_display, sort_order, ffhelper)
+        // Throttled scans are the partitioning source's sort path: segments are claimed
+        // via checkout_segment so the data is already divided across workers. No
+        // doc-modulo filter needed.
+        self.create_scan(
+            segments,
+            schema,
+            query_for_display,
+            sort_order,
+            ffhelper,
+            /* replicated_under_mpp */ false,
+        )
     }
 
     /// Creates a multi-partition `PgSearchScanPlan` for eager scans.
@@ -587,7 +619,18 @@ impl PgSearchTableProvider {
             })
             .collect();
 
-        self.create_scan(segments, schema, query_for_display, sort_order, ffhelper)
+        // Eager scans surface each segment as its own DataFusion partition; the
+        // multi-partition shape is what divides work for sorted parallel reads. The
+        // doc-modulo filter would need per-partition keying; out of scope for the
+        // initial fix and currently unused by the bench query path.
+        self.create_scan(
+            segments,
+            schema,
+            query_for_display,
+            sort_order,
+            ffhelper,
+            /* replicated_under_mpp */ false,
+        )
     }
 
     /// Creates a single-partition `PgSearchScanPlan` for lazy scans.
@@ -617,6 +660,7 @@ impl PgSearchTableProvider {
         schema: SchemaRef,
         query_for_display: SearchQueryInput,
         planner_estimated_rows: u64,
+        replicated_under_mpp: bool,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let ffhelper = Arc::new(ffhelper);
         let scanner_config = crate::scan::execution_plan::ScannerConfig {
@@ -641,6 +685,7 @@ impl PgSearchTableProvider {
             query_for_display,
             None, // no sort order
             ffhelper,
+            replicated_under_mpp,
         )
     }
 }
@@ -851,6 +896,7 @@ impl PgSearchTableProvider {
                 projected_schema,
                 query,
                 total_estimated_rows,
+                self.replicated_under_mpp,
             )
         }
     }

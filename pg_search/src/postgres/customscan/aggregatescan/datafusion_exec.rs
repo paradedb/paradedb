@@ -601,6 +601,14 @@ async fn build_source_df(
     let mut provider = PgSearchTableProvider::new(scan_info, fields, is_parallel);
     if let Some(idx) = np_idx {
         provider.set_non_partitioning_index(idx);
+        // A non-partitioning source is replicated: every worker opens the same frozen
+        // segment set and scans the full data. Under MPP the downstream RepartitionExec
+        // → NetworkShuffleExec above this scan ships N copies of the data to consumer
+        // tasks and inflates any join + aggregate by a factor of N. The scan checks
+        // `runtime_gucs_from_ctx(&ctx)` at execute time to gate the per-worker
+        // doc-modulo filter — non-MPP paths don't install the runtime GUC snapshot, so
+        // this flag is a no-op there.
+        provider.set_replicated_under_mpp(true);
     }
     // HeapFilter queries (e.g. `=` on a column indexed via a
     // `pdb.literal(...)` cast) compile to runtime Postgres expressions

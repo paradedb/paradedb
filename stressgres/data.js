@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779824389988,
+  "lastUpdate": 1779824436502,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21034,6 +21034,54 @@ window.BENCHMARK_DATA = {
             "value": 277.4900254472401,
             "unit": "median tps",
             "extra": "avg tps: 268.53774020925573, max tps: 568.7467679187579, count: 107720"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "59bbbe58d9c07aacd6ff87a90a955843ab3ed266",
+          "message": "refactor(mpp): drop dead strip_dynamic_filters_from_dyn helper (#5136)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDeletes `PgSearchScanPlan::strip_dynamic_filters_from_dyn`.\n\n## Why\n\nDCE.\n\n## How\n\nDelete the function.\n\n## Tests\n\n- `cargo check --package pg_search --features pg18\n--no-default-features` clean.\n- All 4 MPP regress tests pass.\n- CI green.",
+          "timestamp": "2026-05-26T11:23:16-07:00",
+          "tree_id": "819962fbe27c5c425bc12fc1d4f305ab1658b9a6",
+          "url": "https://github.com/paradedb/paradedb/commit/59bbbe58d9c07aacd6ff87a90a955843ab3ed266"
+        },
+        "date": 1779824405476,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 598.4680867099762,
+            "unit": "median tps",
+            "extra": "avg tps: 602.7793542987524, max tps: 713.0994428012098, count: 53850"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 629.728686471349,
+            "unit": "median tps",
+            "extra": "avg tps: 634.875743504287, max tps: 815.1714186352953, count: 53850"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 91.10653140659859,
+            "unit": "median tps",
+            "extra": "avg tps: 91.40288659187617, max tps: 101.36774587195313, count: 53850"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 276.08175045724806,
+            "unit": "median tps",
+            "extra": "avg tps: 270.68588027233415, max tps: 527.4623445511328, count: 107700"
           }
         ]
       }

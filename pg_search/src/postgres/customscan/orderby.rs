@@ -682,7 +682,12 @@ pub unsafe fn pathkey_matches_sort_by(
     // Direction and NULLS ordering must both match for sorted path to apply.
     // If query requests incompatible NULLS ordering, we return None and
     // PostgreSQL will add a Sort node to achieve the requested ordering.
-    // Note: Collation checking is deferred - Tantivy uses byte ordering (like C locale).
-    // For text fields with non-C collation, sorted path may produce incorrect order.
-    is_desc == sort_by_is_desc && (*pathkey).pk_nulls_first == sort_by_nulls_first
+
+    // Note: Tantivty uses byte ordering (like C locale) - for fields with non-C collation, an incorrect order may be produced, so we must
+    // return false in those cases
+    let collation = (*(*pathkey).pk_eclass).ec_collation;
+
+    is_desc == sort_by_is_desc
+        && (*pathkey).pk_nulls_first == sort_by_nulls_first
+        && collation == pg_sys::C_COLLATION_OID
 }

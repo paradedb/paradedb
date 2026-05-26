@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779788751324,
+  "lastUpdate": 1779788788150,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18218,6 +18218,114 @@ window.BENCHMARK_DATA = {
             "value": 173.7734375,
             "unit": "median mem",
             "extra": "avg mem: 171.1968379067189, max mem: 174.3125, count: 55582"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ded240d1e22c2cc3e797c2d7f4d4970275d17e45",
+          "message": "refactor(mpp): drop dead clamps + MppHostState trait (#5133)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nTwo cleanups:\n\n1. drop the dead `saturating_sub(1).max(1)` clamps and the\n`glue::n_procs()` trampoline that the centralized invariant in PR #5132\nmade redundant.\n2. factor the aggregatescan / joinscan `exec_mpp_worker` wrappers behind\nan `MppHostState` trait so they share a single dispatcher.\n\n## Why\n\n(1) is straightforward dead code. With PR #5132's `>=\nMIN_TOTAL_WORKER_COUNT` invariant centralized, the belt-and-braces\nclamps at three sites become noise.\n\n(2)is structural. The aggregatescan and joinscan wrappers had the same\nskeleton but differed in four real ways: runtime slot location, the\n`MppExecState::Worker` enum, the seed `SessionContext` profile, and the\npath to the `outbound_senders` slot for `mem::take`. A trait isolates\nthose four concerns and the shared body fits on one screen.\n\n## How\n\n- `MppMesh::n_workers()` → `self.n_procs - 1` with a debug_assert.\n- `exec_worker.rs` calls `n_workers()` directly. Drop the unused\n`total_procs` local.\n- Delete `glue::n_procs()`. Call sites use `mpp_worker_count()`\ndirectly.\n- New `mpp/host.rs` with the `MppHostState` trait and a\n`exec_mpp_worker_impl<S>` dispatcher.\n- Both providers `impl MppHostState for CustomScanStateWrapper<T>`.\n\n## Tests\n\n- `cargo check --package pg_search --features pg18\n--no-default-features` clean.\n- `mpp_smoke`, `mpp_joinscan`, `mpp_aggregate`, `mpp_aggregate_postagg`\nall pass.\n- CI green.",
+          "timestamp": "2026-05-26T01:40:41-07:00",
+          "tree_id": "b6f8a623aa6b0574231939f72051f686bc47c986",
+          "url": "https://github.com/paradedb/paradedb/commit/ded240d1e22c2cc3e797c2d7f4d4970275d17e45"
+        },
+        "date": 1779788754015,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.622696,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.192526115634937, max cpu: 47.33728, count: 55861"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 178.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 176.61105991601923, max mem: 179.02734375, count: 55861"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.960918224205383, max cpu: 36.994217, count: 55861"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 121.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 119.91209647327742, max mem: 121.40625, count: 55861"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.4301493097302025, max cpu: 18.805092, count: 55861"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 115.9375,
+            "unit": "median mem",
+            "extra": "avg mem: 129.1738012376703, max mem: 178.52734375, count: 55861"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 15103,
+            "unit": "median block_count",
+            "extra": "avg block_count: 15661.02787275559, max block_count: 29154.0, count: 55861"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.270055455684681, max cpu: 4.673807, count: 55861"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 74.53125,
+            "unit": "median mem",
+            "extra": "avg mem: 82.47711199450421, max mem: 127.67578125, count: 55861"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 24,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.49653604482555, max segment_count: 36.0, count: 55861"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.284333,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.917311374971852, max cpu: 36.994217, count: 111722"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 179.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 154.2375633338219, max mem: 182.171875, count: 111722"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.85650188328681, max cpu: 27.77242, count: 55861"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 173.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 171.09794512271532, max mem: 174.45703125, count: 55861"
           }
         ]
       }

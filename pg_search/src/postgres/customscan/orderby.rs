@@ -322,6 +322,7 @@ where
 
         let collation = (*equivclass).ec_collation;
         if collation == pg_sys::C_COLLATION_OID {
+            // if the collation for this pathkey isn't C, then we can't pushdown as Tantivy uses byte ordering
             for member in members.iter_ptr() {
                 let expr = (*member).em_expr;
 

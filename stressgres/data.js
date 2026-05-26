@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779823673369,
+  "lastUpdate": 1779823707205,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19280,6 +19280,114 @@ window.BENCHMARK_DATA = {
             "value": 173.87109375,
             "unit": "median mem",
             "extra": "avg mem: 171.09794512271532, max mem: 174.45703125, count: 55861"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ced0995fa5b5def18fe44bb821cf82b80cc9c8bb",
+          "message": "refactor(mpp): drop EXPLAIN-time stub mesh (#5135)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDrops the drain-less stub `MppMesh` that EXPLAIN was building purely to\nsatisfy `with_distributed_worker_transport`'s non-optional argument.\n`build_mpp_session_context` now takes `Option<Arc<MppMesh>>`.\n\n## Why\n\nThe fork's `get_distributed_worker_transport` already falls back to a\ndefault `WorkerTransport` (`FlightWorkerTransport`) when none is\nregistered. EXPLAIN never executes anything that consults the transport,\nso the stub was protecting against a phantom problem.\n\n## How\n\n- `build_mpp_session_context(seed, mesh: Option<Arc<MppMesh>>)`. When\n`Some`, install `ShmMqWorkerTransport`. When `None`, skip and let the\nfork's default sit unused.\n- `n_workers` resolves from `mesh.n_workers()` when present and\n`producer_worker_count()` when not. Same value at runtime, but the\nlatter doesn't need a mesh.\n- Explicitly bootstrap `DistributedConfig::default()` via\n`with_distributed_option_extension` so the rest of the chain doesn't\ndepend on `with_distributed_worker_transport` running first.\n- `aggregatescan::render_df_physical_plan` and JoinScan's EXPLAIN-time\n`build_displayable_explain_string` both pass `None` instead of\nconstructing a stub mesh. Drop the now-unused `mpp_worker_count`\nimports.\n\n## Tests\n\n- `cargo check --package pg_search --features pg18\n--no-default-features` clean.\n- All 4 MPP regress tests pass. EXPLAIN output unchanged — no\nexpected-file drift.\n- CI green.",
+          "timestamp": "2026-05-26T11:23:00-07:00",
+          "tree_id": "a912a337d434f577a86e304fdbca7840272bc19e",
+          "url": "https://github.com/paradedb/paradedb/commit/ced0995fa5b5def18fe44bb821cf82b80cc9c8bb"
+        },
+        "date": 1779823675228,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.122591241387447, max cpu: 47.43083, count: 55652"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 174.64453125,
+            "unit": "median mem",
+            "extra": "avg mem: 147.90057480526306, max mem: 179.25, count: 55652"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.642354183970865, max cpu: 27.934044, count: 55652"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 120.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 119.76442558218932, max mem: 121.07421875, count: 55652"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.3731470234286896, max cpu: 23.210833, count: 55652"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 174.8046875,
+            "unit": "median mem",
+            "extra": "avg mem: 147.86789600441134, max mem: 179.80078125, count: 55652"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16472,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16760.784859483934, max block_count: 31178.0, count: 55652"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.088529190395945, max cpu: 4.6511626, count: 55652"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 112.1796875,
+            "unit": "median mem",
+            "extra": "avg mem: 96.90759204520951, max mem: 136.578125, count: 55652"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.64299575936175, max segment_count: 38.0, count: 55652"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.06866791828294, max cpu: 28.125, count: 111304"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 181.03515625,
+            "unit": "median mem",
+            "extra": "avg mem: 164.64907518204646, max mem: 183.71875, count: 111304"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.899614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.305647753901015, max cpu: 27.612656, count: 55652"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 173.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 170.53155982152484, max mem: 174.06640625, count: 55652"
           }
         ]
       }

@@ -73,6 +73,13 @@
 //! the caller has to guarantee the DSM region is correctly sized and not aliased by
 //! conflicting writers (mainly: only one process gets to call `create_at`; everyone else
 //! calls `attach_at`).
+//!
+//! **Counter wraparound**: `head` and `tail` are `u64` and incremented by one per
+//! operation. At 100M ops/sec, wraparound takes ~5800 years. We treat that as physically
+//! impossible and don't handle it; the Vyukov seq math would break under wrap because
+//! pre-wrap seq values would be larger than post-wrap tail values and producers would
+//! spin-retry indefinitely. If this primitive ever ships in a context where wrap is
+//! conceivable, add a `tail < u64::MAX - margin` check and reset the ring.
 
 // The primitive is not wired into the rest of the MPP module yet; Phase 3 of the
 // mesh-multiplexing implementation does that. Until then, the public-to-the-module API
@@ -103,9 +110,33 @@ struct SlotHeader {
     _pad: u32,
 }
 
+/// Magic constant validating that an attaching process points at a `DsmMpscRingHeader`
+/// rather than garbage. "MPCR" = MPSC Ring. Different value from `MppDsmHeader`'s magic
+/// so a worker that picks up the wrong region fails the wrong-shape check loudly.
+const MPSC_RING_MAGIC: u32 = u32::from_le_bytes(*b"MPCR");
+
+/// Bumped on any incompatible layout change. Mirrors the discipline at
+/// `MppDsmHeader::validate`.
+const MPSC_RING_VERSION: u32 = 1;
+
+/// Assumed cache line size for false-sharing avoidance. 64 bytes covers x86_64 and arm64;
+/// over-padding on smaller-cache-line targets costs a few bytes per ring, nothing more.
+const CACHE_LINE: usize = 64;
+
 /// Ring header. Laid out first in the DSM region; slot array follows immediately after.
-#[repr(C)]
+///
+/// Cache-line padding around `head` and `tail` is load-bearing: under N=24 producer
+/// contention the consumer's `head.store` and the producers' `tail.compare_exchange`
+/// race on the same line, MESI-ping-ponging on every drain/claim. That's exactly the
+/// false-sharing footgun Vyukov's MPMC writeups call out; the Disruptor literature
+/// shows 5-10x throughput loss from this on x86. Padding keeps each hot field on its
+/// own line.
+#[repr(C, align(64))]
 pub(super) struct DsmMpscRingHeader {
+    /// Magic constant; equals `MPSC_RING_MAGIC` for a valid ring. Checked in `attach_at`.
+    magic: u32,
+    /// Layout version; equals `MPSC_RING_VERSION`. Checked in `attach_at`.
+    version: u32,
     /// Number of slots. Immutable after `create_at`.
     ring_size: u32,
     /// Byte capacity of each slot INCLUDING the slot header. Payload bytes per slot are
@@ -114,14 +145,38 @@ pub(super) struct DsmMpscRingHeader {
     /// Set by the consumer (or by the leader on query teardown) to tell producers to
     /// fail-fast on subsequent sends. Sticky.
     detached: AtomicBool,
-    _pad1: [u8; 7],
+    _pad_after_detached: [u8; 3],
     /// PG `Latch*` the consumer waits on. Producers `SetLatch` after a successful send to
-    /// wake the consumer. Null in tests; producers skip the wake call.
+    /// wake the consumer.
+    ///
+    /// # Safety contract for callers
+    ///
+    /// The `*mut Latch` stored here must remain valid for the lifetime of every
+    /// outstanding `DsmMpscSender`. Producers load this pointer on every send and
+    /// dereference via `SetLatch`. In particular: if the consumer process exits and PG
+    /// reuses its `PGPROC` slot, a stored raw `Latch*` becomes dangling and `SetLatch`
+    /// would wake an unrelated backend. Phase 3 integration must replace this with a
+    /// `pgprocno: AtomicU32` and resolve to the latch fresh on every wakeup (so
+    /// `PGPROC` reuse is harmless and a `pid` check defends against late wakeups).
+    /// For the in-process unit-test use today (`NO_LATCH` everywhere) this is moot.
     receiver_latch: AtomicPtr<pg_sys::Latch>,
-    /// Consumer's read cursor. Only the consumer writes this; readers may load.
+    /// Padding to push `head` onto its own cache line. Sized against the offsets of the
+    /// preceding fields; the static_assert in `tests::header_layout_is_cache_friendly`
+    /// keeps it honest.
+    _pad_before_head: [u8; CACHE_LINE - 24],
+    /// Consumer's read cursor. Only the consumer writes this. Currently no producer
+    /// reads it (full-detection works via slot `seq`); the Release-on-store is defensive
+    /// for any future blocking-send variant that wants to poll consumer progress.
     head: AtomicU64,
+    /// Padding to push `tail` onto its own cache line so the consumer's `head.store`
+    /// doesn't invalidate the producers' `tail` cache line.
+    _pad_between_head_and_tail: [u8; CACHE_LINE - 8],
     /// Producers' write cursor. CAS'd to claim slot ownership for a tail value.
     tail: AtomicU64,
+    /// Padding so the first slot doesn't share a cache line with `tail`. Producers
+    /// race on `tail`; the consumer's first slot read should not pull the `tail` cache
+    /// line into the consumer's L1 unnecessarily.
+    _pad_after_tail: [u8; CACHE_LINE - 8],
 }
 
 impl DsmMpscRingHeader {
@@ -168,6 +223,11 @@ pub(super) struct DsmMpscSender {
 // SAFETY: the ring is a `repr(C)` blob in shared memory whose atomic operations are the
 // synchronization point. Both handles are stateless pointers to the same data; sending
 // either across threads requires only the atomic ordering already in use.
+//
+// `DsmMpscReceiver` is deliberately !Sync: the type-level invariant that exactly one
+// thread calls `try_recv` / `set_detached` at a time is what makes the lock-free MPSC
+// math correct (single consumer owns `head` without CAS). `DsmMpscSender` is Sync —
+// multiple producer threads share one `Arc<DsmMpscSender>` and race on `tail` via CAS.
 unsafe impl Send for DsmMpscReceiver {}
 unsafe impl Send for DsmMpscSender {}
 unsafe impl Sync for DsmMpscSender {}
@@ -193,6 +253,14 @@ pub(super) unsafe fn create_at(
         slot_capacity as usize > SLOT_HEADER_BYTES,
         "slot_capacity must leave room for at least one payload byte"
     );
+    // The header is `repr(C, align(64))`, so `std::ptr::write` requires the destination
+    // address to be 64-byte aligned. PG `dsm_segment`s are page-aligned in production;
+    // tests must use an aligned-Vec helper rather than `vec![0u8; n]`.
+    debug_assert!(
+        (base as usize).is_multiple_of(std::mem::align_of::<DsmMpscRingHeader>()),
+        "create_at base must be aligned to {} bytes",
+        std::mem::align_of::<DsmMpscRingHeader>()
+    );
     let header_ptr = base.cast::<DsmMpscRingHeader>();
     // Write the immutable header fields. Use std::ptr::write so we don't construct an
     // intermediate &mut that aliases the not-yet-initialized atomic fields.
@@ -200,13 +268,18 @@ pub(super) unsafe fn create_at(
         std::ptr::write(
             header_ptr,
             DsmMpscRingHeader {
+                magic: MPSC_RING_MAGIC,
+                version: MPSC_RING_VERSION,
                 ring_size,
                 slot_capacity,
                 detached: AtomicBool::new(false),
-                _pad1: [0; 7],
+                _pad_after_detached: [0; 3],
                 receiver_latch: AtomicPtr::new(NO_LATCH),
+                _pad_before_head: [0; CACHE_LINE - 24],
                 head: AtomicU64::new(0),
+                _pad_between_head_and_tail: [0; CACHE_LINE - 8],
                 tail: AtomicU64::new(0),
+                _pad_after_tail: [0; CACHE_LINE - 8],
             },
         );
     }
@@ -243,6 +316,9 @@ pub(super) unsafe fn attach_at(
     let header_ptr = base.cast::<DsmMpscRingHeader>();
     let nn = NonNull::new(header_ptr)?;
     let header = unsafe { nn.as_ref() };
+    if header.magic != MPSC_RING_MAGIC || header.version != MPSC_RING_VERSION {
+        return None;
+    }
     if header.ring_size != expected_ring_size || header.slot_capacity != expected_slot_capacity {
         return None;
     }
@@ -290,6 +366,14 @@ impl DsmMpscReceiver {
     /// Try to read one frame into `out`. On `Bytes`, `out` holds the payload. On
     /// `Empty`, the caller should yield and retry. On `Detached`, the ring is drained
     /// and all producers have detached; no more frames will arrive.
+    ///
+    /// Known wedge: if a producer CAS-advances `tail` and then exits/crashes before
+    /// publishing the slot's `seq`, the consumer sees `tail > head`, the slot's `seq`
+    /// stuck at the previous-round empty marker, and `detached && tail <= head` never
+    /// becomes true. The drain loop will keep returning `Empty` indefinitely. In
+    /// production this is bounded by PG's parallel-worker death handling (worker exit
+    /// → leader gets ERROR → DSM teardown), but Phase 3 should add an explicit
+    /// liveness check against `PGPROC`s to force-detach on producer death.
     pub(super) fn try_recv(&self, out: &mut Vec<u8>) -> RecvOutcome {
         let header = unsafe { self.ring.as_ref() };
         let head = header.head.load(Ordering::Relaxed);
@@ -298,27 +382,43 @@ impl DsmMpscReceiver {
         let seq = unsafe { (*slot).seq.load(Ordering::Acquire) };
         let expected_ready = head.wrapping_add(1);
         if seq != expected_ready {
-            // Slot not ready. Detached + queue caught up means we're done.
+            // Slot not ready. Use `<=` rather than `==` so a strict invariant
+            // violation (tail < head, impossible under correct operation) still
+            // surfaces as Detached rather than wedging Empty forever.
             if header.detached.load(Ordering::Acquire)
-                && header.tail.load(Ordering::Acquire) == head
+                && header.tail.load(Ordering::Acquire) <= head
             {
                 return RecvOutcome::Detached;
             }
             return RecvOutcome::Empty;
         }
-        let len = unsafe { (*slot).len.load(Ordering::Relaxed) } as usize;
+        let len_raw = unsafe { (*slot).len.load(Ordering::Relaxed) } as usize;
+        // Clamp against slot's payload capacity. DSM is mapped writable by every
+        // attached backend, so a buggy / corrupted producer could write a garbage len.
+        // Without this guard, `set_len + copy_nonoverlapping` would read OOB into
+        // neighboring slots or other DSM contents.
+        let payload_cap = (header.slot_capacity as usize).saturating_sub(SLOT_HEADER_BYTES);
+        if len_raw > payload_cap {
+            // Poison the ring rather than silently returning corrupt data.
+            header.detached.store(true, Ordering::Release);
+            return RecvOutcome::Detached;
+        }
+        let len = len_raw;
         out.clear();
         out.reserve(len);
         let data = unsafe { slot_data_ptr(slot) };
+        // copy_nonoverlapping before set_len so a hypothetical panic mid-copy doesn't
+        // leave `out` with logical-len > initialized-bytes.
         unsafe {
-            out.set_len(len);
             std::ptr::copy_nonoverlapping(data, out.as_mut_ptr(), len);
+            out.set_len(len);
         }
         // Mark the slot empty for the next round. Round k empty marker is
         // (k * ring_size) + slot_idx; head + ring_size is exactly that for next round.
         let next_empty_seq = head.wrapping_add(header.ring_size as u64);
         unsafe { (*slot).seq.store(next_empty_seq, Ordering::Release) };
-        // Now safe to advance head.
+        // Advance head AFTER publishing the slot's empty marker, so a producer racing
+        // to claim sees the empty slot before seeing the new head value.
         header.head.store(head.wrapping_add(1), Ordering::Release);
         RecvOutcome::Bytes
     }
@@ -329,7 +429,9 @@ impl DsmMpscReceiver {
     pub(super) fn set_detached(&self) {
         let header = unsafe { self.ring.as_ref() };
         header.detached.store(true, Ordering::Release);
-        // Wake any producer that might be in a (future) blocking-send variant.
+        // Defensive self-wake. Normally the receiver itself calls set_detached and
+        // doesn't need to wake itself, but if a signal handler or supervisor thread
+        // calls this while the receiver is in WaitLatch, this breaks it out.
         let latch = header.receiver_latch.load(Ordering::Acquire);
         if !latch.is_null() {
             unsafe { pg_sys::SetLatch(latch) };
@@ -369,7 +471,11 @@ impl DsmMpscSender {
             return Err(SendError::MessageTooLarge);
         }
         loop {
-            let tail = header.tail.load(Ordering::Relaxed);
+            // Acquire load on `tail` pairs defensively with any future blocking-send
+            // variant that may want to observe consumer progress via `head` (we don't
+            // today; full-detection rides on the slot's `seq`). Cheaper to keep the
+            // ordering tight than to relax-then-tighten under a future audit.
+            let tail = header.tail.load(Ordering::Acquire);
             let slot_idx = (tail % header.ring_size as u64) as u32;
             let slot = unsafe { slot_ptr(self.ring.as_ptr(), slot_idx, header.slot_capacity) };
             let seq = unsafe { (*slot).seq.load(Ordering::Acquire) };
@@ -377,10 +483,13 @@ impl DsmMpscSender {
             match seq.cmp(&tail) {
                 std::cmp::Ordering::Equal => {
                     // Slot is empty in our round. Try to claim by advancing tail.
+                    // AcqRel on success so a subsequent producer's Acquire load of
+                    // `tail` sees our claim and skips the slot we own. Relaxed on
+                    // failure (we just retry the loop on a fresh tail load).
                     match header.tail.compare_exchange_weak(
                         tail,
                         tail.wrapping_add(1),
-                        Ordering::Relaxed,
+                        Ordering::AcqRel,
                         Ordering::Relaxed,
                     ) {
                         Ok(_) => {
@@ -431,13 +540,41 @@ mod tests {
     struct SharedRing(NonNull<DsmMpscRingHeader>);
     unsafe impl Send for SharedRing {}
 
+    /// Owning aligned region for a ring. The default `Vec<u8>` allocator doesn't
+    /// guarantee `repr(C, align(64))` alignment on the eventual `create_at` write, so
+    /// allocate via the global allocator with an explicit `Layout` and free in `Drop`.
+    /// Production uses PG `dsm_segment` (page-aligned), so this dance is test-only.
+    struct AlignedRegion {
+        ptr: *mut u8,
+        layout: std::alloc::Layout,
+    }
+    impl AlignedRegion {
+        fn new(bytes: usize) -> Self {
+            let align = std::mem::align_of::<DsmMpscRingHeader>();
+            let layout = std::alloc::Layout::from_size_align(bytes, align).expect("invalid layout");
+            let ptr = unsafe { std::alloc::alloc_zeroed(layout) };
+            assert!(!ptr.is_null(), "allocator returned null");
+            Self { ptr, layout }
+        }
+        fn as_mut_ptr(&self) -> *mut u8 {
+            self.ptr
+        }
+    }
+    impl Drop for AlignedRegion {
+        fn drop(&mut self) {
+            unsafe { std::alloc::dealloc(self.ptr, self.layout) };
+        }
+    }
+
     /// Allocate a heap region big enough for a ring with `ring_size` slots of
     /// `slot_capacity` bytes each, initialize it, and return (receiver, sender_template,
-    /// owner) where the owner Box keeps the region alive. The test drops the owner last.
-    fn make_ring(ring_size: u32, slot_capacity: u32) -> (DsmMpscReceiver, DsmMpscSender, Vec<u8>) {
+    /// owner) where the owner keeps the region alive. The test drops the owner last.
+    fn make_ring(
+        ring_size: u32,
+        slot_capacity: u32,
+    ) -> (DsmMpscReceiver, DsmMpscSender, AlignedRegion) {
         let bytes = DsmMpscRingHeader::region_bytes(ring_size, slot_capacity);
-        // Box<[u8]> gives us a stable address for the duration of the test.
-        let mut region: Vec<u8> = vec![0u8; bytes];
+        let region = AlignedRegion::new(bytes);
         let header_ptr = unsafe { create_at(region.as_mut_ptr(), ring_size, slot_capacity) };
         let nn = NonNull::new(header_ptr).expect("create_at returned null");
         // Unsafe: we hand ownership of the same pointer to two handles. Safe because the
@@ -626,6 +763,160 @@ mod tests {
         }
         for h in handles {
             h.join().unwrap();
+        }
+    }
+
+    /// Cache-line layout regression: `head` and `tail` should NOT share a cache line,
+    /// and the first slot should not share a line with `tail`. Catches accidental
+    /// padding removal that would re-introduce the false-sharing perf cliff this
+    /// primitive was built to avoid.
+    #[test]
+    fn header_layout_is_cache_friendly() {
+        use std::mem::offset_of;
+        let head_off = offset_of!(DsmMpscRingHeader, head);
+        let tail_off = offset_of!(DsmMpscRingHeader, tail);
+        let header_size = std::mem::size_of::<DsmMpscRingHeader>();
+        assert!(
+            (tail_off - head_off) >= CACHE_LINE,
+            "head and tail must be on separate cache lines: head_off={head_off}, tail_off={tail_off}, CACHE_LINE={CACHE_LINE}"
+        );
+        assert!(
+            (header_size - tail_off) >= CACHE_LINE,
+            "first slot must start on its own cache line: header_size={header_size}, tail_off={tail_off}, CACHE_LINE={CACHE_LINE}"
+        );
+        // Header itself should be CACHE_LINE-aligned so the padding math holds when
+        // the ring starts at the beginning of a DSM segment (DSM regions are
+        // page-aligned in PG, so this is satisfied in production).
+        assert_eq!(std::mem::align_of::<DsmMpscRingHeader>(), CACHE_LINE);
+    }
+
+    /// Magic + version validation: an attach against a region with the wrong magic or
+    /// version returns None rather than handing back a NonNull with garbage state.
+    /// Mirrors `MppDsmHeader::validate`'s discipline.
+    #[test]
+    fn attach_at_rejects_wrong_magic_and_version() {
+        let bytes = DsmMpscRingHeader::region_bytes(4, 64);
+        let region = AlignedRegion::new(bytes);
+        let header_ptr = unsafe { create_at(region.as_mut_ptr(), 4, 64) };
+        // Sanity: correct attach succeeds.
+        assert!(unsafe { attach_at(region.as_mut_ptr(), 4, 64) }.is_some());
+        // Corrupt magic: rejected.
+        unsafe { (*header_ptr).magic = 0xDEADBEEF };
+        assert!(unsafe { attach_at(region.as_mut_ptr(), 4, 64) }.is_none());
+        // Restore magic, corrupt version.
+        unsafe { (*header_ptr).magic = MPSC_RING_MAGIC };
+        unsafe { (*header_ptr).version = MPSC_RING_VERSION.wrapping_add(1) };
+        assert!(unsafe { attach_at(region.as_mut_ptr(), 4, 64) }.is_none());
+        // Restore version, mismatched ring_size.
+        unsafe { (*header_ptr).version = MPSC_RING_VERSION };
+        assert!(unsafe { attach_at(region.as_mut_ptr(), 8, 64) }.is_none());
+    }
+
+    /// Consumer-side detach race: producers are mid-flight when the receiver detaches.
+    /// Every Ok send must produce a matching Bytes recv before the drain returns
+    /// Detached. Catches the half-claim-wedge if the predicate is too strict.
+    #[test]
+    fn drain_completes_after_detach_under_load() {
+        const K_PRODUCERS: usize = 4;
+        let (rx, tx_template, _region) = make_ring(16, 32);
+        let ring_nn = SharedRing(tx_template.ring);
+        let stop = Arc::new(AtomicBool::new(false));
+        let sent_count = Arc::new(AtomicUsize::new(0));
+        let mut handles = Vec::with_capacity(K_PRODUCERS);
+        for _ in 0..K_PRODUCERS {
+            let tx = unsafe { DsmMpscSender::new(ring_nn.0) };
+            let stop = Arc::clone(&stop);
+            let sent_count = Arc::clone(&sent_count);
+            handles.push(std::thread::spawn(move || {
+                let payload = [0xABu8; 8];
+                while !stop.load(O::Relaxed) {
+                    match tx.try_send(&payload) {
+                        Ok(_) => {
+                            sent_count.fetch_add(1, O::Relaxed);
+                        }
+                        Err(SendError::Full) => std::thread::yield_now(),
+                        Err(SendError::Detached) => break,
+                        Err(e) => panic!("unexpected: {e:?}"),
+                    }
+                }
+            }));
+        }
+        // Drain a bit then trigger detach.
+        let mut buf = Vec::new();
+        let mut recv_count = 0usize;
+        // Let producers stretch their legs before detaching.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        rx.set_detached();
+        stop.store(true, O::Relaxed);
+        // Drain until the ring confirms Detached.
+        loop {
+            match rx.try_recv(&mut buf) {
+                RecvOutcome::Bytes => recv_count += 1,
+                RecvOutcome::Empty => std::thread::yield_now(),
+                RecvOutcome::Detached => break,
+            }
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        let sent = sent_count.load(O::Relaxed);
+        assert_eq!(
+            recv_count, sent,
+            "every successful send must be received before Detached"
+        );
+    }
+
+    /// Stress test at the production-worst contention level (K=24 producers matching
+    /// PR #5155's N=24 mesh row). Smoke that the primitive doesn't wedge or lose
+    /// messages under heavy CAS contention; doesn't measure perf.
+    #[test]
+    fn mpsc_stress_at_production_worst_case() {
+        const K_PRODUCERS: usize = 24;
+        const M_PER_PRODUCER: u32 = 500;
+        let (rx, tx_template, _region) = make_ring(64, 32);
+        let ring_nn = SharedRing(tx_template.ring);
+        let mut handles = Vec::with_capacity(K_PRODUCERS);
+        for producer_id in 0..K_PRODUCERS {
+            let tx = unsafe { DsmMpscSender::new(ring_nn.0) };
+            handles.push(std::thread::spawn(move || {
+                let mut payload = [0u8; 8];
+                payload[0..4].copy_from_slice(&(producer_id as u32).to_le_bytes());
+                let mut sent = 0u32;
+                while sent < M_PER_PRODUCER {
+                    payload[4..8].copy_from_slice(&sent.to_le_bytes());
+                    match tx.try_send(&payload) {
+                        Ok(_) => sent += 1,
+                        Err(SendError::Full) => std::thread::yield_now(),
+                        Err(e) => panic!("unexpected: {e:?}"),
+                    }
+                }
+            }));
+        }
+        let mut buf = Vec::new();
+        let target = K_PRODUCERS * M_PER_PRODUCER as usize;
+        let mut total = 0usize;
+        while total < target {
+            match rx.try_recv(&mut buf) {
+                RecvOutcome::Bytes => total += 1,
+                RecvOutcome::Empty => std::thread::yield_now(),
+                RecvOutcome::Detached => panic!("unexpected detach"),
+            }
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        // Multi-round invariant: after draining 24 * 500 = 12000 messages on a 64-slot
+        // ring, every slot's seq must have advanced into a future round. Walk slot[0]:
+        // we expect seq = head + ring_size = 12000 + 64 - whatever round 0 it's in.
+        // Loose check: every slot's seq is bounded below by ring_size (round >= 1).
+        let header = unsafe { ring_nn.0.as_ref() };
+        for i in 0..header.ring_size {
+            let slot = unsafe { slot_ptr(ring_nn.0.as_ptr(), i, header.slot_capacity) };
+            let seq = unsafe { (*slot).seq.load(O::Acquire) };
+            assert!(
+                seq >= header.ring_size as u64,
+                "slot[{i}].seq={seq} < ring_size; slot was never reused"
+            );
         }
     }
 }

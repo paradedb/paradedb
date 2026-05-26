@@ -225,7 +225,7 @@ fn build_outbound_senders(
         let shared: Arc<dyn BatchChannelSender> = Arc::new(shm_send);
         senders[target_proc as usize] = Some(MppSender::with_header(
             shared,
-            MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION),
+            MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION, 0),
         ));
     }
     senders
@@ -335,7 +335,7 @@ pub unsafe fn worker_setup(
     let self_tx_arc: Arc<dyn BatchChannelSender> = Arc::new(self_tx);
     outbound_senders[proc_idx as usize] = Some(MppSender::with_header(
         self_tx_arc,
-        MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION),
+        MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION, 0),
     ));
     inbound_receivers[proc_idx as usize] =
         Some(Arc::new(DrainHandle::cooperative(vec![MppReceiver::new(

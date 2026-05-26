@@ -83,43 +83,65 @@ pub struct MppFrameHeader {
     pub partition: u32,
 }
 
-/// Bit mask in [`MppFrameHeader::flags`] for the [`MppFrameKind`] discriminant.
+/// `flags` bit layout:
+///   bits  0..8:  frame kind (Batch | Eof)
+///   bits  8..16: reserved (must be 0)
+///   bits 16..32: sender_proc (mesh peer that wrote the frame)
 const FRAME_KIND_MASK: u32 = 0x0000_00FF;
+const FRAME_RESERVED_MASK: u32 = 0x0000_FF00;
+const FRAME_SENDER_SHIFT: u32 = 16;
+/// Maximum `sender_proc` representable in the header. Asserted at construction time so an
+/// overflow shows up as a panic in the producer rather than as silent flag corruption on the wire.
+pub const MPP_MAX_SENDER_PROC: u32 = (u32::MAX >> FRAME_SENDER_SHIFT) & 0xFFFF;
 
 const _: () = {
     // shm_mq slot layout calculations depend on this being exact.
     assert!(std::mem::size_of::<MppFrameHeader>() == MPP_FRAME_HEADER_SIZE);
 };
 
+#[inline]
+fn pack_flags(kind: MppFrameKind, sender_proc: u32) -> u32 {
+    debug_assert!(
+        sender_proc <= MPP_MAX_SENDER_PROC,
+        "mpp: sender_proc {sender_proc} > MPP_MAX_SENDER_PROC"
+    );
+    (kind as u32) | ((sender_proc & 0xFFFF) << FRAME_SENDER_SHIFT)
+}
+
 impl MppFrameHeader {
-    /// Build a `Batch` header for the given `(stage_id, partition)`.
-    pub fn batch(stage_id: u32, partition: u32) -> Self {
+    /// Build a `Batch` header for the given `(stage_id, partition)` stamped with `sender_proc`.
+    pub fn batch(stage_id: u32, partition: u32, sender_proc: u32) -> Self {
         Self {
             magic: MPP_FRAME_MAGIC,
-            flags: MppFrameKind::Batch as u32,
+            flags: pack_flags(MppFrameKind::Batch, sender_proc),
             stage_id,
             partition,
         }
     }
 
-    /// Build an `Eof` header for the given `(stage_id, partition)`. Carries no payload; receivers
-    /// route it to the channel buffer's source-done counter. Emitted by
-    /// [`MppSender::send_eof_traced`] after a producer fragment's per-partition stream exhausts
-    /// (or errors), and consumed by the matching channel buffer's `notify_source_done`.
-    pub fn eof(stage_id: u32, partition: u32) -> Self {
+    /// Build an `Eof` header for the given `(stage_id, partition)` stamped with `sender_proc`.
+    /// Carries no payload; receivers route it to the channel buffer's source-done counter.
+    pub fn eof(stage_id: u32, partition: u32, sender_proc: u32) -> Self {
         Self {
             magic: MPP_FRAME_MAGIC,
-            flags: MppFrameKind::Eof as u32,
+            flags: pack_flags(MppFrameKind::Eof, sender_proc),
             stage_id,
             partition,
         }
+    }
+
+    /// The mesh peer that wrote this frame. Phase 4 of mesh multiplexing uses this to key the
+    /// drain-side per-channel buffer registry by `(sender_proc, stage_id, partition)`.
+    pub fn sender_proc(&self) -> u32 {
+        (self.flags >> FRAME_SENDER_SHIFT) & 0xFFFF
     }
 
     /// Read the kind out of `flags`. Returns an error if the kind byte is
-    /// unknown or if any reserved upper bit is set, which catches wire-format
-    /// drift early.
+    /// unknown or if any reserved bit (bits 8..16) is set, which catches wire-format
+    /// drift early. Sender_proc bits (16..32) are not validated here; readers extract
+    /// them with `sender_proc()`.
     pub(super) fn kind(&self) -> Result<MppFrameKind, DataFusionError> {
-        let reserved = self.flags & !FRAME_KIND_MASK;
+        let reserved = self.flags & FRAME_RESERVED_MASK;
         if reserved != 0 {
             return Err(DataFusionError::Internal(format!(
                 "mpp: reserved frame flag bits set ({reserved:#x})"
@@ -211,11 +233,13 @@ fn encode_frame_into(
 fn encode_eof_frame_into(
     stage_id: u32,
     partition: u32,
+    sender_proc: u32,
     buf: &mut Vec<u8>,
 ) -> Result<(), DataFusionError> {
     buf.clear();
     buf.resize(MPP_FRAME_HEADER_SIZE, 0);
-    MppFrameHeader::eof(stage_id, partition).write_to(&mut buf[..MPP_FRAME_HEADER_SIZE]);
+    MppFrameHeader::eof(stage_id, partition, sender_proc)
+        .write_to(&mut buf[..MPP_FRAME_HEADER_SIZE]);
     Ok(())
 }
 
@@ -575,7 +599,12 @@ impl MppSender {
         scratch: &mut Vec<u8>,
         stats: &mut SendBatchStats,
     ) -> Result<(), DataFusionError> {
-        encode_eof_frame_into(self.header.stage_id, self.header.partition, scratch)?;
+        encode_eof_frame_into(
+            self.header.stage_id,
+            self.header.partition,
+            self.header.sender_proc(),
+            scratch,
+        )?;
         let Some(drain) = self.cooperative_drain.as_ref() else {
             return self.channel.send_bytes(scratch);
         };
@@ -1095,7 +1124,7 @@ mod tests {
         /// Construct a sender with the default `(stage_id=0, partition=0)` header. Used where
         /// the header carries no actionable routing info.
         fn new(channel: Arc<dyn BatchChannelSender>) -> Self {
-            Self::with_header(channel, MppFrameHeader::batch(0, 0))
+            Self::with_header(channel, MppFrameHeader::batch(0, 0, 0))
         }
 
         /// Stats-less wrapper around `send_batch_traced`. Production call sites
@@ -1250,7 +1279,7 @@ mod tests {
     #[test]
     fn frame_round_trips_a_batch_with_header() {
         let orig = sample_batch(64);
-        let header = MppFrameHeader::batch(7, 3);
+        let header = MppFrameHeader::batch(7, 3, 0);
         let mut buf = Vec::with_capacity(1024);
         encode_frame_into(header, &orig, &mut buf).expect("encode_frame");
 
@@ -1269,11 +1298,11 @@ mod tests {
     #[test]
     fn frame_round_trips_eof() {
         let mut buf = Vec::new();
-        encode_eof_frame_into(2, 5, &mut buf).expect("encode_eof");
+        encode_eof_frame_into(2, 5, 0, &mut buf).expect("encode_eof");
         assert_eq!(buf.len(), MPP_FRAME_HEADER_SIZE);
 
         let (header, batch_opt) = decode_frame(&buf).expect("decode_frame");
-        assert_eq!(header, MppFrameHeader::eof(2, 5));
+        assert_eq!(header, MppFrameHeader::eof(2, 5, 0));
         assert_eq!(header.kind().unwrap(), MppFrameKind::Eof);
         assert!(batch_opt.is_none());
     }
@@ -1314,11 +1343,11 @@ mod tests {
 
     #[test]
     fn frame_rejects_reserved_flag_bits() {
-        // Any bit above the low byte of `flags` is reserved-must-be-zero;
-        // setting one should trip `kind()` before the kind byte is consulted.
+        // Reserved range is bits 8..16. Bits 16..32 are sender_proc and must NOT trip the
+        // reserved check. Sets a bit in 8..16; should fail.
         let header = MppFrameHeader {
             magic: MPP_FRAME_MAGIC,
-            flags: 0x0000_0100, // bit 8 set, kind byte 0 (would be Batch)
+            flags: 0x0000_0100, // bit 8 set, kind byte 0 (would be Batch), no sender_proc
             stage_id: 0,
             partition: 0,
         };
@@ -1329,9 +1358,31 @@ mod tests {
     }
 
     #[test]
+    fn frame_sender_proc_round_trip() {
+        // sender_proc lives in flags bits 16..32 and shouldn't collide with kind or reserved.
+        for &sp in &[0u32, 1, 7, 255, 256, 1023, 65534, MPP_MAX_SENDER_PROC] {
+            let header = MppFrameHeader::batch(11, 5, sp);
+            assert_eq!(header.sender_proc(), sp, "batch round-trip sp={sp}");
+            assert_eq!(header.kind().unwrap(), MppFrameKind::Batch);
+
+            let mut buf = Vec::with_capacity(MPP_FRAME_HEADER_SIZE);
+            let payload = sample_batch(8);
+            encode_frame_into(header, &payload, &mut buf).expect("encode batch");
+            let (parsed, _) = decode_frame(&buf).expect("decode batch");
+            assert_eq!(parsed.sender_proc(), sp, "decoded batch sender_proc");
+
+            let mut eof_buf = Vec::new();
+            encode_eof_frame_into(11, 5, sp, &mut eof_buf).expect("encode eof");
+            let (parsed_eof, _) = decode_frame(&eof_buf).expect("decode eof");
+            assert_eq!(parsed_eof.sender_proc(), sp, "decoded eof sender_proc");
+            assert_eq!(parsed_eof.kind().unwrap(), MppFrameKind::Eof);
+        }
+    }
+
+    #[test]
     fn frame_eof_with_payload_is_rejected() {
         let mut buf = Vec::with_capacity(32);
-        encode_eof_frame_into(0, 0, &mut buf).expect("encode_eof");
+        encode_eof_frame_into(0, 0, 0, &mut buf).expect("encode_eof");
         buf.push(0xAB); // smuggle a payload byte after the Eof header
         let err = decode_frame(&buf).expect_err("Eof+payload must fail");
         assert!(format!("{err}").contains("Eof frame carries payload"));
@@ -1342,7 +1393,7 @@ mod tests {
         let mut buf = Vec::with_capacity(1024);
         for rows in [0, 1, 7, 64, 1024] {
             let orig = sample_batch(rows);
-            encode_frame_into(MppFrameHeader::batch(0, 0), &orig, &mut buf).expect("encode");
+            encode_frame_into(MppFrameHeader::batch(0, 0, 0), &orig, &mut buf).expect("encode");
             let (_header, decoded) = decode_frame(&buf).expect("decode");
             let decoded = decoded.expect("Batch frame must carry a payload");
             assert_eq!(orig.num_rows(), decoded.num_rows());
@@ -1617,7 +1668,7 @@ mod tests {
         let mut enc_bytes = 0usize;
         let mut enc_buf = Vec::with_capacity(1024);
         for _ in 0..batches {
-            encode_frame_into(MppFrameHeader::batch(0, 0), &template, &mut enc_buf)
+            encode_frame_into(MppFrameHeader::batch(0, 0, 0), &template, &mut enc_buf)
                 .expect("encode");
             enc_bytes += enc_buf.len();
         }
@@ -1729,8 +1780,8 @@ mod tests {
         // channel buffer receives only its own batches.
         let (tx, rx) = in_proc_channel(8);
         let base = MppSender::new(Arc::new(tx));
-        let s00 = base.clone_with_header(MppFrameHeader::batch(0, 0));
-        let s01 = base.clone_with_header(MppFrameHeader::batch(0, 1));
+        let s00 = base.clone_with_header(MppFrameHeader::batch(0, 0, 0));
+        let s01 = base.clone_with_header(MppFrameHeader::batch(0, 1, 0));
         let receiver = MppReceiver::new(Box::new(rx));
         let handle = DrainHandle::cooperative(vec![receiver]);
 
@@ -1766,15 +1817,15 @@ mod tests {
         // `(0, 1)` continue to flow on the same queue.
         let (tx, rx) = in_proc_channel(8);
         let tx_arc: Arc<dyn BatchChannelSender> = Arc::new(tx);
-        let s00 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(0, 0));
-        let s01 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(0, 1));
+        let s00 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(0, 0, 0));
+        let s01 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(0, 1, 0));
         let receiver = MppReceiver::new(Box::new(rx));
         let handle = DrainHandle::cooperative(vec![receiver]);
 
         s00.send_batch(&sample_batch(4)).unwrap();
         // Hand-roll an Eof frame for (0, 0) onto the same shared channel.
         let mut eof_buf = Vec::new();
-        encode_eof_frame_into(0, 0, &mut eof_buf).unwrap();
+        encode_eof_frame_into(0, 0, 0, &mut eof_buf).unwrap();
         tx_arc.send_bytes(&eof_buf).unwrap();
         // (0, 1) is still live and ships another batch after the EOF.
         s01.send_batch(&sample_batch(6)).unwrap();
@@ -1857,8 +1908,8 @@ mod tests {
         // The registry's compound key keeps them on separate channel buffers.
         let (tx, rx) = in_proc_channel(8);
         let tx_arc: Arc<dyn BatchChannelSender> = Arc::new(tx);
-        let s_stage0 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(0, 0));
-        let s_stage1 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(1, 0));
+        let s_stage0 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(0, 0, 0));
+        let s_stage1 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(1, 0, 0));
         let receiver = MppReceiver::new(Box::new(rx));
         let handle = DrainHandle::cooperative(vec![receiver]);
 

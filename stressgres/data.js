@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779781602304,
+  "lastUpdate": 1779786635985,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2082,6 +2082,78 @@ window.BENCHMARK_DATA = {
             "value": 63.3309771000221,
             "unit": "median tps",
             "extra": "avg tps: 70.21809040285495, max tps: 319.31453812482533, count: 55129"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ded240d1e22c2cc3e797c2d7f4d4970275d17e45",
+          "message": "refactor(mpp): drop dead clamps + MppHostState trait (#5133)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nTwo cleanups:\n\n1. drop the dead `saturating_sub(1).max(1)` clamps and the\n`glue::n_procs()` trampoline that the centralized invariant in PR #5132\nmade redundant.\n2. factor the aggregatescan / joinscan `exec_mpp_worker` wrappers behind\nan `MppHostState` trait so they share a single dispatcher.\n\n## Why\n\n(1) is straightforward dead code. With PR #5132's `>=\nMIN_TOTAL_WORKER_COUNT` invariant centralized, the belt-and-braces\nclamps at three sites become noise.\n\n(2)is structural. The aggregatescan and joinscan wrappers had the same\nskeleton but differed in four real ways: runtime slot location, the\n`MppExecState::Worker` enum, the seed `SessionContext` profile, and the\npath to the `outbound_senders` slot for `mem::take`. A trait isolates\nthose four concerns and the shared body fits on one screen.\n\n## How\n\n- `MppMesh::n_workers()` → `self.n_procs - 1` with a debug_assert.\n- `exec_worker.rs` calls `n_workers()` directly. Drop the unused\n`total_procs` local.\n- Delete `glue::n_procs()`. Call sites use `mpp_worker_count()`\ndirectly.\n- New `mpp/host.rs` with the `MppHostState` trait and a\n`exec_mpp_worker_impl<S>` dispatcher.\n- Both providers `impl MppHostState for CustomScanStateWrapper<T>`.\n\n## Tests\n\n- `cargo check --package pg_search --features pg18\n--no-default-features` clean.\n- `mpp_smoke`, `mpp_joinscan`, `mpp_aggregate`, `mpp_aggregate_postagg`\nall pass.\n- CI green.",
+          "timestamp": "2026-05-26T01:40:41-07:00",
+          "tree_id": "b6f8a623aa6b0574231939f72051f686bc47c986",
+          "url": "https://github.com/paradedb/paradedb/commit/ded240d1e22c2cc3e797c2d7f4d4970275d17e45"
+        },
+        "date": 1779786602473,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 133.54658982217668,
+            "unit": "median tps",
+            "extra": "avg tps: 134.41279323882688, max tps: 148.3854720862361, count: 55212"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 506.5807935348473,
+            "unit": "median tps",
+            "extra": "avg tps: 507.8898628300628, max tps: 558.4329093245325, count: 55212"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3333.120427482536,
+            "unit": "median tps",
+            "extra": "avg tps: 3328.244118166956, max tps: 3354.466506793083, count: 55212"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 431.50833898207634,
+            "unit": "median tps",
+            "extra": "avg tps: 434.86602719842136, max tps: 474.8551909309623, count: 55212"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2862.709709277657,
+            "unit": "median tps",
+            "extra": "avg tps: 2857.7983128509, max tps: 2987.8337317804394, count: 110424"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 508.00010238038385,
+            "unit": "median tps",
+            "extra": "avg tps: 507.74520366408944, max tps: 575.3180878137025, count: 55212"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1961.0770340427707,
+            "unit": "median tps",
+            "extra": "avg tps: 1956.6228136908016, max tps: 1982.0628609523578, count: 55212"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 48.388012857816435,
+            "unit": "median tps",
+            "extra": "avg tps: 77.27721652362602, max tps: 403.5612830407729, count: 55212"
           }
         ]
       }

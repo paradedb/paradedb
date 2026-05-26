@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779822306145,
+  "lastUpdate": 1779822350819,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7630,6 +7630,42 @@ window.BENCHMARK_DATA = {
             "value": 5.3040954259178905,
             "unit": "median tps",
             "extra": "avg tps: 4.767861216811938, max tps: 5.938195759104168, count: 57330"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "59bbbe58d9c07aacd6ff87a90a955843ab3ed266",
+          "message": "refactor(mpp): drop dead strip_dynamic_filters_from_dyn helper (#5136)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDeletes `PgSearchScanPlan::strip_dynamic_filters_from_dyn`.\n\n## Why\n\nDCE.\n\n## How\n\nDelete the function.\n\n## Tests\n\n- `cargo check --package pg_search --features pg18\n--no-default-features` clean.\n- All 4 MPP regress tests pass.\n- CI green.",
+          "timestamp": "2026-05-26T11:23:16-07:00",
+          "tree_id": "819962fbe27c5c425bc12fc1d4f305ab1658b9a6",
+          "url": "https://github.com/paradedb/paradedb/commit/59bbbe58d9c07aacd6ff87a90a955843ab3ed266"
+        },
+        "date": 1779822319789,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.837403063246813,
+            "unit": "median tps",
+            "extra": "avg tps: 6.716494756891397, max tps: 10.27779054636921, count: 57297"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.438818831020951,
+            "unit": "median tps",
+            "extra": "avg tps: 4.885128813393849, max tps: 6.083294896154491, count: 57297"
           }
         ]
       }

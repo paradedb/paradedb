@@ -254,10 +254,6 @@ EXECUTE issue_4665_parity_generic('technology');
 
 DEALLOCATE issue_4665_parity_generic;
 
--- Restore inflated value so the RESET in the cleanup block below is a no-op
--- for state we touched here.
-SET paradedb.per_segment_cost = 1000;
-
 -- Cleanup
 DROP TABLE issue_4665_test CASCADE;
 RESET max_parallel_workers_per_gather;

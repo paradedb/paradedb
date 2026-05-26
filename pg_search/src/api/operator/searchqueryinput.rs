@@ -185,7 +185,9 @@ pub fn search_with_query_input(
             false,
             MvccSatisfies::Snapshot,
         )
-        .unwrap_or_else(|e| panic!("{e}"));
+        .unwrap_or_else(|e| {
+            panic!("search_with_query_input: should be able to open a SearchIndexReader: {e}")
+        });
         let schema = search_reader.schema();
         let key_field_name = schema.key_field_name();
         let key_field_type = schema.key_field_type();

@@ -17,6 +17,7 @@
 
 use std::cmp::Ordering;
 use std::fmt::{Debug, Display};
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::ptr::NonNull;
 use std::sync::Arc;
@@ -57,6 +58,11 @@ use tantivy::{
 /// The maximum number of sort-features/`OrderByInfo`s supported for
 /// `SearchIndexReader::search_top_k_in_segments`.
 pub const MAX_TOPK_FEATURES: usize = 5;
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct LimitBoundedTopKInfo {
+    pub(crate) term_count: NonZeroUsize,
+}
 
 /// Represents a matching document from a tantivy search.  Typically, it is returned as an Iterator
 /// Item alongside the originating tantivy [`DocAddress`]
@@ -514,7 +520,9 @@ impl SearchIndexReader {
                 expr_context,
                 None, // no planstate
             )
-            .unwrap_or_else(|e| panic!("{e}"))
+            .unwrap_or_else(|e| {
+                panic!("SearchIndexReader::make_query: should build Tantivy query: {e}")
+            })
     }
 
     pub fn get_doc(&self, doc_address: DocAddress) -> tantivy::Result<TantivyDocument> {
@@ -739,15 +747,18 @@ impl SearchIndexReader {
         )
     }
 
-    /// Returns true when `search_top_k_in_segments` will use the score-only
-    /// DESC collector and this reader's already-built Tantivy query can use
-    /// Tantivy's Block-WAND `for_each_pruning` override.
-    pub(crate) fn topk_uses_limit_bounded_score_collection(
+    /// Returns planner-visible details when `search_top_k_in_segments` will
+    /// use the score-only DESC collector and this reader's already-built
+    /// Tantivy query can use Tantivy's Block-WAND `for_each_pruning` override.
+    pub(crate) fn limit_bounded_topk_info(
         &self,
         orderby_info: &[OrderByInfo],
-    ) -> bool {
-        Self::orderby_uses_score_desc_topk_collector(orderby_info)
-            && query_supports_block_wand_score_pruning(self.query())
+    ) -> Option<LimitBoundedTopKInfo> {
+        if Self::orderby_uses_score_desc_topk_collector(orderby_info) {
+            query_block_wand_score_pruning_info(self.query())
+        } else {
+            None
+        }
     }
 
     /// Mirrors the sort-shape branch in `search_top_k_in_segments`.
@@ -1438,31 +1449,46 @@ impl SearchIndexReader {
     }
 }
 
-fn query_supports_block_wand_score_pruning(query: &dyn Query) -> bool {
+/// Shape-only inspection — never reads segment contents. The planning-time
+/// gate relies on this to use a one-segment (`LargestSegment`) reader.
+fn query_block_wand_score_pruning_info(query: &dyn Query) -> Option<LimitBoundedTopKInfo> {
     let query = unbox_query(query);
 
     // Conservative mirror of Tantivy's Block-WAND overrides: TermWeight uses
-    // block_wand_single_scorer, and BooleanWeight uses block_wand for pure term
-    // unions. Other query shapes use the general worker-selection path.
+    // block_wand_single_scorer, and BooleanWeight uses block_wand for pure
+    // SHOULD term unions. MUST conjunctions flow through intersection scorers,
+    // not the Block-WAND union scorer, so they use the general worker-selection
+    // path.
     if query.is::<TermQuery>() {
-        return true;
+        return Some(LimitBoundedTopKInfo {
+            term_count: NonZeroUsize::new(1).expect("1 is non-zero"),
+        });
     }
 
-    let Some(boolean_query) = query.downcast_ref::<BooleanQuery>() else {
-        return false;
-    };
+    let boolean_query = query.downcast_ref::<BooleanQuery>()?;
+    let clauses = boolean_query.clauses();
+    if boolean_query.get_minimum_number_should_match() != 1 || clauses.is_empty() {
+        return None;
+    }
 
-    boolean_query.get_minimum_number_should_match() == 1
-        && !boolean_query.clauses().is_empty()
-        && boolean_query.clauses().iter().all(|(occur, subquery)| {
+    clauses
+        .iter()
+        .all(|(occur, subquery)| {
             matches!(occur, Occur::Should) && unbox_query(subquery.as_ref()).is::<TermQuery>()
+        })
+        .then(|| LimitBoundedTopKInfo {
+            term_count: NonZeroUsize::new(clauses.len()).expect("empty BooleanQuery was rejected"),
         })
 }
 
 fn unbox_query(mut query: &dyn Query) -> &dyn Query {
-    while let Some(boxed) = query.downcast_ref::<Box<dyn Query>>() {
+    for _ in 0..8 {
+        let Some(boxed) = query.downcast_ref::<Box<dyn Query>>() else {
+            return query;
+        };
         query = boxed.as_ref();
     }
+
     query
 }
 

@@ -122,9 +122,8 @@ static MIN_ROWS_PER_WORKER: GucSetting<i32> = GucSetting::<i32>::new(300000);
 /// Models the cost of opening a segment and entering it into the global TopK
 /// competition.
 /// For score-DESC TopK with Block-WAND pruning, row work is capped by local
-/// TopK collection rather than the full match set. This fixed cost captures
-/// the remaining per-segment overhead and is what makes "many small segments"
-/// prefer a parallel plan over a serial walk.
+/// TopK collection rather than the full match set. This fixed cost is added
+/// per searched segment alongside the LIMIT-sensitive row-work estimate.
 ///
 /// The parallel path divides `segment_count * per_segment_cost` by the
 /// parallel divisor; the serial path pays the full segment-walk cost.
@@ -485,9 +484,8 @@ pub fn init() {
         c"Per-segment fixed cost added to TopK work cost",
         c"Models the cost of opening and walking one segment for TopK queries. The serial \
           path pays segment_count * per_segment_cost; the parallel path divides this by \
-          the number of workers. This is what lets PG's cost model distinguish 'many \
-          small segments' from 'few large segments' for TopK queries with Block-WAND pruning \
-          without globally inflating unrelated scans. \
+          PostgreSQL's parallel divisor. This lets the bounded TopK cost model account for \
+          segment participation without globally inflating unrelated scans. \
           Default 50.0; calibrated empirically. See paradedb/paradedb#4664.",
         &PER_SEGMENT_COST,
         0.0,

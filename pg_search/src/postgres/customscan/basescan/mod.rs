@@ -29,11 +29,11 @@ use std::sync::atomic::Ordering;
 
 use crate::api::operator::estimate_selectivity;
 use crate::api::window_aggregate::window_agg_oid;
-use crate::api::{HashMap, HashSet, Varno};
+use crate::api::{Cardinality, HashMap, HashSet, Varno};
 use crate::gucs;
 use crate::index::fast_fields_helper::WhichFastField;
 use crate::index::mvcc::MvccSatisfies;
-use crate::index::reader::index::{SearchIndexReader, MAX_TOPK_FEATURES};
+use crate::index::reader::index::{LimitBoundedTopKInfo, SearchIndexReader, MAX_TOPK_FEATURES};
 use crate::postgres::customscan::basescan::exec_methods::{
     fast_fields, normal::NormalScanExecState, ExecState,
 };
@@ -101,7 +101,8 @@ enum WorkerDecision {
 
 struct PathCostBasis {
     worker_decision: WorkerDecision,
-    work_cost_base: f64,
+    parallelizable_cost: f64,
+    non_parallelizable_cost: f64,
     total_cost_multiplier: f64,
 }
 
@@ -112,10 +113,21 @@ impl WorkerDecision {
             .unwrap_or(Self::Serial)
     }
 
-    fn divisor(self, leader_share: usize) -> f64 {
-        match self {
-            Self::Serial => 1.0,
-            Self::Parallel { nworkers } => (nworkers.get() + leader_share) as f64,
+    /// Effective worker count for dividing scan work. The leader is counted as a
+    /// full additional worker when `leader_participates` is true. We do not use
+    /// PostgreSQL's discounted leader formula (`1 - 0.3 * nworkers`) because the
+    /// bounded TopK cost path and the general path share the same divisor, and
+    /// uniform full-credit accounting keeps the two cost helpers comparable
+    /// across query shapes.
+    fn divisor(self, leader_participates: bool) -> f64 {
+        let Self::Parallel { nworkers } = self else {
+            return 1.0;
+        };
+        let nworkers = nworkers.get();
+        if leader_participates {
+            (nworkers + 1) as f64
+        } else {
+            nworkers as f64
         }
     }
 
@@ -124,6 +136,261 @@ impl WorkerDecision {
             Self::Serial => None,
             Self::Parallel { nworkers } => Some(nworkers),
         }
+    }
+}
+
+/// # Safety
+///
+/// `root` must point to a valid `PlannerInfo` for the duration of this call.
+/// This is a planner-only helper and must not be called from execution.
+unsafe fn limit_bounded_topk_info_for_method(
+    method: &ExecMethodType,
+    root: *mut pg_sys::PlannerInfo,
+    bm25_index: &PgSearchRelation,
+    query: &SearchQueryInput,
+    quals: &Qual,
+) -> Option<LimitBoundedTopKInfo> {
+    let ExecMethodType::TopK {
+        orderby_info: Some(orderby_info),
+        window_aggregates,
+        limit_offset,
+        ..
+    } = method
+    else {
+        return None;
+    };
+
+    if !window_aggregates.is_empty() || limit_offset.has_any_param() {
+        return None;
+    }
+
+    // `window_aggregates` is still empty here because placeholders are
+    // deserialized later in `plan_custom_path`, so inspect the target list
+    // recursively before costing. This relies on the planner hook replacing
+    // WindowFunc nodes with window_agg() placeholders before relation paths
+    // are created.
+    if query_has_window_agg_functions(root) {
+        return None;
+    }
+
+    if !SearchIndexReader::orderby_uses_score_desc_topk_collector(orderby_info) {
+        return None;
+    }
+
+    // Do not build expensive or runtime-dependent queries just to cost this
+    // path. Unknown capability uses the general worker-selection path.
+    if query.is_expensive_to_estimate() || quals.contains_exprs() || quals.contains_external_var() {
+        return None;
+    }
+
+    // Planning-time capability checks use LargestSegment, the same visibility
+    // mode used by selectivity estimation. Resolving through a reader keeps the
+    // gate aligned with the actual Tantivy query shape instead of approximating
+    // it from the raw SearchQueryInput.
+    SearchIndexReader::open(
+        bm25_index,
+        query.clone(),
+        true,
+        MvccSatisfies::LargestSegment,
+    )
+    .ok()
+    .and_then(|reader| reader.limit_bounded_topk_info(orderby_info))
+}
+
+struct LimitBoundedTopKCostParams<'a> {
+    method: &'a ExecMethodType,
+    info: LimitBoundedTopKInfo,
+    row_estimate: RowEstimate,
+    segment_count: usize,
+    per_tuple_cost: f64,
+    base_result_rows: f64,
+    startup_cost: f64,
+    consider_parallel: bool,
+    quals: &'a Qual,
+    root: *mut pg_sys::PlannerInfo,
+    parallel_leader_participates: bool,
+}
+
+/// # Safety
+///
+/// `params.root` must point to a valid `PlannerInfo` for the duration of this
+/// call. This is a planner-only helper and reads PostgreSQL planner cost GUCs.
+unsafe fn cost_limit_bounded_topk_path(params: LimitBoundedTopKCostParams<'_>) -> PathCostBasis {
+    let LimitBoundedTopKCostParams {
+        method,
+        info,
+        row_estimate,
+        segment_count,
+        per_tuple_cost,
+        base_result_rows,
+        startup_cost,
+        consider_parallel,
+        quals,
+        root,
+        parallel_leader_participates,
+    } = params;
+
+    let per_segment_cost_guc = crate::gucs::per_segment_cost();
+
+    // Local TopK can admit up to K candidates per searched segment before the
+    // final merge trims them to the query LIMIT. Bound candidate work by the
+    // match estimate when stats are available.
+    let ExecMethodType::TopK { limit_offset, .. } = method else {
+        unreachable!("limit_bounded_topk_info guards this branch");
+    };
+    let limit_est = limit_offset.planning_estimate().ceil().max(1.0);
+    let segment_count_f = segment_count.max(1) as f64;
+    let local_candidate_cap = limit_est * segment_count_f;
+    let local_candidates = match row_estimate {
+        RowEstimate::Known(rows) => (rows as f64).min(local_candidate_cap).max(1.0),
+        RowEstimate::Unknown => local_candidate_cap.max(1.0),
+    };
+
+    // Bounded TopK heap maintenance follows the same shape as PostgreSQL's
+    // bounded sort costing: candidate comparisons grow with log2(K), and each
+    // comparison is charged as two operator evaluations.
+    let comparison_cost = 2.0 * pg_sys::cpu_operator_cost;
+    let local_topk_heap_cost = local_candidates * comparison_cost * (2.0 * limit_est).log2();
+
+    // The per-segment fixed cost captures the "open and search this segment for
+    // local TopK work" overhead that Block-WAND can't shrink.
+    //
+    // Note: the columnar-sorted-merge multiplier is intentionally not applied
+    // here. This branch is only for `TopK`, and `supports_sorted_index_merge`
+    // only fires for `Columnar`.
+    let segment_cost = segment_count_f * per_segment_cost_guc;
+    let score_cost = local_candidates * per_tuple_cost;
+    let term_count = info.term_count.get() as f64;
+    let estimated_match_rows = match row_estimate {
+        RowEstimate::Known(rows) => rows as f64,
+        // Without table stats, keep term-union traversal bounded by the same
+        // local TopK cap as the rest of this branch. ANALYZE provides the match
+        // estimate needed for match-sensitive traversal costing.
+        RowEstimate::Unknown => local_candidates,
+    };
+    // Boolean term-union Block-WAND still walks pivot/block state across
+    // matching postings before deciding which docs beat the current TopK
+    // threshold. That work is segment-local and worker-divisible, but not
+    // LIMIT-bound like heap insertion.
+    let term_union_traversal_cost = if info.term_count.get() > 1 {
+        estimated_match_rows * comparison_cost * term_count.log2()
+    } else {
+        0.0
+    };
+    let parallelizable_cost =
+        segment_cost + score_cost + local_topk_heap_cost + term_union_traversal_cost;
+
+    // Segment-local TopK fruits from multiple segments must be merged into one
+    // ordered result stream. Keep this outside the parallel divisor so large
+    // LIMITs do not look fully worker-divisible.
+    let merge_cost = if segment_count > 1 {
+        let merge_streams = segment_count as f64;
+        local_candidates * (comparison_cost * merge_streams.log2() + pg_sys::cpu_operator_cost)
+    } else {
+        0.0
+    };
+
+    let max_workers = if consider_parallel {
+        max_useful_workers(
+            segment_count,
+            quals.contains_external_var(),
+            quals.contains_correlated_param(root),
+        )
+    } else {
+        0
+    };
+
+    // Pick parallel only if its cost (including an estimate of PG's Gather wrap
+    // overhead) is strictly cheaper than serial.
+    let candidate = WorkerDecision::from_worker_count(max_workers);
+    let worker_decision = match candidate {
+        WorkerDecision::Serial => WorkerDecision::Serial,
+        WorkerDecision::Parallel { .. } => {
+            let divisor = candidate.divisor(parallel_leader_participates);
+            let serial_total = startup_cost + parallelizable_cost + merge_cost;
+            // Approximate PostgreSQL's cost_gather_merge: dominant terms are
+            // setup and tuple IPC. Unlike cost_gather_merge's literal rel->rows
+            // accounting, use the LIMIT-clamped rows that this TopK path expects
+            // to send through Gather Merge.
+            const GATHER_MERGE_IPC_FACTOR: f64 = 1.05;
+            let gather_overhead = pg_sys::parallel_setup_cost
+                + pg_sys::parallel_tuple_cost * base_result_rows * GATHER_MERGE_IPC_FACTOR;
+            let parallel_total =
+                startup_cost + parallelizable_cost / divisor + merge_cost + gather_overhead;
+            if parallel_total < serial_total {
+                candidate
+            } else {
+                WorkerDecision::Serial
+            }
+        }
+    };
+
+    PathCostBasis {
+        worker_decision,
+        parallelizable_cost,
+        non_parallelizable_cost: merge_cost,
+        total_cost_multiplier: 1.0,
+    }
+}
+
+struct GeneralPathCostParams<'a> {
+    method: &'a ExecMethodType,
+    is_sorted: bool,
+    float_limit: Option<Cardinality>,
+    row_estimate: RowEstimate,
+    segment_count: usize,
+    per_tuple_cost: f64,
+    base_result_rows: f64,
+    consider_parallel: bool,
+    quals: &'a Qual,
+    root: *mut pg_sys::PlannerInfo,
+    is_join_context: bool,
+}
+
+/// # Safety
+///
+/// `params.root` must point to a valid `PlannerInfo` for the duration of this
+/// call. This is a planner-only helper and reads PostgreSQL planner cost GUCs.
+unsafe fn cost_general_path(params: GeneralPathCostParams<'_>) -> PathCostBasis {
+    let GeneralPathCostParams {
+        method,
+        is_sorted,
+        float_limit,
+        row_estimate,
+        segment_count,
+        per_tuple_cost,
+        base_result_rows,
+        consider_parallel,
+        quals,
+        root,
+        is_join_context,
+    } = params;
+
+    let nworkers = if consider_parallel {
+        compute_nworkers(
+            is_sorted,
+            float_limit,
+            row_estimate,
+            segment_count,
+            quals.contains_external_var(),
+            quals.contains_correlated_param(root),
+            is_join_context,
+        )
+    } else {
+        0
+    };
+
+    let total_cost_multiplier = if is_sorted && method.supports_sorted_index_merge() {
+        1.01
+    } else {
+        1.0
+    };
+
+    PathCostBasis {
+        worker_decision: WorkerDecision::from_worker_count(nworkers),
+        parallelizable_cost: base_result_rows * per_tuple_cost,
+        non_parallelizable_cost: 0.0,
+        total_cost_multiplier,
     }
 }
 
@@ -190,7 +457,9 @@ impl BaseScan {
             std::ptr::NonNull::new(planstate),
             needs_tokenizer_manager,
         )
-        .unwrap_or_else(|e| panic!("{e}"));
+        .unwrap_or_else(|e| {
+            panic!("BaseScan::init_search_reader: should be able to open a SearchIndexReader: {e}")
+        });
         state.custom_state_mut().search_reader = Some(search_reader);
 
         let csstate = addr_of_mut!(state.csstate);
@@ -926,16 +1195,12 @@ impl CustomScan for BaseScan {
 
             let startup_cost = DEFAULT_STARTUP_COST;
             let mut custom_paths = Vec::new();
-            let parallel_leader_share = if pg_sys::parallel_leader_participation {
-                1
-            } else {
-                0
-            };
+            let parallel_leader_participates = pg_sys::parallel_leader_participation;
 
             // For each execution method variant, build one CustomPath. Most
             // methods use `compute_nworkers` for worker selection; proven
-            // limit-bounded score-DESC TopK compares serial and parallel costs
-            // here because Block-WAND pruning can make worker startup more
+            // limit-bounded TopK compares serial and parallel costs here
+            // because bounded segment work can make worker startup more
             // expensive than the scan itself (#4664).
             for method in exec_method_types {
                 let per_tuple_cost = match &method {
@@ -948,63 +1213,13 @@ impl CustomScan for BaseScan {
                 let is_sorted = method.declares_sorted_output();
                 let consider_parallel_local = (*builder.args().rel).consider_parallel;
 
-                // The cost branch assumes row work is bounded by local TopK
-                // collection rather than the full match set. That is only true
-                // when the executor will use the score-only DESC TopK
-                // collector and the resolved Tantivy query can prune with
-                // Block-WAND. Everything else uses the general
-                // `compute_nworkers` worker-selection path.
-                //
-                // `window_aggregates` is still empty here because placeholders
-                // are deserialized later in `plan_custom_path`, so inspect the
-                // target list recursively before costing. This relies on the
-                // planner hook replacing WindowFunc nodes with window_agg()
-                // placeholders before relation paths are created.
-                //
-                // Parameterized LIMIT/OFFSET uses the general path because
-                // this branch's serial/parallel choice depends directly on a
-                // trustworthy LIMIT + OFFSET cap.
-                let topk_orderby_info = match &method {
-                    ExecMethodType::TopK {
-                        orderby_info: Some(orderby_info),
-                        window_aggregates,
-                        limit_offset,
-                        ..
-                    } if window_aggregates.is_empty() && !limit_offset.has_any_param() => {
-                        Some(orderby_info.as_slice())
-                    }
-                    _ => None,
-                };
-                let is_score_desc_topk = topk_orderby_info.is_some_and(|orderby_info| {
-                    if query_has_window_agg_functions(builder.args().root) {
-                        return false;
-                    }
-                    if !SearchIndexReader::orderby_uses_score_desc_topk_collector(orderby_info) {
-                        return false;
-                    }
-
-                    // Do not build expensive or runtime-dependent queries just
-                    // to cost this path. Unknown capability uses the general
-                    // worker-selection path.
-                    if query.is_expensive_to_estimate()
-                        || quals.contains_exprs()
-                        || quals.contains_external_var()
-                    {
-                        return false;
-                    }
-
-                    // Planning-time capability checks use LargestSegment, the
-                    // same visibility mode used by selectivity estimation.
-                    SearchIndexReader::open(
-                        &bm25_index,
-                        query.clone(),
-                        true,
-                        MvccSatisfies::LargestSegment,
-                    )
-                    .map(|reader| reader.topk_uses_limit_bounded_score_collection(orderby_info))
-                    .unwrap_or(false)
-                });
-
+                let limit_bounded_topk_info = limit_bounded_topk_info_for_method(
+                    &method,
+                    builder.args().root,
+                    &bm25_index,
+                    &query,
+                    &quals,
+                );
                 let mut path_builder = CustomPathBuilder::<Self>::new(
                     builder.args().root,
                     builder.args().rel,
@@ -1025,110 +1240,46 @@ impl CustomScan for BaseScan {
                     path_builder = path_builder.set_parallel_safe(true);
                 }
 
-                // Decide worker count and path cost. The two branches differ only
-                // here; everything before and after is shared.
-                let cost_basis = if is_score_desc_topk {
-                    // ── #4664 cost-based decision for score-DESC TopK ──
-                    let per_segment_cost_guc = crate::gucs::per_segment_cost();
-
-                    // `work_rows` is a LIMIT-sensitive row-work proxy, not a
-                    // literal scored-doc count. The executor collects local
-                    // TopK per segment, so cap row work at
-                    // (LIMIT + OFFSET) * segment_count instead of the full
-                    // match estimate. Fixed per-segment overhead is modeled
-                    // separately below.
-                    let ExecMethodType::TopK { limit_offset, .. } = &method else {
-                        unreachable!("is_score_desc_topk guards this branch");
-                    };
-                    let limit_est = limit_offset.planning_estimate().ceil().max(1.0);
-                    let local_topk_work_cap = limit_est * segment_count.max(1) as f64;
-                    let work_rows = match row_estimate {
-                        RowEstimate::Known(rows) => (rows as f64).min(local_topk_work_cap).max(1.0),
-                        RowEstimate::Unknown => local_topk_work_cap,
-                    };
-
-                    // The per-segment fixed cost captures the "open this segment,
-                    // join the global top-K competition" overhead that Block-WAND
-                    // can't shrink. This is what lets the planner distinguish "few
-                    // big segments" from "many small segments".
-                    //
-                    // Note: the columnar-sorted-merge multiplier is intentionally
-                    // not applied here — `is_score_desc_topk` guarantees `method`
-                    // is `ExecMethodType::TopK`, and `supports_sorted_index_merge`
-                    // only fires for `Columnar`.
-                    let work_cost_base =
-                        work_rows * per_tuple_cost + segment_count as f64 * per_segment_cost_guc;
-
-                    let max_workers = if consider_parallel_local {
-                        max_useful_workers(
-                            segment_count,
-                            quals.contains_external_var(),
-                            quals.contains_correlated_param(builder.args().root),
-                        )
-                    } else {
-                        0
-                    };
-
-                    // Pick parallel only if its cost (including an estimate of PG's
-                    // Gather wrap overhead) is strictly cheaper than serial.
-                    let candidate = WorkerDecision::from_worker_count(max_workers);
-                    let worker_decision = match candidate {
-                        WorkerDecision::Serial => WorkerDecision::Serial,
-                        WorkerDecision::Parallel { .. } => {
-                            let divisor = candidate.divisor(parallel_leader_share);
-                            let serial_total = startup_cost + work_cost_base;
-                            // Approximate `cost_gather_merge`: dominant terms are
-                            // `parallel_setup_cost` and `parallel_tuple_cost * rows`.
-                            let gather_overhead = pg_sys::parallel_setup_cost
-                                + pg_sys::parallel_tuple_cost * base_result_rows;
-                            let parallel_total =
-                                startup_cost + work_cost_base / divisor + gather_overhead;
-                            if parallel_total < serial_total {
-                                candidate
-                            } else {
-                                WorkerDecision::Serial
-                            }
-                        }
-                    };
-
-                    PathCostBasis {
-                        worker_decision,
-                        work_cost_base,
-                        total_cost_multiplier: 1.0,
-                    }
+                // Decide worker count and path cost. Bounded TopK gets an
+                // explicit serial-vs-parallel comparison; everything else uses
+                // the established worker-selection heuristic.
+                let cost_basis = if let Some(limit_bounded_topk_info) = limit_bounded_topk_info {
+                    cost_limit_bounded_topk_path(LimitBoundedTopKCostParams {
+                        method: &method,
+                        info: limit_bounded_topk_info,
+                        row_estimate,
+                        segment_count,
+                        per_tuple_cost,
+                        base_result_rows,
+                        startup_cost,
+                        consider_parallel: consider_parallel_local,
+                        quals: &quals,
+                        root: builder.args().root,
+                        parallel_leader_participates,
+                    })
                 } else {
-                    // ── general worker-selection branch ──
-                    let nworkers = if consider_parallel_local {
-                        compute_nworkers(
-                            is_sorted,
-                            float_limit,
-                            row_estimate,
-                            segment_count,
-                            quals.contains_external_var(),
-                            quals.contains_correlated_param(builder.args().root),
-                            is_join_context,
-                        )
-                    } else {
-                        0
-                    };
-
-                    let total_cost_multiplier = if is_sorted && method.supports_sorted_index_merge()
-                    {
-                        1.01
-                    } else {
-                        1.0
-                    };
-
-                    PathCostBasis {
-                        worker_decision: WorkerDecision::from_worker_count(nworkers),
-                        work_cost_base: base_result_rows * per_tuple_cost,
-                        total_cost_multiplier,
-                    }
+                    cost_general_path(GeneralPathCostParams {
+                        method: &method,
+                        is_sorted,
+                        float_limit,
+                        row_estimate,
+                        segment_count,
+                        per_tuple_cost,
+                        base_result_rows,
+                        consider_parallel: consider_parallel_local,
+                        quals: &quals,
+                        root: builder.args().root,
+                        is_join_context,
+                    })
                 };
 
-                let divisor = cost_basis.worker_decision.divisor(parallel_leader_share);
-                let method_result_rows = base_result_rows / divisor;
-                let total_cost = (startup_cost + cost_basis.work_cost_base / divisor)
+                let scan_work_divisor = cost_basis
+                    .worker_decision
+                    .divisor(parallel_leader_participates);
+                let method_result_rows = base_result_rows / scan_work_divisor;
+                let total_cost = (startup_cost
+                    + cost_basis.parallelizable_cost / scan_work_divisor
+                    + cost_basis.non_parallelizable_cost)
                     * cost_basis.total_cost_multiplier;
 
                 if let Some(nworkers) = cost_basis.worker_decision.nworkers() {
@@ -1554,21 +1705,22 @@ impl CustomScan for BaseScan {
                 // - EXPLAIN ANALYZE: search_reader is already initialized by begin_custom_scan
                 // - EXPLAIN (without ANALYZE): search_reader is None, so we create a temporary
                 //   reader using MvccSatisfies::LargestSegment for estimation purposes only
-                let query_tree =
-                    if let Some(search_reader) = state.custom_state().search_reader.as_ref() {
-                        // EXPLAIN ANALYZE: use the existing search reader
-                        search_reader
-                            .build_query_tree_with_estimates(base_query.clone())
-                            .expect("building query tree with estimates should not fail")
-                    } else {
-                        // EXPLAIN (without ANALYZE): create a temporary reader for estimates
-                        let indexrel = state
-                            .custom_state()
-                            .indexrel
-                            .as_ref()
-                            .expect("indexrel should be open");
+                let query_tree = if let Some(search_reader) =
+                    state.custom_state().search_reader.as_ref()
+                {
+                    // EXPLAIN ANALYZE: use the existing search reader
+                    search_reader
+                        .build_query_tree_with_estimates(base_query.clone())
+                        .expect("building query tree with estimates should not fail")
+                } else {
+                    // EXPLAIN (without ANALYZE): create a temporary reader for estimates
+                    let indexrel = state
+                        .custom_state()
+                        .indexrel
+                        .as_ref()
+                        .expect("indexrel should be open");
 
-                        let temp_reader = SearchIndexReader::open_with_context(
+                    let temp_reader = SearchIndexReader::open_with_context(
                             indexrel,
                             base_query.clone(),
                             false,                         // don't need scores for estimates
@@ -1577,12 +1729,16 @@ impl CustomScan for BaseScan {
                             None,                          // No planstate needed for estimates
                             base_query.needs_tokenizer(),
                         )
-                        .unwrap_or_else(|e| panic!("{e}"));
+                        .unwrap_or_else(|e| {
+                            panic!(
+                                "BaseScan::build_query_tree_with_estimates: opening temporary SearchIndexReader should not fail: {e}"
+                            )
+                        });
 
-                        temp_reader
-                            .build_query_tree_with_estimates(base_query.clone())
-                            .expect("building query tree with estimates should not fail")
-                    };
+                    temp_reader
+                        .build_query_tree_with_estimates(base_query.clone())
+                        .expect("building query tree with estimates should not fail")
+                };
 
                 explainer.add_query_with_estimates(&query_tree);
             } else {

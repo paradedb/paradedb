@@ -331,7 +331,9 @@ pub(crate) fn estimate_selectivity(
         false,
         MvccSatisfies::LargestSegment,
     )
-    .unwrap_or_else(|e| panic!("{e}"));
+    .unwrap_or_else(|e| {
+        panic!("estimate_selectivity: should be able to open a SearchIndexReader: {e}")
+    });
 
     // We estimate both the number of matching docs and the total number of docs.
     // If reltuples is Known, total_rows will match it. If Unknown, total_rows

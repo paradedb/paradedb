@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779779401226,
+  "lastUpdate": 1779779434146,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8526,6 +8526,66 @@ window.BENCHMARK_DATA = {
             "value": 80,
             "unit": "median segment_count",
             "extra": "avg segment_count: 82.8190250778789, max segment_count: 136.0, count: 57461"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5e936d8201f91cf68040e384be950be178bc0818",
+          "message": "refactor(mpp): centralize the mpp_worker_count >= 3 invariant (#5132)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nCentralizes the \"MPP needs at least 3 procs\" invariant on a single\nconstant, drops the soft `.max(3)` clamp, and tightens\n`producer_worker_count()`.\n\n## Why\n\nThe invariant was encoded in two places: the `>= 3` gate in\n`mpp_is_active` and the `.max(3)` clamp in `mpp_worker_count`. The clamp\nwas a soft GUC-level bandage on a planner contract that's already\nchecked at the gate, so the two sites could drift on the threshold.\n\n## How\n\n- Introduce `MIN_TOTAL_WORKER_COUNT: i32 = 3` as the single source of\ntruth. Doc comment explains why 3 (below that, `producer_worker_count()`\ndrops to 1, while `with_target_partitions(n.max(2))` in\n`build_mpp_session_context` would still build a 2-partition shuffle and\nthe mesh wouldn't have a queue for the second partition).\n- `mpp_is_active()` checks `>= MIN_TOTAL_WORKER_COUNT`.\n- `mpp_worker_count()` returns the raw GUC value with a\n`debug_assert!(mpp_is_active())`. Callers must gate on `mpp_is_active()`\nfirst. Audit confirmed every caller already does, so this catches a\nfuture misuse loudly.\n- `producer_worker_count()` becomes plain `mpp_worker_count() - 1`. The\nprevious `.saturating_sub(1).max(1)` was redundant.\n\n## Tests\n\n- `mpp_smoke`, `mpp_joinscan`, `mpp_aggregate`, `mpp_aggregate_postagg`\nall pass on pgrx-arm64.\n- CI green.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-25T23:28:07-07:00",
+          "tree_id": "5b600ea8044b755f82893015d4ce6e61d4cc9945",
+          "url": "https://github.com/paradedb/paradedb/commit/5e936d8201f91cf68040e384be950be178bc0818"
+        },
+        "date": 1779779403214,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.838906149611894, max cpu: 42.857143, count: 57315"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 235.07189244743958, max mem: 236.73828125, count: 57315"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.292481967244377, max cpu: 33.20158, count: 57315"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 177.33203125,
+            "unit": "median mem",
+            "extra": "avg mem: 177.19519834194801, max mem: 178.21484375, count: 57315"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34428,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33755.22625839658, max block_count: 36570.0, count: 57315"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 78,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.60359417255518, max segment_count: 129.0, count: 57315"
           }
         ]
       }

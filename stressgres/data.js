@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779780209821,
+  "lastUpdate": 1779780243463,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12922,6 +12922,108 @@ window.BENCHMARK_DATA = {
             "value": 164.03515625,
             "unit": "median mem",
             "extra": "avg mem: 183.34004313711213, max mem: 222.57421875, count: 56658"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "646ac4b263e8e9b92088faeb42b1bf653106ee9b",
+          "message": "refactor(mpp): drop MppWorkerResolver (#5131)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDeletes `MppWorkerResolver` and the\n`.with_distributed_worker_resolver(...)` registration. Drops the\nnow-unused `url` dependency.\n\n## Why\n\nOur resolver was pure paper-weight. The URLs it returned were never\nread. The `ShmMqWorkerTransport` keys off `target_task`, not URL. The\nfork only forced us to ship one because `prepare_plan` and\n`plan_annotator::_annotate_plan` unconditionally called\n`worker_resolver.get_urls()?`.\n\nFork PR paradedb/datafusion-distributed#10 gates those calls behind\n`!in_process_mode` and substitutes a 1-element placeholder vec\ninternally, so embedders running in-process no longer need a resolver at\nall.\n\n## How\n\n- Delete `MppWorkerResolver` from `runtime.rs`.\n- Drop `.with_distributed_worker_resolver(...)` from\n`build_mpp_session_context` plus the import.\n- Drop the orphan `async_trait`, `WorkerResolver`, and `url::Url`\nimports.\n- Drop `url` from `pg_search/Cargo.toml`.\n\n## Tests\n\n- `mpp_smoke`, `mpp_joinscan`, `mpp_aggregate`, `mpp_aggregate_postagg`\nall pass on pgrx-arm64.\n- CI green.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-25T23:27:45-07:00",
+          "tree_id": "98133e9bd488ec5de522d8a05abb16753450b739",
+          "url": "https://github.com/paradedb/paradedb/commit/646ac4b263e8e9b92088faeb42b1bf653106ee9b"
+        },
+        "date": 1779780212430,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07433155080213903, max background_merging: 2.0, count: 56100"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.768550106718436, max cpu: 9.667674, count: 56100"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 24.921875,
+            "unit": "median mem",
+            "extra": "avg mem: 24.956139148841356, max mem: 25.03125, count: 56100"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.972189907846038, max cpu: 27.934044, count: 56100"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 192.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 186.41231248607397, max mem: 192.44921875, count: 56100"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51503,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51372.99515151515, max block_count: 51503.0, count: 56100"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.8703743315508, max segment_count: 56.0, count: 56100"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7013291845513585, max cpu: 23.30097, count: 56100"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 146.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 128.91507185828877, max mem: 159.89453125, count: 56100"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.8359346143219195, max cpu: 28.458496, count: 56100"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 192.69921875,
+            "unit": "median mem",
+            "extra": "avg mem: 184.05445925245098, max mem: 192.92578125, count: 56100"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.759030193142106, max cpu: 33.633633, count: 56100"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 164.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 182.36849397003118, max mem: 222.4609375, count: 56100"
           }
         ]
       }

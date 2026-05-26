@@ -320,82 +320,85 @@ where
 
         let mut found_valid_member = false;
 
-        for member in members.iter_ptr() {
-            let expr = (*member).em_expr;
+        let collation = (*equivclass).ec_collation;
+        if collation == pg_sys::C_COLLATION_OID {
+            for member in members.iter_ptr() {
+                let expr = (*member).em_expr;
 
-            // Handle PlaceHolderVar: unwrap to check if it contains a sortable expression.
-            // We support any valid sort expression (Score, Lower, Raw, IndexedExpression)
-            // that might be wrapped.
-            let mut expr_to_analyze = expr;
-            if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, expr) {
-                if let Some(funcexpr) = extract_funcexpr_from_placeholder(phv) {
-                    expr_to_analyze = funcexpr.cast();
-                }
-            }
-
-            let index_info = index_expressions.map(|idx_exprs| IndexExpressionInfo {
-                index_expressions: idx_exprs,
-                schema,
-                heap_rti: rti,
-            });
-
-            if let Some((sort_type, var, field_name_opt)) = analyze_sort_expression(
-                expr_to_analyze.cast(),
-                VarContext::from_planner(root),
-                index_info.as_ref(),
-            ) {
-                // Verify the var belongs to the correct relation (either the relation itself or its parent)
-                if !is_varno_valid_for_relation(root, (*var).varno as pg_sys::Index, rti) {
-                    continue;
-                }
-
-                match sort_type {
-                    SortExpressionType::Score => {
-                        pathkey_styles.push(OrderByStyle::Score { pathkey, rti });
-                        found_valid_member = true;
-                        break;
+                // Handle PlaceHolderVar: unwrap to check if it contains a sortable expression.
+                // We support any valid sort expression (Score, Lower, Raw, IndexedExpression)
+                // that might be wrapped.
+                let mut expr_to_analyze = expr;
+                if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, expr) {
+                    if let Some(funcexpr) = extract_funcexpr_from_placeholder(phv) {
+                        expr_to_analyze = funcexpr.cast();
                     }
-                    SortExpressionType::Lower => {
-                        if let Some(field_name) = field_name_opt {
-                            if let Some(search_field) = schema.search_field(field_name.root()) {
-                                if lower_sortability_check(&search_field) {
-                                    pathkey_styles.push(OrderByStyle::Field {
-                                        pathkey,
-                                        name: field_name,
-                                        rti,
-                                    });
-                                    found_valid_member = true;
-                                    break;
+                }
+
+                let index_info = index_expressions.map(|idx_exprs| IndexExpressionInfo {
+                    index_expressions: idx_exprs,
+                    schema,
+                    heap_rti: rti,
+                });
+
+                if let Some((sort_type, var, field_name_opt)) = analyze_sort_expression(
+                    expr_to_analyze.cast(),
+                    VarContext::from_planner(root),
+                    index_info.as_ref(),
+                ) {
+                    // Verify the var belongs to the correct relation (either the relation itself or its parent)
+                    if !is_varno_valid_for_relation(root, (*var).varno as pg_sys::Index, rti) {
+                        continue;
+                    }
+
+                    match sort_type {
+                        SortExpressionType::Score => {
+                            pathkey_styles.push(OrderByStyle::Score { pathkey, rti });
+                            found_valid_member = true;
+                            break;
+                        }
+                        SortExpressionType::Lower => {
+                            if let Some(field_name) = field_name_opt {
+                                if let Some(search_field) = schema.search_field(field_name.root()) {
+                                    if lower_sortability_check(&search_field) {
+                                        pathkey_styles.push(OrderByStyle::Field {
+                                            pathkey,
+                                            name: field_name,
+                                            rti,
+                                        });
+                                        found_valid_member = true;
+                                        break;
+                                    }
                                 }
                             }
                         }
-                    }
-                    SortExpressionType::Raw => {
-                        if let Some(field_name) = field_name_opt {
-                            if let Some(search_field) = schema.search_field(field_name.root()) {
-                                if regular_sortability_check(&search_field) {
-                                    pathkey_styles.push(OrderByStyle::Field {
-                                        pathkey,
-                                        name: field_name,
-                                        rti,
-                                    });
-                                    found_valid_member = true;
-                                    break;
+                        SortExpressionType::Raw => {
+                            if let Some(field_name) = field_name_opt {
+                                if let Some(search_field) = schema.search_field(field_name.root()) {
+                                    if regular_sortability_check(&search_field) {
+                                        pathkey_styles.push(OrderByStyle::Field {
+                                            pathkey,
+                                            name: field_name,
+                                            rti,
+                                        });
+                                        found_valid_member = true;
+                                        break;
+                                    }
                                 }
                             }
                         }
-                    }
-                    SortExpressionType::IndexedExpression => {
-                        if let Some(field_name) = field_name_opt {
-                            if let Some(search_field) = schema.search_field(field_name.root()) {
-                                if search_field.is_fast() {
-                                    pathkey_styles.push(OrderByStyle::Field {
-                                        pathkey,
-                                        name: field_name,
-                                        rti,
-                                    });
-                                    found_valid_member = true;
-                                    break;
+                        SortExpressionType::IndexedExpression => {
+                            if let Some(field_name) = field_name_opt {
+                                if let Some(search_field) = schema.search_field(field_name.root()) {
+                                    if search_field.is_fast() {
+                                        pathkey_styles.push(OrderByStyle::Field {
+                                            pathkey,
+                                            name: field_name,
+                                            rti,
+                                        });
+                                        found_valid_member = true;
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -403,7 +406,6 @@ where
                 }
             }
         }
-
         // If we couldn't find any valid member for this pathkey, then we can't handle this series
         // of pathkeys.
         if !found_valid_member {

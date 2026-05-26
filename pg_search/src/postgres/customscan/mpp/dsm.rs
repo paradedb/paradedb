@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Multiplexed N×N DSM layout for the natural-shape MPP architecture.
+//! Mesh-multiplexed DSM layout: one shm_mq inbox per receiver process.
 //!
 //! Each MPP query allocates a single DSM region containing:
 //!
@@ -28,24 +28,21 @@
 //!   +-------------------------------------------------------+
 //!   | padding to MAXALIGN                                   |
 //!   +-------------------------------------------------------+
-//!   | shm_mq queue array: n_procs × n_procs slots           |
-//!   |   slot(sender, receiver) = queues_offset              |
-//!   |     + (sender * n_procs + receiver) * queue_bytes     |
+//!   | shm_mq inbox array: n_procs slots                     |
+//!   |   inbox(receiver) = queues_offset                     |
+//!   |     + receiver * queue_bytes                          |
 //!   +-------------------------------------------------------+
 //! ```
 //!
-//! - `n_procs` is the total proc count (1 leader + N parallel workers).
-//!   Leader is `proc_idx = 0`; workers are `proc_idx = ParallelWorkerNumber + 1`.
-//! - Every process attaches as **sender** to its row (`slot(this, *)`) and as
-//!   **receiver** to its column (`slot(*, this)`). The grid is uniform and
-//!   independent of plan shape: a single multiplexed queue per process-pair
-//!   carries frames for any number of logical `(stage_id, partition)`
-//!   channels, demultiplexed on the receive side via the `MppFrameHeader`
-//!   prefix.
-//! - Self-loop slots (`slot(k, k)`) are reserved in the layout and
-//!   `shm_mq_create`'d by the leader so the slot-offset math stays a simple
-//!   row-major index, but no process attaches as sender or receiver to its
-//!   own self-loop.
+//! - `n_procs` is the total proc count (1 leader + N parallel workers). Leader is
+//!   `proc_idx = 0`; workers are `proc_idx = ParallelWorkerNumber + 1`.
+//! - Each process attaches as **receiver** to its own inbox (one queue) and as **sender** to
+//!   each of N-1 peer inboxes. Total queues per mesh is `n_procs`; total per-proc attach
+//!   calls is `1 + (N-1) = N`. Senders stamp `MppFrameHeader::sender_proc` on every frame so
+//!   the receiver demultiplexes by source on read.
+//! - Self-loop frames (proc → itself) use an in-proc channel installed in `glue.rs`, not a
+//!   DSM slot. shm_mq enforces exactly one receiver per queue, so there is no DSM slot for
+//!   the self-loop pair in this layout.
 
 use std::ffi::c_void;
 use std::mem::size_of;
@@ -128,16 +125,15 @@ impl MppDsmHeader {
         Ok(())
     }
 
-    /// Byte offset (relative to DSM base) of the queue at `(sender_proc, receiver_proc)`.
+    /// Byte offset (relative to DSM base) of `receiver_proc`'s inbox queue.
     ///
-    /// Every process attaches as sender for its row (`slot(this, *)`) and as
-    /// receiver for its column (`slot(*, this)`). Self-loops (`slot(k, k)`)
-    /// are present in the grid but rarely used at runtime.
-    pub(super) fn slot_offset(&self, sender_proc: u32, receiver_proc: u32) -> u64 {
-        debug_assert!(sender_proc < self.n_procs);
+    /// Mesh-multiplexed layout: there is exactly one shm_mq inbox per process. The receiver
+    /// attaches as receiver; every other process attaches as sender to the same inbox and stamps
+    /// its identity into the frame header (`MppFrameHeader::sender_proc`). Total queues per mesh
+    /// is `n_procs`, down from the pre-Phase-2 `n_procs²`.
+    pub(super) fn inbox_offset(&self, receiver_proc: u32) -> u64 {
         debug_assert!(receiver_proc < self.n_procs);
-        let slot = (sender_proc as u64) * (self.n_procs as u64) + (receiver_proc as u64);
-        self.queues_offset + slot * self.queue_bytes
+        self.queues_offset + (receiver_proc as u64) * self.queue_bytes
     }
 }
 
@@ -154,9 +150,9 @@ pub(super) struct DsmLayout {
 
 /// Compute the DSM region size and field offsets for one MPP query.
 ///
-/// `n_procs` is the total proc count (1 leader + N workers). The
-/// shm_mq grid is `n_procs × n_procs`; each process attaches as sender to its
-/// row and receiver to its column.
+/// `n_procs` is the total proc count (1 leader + N workers). Mesh-multiplexed layout: one
+/// shm_mq inbox per process (`n_procs` queues total per mesh). Every other process attaches as
+/// sender to that inbox and demultiplexes by `MppFrameHeader::sender_proc` on the receive side.
 pub(super) fn compute_dsm_layout(
     n_procs: u32,
     queue_bytes: usize,
@@ -177,10 +173,7 @@ pub(super) fn compute_dsm_layout(
         .ok_or("mpp: plan offset+len overflow")?;
     let queues_offset =
         align_up_maxalign_checked(plan_end).ok_or("mpp: queues alignment overflow")?;
-    let total_slots = (n_procs as usize)
-        .checked_mul(n_procs as usize)
-        .ok_or("mpp: n_procs × n_procs overflow")?;
-    let queues_bytes = total_slots
+    let queues_bytes = (n_procs as usize)
         .checked_mul(queue_bytes)
         .ok_or("mpp: queues bytes overflow")?;
     let region_total = queues_offset
@@ -199,22 +192,19 @@ pub(super) fn compute_dsm_layout(
     })
 }
 
-/// Per-proc return: handles for the process's row (senders) and
-/// column (receivers) in the multiplexed `n_procs × n_procs` grid.
+/// Per-proc return from `attach_proc` under the mesh-multiplexed layout: N-1 outbound senders
+/// (one per peer) plus a single inbound receiver (the process's own inbox).
 ///
-/// Self-loop slots (`slot(this_proc, this_proc)`) are skipped to avoid two
-/// `shm_mq_attach` calls + two `on_dsm_detach` callbacks per process for a
-/// queue nothing reads. As a consequence, `outbound_senders` and
-/// `inbound_receivers` each have `n_procs - 1` entries; the index gymnastics
-/// to translate `proc_idx` ↔ slice index are handled by
-/// [`MppMesh::inbound_receiver`] in the runtime.
+/// The own-inbox is the multiplexed entry point: all N-1 peers attach to it as senders and
+/// stamp their identity into `MppFrameHeader::sender_proc` on every frame. The receiver side
+/// pulls frames off that single queue and routes them to per-`(stage_id, partition)` buffers
+/// via [`DrainHandle`].
 pub(super) struct ProcAttach {
-    /// `outbound_senders[i]` writes to `slot(this_proc, peer_proc(i))` where
-    /// `peer_proc(i) = i if i < this_proc else i + 1` (skipping the self-loop).
+    /// `outbound_senders[i]` writes to peer `peer_proc_for_index(this_proc, i)`'s inbox.
+    /// `peer_proc(i) = i if i < this_proc else i + 1` skips the self-loop entry.
     pub(super) outbound_senders: Vec<ShmMqSender>,
-    /// `inbound_receivers[i]` reads from `slot(peer_proc(i), this_proc)`,
-    /// same skip-self-loop mapping as `outbound_senders`.
-    pub(super) inbound_receivers: Vec<ShmMqReceiver>,
+    /// This process's own inbox. Receives frames from every peer over a single shm_mq queue.
+    pub(super) inbound_receiver: ShmMqReceiver,
 }
 
 /// Translate a peer index (`0..n_procs - 1`) into a process index
@@ -277,9 +267,11 @@ pub(super) unsafe fn leader_init(
         );
     }
 
-    // One-time create of every shm_mq slot. Workers can't do this (the region is uninitialized at
-    // their attach time), so the leader runs `shm_mq_create` for all `n_procs²` slots even though
-    // it only attaches to its own row and column below.
+    // Mesh-multiplexed layout: one shm_mq inbox per receiver process. Workers can't run
+    // shm_mq_create themselves (region is uninitialized at their attach time), so the leader
+    // does it for all `n_procs` inboxes. Each inbox is later attached as receiver by exactly one
+    // process (the owner) and as sender by N-1 peers; frames carry the sender's identity in
+    // MppFrameHeader.sender_proc so the receiver can demultiplex by source.
     let header = MppDsmHeader::from_layout(layout);
     let n_procs = layout.n_procs;
     // `crate::gucs::mpp_trace()` reads a pgrx GucSetting, which requires the backend thread.
@@ -288,29 +280,26 @@ pub(super) unsafe fn leader_init(
     // `pgrx::warning!` callers rely on.
     let trace_on = crate::gucs::mpp_trace();
     let t_create = trace_on.then(Instant::now);
-    for s in 0..n_procs {
-        for r in 0..n_procs {
-            let off = header.slot_offset(s, r) as usize;
-            let mq_addr = unsafe { base.add(off) };
-            unsafe { pg_sys::shm_mq_create(mq_addr.cast(), layout.queue_bytes) };
-        }
+    for r in 0..n_procs {
+        let off = header.inbox_offset(r) as usize;
+        let mq_addr = unsafe { base.add(off) };
+        unsafe { pg_sys::shm_mq_create(mq_addr.cast(), layout.queue_bytes) };
     }
     let create_ms = t_create.map(|t| t.elapsed().as_secs_f64() * 1000.0);
 
     let t_attach = trace_on.then(Instant::now);
-    let attach = unsafe { attach_proc_row_and_column(base, &header, 0, seg) };
+    let attach = unsafe { attach_proc(base, &header, 0, seg) };
     let attach_ms = t_attach.map(|t| t.elapsed().as_secs_f64() * 1000.0);
 
     if trace_on {
-        // attach_proc_row_and_column makes 2*(N-1) shm_mq_attach calls per proc:
-        // N-1 row senders + N-1 column receivers. create touched all N² slots.
-        let peer_attach_calls = 2 * (n_procs as usize).saturating_sub(1);
-        let total_slots = (n_procs as usize) * (n_procs as usize);
+        // create loop ran n_procs shm_mq_create calls (one per inbox). attach made N-1 sender
+        // attaches (one per peer) + 1 own-inbox receiver attach = N total.
+        let attach_calls = n_procs as usize;
         pgrx::warning!(
-            "mpp_trace mesh_init role=leader procs={} slots_created={} peer_attach_calls={} queue_bytes={} plan_bytes={} create_ms={:.2} attach_ms={:.2}",
+            "mpp_trace mesh_init role=leader procs={} inboxes_created={} attach_calls={} queue_bytes={} plan_bytes={} create_ms={:.2} attach_ms={:.2}",
             n_procs,
-            total_slots,
-            peer_attach_calls,
+            n_procs,
+            attach_calls,
             layout.queue_bytes,
             plan_bytes.len(),
             create_ms.unwrap(),
@@ -321,19 +310,21 @@ pub(super) unsafe fn leader_init(
     Ok(attach)
 }
 
-/// Attach to the leader-initialized DSM region as `proc_idx` (`0 = leader`,
-/// `1..N = parallel workers`).
+/// Attach to the leader-initialized DSM region as `proc_idx` (`0 = leader`, `1..N = parallel
+/// workers`) under the mesh-multiplexed layout: attach as receiver to this proc's own inbox,
+/// and as sender to every peer's inbox.
 ///
-/// Workers use this from `initialize_worker_custom_scan` via `worker_attach`; the leader uses it
-/// inline at the end of `leader_init`. Each process attaches as sender to its row and receiver to
-/// its column of the `n_procs × n_procs` grid, including the self-loop at `(this, this)`.
+/// Workers use this from `initialize_worker_custom_scan` via `worker_attach`; the leader uses
+/// it inline at the end of `leader_init`. shm_mq allows only one receiver per queue, so the
+/// own-inbox attach is the single point of frame ingress for this process — peers stamp
+/// `MppFrameHeader::sender_proc` so the drain side can demultiplex.
 ///
 /// # Safety
 /// - `base` must point to a DSM region whose header has been validated.
-/// - `header.slot_offset(s, r)` must already point at a slot initialized by `shm_mq_create` (the
+/// - `header.inbox_offset(r)` must already point at a slot initialized by `shm_mq_create` (the
 ///   leader does this in `leader_init`).
 /// - `seg` may be NULL on workers. `shm_mq_attach` skips its on-detach callback in that case.
-unsafe fn attach_proc_row_and_column(
+unsafe fn attach_proc(
     base: *mut u8,
     header: &MppDsmHeader,
     this_proc: u32,
@@ -342,29 +333,25 @@ unsafe fn attach_proc_row_and_column(
     let n_procs = header.n_procs;
     let peer_count = (n_procs - 1) as usize; // n_procs >= 2 is layout invariant
     let mut outbound_senders = Vec::with_capacity(peer_count);
-    let mut inbound_receivers = Vec::with_capacity(peer_count);
 
-    // Senders: this process's row, skipping the self-loop slot(this, this).
+    // Outbound: one sender attach per peer (N-1 calls), targeting each peer's inbox.
     for peer_idx in 0..(n_procs - 1) {
         let r = peer_proc_for_index(this_proc, peer_idx);
-        let off = header.slot_offset(this_proc, r) as usize;
+        let off = header.inbox_offset(r) as usize;
         let mq_addr = unsafe { base.add(off) };
         let mq = mq_addr.cast::<pg_sys::shm_mq>();
         outbound_senders.push(unsafe { ShmMqSender::attach(seg, mq) });
     }
 
-    // Receivers: this process's column, skipping the self-loop slot(this, this).
-    for peer_idx in 0..(n_procs - 1) {
-        let s = peer_proc_for_index(this_proc, peer_idx);
-        let off = header.slot_offset(s, this_proc) as usize;
-        let mq_addr = unsafe { base.add(off) };
-        let mq = mq_addr.cast::<pg_sys::shm_mq>();
-        inbound_receivers.push(unsafe { ShmMqReceiver::attach_existing(seg, mq) });
-    }
+    // Inbound: this proc's own inbox. shm_mq enforces exactly one receiver per queue.
+    let own_off = header.inbox_offset(this_proc) as usize;
+    let own_mq_addr = unsafe { base.add(own_off) };
+    let own_mq = own_mq_addr.cast::<pg_sys::shm_mq>();
+    let inbound_receiver = unsafe { ShmMqReceiver::attach_existing(seg, own_mq) };
 
     ProcAttach {
         outbound_senders,
-        inbound_receivers,
+        inbound_receiver,
     }
 }
 
@@ -416,16 +403,16 @@ pub(super) unsafe fn worker_attach(
     // the parallel-worker backend before tokio starts, so reading `mpp_trace` directly is safe.
     let trace_on = crate::gucs::mpp_trace();
     let t_attach = trace_on.then(Instant::now);
-    let attach = unsafe { attach_proc_row_and_column(base, &header, proc_idx, seg) };
+    let attach = unsafe { attach_proc(base, &header, proc_idx, seg) };
     if trace_on {
         let attach_ms = t_attach.unwrap().elapsed().as_secs_f64() * 1000.0;
-        // 2*(N-1) shm_mq_attach calls: N-1 row senders + N-1 column receivers.
-        let peer_attach_calls = 2 * (header.n_procs as usize).saturating_sub(1);
+        // N attach calls: N-1 sender attaches (one per peer inbox) + 1 own-inbox receiver attach.
+        let attach_calls = header.n_procs as usize;
         pgrx::warning!(
-            "mpp_trace mesh_init role=worker proc_idx={} procs={} peer_attach_calls={} attach_ms={:.2}",
+            "mpp_trace mesh_init role=worker proc_idx={} procs={} attach_calls={} attach_ms={:.2}",
             proc_idx,
             header.n_procs,
-            peer_attach_calls,
+            attach_calls,
             attach_ms,
         );
     }
@@ -440,10 +427,10 @@ mod tests {
     fn compute_dsm_layout_works() {
         let l = compute_dsm_layout(4, 64 * 1024, 1024).unwrap();
         assert_eq!(l.n_procs, 4);
-        // Grid is n_procs × n_procs = 16 slots.
+        // Mesh-multiplexed: n_procs inboxes (one per receiver), not n_procs².
         let aligned = aligned_queue_bytes(64 * 1024);
-        let queues_size = 16 * aligned;
-        assert!(l.region_total >= l.queues_offset + queues_size);
+        let queues_size = 4 * aligned;
+        assert_eq!(l.region_total, l.queues_offset + queues_size);
     }
 
     #[test]
@@ -457,16 +444,36 @@ mod tests {
     }
 
     #[test]
-    fn header_slot_offset_is_row_major_over_n_procs() {
-        // 4 procs → 4×4 = 16 slots, row-major over (sender, receiver).
+    fn header_inbox_offset_is_per_receiver() {
+        // Mesh-multiplexed: one inbox per receiver. inbox(r) = queues_offset + r * queue_bytes.
         let l = compute_dsm_layout(4, 64 * 1024, 0).unwrap();
         let h = MppDsmHeader::from_layout(&l);
         let aligned = h.queue_bytes;
-        assert_eq!(h.slot_offset(0, 0), h.queues_offset);
-        assert_eq!(h.slot_offset(0, 1), h.queues_offset + aligned);
-        assert_eq!(h.slot_offset(1, 0), h.queues_offset + 4 * aligned);
-        // Self-loop on proc 3: (3,3) → row 3, col 3 → slot 15.
-        assert_eq!(h.slot_offset(3, 3), h.queues_offset + 15 * aligned);
+        assert_eq!(h.inbox_offset(0), h.queues_offset);
+        assert_eq!(h.inbox_offset(1), h.queues_offset + aligned);
+        assert_eq!(h.inbox_offset(2), h.queues_offset + 2 * aligned);
+        assert_eq!(h.inbox_offset(3), h.queues_offset + 3 * aligned);
+    }
+
+    #[test]
+    fn compute_dsm_layout_scales_linearly_in_n_procs() {
+        // Mesh multiplexing reduces queue count from N² to N. This test pins that math so any
+        // accidental regression back to N² scaling shows up at compile-time of the test suite.
+        let queue_bytes = 64 * 1024;
+        let aligned = aligned_queue_bytes(queue_bytes);
+        for n in [2u32, 4, 8, 16, 24] {
+            let l = compute_dsm_layout(n, queue_bytes, 0).unwrap();
+            let queues_size = (n as usize) * aligned;
+            assert_eq!(
+                l.region_total - l.queues_offset,
+                queues_size,
+                "n={n}: expected {} inbox bytes ({} inboxes × {} aligned), got {}",
+                queues_size,
+                n,
+                aligned,
+                l.region_total - l.queues_offset,
+            );
+        }
     }
 
     #[test]

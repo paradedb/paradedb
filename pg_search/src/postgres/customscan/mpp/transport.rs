@@ -818,7 +818,11 @@ pub(super) enum RecvBatchOutcome {
 /// Channel buffers registered *after* detach come back already EOF'd so a late consumer doesn't hang.
 #[derive(Default)]
 struct ChannelBufferRegistry {
-    map: HashMap<(u32, u32), Arc<DrainBuffer>>,
+    /// Keyed by `(sender_proc, stage_id, partition)`. Under mesh-multiplexing the unified
+    /// inbox carries frames from every peer, so each `(stage, partition)` consumer gets its
+    /// own per-sender buffer — preserving the today-implicit "one stream per sender" semantics
+    /// that `WorkerConnection::stream_partition` consumers rely on.
+    map: HashMap<(u32, u32, u32), Arc<DrainBuffer>>,
     detached: bool,
 }
 
@@ -869,7 +873,12 @@ impl DrainHandle {
     /// If the drain has already observed `Detached` from its underlying receiver, the
     /// newly-created buffer comes back with `notify_source_done` already called so a consumer
     /// registering after detach sees `Eof` on the first `try_pop` instead of hanging forever.
-    pub(super) fn register_channel(&self, stage_id: u32, partition: u32) -> Arc<DrainBuffer> {
+    pub(super) fn register_channel(
+        &self,
+        sender_proc: u32,
+        stage_id: u32,
+        partition: u32,
+    ) -> Arc<DrainBuffer> {
         let mut guard = self
             .channel_buffers
             .lock()
@@ -877,8 +886,11 @@ impl DrainHandle {
         let detached = guard.detached;
         guard
             .map
-            .entry((stage_id, partition))
+            .entry((sender_proc, stage_id, partition))
             .or_insert_with(|| {
+                // num_sources stays 1: under mesh-multiplexing each (sender, stage, partition)
+                // tuple has exactly one upstream — the named sender — even though the underlying
+                // shm_mq is shared across all senders.
                 let buf = DrainBuffer::new(1);
                 if detached {
                     buf.notify_source_done();
@@ -948,12 +960,11 @@ impl DrainHandle {
     ///
     /// Routing rules per outcome:
     /// - `Batch { header, batch }`: look up (or lazily create) the
-    ///   `(header.stage_id, header.partition)` channel buffer and push `batch`.
-    /// - `Eof { header }`: per-channel EOF. Resolve the channel buffer and call
-    ///   `notify_source_done`. Other channels on the same queue keep flowing,
-    ///   so the receiver slot stays live.
-    /// - `Detached` / `Error`: queue-wide shutdown. Notify every registered
-    ///   channel buffer, mark the handle detached, and drop the slot.
+    ///   `(header.sender_proc(), header.stage_id, header.partition)` channel buffer and push.
+    /// - `Eof { header }`: per-channel EOF. Resolve the same per-sender buffer and call
+    ///   `notify_source_done`. Other channels on the same queue keep flowing.
+    /// - `Detached` / `Error`: queue-wide shutdown. Notify every registered channel buffer,
+    ///   mark the handle detached, and drop the slot.
     pub fn try_drain_pass(&self) -> Result<(), DataFusionError> {
         // Bound per-source pulls per call. The upper limit exists to give
         // the caller a chance to re-try its own send between drains —
@@ -969,11 +980,19 @@ impl DrainHandle {
             for _ in 0..MAX_BATCHES_PER_SOURCE_PER_PASS {
                 match rx.try_recv_batch() {
                     RecvBatchOutcome::Batch { header, batch } => {
-                        let buf = self.register_channel(header.stage_id, header.partition);
+                        let buf = self.register_channel(
+                            header.sender_proc(),
+                            header.stage_id,
+                            header.partition,
+                        );
                         buf.push_batch(batch);
                     }
                     RecvBatchOutcome::Eof { header } => {
-                        let buf = self.register_channel(header.stage_id, header.partition);
+                        let buf = self.register_channel(
+                            header.sender_proc(),
+                            header.stage_id,
+                            header.partition,
+                        );
                         buf.notify_source_done();
                         // Other channels may still flow on this queue, so the receiver slot
                         // stays live.
@@ -1818,8 +1837,8 @@ mod tests {
         drop(s01);
         drop(base); // Last sender dropped. Receiver will report Detached.
 
-        let buf00 = handle.register_channel(0, 0);
-        let buf01 = handle.register_channel(0, 1);
+        let buf00 = handle.register_channel(0, 0, 0);
+        let buf01 = handle.register_channel(0, 0, 1);
 
         drain_until_detached(&handle);
 
@@ -1856,8 +1875,8 @@ mod tests {
         // (0, 1) is still live and ships another batch after the EOF.
         s01.send_batch(&sample_batch(6)).unwrap();
 
-        let buf00 = handle.register_channel(0, 0);
-        let buf01 = handle.register_channel(0, 1);
+        let buf00 = handle.register_channel(0, 0, 0);
+        let buf01 = handle.register_channel(0, 0, 1);
 
         // Drop senders so the receiver eventually observes Detached.
         drop(s00);
@@ -1890,8 +1909,8 @@ mod tests {
         let receiver = MppReceiver::new(Box::new(rx));
         let handle = DrainHandle::cooperative(vec![receiver]);
 
-        let buf00 = handle.register_channel(0, 0);
-        let buf01 = handle.register_channel(0, 1);
+        let buf00 = handle.register_channel(0, 0, 0);
+        let buf01 = handle.register_channel(0, 0, 1);
         // No frames ever land; the next poll observes Detached and notifies.
         handle.try_drain_pass().unwrap();
 
@@ -1911,7 +1930,7 @@ mod tests {
 
         handle.try_drain_pass().unwrap(); // observes Detached, marks handle
 
-        let late_buf = handle.register_channel(5, 9);
+        let late_buf = handle.register_channel(0, 5, 9);
         assert!(matches!(late_buf.try_pop(), Some(DrainItem::Eof)));
     }
 
@@ -1923,8 +1942,8 @@ mod tests {
         let receiver = MppReceiver::new(Box::new(rx));
         let handle = DrainHandle::cooperative(vec![receiver]);
 
-        let first = handle.register_channel(2, 3);
-        let second = handle.register_channel(2, 3);
+        let first = handle.register_channel(0, 2, 3);
+        let second = handle.register_channel(0, 2, 3);
         assert!(Arc::ptr_eq(&first, &second));
     }
 
@@ -1946,8 +1965,8 @@ mod tests {
         drop(s_stage1);
         drop(tx_arc);
 
-        let buf0 = handle.register_channel(0, 0);
-        let buf1 = handle.register_channel(1, 0);
+        let buf0 = handle.register_channel(0, 0, 0);
+        let buf1 = handle.register_channel(0, 1, 0);
 
         drain_until_detached(&handle);
 
@@ -1972,8 +1991,8 @@ mod tests {
         let receiver = MppReceiver::new(Box::new(rx));
         let handle = DrainHandle::cooperative(vec![receiver]);
 
-        let buf_a = handle.register_channel(0, 0);
-        let buf_b = handle.register_channel(7, 3);
+        let buf_a = handle.register_channel(0, 0, 0);
+        let buf_b = handle.register_channel(0, 7, 3);
         // No data ever flows; the handle is just dropped.
         drop(handle);
 

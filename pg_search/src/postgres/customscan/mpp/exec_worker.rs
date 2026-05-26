@@ -384,7 +384,11 @@ pub(crate) fn run_mpp_worker(
                 // service task — exercises the architecture under the current-thread runtime so
                 // we can validate before phase 3d flips to multi_thread.
                 let mut sender = base
-                    .clone_with_header(MppFrameHeader::batch(fragment.stage_id, q_u32, 0))
+                    .clone_with_header(MppFrameHeader::batch(
+                        fragment.stage_id,
+                        q_u32,
+                        worker_mesh.this_proc,
+                    ))
                     .with_cooperative_drain(
                         Arc::clone(&worker_mesh) as Arc<dyn CooperativeDrainSet>
                     );

@@ -59,23 +59,29 @@ const NATURAL_GATHER_STAGE_ID: u32 = 0;
 /// partition on the leader.
 const NATURAL_GATHER_PARTITION: u32 = 0;
 
-/// True iff `paradedb.enable_mpp = on` and `paradedb.mpp_worker_count >= 3`. Customscan
-/// path-builders gate `parallel_workers` on this.
-///
-/// `>= 3` (not `>= 2`) because the leader is consumer-only: with `mpp_worker_count = 2`,
-/// [`producer_worker_count`] returns 1 and the DSM mesh has one producer row, while
-/// `with_target_partitions(2)` (clamped by `n_workers.max(2)` in `build_mpp_session_context`)
-/// makes the planner build a 2-partition shuffle. The mesh wouldn't have a queue for the
-/// second partition. Gating at `>= 3` keeps `producer_worker_count >= 2` so mesh shape and
-/// shuffle width line up.
+/// Minimum total procs for MPP: leader (consumer-only) plus at least 2 producers. Single
+/// source of truth so [`mpp_is_active`] and [`mpp_worker_count`] don't drift on the
+/// threshold. Below 3, [`producer_worker_count`] would be 1 while
+/// `build_mpp_session_context` still clamps `target_partitions` to 2; the mesh wouldn't
+/// have a queue for the second partition.
+const MIN_TOTAL_WORKER_COUNT: i32 = 3;
+
+/// True iff `paradedb.enable_mpp = on` and `paradedb.mpp_worker_count >=
+/// MIN_TOTAL_WORKER_COUNT`. Customscan path-builders gate `parallel_workers` on this.
 pub fn mpp_is_active() -> bool {
-    enable_mpp() && gucs_mpp_worker_count() >= 3
+    enable_mpp() && gucs_mpp_worker_count() >= MIN_TOTAL_WORKER_COUNT
 }
 
-/// Total proc count: leader + producers. Clamped at 3 so the mesh
-/// shape matches the planner's `target_partitions` (see [`mpp_is_active`]).
+/// Total proc count: leader + producers. Equals the GUC value when [`mpp_is_active`] is
+/// true. Callers must gate on [`mpp_is_active`] first. Debug builds assert; release builds
+/// return the raw GUC, which can leave [`producer_worker_count`] below 2 and break the
+/// planner's `target_partitions` / mesh-width invariant.
 pub fn mpp_worker_count() -> u32 {
-    gucs_mpp_worker_count().max(3) as u32
+    debug_assert!(
+        mpp_is_active(),
+        "mpp_worker_count() called when mpp_is_active() is false — callers must gate first"
+    );
+    gucs_mpp_worker_count() as u32
 }
 
 /// Customscan-side header at offset 0 of the DSM coordinate that the leader hands to
@@ -155,9 +161,11 @@ pub fn estimate_dsm_size(plan_bytes_len: usize) -> Result<usize, String> {
 }
 
 /// Number of producer workers PG should launch as `parallel_workers`.
-/// `mpp_worker_count - 1` because proc 0 is the leader.
+/// `mpp_worker_count - 1` because proc 0 is the leader (consumer-only). Callers must gate
+/// on [`mpp_is_active`] first; when active, [`MIN_TOTAL_WORKER_COUNT`] guarantees this is
+/// `>= 2` without further clamping.
 pub fn producer_worker_count() -> u32 {
-    mpp_worker_count().saturating_sub(1).max(1)
+    mpp_worker_count() - 1
 }
 
 /// Total proc count: 1 leader + N producer workers. This is the

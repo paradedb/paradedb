@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779789470174,
+  "lastUpdate": 1779821568388,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2154,6 +2154,78 @@ window.BENCHMARK_DATA = {
             "value": 48.388012857816435,
             "unit": "median tps",
             "extra": "avg tps: 77.27721652362602, max tps: 403.5612830407729, count: 55212"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ced0995fa5b5def18fe44bb821cf82b80cc9c8bb",
+          "message": "refactor(mpp): drop EXPLAIN-time stub mesh (#5135)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDrops the drain-less stub `MppMesh` that EXPLAIN was building purely to\nsatisfy `with_distributed_worker_transport`'s non-optional argument.\n`build_mpp_session_context` now takes `Option<Arc<MppMesh>>`.\n\n## Why\n\nThe fork's `get_distributed_worker_transport` already falls back to a\ndefault `WorkerTransport` (`FlightWorkerTransport`) when none is\nregistered. EXPLAIN never executes anything that consults the transport,\nso the stub was protecting against a phantom problem.\n\n## How\n\n- `build_mpp_session_context(seed, mesh: Option<Arc<MppMesh>>)`. When\n`Some`, install `ShmMqWorkerTransport`. When `None`, skip and let the\nfork's default sit unused.\n- `n_workers` resolves from `mesh.n_workers()` when present and\n`producer_worker_count()` when not. Same value at runtime, but the\nlatter doesn't need a mesh.\n- Explicitly bootstrap `DistributedConfig::default()` via\n`with_distributed_option_extension` so the rest of the chain doesn't\ndepend on `with_distributed_worker_transport` running first.\n- `aggregatescan::render_df_physical_plan` and JoinScan's EXPLAIN-time\n`build_displayable_explain_string` both pass `None` instead of\nconstructing a stub mesh. Drop the now-unused `mpp_worker_count`\nimports.\n\n## Tests\n\n- `cargo check --package pg_search --features pg18\n--no-default-features` clean.\n- All 4 MPP regress tests pass. EXPLAIN output unchanged — no\nexpected-file drift.\n- CI green.",
+          "timestamp": "2026-05-26T11:23:00-07:00",
+          "tree_id": "a912a337d434f577a86e304fdbca7840272bc19e",
+          "url": "https://github.com/paradedb/paradedb/commit/ced0995fa5b5def18fe44bb821cf82b80cc9c8bb"
+        },
+        "date": 1779821537492,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 128.3433419570387,
+            "unit": "median tps",
+            "extra": "avg tps: 128.84773253331147, max tps: 154.37661156225863, count: 54985"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 500.7647137094861,
+            "unit": "median tps",
+            "extra": "avg tps: 500.38667334510694, max tps: 642.2301050021036, count: 54985"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3296.4455663384992,
+            "unit": "median tps",
+            "extra": "avg tps: 3272.706534848973, max tps: 3306.448569409858, count: 54985"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 421.920598133198,
+            "unit": "median tps",
+            "extra": "avg tps: 423.28015008561056, max tps: 520.5427357034239, count: 54985"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2925.070200725704,
+            "unit": "median tps",
+            "extra": "avg tps: 2912.6754758325915, max tps: 2980.1292585555943, count: 109970"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 480.01871514538345,
+            "unit": "median tps",
+            "extra": "avg tps: 480.5521013325224, max tps: 624.1177402277724, count: 54985"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1936.1696118723282,
+            "unit": "median tps",
+            "extra": "avg tps: 1928.9615657747363, max tps: 1962.2279022659034, count: 54985"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 47.399338320607974,
+            "unit": "median tps",
+            "extra": "avg tps: 51.14755746298765, max tps: 177.8255772929541, count: 54985"
           }
         ]
       }

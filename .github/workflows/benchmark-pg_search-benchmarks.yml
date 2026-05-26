@@ -254,10 +254,15 @@ jobs:
           psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET shared_preload_libraries = pg_search,pg_stat_statements;"
           psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET maintenance_work_mem = '12GB';"
           psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET shared_buffers = '12GB';"
-          psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET max_parallel_workers = 8;"
-          psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET max_worker_processes = 8;"
+          # Raised from 8 so the MPP linear-scaling N-sweep variants can actually launch
+          # the requested worker count up to N=24. max_worker_processes is PGC_POSTMASTER,
+          # so per-query SET max_parallel_workers doesn't help — has to be set here before
+          # the restart below. Per-gather limit raised to match so the per-query cap is the
+          # one that controls.
+          psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET max_parallel_workers = 48;"
+          psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET max_worker_processes = 64;"
           psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET max_parallel_maintenance_workers = 8;"
-          psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET max_parallel_workers_per_gather = 8;"
+          psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET max_parallel_workers_per_gather = 32;"
           psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET autovacuum = off;"
           psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET max_wal_size = '100GB';"
           psql postgresql://localhost:288${{ env.pg_version }}/postgres -c "ALTER SYSTEM SET jit = off;"

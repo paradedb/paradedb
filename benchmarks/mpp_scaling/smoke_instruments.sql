@@ -1,5 +1,6 @@
--- Smoke test for the three mpp_trace instruments added in 1667f21e3 / 0e87ea7ea / b1c324ca8.
--- Confirms each line emits sensible values at N=4 and N=8 against the local 5M/25M bench data.
+-- Local-only smoke test for the three mpp_trace instruments (mesh_init / worker_cpu /
+-- shm_mq spin). Confirms each line emits sensible values at N=4 and N=8 against the
+-- local 5M/25M bench data; not wired into CI.
 -- Run via: PGVER=18.1 ./scripts/pg_search_run.sh -f benchmarks/mpp_scaling/smoke_instruments.sql
 
 \timing on

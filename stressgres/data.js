@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779778729800,
+  "lastUpdate": 1779778782970,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2010,6 +2010,78 @@ window.BENCHMARK_DATA = {
             "value": 69.35305889812139,
             "unit": "median tps",
             "extra": "avg tps: 82.27465683025379, max tps: 324.23923343360434, count: 55074"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "646ac4b263e8e9b92088faeb42b1bf653106ee9b",
+          "message": "refactor(mpp): drop MppWorkerResolver (#5131)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDeletes `MppWorkerResolver` and the\n`.with_distributed_worker_resolver(...)` registration. Drops the\nnow-unused `url` dependency.\n\n## Why\n\nOur resolver was pure paper-weight. The URLs it returned were never\nread. The `ShmMqWorkerTransport` keys off `target_task`, not URL. The\nfork only forced us to ship one because `prepare_plan` and\n`plan_annotator::_annotate_plan` unconditionally called\n`worker_resolver.get_urls()?`.\n\nFork PR paradedb/datafusion-distributed#10 gates those calls behind\n`!in_process_mode` and substitutes a 1-element placeholder vec\ninternally, so embedders running in-process no longer need a resolver at\nall.\n\n## How\n\n- Delete `MppWorkerResolver` from `runtime.rs`.\n- Drop `.with_distributed_worker_resolver(...)` from\n`build_mpp_session_context` plus the import.\n- Drop the orphan `async_trait`, `WorkerResolver`, and `url::Url`\nimports.\n- Drop `url` from `pg_search/Cargo.toml`.\n\n## Tests\n\n- `mpp_smoke`, `mpp_joinscan`, `mpp_aggregate`, `mpp_aggregate_postagg`\nall pass on pgrx-arm64.\n- CI green.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-25T23:27:45-07:00",
+          "tree_id": "98133e9bd488ec5de522d8a05abb16753450b739",
+          "url": "https://github.com/paradedb/paradedb/commit/646ac4b263e8e9b92088faeb42b1bf653106ee9b"
+        },
+        "date": 1779778720207,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 137.11045020429103,
+            "unit": "median tps",
+            "extra": "avg tps: 137.0628976958703, max tps: 142.39928842654285, count: 55129"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 489.2580873771705,
+            "unit": "median tps",
+            "extra": "avg tps: 489.3670427163388, max tps: 610.7439449903188, count: 55129"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3302.1157174121113,
+            "unit": "median tps",
+            "extra": "avg tps: 3284.836544638156, max tps: 3309.458255242067, count: 55129"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 426.2079250227755,
+            "unit": "median tps",
+            "extra": "avg tps: 425.06066603017337, max tps: 461.2410936838005, count: 55129"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2856.0765909916436,
+            "unit": "median tps",
+            "extra": "avg tps: 2837.307034013627, max tps: 2924.4612957718737, count: 110258"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 493.26249256821603,
+            "unit": "median tps",
+            "extra": "avg tps: 494.3780165639592, max tps: 630.219827230024, count: 55129"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1924.7721329187743,
+            "unit": "median tps",
+            "extra": "avg tps: 1918.7121883626942, max tps: 1935.3969043210025, count: 55129"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 63.3309771000221,
+            "unit": "median tps",
+            "extra": "avg tps: 70.21809040285495, max tps: 319.31453812482533, count: 55129"
           }
         ]
       }

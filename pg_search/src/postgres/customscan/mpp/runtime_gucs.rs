@@ -47,10 +47,6 @@ extensions_options! {
         pub term_set_gallop_enabled: bool, default = true
         pub term_set_bitset_max_density_unique: f64, default = 0.0
         pub term_set_bitset_max_density_multi: f64, default = 0.0
-        /// Snapshot of `paradedb.mpp_worker_count` at query start. Read by replicated-source
-        /// scans (non-partitioning sources under MPP) to compute their doc-modulo slice so
-        /// each worker emits 1/n_workers of the data instead of the full data N times.
-        pub mpp_worker_count: usize, default = 0
     }
 }
 
@@ -76,7 +72,6 @@ impl MppRuntimeGucs {
             term_set_gallop_enabled: crate::gucs::term_set_gallop_enabled(),
             term_set_bitset_max_density_unique: crate::gucs::term_set_bitset_max_density_unique(),
             term_set_bitset_max_density_multi: crate::gucs::term_set_bitset_max_density_multi(),
-            mpp_worker_count: crate::gucs::mpp_worker_count().max(0) as usize,
         }
     }
 }

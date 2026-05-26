@@ -110,7 +110,6 @@ mod tests {
             None,
             0,
             None,
-            false,
         );
 
         let task_ctx = Arc::new(TaskContext::default());

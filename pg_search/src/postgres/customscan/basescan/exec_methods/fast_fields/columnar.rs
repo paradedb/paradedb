@@ -429,7 +429,6 @@ impl ColumnarExecState {
             None,
             index_rel.oid().to_u32(),
             None,
-            /* replicated_under_mpp */ false,
         );
 
         let task_ctx = Arc::new(TaskContext::default());

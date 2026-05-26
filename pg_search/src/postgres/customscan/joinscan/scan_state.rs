@@ -1058,15 +1058,12 @@ fn build_source_df<'a>(
         // canonical segment IDs during decode.
         if let Some(idx) = np_idx {
             provider.set_non_partitioning_index(idx);
-            // A non-partitioning source is replicated: every parallel worker opens the same
-            // frozen segment set and scans the full data. Under non-MPP parallel hash join
-            // PG's worker-aware join handles the divide-the-work story, but under MPP the
-            // RepartitionExec → NetworkShuffleExec above this scan would ship N copies of
-            // the data to consumer tasks and inflate any aggregate by a factor of N. The
-            // scan checks `runtime_gucs_from_ctx(&ctx)` at execute time to decide whether
-            // to apply the per-worker doc-modulo filter — non-MPP paths don't have the
-            // runtime GUC snapshot installed, so this flag is a no-op there.
-            provider.set_replicated_under_mpp(true);
+            // Under MPP this source becomes its own pool in `ParallelScanState`: each
+            // worker claims this source's segments via
+            // `checkout_segment_for_source(plan_position)`. The codec only carries a
+            // `parallel_state` when MPP is active, so on the non-MPP parallel hash join
+            // path the scan falls back to the canonical-IDs replication branch.
+            provider.set_mpp_source_idx(plan_position);
         }
 
         if let Some(ref sort_order) = scan_info.sort_order {

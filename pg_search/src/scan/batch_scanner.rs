@@ -155,11 +155,6 @@ pub struct Scanner {
     pub pre_filter_rows_scanned: usize,
     /// Rows removed by pre-materialization filters.
     pub pre_filter_rows_pruned: usize,
-    /// When `Some((worker_idx, n_workers))`, this scan is a replicated MPP source: every
-    /// worker has opened the same segment set, so each one must keep only its slice
-    /// (`doc_id % n_workers == worker_idx`) to avoid emitting the data N times to the
-    /// downstream shuffle. Applied inside `try_get_batch_ids` as a per-doc skip.
-    mpp_worker_mask: Option<(u32, u32)>,
 }
 
 impl Scanner {
@@ -217,13 +212,7 @@ impl Scanner {
             defer_visibility,
             pre_filter_rows_scanned: 0,
             pre_filter_rows_pruned: 0,
-            mpp_worker_mask: None,
         }
-    }
-
-    /// Enable the per-worker replicated-source slice. See `mpp_worker_mask`.
-    pub(crate) fn set_mpp_worker_mask(&mut self, worker_idx: u32, n_workers: u32) {
-        self.mpp_worker_mask = Some((worker_idx, n_workers));
     }
 
     /// Returns the Arrow schema for this scanner.
@@ -260,29 +249,12 @@ impl Scanner {
 
                 // TODO: Further decompose `ScorerIter` to avoid (re)constructing a `DocAddress`.
                 debug_assert_eq!(id.segment_ord, segment_ord);
-
-                // MPP replicated-source slice. Drop docs that this worker doesn't own so the
-                // downstream shuffle sees each row from exactly one worker rather than from
-                // every worker. The (segment_ord, doc_id) pair is identical across workers
-                // (canonical_segment_ids ensures the same segment ordering everywhere), so a
-                // deterministic mod splits the rows cleanly.
-                if let Some((worker_idx, n_workers)) = self.mpp_worker_mask {
-                    if n_workers > 1 {
-                        let key = ((segment_ord as u64).wrapping_mul(0x9E3779B97F4A7C15))
-                            .wrapping_add(id.doc_id as u64);
-                        if key % (n_workers as u64) != worker_idx as u64 {
-                            continue;
-                        }
-                    }
-                }
-
                 scores.push(score);
                 ids.push(id.doc_id);
             }
 
             if ids.is_empty() {
-                // This segment was completely empty (or fully filtered out by the MPP slice):
-                // move to the next.
+                // This segment was completely empty: move to the next.
                 continue;
             }
 

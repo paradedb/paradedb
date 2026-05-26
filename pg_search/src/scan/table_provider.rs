@@ -132,18 +132,16 @@ pub struct PgSearchTableProvider {
     #[serde(with = "atomic_bool_serde")]
     late_materialization_active: AtomicBool,
 
-    /// True when this provider is a non-partitioning ("replicated") source under MPP.
-    ///
-    /// Under MPP, the customscans pick one source as the "partitioning" source (its segments
-    /// are split across workers via `checkout_segment`) and treat every other source as
-    /// replicated: every worker opens the same frozen `canonical_segment_ids` and scans the
-    /// full data. Combined with the downstream `RepartitionExec → NetworkShuffleExec`, that
-    /// shipped N copies of the data to the consumer tasks and inflated the join count by a
-    /// factor of N. When this flag is set, the scan applies a per-worker doc-modulo filter
-    /// (`doc_id % n_workers == ParallelWorkerNumber`) so each worker emits exactly its slice
-    /// of the data and the union across workers is the full data once.
+    /// Source index in the unified all-sources array, when this provider is participating in
+    /// the multi-source MPP path. Set by the customscans on every non-partitioning source.
+    /// Combined with the codec's `parallel_state`, lets each worker claim its own segments
+    /// for that source via `checkout_segment_for_source(source_idx)` — replacing the prior
+    /// `canonical_segment_ids` replication design where every worker scanned the full
+    /// non-partitioning data and produced N copies of the source's output to the downstream
+    /// `NetworkShuffleExec`. `None` for serial scans, the partitioning source (which still
+    /// uses the legacy `checkout_segment` path), and non-MPP parallel hash join.
     #[serde(default)]
-    replicated_under_mpp: bool,
+    mpp_source_idx: Option<usize>,
 }
 
 mod atomic_bool_serde {
@@ -184,7 +182,7 @@ impl PgSearchTableProvider {
             canonical_segment_ids: None,
             visibility_mode: VisibilityMode::Eager,
             late_materialization_active: AtomicBool::new(false),
-            replicated_under_mpp: false,
+            mpp_source_idx: None,
         }
     }
 
@@ -199,7 +197,11 @@ impl PgSearchTableProvider {
     }
 
     pub(crate) fn set_parallel_state(&mut self, parallel_state: Option<*mut ParallelScanState>) {
-        assert!(self.is_parallel);
+        // Non-partitioning sources also need the pointer under MPP so they can claim from
+        // their own per-source pool via `checkout_segment_for_source(mpp_source_idx)`.
+        // Leaving `is_parallel = false` for those sources keeps the old logical-plan rules
+        // (e.g. partitioning-source-only segment ordering) working unchanged.
+        assert!(self.is_parallel || self.mpp_source_idx.is_some());
         self.parallel_state = parallel_state;
     }
 
@@ -228,10 +230,14 @@ impl PgSearchTableProvider {
         self.planstate = planstate;
     }
 
-    /// Mark this provider as a replicated non-partitioning source under MPP. See
-    /// [`PgSearchTableProvider::replicated_under_mpp`] for the wedge it prevents.
-    pub(crate) fn set_replicated_under_mpp(&mut self, v: bool) {
-        self.replicated_under_mpp = v;
+    /// Assign this provider's source position in the MPP unified-sources array. See
+    /// [`PgSearchTableProvider::mpp_source_idx`] for what it gates.
+    pub(crate) fn set_mpp_source_idx(&mut self, idx: usize) {
+        self.mpp_source_idx = Some(idx);
+    }
+
+    pub(crate) fn mpp_source_idx(&self) -> Option<usize> {
+        self.mpp_source_idx
     }
     fn enable_deferred_columns(&mut self, required_early_columns: &HashSet<String>) {
         for wff in self.fields.iter_mut() {
@@ -468,7 +474,6 @@ impl PgSearchTableProvider {
         query_for_display: SearchQueryInput,
         sort_order: Option<&crate::postgres::options::SortByField>,
         ffhelper: Arc<FFHelper>,
-        replicated_under_mpp: bool,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         // Only declare sort order if the field exists in the schema
         let actual_sort_order = sort_order.and_then(|so| {
@@ -501,7 +506,6 @@ impl PgSearchTableProvider {
             ffhelper_arg,
             self.scan_info.indexrelid.to_u32(),
             deferred_ctid_plan_position,
-            replicated_under_mpp,
         )))
     }
 
@@ -563,17 +567,7 @@ impl PgSearchTableProvider {
             segments.push(partition);
         }
 
-        // Throttled scans are the partitioning source's sort path: segments are claimed
-        // via checkout_segment so the data is already divided across workers. No
-        // doc-modulo filter needed.
-        self.create_scan(
-            segments,
-            schema,
-            query_for_display,
-            sort_order,
-            ffhelper,
-            /* replicated_under_mpp */ false,
-        )
+        self.create_scan(segments, schema, query_for_display, sort_order, ffhelper)
     }
 
     /// Creates a multi-partition `PgSearchScanPlan` for eager scans.
@@ -619,18 +613,7 @@ impl PgSearchTableProvider {
             })
             .collect();
 
-        // Eager scans surface each segment as its own DataFusion partition; the
-        // multi-partition shape is what divides work for sorted parallel reads. The
-        // doc-modulo filter would need per-partition keying; out of scope for the
-        // initial fix and currently unused by the bench query path.
-        self.create_scan(
-            segments,
-            schema,
-            query_for_display,
-            sort_order,
-            ffhelper,
-            /* replicated_under_mpp */ false,
-        )
+        self.create_scan(segments, schema, query_for_display, sort_order, ffhelper)
     }
 
     /// Creates a single-partition `PgSearchScanPlan` for lazy scans.
@@ -660,7 +643,7 @@ impl PgSearchTableProvider {
         schema: SchemaRef,
         query_for_display: SearchQueryInput,
         planner_estimated_rows: u64,
-        replicated_under_mpp: bool,
+        mpp_source_idx: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let ffhelper = Arc::new(ffhelper);
         let scanner_config = crate::scan::execution_plan::ScannerConfig {
@@ -668,12 +651,27 @@ impl PgSearchTableProvider {
             heap_relid: heap_relid.into(),
             batch_size_hint: None,
         };
-        let state = ScanState {
-            recipe: crate::scan::execution_plan::ScanRecipe::Lazy {
+        // MPP non-partitioning source path: pull segments from this source's per-source
+        // pool in `ParallelScanState`. The partitioning source (and serial / non-MPP
+        // parallel hash join) stays on the legacy single-counter `Lazy` recipe, which
+        // claims via `checkout_segment` (i.e. the `partitioning_source_idx` slot).
+        let recipe = match (mpp_source_idx, parallel_state) {
+            (Some(source_idx), Some(ps)) => {
+                crate::scan::execution_plan::ScanRecipe::LazyForSource {
+                    parallel_state: ps,
+                    source_idx,
+                    planner_estimated_rows,
+                    scanner_config,
+                }
+            }
+            _ => crate::scan::execution_plan::ScanRecipe::Lazy {
                 parallel_state,
                 planner_estimated_rows,
                 scanner_config,
             },
+        };
+        let state = ScanState {
+            recipe,
             ffhelper: ffhelper.clone(),
             visibility: Box::new(visibility) as Box<VisibilityChecker>,
             reader: reader.clone(),
@@ -685,7 +683,6 @@ impl PgSearchTableProvider {
             query_for_display,
             None, // no sort order
             ffhelper,
-            replicated_under_mpp,
         )
     }
 }
@@ -806,20 +803,41 @@ impl PgSearchTableProvider {
 
         // Determine MVCC strategy based on whether we are running in parallel mode.
         //
-        // For the partitioning source (`parallel_state` is Some):
+        // For the partitioning source (`parallel_state` is Some, no `mpp_source_idx`):
         //   - Leader: Snapshot (claims segments dynamically; its own snapshot is the source
         //             of truth for which segments exist).
         //   - Workers: ParallelWorker(partitioning_segment_ids) – frozen set from leader.
         //
-        // For non-partitioning / replicated sources (`canonical_segment_ids` is Some):
-        //   - Both leader and workers use ParallelWorker(canonical_ids) so that every
-        //     participant opens exactly the same frozen segment set, preventing DocAddress
-        //     mismatches when late materialization stores (segment_ord, doc_id) pairs.
+        // For non-partitioning sources under MPP (`mpp_source_idx` is Some, `parallel_state`
+        // is Some): every participant opens the same frozen segment set for that source —
+        // pulled from the shared `ParallelScanState` rather than the codec-injected
+        // `canonical_segment_ids` so the leader-snapshot path stays the single source of
+        // truth for which segments exist. Each worker then claims a per-source slice via
+        // `checkout_segment_for_source`. Replaces the prior replicate-everywhere design.
         //
-        // Serial scans (both fields None): Snapshot.
-        let mvcc_style = if let Some(ids) = canonical_segment_ids {
-            // Non-partitioning source in a parallel join scan: use the frozen segment list
-            // that the leader snapshotted and wrote to shared memory.
+        // For replicated sources whose canonical segment IDs were injected by the legacy
+        // codec path (`canonical_segment_ids` Some, `mpp_source_idx` None) we still respect
+        // it: that path is the pre-MPP parallel hash join story which is unaffected by
+        // this refactor.
+        //
+        // Serial scans (all fields None): Snapshot.
+        let mvcc_style = if let Some(source_idx) = self.mpp_source_idx {
+            if let Some(parallel_state) = parallel_state {
+                unsafe {
+                    let ids = (*parallel_state).segment_ids_for_source(source_idx);
+                    MvccSatisfies::ParallelWorker(ids)
+                }
+            } else if let Some(ids) = canonical_segment_ids.clone() {
+                // Legacy fallback path: codec injected canonical IDs but parallel_state
+                // missing (shouldn't happen under MPP; keep the safety net while we
+                // migrate every call site).
+                MvccSatisfies::ParallelWorker(ids)
+            } else {
+                MvccSatisfies::Snapshot
+            }
+        } else if let Some(ids) = canonical_segment_ids {
+            // Non-partitioning source in a non-MPP parallel join scan: use the frozen
+            // segment list that the leader snapshotted and wrote to shared memory.
             MvccSatisfies::ParallelWorker(ids)
         } else if let Some(parallel_state) = parallel_state {
             unsafe {
@@ -896,7 +914,7 @@ impl PgSearchTableProvider {
                 projected_schema,
                 query,
                 total_estimated_rows,
-                self.replicated_under_mpp,
+                self.mpp_source_idx,
             )
         }
     }

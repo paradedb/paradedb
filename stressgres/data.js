@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779774744020,
+  "lastUpdate": 1779774778977,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8022,6 +8022,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.64986314658906, max segment_count: 127.0, count: 57726"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "afde291c230f9f22ae406893c8949a660c34e418",
+          "message": "refactor(mpp): switch worker_fragments to NetworkBoundaryKind enum match (#5129)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nSwitches `worker_fragments::collect` from a `plan.name()` string match\nto a typed `NetworkBoundaryKind` enum match.\n\n## Why\n\nString-matching against fork-internal type names was fragile. If the\nfork ever renamed `NetworkShuffleExec` (or either of the other two), our\nwalker would silently fall through to the \"unsupported nested boundary\nkind\" arm and refuse to classify the boundary at runtime. Fork PR\nparadedb/datafusion-distributed#9 exposes `kind()`, so a rename surfaces\nas a compile error here instead.\n\n## How\n\n- Replace the string match with `nb.kind()` enum match.\n- Split the wildcard top-level arm into explicit `(Coalesce, false)` and\n`(Shuffle, false) => fail_loud(...)`. Mirrors the existing top-level\nBroadcast guard. A top-level shuffle is a planner anomaly worth\nsurfacing.\n- Add a `_ => fail_loud(...)` catch-all for the fork's\n`#[non_exhaustive]` enum. Doubles as a drift detector if the fork adds a\nnew variant.\n\n## Tests\n\n- `mpp_smoke`, `mpp_joinscan`, `mpp_aggregate`, `mpp_aggregate_postagg`\nall pass on pgrx-arm64.\n- CI green.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-25T22:10:05-07:00",
+          "tree_id": "7a1b93999b654c5d4c8db4f73e3de92ebafe702f",
+          "url": "https://github.com/paradedb/paradedb/commit/afde291c230f9f22ae406893c8949a660c34e418"
+        },
+        "date": 1779774745627,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.455811871266537, max cpu: 42.687748, count: 57461"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.54296875,
+            "unit": "median mem",
+            "extra": "avg mem: 235.33548060042898, max mem: 237.0234375, count: 57461"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.34003747009765, max cpu: 33.300297, count: 57461"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 177.44140625,
+            "unit": "median mem",
+            "extra": "avg mem: 177.3447822218548, max mem: 178.27734375, count: 57461"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34796,
+            "unit": "median block_count",
+            "extra": "avg block_count: 34038.5124345208, max block_count: 36767.0, count: 57461"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 80,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 82.8190250778789, max segment_count: 136.0, count: 57461"
           }
         ]
       }

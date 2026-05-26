@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779781524188,
+  "lastUpdate": 1779781569741,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19054,6 +19054,54 @@ window.BENCHMARK_DATA = {
             "value": 270.62297636121275,
             "unit": "median tps",
             "extra": "avg tps: 262.9704262985368, max tps: 614.7662733986984, count: 107674"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "646ac4b263e8e9b92088faeb42b1bf653106ee9b",
+          "message": "refactor(mpp): drop MppWorkerResolver (#5131)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDeletes `MppWorkerResolver` and the\n`.with_distributed_worker_resolver(...)` registration. Drops the\nnow-unused `url` dependency.\n\n## Why\n\nOur resolver was pure paper-weight. The URLs it returned were never\nread. The `ShmMqWorkerTransport` keys off `target_task`, not URL. The\nfork only forced us to ship one because `prepare_plan` and\n`plan_annotator::_annotate_plan` unconditionally called\n`worker_resolver.get_urls()?`.\n\nFork PR paradedb/datafusion-distributed#10 gates those calls behind\n`!in_process_mode` and substitutes a 1-element placeholder vec\ninternally, so embedders running in-process no longer need a resolver at\nall.\n\n## How\n\n- Delete `MppWorkerResolver` from `runtime.rs`.\n- Drop `.with_distributed_worker_resolver(...)` from\n`build_mpp_session_context` plus the import.\n- Drop the orphan `async_trait`, `WorkerResolver`, and `url::Url`\nimports.\n- Drop `url` from `pg_search/Cargo.toml`.\n\n## Tests\n\n- `mpp_smoke`, `mpp_joinscan`, `mpp_aggregate`, `mpp_aggregate_postagg`\nall pass on pgrx-arm64.\n- CI green.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-25T23:27:45-07:00",
+          "tree_id": "98133e9bd488ec5de522d8a05abb16753450b739",
+          "url": "https://github.com/paradedb/paradedb/commit/646ac4b263e8e9b92088faeb42b1bf653106ee9b"
+        },
+        "date": 1779781538810,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 617.9590299918264,
+            "unit": "median tps",
+            "extra": "avg tps: 620.7646135807323, max tps: 763.7470458582494, count: 53862"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 639.9358211230655,
+            "unit": "median tps",
+            "extra": "avg tps: 644.4766397205632, max tps: 834.9628793594699, count: 53862"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 89.59269246866432,
+            "unit": "median tps",
+            "extra": "avg tps: 89.94599168703182, max tps: 99.17404255774261, count: 53862"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 277.8972927827179,
+            "unit": "median tps",
+            "extra": "avg tps: 271.7742772172538, max tps: 557.4646097880665, count: 107724"
           }
         ]
       }

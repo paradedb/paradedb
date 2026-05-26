@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779775467458,
+  "lastUpdate": 1779775500139,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12022,6 +12022,108 @@ window.BENCHMARK_DATA = {
             "value": 164.26953125,
             "unit": "median mem",
             "extra": "avg mem: 182.73744121265145, max mem: 222.7578125, count: 56294"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "afde291c230f9f22ae406893c8949a660c34e418",
+          "message": "refactor(mpp): switch worker_fragments to NetworkBoundaryKind enum match (#5129)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nSwitches `worker_fragments::collect` from a `plan.name()` string match\nto a typed `NetworkBoundaryKind` enum match.\n\n## Why\n\nString-matching against fork-internal type names was fragile. If the\nfork ever renamed `NetworkShuffleExec` (or either of the other two), our\nwalker would silently fall through to the \"unsupported nested boundary\nkind\" arm and refuse to classify the boundary at runtime. Fork PR\nparadedb/datafusion-distributed#9 exposes `kind()`, so a rename surfaces\nas a compile error here instead.\n\n## How\n\n- Replace the string match with `nb.kind()` enum match.\n- Split the wildcard top-level arm into explicit `(Coalesce, false)` and\n`(Shuffle, false) => fail_loud(...)`. Mirrors the existing top-level\nBroadcast guard. A top-level shuffle is a planner anomaly worth\nsurfacing.\n- Add a `_ => fail_loud(...)` catch-all for the fork's\n`#[non_exhaustive]` enum. Doubles as a drift detector if the fork adds a\nnew variant.\n\n## Tests\n\n- `mpp_smoke`, `mpp_joinscan`, `mpp_aggregate`, `mpp_aggregate_postagg`\nall pass on pgrx-arm64.\n- CI green.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-25T22:10:05-07:00",
+          "tree_id": "7a1b93999b654c5d4c8db4f73e3de92ebafe702f",
+          "url": "https://github.com/paradedb/paradedb/commit/afde291c230f9f22ae406893c8949a660c34e418"
+        },
+        "date": 1779775469291,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07508858965272856, max background_merging: 2.0, count: 56440"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.798622764167833, max cpu: 9.667674, count: 56440"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 29.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 29.21104276942328, max mem: 29.28125, count: 56440"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.066637304474326, max cpu: 27.934044, count: 56440"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 187.453125,
+            "unit": "median mem",
+            "extra": "avg mem: 182.79353468561746, max mem: 192.41796875, count: 56440"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51484,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51345.529145995744, max block_count: 51484.0, count: 56440"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.7324415308292, max segment_count: 56.0, count: 56440"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.611390558289952, max cpu: 9.648242, count: 56440"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 124.3984375,
+            "unit": "median mem",
+            "extra": "avg mem: 115.59823443590538, max mem: 140.3984375, count: 56440"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.796519288191751, max cpu: 23.255816, count: 56440"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 184.2890625,
+            "unit": "median mem",
+            "extra": "avg mem: 177.85597288049257, max mem: 186.0859375, count: 56440"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.869460284268474, max cpu: 33.366436, count: 56440"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 163.90234375,
+            "unit": "median mem",
+            "extra": "avg mem: 182.63742248405387, max mem: 222.44140625, count: 56440"
           }
         ]
       }

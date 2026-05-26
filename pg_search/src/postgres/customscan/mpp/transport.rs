@@ -43,6 +43,8 @@ use datafusion::arrow::ipc::reader::StreamReader;
 use datafusion::arrow::ipc::writer::StreamWriter;
 use datafusion::common::DataFusionError;
 
+use super::fail_loud;
+
 /// Magic bytes "MPPF" (MPP Frame) at the start of every wire message.
 /// Lets receivers reject misrouted / corrupt frames before they hit Arrow IPC.
 const MPP_FRAME_MAGIC: u32 = 0x4D505046;
@@ -70,10 +72,7 @@ pub(super) enum MppFrameKind {
 /// senders prepend before the Arrow IPC stream bytes and what receivers
 /// parse before deciding which channel buffer the payload belongs to.
 ///
-/// The `flags` word currently encodes `MppFrameKind` in its low byte (mask
-/// `0x0000_00FF`); the upper 24 bits are reserved-must-be-zero and are
-/// validated at parse time so a future use can repurpose them without a
-/// wire-format break.
+/// See the `flags` bit-layout block below for the encoding of the `flags` word.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MppFrameHeader {
@@ -91,8 +90,8 @@ const FRAME_KIND_MASK: u32 = 0x0000_00FF;
 const FRAME_RESERVED_MASK: u32 = 0x0000_FF00;
 const FRAME_SENDER_SHIFT: u32 = 16;
 /// Maximum `sender_proc` representable in the header. Asserted at construction time so an
-/// overflow shows up as a panic in the producer rather than as silent flag corruption on the wire.
-pub const MPP_MAX_SENDER_PROC: u32 = (u32::MAX >> FRAME_SENDER_SHIFT) & 0xFFFF;
+/// overflow becomes a hard error in the producer rather than silent flag corruption on the wire.
+pub const MPP_MAX_SENDER_PROC: u32 = 0xFFFF;
 
 const _: () = {
     // shm_mq slot layout calculations depend on this being exact.
@@ -101,11 +100,15 @@ const _: () = {
 
 #[inline]
 fn pack_flags(kind: MppFrameKind, sender_proc: u32) -> u32 {
-    debug_assert!(
-        sender_proc <= MPP_MAX_SENDER_PROC,
-        "mpp: sender_proc {sender_proc} > MPP_MAX_SENDER_PROC"
-    );
-    (kind as u32) | ((sender_proc & 0xFFFF) << FRAME_SENDER_SHIFT)
+    // fail_loud rather than debug_assert: in release builds the check would be compiled out and
+    // an out-of-range value would silently truncate to `sender_proc & 0xFFFF`. Catching the case
+    // where a refactor accidentally passes a task_id or partition here is the whole point.
+    if sender_proc > MPP_MAX_SENDER_PROC {
+        fail_loud(format!(
+            "mpp: sender_proc {sender_proc} > MPP_MAX_SENDER_PROC ({MPP_MAX_SENDER_PROC})"
+        ));
+    }
+    (kind as u32) | (sender_proc << FRAME_SENDER_SHIFT)
 }
 
 impl MppFrameHeader {
@@ -206,6 +209,9 @@ impl MppFrameHeader {
 /// [ magic | flags | stage_id | partition ] [ Arrow IPC stream bytes ]
 /// |---------- 16 bytes --------|           |---- variable ----|
 /// ```
+///
+/// `flags` encodes kind + sender_proc; see the bit-layout block near
+/// `FRAME_KIND_MASK` for details.
 ///
 /// Caller is expected to hold `buf` alive across many encodes so the peak-sized
 /// allocation amortizes (~500 KB/batch on the 25M GROUP BY bench).
@@ -1344,17 +1350,37 @@ mod tests {
     #[test]
     fn frame_rejects_reserved_flag_bits() {
         // Reserved range is bits 8..16. Bits 16..32 are sender_proc and must NOT trip the
-        // reserved check. Sets a bit in 8..16; should fail.
+        // reserved check. Cover both boundaries of the reserved range.
+        for bit in [0x0000_0100u32, 0x0000_8000u32] {
+            let header = MppFrameHeader {
+                magic: MPP_FRAME_MAGIC,
+                flags: bit, // kind byte 0 (Batch), reserved bit set, no sender_proc
+                stage_id: 0,
+                partition: 0,
+            };
+            let mut buf = vec![0u8; MPP_FRAME_HEADER_SIZE];
+            header.write_to(&mut buf);
+            let err = decode_frame(&buf).expect_err(&format!("reserved bit {bit:#x} must fail"));
+            assert!(
+                format!("{err}").contains("reserved frame flag bits"),
+                "bit {bit:#x}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn frame_kind_coexists_with_max_sender_proc() {
+        // Negative-space companion to frame_rejects_reserved_flag_bits: setting every bit in
+        // 16..32 (= max sender_proc) along with kind=Eof in bit 0 must parse cleanly without
+        // tripping the reserved-bits check, and sender_proc()/kind() must read both back.
         let header = MppFrameHeader {
             magic: MPP_FRAME_MAGIC,
-            flags: 0x0000_0100, // bit 8 set, kind byte 0 (would be Batch), no sender_proc
+            flags: 0xFFFF_0001, // Eof in low byte, max sender_proc in high half, reserved=0
             stage_id: 0,
             partition: 0,
         };
-        let mut buf = vec![0u8; MPP_FRAME_HEADER_SIZE];
-        header.write_to(&mut buf);
-        let err = decode_frame(&buf).expect_err("reserved bit must fail");
-        assert!(format!("{err}").contains("reserved frame flag bits"));
+        assert_eq!(header.kind().unwrap(), MppFrameKind::Eof);
+        assert_eq!(header.sender_proc(), MPP_MAX_SENDER_PROC);
     }
 
     #[test]

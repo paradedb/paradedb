@@ -662,6 +662,13 @@ impl ParallelScanState {
     pub fn mark_initialized_empty(&mut self) {
         self.nsegments = 0;
         self.remaining_segments = 0;
+        // Match the per-source slab to the new "no segments to scan" reality so
+        // `checkout_segment_for_source` returns None for every source. Without this, a
+        // worker that hit the DSM-too-small fallback in the middle of layout would still
+        // see non-zero per-source counters and try to claim segments that don't exist.
+        for slot in self.payload.remaining_by_source_mut() {
+            *slot = 0;
+        }
         self.init_cv.broadcast();
     }
 
@@ -909,16 +916,6 @@ impl ParallelScanState {
         ))
     }
 
-    /// Segment count for `source_idx`. Returns 0 when the source index is out of range.
-    /// Callers that need to size a worker's per-source segment list should use this.
-    pub fn nsegments_for_source(&self, source_idx: usize) -> usize {
-        self.payload
-            .all_counts()
-            .get(source_idx)
-            .copied()
-            .unwrap_or(0) as usize
-    }
-
     /// Returns a map of segment IDs to their deleted document counts.
     ///
     /// This method will wait (spin) until the leader has initialized the segment data.
@@ -1038,7 +1035,13 @@ impl ParallelScanState {
     /// `checkout_segment_for_source`. Replaces the `non_partitioning_segment_ids()` /
     /// `canonical_segment_ids` plumbing that previously snapshotted the same data into
     /// the codec.
-    pub fn segment_ids_for_source(&self, source_idx: usize) -> HashSet<SegmentId> {
+    ///
+    /// Waits for leader initialization so a worker that races ahead of `populate()` reads
+    /// the post-init segment set rather than zero IDs. Matches the precondition every
+    /// other payload reader (`segments`, `checkout_segment*`) enforces.
+    pub fn segment_ids_for_source(&mut self, source_idx: usize) -> HashSet<SegmentId> {
+        self.wait_for_initialization();
+        let _mutex = self.acquire_mutex();
         self.payload
             .source_ids(source_idx)
             .iter()

@@ -1060,10 +1060,14 @@ fn build_source_df<'a>(
             provider.set_non_partitioning_index(idx);
             // Under MPP this source becomes its own pool in `ParallelScanState`: each
             // worker claims this source's segments via
-            // `checkout_segment_for_source(plan_position)`. The codec only carries a
-            // `parallel_state` when MPP is active, so on the non-MPP parallel hash join
-            // path the scan falls back to the canonical-IDs replication branch.
-            provider.set_mpp_source_idx(plan_position);
+            // `checkout_segment_for_source(plan_position)`. Gate on `mpp_is_active()` so
+            // the non-MPP parallel hash join keeps its canonical_segment_ids replication
+            // path — the joinscan EXEC site (`mod.rs:1509`) passes `parallel_state` into
+            // the codec for *both* MPP and PG-parallel runs, so without this gate
+            // every PG worker would partition the build side and lose join matches.
+            if crate::postgres::customscan::mpp::glue::mpp_is_active() {
+                provider.set_mpp_source_idx(plan_position);
+            }
         }
 
         if let Some(ref sort_order) = scan_info.sort_order {

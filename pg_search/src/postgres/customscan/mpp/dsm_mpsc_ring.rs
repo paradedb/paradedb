@@ -27,14 +27,16 @@
 //!
 //! ```text
 //! +- DsmMpscRingHeader -----------------------+
-//! |  magic, version (u32 each)                |
-//! |  ring_size, slot_capacity (u32 each)      |
-//! |  detached:           AtomicBool           |
-//! |  receiver_pgprocno:  AtomicI32  (-1 unset)|
-//! |  receiver_pid:       AtomicI32  (0 unset) |
-//! |  sender_count:       AtomicU32            |
-//! |  head:               AtomicU64            |
-//! |  tail:               AtomicU64            |
+//! |  magic, version       (u32 each)          |
+//! |  ring_size, slot_cap  (u32 each)          |
+//! |  sender_count:        AtomicU32           |
+//! |  detached:            AtomicBool          |
+//! |  receiver_packed:     AtomicU64           |
+//! |  (pad up to cache line)                   |
+//! |  head:                AtomicU64           |
+//! |  (pad up to cache line)                   |
+//! |  tail:                AtomicU64           |
+//! |  (pad up to cache line)                   |
 //! +-------------------------------------------+
 //! | Slot[0] | Slot[1] | ... | Slot[N-1]       |
 //! +-------------------------------------------+
@@ -90,15 +92,29 @@
 #![allow(dead_code)]
 
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 #[cfg(not(test))]
 use pgrx::pg_sys;
 
 /// Sentinel for an unregistered receiver. Producers skip the wakeup call when the
 /// receiver_pgprocno is negative (no receiver set, or in unit tests that don't have a
-/// PG backend).
+/// PG backend). Matches PG core's `INVALID_PROC_NUMBER`.
 pub(super) const NO_RECEIVER: i32 = -1;
+
+/// Pack `pgprocno` (low 32 bits) + `pid` (high 32 bits) into one `u64` so producers
+/// observe both fields atomically — a single `Acquire` load can never see a torn
+/// `(new_pgprocno, old_pid)` or `(old_pgprocno, new_pid)` pair. Eliminates the multi-
+/// atomic publish-ordering question entirely.
+#[inline]
+fn pack_receiver(pgprocno: i32, pid: i32) -> u64 {
+    ((pid as u32 as u64) << 32) | (pgprocno as u32 as u64)
+}
+
+#[inline]
+fn unpack_receiver(packed: u64) -> (i32, i32) {
+    (packed as u32 as i32, (packed >> 32) as u32 as i32)
+}
 
 /// Reserved byte at the start of every slot. Sized so payload + header fits in
 /// `slot_capacity` exactly.
@@ -146,30 +162,32 @@ pub(super) struct DsmMpscRingHeader {
     /// Byte capacity of each slot INCLUDING the slot header. Payload bytes per slot are
     /// `slot_capacity - SLOT_HEADER_BYTES`. Immutable after `create_at`.
     slot_capacity: u32,
-    /// Set by the consumer (or by the leader on query teardown) to tell producers to
-    /// fail-fast on subsequent sends. Sticky.
-    detached: AtomicBool,
-    _pad_after_detached: [u8; 3],
-    /// `ProcNumber` (PG's PGPROC slot index) of the receiver, or `NO_RECEIVER` (-1) when
-    /// no receiver is registered. Producers resolve this to a live `*mut Latch` via
-    /// `ProcGlobal->allProcs[receiver_pgprocno]` on every wakeup so PGPROC reuse on
-    /// receiver-process death stays harmless: the stored pgprocno still points at the
-    /// reused slot, but `receiver_pid` won't match the new tenant's PID and the wake
-    /// gets skipped. See `wake_receiver` for the resolution path.
-    receiver_pgprocno: AtomicI32,
-    /// Expected `pid` of the receiver process, used to defend against `PGPROC` slot
-    /// reuse. Set together with `receiver_pgprocno`. Zero means no receiver registered.
-    receiver_pid: AtomicI32,
     /// Live `DsmMpscSender` count. Incremented in `DsmMpscSender::new`, decremented in
     /// `DsmMpscSender::Drop`. The drop that takes the count from 1 → 0 sets `detached`
     /// (with Release) and wakes the receiver, so producers don't need to call
     /// `set_detached` explicitly: dropping the last sender is sufficient. Mirrors
     /// shm_mq's "drop = detach" structural guarantee.
     sender_count: AtomicU32,
-    /// Padding to push `head` onto its own cache line. Sized against the offsets of the
-    /// preceding fields; the static_assert in `tests::header_layout_is_cache_friendly`
-    /// keeps it honest.
-    _pad_before_head: [u8; CACHE_LINE - 24],
+    /// Set by the consumer (or by the leader on query teardown) to tell producers to
+    /// fail-fast on subsequent sends. Sticky.
+    detached: AtomicBool,
+    _pad_after_detached: [u8; 3],
+    /// Packed `(pgprocno: i32, pid: i32)` of the registered receiver, or 0 (both
+    /// fields zero / pgprocno not NO_RECEIVER but treated as unset by `wake_receiver`
+    /// because `unpack` returns pgprocno=0 which is < NO_RECEIVER=−1 check). The
+    /// `0_u64` initial state encodes `(pgprocno=0, pid=0)` — pgprocno=0 is the
+    /// postmaster slot, so we still need explicit `NO_RECEIVER` (-1) to indicate
+    /// "unset"; producers check the pgprocno field for `>= 0 && < allProcCount`
+    /// before resolving.
+    ///
+    /// Packing both fields into one atomic eliminates the torn-read scenario where a
+    /// producer would otherwise observe `(new_pgprocno, old_pid)` mid-update and
+    /// either skip a legitimate wake or wake the wrong backend.
+    receiver_packed: AtomicU64,
+    /// Padding to push `head` onto its own cache line. Header up to here uses bytes
+    /// 0..32; this padding fills 32..64 so `head` lands at offset 64 exactly. The
+    /// `header_layout_is_cache_friendly` test asserts this.
+    _pad_before_head: [u8; CACHE_LINE - 32],
     /// Consumer's read cursor. Only the consumer writes this. Currently no producer
     /// reads it (full-detection works via slot `seq`); the Release-on-store is defensive
     /// for any future blocking-send variant that wants to poll consumer progress.
@@ -207,25 +225,65 @@ impl DsmMpscRingHeader {
 /// reused slot whose new PID happens to match the old one" — negligible in practice.
 ///
 /// # Safety
-/// Caller must guarantee the ring is still mapped (no dangling `header` reference). PG
-/// FFI itself (`SetLatch`) is safe to call cross-thread once a valid Latch is acquired.
+/// Caller must guarantee the ring is still mapped (no dangling `header` reference).
+///
+/// # Threading note
+/// `pg_sys::SetLatch` is wrapped by pgrx with `check_active_thread()` which panics when
+/// called off the backend thread. Today every producer wake fires from the producer's
+/// own backend main thread (the producer-plan-node poll), so this passes. When G7-MT
+/// flips `exec_mpp_worker` to `multi_thread` Tokio, wakes from non-main worker threads
+/// will need to route through the FFI relay rather than calling `wake_receiver`
+/// directly. Underlying PG `SetLatch` is genuinely cross-thread safe; the constraint
+/// lives entirely in the pgrx wrapper.
+///
+/// Choice of `pgprocno + pid` over `BackendPidGetProc(pid)`: the latter scans the
+/// proc array (O(MaxBackends), takes ProcArrayLock). Our pgprocno+pid_check is O(1)
+/// lock-free and behaviorally equivalent for the slot-reuse case — the only edge
+/// difference is that if PG recycles a PID into a different slot, both approaches
+/// miss-wake (no slot at the expected PID and slot).
 unsafe fn wake_receiver(header: &DsmMpscRingHeader) {
-    let pgprocno = header.receiver_pgprocno.load(Ordering::Acquire);
+    let (pgprocno, expected_pid) = unpack_receiver(header.receiver_packed.load(Ordering::Acquire));
+    if pgprocno < 0 {
+        return;
+    }
     // PG FFI lives behind a cfg gate so the unit-test binary doesn't need ProcGlobal
-    // resolved at load time. Tests never call set_receiver, so pgprocno stays at
-    // NO_RECEIVER (-1); the inner block only ever runs from a real PG backend.
+    // resolved at load time. The macOS flat-namespace linker aborts at process start
+    // on an unresolved extern static, so any code path that references ProcGlobal
+    // must be excluded from the test binary entirely. Do NOT copy this cfg pattern
+    // to other PG-FFI sites without a similar load-time-symbol-resolution reason —
+    // it's not a general "tests can't touch PG FFI" workaround.
     #[cfg(not(test))]
-    if pgprocno >= 0 {
-        unsafe { wake_receiver_via_pg_sys(header, pgprocno) };
+    unsafe {
+        wake_receiver_via_pg_sys(pgprocno, expected_pid);
     }
     #[cfg(test)]
-    let _ = pgprocno;
+    {
+        // Tests should never reach here with a real pgprocno — set_receiver is a no-op
+        // in test builds (the cfg gate above strips the body). If a future test calls
+        // set_receiver and lands here with pgprocno >= 0, the test silently no-ops
+        // instead of exercising the wake path. Catch that footgun loudly.
+        debug_assert_eq!(
+            pgprocno, NO_RECEIVER,
+            "wake_receiver invoked with real pgprocno={pgprocno} in test build; the \
+             pg_sys-side wake is cfg'd out, so this would silently no-op. Tests \
+             targeting the wake path must run under `cargo pgrx test`."
+        );
+        let _ = expected_pid;
+    }
 }
 
 #[cfg(not(test))]
-unsafe fn wake_receiver_via_pg_sys(header: &DsmMpscRingHeader, pgprocno: i32) {
+unsafe fn wake_receiver_via_pg_sys(pgprocno: i32, expected_pid: i32) {
     let proc_global = unsafe { pg_sys::ProcGlobal };
     if proc_global.is_null() {
+        return;
+    }
+    let all_proc_count = unsafe { (*proc_global).allProcCount };
+    // Defense in depth: a corrupted receiver_packed in DSM (any attached backend can
+    // write) with a wildly out-of-range pgprocno would otherwise indexing-past-the-
+    // array. The pgprocno check in wake_receiver above guards the negative range;
+    // this guards the positive range against allProcs's actual size.
+    if pgprocno < 0 || (pgprocno as u32) >= all_proc_count {
         return;
     }
     let all_procs = unsafe { (*proc_global).allProcs };
@@ -233,16 +291,14 @@ unsafe fn wake_receiver_via_pg_sys(header: &DsmMpscRingHeader, pgprocno: i32) {
         return;
     }
     let proc = unsafe { all_procs.add(pgprocno as usize) };
-    if proc.is_null() {
-        return;
-    }
     let current_pid = unsafe { (*proc).pid };
-    let expected_pid = header.receiver_pid.load(Ordering::Acquire);
     if current_pid != expected_pid {
-        // PGPROC slot was reused for a different backend; skip wake to avoid
-        // disturbing the unrelated tenant.
+        // PGPROC slot was reused for a different backend (or never assigned); skip
+        // wake to avoid disturbing the unrelated tenant.
         return;
     }
+    // PGPROC owns the Latch by value at `procLatch`; we want a `*mut Latch` pointing
+    // into that slot, not a load of the field.
     unsafe { pg_sys::SetLatch(&raw mut (*proc).procLatch) };
 }
 
@@ -334,10 +390,9 @@ pub(super) unsafe fn create_at(
                 slot_capacity,
                 detached: AtomicBool::new(false),
                 _pad_after_detached: [0; 3],
-                receiver_pgprocno: AtomicI32::new(NO_RECEIVER),
-                receiver_pid: AtomicI32::new(0),
                 sender_count: AtomicU32::new(0),
-                _pad_before_head: [0; CACHE_LINE - 24],
+                receiver_packed: AtomicU64::new(pack_receiver(NO_RECEIVER, 0)),
+                _pad_before_head: [0; CACHE_LINE - 32],
                 head: AtomicU64::new(0),
                 _pad_between_head_and_tail: [0; CACHE_LINE - 8],
                 tail: AtomicU64::new(0),
@@ -419,17 +474,26 @@ impl DsmMpscReceiver {
 
     /// Register this process as the receiver. Producers' subsequent wakeups resolve
     /// the latch from `ProcGlobal->allProcs[pgprocno]` and check `proc->pid == pid`
-    /// to defend against PGPROC slot reuse if the receiver process exits. Pass
-    /// `(NO_RECEIVER, 0)` to clear (useful in tests + on teardown).
+    /// to defend against PGPROC slot reuse if the receiver process exits. Use
+    /// [`Self::clear_receiver`] on teardown.
     ///
     /// Caller passes the LOCAL process's pgprocno and pid (in PG's parlance:
-    /// `MyProcNumber` and `MyProc->pid`). Fields are stored Release; producers
-    /// Acquire-load on every wake.
+    /// `MyProcNumber` and `MyProc->pid`). The pair is packed into one `AtomicU64`
+    /// and stored Release; producers Acquire-load the pair on every wake, so they
+    /// can never observe a torn (mismatched-by-update) `(pgprocno, pid)` pair.
     pub(super) fn set_receiver(&self, pgprocno: i32, pid: i32) {
         let header = unsafe { self.ring.as_ref() };
-        // Store pid first so producers loading pgprocno see a fully-initialized record.
-        header.receiver_pid.store(pid, Ordering::Release);
-        header.receiver_pgprocno.store(pgprocno, Ordering::Release);
+        header
+            .receiver_packed
+            .store(pack_receiver(pgprocno, pid), Ordering::Release);
+    }
+
+    /// Clear the registered receiver (e.g., on query teardown). After this, producer
+    /// wakes are no-ops until a subsequent `set_receiver`. Sentinels both fields to
+    /// `(NO_RECEIVER, 0)` — note that pgprocno 0 is the valid postmaster slot, so
+    /// callers must NOT use `set_receiver(0, 0)` as a clear.
+    pub(super) fn clear_receiver(&self) {
+        self.set_receiver(NO_RECEIVER, 0);
     }
 
     /// Try to read one frame into `out`. On `Bytes`, `out` holds the payload. On
@@ -847,16 +911,26 @@ mod tests {
         }
     }
 
-    /// Cache-line layout regression: `head` and `tail` should NOT share a cache line,
-    /// and the first slot should not share a line with `tail`. Catches accidental
-    /// padding removal that would re-introduce the false-sharing perf cliff this
-    /// primitive was built to avoid.
+    /// Cache-line layout regression: `head` must land on its own cache line
+    /// (offset == CACHE_LINE so the preceding header fields can't false-share),
+    /// `tail` separated from `head` by CACHE_LINE, and the first slot not sharing a
+    /// line with `tail`. Catches accidental padding removal or field reorder that
+    /// would re-introduce the false-sharing perf cliff this primitive was built to
+    /// avoid.
     #[test]
     fn header_layout_is_cache_friendly() {
         use std::mem::offset_of;
         let head_off = offset_of!(DsmMpscRingHeader, head);
         let tail_off = offset_of!(DsmMpscRingHeader, tail);
         let header_size = std::mem::size_of::<DsmMpscRingHeader>();
+        // head at exactly CACHE_LINE offset means the preceding 64 bytes (header
+        // fields + pad) live entirely in cache line 0, head + its pad live in
+        // cache line 1, etc. Anything other than equality means the padding
+        // math drifted — fix it rather than relaxing the assertion.
+        assert_eq!(
+            head_off, CACHE_LINE,
+            "head must land at offset {CACHE_LINE} (its own cache line); got {head_off}"
+        );
         assert!(
             (tail_off - head_off) >= CACHE_LINE,
             "head and tail must be on separate cache lines: head_off={head_off}, tail_off={tail_off}, CACHE_LINE={CACHE_LINE}"

@@ -340,8 +340,7 @@ impl DrainBuffer {
     }
 
     /// Mark one source queue as detached. Safe to call from the drain thread
-    /// after observing `SHM_MQ_DETACHED` on a given inbound queue or from
-    /// [`DrainHandle::mark_detached`] when the underlying receiver has died.
+    /// after observing `SHM_MQ_DETACHED` on a given inbound queue.
     pub fn notify_source_done(&self) {
         let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
         guard.sources_done = guard.sources_done.saturating_add(1);
@@ -818,17 +817,15 @@ pub(super) enum RecvBatchOutcome {
     Error(DataFusionError),
 }
 
-/// Per-`(stage_id, partition)` channel buffer registry owned by a cooperative [`DrainHandle`]. The
-/// handle serves one sender_proc, whose shm_mq queue carries frames for many logical channels,
-/// each tagged by the [`MppFrameHeader`] prefix. `try_drain_pass` looks up the right channel buffer
-/// on every frame and pushes the payload into it. Consumers waiting on
-/// `(stage_id=s, partition=p)` only see frames matching that key.
+/// Per-`(sender_proc, stage_id, partition)` channel buffer registry owned by a cooperative
+/// [`DrainHandle`]. The handle may host several cooperative receivers (DSM MPSC inbox + self-loop
+/// in-proc), each demultiplexed by the [`MppFrameHeader`] prefix into the same `map`.
+/// `try_drain_pass` looks up the right channel buffer on every frame and pushes the payload into
+/// it. Consumers waiting on a given key only see frames matching that key.
 ///
-/// Each entry is a `DrainBuffer::new(1)` because exactly one source (the sender_proc this handle
-/// serves) emits frames for any given channel via this drain. When the sender_proc detaches
-/// (`Detached` outcome on the underlying receiver), `detached` flips to `true` and every existing
-/// channel buffer is notified, so any consumer blocked on `try_pop` unblocks with `DrainItem::Eof`.
-/// Channel buffers registered *after* detach come back already EOF'd so a late consumer doesn't hang.
+/// Each entry is a `DrainBuffer::new(1)`: exactly one sender_proc emits frames for any given
+/// channel. Per-channel EOF flows via the `Eof` frame demuxed onto the matching buffer; query-
+/// teardown unblock flows via [`DrainHandle::cancel_channel_buffers`] from the handle's `Drop`.
 #[derive(Default)]
 struct ChannelBufferRegistry {
     /// Keyed by `(sender_proc, stage_id, partition)`. Under mesh-multiplexing the unified
@@ -836,7 +833,6 @@ struct ChannelBufferRegistry {
     /// own per-sender buffer — preserving the implicit "one stream per sender" semantics
     /// that `WorkerConnection::stream_partition` consumers rely on.
     map: HashMap<(u32, u32, u32), Arc<DrainBuffer>>,
-    detached: bool,
 }
 
 /// Per-sender-proc drain: stashes the receivers and polls them inline from the cooperative spin
@@ -882,10 +878,6 @@ impl DrainHandle {
     /// The returned `Arc<DrainBuffer>` is the canonical destination for frames matching
     /// that key: `try_drain_pass` pushes into the same entry on every `Batch { header, .. }`
     /// whose `header.sender_proc()` / `stage_id` / `partition` matches.
-    ///
-    /// If the drain has already observed `Detached` from its underlying receiver, the
-    /// newly-created buffer comes back with `notify_source_done` already called so a consumer
-    /// registering after detach sees `Eof` on the first `try_pop` instead of hanging forever.
     pub(super) fn register_channel(
         &self,
         sender_proc: u32,
@@ -896,7 +888,6 @@ impl DrainHandle {
             .channel_buffers
             .lock()
             .expect("DrainHandle channel_buffers mutex poisoned");
-        let detached = guard.detached;
         guard
             .map
             .entry((sender_proc, stage_id, partition))
@@ -905,45 +896,18 @@ impl DrainHandle {
                 // (sender_proc, stage, partition) tuple has exactly one upstream — the
                 // named sender — even though the underlying inbox is shared across all
                 // senders.
-                let buf = DrainBuffer::new(1);
-                if detached {
-                    buf.notify_source_done();
-                }
-                buf
+                DrainBuffer::new(1)
             })
             .clone()
     }
 
-    /// Mark the drain as detached and `notify_source_done` every registered channel buffer.
-    /// Idempotent. Used by `try_drain_pass` after `Detached` / `Error` outcomes; the
-    /// cooperative-path equivalent fires from `Drop` via [`Self::cancel_channel_buffers`] so any
-    /// consumer blocked on `try_pop` unblocks with `Eof` even if the query is torn down before
-    /// EOF frames flow.
+    /// Cancel every registered channel buffer. Called from `Drop` to unblock any consumer waiting on
+    /// a channel buffer when the handle goes away mid-query.
     ///
-    /// Collects buffer handles under the registry lock, then notifies after releasing it.
-    /// Notifying inline would block any concurrent [`Self::register_channel`] for as long as it
+    /// Collects buffer handles under the registry lock, then notifies after releasing it —
+    /// notifying inline would block any concurrent [`Self::register_channel`] for as long as it
     /// takes to acquire `DrainBuffer::inner` N times. Fine today (single backend thread), but
     /// cheap insurance against the multi-thread variant landing later.
-    fn mark_detached(&self) {
-        let to_notify = {
-            let mut guard = self
-                .channel_buffers
-                .lock()
-                .expect("DrainHandle channel_buffers mutex poisoned");
-            if guard.detached {
-                return;
-            }
-            guard.detached = true;
-            guard.map.values().cloned().collect::<Vec<_>>()
-        };
-        for buf in to_notify {
-            buf.notify_source_done();
-        }
-    }
-
-    /// Cancel every registered channel buffer. Called from `Drop` to unblock any consumer waiting on
-    /// a channel buffer when the handle goes away mid-query. Same collect-then-notify pattern as
-    /// [`Self::mark_detached`].
     fn cancel_channel_buffers(&self) {
         let to_cancel = {
             let guard = self
@@ -1014,13 +978,20 @@ impl DrainHandle {
                     }
                     RecvBatchOutcome::Empty => break,
                     RecvBatchOutcome::Detached => {
+                        // Only THIS receiver is dead. Under mesh-multiplexing the drain holds
+                        // multiple receivers (own-inbox MPSC + self-loop in-proc); one going
+                        // away does not imply the others have. Do not fire a registry-wide
+                        // "all channels EOF" here — channel buffers waiting on a still-live
+                        // sibling receiver would falsely terminate. Per-channel EOF flows via
+                        // the demuxed Eof frame above; query-teardown unblock flows via
+                        // `cancel_channel_buffers` from `DrainHandle::Drop`.
                         *slot = None;
-                        self.mark_detached();
                         break;
                     }
                     RecvBatchOutcome::Error(e) => {
+                        // Same reasoning as Detached: drop only this slot. The error itself
+                        // still propagates up — caller surfaces it as a query error.
                         *slot = None;
-                        self.mark_detached();
                         return Err(e);
                     }
                 }
@@ -1828,9 +1799,6 @@ mod tests {
     fn drain_until_detached(handle: &DrainHandle) {
         for _ in 0..64 {
             handle.try_drain_pass().expect("try_drain_pass");
-            // After enough passes the in-proc backend reports `Detached`, which flips
-            // `mark_detached` and notifies every channel buffer. We keep polling so any queued
-            // frames flow through first.
         }
     }
 

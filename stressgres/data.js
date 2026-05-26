@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779780243463,
+  "lastUpdate": 1779780805495,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14478,6 +14478,60 @@ window.BENCHMARK_DATA = {
             "value": 16.15351104513122,
             "unit": "median tps",
             "extra": "avg tps: 16.136159457588104, max tps: 19.556611716890195, count: 55721"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5e936d8201f91cf68040e384be950be178bc0818",
+          "message": "refactor(mpp): centralize the mpp_worker_count >= 3 invariant (#5132)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nCentralizes the \"MPP needs at least 3 procs\" invariant on a single\nconstant, drops the soft `.max(3)` clamp, and tightens\n`producer_worker_count()`.\n\n## Why\n\nThe invariant was encoded in two places: the `>= 3` gate in\n`mpp_is_active` and the `.max(3)` clamp in `mpp_worker_count`. The clamp\nwas a soft GUC-level bandage on a planner contract that's already\nchecked at the gate, so the two sites could drift on the threshold.\n\n## How\n\n- Introduce `MIN_TOTAL_WORKER_COUNT: i32 = 3` as the single source of\ntruth. Doc comment explains why 3 (below that, `producer_worker_count()`\ndrops to 1, while `with_target_partitions(n.max(2))` in\n`build_mpp_session_context` would still build a 2-partition shuffle and\nthe mesh wouldn't have a queue for the second partition).\n- `mpp_is_active()` checks `>= MIN_TOTAL_WORKER_COUNT`.\n- `mpp_worker_count()` returns the raw GUC value with a\n`debug_assert!(mpp_is_active())`. Callers must gate on `mpp_is_active()`\nfirst. Audit confirmed every caller already does, so this catches a\nfuture misuse loudly.\n- `producer_worker_count()` becomes plain `mpp_worker_count() - 1`. The\nprevious `.saturating_sub(1).max(1)` was redundant.\n\n## Tests\n\n- `mpp_smoke`, `mpp_joinscan`, `mpp_aggregate`, `mpp_aggregate_postagg`\nall pass on pgrx-arm64.\n- CI green.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-25T23:28:07-07:00",
+          "tree_id": "5b600ea8044b755f82893015d4ce6e61d4cc9945",
+          "url": "https://github.com/paradedb/paradedb/commit/5e936d8201f91cf68040e384be950be178bc0818"
+        },
+        "date": 1779780773847,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 30.564429488230587,
+            "unit": "median tps",
+            "extra": "avg tps: 30.353549275561438, max tps: 32.90833704121927, count: 55551"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 249.65996998230537,
+            "unit": "median tps",
+            "extra": "avg tps: 280.3444191505203, max tps: 2678.0308592122547, count: 55551"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 598.1853695467466,
+            "unit": "median tps",
+            "extra": "avg tps: 583.8244336639934, max tps: 965.7502008326372, count: 55551"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 162.52038700834586,
+            "unit": "median tps",
+            "extra": "avg tps: 178.51503823854705, max tps: 982.9037512385466, count: 111102"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.998608519246416,
+            "unit": "median tps",
+            "extra": "avg tps: 15.755147961433519, max tps: 20.484221598145375, count: 55551"
           }
         ]
       }

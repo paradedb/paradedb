@@ -30,23 +30,23 @@ SET work_mem='512MB';
 SET paradedb.mpp_target_partitions=2"
 
 declare -a CONFIGS=(
-    "baseline_serial:SET paradedb.enable_mpp=off; SET max_parallel_workers_per_gather=0"
-    "pg_parallel_n4:SET paradedb.enable_mpp=off; SET max_parallel_workers_per_gather=4"
-    "pg_parallel_n8:SET paradedb.enable_mpp=off; SET max_parallel_workers_per_gather=8"
-    "mpp_n4:SET paradedb.enable_mpp=on; SET paradedb.mpp_worker_count=5; SET max_parallel_workers_per_gather=4"
-    "mpp_n8:SET paradedb.enable_mpp=on; SET paradedb.mpp_worker_count=9; SET max_parallel_workers_per_gather=8"
-    "mpp_n12:SET paradedb.enable_mpp=on; SET paradedb.mpp_worker_count=13; SET max_parallel_workers_per_gather=12"
-    # mpp_n16 crashes the server: N² mesh edges × 64 MB = ~49 GB DSM. Out of scope for
-    # path C; needs paradedb.mpp_queue_size dropped or the DSM allocator capped first.
+  "baseline_serial:SET paradedb.enable_mpp=off; SET max_parallel_workers_per_gather=0"
+  "pg_parallel_n4:SET paradedb.enable_mpp=off; SET max_parallel_workers_per_gather=4"
+  "pg_parallel_n8:SET paradedb.enable_mpp=off; SET max_parallel_workers_per_gather=8"
+  "mpp_n4:SET paradedb.enable_mpp=on; SET paradedb.mpp_worker_count=5; SET max_parallel_workers_per_gather=4"
+  "mpp_n8:SET paradedb.enable_mpp=on; SET paradedb.mpp_worker_count=9; SET max_parallel_workers_per_gather=8"
+  "mpp_n12:SET paradedb.enable_mpp=on; SET paradedb.mpp_worker_count=13; SET max_parallel_workers_per_gather=12"
+  # mpp_n16 crashes the server: N² mesh edges × 64 MB = ~49 GB DSM. Out of scope for
+  # path C; needs paradedb.mpp_queue_size dropped or the DSM allocator capped first.
 )
 
 declare -a QUERIES=(
-    "q_narrow_count:SELECT COUNT(*) FROM mpp_bench p JOIN mpp_bench_child c ON p.id = c.parent_id WHERE p.body @@@ 'term'"
-    "q_medium_count:SELECT COUNT(*) FROM mpp_bench p JOIN mpp_bench_child c ON p.id = c.parent_id WHERE p.body @@@ 'other'"
-    "q_wide_count:SELECT COUNT(*) FROM mpp_bench p JOIN mpp_bench_child c ON p.id = c.parent_id WHERE p.body @@@ 'filler'"
-    "q_narrow_gb:SELECT p.category, COUNT(*) FROM mpp_bench p JOIN mpp_bench_child c ON p.id = c.parent_id WHERE p.body @@@ 'term' GROUP BY p.category ORDER BY p.category"
-    "q_medium_gb:SELECT p.category, COUNT(*) FROM mpp_bench p JOIN mpp_bench_child c ON p.id = c.parent_id WHERE p.body @@@ 'other' GROUP BY p.category ORDER BY p.category"
-    "q_wide_gb:SELECT p.category, COUNT(*) FROM mpp_bench p JOIN mpp_bench_child c ON p.id = c.parent_id WHERE p.body @@@ 'filler' GROUP BY p.category ORDER BY p.category"
+  "q_narrow_count:SELECT COUNT(*) FROM mpp_bench p JOIN mpp_bench_child c ON p.id = c.parent_id WHERE p.body @@@ 'term'"
+  "q_medium_count:SELECT COUNT(*) FROM mpp_bench p JOIN mpp_bench_child c ON p.id = c.parent_id WHERE p.body @@@ 'other'"
+  "q_wide_count:SELECT COUNT(*) FROM mpp_bench p JOIN mpp_bench_child c ON p.id = c.parent_id WHERE p.body @@@ 'filler'"
+  "q_narrow_gb:SELECT p.category, COUNT(*) FROM mpp_bench p JOIN mpp_bench_child c ON p.id = c.parent_id WHERE p.body @@@ 'term' GROUP BY p.category ORDER BY p.category"
+  "q_medium_gb:SELECT p.category, COUNT(*) FROM mpp_bench p JOIN mpp_bench_child c ON p.id = c.parent_id WHERE p.body @@@ 'other' GROUP BY p.category ORDER BY p.category"
+  "q_wide_gb:SELECT p.category, COUNT(*) FROM mpp_bench p JOIN mpp_bench_child c ON p.id = c.parent_id WHERE p.body @@@ 'filler' GROUP BY p.category ORDER BY p.category"
 )
 
 psql -h localhost -p 28818 -U "$USER" -d pg_search -X -t -A -c "SELECT pg_prewarm('mpp_bench'); SELECT pg_prewarm('mpp_bench_idx'); SELECT pg_prewarm('mpp_bench_child'); SELECT pg_prewarm('mpp_bench_child_idx');" > /dev/null 2>&1 || true
@@ -56,19 +56,19 @@ for i in $(seq 1 "$N_RUNS"); do printf " run%d_ms" "$i"; done
 printf " median_ms\n"
 
 for q in "${QUERIES[@]}"; do
-    qid="${q%%:*}"; qsql="${q#*:}"
-    for c in "${CONFIGS[@]}"; do
-        cid="${c%%:*}"; csql="${c#*:}"
-        printf "%-18s %-18s" "$qid" "$cid"
-        times=()
-        for i in $(seq 1 "$N_RUNS"); do
-            ms=$(psql -h localhost -p 28818 -U "$USER" -d pg_search -X -t -A -c "$COMMON; $csql; EXPLAIN (ANALYZE, FORMAT JSON, TIMING off, BUFFERS off) $qsql" 2>&1 | grep -oE '"Execution Time": [0-9.]+' | grep -oE '[0-9.]+' | head -1)
-            if [ -z "$ms" ]; then ms="ERR"; fi
-            times+=("$ms")
-            printf " %8s" "$ms"
-        done
-        median=$(printf '%s\n' "${times[@]}" | sort -n | awk -v n="$N_RUNS" 'NR==int((n+1)/2){print}')
-        printf " %9s\n" "$median"
+  qid="${q%%:*}"; qsql="${q#*:}"
+  for c in "${CONFIGS[@]}"; do
+    cid="${c%%:*}"; csql="${c#*:}"
+    printf "%-18s %-18s" "$qid" "$cid"
+    times=()
+    for i in $(seq 1 "$N_RUNS"); do
+      ms=$(psql -h localhost -p 28818 -U "$USER" -d pg_search -X -t -A -c "$COMMON; $csql; EXPLAIN (ANALYZE, FORMAT JSON, TIMING off, BUFFERS off) $qsql" 2>&1 | grep -oE '"Execution Time": [0-9.]+' | grep -oE '[0-9.]+' | head -1)
+      if [ -z "$ms" ]; then ms="ERR"; fi
+      times+=("$ms")
+      printf " %8s" "$ms"
     done
-    echo "---"
+    median=$(printf '%s\n' "${times[@]}" | sort -n | awk -v n="$N_RUNS" 'NR==int((n+1)/2){print}')
+    printf " %9s\n" "$median"
+  done
+  echo "---"
 done

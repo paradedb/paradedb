@@ -65,7 +65,7 @@ pub(super) fn align_up_maxalign_checked(n: usize) -> Option<usize> {
 /// dedicated parallel-worker backend. The blocking `shm_mq_send(nowait=false)`
 /// path uses `WaitLatch` + `CHECK_FOR_INTERRUPTS` — both process-global
 /// Postgres primitives, not thread-safe off a backend thread.
-// Kept for reference and possible re-use; Phase 4b mesh multiplexing routes through
+// Kept for reference and possible reuse; Phase 4b mesh multiplexing routes through
 // DsmInboxSender/DsmInboxReceiver instead.
 #[allow(dead_code)]
 pub(crate) struct ShmMqSender {

@@ -269,6 +269,12 @@ pub unsafe fn leader_setup(
 /// require an attached PGPROC). Both setup paths are called synchronously from PG's
 /// custom-scan init hooks on the backend before any tokio runtime spins up.
 unsafe fn register_self_as_receiver(inbox: &DsmInboxReceiver) {
+    // `pg_sys::MyProcNumber` is the PG17+ global. PG15/16 carry the same value on
+    // `MyProc->pgprocno` (it moved to a process-global plus a field rename in PG17).
+    // Gate by feature so the build picks the right one on every supported PG.
+    #[cfg(any(feature = "pg15", feature = "pg16"))]
+    let my_pgprocno: i32 = unsafe { (*pg_sys::MyProc).pgprocno };
+    #[cfg(not(any(feature = "pg15", feature = "pg16")))]
     let my_pgprocno: i32 = unsafe { pg_sys::MyProcNumber };
     let my_pid: i32 = unsafe { (*pg_sys::MyProc).pid };
     inbox.set_receiver(my_pgprocno, my_pid);

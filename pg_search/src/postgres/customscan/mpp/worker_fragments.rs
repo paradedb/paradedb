@@ -20,7 +20,7 @@
 //! [`find_worker_assignments`] walks a worker's physical plan, visits every
 //! [`datafusion_distributed::NetworkBoundary`], and collects the
 //! `(input_stage.num, task_idx, plan, routing)` tuples assigned to a given
-//! `this_proc`. The dispatcher in `aggregatescan::exec_mpp_worker` runs one
+//! `this_proc`. The dispatcher driven by [`mpp::host::exec_mpp_worker`] runs one
 //! fragment per returned [`FragmentAssignment`].
 //!
 //! The walker tracks a `ParentContext` per recursion level so nested

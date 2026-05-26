@@ -191,12 +191,20 @@ pub struct MppLeaderState {
 /// Wrap each peer-indexed `ShmMqReceiver` into an inbound cooperative drain, returned in
 /// `sender_proc`-indexed form. Slot at index `this_proc` is `None` (no self-loop drain at this
 /// stage; the worker's self-loop is installed separately, and the leader never has one).
-/// Wrap the process's own-inbox `ShmMqReceiver` into the single cooperative drain that pulls
-/// every frame addressed to this process. Frame demux by `(stage_id, partition)` happens inside
-/// the drain; `MppFrameHeader::sender_proc` identifies the source.
-fn build_inbound_drain(receiver: ShmMqReceiver) -> Arc<DrainHandle> {
-    let mpp_recv = MppReceiver::new(Box::new(receiver));
-    Arc::new(DrainHandle::cooperative(vec![mpp_recv]))
+fn build_inbound_receivers(
+    this_proc: u32,
+    total_procs: u32,
+    peer_receivers: Vec<ShmMqReceiver>,
+) -> Vec<Option<Arc<DrainHandle>>> {
+    let mut drains: Vec<Option<Arc<DrainHandle>>> = (0..total_procs).map(|_| None).collect();
+    for (peer_idx, shm_recv) in peer_receivers.into_iter().enumerate() {
+        let sender_proc = peer_proc_for_index(this_proc, peer_idx as u32);
+        debug_assert!(sender_proc != this_proc);
+        debug_assert!(sender_proc < total_procs);
+        let mpp_recv = MppReceiver::new(Box::new(shm_recv));
+        drains[sender_proc as usize] = Some(Arc::new(DrainHandle::cooperative(vec![mpp_recv])));
+    }
+    drains
 }
 
 /// Wrap each peer-indexed `ShmMqSender` into an outbound `MppSender` keyed by `target_proc`. The
@@ -204,11 +212,6 @@ fn build_inbound_drain(receiver: ShmMqReceiver) -> Arc<DrainHandle> {
 /// these to the right `(stage_id, partition)`, so the default placeholder header is never
 /// observed on the wire. Slot at index `this_proc` is `None`; the worker's self-loop install
 /// fills it in afterward.
-///
-/// The placeholder header is stamped with `sender_proc = this_proc` so any frame that does
-/// escape the dispatcher's clone_with_header overwrite still identifies its origin correctly
-/// at the consumer demux. Downstream `clone_with_header` callers are expected to keep using
-/// `this_proc` as the sender_proc argument.
 fn build_outbound_senders(
     this_proc: u32,
     total_procs: u32,
@@ -222,7 +225,7 @@ fn build_outbound_senders(
         let shared: Arc<dyn BatchChannelSender> = Arc::new(shm_send);
         senders[target_proc as usize] = Some(MppSender::with_header(
             shared,
-            MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION, this_proc),
+            MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION, 0),
         ));
     }
     senders
@@ -249,13 +252,12 @@ pub unsafe fn leader_setup(
 
     let attach = unsafe { leader_init(coordinate, seg, &layout, &plan_bytes) }?;
 
-    // One DrainHandle per process pulls from the own-inbox shm_mq. Channel-buffer demux keys
-    // by (sender_proc, stage_id, partition), so peer frames arriving on the unified queue are
-    // routed to the right consumer. The leader has no self-loop because it hosts no producer
-    // fragment (consumer-only role).
-    let inbound_drain = build_inbound_drain(attach.inbound_receiver);
+    // Each `DrainHandle` owns a per-`(stage_id, partition)` channel buffer registry, so one shm_mq
+    // queue can carry frames from many logical channels. Channel buffers are created lazily on first
+    // frame, or up-front by `WorkerConnection::stream_partition`.
+    let inbound_receivers = build_inbound_receivers(0, total_procs, attach.inbound_receivers);
 
-    let mesh = Arc::new(MppMesh::new(0, total_procs, inbound_drain));
+    let mesh = Arc::new(MppMesh::new(0, total_procs, inbound_receivers));
 
     // Drop the leader's own outbound senders. The leader is consumer-only and never hosts a
     // producer fragment.
@@ -313,6 +315,8 @@ pub unsafe fn worker_setup(
 
     let mut outbound_senders =
         build_outbound_senders(proc_idx, total_procs, attach.outbound_senders);
+    let mut inbound_receivers =
+        build_inbound_receivers(proc_idx, total_procs, attach.inbound_receivers);
     debug_assert_eq!(
         outbound_senders.iter().filter(|s| s.is_some()).count(),
         (total_procs as usize).saturating_sub(1),
@@ -320,24 +324,25 @@ pub unsafe fn worker_setup(
         total_procs.saturating_sub(1)
     );
 
-    // Install a self-loop in-proc channel and route this proc's self-addressed frames through
-    // it. Peer-mesh hash routing can land producer-side and consumer-side tasks for the same
-    // (stage, partition) on the same worker. The shm_mq inbox can only have one receiver per
-    // queue (this proc's own inbox is already attached), so self-loops bypass shm_mq entirely
-    // and ride an in-proc channel. The unified drain pulls from BOTH receivers (own-inbox
-    // shm_mq + self-loop in-proc) so the channel-buffer registry sees a single demux stream.
+    // Install a self-loop in-proc channel for `slot(this_proc, this_proc)`. Peer-mesh hash
+    // routing can land producer-side and consumer-side tasks for the same `(stage, partition)`
+    // on the same worker. Without this, the shm_mq grid's unattached diagonal would surface as
+    // `outbound_senders[this_proc] = None`. The in-proc channel keeps frame routing uniform from
+    // the dispatcher's perspective: senders push, the `DrainHandle` reads via the same
+    // `BatchChannelReceiver` contract as shm_mq, and the channel buffer registry demuxes per
+    // `(stage_id, partition)`.
     let (self_tx, self_rx) = in_proc_channel(SELF_LOOP_CAPACITY);
     let self_tx_arc: Arc<dyn BatchChannelSender> = Arc::new(self_tx);
     outbound_senders[proc_idx as usize] = Some(MppSender::with_header(
         self_tx_arc,
-        MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION, proc_idx),
+        MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION, 0),
     ));
+    inbound_receivers[proc_idx as usize] =
+        Some(Arc::new(DrainHandle::cooperative(vec![MppReceiver::new(
+            Box::new(self_rx),
+        )])));
 
-    let inbox_recv = MppReceiver::new(Box::new(attach.inbound_receiver));
-    let self_recv = MppReceiver::new(Box::new(self_rx));
-    let inbound_drain = Arc::new(DrainHandle::cooperative(vec![inbox_recv, self_recv]));
-
-    let mesh = Arc::new(MppMesh::new(proc_idx, total_procs, inbound_drain));
+    let mesh = Arc::new(MppMesh::new(proc_idx, total_procs, inbound_receivers));
 
     Ok(MppWorkerState {
         outbound_senders,

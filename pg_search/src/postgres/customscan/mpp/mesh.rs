@@ -65,6 +65,9 @@ pub(super) fn align_up_maxalign_checked(n: usize) -> Option<usize> {
 /// dedicated parallel-worker backend. The blocking `shm_mq_send(nowait=false)`
 /// path uses `WaitLatch` + `CHECK_FOR_INTERRUPTS` — both process-global
 /// Postgres primitives, not thread-safe off a backend thread.
+// Kept for reference and possible re-use; Phase 4b mesh multiplexing routes through
+// DsmInboxSender/DsmInboxReceiver instead.
+#[allow(dead_code)]
 pub(crate) struct ShmMqSender {
     inner: MessageQueueSender,
     attach_thread: std::thread::ThreadId,
@@ -88,6 +91,7 @@ unsafe impl Send for ShmMqSender {}
 // at compile time.
 unsafe impl Sync for ShmMqSender {}
 
+#[allow(dead_code)]
 impl ShmMqSender {
     /// # Safety
     /// - `seg` must be a valid `dsm_segment*` (or NULL on workers).
@@ -156,6 +160,8 @@ impl BatchChannelSender for ShmMqSender {
 /// shm_mq-backed `BatchChannelReceiver`. The leader creates the shm_mq via
 /// `shm_mq_create` during DSM init; this attaches as receiver to an already-
 /// initialized queue.
+// Kept for reference; Phase 4b mesh multiplexing uses DsmInboxReceiver instead.
+#[allow(dead_code)]
 pub(super) struct ShmMqReceiver {
     inner: MessageQueueReceiver,
 }
@@ -174,6 +180,7 @@ unsafe impl Send for ShmMqReceiver {}
 // from the `Mutex<Vec<…>>` wrapper on `coop_receivers` having to provide it.
 unsafe impl Sync for ShmMqReceiver {}
 
+#[allow(dead_code)]
 impl ShmMqReceiver {
     /// Attach as receiver to an *already-created* shm_mq.
     ///
@@ -317,7 +324,6 @@ pub(super) struct DsmInboxReceiver {
 // shared-reference UB if that invariant ever slips. Send is auto-derived.
 unsafe impl Sync for DsmInboxReceiver {}
 
-#[allow(dead_code)]
 impl DsmInboxReceiver {
     /// Wrap a `DsmMpscReceiver` for use through the `BatchChannelReceiver` trait.
     pub(super) fn new(inner: DsmMpscReceiver) -> Self {
@@ -325,6 +331,12 @@ impl DsmInboxReceiver {
             inner,
             scratch: parking_lot::Mutex::new(Vec::new()),
         }
+    }
+
+    /// Register this process as the receiver on the underlying ring. See
+    /// `DsmMpscReceiver::set_receiver` for the pgprocno + pid contract.
+    pub(super) fn set_receiver(&self, pgprocno: i32, pid: i32) {
+        self.inner.set_receiver(pgprocno, pid);
     }
 }
 

@@ -180,9 +180,8 @@ use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_f
 use crate::postgres::customscan::joinscan::scan_state::MppExecState;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::mpp::glue::{
-    estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, mpp_worker_count,
-    producer_worker_count, pscan_offset, read_custom_scan_header, worker_setup,
-    write_custom_scan_header, CustomScanMppHeader,
+    estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, producer_worker_count, pscan_offset,
+    read_custom_scan_header, worker_setup, write_custom_scan_header, CustomScanMppHeader,
 };
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 use crate::postgres::customscan::parallel::compute_nworkers;
@@ -1061,7 +1060,10 @@ impl JoinScan {
     /// Build the leader's distributed session context for this JoinScan query. Thin wrapper
     /// over the shared [`crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context`]
     /// that seeds with `create_datafusion_session_context(SessionContextProfile::Join)`.
-    fn build_mpp_session_context(mesh: Arc<MppMesh>) -> datafusion::prelude::SessionContext {
+    /// `mesh = None` is the EXPLAIN-time path. See the shared helper's doc.
+    fn build_mpp_session_context(
+        mesh: Option<Arc<MppMesh>>,
+    ) -> datafusion::prelude::SessionContext {
         crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context(
             create_datafusion_session_context(SessionContextProfile::Join),
             mesh,
@@ -1356,13 +1358,12 @@ impl CustomScan for JoinScan {
             }
             // For plain EXPLAIN, reconstruct the plan using the same session configuration
             // that execution uses so `VisibilityFilterExec` appears in the displayed plan,
-            // matching EXPLAIN ANALYZE. When MPP is active, use a drain-less stub mesh so the
-            // distributed planner runs and the displayed plan shows `DistributedExec` + stages.
-            // `ShmMqWorkerTransport::open()` doesn't run during EXPLAIN, so the stub is safe.
+            // matching EXPLAIN ANALYZE. When MPP is active, pass `mesh = None`; the shared
+            // session-context builder derives `n_workers` from `producer_worker_count()` and
+            // skips the shm_mq transport install (EXPLAIN doesn't execute).
             let expr_context = crate::postgres::utils::ExprContextGuard::new();
             let ctx = if mpp_is_active() {
-                let stub_mesh = Arc::new(MppMesh::new(0, mpp_worker_count(), Vec::new()));
-                Self::build_mpp_session_context(stub_mesh)
+                Self::build_mpp_session_context(None)
             } else {
                 create_datafusion_session_context(SessionContextProfile::Join)
             };
@@ -1498,7 +1499,7 @@ impl CustomScan for JoinScan {
                                 );
                             }
                         }
-                        Self::build_mpp_session_context(Arc::clone(&leader.mesh))
+                        Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
                     }
                     _ => create_datafusion_session_context(SessionContextProfile::Join),
                 };

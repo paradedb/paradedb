@@ -27,12 +27,14 @@
 //!
 //! ```text
 //! +- DsmMpscRingHeader -----------------------+
-//! |  ring_size:     u32   (immutable)         |
-//! |  slot_capacity: u32   (immutable)         |
-//! |  detached:      AtomicBool                |
-//! |  receiver_latch: AtomicPtr<pg_sys::Latch> |
-//! |  head:          AtomicU64                 |
-//! |  tail:          AtomicU64                 |
+//! |  magic, version (u32 each)                |
+//! |  ring_size, slot_capacity (u32 each)      |
+//! |  detached:           AtomicBool           |
+//! |  receiver_pgprocno:  AtomicI32  (-1 unset)|
+//! |  receiver_pid:       AtomicI32  (0 unset) |
+//! |  sender_count:       AtomicU32            |
+//! |  head:               AtomicU64            |
+//! |  tail:               AtomicU64            |
 //! +-------------------------------------------+
 //! | Slot[0] | Slot[1] | ... | Slot[N-1]       |
 //! +-------------------------------------------+
@@ -88,13 +90,15 @@
 #![allow(dead_code)]
 
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 
+#[cfg(not(test))]
 use pgrx::pg_sys;
 
-/// Sentinel for an unset receiver latch. Producers skip the wakeup call when the latch
-/// pointer is null (e.g., in unit tests that don't have a PG backend).
-pub(super) const NO_LATCH: *mut pg_sys::Latch = std::ptr::null_mut();
+/// Sentinel for an unregistered receiver. Producers skip the wakeup call when the
+/// receiver_pgprocno is negative (no receiver set, or in unit tests that don't have a
+/// PG backend).
+pub(super) const NO_RECEIVER: i32 = -1;
 
 /// Reserved byte at the start of every slot. Sized so payload + header fits in
 /// `slot_capacity` exactly.
@@ -146,30 +150,26 @@ pub(super) struct DsmMpscRingHeader {
     /// fail-fast on subsequent sends. Sticky.
     detached: AtomicBool,
     _pad_after_detached: [u8; 3],
-    /// PG `Latch*` the consumer waits on. Producers `SetLatch` after a successful send to
-    /// wake the consumer.
-    ///
-    /// # Safety contract for callers
-    ///
-    /// The `*mut Latch` stored here must remain valid for the lifetime of every
-    /// outstanding `DsmMpscSender`. Producers load this pointer on every send and
-    /// dereference via `SetLatch`. In particular: if the consumer process exits and PG
-    /// reuses its `PGPROC` slot, a stored raw `Latch*` becomes dangling and `SetLatch`
-    /// would wake an unrelated backend. Phase 3 integration must replace this with a
-    /// `pgprocno: AtomicU32` and resolve to the latch fresh on every wakeup (so
-    /// `PGPROC` reuse is harmless and a `pid` check defends against late wakeups).
-    /// For the in-process unit-test use today (`NO_LATCH` everywhere) this is moot.
-    receiver_latch: AtomicPtr<pg_sys::Latch>,
+    /// `ProcNumber` (PG's PGPROC slot index) of the receiver, or `NO_RECEIVER` (-1) when
+    /// no receiver is registered. Producers resolve this to a live `*mut Latch` via
+    /// `ProcGlobal->allProcs[receiver_pgprocno]` on every wakeup so PGPROC reuse on
+    /// receiver-process death stays harmless: the stored pgprocno still points at the
+    /// reused slot, but `receiver_pid` won't match the new tenant's PID and the wake
+    /// gets skipped. See `wake_receiver` for the resolution path.
+    receiver_pgprocno: AtomicI32,
+    /// Expected `pid` of the receiver process, used to defend against `PGPROC` slot
+    /// reuse. Set together with `receiver_pgprocno`. Zero means no receiver registered.
+    receiver_pid: AtomicI32,
     /// Live `DsmMpscSender` count. Incremented in `DsmMpscSender::new`, decremented in
     /// `DsmMpscSender::Drop`. The drop that takes the count from 1 → 0 sets `detached`
-    /// (with Release) and SetLatches the receiver, so producers don't need to call
+    /// (with Release) and wakes the receiver, so producers don't need to call
     /// `set_detached` explicitly: dropping the last sender is sufficient. Mirrors
     /// shm_mq's "drop = detach" structural guarantee.
     sender_count: AtomicU32,
     /// Padding to push `head` onto its own cache line. Sized against the offsets of the
     /// preceding fields; the static_assert in `tests::header_layout_is_cache_friendly`
     /// keeps it honest.
-    _pad_before_head: [u8; CACHE_LINE - 28],
+    _pad_before_head: [u8; CACHE_LINE - 24],
     /// Consumer's read cursor. Only the consumer writes this. Currently no producer
     /// reads it (full-detection works via slot `seq`); the Release-on-store is defensive
     /// for any future blocking-send variant that wants to poll consumer progress.
@@ -190,6 +190,60 @@ impl DsmMpscRingHeader {
     pub(super) const fn region_bytes(ring_size: u32, slot_capacity: u32) -> usize {
         std::mem::size_of::<DsmMpscRingHeader>() + (ring_size as usize) * (slot_capacity as usize)
     }
+}
+
+/// Wake the receiver if one is registered. Resolves the latch from
+/// `ProcGlobal->allProcs[receiver_pgprocno]` per call (so PGPROC reuse after a receiver
+/// process exit can't dangle a cached pointer) and validates `proc->pid` against the
+/// stored `receiver_pid` to skip wakes targeted at a reused slot's new tenant.
+///
+/// Returns silently when:
+/// - No receiver is registered (`receiver_pgprocno == NO_RECEIVER`).
+/// - `ProcGlobal` is null (called outside a PG backend; tests).
+/// - The PID check fails (PGPROC was reused; the prior receiver is gone).
+///
+/// `SetLatch` itself is documented as safe to call on any valid `Latch*`. The pid guard
+/// reduces the probability of waking the wrong backend from "any reused slot" to "a
+/// reused slot whose new PID happens to match the old one" — negligible in practice.
+///
+/// # Safety
+/// Caller must guarantee the ring is still mapped (no dangling `header` reference). PG
+/// FFI itself (`SetLatch`) is safe to call cross-thread once a valid Latch is acquired.
+unsafe fn wake_receiver(header: &DsmMpscRingHeader) {
+    let pgprocno = header.receiver_pgprocno.load(Ordering::Acquire);
+    // PG FFI lives behind a cfg gate so the unit-test binary doesn't need ProcGlobal
+    // resolved at load time. Tests never call set_receiver, so pgprocno stays at
+    // NO_RECEIVER (-1); the inner block only ever runs from a real PG backend.
+    #[cfg(not(test))]
+    if pgprocno >= 0 {
+        unsafe { wake_receiver_via_pg_sys(header, pgprocno) };
+    }
+    #[cfg(test)]
+    let _ = pgprocno;
+}
+
+#[cfg(not(test))]
+unsafe fn wake_receiver_via_pg_sys(header: &DsmMpscRingHeader, pgprocno: i32) {
+    let proc_global = unsafe { pg_sys::ProcGlobal };
+    if proc_global.is_null() {
+        return;
+    }
+    let all_procs = unsafe { (*proc_global).allProcs };
+    if all_procs.is_null() {
+        return;
+    }
+    let proc = unsafe { all_procs.add(pgprocno as usize) };
+    if proc.is_null() {
+        return;
+    }
+    let current_pid = unsafe { (*proc).pid };
+    let expected_pid = header.receiver_pid.load(Ordering::Acquire);
+    if current_pid != expected_pid {
+        // PGPROC slot was reused for a different backend; skip wake to avoid
+        // disturbing the unrelated tenant.
+        return;
+    }
+    unsafe { pg_sys::SetLatch(&raw mut (*proc).procLatch) };
 }
 
 /// Errors that `try_send` can surface to the producer.
@@ -280,9 +334,10 @@ pub(super) unsafe fn create_at(
                 slot_capacity,
                 detached: AtomicBool::new(false),
                 _pad_after_detached: [0; 3],
-                receiver_latch: AtomicPtr::new(NO_LATCH),
+                receiver_pgprocno: AtomicI32::new(NO_RECEIVER),
+                receiver_pid: AtomicI32::new(0),
                 sender_count: AtomicU32::new(0),
-                _pad_before_head: [0; CACHE_LINE - 28],
+                _pad_before_head: [0; CACHE_LINE - 24],
                 head: AtomicU64::new(0),
                 _pad_between_head_and_tail: [0; CACHE_LINE - 8],
                 tail: AtomicU64::new(0),
@@ -362,12 +417,19 @@ impl DsmMpscReceiver {
         Self { ring }
     }
 
-    /// Install (or clear) the receiver's `pg_sys::Latch*`. Producers will `SetLatch` it
-    /// after a successful send so a blocked consumer in `WaitLatch` wakes up. Pass
-    /// [`NO_LATCH`] to disable wakeup (useful in unit tests).
-    pub(super) fn set_latch(&self, latch: *mut pg_sys::Latch) {
+    /// Register this process as the receiver. Producers' subsequent wakeups resolve
+    /// the latch from `ProcGlobal->allProcs[pgprocno]` and check `proc->pid == pid`
+    /// to defend against PGPROC slot reuse if the receiver process exits. Pass
+    /// `(NO_RECEIVER, 0)` to clear (useful in tests + on teardown).
+    ///
+    /// Caller passes the LOCAL process's pgprocno and pid (in PG's parlance:
+    /// `MyProcNumber` and `MyProc->pid`). Fields are stored Release; producers
+    /// Acquire-load on every wake.
+    pub(super) fn set_receiver(&self, pgprocno: i32, pid: i32) {
         let header = unsafe { self.ring.as_ref() };
-        header.receiver_latch.store(latch, Ordering::Release);
+        // Store pid first so producers loading pgprocno see a fully-initialized record.
+        header.receiver_pid.store(pid, Ordering::Release);
+        header.receiver_pgprocno.store(pgprocno, Ordering::Release);
     }
 
     /// Try to read one frame into `out`. On `Bytes`, `out` holds the payload. On
@@ -436,13 +498,9 @@ impl DsmMpscReceiver {
     pub(super) fn set_detached(&self) {
         let header = unsafe { self.ring.as_ref() };
         header.detached.store(true, Ordering::Release);
-        // Defensive self-wake. Normally the receiver itself calls set_detached and
-        // doesn't need to wake itself, but if a signal handler or supervisor thread
-        // calls this while the receiver is in WaitLatch, this breaks it out.
-        let latch = header.receiver_latch.load(Ordering::Acquire);
-        if !latch.is_null() {
-            unsafe { pg_sys::SetLatch(latch) };
-        }
+        // Defensive self-wake: if a signal handler or supervisor thread calls
+        // set_detached while the receiver is in WaitLatch, this breaks it out.
+        unsafe { wake_receiver(header) };
     }
 
     /// True when `set_detached` has been called.
@@ -513,11 +571,8 @@ impl DsmMpscSender {
                                 // Publish: ready in round k is (k * ring_size + i + 1) = tail + 1.
                                 (*slot).seq.store(tail.wrapping_add(1), Ordering::Release);
                             }
-                            // Wake the consumer.
-                            let latch = header.receiver_latch.load(Ordering::Acquire);
-                            if !latch.is_null() {
-                                unsafe { pg_sys::SetLatch(latch) };
-                            }
+                            // Wake the consumer (resolves the latch via pgprocno + pid).
+                            unsafe { wake_receiver(header) };
                             return Ok(());
                         }
                         Err(_) => continue, // another producer took this tail; retry
@@ -547,10 +602,7 @@ impl Drop for DsmMpscSender {
         if prev == 1 {
             // We were the last sender. Tell the consumer.
             header.detached.store(true, Ordering::Release);
-            let latch = header.receiver_latch.load(Ordering::Acquire);
-            if !latch.is_null() {
-                unsafe { pg_sys::SetLatch(latch) };
-            }
+            unsafe { wake_receiver(header) };
         }
     }
 }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779823028388,
+  "lastUpdate": 1779823073014,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11066,6 +11066,54 @@ window.BENCHMARK_DATA = {
             "value": 5.281659888224329,
             "unit": "median tps",
             "extra": "avg tps: 5.320407482384909, max tps: 6.832506338533211, count: 56343"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "59bbbe58d9c07aacd6ff87a90a955843ab3ed266",
+          "message": "refactor(mpp): drop dead strip_dynamic_filters_from_dyn helper (#5136)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDeletes `PgSearchScanPlan::strip_dynamic_filters_from_dyn`.\n\n## Why\n\nDCE.\n\n## How\n\nDelete the function.\n\n## Tests\n\n- `cargo check --package pg_search --features pg18\n--no-default-features` clean.\n- All 4 MPP regress tests pass.\n- CI green.",
+          "timestamp": "2026-05-26T11:23:16-07:00",
+          "tree_id": "819962fbe27c5c425bc12fc1d4f305ab1658b9a6",
+          "url": "https://github.com/paradedb/paradedb/commit/59bbbe58d9c07aacd6ff87a90a955843ab3ed266"
+        },
+        "date": 1779823041951,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1086.6045327399288,
+            "unit": "median tps",
+            "extra": "avg tps: 1081.5787683184997, max tps: 1157.2441484458302, count: 56091"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1267.2679723716192,
+            "unit": "median tps",
+            "extra": "avg tps: 1241.666151546298, max tps: 1273.8459606284937, count: 56091"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1141.2685654428801,
+            "unit": "median tps",
+            "extra": "avg tps: 1038.9702895986088, max tps: 1495.3952657471007, count: 56091"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.434709489154453,
+            "unit": "median tps",
+            "extra": "avg tps: 5.466123326805799, max tps: 6.274115755990142, count: 56091"
           }
         ]
       }

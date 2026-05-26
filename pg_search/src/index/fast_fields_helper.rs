@@ -19,7 +19,8 @@ use std::convert::identity;
 use std::sync::{Arc, OnceLock};
 
 use crate::index::reader::index::SearchIndexReader;
-use crate::postgres::types::{PdbOwnedValue, TantivyValue};
+use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::types::{is_pgoid_datetime_type, PdbOwnedValue, TantivyValue};
 use crate::postgres::types_arrow::datetime_to_pg_micros;
 use crate::scan::deferred_encode::unpack_doc_address;
 use crate::schema::SearchFieldType;
@@ -53,7 +54,7 @@ pub struct CanonicalColumn {
 }
 
 /// A cache of fast field columns for a single segment, indexed by FFIndex.
-type ColumnCache = Vec<(String, OnceLock<FFType>)>;
+type ColumnCache = Vec<(String, Option<SearchFieldType>, OnceLock<FFType>)>;
 
 /// A helper for tracking specific "fast field" readers from a [`SearchIndexReader`] reference
 ///
@@ -79,15 +80,18 @@ impl FFHelper {
                 let mut lookup = Vec::new();
                 for field in fields {
                     match field {
-                        WhichFastField::Named(name, _) | WhichFastField::Deferred(name, _) => {
-                            lookup.push((name.to_string(), OnceLock::default()))
-                        }
+                        WhichFastField::Named(name, search_field_type)
+                        | WhichFastField::Deferred(name, search_field_type) => lookup.push((
+                            name.to_string(),
+                            Some(*search_field_type),
+                            OnceLock::default(),
+                        )),
                         WhichFastField::Ctid
                         | WhichFastField::TableOid
                         | WhichFastField::Score
                         | WhichFastField::Junk(_)
                         | WhichFastField::DeferredCtid(_) => {
-                            lookup.push((String::from("junk"), OnceLock::from(FFType::Junk)))
+                            lookup.push((String::from("junk"), None, OnceLock::from(FFType::Junk)))
                         }
                     }
                 }
@@ -105,7 +109,7 @@ impl FFHelper {
     pub fn column(&self, segment_ord: SegmentOrdinal, field: FFIndex) -> &FFType {
         let (ff_readers, columns, _) = &self.segment_caches[segment_ord as usize];
         let column = &columns[field];
-        column.1.get_or_init(|| FFType::new(ff_readers, &column.0))
+        column.2.get_or_init(|| FFType::new(ff_readers, &column.0))
     }
 
     #[track_caller]
@@ -114,9 +118,9 @@ impl FFHelper {
         let column = &columns[field];
         Some(
             column
-                .1
+                .2
                 .get_or_init(|| FFType::new(ff_readers, &column.0))
-                .value(doc_address.doc_id),
+                .value(doc_address.doc_id, column.1),
         )
     }
 
@@ -216,8 +220,8 @@ impl FFType {
 
     /// Given a [`DocId`], what is its "fast field" value?
     #[inline(always)]
-    pub fn value(&self, doc: DocId) -> TantivyValue {
-        let value = match self {
+    pub fn value(&self, doc: DocId, search_field_type: Option<SearchFieldType>) -> TantivyValue {
+        match self {
             FFType::Junk => TantivyValue(PdbOwnedValue::Null),
             FFType::Text(ff) => {
                 let mut s = String::new();
@@ -239,11 +243,21 @@ impl FFType {
                     .expect("bytes should be retrievable for term ord");
                 TantivyValue(PdbOwnedValue::Bytes(bytes))
             }
-            FFType::I64(ff) => TantivyValue(
-                ff.first(doc)
-                    .map(|first| first.into())
-                    .unwrap_or(PdbOwnedValue::Null),
-            ),
+            FFType::I64(ff) => {
+                // versions >= TIMESTAMP_STORAGE_I64_VERSION store datetimes as I64
+                if let Some(sft) = search_field_type {
+                    if is_pgoid_datetime_type(sft.typeoid()) {
+                        let value = ff.first(doc).map(|first| {
+                            let pgdt = PostgresDateTime::try_from_raw(first)
+                                .expect("This should always be a valid datetime value");
+                            PdbOwnedValue::Date(pgdt)
+                        });
+                        return TantivyValue(value.unwrap_or(PdbOwnedValue::Null));
+                    }
+                }
+                let value = ff.first(doc).map(|first| first.into());
+                TantivyValue(value.unwrap_or(PdbOwnedValue::Null))
+            }
             FFType::F64(ff) => TantivyValue(
                 ff.first(doc)
                     .map(|first| first.into())
@@ -264,9 +278,7 @@ impl FFType {
                     .map(|first| first.into())
                     .unwrap_or(PdbOwnedValue::Null),
             ),
-        };
-
-        value
+        }
     }
 
     /// Given a [`DocId`], what is its u64 "fast field" value?
@@ -294,7 +306,11 @@ impl FFType {
 
     /// Fetches the batch of fast field values (or term ordinals for Text/Bytes)
     /// as an Arrow array.
-    pub fn fetch_values_or_ords_to_arrow(&self, ids: &[u32]) -> ArrayRef {
+    pub fn fetch_values_or_ords_to_arrow(
+        &self,
+        ids: &[u32],
+        search_field_type: SearchFieldType,
+    ) -> ArrayRef {
         match self {
             FFType::Text(col) => fetch_term_ords!(col.ords(), ids),
             FFType::Bytes(col) => fetch_term_ords!(col.ords(), ids),
@@ -302,6 +318,9 @@ impl FFType {
                 &arrow_schema::DataType::Null,
                 ids.len(),
             )),
+            FFType::I64(_) if is_pgoid_datetime_type(search_field_type.typeoid()) => {
+                fetch_ff_column!(self, ids, I64 => identity => TimestampMicrosecondBuilder)
+            }
             numeric_column => fetch_ff_column!(numeric_column, ids,
                 I64  => identity => Int64Builder,
                 F64  => identity => Float64Builder,

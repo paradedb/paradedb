@@ -180,6 +180,10 @@ impl SearchFieldType {
             | SearchFieldType::Range(_) => arrow_schema::DataType::Utf8View,
 
             // Integer types
+            SearchFieldType::I64(oid) if is_datetime_type(*oid) => {
+                // >= TIMESTAMP_I64_STORAGE_VERSION datetime types are stored as i64
+                arrow_schema::DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, None)
+            }
             SearchFieldType::I64(_) => arrow_schema::DataType::Int64,
             SearchFieldType::U64(_) => arrow_schema::DataType::UInt64,
 
@@ -191,7 +195,8 @@ impl SearchFieldType {
 
             // Date stored as timestamp
             SearchFieldType::Date(_) => {
-                arrow_schema::DataType::Timestamp(arrow_schema::TimeUnit::Nanosecond, None)
+                // < TIMESTAMP_I64_STORAGE_VERSION datetime types are stored as tantivy DateTime
+                arrow_schema::DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, None)
             }
 
             // Numeric64 is stored as Int64 (scaled integer)

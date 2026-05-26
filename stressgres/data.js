@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779775500139,
+  "lastUpdate": 1779776146663,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13524,6 +13524,60 @@ window.BENCHMARK_DATA = {
             "value": 15.997826371677398,
             "unit": "median tps",
             "extra": "avg tps: 15.790638072460784, max tps: 20.6060023347837, count: 55596"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "afde291c230f9f22ae406893c8949a660c34e418",
+          "message": "refactor(mpp): switch worker_fragments to NetworkBoundaryKind enum match (#5129)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nSwitches `worker_fragments::collect` from a `plan.name()` string match\nto a typed `NetworkBoundaryKind` enum match.\n\n## Why\n\nString-matching against fork-internal type names was fragile. If the\nfork ever renamed `NetworkShuffleExec` (or either of the other two), our\nwalker would silently fall through to the \"unsupported nested boundary\nkind\" arm and refuse to classify the boundary at runtime. Fork PR\nparadedb/datafusion-distributed#9 exposes `kind()`, so a rename surfaces\nas a compile error here instead.\n\n## How\n\n- Replace the string match with `nb.kind()` enum match.\n- Split the wildcard top-level arm into explicit `(Coalesce, false)` and\n`(Shuffle, false) => fail_loud(...)`. Mirrors the existing top-level\nBroadcast guard. A top-level shuffle is a planner anomaly worth\nsurfacing.\n- Add a `_ => fail_loud(...)` catch-all for the fork's\n`#[non_exhaustive]` enum. Doubles as a drift detector if the fork adds a\nnew variant.\n\n## Tests\n\n- `mpp_smoke`, `mpp_joinscan`, `mpp_aggregate`, `mpp_aggregate_postagg`\nall pass on pgrx-arm64.\n- CI green.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-25T22:10:05-07:00",
+          "tree_id": "7a1b93999b654c5d4c8db4f73e3de92ebafe702f",
+          "url": "https://github.com/paradedb/paradedb/commit/afde291c230f9f22ae406893c8949a660c34e418"
+        },
+        "date": 1779776115107,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 31.069172684121703,
+            "unit": "median tps",
+            "extra": "avg tps: 30.931576948989388, max tps: 33.22478016579389, count: 55721"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 248.30450882849064,
+            "unit": "median tps",
+            "extra": "avg tps: 277.35873669253056, max tps: 2973.8579435815736, count: 55721"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 588.1010412181795,
+            "unit": "median tps",
+            "extra": "avg tps: 579.1357549460689, max tps: 932.6194736984098, count: 55721"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 161.15095704382585,
+            "unit": "median tps",
+            "extra": "avg tps: 177.0723752680768, max tps: 853.1120786104233, count: 111442"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 16.15351104513122,
+            "unit": "median tps",
+            "extra": "avg tps: 16.136159457588104, max tps: 19.556611716890195, count: 55721"
           }
         ]
       }

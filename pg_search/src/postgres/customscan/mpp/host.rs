@@ -17,11 +17,15 @@
 
 //! Shape-agnostic MPP worker exec dispatcher.
 //!
-//! Each CustomScan provider that hosts an MPP plan implements [`MppHostState`] on its
-//! `CustomScanStateWrapper<T>` so the shared [`exec_mpp_worker_impl`] can drive it
+//! Each CustomScan provider that hosts an MPP plan implements [`MppWorkerHost`] on its
+//! `CustomScanStateWrapper<T>` so the shared [`exec_mpp_worker`] can drive it
 //! without knowing which provider it's hosted under. The trait isolates the two
 //! provider-specific concerns (runtime-slot location and seed `SessionContext` profile);
 //! everything else is shared.
+//!
+//! "Host" here means *the CustomScan provider that hosts the worker exec path*, not a
+//! physical machine. The MPP execution path lives on a single Postgres backend; there is
+//! no remote host.
 
 use datafusion::execution::context::SessionContext;
 use pgrx::pg_sys;
@@ -33,9 +37,9 @@ use crate::postgres::customscan::mpp::exec_worker::{run_mpp_worker, MppWorkerInp
 /// Implementations live alongside their CustomScan provider (see
 /// `aggregatescan::mpp` and `joinscan::mpp`). They own the typed state and know
 /// where the runtime slot and `MppExecState::Worker` variant are kept; the trait
-/// is the smallest interface that lets [`exec_mpp_worker_impl`] drive the worker
+/// is the smallest interface that lets [`exec_mpp_worker`] drive the worker
 /// without knowing which scan provider it's hosted under.
-pub(crate) trait MppHostState {
+pub(crate) trait MppWorkerHost {
     /// `true` if a tokio runtime is already installed.
     ///
     /// Workers can call `exec_mpp_worker` more than once: PG re-enters scan exec after
@@ -65,10 +69,10 @@ pub(crate) trait MppHostState {
     fn install_runtime(&mut self, runtime: tokio::runtime::Runtime) -> &tokio::runtime::Runtime;
 }
 
-/// Shape-agnostic body of `exec_mpp_worker`. Workers emit zero rows back to PG;
-/// `null_mut()` signals end-of-stream. Per-scan wrappers call this with `self` after
-/// their wrapper-side state checks.
-pub(crate) fn exec_mpp_worker_impl<S: MppHostState>(state: &mut S) -> *mut pg_sys::TupleTableSlot {
+/// Drives an MPP worker exec on the [`MppWorkerHost`]. Workers emit zero rows back to PG;
+/// `null_mut()` signals end-of-stream. Per-scan call sites pass `&mut state` directly; the
+/// trait bound supplies the provider-specific glue.
+pub(crate) fn exec_mpp_worker<S: MppWorkerHost>(state: &mut S) -> *mut pg_sys::TupleTableSlot {
     if state.already_drained() {
         return std::ptr::null_mut();
     }

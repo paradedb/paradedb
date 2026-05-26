@@ -208,7 +208,8 @@ fn build_inbound_receivers(
 }
 
 /// Wrap each peer-indexed `ShmMqSender` into an outbound `MppSender` keyed by `target_proc`. The
-/// per-fragment dispatcher in `aggregatescan::exec_mpp_worker` immediately `clone_with_header`s
+/// per-fragment dispatcher driven by [`mpp::host::exec_mpp_worker`] immediately
+/// `clone_with_header`s
 /// these to the right `(stage_id, partition)`, so the default placeholder header is never
 /// observed on the wire. Slot at index `this_proc` is `None`; the worker's self-loop install
 /// fills it in afterward.
@@ -284,7 +285,7 @@ pub struct MppWorkerState {
     /// Worker's MppMesh, same shape as the leader's. `inbound_receivers[sender_proc]` pulls frames
     /// from `slot(sender_proc, this_proc)`. Workers consume from peers when running consumer
     /// fragments (e.g. a `FinalPartitioned` aggregate above a `NetworkShuffleExec` peer-mesh).
-    /// Read by the multi-fragment dispatcher in `aggregatescan::exec_mpp_worker`.
+    /// Read by the multi-fragment dispatcher driven by [`mpp::host::exec_mpp_worker`].
     pub mesh: Arc<MppMesh>,
 }
 

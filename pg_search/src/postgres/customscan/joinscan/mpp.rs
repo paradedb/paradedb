@@ -15,16 +15,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! JoinScan MPP worker exec path.
-//!
-//! Thin [`MppHostState`] impl that exposes JoinScan's typed state to the shared
-//! dispatcher in [`mpp::host`]: the runtime lives directly on `custom_state`, and
-//! the seed `SessionContext` is built from the join profile.
+//! JoinScan [`MppWorkerHost`] impl: exposes JoinScan's typed state to the shared dispatcher
+//! in [`mpp::host`]. The runtime lives directly on `custom_state`, and the seed
+//! `SessionContext` is built from the join profile.
 
 use std::sync::Arc;
 
 use datafusion::execution::context::SessionContext;
-use pgrx::pg_sys;
 
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::joinscan::scan_state::{
@@ -32,16 +29,10 @@ use crate::postgres::customscan::joinscan::scan_state::{
 };
 use crate::postgres::customscan::joinscan::JoinScan;
 use crate::postgres::customscan::mpp::exec_worker::MppWorkerInputs;
-use crate::postgres::customscan::mpp::host::{exec_mpp_worker_impl, MppHostState};
+use crate::postgres::customscan::mpp::host::MppWorkerHost;
 use crate::postgres::customscan::mpp::transport::MppSender;
 
-pub(super) fn exec_mpp_worker(
-    state: &mut CustomScanStateWrapper<JoinScan>,
-) -> *mut pg_sys::TupleTableSlot {
-    exec_mpp_worker_impl(state)
-}
-
-impl MppHostState for CustomScanStateWrapper<JoinScan> {
+impl MppWorkerHost for CustomScanStateWrapper<JoinScan> {
     fn already_drained(&self) -> bool {
         self.custom_state().runtime.is_some()
     }

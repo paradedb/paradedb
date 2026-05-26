@@ -24,9 +24,12 @@
 //! `SessionContext` (different `SessionContextProfile`) and where the inputs come from in
 //! per-scan state.
 //!
-//! This module isolates the shape-agnostic logic. Per-scan wrappers (`AggregateScan::exec_mpp_worker`,
-//! `JoinScan::exec_mpp_worker`) extract their inputs into [`MppWorkerInputs`], build their seed
-//! `SessionContext`, and call [`run_mpp_worker`].
+//! This module isolates the shape-agnostic logic. Per-scan
+//! [`crate::postgres::customscan::mpp::host::MppWorkerHost`] impls (in
+//! `aggregatescan::mpp` and `joinscan::mpp`) extract their inputs into [`MppWorkerInputs`],
+//! build their seed `SessionContext`, and are driven by
+//! [`crate::postgres::customscan::mpp::host::exec_mpp_worker`], which calls
+//! [`run_mpp_worker`].
 
 use std::sync::Arc;
 
@@ -53,8 +56,9 @@ use crate::postgres::customscan::parallel::list_segment_ids;
 use crate::postgres::ParallelScanState;
 use crate::scan::codec::deserialize_logical_plan_with_runtime;
 
-/// Bundle of inputs the worker dispatcher needs. Per-scan `exec_mpp_worker` wrappers populate
-/// this from their typed state and hand it to [`run_mpp_worker`].
+/// Bundle of inputs the worker dispatcher needs. Per-scan
+/// [`crate::postgres::customscan::mpp::host::MppWorkerHost`] impls populate this from their
+/// typed state and hand it to [`run_mpp_worker`].
 pub(crate) struct MppWorkerInputs {
     /// The leader's `ParallelScanState`, used to claim the partitioning source's segment slice.
     pub parallel_state: Option<*mut ParallelScanState>,

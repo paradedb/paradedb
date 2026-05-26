@@ -1437,7 +1437,7 @@ impl CustomScan for JoinScan {
         // MPP worker dispatch: producer-side fragments emit nothing back to PG. Route to the
         // MPP exec helper and return null_mut() to signal end-of-stream.
         if matches!(state.custom_state().mpp, Some(MppExecState::Worker(_))) {
-            return mpp::exec_mpp_worker(state);
+            return crate::postgres::customscan::mpp::host::exec_mpp_worker(state);
         }
         unsafe {
             if state.custom_state().datafusion_stream.is_none() {

@@ -15,32 +15,23 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! AggregateScan MPP worker exec path.
-//!
-//! Thin [`MppHostState`] impl that exposes AggregateScan's typed state to the shared
-//! dispatcher in [`mpp::host`]: the runtime lives nested under `datafusion_state`,
-//! and the seed `SessionContext` is built from the aggregate profile.
+//! AggregateScan [`MppWorkerHost`] impl: exposes AggregateScan's typed state to the shared
+//! dispatcher in [`mpp::host`]. The runtime lives nested under `datafusion_state`, and the
+//! seed `SessionContext` is built from the aggregate profile.
 
 use std::sync::Arc;
 
 use datafusion::execution::context::SessionContext;
-use pgrx::pg_sys;
 
 use crate::postgres::customscan::aggregatescan::datafusion_exec::create_aggregate_session_context;
 use crate::postgres::customscan::aggregatescan::scan_state::MppExecState;
 use crate::postgres::customscan::aggregatescan::AggregateScan;
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::mpp::exec_worker::MppWorkerInputs;
-use crate::postgres::customscan::mpp::host::{exec_mpp_worker_impl, MppHostState};
+use crate::postgres::customscan::mpp::host::MppWorkerHost;
 use crate::postgres::customscan::mpp::transport::MppSender;
 
-pub(super) fn exec_mpp_worker(
-    state: &mut CustomScanStateWrapper<AggregateScan>,
-) -> *mut pg_sys::TupleTableSlot {
-    exec_mpp_worker_impl(state)
-}
-
-impl MppHostState for CustomScanStateWrapper<AggregateScan> {
+impl MppWorkerHost for CustomScanStateWrapper<AggregateScan> {
     fn already_drained(&self) -> bool {
         self.custom_state()
             .datafusion_state

@@ -42,9 +42,7 @@ use tantivy::index::SegmentId;
 
 use crate::api::HashSet;
 use crate::postgres::customscan::datafusion::memory::create_memory_pool;
-use crate::postgres::customscan::mpp::runtime::{
-    proc_for_task, MppMesh, MppWorkerResolver, ShmMqWorkerTransport,
-};
+use crate::postgres::customscan::mpp::runtime::{proc_for_task, MppMesh, ShmMqWorkerTransport};
 use crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator;
 use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, MppFrameHeader, MppSender};
 use crate::postgres::customscan::mpp::worker::run_worker_fragment;
@@ -113,7 +111,10 @@ pub(crate) fn build_mpp_session_context(
     // distributed-planner knobs on top.
     let state_builder = SessionStateBuilder::new_from_existing(seed.state())
         .with_config(cfg)
-        .with_distributed_worker_resolver(MppWorkerResolver::new(n_workers))
+        // No `with_distributed_worker_resolver(...)`: under `in_process_mode = true`, the
+        // fork gates the resolver lookup and substitutes a single placeholder URL. Our
+        // "workers" are PG parallel workers in the same backend tree, not URL-addressed
+        // nodes, so we have nothing meaningful to resolve.
         .with_distributed_worker_transport(ShmMqWorkerTransport::new(mesh))
         .with_distributed_in_process_mode(true)
         .expect("with_distributed_in_process_mode")
@@ -127,6 +128,12 @@ pub(crate) fn build_mpp_session_context(
         .with_distributed_task_estimator(n_workers)
         .with_distributed_broadcast_joins(true)
         .expect("with_distributed_broadcast_joins")
+        // No `with_distributed_user_codec(...)`: under `in_process_mode = true`, the fork
+        // skips constructing `CoordinatorToWorkerTaskSpawner`, so its eager codec encode
+        // never runs. Workers re-plan from the logical plan we ship via DSM and never
+        // decode a physical subplan over the wire. If `in_process_mode = false` ever gets
+        // exercised, restore a codec here for our custom execs or `try_encode` will reject
+        // the first one it meets.
         .with_distributed_planner();
     SessionContext::new_with_state(state_builder.build())
 }

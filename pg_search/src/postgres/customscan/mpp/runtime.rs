@@ -15,34 +15,31 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Runtime glue between the leader's DataFusion execution and the
-//! shm_mq mesh.
+//! Runtime glue between the leader's DataFusion execution and the shm_mq mesh.
 //!
-//! - [`MppMesh`] — runtime handle the leader builds at DSM-init time,
-//!   carrying one [`crate::postgres::customscan::mpp::transport::DrainHandle`]
-//!   per producer worker for each consumer partition. Installed on the
-//!   leader's `SessionConfig` extensions before plan execution.
-//! - [`ShmMqWorkerTransport`] — implements the DF-D fork's [`WorkerTransport`]
-//!   trait, consulted by `NetworkShuffleExec`/`NetworkCoalesceExec`/
-//!   `NetworkBroadcastExec` at execute time. `open(target_task=worker)`
-//!   returns a [`ShmMqWorkerConnection`] that yields one stream per
-//!   consumer partition from the corresponding [`DrainHandle`].
-//! - [`MppWorkerResolver`] — stub [`WorkerResolver`] returning N dummy
-//!   URLs. The DF-D fork's planner reads `get_urls().len()` to decide cluster
-//!   capacity; we don't have URLs (everything is in-process), so any
-//!   address satisfies the API.
+//! [`MppMesh`] is the runtime handle the leader builds at DSM-init time. It carries one
+//! [`crate::postgres::customscan::mpp::transport::DrainHandle`] per producer worker for
+//! each consumer partition and gets installed on the leader's `SessionConfig` extensions
+//! before plan execution.
+//!
+//! [`ShmMqWorkerTransport`] implements the fork's [`WorkerTransport`] trait, consulted by
+//! `NetworkShuffleExec`/`NetworkCoalesceExec`/`NetworkBroadcastExec` at execute time.
+//! `open(target_task=worker)` returns a [`ShmMqWorkerConnection`] that yields one stream
+//! per consumer partition from the matching [`DrainHandle`].
+//!
+//! No `WorkerResolver` impl. Under `in_process_mode = true` the fork makes the resolver
+//! optional and substitutes a placeholder URL internally; our embedding never resolves
+//! anything by URL.
 
 use std::ops::Range;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
 use datafusion::physical_expr_common::metrics::ExecutionPlanMetricsSet;
 use datafusion_distributed::{
-    RemoteStage, WorkerConnection, WorkerPartitionStream, WorkerResolver, WorkerTransport,
+    RemoteStage, WorkerConnection, WorkerPartitionStream, WorkerTransport,
 };
-use url::Url;
 
 use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, DrainHandle, DrainItem};
 
@@ -252,28 +249,5 @@ impl WorkerConnection for ShmMqWorkerConnection {
             }
         };
         Ok(Box::pin(stream))
-    }
-}
-
-/// Stub [`WorkerResolver`] for the DF-D fork's distributed planner. Workers in
-/// our embedded model are PG parallel workers in the same backend tree, not
-/// URL-addressed nodes; the planner only consults `get_urls().len()` for
-/// task-count sizing, so any URL satisfies it.
-#[derive(Clone)]
-pub struct MppWorkerResolver {
-    n_workers: usize,
-}
-
-impl MppWorkerResolver {
-    pub fn new(n_workers: usize) -> Self {
-        Self { n_workers }
-    }
-}
-
-#[async_trait]
-impl WorkerResolver for MppWorkerResolver {
-    fn get_urls(&self) -> Result<Vec<Url>, DataFusionError> {
-        let url = Url::parse("http://mpp.local/").expect("static URL parses");
-        Ok(vec![url; self.n_workers])
     }
 }

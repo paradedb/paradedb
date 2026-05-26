@@ -400,6 +400,19 @@ pub(super) enum RecvOutcome {
 /// ownership.
 pub(super) trait BatchChannelReceiver: Send + Sync {
     fn try_recv(&self) -> RecvOutcome;
+
+    /// Tell producers to stop sending. Default no-op; concrete impls override when the
+    /// underlying transport doesn't get a "drop = detach" signal for free.
+    ///
+    /// `ShmMqReceiver` doesn't override: shm_mq's `MessageQueueReceiver::Drop` calls
+    /// `shm_mq_detach`, which is enough to make producers see Detached.
+    ///
+    /// `DsmInboxReceiver` overrides: the DSM MPSC ring's detach is mostly handled by
+    /// `DsmMpscSender::Drop` flipping `detached` when the last sender goes away, but
+    /// the consumer side can force-detach early (e.g., query teardown before producers
+    /// finish) via this method. Phase 4 wires the call from `DrainHandle` teardown.
+    #[allow(dead_code)]
+    fn set_detached(&self) {}
 }
 
 /// Byte channel sender paired with [`BatchChannelReceiver`]. `send` blocks when

@@ -211,8 +211,8 @@ impl BatchChannelReceiver for ShmMqReceiver {
 }
 
 // The new DSM-MPSC adapter types are reachable only from the in-file tests until Phase 4
-// wires them into `dsm.rs` / `glue.rs`. Suppress dead-code warnings on the type + impl
-// blocks in the meantime — pre-commit elevates -D warnings to a hard error.
+// wires them into `dsm.rs` / `glue.rs`. Dead-code is suppressed per item below; Phase 4
+// strips those attributes.
 
 /// DSM-MPSC-ring-backed `BatchChannelSender`. Wraps a `DsmMpscSender` so the existing
 /// `MppSender` / cooperative-drain machinery can drive it through the same trait surface
@@ -220,20 +220,22 @@ impl BatchChannelReceiver for ShmMqReceiver {
 /// targeting the same receiver inbox; the underlying ring serializes them via
 /// Vyukov-style CAS on `tail`.
 ///
-/// Phase 4 swaps `ShmMqSender` for this in the DSM layout. Until then, the type is
-/// exercised by unit tests only and the `#[allow(dead_code)]` is module-level via the
-/// `dsm_mpsc_ring` mod attribute.
+/// Unlike `ShmMqSender`, this adapter is genuinely thread-safe — the ring's atomic
+/// operations are the synchronization point, so the `send_bytes` / `try_send_bytes`
+/// paths don't `debug_assert!` an attach-thread invariant.
+///
+/// Detach-on-drop: the inner `DsmMpscSender::Drop` decrements the ring's
+/// `sender_count`; the last drop flips `detached` and wakes the receiver, mirroring
+/// shm_mq's "drop the last sender, receiver sees detach" structural guarantee.
 #[allow(dead_code)]
 pub(super) struct DsmInboxSender {
     inner: DsmMpscSender,
     send_lock: tokio::sync::Mutex<()>,
 }
 
-// SAFETY: `DsmMpscSender` is already Send + Sync (the ring's atomic operations are the
-// synchronization point). Wrapping it adds only `tokio::sync::Mutex<()>` which is Send +
-// Sync on its own.
-unsafe impl Send for DsmInboxSender {}
-unsafe impl Sync for DsmInboxSender {}
+// `DsmInboxSender` auto-derives Send + Sync — both fields are Send + Sync (DsmMpscSender
+// via its unsafe impls; tokio::sync::Mutex by definition). No manual unsafe impls
+// needed; auto-derive defends against a future field that's accidentally !Send/!Sync.
 
 #[allow(dead_code)]
 impl DsmInboxSender {
@@ -262,9 +264,13 @@ impl DsmInboxSender {
 
 impl BatchChannelSender for DsmInboxSender {
     fn send_bytes(&self, bytes: &[u8]) -> Result<(), DataFusionError> {
-        // Blocking send by spin-yield. The cooperative-drain spin in MppSender already
-        // gives us the right outer loop; this fallback exists so the trait shape stays
-        // identical to ShmMqSender's. Callers that need backpressure use try_send_bytes.
+        // NOT a real block. This adapter is the no-cooperative-drain fallback path;
+        // production wires `MppSender::with_cooperative_drain(..)` which calls
+        // `try_send_bytes` directly through the cooperative spin (transport.rs). If you
+        // reach this function in production it usually means a fragment was constructed
+        // without `with_cooperative_drain` — fix that rather than relying on the spin.
+        // The yield_now keeps the consumer running on the same OS thread; under a slow
+        // consumer this still burns a backend core, so it's strictly a debug aid.
         loop {
             match self.inner.try_send(bytes) {
                 Ok(()) => return Ok(()),
@@ -288,23 +294,27 @@ impl BatchChannelSender for DsmInboxSender {
 }
 
 /// DSM-MPSC-ring-backed `BatchChannelReceiver`. Wraps a `DsmMpscReceiver` and a single
-/// reusable scratch `Vec<u8>` so each `try_recv` materializes the frame without
-/// reallocating per-call.
+/// scratch `Vec<u8>` that the inner primitive's `try_recv` populates each call; we hand
+/// the populated buffer to the caller via `mem::take` and leave an empty `Vec` behind.
 ///
 /// The single-consumer invariant comes from how this is used: one `DsmInboxReceiver`
 /// per process, owned by `DrainHandle::cooperative_receivers`, polled inline from the
-/// drain's `try_drain_pass`. No two threads ever race on the same receiver.
+/// drain's `try_drain_pass`. No two threads ever race on the same receiver — the
+/// `parking_lot::Mutex` on `scratch` is interior-mutability boilerplate, uncontended in
+/// production.
 #[allow(dead_code)]
 pub(super) struct DsmInboxReceiver {
     inner: DsmMpscReceiver,
-    /// Reused per-call buffer. `try_recv` clears + refills it on each Bytes outcome.
+    /// Scratch the inner primitive's `try_recv` reuses across calls (via reserve+set_len).
+    /// We `mem::take` it on every Bytes outcome to hand the bytes to the caller without a
+    /// copy; the inner primitive re-grows from `Vec::new()` on the next call.
     scratch: parking_lot::Mutex<Vec<u8>>,
 }
 
-// SAFETY: same reasoning as ShmMqReceiver — production has exactly one drain thread
-// touching this. The Mutex on `scratch` is for interior mutability; lock is uncontended
-// in practice.
-unsafe impl Send for DsmInboxReceiver {}
+// `DsmMpscReceiver` is deliberately `!Sync` (single-consumer invariant). We promote
+// `DsmInboxReceiver` to Sync because the caller pattern guarantees only one thread
+// touches it at a time, and `parking_lot::Mutex<Vec<u8>>` protects the scratch from
+// shared-reference UB if that invariant ever slips. Send is auto-derived.
 unsafe impl Sync for DsmInboxReceiver {}
 
 #[allow(dead_code)]
@@ -316,12 +326,6 @@ impl DsmInboxReceiver {
             scratch: parking_lot::Mutex::new(Vec::new()),
         }
     }
-
-    /// Tell the underlying ring to stop accepting sends. Mirrors
-    /// `MessageQueueReceiver::detach` semantics for symmetry with the shm_mq path.
-    pub(super) fn set_detached(&self) {
-        self.inner.set_detached();
-    }
 }
 
 impl BatchChannelReceiver for DsmInboxReceiver {
@@ -329,17 +333,22 @@ impl BatchChannelReceiver for DsmInboxReceiver {
         let mut buf = self.scratch.lock();
         match self.inner.try_recv(&mut buf) {
             MpscRecvOutcome::Bytes => {
-                // Move the bytes out into an owned Vec so the trait's Bytes variant can
-                // hold them. Leave scratch capacity in place for the next call by
-                // mem::replace; the new scratch starts empty but with reserved capacity
-                // after the first batch.
-                let cap = buf.capacity();
-                let out = std::mem::replace(&mut *buf, Vec::with_capacity(cap));
-                RecvOutcome::Bytes(out)
+                // Hand the populated buffer to the caller and leave an empty Vec behind.
+                // The inner primitive's `try_recv` does its own `reserve(len)` on the
+                // next call, so we don't need to pre-allocate scratch capacity here.
+                RecvOutcome::Bytes(std::mem::take(&mut *buf))
             }
             MpscRecvOutcome::Empty => RecvOutcome::Empty,
             MpscRecvOutcome::Detached => RecvOutcome::Detached,
         }
+    }
+
+    /// Force-detach the inbox early (e.g., query teardown before producers finish).
+    /// Producers' subsequent `try_send_bytes` return `Err(detached)`. Frames already
+    /// in the ring stay drainable; the next `try_recv` past the last queued frame
+    /// returns `Detached`.
+    fn set_detached(&self) {
+        self.inner.set_detached();
     }
 }
 
@@ -509,5 +518,39 @@ mod tests {
         for h in handles {
             h.join().unwrap();
         }
+    }
+
+    /// Dropping the last DsmInboxSender flips `detached` and the receiver sees the
+    /// queued bytes followed by `Detached`. This is the structural equivalent of
+    /// shm_mq's "drop the last sender, receiver sees detach" guarantee and is what
+    /// keeps the Phase-4 drain loop from wedging on a clean shutdown (no explicit
+    /// `set_detached` needed when every sender goes away cleanly).
+    #[test]
+    fn dropping_last_sender_triggers_detach() {
+        let (tx, rx, _region) = test_dsm_inbox_pair(4, 64);
+        tx.try_send_bytes(b"final").unwrap();
+        drop(tx);
+        // The queued frame is still readable.
+        match rx.try_recv() {
+            RecvOutcome::Bytes(b) => assert_eq!(&b[..], b"final"),
+            other => panic!("expected Bytes(final), got {other:?}"),
+        }
+        // Then Detached.
+        assert!(matches!(rx.try_recv(), RecvOutcome::Detached));
+    }
+
+    #[test]
+    fn try_send_bytes_rejects_oversize_payload() {
+        let (tx, _rx, _region) = test_dsm_inbox_pair(2, 32);
+        // Any payload at or above slot_capacity is unconditionally too large (slot
+        // capacity includes the slot header). 64 bytes on a 32-byte slot fits.
+        let oversize = vec![0u8; 64];
+        let err = tx
+            .try_send_bytes(&oversize)
+            .expect_err("expected MessageTooLarge");
+        assert!(
+            format!("{err}").contains("exceeds slot_capacity"),
+            "unexpected error: {err}"
+        );
     }
 }

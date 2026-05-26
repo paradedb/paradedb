@@ -160,10 +160,16 @@ pub(super) struct DsmMpscRingHeader {
     /// `PGPROC` reuse is harmless and a `pid` check defends against late wakeups).
     /// For the in-process unit-test use today (`NO_LATCH` everywhere) this is moot.
     receiver_latch: AtomicPtr<pg_sys::Latch>,
+    /// Live `DsmMpscSender` count. Incremented in `DsmMpscSender::new`, decremented in
+    /// `DsmMpscSender::Drop`. The drop that takes the count from 1 → 0 sets `detached`
+    /// (with Release) and SetLatches the receiver, so producers don't need to call
+    /// `set_detached` explicitly: dropping the last sender is sufficient. Mirrors
+    /// shm_mq's "drop = detach" structural guarantee.
+    sender_count: AtomicU32,
     /// Padding to push `head` onto its own cache line. Sized against the offsets of the
     /// preceding fields; the static_assert in `tests::header_layout_is_cache_friendly`
     /// keeps it honest.
-    _pad_before_head: [u8; CACHE_LINE - 24],
+    _pad_before_head: [u8; CACHE_LINE - 28],
     /// Consumer's read cursor. Only the consumer writes this. Currently no producer
     /// reads it (full-detection works via slot `seq`); the Release-on-store is defensive
     /// for any future blocking-send variant that wants to poll consumer progress.
@@ -275,7 +281,8 @@ pub(super) unsafe fn create_at(
                 detached: AtomicBool::new(false),
                 _pad_after_detached: [0; 3],
                 receiver_latch: AtomicPtr::new(NO_LATCH),
-                _pad_before_head: [0; CACHE_LINE - 24],
+                sender_count: AtomicU32::new(0),
+                _pad_before_head: [0; CACHE_LINE - 28],
                 head: AtomicU64::new(0),
                 _pad_between_head_and_tail: [0; CACHE_LINE - 8],
                 tail: AtomicU64::new(0),
@@ -447,12 +454,17 @@ impl DsmMpscReceiver {
 
 impl DsmMpscSender {
     /// Wrap a previously-initialized ring as a producer. Multiple `DsmMpscSender`
-    /// handles to the same ring are legal (and the whole point of MPSC).
+    /// handles to the same ring are legal (and the whole point of MPSC). Increments
+    /// the ring's `sender_count`; the `Drop` impl decrements and, on the last
+    /// drop, flips `detached` + wakes the receiver — mirroring shm_mq's
+    /// "drop the sender, receiver sees detach" structural guarantee.
     ///
     /// # Safety
     /// `ring` must point to a header initialized by [`create_at`] and not yet
     /// deallocated.
     pub(super) unsafe fn new(ring: NonNull<DsmMpscRingHeader>) -> Self {
+        let header = unsafe { ring.as_ref() };
+        header.sender_count.fetch_add(1, Ordering::AcqRel);
         Self { ring }
     }
 
@@ -521,6 +533,23 @@ impl DsmMpscSender {
                     // retry.
                     continue;
                 }
+            }
+        }
+    }
+}
+
+impl Drop for DsmMpscSender {
+    fn drop(&mut self) {
+        let header = unsafe { self.ring.as_ref() };
+        // AcqRel: decrement is observed by other producers (they don't care, but the
+        // Release pairs with the receiver's Acquire load on `detached` below).
+        let prev = header.sender_count.fetch_sub(1, Ordering::AcqRel);
+        if prev == 1 {
+            // We were the last sender. Tell the consumer.
+            header.detached.store(true, Ordering::Release);
+            let latch = header.receiver_latch.load(Ordering::Acquire);
+            if !latch.is_null() {
+                unsafe { pg_sys::SetLatch(latch) };
             }
         }
     }

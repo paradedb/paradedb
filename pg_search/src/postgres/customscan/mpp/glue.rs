@@ -155,7 +155,7 @@ pub(super) fn mpp_queue_size() -> usize {
 /// plan, the multiplexed `n_procs × n_procs` queue mesh, and the worker plan. `n_procs` is the
 /// total proc count (leader + `producer_worker_count()` parallel workers).
 pub fn estimate_dsm_size(plan_bytes_len: usize) -> Result<usize, String> {
-    let layout = compute_dsm_layout(n_procs(), mpp_queue_size(), plan_bytes_len)
+    let layout = compute_dsm_layout(mpp_worker_count(), mpp_queue_size(), plan_bytes_len)
         .map_err(|e| format!("mpp: estimate_dsm_size: {e}"))?;
     Ok(layout.region_total)
 }
@@ -166,12 +166,6 @@ pub fn estimate_dsm_size(plan_bytes_len: usize) -> Result<usize, String> {
 /// `>= 2` without further clamping.
 pub fn producer_worker_count() -> u32 {
     mpp_worker_count() - 1
-}
-
-/// Total proc count: 1 leader + N producer workers. This is the
-/// dimension of the multiplexed `n_procs × n_procs` shm_mq grid.
-pub(super) fn n_procs() -> u32 {
-    mpp_worker_count()
 }
 
 /// Returned to the leader from [`leader_setup`]. The customscan stashes this on its execution
@@ -214,7 +208,8 @@ fn build_inbound_receivers(
 }
 
 /// Wrap each peer-indexed `ShmMqSender` into an outbound `MppSender` keyed by `target_proc`. The
-/// per-fragment dispatcher in `aggregatescan::exec_mpp_worker` immediately `clone_with_header`s
+/// per-fragment dispatcher driven by [`mpp::host::exec_mpp_worker`] immediately
+/// `clone_with_header`s
 /// these to the right `(stage_id, partition)`, so the default placeholder header is never
 /// observed on the wire. Slot at index `this_proc` is `None`; the worker's self-loop install
 /// fills it in afterward.
@@ -252,7 +247,7 @@ pub unsafe fn leader_setup(
     pcxt: *mut pg_sys::ParallelContext,
     plan_bytes: Vec<u8>,
 ) -> Result<MppLeaderState, String> {
-    let total_procs = n_procs();
+    let total_procs = mpp_worker_count();
     let layout = compute_dsm_layout(total_procs, mpp_queue_size(), plan_bytes.len())
         .map_err(|e| format!("mpp: leader_setup compute layout: {e}"))?;
 
@@ -290,7 +285,7 @@ pub struct MppWorkerState {
     /// Worker's MppMesh, same shape as the leader's. `inbound_receivers[sender_proc]` pulls frames
     /// from `slot(sender_proc, this_proc)`. Workers consume from peers when running consumer
     /// fragments (e.g. a `FinalPartitioned` aggregate above a `NetworkShuffleExec` peer-mesh).
-    /// Read by the multi-fragment dispatcher in `aggregatescan::exec_mpp_worker`.
+    /// Read by the multi-fragment dispatcher driven by [`mpp::host::exec_mpp_worker`].
     pub mesh: Arc<MppMesh>,
 }
 

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779776865166,
+  "lastUpdate": 1779778697003,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -1938,6 +1938,78 @@ window.BENCHMARK_DATA = {
             "value": 48.061606714594824,
             "unit": "median tps",
             "extra": "avg tps: 58.57903122427513, max tps: 204.67425233109645, count: 55059"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5e936d8201f91cf68040e384be950be178bc0818",
+          "message": "refactor(mpp): centralize the mpp_worker_count >= 3 invariant (#5132)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nCentralizes the \"MPP needs at least 3 procs\" invariant on a single\nconstant, drops the soft `.max(3)` clamp, and tightens\n`producer_worker_count()`.\n\n## Why\n\nThe invariant was encoded in two places: the `>= 3` gate in\n`mpp_is_active` and the `.max(3)` clamp in `mpp_worker_count`. The clamp\nwas a soft GUC-level bandage on a planner contract that's already\nchecked at the gate, so the two sites could drift on the threshold.\n\n## How\n\n- Introduce `MIN_TOTAL_WORKER_COUNT: i32 = 3` as the single source of\ntruth. Doc comment explains why 3 (below that, `producer_worker_count()`\ndrops to 1, while `with_target_partitions(n.max(2))` in\n`build_mpp_session_context` would still build a 2-partition shuffle and\nthe mesh wouldn't have a queue for the second partition).\n- `mpp_is_active()` checks `>= MIN_TOTAL_WORKER_COUNT`.\n- `mpp_worker_count()` returns the raw GUC value with a\n`debug_assert!(mpp_is_active())`. Callers must gate on `mpp_is_active()`\nfirst. Audit confirmed every caller already does, so this catches a\nfuture misuse loudly.\n- `producer_worker_count()` becomes plain `mpp_worker_count() - 1`. The\nprevious `.saturating_sub(1).max(1)` was redundant.\n\n## Tests\n\n- `mpp_smoke`, `mpp_joinscan`, `mpp_aggregate`, `mpp_aggregate_postagg`\nall pass on pgrx-arm64.\n- CI green.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-25T23:28:07-07:00",
+          "tree_id": "5b600ea8044b755f82893015d4ce6e61d4cc9945",
+          "url": "https://github.com/paradedb/paradedb/commit/5e936d8201f91cf68040e384be950be178bc0818"
+        },
+        "date": 1779778665946,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 137.6590787100232,
+            "unit": "median tps",
+            "extra": "avg tps: 137.35747675155665, max tps: 140.6538922874212, count: 55074"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 507.04993984589163,
+            "unit": "median tps",
+            "extra": "avg tps: 504.4756966986205, max tps: 627.3947579486555, count: 55074"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3318.4783132321363,
+            "unit": "median tps",
+            "extra": "avg tps: 3300.564141332997, max tps: 3326.2016078685065, count: 55074"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 445.9321632329208,
+            "unit": "median tps",
+            "extra": "avg tps: 442.64366496728627, max tps: 522.8080228027948, count: 55074"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2829.2580313074677,
+            "unit": "median tps",
+            "extra": "avg tps: 2862.3940067699286, max tps: 2976.822198934983, count: 110148"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 521.792951384009,
+            "unit": "median tps",
+            "extra": "avg tps: 521.332736325091, max tps: 617.8453752032333, count: 55074"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1935.7397167909673,
+            "unit": "median tps",
+            "extra": "avg tps: 1921.3309561974645, max tps: 1947.9134129186702, count: 55074"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 69.35305889812139,
+            "unit": "median tps",
+            "extra": "avg tps: 82.27465683025379, max tps: 324.23923343360434, count: 55074"
           }
         ]
       }

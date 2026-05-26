@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779788788150,
+  "lastUpdate": 1779789437031,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19714,6 +19714,54 @@ window.BENCHMARK_DATA = {
             "value": 277.8972927827179,
             "unit": "median tps",
             "extra": "avg tps: 271.7742772172538, max tps: 557.4646097880665, count: 107724"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ded240d1e22c2cc3e797c2d7f4d4970275d17e45",
+          "message": "refactor(mpp): drop dead clamps + MppHostState trait (#5133)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nTwo cleanups:\n\n1. drop the dead `saturating_sub(1).max(1)` clamps and the\n`glue::n_procs()` trampoline that the centralized invariant in PR #5132\nmade redundant.\n2. factor the aggregatescan / joinscan `exec_mpp_worker` wrappers behind\nan `MppHostState` trait so they share a single dispatcher.\n\n## Why\n\n(1) is straightforward dead code. With PR #5132's `>=\nMIN_TOTAL_WORKER_COUNT` invariant centralized, the belt-and-braces\nclamps at three sites become noise.\n\n(2)is structural. The aggregatescan and joinscan wrappers had the same\nskeleton but differed in four real ways: runtime slot location, the\n`MppExecState::Worker` enum, the seed `SessionContext` profile, and the\npath to the `outbound_senders` slot for `mem::take`. A trait isolates\nthose four concerns and the shared body fits on one screen.\n\n## How\n\n- `MppMesh::n_workers()` → `self.n_procs - 1` with a debug_assert.\n- `exec_worker.rs` calls `n_workers()` directly. Drop the unused\n`total_procs` local.\n- Delete `glue::n_procs()`. Call sites use `mpp_worker_count()`\ndirectly.\n- New `mpp/host.rs` with the `MppHostState` trait and a\n`exec_mpp_worker_impl<S>` dispatcher.\n- Both providers `impl MppHostState for CustomScanStateWrapper<T>`.\n\n## Tests\n\n- `cargo check --package pg_search --features pg18\n--no-default-features` clean.\n- `mpp_smoke`, `mpp_joinscan`, `mpp_aggregate`, `mpp_aggregate_postagg`\nall pass.\n- CI green.",
+          "timestamp": "2026-05-26T01:40:41-07:00",
+          "tree_id": "b6f8a623aa6b0574231939f72051f686bc47c986",
+          "url": "https://github.com/paradedb/paradedb/commit/ded240d1e22c2cc3e797c2d7f4d4970275d17e45"
+        },
+        "date": 1779789405953,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 595.4296815213843,
+            "unit": "median tps",
+            "extra": "avg tps: 593.8858461213645, max tps: 730.7268121375838, count: 53851"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 592.1356127406647,
+            "unit": "median tps",
+            "extra": "avg tps: 591.4761869217672, max tps: 783.5666794904856, count: 53851"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 90.420724951807,
+            "unit": "median tps",
+            "extra": "avg tps: 90.49241352529312, max tps: 98.79386404588307, count: 53851"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 268.20035432677105,
+            "unit": "median tps",
+            "extra": "avg tps: 264.14050662328, max tps: 553.9911826499564, count: 107702"
           }
         ]
       }

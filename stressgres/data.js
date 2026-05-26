@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779823106017,
+  "lastUpdate": 1779823673369,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15990,6 +15990,60 @@ window.BENCHMARK_DATA = {
             "value": 15.502961522465583,
             "unit": "median tps",
             "extra": "avg tps: 15.474900581375227, max tps: 22.46143399859234, count: 55861"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ced0995fa5b5def18fe44bb821cf82b80cc9c8bb",
+          "message": "refactor(mpp): drop EXPLAIN-time stub mesh (#5135)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDrops the drain-less stub `MppMesh` that EXPLAIN was building purely to\nsatisfy `with_distributed_worker_transport`'s non-optional argument.\n`build_mpp_session_context` now takes `Option<Arc<MppMesh>>`.\n\n## Why\n\nThe fork's `get_distributed_worker_transport` already falls back to a\ndefault `WorkerTransport` (`FlightWorkerTransport`) when none is\nregistered. EXPLAIN never executes anything that consults the transport,\nso the stub was protecting against a phantom problem.\n\n## How\n\n- `build_mpp_session_context(seed, mesh: Option<Arc<MppMesh>>)`. When\n`Some`, install `ShmMqWorkerTransport`. When `None`, skip and let the\nfork's default sit unused.\n- `n_workers` resolves from `mesh.n_workers()` when present and\n`producer_worker_count()` when not. Same value at runtime, but the\nlatter doesn't need a mesh.\n- Explicitly bootstrap `DistributedConfig::default()` via\n`with_distributed_option_extension` so the rest of the chain doesn't\ndepend on `with_distributed_worker_transport` running first.\n- `aggregatescan::render_df_physical_plan` and JoinScan's EXPLAIN-time\n`build_displayable_explain_string` both pass `None` instead of\nconstructing a stub mesh. Drop the now-unused `mpp_worker_count`\nimports.\n\n## Tests\n\n- `cargo check --package pg_search --features pg18\n--no-default-features` clean.\n- All 4 MPP regress tests pass. EXPLAIN output unchanged — no\nexpected-file drift.\n- CI green.",
+          "timestamp": "2026-05-26T11:23:00-07:00",
+          "tree_id": "a912a337d434f577a86e304fdbca7840272bc19e",
+          "url": "https://github.com/paradedb/paradedb/commit/ced0995fa5b5def18fe44bb821cf82b80cc9c8bb"
+        },
+        "date": 1779823642363,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 29.728002653957947,
+            "unit": "median tps",
+            "extra": "avg tps: 29.592023787411435, max tps: 33.82419408351216, count: 55652"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 244.29165947975855,
+            "unit": "median tps",
+            "extra": "avg tps: 272.76501886428275, max tps: 3075.6855523267745, count: 55652"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 539.0825360472076,
+            "unit": "median tps",
+            "extra": "avg tps: 525.6343288213794, max tps: 681.8419148424621, count: 55652"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 167.1758652890453,
+            "unit": "median tps",
+            "extra": "avg tps: 178.49655199585922, max tps: 1083.483315332079, count: 111304"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.213464443145432,
+            "unit": "median tps",
+            "extra": "avg tps: 14.998164476252022, max tps: 21.241513802820634, count: 55652"
           }
         ]
       }

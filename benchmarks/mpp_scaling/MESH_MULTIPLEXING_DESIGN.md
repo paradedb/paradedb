@@ -1,4 +1,49 @@
-# MPP Mesh Multiplexing — K=1 Design
+# MPP Mesh Multiplexing — K=1 Design (BLOCKED — see "Why this is blocked")
+
+## Why this is blocked
+
+The K=1 design as written assumes N-1 peers can each attach as sender to the
+same shm_mq inbox. PostgreSQL's `shm_mq` is explicitly single-sender,
+single-reader:
+
+- `src/include/storage/shm_mq.h`: "single-reader, single-writer shared
+  memory message queue. Each must be set exactly once."
+- `shm_mq_set_sender` (`shm_mq.c:224`): `Assert(mq->mq_sender == NULL)` —
+  second peer attempting to set itself as sender aborts the backend in debug
+  builds, corrupts the queue silently in release.
+- `mq_bytes_written` is single-writer by construction; multiple producers
+  racing to bump it cause torn frames.
+
+The pg_search wrapper at `pg_search/src/parallel_worker/mqueue.rs:38`
+calls `shm_mq_set_sender` on every sender attach, so the implementation
+attempted in commit `7b6bd0f5b` would abort the leader's `worker_setup`
+the first time real parallel workers ran.
+
+The 26 transport unit tests passed because they all use
+`in_proc_channel` (a std::sync::mpsc), not `ShmMqSender`. No CI test
+exercised the multi-sender shm_mq attach path.
+
+**Pivot options** (none cheap):
+
+1. **Wait for FFI-relay / G7-MT, then use a per-process serializer.** One
+   dedicated thread per process owns the receiver-side shm_mq set_sender,
+   and N-1 in-proc channels feed it. Doesn't change DSM size (still N²
+   physical edges if we want to bypass the serializer for direct paths) —
+   not actually mesh multiplexing.
+2. **Custom DSM-backed MPSC ring** to replace shm_mq for the inbox. Wraps
+   `dsm_segment`-allocated memory with a lock-free MPSC ring + Latch for
+   wakeup. ~400 LOC of new transport primitive. Gets the N² → N savings.
+3. **Pair-keyed inboxes** keeping shm_mq SPSC but consolidating receiver-
+   side drain. N(N-1) edges (no DSM win); receiver-side has one
+   `DrainHandle` over N-1 receivers. Cosmetic only.
+
+Commit `7b6bd0f5b` should be reverted or left on this branch as a
+non-functional checkpoint. The original layout (N×(N-1) shm_mq queues) is
+what builds clean and runs correctly.
+
+---
+
+## Original design (kept for record)
 
 ## Problem
 

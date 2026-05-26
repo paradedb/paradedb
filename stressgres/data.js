@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779788068752,
+  "lastUpdate": 1779788105232,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13372,6 +13372,108 @@ window.BENCHMARK_DATA = {
             "value": 164.1171875,
             "unit": "median mem",
             "extra": "avg mem: 182.36849397003118, max mem: 222.4609375, count: 56100"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ded240d1e22c2cc3e797c2d7f4d4970275d17e45",
+          "message": "refactor(mpp): drop dead clamps + MppHostState trait (#5133)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nTwo cleanups:\n\n1. drop the dead `saturating_sub(1).max(1)` clamps and the\n`glue::n_procs()` trampoline that the centralized invariant in PR #5132\nmade redundant.\n2. factor the aggregatescan / joinscan `exec_mpp_worker` wrappers behind\nan `MppHostState` trait so they share a single dispatcher.\n\n## Why\n\n(1) is straightforward dead code. With PR #5132's `>=\nMIN_TOTAL_WORKER_COUNT` invariant centralized, the belt-and-braces\nclamps at three sites become noise.\n\n(2)is structural. The aggregatescan and joinscan wrappers had the same\nskeleton but differed in four real ways: runtime slot location, the\n`MppExecState::Worker` enum, the seed `SessionContext` profile, and the\npath to the `outbound_senders` slot for `mem::take`. A trait isolates\nthose four concerns and the shared body fits on one screen.\n\n## How\n\n- `MppMesh::n_workers()` → `self.n_procs - 1` with a debug_assert.\n- `exec_worker.rs` calls `n_workers()` directly. Drop the unused\n`total_procs` local.\n- Delete `glue::n_procs()`. Call sites use `mpp_worker_count()`\ndirectly.\n- New `mpp/host.rs` with the `MppHostState` trait and a\n`exec_mpp_worker_impl<S>` dispatcher.\n- Both providers `impl MppHostState for CustomScanStateWrapper<T>`.\n\n## Tests\n\n- `cargo check --package pg_search --features pg18\n--no-default-features` clean.\n- `mpp_smoke`, `mpp_joinscan`, `mpp_aggregate`, `mpp_aggregate_postagg`\nall pass.\n- CI green.",
+          "timestamp": "2026-05-26T01:40:41-07:00",
+          "tree_id": "b6f8a623aa6b0574231939f72051f686bc47c986",
+          "url": "https://github.com/paradedb/paradedb/commit/ded240d1e22c2cc3e797c2d7f4d4970275d17e45"
+        },
+        "date": 1779788071540,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.053906152834781375, max background_merging: 2.0, count: 56283"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6873188216339905, max cpu: 9.514371, count: 56283"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 30.4453125,
+            "unit": "median mem",
+            "extra": "avg mem: 30.434202975920794, max mem: 30.44921875, count: 56283"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.03791096038823, max cpu: 27.988338, count: 56283"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 192.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 182.829947680694, max mem: 193.01171875, count: 56283"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 60999,
+            "unit": "median block_count",
+            "extra": "avg block_count: 60761.39443526464, max block_count: 60999.0, count: 56283"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.19147877689533, max segment_count: 57.0, count: 56283"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.588939970225962, max cpu: 27.799229, count: 56283"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 152.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 145.6886694528099, max mem: 168.7265625, count: 56283"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.111683921629184, max cpu: 32.589718, count: 56283"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 204.3203125,
+            "unit": "median mem",
+            "extra": "avg mem: 203.10237910425883, max mem: 212.84375, count: 56283"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.86046028901197, max cpu: 33.802814, count: 56283"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 163.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 182.00064163746157, max mem: 222.5390625, count: 56283"
           }
         ]
       }

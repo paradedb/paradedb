@@ -133,7 +133,12 @@ impl serde::Serialize for PdbOwnedValue {
         // For variants that can be cleanly converted to tantivy's OwnedValue, just do that and use its
         // serialize.
         match *self {
-            PdbOwnedValue::Date(date) => date.serialize(serializer),
+            // tag dates so that we can identify them when deserializing
+            PdbOwnedValue::Date(date) => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("date", &date)?;
+                map.end()
+            }
             PdbOwnedValue::Object(ref obj) => {
                 let mut map = serializer.serialize_map(Some(obj.len()))?;
                 for (k, v) in obj {
@@ -174,24 +179,29 @@ impl PdbOwnedValue {
                     .map(Self::from_deserialized_tantivy_value)
                     .collect(),
             ),
-            OwnedValue::Object(object) => PdbOwnedValue::Object(
-                object
-                    .into_iter()
-                    .map(|(k, v)| (k, Self::from_deserialized_tantivy_value(v)))
-                    .collect(),
-            ),
+            OwnedValue::Object(object) => {
+                // serialized Date's end up as objects, so we'll need to look for their shape here.
+                if object.len() == 1 {
+                    if let ("date", OwnedValue::Str(s)) = (object[0].0.as_str(), &object[0].1) {
+                        // Strings that parse as a datetime must be assumed to be datetimes
+                        if let Ok(pgdt) = PostgresDateTime::try_from(s.as_str()) {
+                            return PdbOwnedValue::Date(pgdt);
+                        }
+                    }
+                }
+
+                PdbOwnedValue::Object(
+                    object
+                        .into_iter()
+                        .map(|(k, v)| (k, Self::from_deserialized_tantivy_value(v)))
+                        .collect(),
+                )
+            }
             OwnedValue::Null => PdbOwnedValue::Null,
             OwnedValue::I64(val) => PdbOwnedValue::I64(val),
             OwnedValue::U64(val) => PdbOwnedValue::U64(val),
             OwnedValue::F64(val) => PdbOwnedValue::F64(val),
-            OwnedValue::Str(s) => {
-                // Strings that parse as a datetime must be assumed to be datetimes
-                if let Ok(pgdt) = PostgresDateTime::try_from_timestamptz_str(&s) {
-                    PdbOwnedValue::Date(pgdt)
-                } else {
-                    PdbOwnedValue::Str(s)
-                }
-            }
+            OwnedValue::Str(s) => PdbOwnedValue::Str(s),
             OwnedValue::Bool(val) => PdbOwnedValue::Bool(val),
             OwnedValue::Facet(val) => PdbOwnedValue::Facet(val),
             OwnedValue::Bytes(val) => PdbOwnedValue::Bytes(val),
@@ -1479,6 +1489,7 @@ impl From<serde_json::Value> for PdbOwnedValue {
                 }
             }
             serde_json::Value::String(text) => {
+                // TODO: Correct this for new date serialization plan
                 if let Ok(dt) = PostgresDateTime::try_from_timestamptz_str(&text) {
                     Self::Date(dt)
                 } else {

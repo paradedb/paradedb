@@ -141,6 +141,159 @@ pub enum SearchQueryInput {
     },
 }
 
+/// Walk a [`SearchQueryInput`] tree and, for every embedded
+/// `PdbOwnedValue::Str`, try to reinterpret the string as a datetime via
+/// `PostgresDateTime::try_from`. Successful parses are rewritten in-place to
+/// `PdbOwnedValue::Date`; strings that don't parse are left untouched.
+///
+/// Used to recover datetime intent from user-provided JSON query inputs where
+/// bounds/values come over the wire as bare strings.
+pub fn convert_datetime_strings_to_dates(query_input: &mut SearchQueryInput) {
+    match query_input {
+        SearchQueryInput::Uninitialized
+        | SearchQueryInput::All
+        | SearchQueryInput::Empty
+        | SearchQueryInput::Parse { .. }
+        | SearchQueryInput::PostgresExpression { .. } => {}
+
+        SearchQueryInput::Boolean {
+            must,
+            should,
+            must_not,
+        } => {
+            for q in must
+                .iter_mut()
+                .chain(should.iter_mut())
+                .chain(must_not.iter_mut())
+            {
+                convert_datetime_strings_to_dates(q);
+            }
+        }
+        SearchQueryInput::Boost { query, .. }
+        | SearchQueryInput::ConstScore { query, .. }
+        | SearchQueryInput::WithIndex { query, .. } => {
+            convert_datetime_strings_to_dates(query);
+        }
+        SearchQueryInput::ScoreFilter { query, .. } => {
+            if let Some(q) = query {
+                convert_datetime_strings_to_dates(q);
+            }
+        }
+        SearchQueryInput::DisjunctionMax { disjuncts, .. } => {
+            for q in disjuncts.iter_mut() {
+                convert_datetime_strings_to_dates(q);
+            }
+        }
+        SearchQueryInput::HeapFilter { indexed_query, .. } => {
+            convert_datetime_strings_to_dates(indexed_query);
+        }
+        SearchQueryInput::MoreLikeThis {
+            document,
+            key_value,
+            ..
+        } => {
+            if let Some(doc) = document {
+                for (_, v) in doc.iter_mut() {
+                    convert_pdb_owned_value_strs_to_dates(v);
+                }
+            }
+            if let Some(v) = key_value {
+                convert_pdb_owned_value_strs_to_dates(v);
+            }
+        }
+        SearchQueryInput::TermSet { terms } => {
+            for ti in terms.iter_mut() {
+                convert_pdb_owned_value_strs_to_dates(&mut ti.value);
+            }
+        }
+        SearchQueryInput::FieldedQuery { query, .. } => {
+            convert_pdb_query_strs_to_dates(query);
+        }
+    }
+}
+
+fn convert_pdb_query_strs_to_dates(query: &mut pdb::Query) {
+    match query {
+        pdb::Query::All
+        | pdb::Query::Empty
+        | pdb::Query::Exists
+        | pdb::Query::Regex { .. }
+        | pdb::Query::RegexPhrase { .. }
+        | pdb::Query::UnclassifiedString { .. }
+        | pdb::Query::UnclassifiedArray { .. }
+        | pdb::Query::FuzzyTerm { .. }
+        | pdb::Query::Match { .. }
+        | pdb::Query::MatchArray { .. }
+        | pdb::Query::Phrase { .. }
+        | pdb::Query::PhraseArray { .. }
+        | pdb::Query::PhrasePrefix { .. }
+        | pdb::Query::TokenizedPhrase { .. }
+        | pdb::Query::Proximity { .. }
+        | pdb::Query::Parse { .. }
+        | pdb::Query::ParseWithField { .. }
+        | pdb::Query::FastFieldRangeWeight { .. } => {}
+
+        pdb::Query::Range {
+            lower_bound,
+            upper_bound,
+        }
+        | pdb::Query::RangeContains {
+            lower_bound,
+            upper_bound,
+        }
+        | pdb::Query::RangeIntersects {
+            lower_bound,
+            upper_bound,
+        }
+        | pdb::Query::RangeWithin {
+            lower_bound,
+            upper_bound,
+        } => {
+            convert_bound_strs_to_dates(lower_bound);
+            convert_bound_strs_to_dates(upper_bound);
+        }
+        pdb::Query::RangeTerm { value } | pdb::Query::Term { value } => {
+            convert_pdb_owned_value_strs_to_dates(value);
+        }
+        pdb::Query::TermSet { terms } => {
+            for v in terms.iter_mut() {
+                convert_pdb_owned_value_strs_to_dates(v);
+            }
+        }
+        pdb::Query::ScoreAdjusted { query, .. } => {
+            convert_pdb_query_strs_to_dates(query);
+        }
+    }
+}
+
+fn convert_bound_strs_to_dates(bound: &mut Bound<PdbOwnedValue>) {
+    match bound {
+        Bound::Included(v) | Bound::Excluded(v) => convert_pdb_owned_value_strs_to_dates(v),
+        Bound::Unbounded => {}
+    }
+}
+
+fn convert_pdb_owned_value_strs_to_dates(value: &mut PdbOwnedValue) {
+    match value {
+        PdbOwnedValue::Str(s) => {
+            if let Ok(pgdt) = PostgresDateTime::try_from(s.as_str()) {
+                *value = PdbOwnedValue::Date(pgdt);
+            }
+        }
+        PdbOwnedValue::Array(arr) => {
+            for v in arr.iter_mut() {
+                convert_pdb_owned_value_strs_to_dates(v);
+            }
+        }
+        PdbOwnedValue::Object(obj) => {
+            for (_, v) in obj.iter_mut() {
+                convert_pdb_owned_value_strs_to_dates(v);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn serialize_fielded_query<S>(
     field: &FieldName,
     query: &pdb::Query,
@@ -646,10 +799,34 @@ impl SearchQueryInput {
     }
 }
 
+/// Legacy wire format for [`TermInput`] kept around so that JSON inputs in the
+/// 3-element positional form `[field, value, is_datetime]` still deserialize.
+/// `is_datetime` no longer affects parsing — `PdbOwnedValue::Date` carries the
+/// datetime intent now — but the slot must exist for serde's positional
+/// (array) deserialization to accept the 3-element shape.
+#[derive(Deserialize)]
+struct TermInputWire {
+    field: FieldName,
+    value: PdbOwnedValue,
+    #[serde(default)]
+    #[allow(dead_code)]
+    is_datetime: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(from = "TermInputWire")]
 pub struct TermInput {
     pub field: FieldName,
     pub value: PdbOwnedValue,
+}
+
+impl From<TermInputWire> for TermInput {
+    fn from(wire: TermInputWire) -> Self {
+        TermInput {
+            field: wire.field,
+            value: wire.value,
+        }
+    }
 }
 
 /// Serialize a [`SearchQueryInput`] node to a Postgres [`pg_sys::Const`] node, palloc'd
@@ -1301,25 +1478,25 @@ fn convert_for_field_type(value: &PdbOwnedValue, field_type: &FieldType) -> PdbO
     }
 }
 
-fn append_optimistically_parsed_datetime_to_term(
-    term: &mut Term,
-    text: &str,
-    index_created_by_version: Option<Version>,
-) {
-    if let Ok(pgdt) = PostgresDateTime::try_from_timestamptz_str(text) {
-        if let Some(version) = index_created_by_version {
-            if version >= TIMESTAMP_I64_STORAGE_VERSION {
-                term.append_type_and_fast_value(pgdt.into_inner());
-                return;
-            }
-        }
-        if let Ok(date) = tantivy::DateTime::try_from(pgdt) {
-            term.append_type_and_fast_value(date.truncate(DATE_TIME_PRECISION_INDEXED));
-            return;
-        }
-    }
-    term.append_type_and_str(text);
-}
+// fn append_optimistically_parsed_datetime_to_term(
+//     term: &mut Term,
+//     text: &str,
+//     index_created_by_version: Option<Version>,
+// ) {
+//     if let Ok(pgdt) = PostgresDateTime::try_from_timestamptz_str(text) {
+//         if let Some(version) = index_created_by_version {
+//             if version >= TIMESTAMP_I64_STORAGE_VERSION {
+//                 term.append_type_and_fast_value(pgdt.into_inner());
+//                 return;
+//             }
+//         }
+//         if let Ok(date) = tantivy::DateTime::try_from(pgdt) {
+//             term.append_type_and_fast_value(date.truncate(DATE_TIME_PRECISION_INDEXED));
+//             return;
+//         }
+//     }
+//     term.append_type_and_str(text);
+// }
 
 fn value_to_json_term(
     field: Field,
@@ -1331,11 +1508,12 @@ fn value_to_json_term(
     let mut term = Term::from_field_json_path(field, path.unwrap_or_default(), expand_dots);
     match value {
         PdbOwnedValue::Str(text) => {
-            append_optimistically_parsed_datetime_to_term(
-                &mut term,
-                text.as_str(),
-                index_created_by_version,
-            );
+            term.append_type_and_str(text);
+            // append_optimistically_parsed_datetime_to_term(
+            //     &mut term,
+            //     text.as_str(),
+            //     index_created_by_version,
+            // );
         }
         PdbOwnedValue::U64(value) => {
             if let Ok(i64_val) = (*value).try_into() {
@@ -1403,7 +1581,7 @@ pub fn value_to_term(
 
     match (value, field_type, search_field_type) {
         (PdbOwnedValue::Str(text), FieldType::Date(_), _) => {
-            let pgdt = PostgresDateTime::try_from_timestamptz_str(text.as_str())?;
+            let pgdt = PostgresDateTime::try_from(text.as_str())?;
             let date = tantivy::DateTime::try_from(pgdt)?;
             return Ok(Term::from_field_date(
                 field,
@@ -1420,7 +1598,7 @@ pub fn value_to_term(
         (PdbOwnedValue::Str(text), FieldType::I64(_), SearchFieldType::I64(oid))
             if *oid == pg_sys::TIMESTAMPTZOID =>
         {
-            let pg_dt = PostgresDateTime::try_from_timestamptz_str(text.as_str())?;
+            let pg_dt = PostgresDateTime::try_from(text.as_str())?;
             return Ok(Term::from_field_i64(field, pg_dt.into_inner()));
         }
         // Got a timestamp/timestamptz value that was converted to an i64, but this is a legacy index that

@@ -21,7 +21,7 @@ use crate::api::FieldName;
 use crate::postgres::catalog::is_citext_oid;
 use crate::postgres::types::{TantivyValue, TantivyValueError};
 use crate::query::pdb_query::pdb;
-use crate::query::{SearchQueryInput, TermInput};
+use crate::query::{convert_datetime_strings_to_dates, SearchQueryInput, TermInput};
 use pgrx::nullable::IntoNullableIterator;
 use std::ops::Bound;
 
@@ -315,7 +315,7 @@ pub fn term_set(terms: Vec<SearchQueryInput>) -> SearchQueryInput {
 
 #[pg_cast(implicit)]
 fn jsonb_to_searchqueryinput(query: JsonB) -> SearchQueryInput {
-    serde_path_to_error::deserialize(query.0).unwrap_or_else(|err| {
+    let mut input = serde_path_to_error::deserialize(query.0).unwrap_or_else(|err| {
         panic!(
             r#"error parsing search query input json at "{}": {}"#,
             err.path(),
@@ -329,7 +329,9 @@ fn jsonb_to_searchqueryinput(query: JsonB) -> SearchQueryInput {
                 msg => msg,
             }
         )
-    })
+    });
+    convert_datetime_strings_to_dates(&mut input);
+    input
 }
 
 extension_sql!(

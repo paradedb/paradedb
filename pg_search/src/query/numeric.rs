@@ -160,34 +160,34 @@ pub fn bytes_to_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
-/// Convert a hex-encoded string back to bytes.
-///
-/// This is the inverse of `bytes_to_hex`. Used for deserializing hex-encoded
-/// decimal values from storage.
-///
-/// Returns `None` if the string contains invalid hex characters or has odd length.
-#[inline]
-fn hex_to_bytes(hex: &str) -> Option<Vec<u8>> {
-    if !hex.len().is_multiple_of(2) {
-        return None;
-    }
-    (0..hex.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
-        .collect()
-}
-
-/// Convert a hex-encoded decimal string back to a Decimal.
-///
-/// This is a convenience function that combines `hex_to_bytes` and `Decimal::from_bytes`
-/// to convert from hex-encoded storage format to a `Decimal` object.
-///
-/// Returns `None` if the hex string is invalid or cannot be parsed as a Decimal.
-#[inline]
-pub fn hex_to_decimal(hex: &str) -> Option<Decimal> {
-    let bytes = hex_to_bytes(hex)?;
-    Decimal::from_bytes(&bytes).ok()
-}
+// /// Convert a hex-encoded string back to bytes.
+// ///
+// /// This is the inverse of `bytes_to_hex`. Used for deserializing hex-encoded
+// /// decimal values from storage.
+// ///
+// /// Returns `None` if the string contains invalid hex characters or has odd length.
+// #[inline]
+// fn hex_to_bytes(hex: &str) -> Option<Vec<u8>> {
+//     if !hex.len().is_multiple_of(2) {
+//         return None;
+//     }
+//     (0..hex.len())
+//         .step_by(2)
+//         .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
+//         .collect()
+// }
+//
+// /// Convert a hex-encoded decimal string back to a Decimal.
+// ///
+// /// This is a convenience function that combines `hex_to_bytes` and `Decimal::from_bytes`
+// /// to convert from hex-encoded storage format to a `Decimal` object.
+// ///
+// /// Returns `None` if the hex string is invalid or cannot be parsed as a Decimal.
+// #[inline]
+// pub fn hex_to_decimal(hex: &str) -> Option<Decimal> {
+//     let bytes = hex_to_bytes(hex)?;
+//     Decimal::from_bytes(&bytes).ok()
+// }
 
 // ============================================================================
 // JSON Numeric Type Detection and Conversion

@@ -103,6 +103,11 @@ impl PostgresDateTime {
         Ok(Self::from(ts))
     }
 
+    pub fn try_from_date_str(s: &str) -> Result<Self, DateTimeConversionError> {
+        let date = pgrx::datum::Date::from_str(s)?;
+        Ok(Self::from(date))
+    }
+
     pub fn add_days(&self, days: i64) -> Result<Self, DateTimeConversionError> {
         let plus_days_micros = ONE_DAY_MICROS
             .checked_mul(days)
@@ -123,7 +128,26 @@ impl TryFrom<String> for PostgresDateTime {
     type Error = DateTimeConversionError;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::try_from_timestamptz_str(&value)
+        Self::try_from(value.as_str())
+    }
+}
+impl TryFrom<&str> for PostgresDateTime {
+    type Error = DateTimeConversionError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let as_date = Self::try_from_date_str(value);
+        let as_tstz = Self::try_from_timestamptz_str(value);
+        // Date parsing is very permissive and will accept strings with non-date parts.
+        // However, it will truncate non-date parts, so if these are the same, there is no
+        // non-date parts, so in the case both parsing methods accept the input, we can
+        // compare it with the parsed-as-timestamp version to see if this is a
+        // timestamp or a date
+        match (as_date, as_tstz) {
+            (Ok(date), Ok(tstz)) if date == tstz => Ok(date),
+            (Ok(_), Ok(tstz)) => Ok(tstz),
+            (Ok(v), Err(_)) | (Err(_), Ok(v)) => Ok(v),
+            (Err(_), Err(ts_err)) => Err(ts_err),
+        }
     }
 }
 impl From<PostgresDateTime> for String {

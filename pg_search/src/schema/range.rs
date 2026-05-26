@@ -17,6 +17,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::postgres::types::{PdbOwnedValue, TantivyValue};
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TantivyRange<T> {
     lower: Option<T>,
@@ -100,4 +102,45 @@ where
             upper_unbounded: self.upper_unbounded.unwrap_or(false),
         }
     }
+}
+
+impl<T> TryFrom<TantivyRange<T>> for TantivyValue
+where
+    TantivyValue: TryFrom<T>,
+{
+    type Error = <TantivyValue as TryFrom<T>>::Error;
+
+    fn try_from(value: TantivyRange<T>) -> Result<Self, Self::Error> {
+        Ok(TantivyValue(PdbOwnedValue::Object(vec![
+            ("lower".to_string(), null_or_val(value.lower)?),
+            ("upper".to_string(), null_or_val(value.upper)?),
+            ("empty".to_string(), PdbOwnedValue::from(value.empty)),
+            (
+                "lower_inclusive".to_string(),
+                PdbOwnedValue::from(value.lower_inclusive),
+            ),
+            (
+                "upper_inclusive".to_string(),
+                PdbOwnedValue::from(value.upper_inclusive),
+            ),
+            (
+                "lower_unbounded".to_string(),
+                PdbOwnedValue::from(value.lower_unbounded),
+            ),
+            (
+                "upper_unbounded".to_string(),
+                PdbOwnedValue::from(value.upper_unbounded),
+            ),
+        ])))
+    }
+}
+fn null_or_val<T>(v: Option<T>) -> Result<PdbOwnedValue, <TantivyValue as TryFrom<T>>::Error>
+where
+    TantivyValue: TryFrom<T>,
+{
+    let res = match v {
+        Some(val) => TantivyValue::try_from(val)?.0,
+        None => PdbOwnedValue::Null,
+    };
+    Ok(res)
 }

@@ -2184,7 +2184,7 @@ fn phrase_to_pg_micros_string(phrase: &str, oid: PgOid) -> Option<String> {
         PgOid::BuiltIn(BuiltinOid::JSONOID) | PgOid::BuiltIn(BuiltinOid::JSONBOID) => {
             // Best-effort: if the phrase parses as a timestamp, rewrite to i64 micros.
             // Otherwise leave alone — could be any non-datetime JSON value.
-            PostgresDateTime::try_from_timestamptz_str(phrase)
+            PostgresDateTime::try_from(phrase)
                 .ok()
                 .map(|dt| dt.into_inner().to_string())
         }

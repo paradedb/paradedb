@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779823073014,
+  "lastUpdate": 1779823106017,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14272,6 +14272,108 @@ window.BENCHMARK_DATA = {
             "value": 164.2109375,
             "unit": "median mem",
             "extra": "avg mem: 182.64076962200272, max mem: 222.6875, count: 56343"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "59bbbe58d9c07aacd6ff87a90a955843ab3ed266",
+          "message": "refactor(mpp): drop dead strip_dynamic_filters_from_dyn helper (#5136)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nDeletes `PgSearchScanPlan::strip_dynamic_filters_from_dyn`.\n\n## Why\n\nDCE.\n\n## How\n\nDelete the function.\n\n## Tests\n\n- `cargo check --package pg_search --features pg18\n--no-default-features` clean.\n- All 4 MPP regress tests pass.\n- CI green.",
+          "timestamp": "2026-05-26T11:23:16-07:00",
+          "tree_id": "819962fbe27c5c425bc12fc1d4f305ab1658b9a6",
+          "url": "https://github.com/paradedb/paradedb/commit/59bbbe58d9c07aacd6ff87a90a955843ab3ed266"
+        },
+        "date": 1779823074752,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.056461820969496, max background_merging: 2.0, count: 56091"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.7756006158401245, max cpu: 9.687184, count: 56091"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 26.089379938960796, max mem: 26.09765625, count: 56091"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.678363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.929335334936322, max cpu: 23.414635, count: 56091"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 187.21484375,
+            "unit": "median mem",
+            "extra": "avg mem: 181.98653248738657, max mem: 188.91796875, count: 56091"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 54051,
+            "unit": "median block_count",
+            "extra": "avg block_count: 53913.054126330426, max block_count: 54051.0, count: 56091"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.95960136207235, max segment_count: 56.0, count: 56091"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.580041826318284, max cpu: 9.495549, count: 56091"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 124.4765625,
+            "unit": "median mem",
+            "extra": "avg mem: 113.97350670952113, max mem: 138.26171875, count: 56091"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.673807,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.162435128839896, max cpu: 32.621357, count: 56091"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 200.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 198.28189327666203, max mem: 230.39453125, count: 56091"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.414635,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.538626797926078, max cpu: 33.73494, count: 56091"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 164.0078125,
+            "unit": "median mem",
+            "extra": "avg mem: 182.59512269960868, max mem: 222.4453125, count: 56091"
           }
         ]
       }

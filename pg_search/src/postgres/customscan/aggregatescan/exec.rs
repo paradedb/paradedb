@@ -173,6 +173,7 @@ impl From<MetricResult> for AggregateResult {
 /// * `agg_result` - The aggregate result to convert (Metric or Json)
 /// * `agg_type` - The aggregate type (for nullish fallback)
 /// * `expected_typoid` - The expected PostgreSQL type OID from the tuple descriptor
+/// * `index_created_by_version` - The pg_search version that created the index being queried
 pub fn aggregate_result_to_datum(
     agg_result: Option<AggregateResult>,
     agg_type: &AggregateType,
@@ -191,6 +192,8 @@ pub fn aggregate_result_to_datum(
             // serialize the entire metric result to match Tantivy's JSON format
             if expected_typoid == pg_sys::JSONBOID {
                 // Serialize the SingleMetricResult to JSON
+                // TODO: What to do when this returns stored pg micros? (Current behavior on
+                // datetimes is to return unix nanos)
                 let json_value = serde_json::to_value(&metric).unwrap_or_else(|e| {
                     pgrx::error!("Failed to serialize metric result to JSON: {}", e)
                 });

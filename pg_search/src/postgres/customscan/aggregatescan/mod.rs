@@ -33,7 +33,6 @@ pub mod targetlist;
 // Re-export commonly used types for easier access
 pub use aggregate_type::AggregateType;
 pub use groupby::GroupingColumn;
-use pgrx::IntoDatum;
 pub use targetlist::TargetListEntry;
 
 use std::sync::Arc;
@@ -103,7 +102,6 @@ use crate::scan::codec::serialize_logical_plan;
 use futures::StreamExt;
 use pgrx::{pg_sys, PgList, PgMemoryContexts, PgTupleDesc};
 use std::ffi::CStr;
-use std::str::FromStr;
 
 #[derive(Default)]
 pub struct AggregateScan;
@@ -1823,49 +1821,24 @@ unsafe fn group_key_to_datum(
     // we can convert this directly. For other time types, we need to parse this
     // string and convert it to the appropriate PostgreSQL date type.
     match &key.0 {
-        PdbOwnedValue::Str(date_str) if expected_typoid == pg_sys::TIMESTAMPOID => {
-            let ts = match pgrx::datum::Timestamp::from_str(date_str) {
-                Ok(ts) => ts,
-                Err(e) => pgrx::error!("Failed to parse datetime string '{}': {}", date_str, e),
-            };
-            ts.into_datum()
-        }
-        PdbOwnedValue::Str(date_str) if expected_typoid == pg_sys::TIMESTAMPTZOID => {
-            // Tantivy DateTime's are stored in utc, so we need to convert as Timestamp first, then
-            // convert to TimestampWithTimeZone, allowing postgres to do the correct timezone
-            // adjustment
-            let pg_dt = match PostgresDateTime::try_from_timestamp_str(date_str) {
-                Ok(dt) => dt,
-                Err(e) => pgrx::error!("Failed to parse datetime string '{}': {}", date_str, e),
-            };
-            let ts: pgrx::datum::TimestampWithTimeZone = pg_dt.into();
-            ts.into_datum()
-        }
         PdbOwnedValue::Str(date_str) => {
-            match PostgresDateTime::try_from_timestamptz_str(date_str) {
-                Ok(dt) => TantivyValue(PdbOwnedValue::Date(dt))
-                    .try_into_datum(pgrx::PgOid::from(expected_typoid))
-                    .expect("should be able to convert datetime to datum"),
-                Err(e) => {
-                    pgrx::error!("Failed to parse datetime string '{}': {}", date_str, e);
-                }
-            }
-        }
-        PdbOwnedValue::I64(pg_micros) if expected_typoid == pg_sys::TIMESTAMPOID => {
-            let ts = match pgrx::datum::Timestamp::try_from(*pg_micros) {
+            let pgdt = match PostgresDateTime::try_from(date_str.as_str()) {
                 Ok(ts) => ts,
-                Err(e) => pgrx::error!("Invalid raw i64 value for timestamp: '{e}'"),
+                Err(e) => pgrx::error!("Failed to parse datetime string '{}': {}", date_str, e),
             };
-            ts.into_datum()
+            TantivyValue(PdbOwnedValue::Date(pgdt))
+                .try_into_datum(expected_typoid.into())
+                .expect("should be able to convert into datum")
         }
-        PdbOwnedValue::I64(pg_micros) if expected_typoid == pg_sys::TIMESTAMPTZOID => {
-            let ts = match pgrx::datum::TimestampWithTimeZone::try_from(*pg_micros) {
+        PdbOwnedValue::I64(pg_micros) => {
+            let pgdt = match PostgresDateTime::try_from_raw(*pg_micros) {
                 Ok(ts) => ts,
-                Err(e) => pgrx::error!("Invalid raw i64 value for timestamptz: '{e}'"),
+                Err(e) => pgrx::error!("Invalid raw i64 value for datetime value: '{e}'"),
             };
-            ts.into_datum()
+            TantivyValue(PdbOwnedValue::Date(pgdt))
+                .try_into_datum(expected_typoid.into())
+                .expect("should be able to convert into datum")
         }
-
         _ => key
             .try_into_datum(pgrx::PgOid::from(expected_typoid))
             .expect("should be able to convert to datum"),

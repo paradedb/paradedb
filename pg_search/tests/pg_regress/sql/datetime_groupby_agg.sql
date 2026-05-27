@@ -42,8 +42,7 @@ WITH (
     key_field='id',
     text_fields='{"description": {}, "organization_id": {"fast": true}, "internal_account_id": {"fast": true}}',
     boolean_fields='{"live_mode": {"fast": true}}',
-    numeric_fields='{"unledgered_amount": {"fast": true}}',
-    datetime_fields='{"as_of_date": {"fast": true}, "discarded_at": {"fast": true}}'
+    numeric_fields='{"unledgered_amount": {"fast": true}}'
 );
 
 -- =====================================================================

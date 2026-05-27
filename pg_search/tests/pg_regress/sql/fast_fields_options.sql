@@ -59,8 +59,7 @@ USING bm25 (
     }',
     numeric_fields = '{"price":{}}',
     boolean_fields = '{"in_stock":{}}',
-    range_fields = '{"quantity_range":{},"valid_period":{}}',
-    datetime_fields = '{"created_at":{}}'
+    range_fields = '{"quantity_range":{},"valid_period":{}}'
 );
 
 -- '--- Tests with index WITHOUT explicit fast:true for text fields ---'
@@ -141,8 +140,7 @@ USING bm25 (
     }',
     numeric_fields = '{"price":{"fast":true}}',
     boolean_fields = '{"in_stock":{"fast":true}}',
-    range_fields = '{"quantity_range":{"fast":true},"valid_period":{"fast":true}}',
-    datetime_fields = '{"created_at":{"fast":true}}'
+    range_fields = '{"quantity_range":{"fast":true},"valid_period":{"fast":true}}'
 );
 
 -- '--- Tests with index WITH explicit fast:true for non-text fields ---'
@@ -200,8 +198,7 @@ USING bm25 (
     }',
     numeric_fields = '{"price":{"fast":false}}',
     boolean_fields = '{"in_stock":{"fast":false}}',
-    range_fields = '{"quantity_range":{"fast":false},"valid_period":{"fast":false}}',
-    datetime_fields = '{"created_at":{"fast":false}}'
+    range_fields = '{"quantity_range":{"fast":false},"valid_period":{"fast":false}}'
 );
 
 -- '--- Tests with index WITH explicit fast:false for non-text fields ---'

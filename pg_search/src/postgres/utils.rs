@@ -33,6 +33,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::metadata::Version;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::var::find_vars;
+use crate::query::convert_pdb_owned_value_strs_to_dates;
 use crate::schema::{CategorizedFieldData, SearchField, SearchFieldType};
 use anyhow::Result;
 use pgrx::itemptr::{item_pointer_get_both, item_pointer_set_all};
@@ -813,11 +814,14 @@ pub unsafe fn row_to_search_document<'a>(
                 );
             }
         } else if *is_json {
-            for value in
-                TantivyValue::try_from_datum_json(actual_datum, *base_oid).unwrap_or_else(|e| {
+            for mut value in TantivyValue::try_from_datum_json(actual_datum, *base_oid)
+                .unwrap_or_else(|e| {
                     panic!("could not parse field `{}`: {e}", search_field.field_name())
                 })
             {
+                // user supplied json can contain datetime strings that should be treated as
+                // PdbOwnedValue::Date, so we convert them if we find them
+                convert_pdb_owned_value_strs_to_dates(&mut value.0);
                 document.add_field_value(
                     search_field.field(),
                     &value.into_tantivy_value(created_by_version),

@@ -51,6 +51,7 @@ use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::{Debug, Formatter};
 use std::ops::Bound;
+use std::str::FromStr;
 use tantivy::query::{
     AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
     Query as TantivyQuery, QueryParser, TermSetQuery,
@@ -273,7 +274,7 @@ fn convert_bound_strs_to_dates(bound: &mut Bound<PdbOwnedValue>) {
     }
 }
 
-fn convert_pdb_owned_value_strs_to_dates(value: &mut PdbOwnedValue) {
+pub fn convert_pdb_owned_value_strs_to_dates(value: &mut PdbOwnedValue) {
     match value {
         PdbOwnedValue::Str(s) => {
             if let Ok(pgdt) = PostgresDateTime::try_from(s.as_str()) {
@@ -847,6 +848,7 @@ impl From<SearchQueryInput> for *mut pg_sys::Const {
     }
 }
 
+// TODO: Don't support optimistic date-parsing, do it here instead for the relevant types.
 fn check_range_bounds(
     typeoid: PgOid,
     lower_bound: Bound<PdbOwnedValue>,
@@ -869,6 +871,35 @@ fn check_range_bounds(
         ) => Bound::Included(PdbOwnedValue::Date(
             date.add_days(1).map_err(|e| anyhow::anyhow!("{e:?}"))?,
         )),
+        // String date needes parsed
+        (
+            PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
+            Bound::Included(PdbOwnedValue::Str(s)),
+        ) => {
+            let date = PostgresDateTime::from(
+                pgrx::datum::Date::from_str(s.as_str()).map_err(|e| anyhow::anyhow!("{e:?}"))?,
+            );
+            Bound::Included(PdbOwnedValue::Date(date))
+        }
+        // String date needes parsed and excluded date needs to be canonicalized
+        (
+            PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
+            Bound::Excluded(PdbOwnedValue::Str(s)),
+        ) => {
+            let date = PostgresDateTime::from(
+                pgrx::datum::Date::from_str(s.as_str()).map_err(|e| anyhow::anyhow!("{e:?}"))?,
+            );
+            Bound::Included(PdbOwnedValue::Date(
+                date.add_days(1).map_err(|e| anyhow::anyhow!("{e:?}"))?,
+            ))
+        }
+        (
+            PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID)
+            | PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID)
+            | PgOid::BuiltIn(PgBuiltInOids::TSRANGEOID)
+            | PgOid::BuiltIn(PgBuiltInOids::TSTZRANGEOID),
+            Bound::Included(PdbOwnedValue::Str(_)) | Bound::Excluded(PdbOwnedValue::Str(_)),
+        ) => unreachable!("Timestamps should already have been parsed into PdbOwnedValue::Date during json deserialization"),
         _ => lower_bound,
     };
 
@@ -884,6 +915,35 @@ fn check_range_bounds(
         ) => Bound::Excluded(PdbOwnedValue::Date(
             date.add_days(1).map_err(|e| anyhow::anyhow!("{e:?}"))?,
         )),
+        // String date needs parsed and Included Date needs to be canonicalized
+        (
+            PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
+            Bound::Included(PdbOwnedValue::Str(s)),
+        ) => {
+            let date = PostgresDateTime::from(
+                pgrx::datum::Date::from_str(s.as_str()).map_err(|e| anyhow::anyhow!("{e:?}"))?,
+            );
+            Bound::Excluded(PdbOwnedValue::Date(
+                date.add_days(1).map_err(|e| anyhow::anyhow!("{e:?}"))?,
+            ))
+        }
+        // String date needs parsed
+        (
+            PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
+            Bound::Excluded(PdbOwnedValue::Str(s)),
+        ) => {
+            let date = PostgresDateTime::from(
+                pgrx::datum::Date::from_str(s.as_str()).map_err(|e| anyhow::anyhow!("{e:?}"))?,
+            );
+            Bound::Excluded(PdbOwnedValue::Date(date))
+        }
+        (
+            PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID)
+            | PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID)
+            | PgOid::BuiltIn(PgBuiltInOids::TSRANGEOID)
+            | PgOid::BuiltIn(PgBuiltInOids::TSTZRANGEOID),
+            Bound::Included(PdbOwnedValue::Str(_)) | Bound::Excluded(PdbOwnedValue::Str(_)),
+        ) => unreachable!("Timestamps should already have been parsed into PdbOwnedValue::Date during json deserialization"),
         _ => upper_bound,
     };
     Ok((lower_bound, upper_bound))

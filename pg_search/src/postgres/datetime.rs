@@ -93,6 +93,10 @@ impl PostgresDateTime {
         Self::try_from_raw(unix_micros_to_pg_micros(unix_micros))
     }
 
+    pub fn try_from_unix_micros(unix_micros: i64) -> Result<Self, DateTimeConversionError> {
+        Self::try_from_raw(unix_micros_to_pg_micros(unix_micros))
+    }
+
     pub fn try_from_timestamp_str(s: &str) -> Result<Self, DateTimeConversionError> {
         let ts = pgrx::datum::Timestamp::from_str(s)?;
         Ok(Self::from(ts))
@@ -134,25 +138,40 @@ impl TryFrom<String> for PostgresDateTime {
 impl TryFrom<&str> for PostgresDateTime {
     type Error = DateTimeConversionError;
 
+    /// Tantivy uses rfc3999 as it's supported date parsing method, so we'll replicate that here,
+    /// as this is largely used for user-supplied datetime strings
+    /// If you need something more lenient, use one of:
+    /// - `PostgresDateTime::try_from_date_str`
+    /// - `PostgresDateTime::try_from_timestamp_str`
+    /// - `PostgresDateTime::try_from_timestamptz_str`
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let as_date = Self::try_from_date_str(value);
-        let as_tstz = Self::try_from_timestamptz_str(value);
-        // Date parsing is very permissive and will accept strings with non-date parts.
-        // However, it will truncate non-date parts, so if these are the same, there is no
-        // non-date parts, so in the case both parsing methods accept the input, we can
-        // compare it with the parsed-as-timestamp version to see if this is a
-        // timestamp or a date
-        match (as_date, as_tstz) {
-            (Ok(date), Ok(tstz)) if date == tstz => Ok(date),
-            (Ok(_), Ok(tstz)) => Ok(tstz),
-            (Ok(v), Err(_)) | (Err(_), Ok(v)) => Ok(v),
-            (Err(_), Err(ts_err)) => Err(ts_err),
+        if can_be_rfc3339_date_time(value) {
+            // From the chrono docs about DateTime::from_str:
+            // Accepts a relaxed form of RFC3339. A space or a ‘T’ are accepted as the separator
+            // between the date and time parts. Additional spaces are allowed between each
+            // component.
+            if let Ok(dt) = chrono::DateTime::<chrono::FixedOffset>::from_str(value) {
+                return Self::try_from(dt.to_utc());
+            }
         }
+        Err(DateTimeConversionError::InvalidFormat)
     }
 }
+/// Cheap way to skip full parsing of things that can't be valid rfc3999 dates
+fn can_be_rfc3339_date_time(text: &str) -> bool {
+    if let Some(&first_byte) = text.as_bytes().first() {
+        if first_byte.is_ascii_digit() {
+            return true;
+        }
+    }
+
+    false
+}
+
 impl From<PostgresDateTime> for String {
     fn from(value: PostgresDateTime) -> Self {
-        value.0.to_iso_string()
+        // append Z to make the output rfc3999-compliant
+        format!("{}Z", value.0.to_iso_string())
     }
 }
 impl From<pgrx::datum::Date> for PostgresDateTime {
@@ -255,6 +274,14 @@ impl TryFrom<PostgresDateTime> for tantivy::DateTime {
         Ok(tantivy::DateTime::from_timestamp_micros(unix_micros))
     }
 }
+impl TryFrom<chrono::DateTime<chrono::Utc>> for PostgresDateTime {
+    type Error = DateTimeConversionError;
+
+    fn try_from(value: chrono::DateTime<chrono::Utc>) -> Result<Self, Self::Error> {
+        Self::try_from_unix_micros(value.timestamp_micros())
+    }
+}
+
 impl From<PostgresDateTime> for i64 {
     fn from(value: PostgresDateTime) -> Self {
         value.into_inner()

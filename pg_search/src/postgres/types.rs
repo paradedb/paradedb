@@ -201,6 +201,8 @@ impl PdbOwnedValue {
             OwnedValue::I64(val) => PdbOwnedValue::I64(val),
             OwnedValue::U64(val) => PdbOwnedValue::U64(val),
             OwnedValue::F64(val) => PdbOwnedValue::F64(val),
+            // User-supplied json can have timestamps as strings. We need to attempt to parse them
+            // here so we can correctly convert them to PdbOwnedValue::Date
             OwnedValue::Str(s) => PdbOwnedValue::Str(s),
             OwnedValue::Bool(val) => PdbOwnedValue::Bool(val),
             OwnedValue::Facet(val) => PdbOwnedValue::Facet(val),

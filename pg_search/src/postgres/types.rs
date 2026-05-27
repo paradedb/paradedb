@@ -23,7 +23,7 @@ use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::jsonb_support::jsonb_datum_to_serde_json_value;
 use crate::postgres::range::RangeToTantivyValue;
 use crate::postgres::storage::metadata::{Version, VersionInfo};
-use crate::schema::{AnyEnum, SearchField};
+use crate::schema::AnyEnum;
 use ordered_float::OrderedFloat;
 use pgrx::datum::datetime_support::DateTimeConversionError;
 use pgrx::pg_sys::Oid;
@@ -341,51 +341,53 @@ impl TantivyValue {
         }
     }
 
-    fn json_value_to_tantivy_value(value: Value) -> Vec<TantivyValue> {
+    fn try_json_value_to_tantivy_value(
+        value: Value,
+    ) -> Result<Vec<TantivyValue>, TantivyValueError> {
         match value {
             // A tantivy JSON value can't be a top-level array, so we have to make
             // separate values out of each entry.
             Value::Array(value_vec) => value_vec
                 .into_iter()
-                .map(|value| TantivyValue(PdbOwnedValue::from(value)))
+                .map(|value| Ok(TantivyValue(PdbOwnedValue::try_from(value)?)))
                 .collect(),
-            _ => vec![TantivyValue(PdbOwnedValue::from(value))],
+            _ => Ok(vec![TantivyValue(PdbOwnedValue::try_from(value)?)]),
         }
     }
 
-    /// Convert a JSON value to an PdbOwnedValue based on the field type from the schema
-    pub fn json_value_to_owned_value(
-        search_field: &Option<SearchField>,
-        json_value: &Value,
-    ) -> PdbOwnedValue {
-        if let Some(search_field) = search_field {
-            // We need to do special handling for boolean values, as we store them as numbers
-            // in the index. Thus, the schema type (bool) might not match the JSON value type (i.e.
-            // number).
-            match search_field.field_type() {
-                crate::schema::SearchFieldType::Bool(_) => {
-                    // Handle both boolean JSON values and numeric representations (0/1)
-                    if let Some(b) = json_value.as_bool() {
-                        PdbOwnedValue::Bool(b)
-                    } else if let Some(n) = json_value.as_i64() {
-                        PdbOwnedValue::Bool(n != 0)
-                    } else if let Some(n) = json_value.as_u64() {
-                        PdbOwnedValue::Bool(n != 0)
-                    } else {
-                        // Fallback to PdbOwnedValue::from(serde_json::Value)
-                        PdbOwnedValue::from(json_value.clone())
-                    }
-                }
-                _ => {
-                    // Fallback to PdbOwnedValue::from(serde_json::Value)
-                    PdbOwnedValue::from(json_value.clone())
-                }
-            }
-        } else {
-            // Fallback to PdbOwnedValue::from(serde_json::Value)
-            PdbOwnedValue::from(json_value.clone())
-        }
-    }
+    //// Convert a JSON value to an PdbOwnedValue based on the field type from the schema
+    // pub fn json_value_to_owned_value(
+    //     search_field: &Option<SearchField>,
+    //     json_value: &Value,
+    // ) -> PdbOwnedValue {
+    //     if let Some(search_field) = search_field {
+    //         // We need to do special handling for boolean values, as we store them as numbers
+    //         // in the index. Thus, the schema type (bool) might not match the JSON value type (i.e.
+    //         // number).
+    //         match search_field.field_type() {
+    //             crate::schema::SearchFieldType::Bool(_) => {
+    //                 // Handle both boolean JSON values and numeric representations (0/1)
+    //                 if let Some(b) = json_value.as_bool() {
+    //                     PdbOwnedValue::Bool(b)
+    //                 } else if let Some(n) = json_value.as_i64() {
+    //                     PdbOwnedValue::Bool(n != 0)
+    //                 } else if let Some(n) = json_value.as_u64() {
+    //                     PdbOwnedValue::Bool(n != 0)
+    //                 } else {
+    //                     // Fallback to PdbOwnedValue::from(serde_json::Value)
+    //                     PdbOwnedValue::from(json_value.clone())
+    //                 }
+    //             }
+    //             _ => {
+    //                 // Fallback to PdbOwnedValue::from(serde_json::Value)
+    //                 PdbOwnedValue::from(json_value.clone())
+    //             }
+    //         }
+    //     } else {
+    //         // Fallback to PdbOwnedValue::from(serde_json::Value)
+    //         PdbOwnedValue::from(json_value.clone())
+    //     }
+    // }
 
     pub unsafe fn try_from_datum_array(
         datum: Datum,
@@ -437,12 +439,12 @@ impl TantivyValue {
                     let serde_json_value = jsonb_datum_to_serde_json_value(datum)
                         .ok_or(TantivyValueError::DatumDeref)?
                         .map_err(TantivyValueError::Utf8ConversionError)?;
-                    Ok(Self::json_value_to_tantivy_value(serde_json_value))
+                    Self::try_json_value_to_tantivy_value(serde_json_value)
                 }
                 PgBuiltInOids::JSONOID => {
                     let pgrx_value = pgrx::Json::from_datum(datum, false)
                         .ok_or(TantivyValueError::DatumDeref)?;
-                    Ok(Self::json_value_to_tantivy_value(pgrx_value.0))
+                    Self::try_json_value_to_tantivy_value(pgrx_value.0)
                 }
                 _ => Err(TantivyValueError::UnsupportedJsonOid(oid.value())),
             },
@@ -1176,7 +1178,7 @@ impl TryFrom<pgrx::datum::JsonString> for TantivyValue {
 
     fn try_from(val: pgrx::datum::JsonString) -> Result<Self, Self::Error> {
         let json_value: Value = serde_json::from_slice(&serde_json::to_vec(&val.0)?)?;
-        Ok(TantivyValue(PdbOwnedValue::from(json_value)))
+        Ok(TantivyValue(PdbOwnedValue::try_from(json_value)?))
     }
 }
 
@@ -1231,7 +1233,7 @@ impl TryFrom<serde_json::Value> for TantivyValue {
     type Error = TantivyValueError;
 
     fn try_from(val: serde_json::Value) -> Result<Self, Self::Error> {
-        Ok(TantivyValue(PdbOwnedValue::from(val)))
+        Ok(TantivyValue(PdbOwnedValue::try_from(val)?))
     }
 }
 
@@ -1470,42 +1472,12 @@ impl TryFrom<TantivyValue> for pgrx::Inet {
     }
 }
 
-impl From<serde_json::Value> for PdbOwnedValue {
-    fn from(value: serde_json::Value) -> Self {
-        match value {
-            serde_json::Value::Null => Self::Null,
-            serde_json::Value::Bool(val) => Self::Bool(val),
-            serde_json::Value::Number(number) => {
-                if let Some(val) = number.as_i64() {
-                    Self::I64(val)
-                } else if let Some(val) = number.as_u64() {
-                    Self::U64(val)
-                } else if let Some(val) = number.as_f64() {
-                    Self::F64(val)
-                } else {
-                    panic!("Unsupported serde_json number {number}");
-                }
-            }
-            serde_json::Value::String(text) => {
-                // TODO: Correct this for new date serialization plan
-                if let Ok(dt) = PostgresDateTime::try_from_timestamptz_str(&text) {
-                    Self::Date(dt)
-                } else {
-                    Self::Str(text)
-                }
-            }
-            serde_json::Value::Array(elements) => {
-                let converted_elements = elements.into_iter().map(Self::from).collect();
-                Self::Array(converted_elements)
-            }
-            serde_json::Value::Object(object) => {
-                let converted_kvs = object
-                    .into_iter()
-                    .map(|(k, v)| (k, Self::from(v)))
-                    .collect();
-                Self::Object(converted_kvs)
-            }
-        }
+impl TryFrom<serde_json::Value> for PdbOwnedValue {
+    type Error = TantivyValueError;
+
+    fn try_from(value: serde_json::Value) -> Result<Self, Self::Error> {
+        let pdb_value: PdbOwnedValue = serde_json::from_value(value)?;
+        Ok(pdb_value)
     }
 }
 

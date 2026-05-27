@@ -24,6 +24,18 @@ use rstest::*;
 use serde_json::{Number, Value};
 use sqlx::PgConnection;
 
+fn collect_custom_scan_nodes<'a>(plan: &'a Value, nodes: &mut Vec<&'a Value>) {
+    if plan.get("Node Type").and_then(Value::as_str) == Some("Custom Scan") {
+        nodes.push(plan);
+    }
+
+    if let Some(plans) = plan.get("Plans").and_then(Value::as_array) {
+        for child_plan in plans {
+            collect_custom_scan_nodes(child_plan, nodes);
+        }
+    }
+}
+
 #[rstest]
 fn corrupt_targetlist(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
@@ -229,6 +241,84 @@ explain (analyze, format json) select pdb.score(id), * from paradedb.bm25_search
     assert_eq!(
         path.get("   TopK Limit"),
         Some(&Value::Number(Number::from(1)))
+    );
+}
+
+#[rstest]
+fn distinct_on_with_lateral_jsonb_array_elements_limit(mut conn: PgConnection) {
+    r#"
+        DROP TABLE IF EXISTS issue_5058_items;
+        CREATE TABLE issue_5058_items (
+            id SERIAL8 NOT NULL PRIMARY KEY,
+            barcode INTEGER NOT NULL,
+            title TEXT,
+            alt_title TEXT,
+            description TEXT,
+            ai_specification JSONB
+        );
+
+        CREATE INDEX issue_5058_items_idx ON issue_5058_items
+        USING bm25 (id, barcode, title, alt_title, description, ai_specification)
+        WITH (key_field = 'id');
+
+        INSERT INTO issue_5058_items
+            (barcode, title, alt_title, description, ai_specification)
+        SELECT
+            gs,
+            'car',
+            'vehicle',
+            'compact car',
+            jsonb_build_object(
+                'specifications',
+                jsonb_build_array(jsonb_build_object(
+                    'specification_name', 'color',
+                    'value', CASE WHEN gs <= 5 THEN 'blue' ELSE 'red' END
+                ))
+            )
+        FROM generate_series(1, 12) gs;
+
+        SET enable_indexscan TO off;
+        SET enable_seqscan TO off;
+    "#
+    .execute(&mut conn);
+
+    let query = r#"
+        SELECT DISTINCT ON (items.barcode)
+            items.barcode,
+            pdb.score(items.id) AS score
+        FROM issue_5058_items items,
+             jsonb_array_elements(items.ai_specification->'specifications') AS spec
+        WHERE (items.title @@@ 'car'
+               OR items.alt_title @@@ 'car'
+               OR items.description @@@ 'car')
+          AND spec->>'specification_name' ILIKE '%color%'
+          AND spec->>'value' ILIKE '%red%'
+        ORDER BY items.barcode, pdb.score(items.id) DESC OFFSET 0 LIMIT 5;
+    "#;
+
+    let results = query.fetch::<(i32, f32)>(&mut conn);
+    assert_eq!(
+        results
+            .iter()
+            .map(|(barcode, _)| *barcode)
+            .collect::<Vec<_>>(),
+        vec![6, 7, 8, 9, 10]
+    );
+
+    let (plan,) =
+        format!("EXPLAIN (ANALYZE, FORMAT JSON) {query}").fetch_one::<(Value,)>(&mut conn);
+    let root_plan = plan.pointer("/0/Plan").unwrap();
+    let mut custom_scan_nodes = Vec::new();
+    collect_custom_scan_nodes(root_plan, &mut custom_scan_nodes);
+    assert!(
+        !custom_scan_nodes.is_empty(),
+        "expected a ParadeDB custom scan in plan: {plan:#?}"
+    );
+    assert!(
+        custom_scan_nodes
+            .iter()
+            .all(|node| node.get("   TopK Limit").is_none()),
+        "LIMIT should stay above the lateral function scan: {plan:#?}"
     );
 }
 

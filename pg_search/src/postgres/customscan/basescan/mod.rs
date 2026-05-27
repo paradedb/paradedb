@@ -457,6 +457,19 @@ unsafe fn classify_target_list_srf(root: *mut pg_sys::PlannerInfo) -> TargetList
     }
 }
 
+/// Returns true when the query has a range-table function, such as
+/// `jsonb_array_elements(...)`, in its FROM list.
+unsafe fn query_has_function_rte(root: *mut pg_sys::PlannerInfo) -> bool {
+    if root.is_null() || (*root).parse.is_null() || (*(*root).parse).rtable.is_null() {
+        return false;
+    }
+
+    let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*(*root).parse).rtable);
+    rtable
+        .iter_ptr()
+        .any(|rte| (*rte).rtekind == pg_sys::RTEKind::RTE_FUNCTION)
+}
+
 /// Returns `true` if any predicate in `baserestrictinfo` cannot be fully
 /// evaluated inside Tantivy — meaning Postgres will apply a post-filter
 /// above the scan. Pushing LIMIT into the scan in that case would cap
@@ -492,6 +505,8 @@ unsafe fn has_non_pushable_predicates(
 ///   1. This rel bounds the output cardinality (single rel, partitioned, or
 ///      the driving side of a LEFT LATERAL join). Without this, pushing LIMIT
 ///      to the inner side of a join would silently truncate results.
+///      Range-table functions in `FROM` are cardinality-changing and only keep
+///      the left-driven lateral exception.
 ///   2. No non-pushable predicates sit between this scan and the LIMIT.
 ///   3. No unsafe SRFs (anything other than `unnest`) in the target list.
 ///
@@ -508,8 +523,13 @@ unsafe fn is_limit_pushdown_safe(
         || range_table::is_partitioned_table_setup(root, (*rel).relids, baserels);
     let is_left_driven_lateral =
         is_left_join_lateral(root, rel) && where_clause_only_references_left(root, rti);
+    let rel_bounds_output = if query_has_function_rte(root) {
+        is_left_driven_lateral
+    } else {
+        rel_is_single_or_partitioned || is_left_driven_lateral
+    };
 
-    (rel_is_single_or_partitioned || is_left_driven_lateral)
+    rel_bounds_output
         && !has_non_pushable_predicates(rel, quals)
         && !classify_target_list_srf(root).is_unsafe()
 }

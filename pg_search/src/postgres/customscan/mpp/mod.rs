@@ -26,6 +26,7 @@
 //! consumer-side backpressure from producer-side backpressure.
 
 pub mod dsm;
+pub mod dsm_mpsc_ring;
 pub mod exec_worker;
 pub mod glue;
 pub mod host;

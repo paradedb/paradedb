@@ -361,13 +361,20 @@ impl ParallelScanPayload {
         }
 
         // Initialize per-source remaining counters from each source's segment count.
-        // Workers will atomically decrement the slot for the source they're scanning
-        // to claim its next unclaimed segment.
-        let remaining_range = self.layout.remaining_by_source.clone();
-        let remaining_slice: &mut [u32] =
-            bytemuck::try_cast_slice_mut(&mut self.data_mut()[remaining_range]).unwrap();
-        for (source, target) in all_sources.iter().zip(remaining_slice.iter_mut()) {
-            *target = source.len() as u32;
+        // Workers running an MPP fragment for a non-partitioning source will
+        // atomically decrement the slot for the source they're scanning via
+        // `checkout_segment_for_source`. Single-source scans (BaseScan parallel,
+        // single-table top-k / paging / count) never enter that path — the legacy
+        // `remaining_segments` counter and `checkout_segment` handle them — so skip
+        // the slab init entirely to keep the parallel non-MPP path identical to
+        // pre-Plan-A in the hot path.
+        if all_sources.len() > 1 {
+            let remaining_range = self.layout.remaining_by_source.clone();
+            let remaining_slice: &mut [u32] =
+                bytemuck::try_cast_slice_mut(&mut self.data_mut()[remaining_range]).unwrap();
+            for (source, target) in all_sources.iter().zip(remaining_slice.iter_mut()) {
+                *target = source.len() as u32;
+            }
         }
     }
 
@@ -662,12 +669,14 @@ impl ParallelScanState {
     pub fn mark_initialized_empty(&mut self) {
         self.nsegments = 0;
         self.remaining_segments = 0;
-        // Match the per-source slab to the new "no segments to scan" reality so
-        // `checkout_segment_for_source` returns None for every source. Without this, a
-        // worker that hit the DSM-too-small fallback in the middle of layout would still
-        // see non-zero per-source counters and try to claim segments that don't exist.
-        for slot in self.payload.remaining_by_source_mut() {
-            *slot = 0;
+        // Zero the per-source slab only if it was actually populated (multi-source MPP
+        // scans). Single-source scans skip the slab init in `populate()`, so there's
+        // nothing to zero and walking the (empty) slice would still be cheap but
+        // pointless.
+        if self.payload.all_counts().len() > 1 {
+            for slot in self.payload.remaining_by_source_mut() {
+                *slot = 0;
+            }
         }
         self.init_cv.broadcast();
     }
@@ -875,15 +884,13 @@ impl ParallelScanState {
             // this means we're purposely checking out segments from largest-to-smallest.
             let claimed_segment = self.decrement_remaining_segments();
             self.payload.claims_mut()[claimed_segment] = parallel_worker_number;
-            // Mirror the decrement on the per-source counter so MPP code paths reading
-            // `remaining_by_source` for the partitioning source see a consistent view.
-            let p_idx = self.partitioning_source_idx;
-            let by_source = self.payload.remaining_by_source_mut();
-            if let Some(slot) = by_source.get_mut(p_idx) {
-                if *slot > 0 {
-                    *slot -= 1;
-                }
-            }
+            // No mirror decrement onto `remaining_by_source[partitioning_idx]`: nothing
+            // reads it. MPP code paths use `checkout_segment_for_source(source_idx)` for
+            // non-partitioning sources (which has its own counter) and the legacy
+            // `remaining_segments` for the partitioning source. The per-source slab is
+            // only meaningful for non-partitioning sources, so writing the partitioning
+            // slot was dead bookkeeping that added cycles to every parallel segment
+            // claim — including non-MPP scans — for no observable benefit.
             break Some(self.segment_id(claimed_segment));
         }
     }
@@ -1014,16 +1021,20 @@ impl ParallelScanState {
     pub fn reset(&mut self) {
         self.remaining_segments = self.nsegments;
         // Refill the per-source counters from each source's segment count so a rescan
-        // re-partitions the same way the initial scan did. Without this, the second scan
-        // would observe zero remaining for every source and emit nothing.
-        let counts: Vec<u32> = self.payload.all_counts().to_vec();
-        for (slot, count) in self
-            .payload
-            .remaining_by_source_mut()
-            .iter_mut()
-            .zip(counts.iter())
-        {
-            *slot = *count;
+        // re-partitions the same way the initial scan did. Without this, the second
+        // scan would observe zero remaining for every source and emit nothing.
+        // Single-source scans never enter `checkout_segment_for_source` and the slab
+        // was never populated in `populate()`, so skip the refill.
+        if self.payload.all_counts().len() > 1 {
+            let counts: Vec<u32> = self.payload.all_counts().to_vec();
+            for (slot, count) in self
+                .payload
+                .remaining_by_source_mut()
+                .iter_mut()
+                .zip(counts.iter())
+            {
+                *slot = *count;
+            }
         }
         // NOTE: We do not reset `queries_per_worker` here, so that it can be tracked across
         // rescans.

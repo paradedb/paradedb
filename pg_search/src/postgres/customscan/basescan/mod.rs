@@ -465,9 +465,10 @@ unsafe fn query_has_function_rte(root: *mut pg_sys::PlannerInfo) -> bool {
     }
 
     let rtable = PgList::<pg_sys::RangeTblEntry>::from_pg((*(*root).parse).rtable);
-    rtable
+    let has_function_rte = rtable
         .iter_ptr()
-        .any(|rte| (*rte).rtekind == pg_sys::RTEKind::RTE_FUNCTION)
+        .any(|rte| (*rte).rtekind == pg_sys::RTEKind::RTE_FUNCTION);
+    has_function_rte
 }
 
 /// Returns `true` if any predicate in `baserestrictinfo` cannot be fully

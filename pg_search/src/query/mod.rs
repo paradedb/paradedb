@@ -1333,7 +1333,8 @@ impl SearchQueryInput {
                 key_value,
                 fields,
             } => {
-                let mut mlt_builder = MoreLikeThisQuery::builder();
+                let mut mlt_builder = MoreLikeThisQuery::builder()
+                    .with_index_created_by_version(index_created_by_version);
 
                 // default min_doc_frequency to 1, Tantivy's default is 5
                 if let Some(min_doc_frequency) = min_doc_frequency {

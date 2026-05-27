@@ -143,6 +143,12 @@ impl MoreLikeThisQueryBuilder {
         self
     }
 
+    #[must_use]
+    pub fn with_index_created_by_version(mut self, value: Option<Version>) -> Self {
+        self.index_created_by_version = value;
+        self
+    }
+
     pub fn with_key_value(
         self,
         key_value: PdbOwnedValue,

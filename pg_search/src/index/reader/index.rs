@@ -325,6 +325,44 @@ struct IndexComponents {
     schema: SearchIndexSchema,
 }
 
+/// Segment iterator backed by `ParallelScanState`'s single (partitioning-source) counter.
+/// Each `next()` claims one segment via `checkout_segment`; returns `None` when the pool
+/// is exhausted. Used by [`SearchIndexReader::search_lazy`].
+struct ParallelSegmentIterator {
+    parallel_state: *mut crate::postgres::ParallelScanState,
+}
+// SAFETY: `parallel_state` is a pointer to PG-managed shared memory that's valid for the
+// duration of the parallel scan and synchronized internally via the state's mutex. The
+// pointer can move across threads safely because every access reaches back into the
+// mutex-protected state.
+unsafe impl Send for ParallelSegmentIterator {}
+unsafe impl Sync for ParallelSegmentIterator {}
+impl Iterator for ParallelSegmentIterator {
+    type Item = tantivy::index::SegmentId;
+    fn next(&mut self) -> Option<Self::Item> {
+        pgrx::check_for_interrupts!();
+        unsafe { crate::postgres::customscan::parallel::checkout_segment(self.parallel_state) }
+    }
+}
+
+/// Source-aware segment iterator: claims segments from `source_idx`'s per-source pool in
+/// [`ParallelScanState`] instead of the partitioning source's pool. Used by MPP for
+/// non-partitioning sources so two sources don't race on the same counter.
+struct PerSourceSegmentIterator {
+    parallel_state: *mut crate::postgres::ParallelScanState,
+    source_idx: usize,
+}
+// SAFETY: same as `ParallelSegmentIterator`.
+unsafe impl Send for PerSourceSegmentIterator {}
+unsafe impl Sync for PerSourceSegmentIterator {}
+impl Iterator for PerSourceSegmentIterator {
+    type Item = tantivy::index::SegmentId;
+    fn next(&mut self) -> Option<Self::Item> {
+        pgrx::check_for_interrupts!();
+        unsafe { (*self.parallel_state).checkout_segment_for_source(self.source_idx) }
+    }
+}
+
 impl SearchIndexReader {
     fn open_index_components(
         index_relation: &PgSearchRelation,
@@ -671,23 +709,32 @@ impl SearchIndexReader {
         parallel_state: *mut crate::postgres::ParallelScanState,
         estimated_rows: u64,
     ) -> MultiSegmentSearchResults {
-        struct ParallelSegmentIterator {
-            parallel_state: *mut crate::postgres::ParallelScanState,
-        }
-        unsafe impl Send for ParallelSegmentIterator {}
-        unsafe impl Sync for ParallelSegmentIterator {}
-        impl Iterator for ParallelSegmentIterator {
-            type Item = tantivy::index::SegmentId;
-            fn next(&mut self) -> Option<Self::Item> {
-                pgrx::check_for_interrupts!();
-                unsafe {
-                    crate::postgres::customscan::parallel::checkout_segment(self.parallel_state)
-                }
-            }
-        }
+        self.search_lazy_with(estimated_rows, ParallelSegmentIterator { parallel_state })
+    }
 
-        let segment_ids = ParallelSegmentIterator { parallel_state };
+    /// Source-aware variant of [`Self::search_lazy`] used by MPP for non-partitioning sources.
+    /// Each worker claims segments from `source_idx`'s pool in [`ParallelScanState`] via
+    /// `checkout_segment_for_source` instead of the single partitioning-source counter that
+    /// `search_lazy` uses, so two scans of different sources don't race on the same counter.
+    pub fn search_lazy_for_source(
+        &self,
+        parallel_state: *mut crate::postgres::ParallelScanState,
+        source_idx: usize,
+        estimated_rows: u64,
+    ) -> MultiSegmentSearchResults {
+        self.search_lazy_with(
+            estimated_rows,
+            PerSourceSegmentIterator {
+                parallel_state,
+                source_idx,
+            },
+        )
+    }
 
+    fn search_lazy_with<I>(&self, estimated_rows: u64, segment_ids: I) -> MultiSegmentSearchResults
+    where
+        I: Iterator<Item = tantivy::index::SegmentId> + Send + Sync + 'static,
+    {
         let searcher = self.searcher.clone();
         let query = self.query.box_clone();
         let need_scores = self.need_scores;

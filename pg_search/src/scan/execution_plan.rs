@@ -93,9 +93,23 @@ pub enum ScanRecipe {
         segment_ids: Vec<SegmentId>,
         scanner_config: ScannerConfig,
     },
-    /// Lazy scan: segments are claimed dynamically from parallel state.
+    /// Lazy scan: segments are claimed dynamically from parallel state's single
+    /// (partitioning-source) counter via `checkout_segment`. Used by the basescan IAM
+    /// path, the MPP partitioning source, and non-MPP parallel hash join.
     Lazy {
         parallel_state: Option<*mut ParallelScanState>,
+        planner_estimated_rows: u64,
+        scanner_config: ScannerConfig,
+    },
+    /// Lazy scan for a specific source under MPP: claims segments from a per-source pool
+    /// via `checkout_segment_for_source(source_idx)`. Used by every non-partitioning source
+    /// in the multi-source MPP plan so each source's segments are split across workers
+    /// instead of replicated. The partitioning source keeps using `Lazy` because the
+    /// existing `checkout_segment` path also updates the per-segment `claims` array that
+    /// `EXPLAIN ANALYZE` displays.
+    LazyForSource {
+        parallel_state: *mut ParallelScanState,
+        source_idx: usize,
         planner_estimated_rows: u64,
         scanner_config: ScannerConfig,
     },
@@ -232,6 +246,10 @@ impl PgSearchScanPlan {
                         .reader
                         .estimated_docs_in_segments(segment_ids.iter().cloned()),
                     ScanRecipe::Lazy {
+                        planner_estimated_rows,
+                        ..
+                    }
+                    | ScanRecipe::LazyForSource {
                         planner_estimated_rows,
                         ..
                     } => *planner_estimated_rows,
@@ -496,6 +514,21 @@ impl ExecutionPlan for PgSearchScanPlan {
                             } else {
                                 reader.search()
                             };
+                            (res, scanner_config)
+                        }
+                        ScanRecipe::LazyForSource {
+                            parallel_state,
+                            source_idx,
+                            planner_estimated_rows,
+                            scanner_config,
+                        } => {
+                            // MPP non-partitioning source: each worker claims segments from
+                            // this source's per-source pool in `ParallelScanState`.
+                            let res = reader.search_lazy_for_source(
+                                parallel_state,
+                                source_idx,
+                                planner_estimated_rows,
+                            );
                             (res, scanner_config)
                         }
                         ScanRecipe::Prefetched { .. } => unreachable!(),

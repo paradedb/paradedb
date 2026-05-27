@@ -68,8 +68,19 @@ const MIN_TOTAL_WORKER_COUNT: i32 = 3;
 
 /// True iff `paradedb.enable_mpp = on` and `paradedb.mpp_worker_count >=
 /// MIN_TOTAL_WORKER_COUNT`. Customscan path-builders gate `parallel_workers` on this.
+/// Also requires that the system has enough `max_parallel_workers` and
+/// `max_parallel_workers_per_gather` to launch the requested number of producers.
 pub fn mpp_is_active() -> bool {
-    enable_mpp() && gucs_mpp_worker_count() >= MIN_TOTAL_WORKER_COUNT
+    let active = enable_mpp() && gucs_mpp_worker_count() >= MIN_TOTAL_WORKER_COUNT;
+    if !active {
+        return false;
+    }
+
+    let producer_count = gucs_mpp_worker_count() - 1;
+    let max_per_gather = unsafe { pg_sys::max_parallel_workers_per_gather };
+    let max_workers = unsafe { pg_sys::max_parallel_workers };
+
+    producer_count <= max_per_gather && producer_count <= max_workers
 }
 
 /// Total proc count: leader + producers. Equals the GUC value when [`mpp_is_active`] is

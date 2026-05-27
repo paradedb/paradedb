@@ -169,7 +169,7 @@ impl SerialIndexWriter {
         let directory = mvcc_satisfies.directory(index_relation);
         let mut index = Index::open(directory)?;
         if has_vector_field {
-            set_ivf_clusterer(&mut index);
+            set_ivf_clusterer(&mut index, index_relation.options());
         }
         setup_tokenizers(index_relation, &mut index)?;
         let ctid_field = schema.ctid_field();
@@ -213,7 +213,7 @@ impl SerialIndexWriter {
         };
         let mut index = Index::create(directory, tantivy_schema, settings)?;
         if schema.has_vector_field() {
-            set_ivf_clusterer(&mut index);
+            set_ivf_clusterer(&mut index, options);
         }
         setup_tokenizers(index_relation, &mut index)?;
         let ctid_field = schema.ctid_field();
@@ -394,7 +394,7 @@ impl SearchIndexMerger {
         let schema = indexrel.schema()?;
         let mut index = Index::open(directory.clone())?;
         if schema.has_vector_field() {
-            set_ivf_clusterer(&mut index);
+            set_ivf_clusterer(&mut index, indexrel.options());
         }
         Ok(Self {
             index,

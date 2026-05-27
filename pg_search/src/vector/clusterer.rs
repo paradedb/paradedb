@@ -21,6 +21,8 @@ use superkmeans::{HierarchicalSuperKMeans, HierarchicalSuperKMeansConfig, SuperK
 use tantivy::vector::{IvfCentroids, IvfClusterer, IvfMatrix, IvfVectors, Metric, VectorOptions};
 use tantivy::{Index, TantivyError};
 
+use crate::postgres::options::BM25IndexOptions;
+
 #[cfg(target_os = "macos")]
 const DEFAULT_ASSIGN_BATCH_SIZE: usize = 40_960;
 #[cfg(not(target_os = "macos"))]
@@ -53,6 +55,19 @@ impl Default for SuperKMeansIvfClusterer {
 impl SuperKMeansIvfClusterer {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_centroid_ratio(mut self, centroid_ratio: f32) -> Self {
+        self.centroid_ratio = centroid_ratio;
+        self
+    }
+
+    pub fn with_training_samples_per_centroid(
+        mut self,
+        training_samples_per_centroid: usize,
+    ) -> Self {
+        self.training_samples_per_centroid = training_samples_per_centroid;
+        self
     }
 }
 
@@ -191,8 +206,11 @@ impl IvfClusterer for SuperKMeansIvfClusterer {
     }
 }
 
-pub fn set_ivf_clusterer(index: &mut Index) {
-    index.set_ivf_clusterer(Arc::new(SuperKMeansIvfClusterer::new()));
+pub fn set_ivf_clusterer(index: &mut Index, options: &BM25IndexOptions) {
+    let clusterer = SuperKMeansIvfClusterer::new()
+        .with_centroid_ratio(options.centroid_ratio())
+        .with_training_samples_per_centroid(options.training_samples_per_centroid());
+    index.set_ivf_clusterer(Arc::new(clusterer));
 }
 
 fn to_tantivy_error(error: SuperKMeansError) -> TantivyError {

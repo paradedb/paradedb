@@ -129,7 +129,7 @@ static MIN_ROWS_PER_WORKER: GucSetting<i32> = GucSetting::<i32>::new(300000);
 /// parallel divisor; the serial path pays the full segment-walk cost.
 ///
 /// See: https://github.com/paradedb/paradedb/issues/4664
-static PER_SEGMENT_COST: GucSetting<f64> = GucSetting::<f64>::new(50.0);
+static PER_SEGMENT_COST: GucSetting<f64> = GucSetting::<f64>::new(10.0);
 const MAX_PER_SEGMENT_COST: f64 = 1.0e9;
 
 /// Override the scanner batch size when dynamic filters are pushed down.
@@ -484,9 +484,9 @@ pub fn init() {
         c"Per-segment fixed cost added to TopK work cost",
         c"Models the cost of opening and walking one segment for TopK queries. The serial \
           path pays segment_count * per_segment_cost; the parallel path divides this by \
-          PostgreSQL's parallel divisor. This lets the bounded TopK cost model account for \
+          the selected worker divisor. This lets the bounded TopK cost model account for \
           segment participation without globally inflating unrelated scans. \
-          Default 50.0; calibrated empirically. See paradedb/paradedb#4664.",
+          Default 10.0; calibrated empirically. See paradedb/paradedb#4664.",
         &PER_SEGMENT_COST,
         0.0,
         MAX_PER_SEGMENT_COST,

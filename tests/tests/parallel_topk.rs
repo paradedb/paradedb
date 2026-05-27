@@ -87,7 +87,7 @@ fn set_cost_defaults(conn: &mut PgConnection) {
     SET min_parallel_table_scan_size = 0;
     SET paradedb.global_mutable_segment_rows = 0;
     SET paradedb.min_rows_per_worker = 300000;
-    SET paradedb.per_segment_cost = 50;
+    SET paradedb.per_segment_cost = 10;
     "#
     .execute(conn);
 }
@@ -349,7 +349,7 @@ fn cost_based_topk_plan_shapes(mut conn: PgConnection) {
             expected_workers: Some(2),
         },
     );
-    "SET paradedb.per_segment_cost = 50;".execute(&mut conn);
+    "SET paradedb.per_segment_cost = 10;".execute(&mut conn);
 
     "SET plan_cache_mode = force_generic_plan;".execute(&mut conn);
     r#"

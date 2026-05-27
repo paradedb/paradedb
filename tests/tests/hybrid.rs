@@ -37,7 +37,6 @@ fn hybrid_deprecated(mut conn: PgConnection) {
         text_fields = '{"description": {}, "category": {}}',
         numeric_fields = '{"rating": {}}',
         boolean_fields = '{"in_stock": {}}',
-        datetime_fields = '{"created_at": {}}',
         json_fields = '{"metadata": {}}'
     );
 

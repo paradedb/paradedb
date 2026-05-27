@@ -386,8 +386,21 @@ impl DrainBuffer {
 /// Outcome of a single non-blocking receive attempt.
 #[derive(Debug)]
 pub(super) enum RecvOutcome {
-    /// One serialized Arrow IPC message ready to decode.
+    /// One serialized Arrow IPC message ready to decode. The cross-proc path
+    /// (DSM MPSC inbox) always returns this variant.
     Bytes(Vec<u8>),
+    /// Zero-copy `RecordBatch` ready to feed into the drain registry without
+    /// going through Arrow IPC. Only in-proc channels (the self-loop) emit
+    /// this — same-process producer and consumer skip the encode + decode
+    /// round trip and hand the batch over by `Arc`-clone.
+    DirectBatch {
+        header: MppFrameHeader,
+        batch: RecordBatch,
+    },
+    /// Zero-copy per-channel EOF from an in-proc sender. Same semantics as
+    /// the `Eof` frame decoded from a `Bytes` payload, but without the
+    /// 16-byte encode/decode trip.
+    DirectEof { header: MppFrameHeader },
     /// No data currently available but the peer is still attached.
     Empty,
     /// The peer has detached; no more bytes will ever arrive on this channel.
@@ -432,6 +445,31 @@ pub(crate) trait BatchChannelSender: Send + Sync {
     /// for in-proc channels used by tests where "full" doesn't arise.
     fn try_send_bytes(&self, bytes: &[u8]) -> Result<bool, DataFusionError> {
         self.send_bytes(bytes).map(|()| true)
+    }
+
+    /// Optional zero-copy fast path used by in-proc (self-loop) channels.
+    /// Default returns `None` — callers must serialize via `encode_frame_into`
+    /// and use [`Self::try_send_bytes`]. In-proc impls return `Some(...)` and
+    /// push the `RecordBatch` straight through to the receiver, skipping Arrow
+    /// IPC encode + decode entirely. `Some(Ok(true))` is success, `Some(Ok(false))`
+    /// means the in-proc queue is full and the caller should yield + retry,
+    /// `Some(Err(_))` means the receiver has detached.
+    fn try_send_direct_batch(
+        &self,
+        _header: &MppFrameHeader,
+        _batch: &RecordBatch,
+    ) -> Option<Result<bool, DataFusionError>> {
+        None
+    }
+
+    /// Optional zero-copy fast path for the per-channel EOF frame. Same
+    /// contract as [`Self::try_send_direct_batch`]; default `None` means the
+    /// caller falls back to [`encode_eof_frame_into`] + `try_send_bytes`.
+    fn try_send_direct_eof(
+        &self,
+        _header: &MppFrameHeader,
+    ) -> Option<Result<bool, DataFusionError>> {
+        None
     }
 
     /// Async lock the send paths hold across the cooperative-drain spin so two tasks can't
@@ -617,6 +655,21 @@ impl MppSender {
         scratch: &mut Vec<u8>,
         stats: &mut SendBatchStats,
     ) -> Result<(), DataFusionError> {
+        // Zero-copy in-proc fast path: skip the 16-byte EOF encode + the
+        // cooperative spin entirely. The receiver's in-proc channel surfaces
+        // `RecvOutcome::DirectEof { header }` which `MppReceiver::try_recv_batch`
+        // maps to `RecvBatchOutcome::Eof { header }`, identical to the decoded
+        // cross-proc path.
+        if let Some(first) = self.channel.try_send_direct_eof(&self.header) {
+            return self
+                .direct_send_retry(first, stats, |_| {
+                    self.channel.try_send_direct_eof(&self.header).expect(
+                        "BatchChannelSender: try_send_direct_eof must keep returning Some \
+                     after the first Some",
+                    )
+                })
+                .await;
+        }
         encode_eof_frame_into(
             self.header.stage_id,
             self.header.partition,
@@ -662,6 +715,52 @@ impl MppSender {
         Ok(())
     }
 
+    /// Retry-loop for the zero-copy in-proc fast path. The first `try_send_direct_*`
+    /// already happened (caller passes its result as `first`); we either return
+    /// success immediately, propagate an error, or loop calling `retry` with a brief
+    /// cooperative-drain pass + `yield_now` between attempts when the channel reports
+    /// Full. In-proc channels almost always succeed on the first try; the spin matters
+    /// only when the consumer is briefly behind on the same runtime.
+    ///
+    /// `retry` produces a fresh `Result<bool, _>` (re-invoking `try_send_direct_*`)
+    /// each iteration. The closure is necessary because the borrow of `batch` /
+    /// `self.header` doesn't outlive a normal `for` loop here.
+    async fn direct_send_retry<F>(
+        &self,
+        first: Result<bool, DataFusionError>,
+        stats: &mut SendBatchStats,
+        mut retry: F,
+    ) -> Result<(), DataFusionError>
+    where
+        F: FnMut(&Self) -> Result<bool, DataFusionError>,
+    {
+        let mut result = first;
+        let mut first_try = true;
+        let t_wait_start = Instant::now();
+        loop {
+            match result {
+                Ok(true) => {
+                    if !first_try {
+                        stats.send_wait += t_wait_start.elapsed();
+                    }
+                    return Ok(());
+                }
+                Ok(false) => {
+                    first_try = false;
+                    stats.spin_iters += 1;
+                    if let Some(drain) = self.cooperative_drain.as_ref() {
+                        let t_drain = Instant::now();
+                        drain.try_drain_pass()?;
+                        stats.coop_drain_in_spin += t_drain.elapsed();
+                    }
+                    tokio::task::yield_now().await;
+                    result = retry(self);
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
     /// Spin-loop helper: call `channel.try_send_bytes(scratch)`. Routes through `ffi_relay`
     /// when attached. The relay-routed path moves the encoded buffer through the channel
     /// and the service returns it back, so there's exactly one alloc per batch (the
@@ -696,6 +795,22 @@ impl MppSender {
         scratch: &mut Vec<u8>,
         stats: &mut SendBatchStats,
     ) -> Result<(), DataFusionError> {
+        // Zero-copy in-proc fast path: bypass Arrow IPC encode/decode and hand the
+        // RecordBatch over by Arc-clone. Saves the encode_frame_into work on the
+        // producer and the decode_frame work on the receiver — together a meaningful
+        // fraction of shuffle CPU since the self-loop carries 1/N of all rows.
+        if let Some(first) = self.channel.try_send_direct_batch(&self.header, batch) {
+            return self
+                .direct_send_retry(first, stats, |_| {
+                    self.channel
+                        .try_send_direct_batch(&self.header, batch)
+                        .expect(
+                            "BatchChannelSender: try_send_direct_batch must keep returning Some \
+                         after the first Some",
+                        )
+                })
+                .await;
+        }
         let t_enc = Instant::now();
         encode_frame_into(self.header, batch, scratch)?;
         stats.encode += t_enc.elapsed();
@@ -790,6 +905,10 @@ impl MppReceiver {
                 Ok((header, None)) => RecvBatchOutcome::Eof { header },
                 Err(e) => RecvBatchOutcome::Error(e),
             },
+            // Zero-copy in-proc fast path: bypass Arrow IPC decode and surface the
+            // batch / EOF as if it had been decoded.
+            RecvOutcome::DirectBatch { header, batch } => RecvBatchOutcome::Batch { header, batch },
+            RecvOutcome::DirectEof { header } => RecvBatchOutcome::Eof { header },
             RecvOutcome::Empty => RecvBatchOutcome::Empty,
             RecvOutcome::Detached => RecvBatchOutcome::Detached,
         }
@@ -1008,6 +1127,27 @@ impl Drop for DrainHandle {
         self.cancel_channel_buffers();
     }
 }
+/// Multiplexed payload carried by the in-proc channel. Same channel supports
+/// both the legacy byte path (for tests / cross-trait callers that still need
+/// `send_bytes`) and the zero-copy hand-off used by the production self-loop.
+/// Wrapped in an enum so a single `sync_channel` keeps frame ordering between
+/// the two paths — a producer that sends a batch followed by an EOF can rely on
+/// the receiver seeing them in that order regardless of which path each frame
+/// took.
+pub(super) enum InProcMessage {
+    /// Arrow IPC bytes; receiver must `decode_frame` to recover the batch.
+    Bytes(Vec<u8>),
+    /// Zero-copy: producer hands the `RecordBatch` directly via `Arc`-clone,
+    /// receiver returns it as `RecvOutcome::DirectBatch` without going through
+    /// Arrow IPC.
+    DirectBatch {
+        header: MppFrameHeader,
+        batch: RecordBatch,
+    },
+    /// Zero-copy per-channel EOF; receiver returns `RecvOutcome::DirectEof`.
+    DirectEof { header: MppFrameHeader },
+}
+
 /// SPSC channel pair for two use cases:
 /// - Unit tests (bounded capacity, exercising backpressure).
 /// - Production self-loop slots: when a worker's fragment emits a partition destined for its OWN
@@ -1022,7 +1162,7 @@ impl Drop for DrainHandle {
 /// via `yield_now().await`, so backpressure would be benign anyway, but unbounded rules out any
 /// chance of self-deadlock if the producer never yields.
 pub(super) fn in_proc_channel(capacity: usize) -> (InProcSender, InProcReceiver) {
-    let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(capacity);
+    let (tx, rx) = std::sync::mpsc::sync_channel::<InProcMessage>(capacity);
     (
         InProcSender {
             tx,
@@ -1033,10 +1173,10 @@ pub(super) fn in_proc_channel(capacity: usize) -> (InProcSender, InProcReceiver)
 }
 
 pub(super) struct InProcSender {
-    tx: std::sync::mpsc::SyncSender<Vec<u8>>,
+    tx: std::sync::mpsc::SyncSender<InProcMessage>,
     /// Per-instance lock so the [`BatchChannelSender::send_lock`] contract holds even when an
     /// in-proc channel ends up in a code path that would otherwise need serialization. In-proc
-    /// `send_bytes` is already atomic (each call pushes a complete `Vec<u8>`), so the lock is
+    /// `send_bytes` is already atomic (each call pushes a complete message), so the lock is
     /// effectively a no-op here, but keeping it uniform with `ShmMqSender` avoids special-casing
     /// the caller.
     send_lock: tokio::sync::Mutex<()>,
@@ -1048,24 +1188,64 @@ pub(super) struct InProcReceiver {
     // `Send + Sync`-relaxed by design, but we only need Send for the thread
     // hand-off). Tests only ever access from one thread so the Mutex is
     // uncontended.
-    rx: Mutex<std::sync::mpsc::Receiver<Vec<u8>>>,
+    rx: Mutex<std::sync::mpsc::Receiver<InProcMessage>>,
+}
+
+impl InProcSender {
+    fn map_try_send_err(
+        err: std::sync::mpsc::TrySendError<InProcMessage>,
+    ) -> Result<bool, DataFusionError> {
+        match err {
+            std::sync::mpsc::TrySendError::Full(_) => Ok(false),
+            std::sync::mpsc::TrySendError::Disconnected(_) => Err(DataFusionError::Execution(
+                "mpp: in-proc channel detached during try_send".into(),
+            )),
+        }
+    }
 }
 
 impl BatchChannelSender for InProcSender {
     fn send_bytes(&self, bytes: &[u8]) -> Result<(), DataFusionError> {
-        self.tx.send(bytes.to_vec()).map_err(|_| {
-            DataFusionError::Execution("mpp: in-proc channel detached during send".into())
-        })
+        self.tx
+            .send(InProcMessage::Bytes(bytes.to_vec()))
+            .map_err(|_| {
+                DataFusionError::Execution("mpp: in-proc channel detached during send".into())
+            })
     }
 
     fn try_send_bytes(&self, bytes: &[u8]) -> Result<bool, DataFusionError> {
-        match self.tx.try_send(bytes.to_vec()) {
+        match self.tx.try_send(InProcMessage::Bytes(bytes.to_vec())) {
             Ok(()) => Ok(true),
-            Err(std::sync::mpsc::TrySendError::Full(_)) => Ok(false),
-            Err(std::sync::mpsc::TrySendError::Disconnected(_)) => Err(DataFusionError::Execution(
-                "mpp: in-proc channel detached during try_send".into(),
-            )),
+            Err(e) => Self::map_try_send_err(e),
         }
+    }
+
+    fn try_send_direct_batch(
+        &self,
+        header: &MppFrameHeader,
+        batch: &RecordBatch,
+    ) -> Option<Result<bool, DataFusionError>> {
+        // RecordBatch clone is cheap — each column is an Arc; this just bumps
+        // the refcounts. No data is copied.
+        let msg = InProcMessage::DirectBatch {
+            header: *header,
+            batch: batch.clone(),
+        };
+        Some(match self.tx.try_send(msg) {
+            Ok(()) => Ok(true),
+            Err(e) => Self::map_try_send_err(e),
+        })
+    }
+
+    fn try_send_direct_eof(
+        &self,
+        header: &MppFrameHeader,
+    ) -> Option<Result<bool, DataFusionError>> {
+        let msg = InProcMessage::DirectEof { header: *header };
+        Some(match self.tx.try_send(msg) {
+            Ok(()) => Ok(true),
+            Err(e) => Self::map_try_send_err(e),
+        })
     }
 
     fn send_lock(&self) -> &tokio::sync::Mutex<()> {
@@ -1077,7 +1257,11 @@ impl BatchChannelReceiver for InProcReceiver {
     fn try_recv(&self) -> RecvOutcome {
         let rx = self.rx.lock().expect("InProcReceiver mutex poisoned");
         match rx.try_recv() {
-            Ok(bytes) => RecvOutcome::Bytes(bytes),
+            Ok(InProcMessage::Bytes(bytes)) => RecvOutcome::Bytes(bytes),
+            Ok(InProcMessage::DirectBatch { header, batch }) => {
+                RecvOutcome::DirectBatch { header, batch }
+            }
+            Ok(InProcMessage::DirectEof { header }) => RecvOutcome::DirectEof { header },
             Err(std::sync::mpsc::TryRecvError::Empty) => RecvOutcome::Empty,
             Err(std::sync::mpsc::TryRecvError::Disconnected) => RecvOutcome::Detached,
         }
@@ -1498,6 +1682,83 @@ mod tests {
             receiver.try_recv_batch(),
             RecvBatchOutcome::Detached
         ));
+    }
+
+    /// `InProcSender::try_send_direct_batch` returns `Some(Ok(true))` and the
+    /// receiver surfaces `RecvOutcome::DirectBatch` — no Arrow IPC encode/decode.
+    /// Same for the EOF variant. Asserts the zero-copy path is wired end-to-end.
+    #[test]
+    fn in_proc_channel_uses_direct_path_for_batch_and_eof() {
+        let (tx, rx) = in_proc_channel(8);
+        let header = MppFrameHeader::batch(11, 3, 7);
+        let batch = sample_batch(5);
+
+        // Direct batch send + recv.
+        let send_result = tx
+            .try_send_direct_batch(&header, &batch)
+            .expect("InProcSender must support try_send_direct_batch");
+        assert!(send_result.unwrap());
+        match rx.try_recv() {
+            RecvOutcome::DirectBatch {
+                header: got_hdr,
+                batch: got_batch,
+            } => {
+                assert_eq!(got_hdr, header);
+                assert_eq!(got_batch.num_rows(), 5);
+                assert_eq!(got_batch.num_columns(), batch.num_columns());
+            }
+            other => panic!("expected DirectBatch, got {other:?}"),
+        }
+
+        // Direct EOF send + recv.
+        let eof_result = tx
+            .try_send_direct_eof(&header)
+            .expect("InProcSender must support try_send_direct_eof");
+        assert!(eof_result.unwrap());
+        match rx.try_recv() {
+            RecvOutcome::DirectEof { header: got_hdr } => assert_eq!(got_hdr, header),
+            other => panic!("expected DirectEof, got {other:?}"),
+        }
+    }
+
+    /// Confirm the zero-copy contract: the `RecordBatch` the receiver gets out
+    /// of the in-proc channel shares the same underlying Arrow buffer with the
+    /// one the producer sent (the `Arc<ArrayData>` pointers match). If a future
+    /// change reverts to encode-via-IPC for self-loops, the buffer pointers
+    /// would diverge because the receiver-side `decode_frame` produces a fresh
+    /// allocation.
+    #[test]
+    fn in_proc_direct_batch_preserves_underlying_arrow_buffer() {
+        let (tx, rx) = in_proc_channel(8);
+        let header = MppFrameHeader::batch(0, 0, 0);
+        let original = sample_batch(8);
+        let original_data_ptr = original
+            .column(0)
+            .to_data()
+            .buffers()
+            .first()
+            .map(|b| b.as_ptr())
+            .expect("sample column 0 must have a buffer");
+
+        let sender = MppSender::with_header(Arc::new(tx), header);
+        sender.send_batch(&original).unwrap();
+
+        let received = match MppReceiver::new(Box::new(rx)).try_recv_batch() {
+            RecvBatchOutcome::Batch { batch, .. } => batch,
+            other => panic!("expected Batch, got {other:?}"),
+        };
+        let received_data_ptr = received
+            .column(0)
+            .to_data()
+            .buffers()
+            .first()
+            .map(|b| b.as_ptr())
+            .expect("received column 0 must have a buffer");
+        assert_eq!(
+            original_data_ptr, received_data_ptr,
+            "zero-copy in-proc shuffle must hand back the same Arrow buffer; \
+             if you see this fail, the self-loop is going back through Arrow IPC"
+        );
     }
 
     #[test]

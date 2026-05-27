@@ -527,6 +527,10 @@ mod tests {
                 }
                 RecvOutcome::Empty => std::thread::yield_now(),
                 RecvOutcome::Detached => panic!("unexpected detach"),
+                RecvOutcome::DirectBatch { .. } | RecvOutcome::DirectEof { .. } => {
+                    // DsmInbox never emits the direct variants — only in-proc channels do.
+                    panic!("dsm inbox should never emit a direct variant");
+                }
             }
         }
         for h in handles {

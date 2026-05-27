@@ -721,12 +721,17 @@ mod tests {
     }
 
     /// Allocate a heap region big enough for a ring with `ring_size` slots of
-    /// `slot_capacity` bytes each, initialize it, and return (receiver, sender_template,
-    /// owner) where the owner keeps the region alive. The test drops the owner last.
+    /// `slot_capacity` bytes each, initialize it, and return `(owner, receiver,
+    /// sender_template)`. The owner is returned first so callers bind it first —
+    /// Rust drops locals in reverse declaration order, so `_region` bound first drops
+    /// last, after the handles whose `Drop` impls touch the region's memory. Reverse
+    /// that order and `_region` frees the bytes before `tx_template`'s
+    /// `sender_count.fetch_sub` runs, which is undefined behavior and surfaces as a
+    /// stochastic SEGV/SIGTRAP at process teardown.
     fn make_ring(
         ring_size: u32,
         slot_capacity: u32,
-    ) -> (DsmMpscReceiver, DsmMpscSender, AlignedRegion) {
+    ) -> (AlignedRegion, DsmMpscReceiver, DsmMpscSender) {
         let bytes = DsmMpscRingHeader::region_bytes(ring_size, slot_capacity);
         let region = AlignedRegion::new(bytes);
         let header_ptr = unsafe { create_at(region.as_mut_ptr(), ring_size, slot_capacity) };
@@ -735,12 +740,12 @@ mod tests {
         // ring is the synchronization point; the handles are stateless wrappers.
         let receiver = unsafe { DsmMpscReceiver::new(nn) };
         let sender = unsafe { DsmMpscSender::new(nn) };
-        (receiver, sender, region)
+        (region, receiver, sender)
     }
 
     #[test]
     fn spsc_round_trip_under_capacity() {
-        let (rx, tx, _region) = make_ring(4, 64);
+        let (_region, rx, tx) = make_ring(4, 64);
         for i in 0..3u8 {
             tx.try_send(&[i, i + 1, i + 2]).unwrap();
         }
@@ -754,7 +759,7 @@ mod tests {
 
     #[test]
     fn fills_then_full_then_drains() {
-        let (rx, tx, _region) = make_ring(4, 64);
+        let (_region, rx, tx) = make_ring(4, 64);
         for i in 0..4u32 {
             tx.try_send(&i.to_le_bytes()).unwrap();
         }
@@ -774,7 +779,7 @@ mod tests {
 
     #[test]
     fn detach_blocks_subsequent_sends() {
-        let (rx, tx, _region) = make_ring(4, 64);
+        let (_region, rx, tx) = make_ring(4, 64);
         tx.try_send(b"keep").unwrap();
         rx.set_detached();
         assert!(rx.is_detached());
@@ -788,7 +793,7 @@ mod tests {
 
     #[test]
     fn message_too_large_is_rejected() {
-        let (_rx, tx, _region) = make_ring(2, 32);
+        let (_region, _rx, tx) = make_ring(2, 32);
         // payload_cap = 32 - SLOT_HEADER_BYTES; one byte over is too large.
         let payload_cap = 32 - SLOT_HEADER_BYTES;
         let oversize = vec![0u8; payload_cap + 1];
@@ -805,7 +810,7 @@ mod tests {
     fn mpsc_no_lost_messages_under_contention() {
         const K_PRODUCERS: usize = 8;
         const M_PER_PRODUCER: u32 = 2000;
-        let (rx, tx_template, _region) = make_ring(64, 32);
+        let (_region, rx, tx_template) = make_ring(64, 32);
         // Wrap region pointer in something we can share across threads. The handles
         // themselves are Send, so we clone via NonNull copy.
         let ring_nn = SharedRing(tx_template.ring);
@@ -874,7 +879,7 @@ mod tests {
     fn mpsc_preserves_per_producer_order() {
         const K_PRODUCERS: usize = 4;
         const M_PER_PRODUCER: u32 = 500;
-        let (rx, tx_template, _region) = make_ring(32, 32);
+        let (_region, rx, tx_template) = make_ring(32, 32);
         let ring_nn = SharedRing(tx_template.ring);
         let mut handles = Vec::with_capacity(K_PRODUCERS);
         for producer_id in 0..K_PRODUCERS {
@@ -983,7 +988,7 @@ mod tests {
     #[test]
     fn drain_completes_after_detach_under_load() {
         const K_PRODUCERS: usize = 4;
-        let (rx, tx_template, _region) = make_ring(16, 32);
+        let (_region, rx, tx_template) = make_ring(16, 32);
         let ring_nn = SharedRing(tx_template.ring);
         let stop = Arc::new(AtomicBool::new(false));
         let sent_count = Arc::new(AtomicUsize::new(0));
@@ -1038,7 +1043,7 @@ mod tests {
     fn mpsc_stress_at_production_worst_case() {
         const K_PRODUCERS: usize = 24;
         const M_PER_PRODUCER: u32 = 500;
-        let (rx, tx_template, _region) = make_ring(64, 32);
+        let (_region, rx, tx_template) = make_ring(64, 32);
         let ring_nn = SharedRing(tx_template.ring);
         let mut handles = Vec::with_capacity(K_PRODUCERS);
         for producer_id in 0..K_PRODUCERS {

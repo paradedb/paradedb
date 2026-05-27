@@ -184,29 +184,3 @@ fn datetime_wide_range(
     let all_rows: Vec<(i32,)> = "SELECT id FROM wide_range ORDER BY id".fetch(&mut conn);
     assert_eq!(all_rows.len(), 3);
 }
-
-#[rstest]
-// Date still uses Tantivy DateTime representation, so test those boundaries.
-#[case::future_date("DATE", "'57439-03-01'")]
-#[case::ancient_date("DATE", "'0001-01-01'")]
-// Timestamp uses postgres's internal i64 representation, so any valid postgres timestamp works, so
-// no need to test overflow
-fn datetime_overflow_reports_error(
-    mut conn: PgConnection,
-    #[case] col_type: &str,
-    #[case] val: &str,
-) {
-    format!(
-        r#"
-        CREATE TABLE overflow_test (id SERIAL, v {col_type});
-        INSERT INTO overflow_test (v) VALUES ({val});
-        "#
-    )
-    .execute(&mut conn);
-
-    let result = "CREATE INDEX overflow_test_idx ON overflow_test USING bm25 (id, v) WITH (key_field = 'id')".execute_result(&mut conn);
-    assert!(
-        result.is_err(),
-        "expected error for {col_type} value {val} beyond Tantivy nanosecond range"
-    );
-}

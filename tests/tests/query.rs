@@ -133,7 +133,17 @@ fn match_conjunction_array_fuzzy_boost_cast_chain(mut conn: PgConnection) {
     "#
     .fetch(&mut conn);
 
+    assert_eq!(
+        fuzzy_then_boost.len(),
+        boost_then_fuzzy.len(),
+        "cast order should produce the same number of rows"
+    );
     assert_eq!(fuzzy_then_boost, boost_then_fuzzy);
+    assert_eq!(
+        fuzzy_only.len(),
+        fuzzy_then_boost.len(),
+        "boost should not change which rows match"
+    );
     assert_eq!(
         fuzzy_only.iter().map(|(id, _)| id).collect::<Vec<_>>(),
         fuzzy_then_boost
@@ -142,10 +152,20 @@ fn match_conjunction_array_fuzzy_boost_cast_chain(mut conn: PgConnection) {
             .collect::<Vec<_>>()
     );
 
+    // Boost scales per-term scores, and BM25 doc scores aggregate via Tantivy's
+    // BoostQuery, so the boost factor does not multiply final doc scores
+    // exactly. Assert ordering preservation (boosted >= fuzzy_only score) and a
+    // generous proportional bound rather than f32::EPSILON.
     for ((id, fuzzy_score), (_, boosted_score)) in fuzzy_only.iter().zip(&fuzzy_then_boost) {
         assert!(
-            (boosted_score - (fuzzy_score * 2.0)).abs() < f32::EPSILON,
-            "expected boosted score for id {id} to be double the fuzzy score"
+            *boosted_score >= *fuzzy_score,
+            "boosted score for id {id} ({boosted_score}) should be >= unboosted ({fuzzy_score})"
+        );
+        let tolerance = (fuzzy_score.abs() * 2.0).max(1.0) * 1e-3;
+        assert!(
+            (boosted_score - fuzzy_score * 2.0).abs() < tolerance,
+            "boosted score for id {id} ({boosted_score}) should be within {tolerance} of 2x fuzzy_score ({})",
+            fuzzy_score * 2.0
         );
     }
 }

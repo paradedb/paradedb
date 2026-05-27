@@ -102,6 +102,55 @@ fn fuzzy_term(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn match_conjunction_array_fuzzy_boost_cast_chain(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    let fuzzy_only: Vec<(i32, f32)> = r#"
+        SELECT id, pdb.score(id)
+        FROM paradedb.bm25_search
+        WHERE description &&& ARRAY['running', 'shoes']::pdb.fuzzy(2)
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+    assert!(
+        !fuzzy_only.is_empty(),
+        "test query should match at least one product"
+    );
+
+    let fuzzy_then_boost: Vec<(i32, f32)> = r#"
+        SELECT id, pdb.score(id)
+        FROM paradedb.bm25_search
+        WHERE description &&& ARRAY['running', 'shoes']::pdb.fuzzy(2)::pdb.boost(2)
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    let boost_then_fuzzy: Vec<(i32, f32)> = r#"
+        SELECT id, pdb.score(id)
+        FROM paradedb.bm25_search
+        WHERE description &&& ARRAY['running', 'shoes']::pdb.boost(2)::pdb.fuzzy(2)
+        ORDER BY id
+    "#
+    .fetch(&mut conn);
+
+    assert_eq!(fuzzy_then_boost, boost_then_fuzzy);
+    assert_eq!(
+        fuzzy_only.iter().map(|(id, _)| id).collect::<Vec<_>>(),
+        fuzzy_then_boost
+            .iter()
+            .map(|(id, _)| id)
+            .collect::<Vec<_>>()
+    );
+
+    for ((id, fuzzy_score), (_, boosted_score)) in fuzzy_only.iter().zip(&fuzzy_then_boost) {
+        assert!(
+            (boosted_score - (fuzzy_score * 2.0)).abs() < f32::EPSILON,
+            "expected boosted score for id {id} to be double the fuzzy score"
+        );
+    }
+}
+
+#[rstest]
 fn single_queries(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 

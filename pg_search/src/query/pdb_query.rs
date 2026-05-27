@@ -1447,6 +1447,7 @@ fn range(
             // For JSON fields, convert string numeric values to appropriate JSON types
             let lower = map_bound(lower_bound, string_to_json_numeric);
             let upper = map_bound(upper_bound, string_to_json_numeric);
+            let (lower, upper) = normalize_json_range_bounds(lower, upper)?;
             check_range_bounds(typeoid, lower, upper)?
         }
         SearchFieldType::I64(_) => {
@@ -1508,7 +1509,119 @@ fn range(
         Bound::Unbounded => Bound::Unbounded,
     };
 
+    validate_range_term_bounds(&lower_bound, &upper_bound)?;
+
     Ok(Box::new(RangeQuery::new(lower_bound, upper_bound)))
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum JsonNumericType {
+    I64,
+    U64,
+    F64,
+}
+
+fn json_numeric_type(value: &OwnedValue) -> Option<JsonNumericType> {
+    match value {
+        OwnedValue::I64(_) => Some(JsonNumericType::I64),
+        OwnedValue::U64(_) => Some(JsonNumericType::U64),
+        OwnedValue::F64(_) => Some(JsonNumericType::F64),
+        _ => None,
+    }
+}
+
+fn bound_json_numeric_type(bound: &Bound<OwnedValue>) -> Option<JsonNumericType> {
+    match bound {
+        Bound::Included(value) | Bound::Excluded(value) => json_numeric_type(value),
+        Bound::Unbounded => None,
+    }
+}
+
+fn map_json_bound_value<F>(bound: Bound<OwnedValue>, convert: F) -> Bound<OwnedValue>
+where
+    F: Fn(OwnedValue) -> OwnedValue,
+{
+    match bound {
+        Bound::Included(value) => Bound::Included(convert(value)),
+        Bound::Excluded(value) => Bound::Excluded(convert(value)),
+        Bound::Unbounded => Bound::Unbounded,
+    }
+}
+
+fn owned_value_to_f64(value: OwnedValue) -> OwnedValue {
+    match value {
+        OwnedValue::I64(value) => OwnedValue::F64(value as f64),
+        OwnedValue::U64(value) => OwnedValue::F64(value as f64),
+        value => value,
+    }
+}
+
+fn owned_value_to_i64(value: OwnedValue) -> OwnedValue {
+    match value {
+        OwnedValue::U64(value) => i64::try_from(value)
+            .map(OwnedValue::I64)
+            .unwrap_or(OwnedValue::U64(value)),
+        value => value,
+    }
+}
+
+fn bound_has_value(bound: &Bound<OwnedValue>) -> bool {
+    !matches!(bound, Bound::Unbounded)
+}
+
+fn normalize_json_range_bounds(
+    lower_bound: Bound<OwnedValue>,
+    upper_bound: Bound<OwnedValue>,
+) -> Result<(Bound<OwnedValue>, Bound<OwnedValue>), QueryError> {
+    let lower_type = bound_json_numeric_type(&lower_bound);
+    let upper_type = bound_json_numeric_type(&upper_bound);
+
+    if lower_type.is_some() != upper_type.is_some()
+        && bound_has_value(&lower_bound)
+        && bound_has_value(&upper_bound)
+    {
+        return Err(QueryError::FieldTypeMismatch);
+    }
+
+    match (lower_type, upper_type) {
+        (Some(JsonNumericType::F64), Some(_)) | (Some(_), Some(JsonNumericType::F64)) => Ok((
+            map_json_bound_value(lower_bound, owned_value_to_f64),
+            map_json_bound_value(upper_bound, owned_value_to_f64),
+        )),
+        (Some(JsonNumericType::I64), Some(JsonNumericType::U64))
+        | (Some(JsonNumericType::U64), Some(JsonNumericType::I64)) => {
+            let lower = map_json_bound_value(lower_bound, owned_value_to_i64);
+            let upper = map_json_bound_value(upper_bound, owned_value_to_i64);
+            if bound_json_numeric_type(&lower) == bound_json_numeric_type(&upper) {
+                Ok((lower, upper))
+            } else {
+                Ok((
+                    map_json_bound_value(lower, owned_value_to_f64),
+                    map_json_bound_value(upper, owned_value_to_f64),
+                ))
+            }
+        }
+        _ => Ok((lower_bound, upper_bound)),
+    }
+}
+
+fn term_bound_type(bound: &Bound<Term>) -> Option<tantivy::schema::Type> {
+    match bound {
+        Bound::Included(term) | Bound::Excluded(term) => Some(term.typ()),
+        Bound::Unbounded => None,
+    }
+}
+
+fn validate_range_term_bounds(
+    lower_bound: &Bound<Term>,
+    upper_bound: &Bound<Term>,
+) -> Result<(), QueryError> {
+    match (term_bound_type(lower_bound), term_bound_type(upper_bound)) {
+        (Some(lower_type), Some(upper_type)) if lower_type != upper_type => {
+            Err(QueryError::FieldTypeMismatch)
+        }
+        _ => Ok(()),
+    }
 }
 
 fn resolve_search_tokenizer(

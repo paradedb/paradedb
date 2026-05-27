@@ -895,6 +895,171 @@ fn coerce_bound_to_field_type(
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum ParseRangeNumberKind {
+    Integer,
+    Float,
+}
+
+fn normalize_parse_json_range_bounds(
+    query_string: &str,
+    schema: &SearchIndexSchema,
+) -> Result<String, QueryError> {
+    let mut normalized = String::with_capacity(query_string.len());
+    let mut cursor = 0;
+    let mut search_start = 0;
+
+    while let Some((open_idx, open_char)) = find_next_parse_range_open(query_string, search_start) {
+        let close_char = match open_char {
+            '[' => ']',
+            '{' => '}',
+            _ => unreachable!(),
+        };
+        let inner_start = open_idx + open_char.len_utf8();
+        let Some(close_rel_idx) = query_string[inner_start..].find(close_char) else {
+            break;
+        };
+        let close_idx = inner_start + close_rel_idx;
+        search_start = close_idx + close_char.len_utf8();
+
+        let Some(colon_idx) = query_string[..open_idx].rfind(':') else {
+            continue;
+        };
+        if !query_string[colon_idx + 1..open_idx].trim().is_empty() {
+            continue;
+        }
+
+        let field_start = query_string[..colon_idx]
+            .rfind(|ch: char| ch.is_whitespace() || matches!(ch, '(' | ')' | '+' | '-'))
+            .map_or(0, |idx| idx + 1);
+        let field_name = &query_string[field_start..colon_idx];
+        if !parse_range_field_is_json(field_name, schema) {
+            continue;
+        }
+
+        let range_inner = &query_string[inner_start..close_idx];
+        let Some(to_idx) = range_inner.find(" TO ") else {
+            continue;
+        };
+        let lower = &range_inner[..to_idx];
+        let upper = &range_inner[to_idx + " TO ".len()..];
+        if parse_bound_has_value(lower)
+            && parse_bound_has_value(upper)
+            && (parse_range_number_kind(lower).is_some()
+                != parse_range_number_kind(upper).is_some())
+        {
+            return Err(QueryError::FieldTypeMismatch);
+        }
+        let Some((lower, upper)) = normalize_parse_numeric_bounds(lower, upper) else {
+            continue;
+        };
+
+        normalized.push_str(&query_string[cursor..inner_start]);
+        normalized.push_str(&lower);
+        normalized.push_str(" TO ");
+        normalized.push_str(&upper);
+        cursor = close_idx;
+    }
+
+    if cursor == 0 {
+        Ok(query_string.to_string())
+    } else {
+        normalized.push_str(&query_string[cursor..]);
+        Ok(normalized)
+    }
+}
+
+fn find_next_parse_range_open(query_string: &str, start: usize) -> Option<(usize, char)> {
+    let mut in_quote = false;
+    let mut escaped = false;
+
+    for (idx, ch) in query_string[start..].char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == '"' {
+            in_quote = !in_quote;
+            continue;
+        }
+        if !in_quote && matches!(ch, '[' | '{') {
+            return Some((start + idx, ch));
+        }
+    }
+
+    None
+}
+
+fn parse_range_field_is_json(field_name: &str, schema: &SearchIndexSchema) -> bool {
+    let root = FieldName::from(field_name.to_string()).root();
+    matches!(
+        schema
+            .search_field(&root)
+            .map(|search_field| search_field.field_entry().field_type().is_json()),
+        Some(true)
+    )
+}
+
+fn parse_range_number_kind(bound: &str) -> Option<ParseRangeNumberKind> {
+    let trimmed = bound.trim();
+    if trimmed.is_empty()
+        || trimmed == "*"
+        || trimmed.contains('"')
+        || trimmed.contains('\'')
+        || trimmed.eq_ignore_ascii_case("true")
+        || trimmed.eq_ignore_ascii_case("false")
+    {
+        return None;
+    }
+
+    if trimmed.contains('.') || trimmed.contains('e') || trimmed.contains('E') {
+        trimmed
+            .parse::<f64>()
+            .ok()
+            .map(|_| ParseRangeNumberKind::Float)
+    } else if trimmed.parse::<i64>().is_ok() || trimmed.parse::<u64>().is_ok() {
+        Some(ParseRangeNumberKind::Integer)
+    } else {
+        None
+    }
+}
+
+fn append_decimal_to_parse_bound(bound: &str) -> String {
+    let trimmed = bound.trim();
+    let leading_len = bound.find(trimmed).unwrap_or(0);
+    let trailing_start = leading_len + trimmed.len();
+    format!(
+        "{}{}.0{}",
+        &bound[..leading_len],
+        trimmed,
+        &bound[trailing_start..]
+    )
+}
+
+fn parse_bound_has_value(bound: &str) -> bool {
+    let trimmed = bound.trim();
+    !trimmed.is_empty() && trimmed != "*"
+}
+
+fn normalize_parse_numeric_bounds(lower: &str, upper: &str) -> Option<(String, String)> {
+    match (
+        parse_range_number_kind(lower),
+        parse_range_number_kind(upper),
+    ) {
+        (Some(ParseRangeNumberKind::Float), Some(ParseRangeNumberKind::Integer)) => {
+            Some((lower.to_string(), append_decimal_to_parse_bound(upper)))
+        }
+        (Some(ParseRangeNumberKind::Integer), Some(ParseRangeNumberKind::Float)) => {
+            Some((append_decimal_to_parse_bound(lower), upper.to_string()))
+        }
+        _ => None,
+    }
+}
+
 impl SearchQueryInput {
     #[allow(clippy::too_many_arguments)]
     pub fn into_tantivy_query<QueryParserCtor: Fn() -> QueryParser>(
@@ -1253,6 +1418,8 @@ impl SearchQueryInput {
                 lenient,
                 conjunction_mode,
             } => {
+                let normalized_query_string =
+                    normalize_parse_json_range_bounds(&query_string, schema)?;
                 let mut query_parser = parser();
                 if let Some(true) = conjunction_mode {
                     query_parser.set_conjunction_by_default();
@@ -1260,12 +1427,13 @@ impl SearchQueryInput {
 
                 let query = match lenient {
                     Some(true) => {
-                        let (parsed_query, _) = query_parser.parse_query_lenient(&query_string);
+                        let (parsed_query, _) =
+                            query_parser.parse_query_lenient(&normalized_query_string);
                         Box::new(parsed_query) as Box<dyn TantivyQuery>
                     }
                     _ => Box::new(
                         query_parser
-                            .parse_query(&query_string)
+                            .parse_query(&normalized_query_string)
                             .map_err(|err| QueryError::ParseError(err, query_string.clone()))?,
                     ) as Box<dyn TantivyQuery>,
                 };

@@ -289,3 +289,84 @@ fn integer_bounds_coercion(mut conn: PgConnection) {
     assert_eq!(rows[0].1, 2222.2222);
     assert_eq!(rows[1].1, 3333.3333);
 }
+
+#[rstest]
+fn json_numeric_range_mixed_bound_types(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_table (
+        id SERIAL PRIMARY KEY,
+        metadata JSONB
+    );
+
+    INSERT INTO test_table (metadata) VALUES
+        ('{"price": 35}'::jsonb),
+        ('{"price": 35.5}'::jsonb),
+        ('{"price": 36}'::jsonb),
+        ('{"price": 40}'::jsonb),
+        ('{"price": 40.1}'::jsonb);
+
+    CREATE INDEX test_index ON test_table
+    USING bm25 (id, metadata)
+    WITH (
+        key_field = 'id',
+        json_fields = '{"metadata": {"fast": true}}'
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> = r#"
+    SELECT id FROM test_table
+    WHERE id @@@ paradedb.parse('metadata.price:[35.1 TO 40]')
+    ORDER BY id"#
+        .fetch(&mut conn);
+    assert_eq!(rows, vec![(2,), (3,), (4,)]);
+
+    let rows_with_integer_upper: Vec<(i32,)> = r#"
+    SELECT id FROM test_table
+    WHERE id @@@ '{
+        "range": {
+            "field": "metadata.price",
+            "lower_bound": {"included": 35.1},
+            "upper_bound": {"excluded": 36}
+        }
+    }'::jsonb
+    ORDER BY id"#
+        .fetch(&mut conn);
+
+    let rows_with_float_upper: Vec<(i32,)> = r#"
+    SELECT id FROM test_table
+    WHERE id @@@ '{
+        "range": {
+            "field": "metadata.price",
+            "lower_bound": {"included": 35.1},
+            "upper_bound": {"excluded": 36.0}
+        }
+    }'::jsonb
+    ORDER BY id"#
+        .fetch(&mut conn);
+
+    assert_eq!(rows_with_integer_upper, vec![(2,)]);
+    assert_eq!(rows_with_integer_upper, rows_with_float_upper);
+
+    let result = r#"
+    SELECT id FROM test_table
+    WHERE id @@@ paradedb.parse('metadata.price:[not-a-number TO 36]')
+    ORDER BY id"#
+        .fetch_result::<(i32,)>(&mut conn);
+    assert!(result.is_err());
+
+    let result = r#"
+    SELECT id FROM test_table
+    WHERE id @@@ '{
+        "range": {
+            "field": "metadata.price",
+            "lower_bound": {"included": "not-a-number"},
+            "upper_bound": {"excluded": 36}
+        }
+    }'::jsonb
+    ORDER BY id"#
+        .fetch_result::<(i32,)>(&mut conn);
+    assert!(result.is_err());
+
+    "SELECT 1".execute(&mut conn);
+}

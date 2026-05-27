@@ -279,10 +279,15 @@ pub fn string_to_u64(value: OwnedValue) -> OwnedValue {
 
 /// Convert a string-encoded numeric value to F64.
 pub fn string_to_f64(value: OwnedValue) -> OwnedValue {
-    if let OwnedValue::Str(s) = &value {
-        if let Ok(f) = s.parse::<f64>() {
-            return OwnedValue::F64(f);
+    match &value {
+        OwnedValue::Str(s) => {
+            if let Ok(f) = s.parse::<f64>() {
+                return OwnedValue::F64(f);
+            }
         }
+        OwnedValue::I64(i) => return OwnedValue::F64(*i as f64),
+        OwnedValue::U64(u) => return OwnedValue::F64(*u as f64),
+        _ => {}
     }
     value
 }

@@ -50,7 +50,6 @@ use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt::{Debug, Formatter};
 use std::ops::Bound;
-use std::str::FromStr;
 use tantivy::query::{
     AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
     Query as TantivyQuery, QueryParser, TermSetQuery,
@@ -875,9 +874,8 @@ fn check_range_bounds(
             PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
             Bound::Included(PdbOwnedValue::Str(s)),
         ) => {
-            let date = PostgresDateTime::from(
-                pgrx::datum::Date::from_str(s.as_str()).map_err(|e| anyhow::anyhow!("{e:?}"))?,
-            );
+            let date = PostgresDateTime::try_from_date_str(s.as_str())
+                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
             Bound::Included(PdbOwnedValue::Date(date))
         }
         // String date needes parsed and excluded date needs to be canonicalized
@@ -885,9 +883,8 @@ fn check_range_bounds(
             PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
             Bound::Excluded(PdbOwnedValue::Str(s)),
         ) => {
-            let date = PostgresDateTime::from(
-                pgrx::datum::Date::from_str(s.as_str()).map_err(|e| anyhow::anyhow!("{e:?}"))?,
-            );
+            let date = PostgresDateTime::try_from_date_str(s.as_str())
+                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
             Bound::Included(PdbOwnedValue::Date(
                 date.add_days(1).map_err(|e| anyhow::anyhow!("{e:?}"))?,
             ))
@@ -902,15 +899,15 @@ fn check_range_bounds(
         ) => {
             let date = match typeoid {
                 PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID)
-                | PgOid::BuiltIn(PgBuiltInOids::TSRANGEOID) => PostgresDateTime::from(
-                    pgrx::datum::Timestamp::from_str(s.as_str())
-                        .map_err(|e| anyhow::anyhow!("{e:?}"))?,
-                ),
+                | PgOid::BuiltIn(PgBuiltInOids::TSRANGEOID) => {
+                    PostgresDateTime::try_from_timestamp_str(s.as_str())
+                        .map_err(|e| anyhow::anyhow!("{e:?}"))?
+                }
                 PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID)
-                | PgOid::BuiltIn(PgBuiltInOids::TSTZRANGEOID) => PostgresDateTime::from(
-                    pgrx::datum::TimestampWithTimeZone::from_str(s.as_str())
-                        .map_err(|e| anyhow::anyhow!("{e:?}"))?,
-                ),
+                | PgOid::BuiltIn(PgBuiltInOids::TSTZRANGEOID) => {
+                    PostgresDateTime::try_from_timestamptz_str(s.as_str())
+                        .map_err(|e| anyhow::anyhow!("{e:?}"))?
+                }
                 _ => unreachable!(),
             };
             match lower_bound {
@@ -939,9 +936,8 @@ fn check_range_bounds(
             PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
             Bound::Included(PdbOwnedValue::Str(s)),
         ) => {
-            let date = PostgresDateTime::from(
-                pgrx::datum::Date::from_str(s.as_str()).map_err(|e| anyhow::anyhow!("{e:?}"))?,
-            );
+            let date = PostgresDateTime::try_from_date_str(s.as_str())
+                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
             Bound::Excluded(PdbOwnedValue::Date(
                 date.add_days(1).map_err(|e| anyhow::anyhow!("{e:?}"))?,
             ))
@@ -951,9 +947,8 @@ fn check_range_bounds(
             PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
             Bound::Excluded(PdbOwnedValue::Str(s)),
         ) => {
-            let date = PostgresDateTime::from(
-                pgrx::datum::Date::from_str(s.as_str()).map_err(|e| anyhow::anyhow!("{e:?}"))?,
-            );
+            let date = PostgresDateTime::try_from_date_str(s.as_str())
+                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
             Bound::Excluded(PdbOwnedValue::Date(date))
         }
         // String timestamp needs to be parsed
@@ -966,15 +961,15 @@ fn check_range_bounds(
         ) => {
             let date = match typeoid {
                 PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID)
-                | PgOid::BuiltIn(PgBuiltInOids::TSRANGEOID) => PostgresDateTime::from(
-                    pgrx::datum::Timestamp::from_str(s.as_str())
-                        .map_err(|e| anyhow::anyhow!("{e:?}"))?,
-                ),
+                | PgOid::BuiltIn(PgBuiltInOids::TSRANGEOID) => {
+                    PostgresDateTime::try_from_timestamp_str(s.as_str())
+                        .map_err(|e| anyhow::anyhow!("{e:?}"))?
+                }
                 PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID)
-                | PgOid::BuiltIn(PgBuiltInOids::TSTZRANGEOID) => PostgresDateTime::from(
-                    pgrx::datum::TimestampWithTimeZone::from_str(s.as_str())
-                        .map_err(|e| anyhow::anyhow!("{e:?}"))?,
-                ),
+                | PgOid::BuiltIn(PgBuiltInOids::TSTZRANGEOID) => {
+                    PostgresDateTime::try_from_timestamptz_str(s.as_str())
+                        .map_err(|e| anyhow::anyhow!("{e:?}"))?
+                }
                 _ => unreachable!(),
             };
             match upper_bound {

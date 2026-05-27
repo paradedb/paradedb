@@ -325,6 +325,39 @@ struct IndexComponents {
     schema: SearchIndexSchema,
 }
 
+/// Single-counter iterator backing [`SearchIndexReader::search_lazy`].
+struct ParallelSegmentIterator {
+    parallel_state: *mut crate::postgres::ParallelScanState,
+}
+// SAFETY: PG-managed shared memory; every access goes through the state's mutex,
+// so the raw pointer can cross threads.
+unsafe impl Send for ParallelSegmentIterator {}
+unsafe impl Sync for ParallelSegmentIterator {}
+impl Iterator for ParallelSegmentIterator {
+    type Item = tantivy::index::SegmentId;
+    fn next(&mut self) -> Option<Self::Item> {
+        pgrx::check_for_interrupts!();
+        unsafe { crate::postgres::customscan::parallel::checkout_segment(self.parallel_state) }
+    }
+}
+
+/// Per-source iterator for MPP non-partitioning sources. Avoids racing two sources
+/// on the partitioning source's counter.
+struct PerSourceSegmentIterator {
+    parallel_state: *mut crate::postgres::ParallelScanState,
+    source_idx: usize,
+}
+// SAFETY: same as `ParallelSegmentIterator`.
+unsafe impl Send for PerSourceSegmentIterator {}
+unsafe impl Sync for PerSourceSegmentIterator {}
+impl Iterator for PerSourceSegmentIterator {
+    type Item = tantivy::index::SegmentId;
+    fn next(&mut self) -> Option<Self::Item> {
+        pgrx::check_for_interrupts!();
+        unsafe { (*self.parallel_state).checkout_segment_for_source(self.source_idx) }
+    }
+}
+
 impl SearchIndexReader {
     fn open_index_components(
         index_relation: &PgSearchRelation,
@@ -671,23 +704,30 @@ impl SearchIndexReader {
         parallel_state: *mut crate::postgres::ParallelScanState,
         estimated_rows: u64,
     ) -> MultiSegmentSearchResults {
-        struct ParallelSegmentIterator {
-            parallel_state: *mut crate::postgres::ParallelScanState,
-        }
-        unsafe impl Send for ParallelSegmentIterator {}
-        unsafe impl Sync for ParallelSegmentIterator {}
-        impl Iterator for ParallelSegmentIterator {
-            type Item = tantivy::index::SegmentId;
-            fn next(&mut self) -> Option<Self::Item> {
-                pgrx::check_for_interrupts!();
-                unsafe {
-                    crate::postgres::customscan::parallel::checkout_segment(self.parallel_state)
-                }
-            }
-        }
+        self.search_lazy_with(estimated_rows, ParallelSegmentIterator { parallel_state })
+    }
 
-        let segment_ids = ParallelSegmentIterator { parallel_state };
+    /// `search_lazy` variant for MPP non-partitioning sources. Each source claims from
+    /// its own counter, avoiding races between sources.
+    pub fn search_lazy_for_source(
+        &self,
+        parallel_state: *mut crate::postgres::ParallelScanState,
+        source_idx: usize,
+        estimated_rows: u64,
+    ) -> MultiSegmentSearchResults {
+        self.search_lazy_with(
+            estimated_rows,
+            PerSourceSegmentIterator {
+                parallel_state,
+                source_idx,
+            },
+        )
+    }
 
+    fn search_lazy_with<I>(&self, estimated_rows: u64, segment_ids: I) -> MultiSegmentSearchResults
+    where
+        I: Iterator<Item = tantivy::index::SegmentId> + Send + Sync + 'static,
+    {
         let searcher = self.searcher.clone();
         let query = self.query.box_clone();
         let need_scores = self.need_scores;

@@ -93,9 +93,19 @@ pub enum ScanRecipe {
         segment_ids: Vec<SegmentId>,
         scanner_config: ScannerConfig,
     },
-    /// Lazy scan: segments are claimed dynamically from parallel state.
+    /// Single-counter claim via `checkout_segment`. Used by the basescan IAM, the MPP
+    /// partitioning source, and non-MPP parallel hash join.
     Lazy {
         parallel_state: Option<*mut ParallelScanState>,
+        planner_estimated_rows: u64,
+        scanner_config: ScannerConfig,
+    },
+    /// Per-source claim for MPP non-partitioning sources, splitting work across workers
+    /// instead of replicating. The partitioning source stays on `Lazy` because
+    /// `checkout_segment` updates the `claims` array `EXPLAIN ANALYZE` reads.
+    LazyForSource {
+        parallel_state: *mut ParallelScanState,
+        source_idx: usize,
         planner_estimated_rows: u64,
         scanner_config: ScannerConfig,
     },
@@ -232,6 +242,10 @@ impl PgSearchScanPlan {
                         .reader
                         .estimated_docs_in_segments(segment_ids.iter().cloned()),
                     ScanRecipe::Lazy {
+                        planner_estimated_rows,
+                        ..
+                    }
+                    | ScanRecipe::LazyForSource {
                         planner_estimated_rows,
                         ..
                     } => *planner_estimated_rows,
@@ -496,6 +510,19 @@ impl ExecutionPlan for PgSearchScanPlan {
                             } else {
                                 reader.search()
                             };
+                            (res, scanner_config)
+                        }
+                        ScanRecipe::LazyForSource {
+                            parallel_state,
+                            source_idx,
+                            planner_estimated_rows,
+                            scanner_config,
+                        } => {
+                            let res = reader.search_lazy_for_source(
+                                parallel_state,
+                                source_idx,
+                                planner_estimated_rows,
+                            );
                             (res, scanner_config)
                         }
                         ScanRecipe::Prefetched { .. } => unreachable!(),

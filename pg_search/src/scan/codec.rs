@@ -219,7 +219,10 @@ impl LogicalExtensionCodec for PgSearchExtensionCodec {
         let mut provider: PgSearchTableProvider = serde_json::from_slice(buf).map_err(|e| {
             DataFusionError::Internal(format!("Failed to deserialize PgSearchTableProvider: {e}"))
         })?;
-        if provider.is_parallel() {
+        // Inject `parallel_state` for the partitioning source and every non-partitioning
+        // MPP source. The non-partitioning path calls
+        // `checkout_segment_for_source(mpp_source_idx)` against the same pointer.
+        if provider.is_parallel() || provider.mpp_source_idx().is_some() {
             provider.set_parallel_state(self.parallel_state);
         }
         if let Some(np_idx) = provider.non_partitioning_index() {

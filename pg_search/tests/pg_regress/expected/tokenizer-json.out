@@ -249,9 +249,9 @@ SELECT * FROM index_json WHERE j->'key1' ||| 'value1';
 (1 row)
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' ### 'value1';
-ERROR:  field 'j' was tokenized with 'Some("ngram_mingram:2_maxgram:3_prefixonly:false")' which does not support this query type
+ERROR:  estimate_selectivity: should be able to open a SearchIndexReader: field 'j' was tokenized with 'Some("ngram_mingram:2_maxgram:3_prefixonly:false")' which does not support this query type
 SELECT * FROM index_json WHERE j->'key1' ### 'value1';
-ERROR:  field 'j' was tokenized with 'Some("ngram_mingram:2_maxgram:3_prefixonly:false")' which does not support this query type
+ERROR:  estimate_selectivity: should be able to open a SearchIndexReader: field 'j' was tokenized with 'Some("ngram_mingram:2_maxgram:3_prefixonly:false")' which does not support this query type
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF) SELECT * FROM index_json WHERE j->'key1' === 'value1';
                                        QUERY PLAN                                       
 ----------------------------------------------------------------------------------------

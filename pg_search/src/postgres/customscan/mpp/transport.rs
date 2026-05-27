@@ -1805,7 +1805,10 @@ mod tests {
     #[test]
     fn drain_handle_demuxes_frames_by_header() {
         // One queue carrying two channels: `(0, 0)` and `(0, 1)`. Each
-        // channel buffer receives only its own batches.
+        // channel buffer receives only its own batches. Per-channel EOF is
+        // out of scope here — see `drain_handle_eof_frame_closes_one_channel`
+        // for explicit-Eof routing and `drain_handle_drop_cancels_registered_channel_buffers`
+        // for the teardown-EOF contract.
         let (tx, rx) = in_proc_channel(8);
         let base = MppSender::new(Arc::new(tx));
         let s00 = base.clone_with_header(MppFrameHeader::batch(0, 0, 0));
@@ -1818,7 +1821,7 @@ mod tests {
         s00.send_batch(&sample_batch(3)).unwrap();
         drop(s00);
         drop(s01);
-        drop(base); // Last sender dropped. Receiver will report Detached.
+        drop(base);
 
         let buf00 = handle.register_channel(0, 0, 0);
         let buf01 = handle.register_channel(0, 0, 1);
@@ -1835,14 +1838,14 @@ mod tests {
         }
         assert_eq!(p0_rows, vec![2, 3]);
         assert_eq!(p1_rows, vec![7]);
-        assert!(matches!(buf00.try_pop(), Some(DrainItem::Eof)));
-        assert!(matches!(buf01.try_pop(), Some(DrainItem::Eof)));
     }
 
     #[test]
     fn drain_handle_eof_frame_closes_one_channel() {
         // An `Eof` frame on `(0, 0)` closes that channel buffer while frames on
-        // `(0, 1)` continue to flow on the same queue.
+        // `(0, 1)` continue to flow on the same queue. `Detached` no longer
+        // broadcasts a registry-wide EOF (see commit 1bda01f02), so `(0, 1)`
+        // surfaces EOF only when the handle's `Drop` runs `cancel_channel_buffers`.
         let (tx, rx) = in_proc_channel(8);
         let tx_arc: Arc<dyn BatchChannelSender> = Arc::new(tx);
         let s00 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(0, 0, 0));
@@ -1851,17 +1854,14 @@ mod tests {
         let handle = DrainHandle::cooperative(vec![receiver]);
 
         s00.send_batch(&sample_batch(4)).unwrap();
-        // Hand-roll an Eof frame for (0, 0) onto the same shared channel.
         let mut eof_buf = Vec::new();
         encode_eof_frame_into(0, 0, 0, &mut eof_buf).unwrap();
         tx_arc.send_bytes(&eof_buf).unwrap();
-        // (0, 1) is still live and ships another batch after the EOF.
         s01.send_batch(&sample_batch(6)).unwrap();
 
         let buf00 = handle.register_channel(0, 0, 0);
         let buf01 = handle.register_channel(0, 0, 1);
 
-        // Drop senders so the receiver eventually observes Detached.
         drop(s00);
         drop(s01);
         drop(tx_arc);
@@ -1871,50 +1871,15 @@ mod tests {
             Some(DrainItem::Batch(b)) => assert_eq!(b.num_rows(), 4),
             other => panic!("expected (0,0) batch, got {other:?}"),
         }
-        // The Eof frame closed (0, 0) before the queue detached.
         assert!(matches!(buf00.try_pop(), Some(DrainItem::Eof)));
 
         match buf01.try_pop() {
             Some(DrainItem::Batch(b)) => assert_eq!(b.num_rows(), 6),
             other => panic!("expected (0,1) batch, got {other:?}"),
         }
-        // (0, 1) sees EOF at receiver-detach time.
+        assert!(buf01.try_pop().is_none());
+        drop(handle);
         assert!(matches!(buf01.try_pop(), Some(DrainItem::Eof)));
-    }
-
-    #[test]
-    fn drain_handle_detach_eofs_all_registered_channel_buffers() {
-        // No frames flow; consumer pre-registers two channels. When the sender drops and
-        // `try_drain_pass` observes `Detached`, both channel buffers immediately surface `Eof`.
-        // Without that, a consumer blocked on `try_pop` would hang past the producer's death.
-        let (tx, rx) = in_proc_channel(8);
-        drop(tx); // detach immediately
-        let receiver = MppReceiver::new(Box::new(rx));
-        let handle = DrainHandle::cooperative(vec![receiver]);
-
-        let buf00 = handle.register_channel(0, 0, 0);
-        let buf01 = handle.register_channel(0, 0, 1);
-        // No frames ever land; the next poll observes Detached and notifies.
-        handle.try_drain_pass().unwrap();
-
-        assert!(matches!(buf00.try_pop(), Some(DrainItem::Eof)));
-        assert!(matches!(buf01.try_pop(), Some(DrainItem::Eof)));
-    }
-
-    #[test]
-    fn drain_handle_register_after_detach_returns_eof_buffer() {
-        // Detach first, then register. The returned buffer is already
-        // EOF'd so a late consumer doesn't block forever waiting on a
-        // channel whose source is gone.
-        let (tx, rx) = in_proc_channel(8);
-        drop(tx);
-        let receiver = MppReceiver::new(Box::new(rx));
-        let handle = DrainHandle::cooperative(vec![receiver]);
-
-        handle.try_drain_pass().unwrap(); // observes Detached, marks handle
-
-        let late_buf = handle.register_channel(0, 5, 9);
-        assert!(matches!(late_buf.try_pop(), Some(DrainItem::Eof)));
     }
 
     #[test]

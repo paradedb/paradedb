@@ -37,9 +37,9 @@ pub struct Version {
     pub patch: u16,
 }
 
-pub const TIMESTAMP_I64_STORAGE_VERSION: Version = Version::new(0, 24, 0);
+pub const TIMESTAMP_I64_STORAGE_VERSION: Version = Version::new(0, 23, 5);
 #[allow(dead_code)]
-pub const MIN_VERSION_STAMPED_VERSION: Version = Version::new(0, 24, 0);
+pub const MIN_VERSION_STAMPED_VERSION: Version = Version::new(0, 23, 5);
 
 impl Version {
     pub const fn new(major: u16, minor: u16, patch: u16) -> Self {

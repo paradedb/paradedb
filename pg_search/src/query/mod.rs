@@ -34,8 +34,7 @@ use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::customscan::explain::{format_for_explain, ExplainFormat};
 use crate::postgres::datetime::PostgresDateTime;
-use crate::postgres::storage::metadata::Version;
-use crate::postgres::storage::metadata::TIMESTAMP_I64_STORAGE_VERSION;
+use crate::postgres::storage::metadata::{Version, VersionInfo};
 use crate::postgres::types::PdbOwnedValue;
 use crate::query::more_like_this::MoreLikeThisQuery;
 use crate::query::pdb_query::pdb;
@@ -1632,10 +1631,7 @@ fn value_to_json_term(
             term.append_type_and_fast_value(*value);
         }
         PdbOwnedValue::Date(value) => {
-            if index_created_by_version
-                .filter(|v| v >= &TIMESTAMP_I64_STORAGE_VERSION)
-                .is_some()
-            {
+            if index_created_by_version.stores_datetimes_in_i64() {
                 term.append_type_and_fast_value(value.into_inner());
             } else {
                 let dt: tantivy::DateTime = (*value).try_into()?;
@@ -1743,10 +1739,7 @@ pub fn value_to_term(
         PdbOwnedValue::F64(f64) => Term::from_field_f64(field, *f64),
         PdbOwnedValue::Bool(bool) => Term::from_field_bool(field, *bool),
         PdbOwnedValue::Date(date) => {
-            if index_created_by_version
-                .filter(|version| version >= &TIMESTAMP_I64_STORAGE_VERSION)
-                .is_some()
-            {
+            if index_created_by_version.stores_datetimes_in_i64() {
                 Term::from_field_i64(field, date.into_inner())
             } else {
                 let tantivy_date = tantivy::DateTime::try_from(*date)?;

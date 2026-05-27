@@ -17,7 +17,7 @@
 
 use crate::api::FieldName;
 use crate::postgres::datetime::PostgresDateTime;
-use crate::postgres::storage::metadata::{Version, TIMESTAMP_I64_STORAGE_VERSION};
+use crate::postgres::storage::metadata::{Version, VersionInfo};
 use crate::postgres::types::PdbOwnedValue;
 use crate::query::numeric::{
     convert_value_for_field, convert_value_for_range_field, map_bound, numeric_bound_to_bytes,
@@ -1864,20 +1864,16 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
     let lenient = lenient.unwrap_or(false);
     if lenient {
         let (mut ast, _) = query_grammar::parse_query_lenient(&query_string);
-        if let Some(version) = index_created_by_version {
-            if version >= TIMESTAMP_I64_STORAGE_VERSION {
-                rewrite_timestamp_literals(&mut ast, schema);
-            }
+        if index_created_by_version.stores_datetimes_in_i64() {
+            rewrite_timestamp_literals(&mut ast, schema);
         }
         let (parsed_query, _) = parser.build_query_from_user_input_ast_lenient(ast);
         Ok(Box::new(parsed_query))
     } else {
         let mut ast = query_grammar::parse_query(&query_string)
             .map_err(|_| QueryError::GrammarParseError(query_string.clone()))?;
-        if let Some(version) = index_created_by_version {
-            if version >= TIMESTAMP_I64_STORAGE_VERSION {
-                rewrite_timestamp_literals(&mut ast, schema);
-            }
+        if index_created_by_version.stores_datetimes_in_i64() {
+            rewrite_timestamp_literals(&mut ast, schema);
         }
         let parsed_query = parser
             .build_query_from_user_input_ast(ast)

@@ -929,6 +929,7 @@ impl SearchIndexReader {
                     .order_by_similarity(tantivy_field, query_vector.clone())
                     .with_adaptive_params(AdaptiveProbeParams {
                         max_probe_fanout: crate::gucs::vector_cluster_probe_fanout(),
+                        epsilon: crate::gucs::vector_cluster_probe_epsilon(),
                         ..Default::default()
                     });
                 let (top_docs, aggregation_results) =

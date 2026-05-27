@@ -259,9 +259,11 @@ impl DsmInboxSender {
             MpscSendError::Detached => {
                 DataFusionError::Execution("mpp: DSM MPSC inbox detached".into())
             }
-            MpscSendError::MessageTooLarge => {
-                DataFusionError::Execution("mpp: DSM MPSC frame exceeds slot_capacity".into())
-            }
+            MpscSendError::MessageTooLarge => DataFusionError::Execution(
+                "mpp: DSM MPSC frame exceeds the entire ring capacity \
+                 (raise paradedb.mpp_queue_size)"
+                    .into(),
+            ),
             MpscSendError::Full => DataFusionError::Execution(
                 "mpp: DSM MPSC inbox full (caller should retry via try_send_bytes)".into(),
             ),
@@ -553,15 +555,17 @@ mod tests {
 
     #[test]
     fn try_send_bytes_rejects_oversize_payload() {
+        // Multi-slot fragmentation lifted the per-slot ceiling; only payloads larger
+        // than `ring_size * (slot_capacity - SLOT_HEADER_BYTES)` are now rejected.
+        // ring_size=2, slot_capacity=32 -> payload_cap=16, ring-wide cap=32. 64
+        // bytes still doesn't fit.
         let (tx, _rx, _region) = test_dsm_inbox_pair(2, 32);
-        // Any payload at or above slot_capacity is unconditionally too large (slot
-        // capacity includes the slot header). 64 bytes on a 32-byte slot fits.
         let oversize = vec![0u8; 64];
         let err = tx
             .try_send_bytes(&oversize)
             .expect_err("expected MessageTooLarge");
         assert!(
-            format!("{err}").contains("exceeds slot_capacity"),
+            format!("{err}").contains("exceeds the entire ring capacity"),
             "unexpected error: {err}"
         );
     }

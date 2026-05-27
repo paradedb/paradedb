@@ -893,13 +893,33 @@ fn check_range_bounds(
                 date.add_days(1).map_err(|e| anyhow::anyhow!("{e:?}"))?,
             ))
         }
+        // String timestamp needs to be parsed
         (
             PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID)
             | PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID)
             | PgOid::BuiltIn(PgBuiltInOids::TSRANGEOID)
             | PgOid::BuiltIn(PgBuiltInOids::TSTZRANGEOID),
-            Bound::Included(PdbOwnedValue::Str(_)) | Bound::Excluded(PdbOwnedValue::Str(_)),
-        ) => unreachable!("Timestamps should already have been parsed into PdbOwnedValue::Date during json deserialization"),
+            Bound::Included(PdbOwnedValue::Str(s)) | Bound::Excluded(PdbOwnedValue::Str(s)),
+        ) => {
+            let date = match typeoid {
+                PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID)
+                | PgOid::BuiltIn(PgBuiltInOids::TSRANGEOID) => PostgresDateTime::from(
+                    pgrx::datum::Timestamp::from_str(s.as_str())
+                        .map_err(|e| anyhow::anyhow!("{e:?}"))?,
+                ),
+                PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID)
+                | PgOid::BuiltIn(PgBuiltInOids::TSTZRANGEOID) => PostgresDateTime::from(
+                    pgrx::datum::TimestampWithTimeZone::from_str(s.as_str())
+                        .map_err(|e| anyhow::anyhow!("{e:?}"))?,
+                ),
+                _ => unreachable!(),
+            };
+            match lower_bound {
+                Bound::Included(_) => Bound::Included(PdbOwnedValue::Date(date)),
+                Bound::Excluded(_) => Bound::Excluded(PdbOwnedValue::Date(date)),
+                Bound::Unbounded => unreachable!(),
+            }
+        }
         _ => lower_bound,
     };
 
@@ -937,13 +957,33 @@ fn check_range_bounds(
             );
             Bound::Excluded(PdbOwnedValue::Date(date))
         }
+        // String timestamp needs to be parsed
         (
             PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID)
             | PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID)
             | PgOid::BuiltIn(PgBuiltInOids::TSRANGEOID)
             | PgOid::BuiltIn(PgBuiltInOids::TSTZRANGEOID),
-            Bound::Included(PdbOwnedValue::Str(_)) | Bound::Excluded(PdbOwnedValue::Str(_)),
-        ) => unreachable!("Timestamps should already have been parsed into PdbOwnedValue::Date during json deserialization"),
+            Bound::Included(PdbOwnedValue::Str(s)) | Bound::Excluded(PdbOwnedValue::Str(s)),
+        ) => {
+            let date = match typeoid {
+                PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID)
+                | PgOid::BuiltIn(PgBuiltInOids::TSRANGEOID) => PostgresDateTime::from(
+                    pgrx::datum::Timestamp::from_str(s.as_str())
+                        .map_err(|e| anyhow::anyhow!("{e:?}"))?,
+                ),
+                PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID)
+                | PgOid::BuiltIn(PgBuiltInOids::TSTZRANGEOID) => PostgresDateTime::from(
+                    pgrx::datum::TimestampWithTimeZone::from_str(s.as_str())
+                        .map_err(|e| anyhow::anyhow!("{e:?}"))?,
+                ),
+                _ => unreachable!(),
+            };
+            match upper_bound {
+                Bound::Included(_) => Bound::Included(PdbOwnedValue::Date(date)),
+                Bound::Excluded(_) => Bound::Excluded(PdbOwnedValue::Date(date)),
+                Bound::Unbounded => unreachable!(),
+            }
+        }
         _ => upper_bound,
     };
     Ok((lower_bound, upper_bound))

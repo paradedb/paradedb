@@ -353,7 +353,12 @@ fn json_numeric_range_mixed_bound_types(mut conn: PgConnection) {
     WHERE id @@@ paradedb.parse('metadata.price:[not-a-number TO 36]')
     ORDER BY id"#
         .fetch_result::<(i32,)>(&mut conn);
-    assert!(result.is_err());
+    let err = result.expect_err("non-numeric lower bound should error, not panic");
+    let err_msg = format!("{err}");
+    assert!(
+        err_msg.contains("not-a-number") || err_msg.to_lowercase().contains("type"),
+        "expected an error mentioning the bad token or a type-mismatch reason, got: {err_msg}"
+    );
 
     let result = r#"
     SELECT id FROM test_table
@@ -366,7 +371,12 @@ fn json_numeric_range_mixed_bound_types(mut conn: PgConnection) {
     }'::jsonb
     ORDER BY id"#
         .fetch_result::<(i32,)>(&mut conn);
-    assert!(result.is_err());
+    let err = result.expect_err("string-typed lower bound vs numeric upper bound should error, not panic");
+    let err_msg = format!("{err}");
+    assert!(
+        err_msg.to_lowercase().contains("type") || err_msg.to_lowercase().contains("mismatch") || err_msg.contains("not-a-number"),
+        "expected an error mentioning type/mismatch, got: {err_msg}"
+    );
 
     "SELECT 1".execute(&mut conn);
 }

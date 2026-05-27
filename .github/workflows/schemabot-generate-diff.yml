@@ -54,7 +54,7 @@ jobs:
       - name: Install Rust Cache
         uses: swatinem/rust-cache@v2
         with:
-          prefix-key: "rust-cache"
+          prefix-key: "v2-rust-cache"
           shared-key: pg${{ matrix.pg_version }}-${{ hashFiles('**/Cargo.lock') }}
           cache-targets: true
           cache-all-crates: true

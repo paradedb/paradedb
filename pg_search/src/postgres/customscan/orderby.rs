@@ -288,6 +288,17 @@ unsafe fn find_target_entry_by_ref(
         .find(|&te| (*te).ressortgroupref == ref_id)
 }
 
+// This helper function tells us whether a collation is "safe", for the purposes of pushing down ORDER BY
+// If a field does not have a collation (ex: integers, non-text data), it's considered safe
+// Otherwise, for collatable fields, if the collation is C-like it's safe
+fn is_collation_pushdown_safe(collation: pg_sys::Oid) -> bool {
+    if collation == pg_sys::Oid::INVALID || collation == pg_sys::C_COLLATION_OID {
+        return true;
+    }
+
+    false
+}
+
 /// Extract pathkeys from ORDER BY clauses using comprehensive expression handling
 /// This function handles score functions, lower functions, relabel types, and regular variables
 ///
@@ -321,6 +332,8 @@ where
         let mut found_valid_member = false;
 
         let collation = (*equivclass).ec_collation;
+        // TODO @stajwar: the below blocks default collation OID, which for many people (including me) is the same as the C collation, adding an
+        // unnessecary sort node - lets fix that!
         if collation == pg_sys::C_COLLATION_OID {
             // if the collation for this pathkey isn't C, then we can't pushdown as Tantivy uses byte ordering
             for member in members.iter_ptr() {

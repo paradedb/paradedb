@@ -138,3 +138,30 @@ pub fn is_ltree_oid(oid: pg_sys::Oid) -> bool {
 pub fn facet_encoded_str_to_ltree_text(s: &str) -> String {
     s.trim_start_matches('\0').replace('\0', ".")
 }
+
+/// Helper function to lookup the database's LC_COLLATE setting from `pg_database`
+pub fn lookup_database_collation() -> Option<String> {
+    unsafe {
+        let entry = pg_sys::SearchSysCache1(
+            pg_sys::SysCacheIdentifier::DATABASEOID as _,
+            pg_sys::MyDatabaseId.into_datum().unwrap(),
+        );
+        if entry.is_null() {
+            return None;
+        }
+
+        let mut is_null = false;
+        let collation_datum = pg_sys::SysCacheGetAttr(
+            pg_sys::SysCacheIdentifier::DATABASEOID as _,
+            entry,
+            pg_sys::Anum_pg_database_datcollate as _,
+            &mut is_null,
+        );
+
+        let collation =
+            <&CStr>::from_datum(collation_datum, is_null).map(|s| s.to_string_lossy().to_string());
+
+        pg_sys::ReleaseSysCache(entry);
+        collation
+    }
+}

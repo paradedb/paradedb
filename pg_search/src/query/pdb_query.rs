@@ -18,7 +18,7 @@
 use crate::api::FieldName;
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::storage::metadata::{Version, VersionInfo};
-use crate::postgres::types::PdbOwnedValue;
+use crate::postgres::types::{is_pgoid_datetime_type, PdbOwnedValue};
 use crate::query::numeric::{
     convert_value_for_field, convert_value_for_range_field, map_bound, numeric_bound_to_bytes,
     scale_numeric_bound, string_to_f64, string_to_i64, string_to_json_numeric, string_to_u64,
@@ -2149,10 +2149,8 @@ fn oid_might_require_timestamp_rewriting(
     let oid = schema.search_field(field_name)?.field_type().typeoid();
     if let PgOid::BuiltIn(built_in) = oid {
         match built_in {
-            BuiltinOid::TIMESTAMPOID
-            | BuiltinOid::TIMESTAMPTZOID
-            | BuiltinOid::JSONOID
-            | BuiltinOid::JSONBOID => Some(oid),
+            BuiltinOid::JSONOID | BuiltinOid::JSONBOID => Some(oid),
+            _ if is_pgoid_datetime_type(oid) => Some(oid),
             _ => None,
         }
     } else {
@@ -2201,7 +2199,7 @@ mod tests {
     use super::{phrase_to_pg_micros_string, rewrite_bound};
     use pgrx::pg_sys::BuiltinOid;
     use pgrx::prelude::*;
-    use tantivy::query_grammar::UserInputBound;
+    use tantivy::query_grammar;
 
     // 2024-01-01 00:00:00 UTC, in PG-epoch micros
     const PG_MICROS_2024: i64 = 757_382_400_000_000;
@@ -2266,9 +2264,9 @@ mod tests {
 
     #[pg_test]
     fn rewrite_bound_inclusive_replaces_phrase() {
-        let mut bound = UserInputBound::Inclusive("2024-01-01 00:00:00".to_string());
+        let mut bound = query_grammar::UserInputBound::Inclusive("2024-01-01 00:00:00".to_string());
         rewrite_bound(&mut bound, PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID));
-        let UserInputBound::Inclusive(phrase) = bound else {
+        let query_grammar::UserInputBound::Inclusive(phrase) = bound else {
             panic!("expected Inclusive variant")
         };
         assert_eq!(phrase, PG_MICROS_2024.to_string());
@@ -2276,9 +2274,9 @@ mod tests {
 
     #[pg_test]
     fn rewrite_bound_exclusive_replaces_phrase() {
-        let mut bound = UserInputBound::Exclusive("2024-01-01 00:00:00".to_string());
+        let mut bound = query_grammar::UserInputBound::Exclusive("2024-01-01 00:00:00".to_string());
         rewrite_bound(&mut bound, PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID));
-        let UserInputBound::Exclusive(phrase) = bound else {
+        let query_grammar::UserInputBound::Exclusive(phrase) = bound else {
             panic!("expected Exclusive variant")
         };
         assert_eq!(phrase, PG_MICROS_2024.to_string());
@@ -2286,9 +2284,9 @@ mod tests {
 
     #[pg_test]
     fn rewrite_bound_unbounded_unchanged() {
-        let mut bound = UserInputBound::Unbounded;
+        let mut bound = query_grammar::UserInputBound::Unbounded;
         rewrite_bound(&mut bound, PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID));
-        assert!(matches!(bound, UserInputBound::Unbounded));
+        assert!(matches!(bound, query_grammar::UserInputBound::Unbounded));
     }
 
     #[pg_test]

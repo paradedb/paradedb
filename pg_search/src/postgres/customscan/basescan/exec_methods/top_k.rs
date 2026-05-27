@@ -32,6 +32,7 @@ use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::parallel::checkout_segment;
 use crate::postgres::heap::VisibilityChecker;
+use crate::postgres::storage::metadata::Version;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
 
@@ -52,6 +53,7 @@ struct PreparedAggregations {
     /// Determined by the mvcc_visibility setting of any pdb.agg() calls.
     /// If any aggregate has MVCC disabled, this will be false.
     mvcc_enabled: bool,
+    index_created_by_version: Option<Version>,
 }
 
 pub struct TopKScanExecState {
@@ -215,6 +217,10 @@ impl TopKScanExecState {
         // Check for contradicting solve_mvcc settings - error if some have true and some have false.
         // Only consider Custom aggregates (pdb.agg) since standard SQL aggregates always use default.
         let mvcc_enabled = AggregateType::resolve_mvcc_enabled(combined_agg_types.iter());
+        let index_created_by_version = state
+            .indexrel
+            .as_ref()
+            .and_then(|rel| rel.created_by_version());
 
         // Convert aggregates to Tantivy Aggregations
         let mut aggregations: tantivy::aggregation::agg_req::Aggregations = Default::default();
@@ -239,6 +245,7 @@ impl TopKScanExecState {
             combined_agg_types,
             agg_index_to_te_index,
             mvcc_enabled,
+            index_created_by_version,
         })
     }
 
@@ -255,8 +262,10 @@ impl TopKScanExecState {
         // For window functions (no GROUP BY), we expect a single ungrouped result
         // Convert to AggregationResults and extract Datums
         let agg_results_wrapper: AggregationResults = final_result.into();
-        let datum_vec =
-            agg_results_wrapper.flatten_ungrouped_to_datums(&aggregations.combined_agg_types);
+        let datum_vec = agg_results_wrapper.flatten_ungrouped_to_datums(
+            &aggregations.combined_agg_types,
+            aggregations.index_created_by_version,
+        );
 
         // Map aggregate results to target entry indices
         aggregations

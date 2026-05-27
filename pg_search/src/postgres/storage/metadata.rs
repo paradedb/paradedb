@@ -28,8 +28,9 @@ use pgrx::{
     function_name, iter::TableIterator, name, pg_extern, pg_sys, PgLogLevel, PgRelation,
     PgSqlErrorCode,
 };
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Version {
     pub major: u16,
     pub minor: u16,

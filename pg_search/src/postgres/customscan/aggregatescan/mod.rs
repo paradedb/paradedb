@@ -1,5 +1,3 @@
-// Copyright (c) 2023-2026 ParadeDB, Inc.
-//
 // This file is part of ParadeDB - Postgres for Search and Analytics
 //
 // This program is free software: you can redistribute it and/or modify
@@ -1700,7 +1698,12 @@ unsafe fn aggregate_value_to_datum(
             .ok()
             .flatten();
     }
-    exec::aggregate_result_to_datum(next_aggregate, agg_type, target_typoid)
+    exec::aggregate_result_to_datum(
+        next_aggregate,
+        agg_type,
+        target_typoid,
+        aggregate_clause.index_created_by_version(),
+    )
 }
 
 /// Fill the scan slot's `tts_values` / `tts_isnull` arrays from a single

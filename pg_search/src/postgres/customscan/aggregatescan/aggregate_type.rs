@@ -257,6 +257,19 @@ impl AggregateType {
         }
     }
 
+    pub fn set_unfilled_indexrelid(&mut self, new_indexrelid: pg_sys::Oid) {
+        assert_eq!(self.indexrelid(), pg_sys::InvalidOid);
+        match self {
+            AggregateType::CountAny { indexrelid, .. } => *indexrelid = new_indexrelid,
+            AggregateType::Count { indexrelid, .. } => *indexrelid = new_indexrelid,
+            AggregateType::Sum { indexrelid, .. } => *indexrelid = new_indexrelid,
+            AggregateType::Avg { indexrelid, .. } => *indexrelid = new_indexrelid,
+            AggregateType::Min { indexrelid, .. } => *indexrelid = new_indexrelid,
+            AggregateType::Max { indexrelid, .. } => *indexrelid = new_indexrelid,
+            AggregateType::Custom { indexrelid, .. } => *indexrelid = new_indexrelid,
+        }
+    }
+
     pub fn indexrelid(&self) -> pg_sys::Oid {
         match self {
             AggregateType::CountAny { indexrelid, .. } => *indexrelid,

@@ -26,10 +26,8 @@ use crate::postgres::customscan::aggregatescan::{AggregateScan, AggregateType};
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::datetime::PostgresDateTime;
-use crate::postgres::rel::PgSearchRelation;
+use crate::postgres::storage::metadata::{Version, VersionInfo};
 use crate::postgres::types::{is_datetime_type, PdbOwnedValue, TantivyValue};
-use crate::schema::{SearchField, SearchFieldType};
-use pgrx::pg_sys::Oid;
 use pgrx::{check_for_interrupts, pg_sys, IntoDatum, JsonB};
 
 use tantivy::aggregation::agg_result::{
@@ -168,14 +166,6 @@ impl From<MetricResult> for AggregateResult {
     }
 }
 
-fn lookup_search_field_from_indexrelid(indexrelid: Oid, field_name: &str) -> SearchField {
-    let index = PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
-    let schema = index.schema().expect("could not get index schema");
-    schema
-        .search_field(field_name)
-        .expect("schema should have field")
-}
-
 /// Convert an AggregateResult to a PostgreSQL Datum
 /// This is the shared logic for converting both Custom (JSON) and Metric aggregates
 ///
@@ -187,6 +177,7 @@ pub fn aggregate_result_to_datum(
     agg_result: Option<AggregateResult>,
     agg_type: &AggregateType,
     expected_typoid: pg_sys::Oid,
+    index_created_by_version: Option<Version>,
 ) -> Option<pg_sys::Datum> {
     match agg_result {
         Some(AggregateResult::Json(mut json_value)) => {
@@ -205,47 +196,32 @@ pub fn aggregate_result_to_datum(
                 });
                 JsonB(json_value).into_datum()
             } else if is_datetime_type(expected_typoid) {
-                // If doing this lookup per-result-row is too expensive, we need to modify
-                // AggregateType to hold the necessary information
-                let field_name = agg_type
-                    .field_name()
-                    .expect("metric agg should have a field name");
-                let search_field =
-                    lookup_search_field_from_indexrelid(agg_type.indexrelid(), &field_name);
-
-                match search_field.field_type() {
-                    SearchFieldType::I64(oid)
-                        if oid == pg_sys::TIMESTAMPOID || oid == pg_sys::TIMESTAMPTZOID =>
-                    {
-                        // For timestamp/timestamptz values, we store them as the raw i64 which
-                        // represents microseconds before/after the postgres epoch. The f64 value
-                        // from MIN/MAX aggregates represents that timestamp, so we just need to
-                        // do the conversion back.
-                        metric.value.and_then(|value| {
-                            if oid == pg_sys::TIMESTAMPOID {
-                                pgrx::datum::Timestamp::try_from(value as i64)
-                                    .expect("invalid raw i64 timestamp value")
-                                    .into_datum()
-                            } else {
-                                // oid must be TIMESTAMPTZOID then
-                                pgrx::datum::TimestampWithTimeZone::try_from(value as i64)
-                                    .expect("invalid raw i64 timestamptz value")
-                                    .into_datum()
-                            }
-                        })
-                    }
-                    _ => {
-                        // For legacy timestamp/timestamptz and all other date/time types, Tantivy stores DateTime
-                        // values in fast fields as nanoseconds since UNIX epoch. The f64 value from MIN/MAX aggregates
-                        // represents this nanosecond timestamp. We need to convert it back to a DateTime before
-                        // converting to the expected PostgreSQL type.
-                        metric.value.and_then(|value| unsafe {
-                            let datetime = PostgresDateTime::try_from_unix_nanos(value as i64).expect("We should never see an invalid timestamp converting back from tantivy");
-                            TantivyValue(PdbOwnedValue::Date(datetime))
+                if index_created_by_version.stores_datetimes_in_i64() {
+                    // version >= TIMESTAMP_I64_STORAGE_VERSION store datetime values as i64, so
+                    // this value represents microseconds from the postgres epoch
+                    metric.value.and_then(|value| {
+                        let pgdt = PostgresDateTime::try_from_raw(value as i64).expect(
+                            "We should never see an invalid timestamp converting back from tantivy",
+                        );
+                        unsafe {
+                            TantivyValue(PdbOwnedValue::Date(pgdt))
                                 .try_into_datum(expected_typoid.into())
                                 .unwrap()
-                        })
-                    }
+                        }
+                    })
+                } else {
+                    // version < TIMESTAMP_I64_STORAGE_VERSION store datetime values as tantivy
+                    // DateTime, so this value represents nanoseconds from the unix epoch.
+                    metric.value.and_then(|value| {
+                        let pgdt = PostgresDateTime::try_from_unix_nanos(value as i64).expect(
+                            "We should never see an invalid timestamp converting back from tantivy",
+                        );
+                        unsafe {
+                            TantivyValue(PdbOwnedValue::Date(pgdt))
+                                .try_into_datum(expected_typoid.into())
+                                .unwrap()
+                        }
+                    })
                 }
             } else {
                 metric.value.and_then(|value| unsafe {
@@ -479,6 +455,7 @@ impl AggregationResults {
     pub fn flatten_ungrouped_to_datums(
         self,
         agg_types: &[AggregateType],
+        index_created_by_version: Option<Version>,
     ) -> Vec<Option<pg_sys::Datum>> {
         let mut results = vec![None; agg_types.len()];
 
@@ -495,7 +472,12 @@ impl AggregationResults {
                 agg_types.iter().zip(row.aggregates).enumerate()
             {
                 let expected_typoid = agg_type.result_type_oid();
-                results[agg_idx] = aggregate_result_to_datum(agg_result, agg_type, expected_typoid);
+                results[agg_idx] = aggregate_result_to_datum(
+                    agg_result,
+                    agg_type,
+                    expected_typoid,
+                    index_created_by_version,
+                );
             }
         }
 

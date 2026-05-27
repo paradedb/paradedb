@@ -33,6 +33,7 @@ use crate::postgres::customscan::builders::custom_path::CustomPathBuilder;
 use crate::postgres::customscan::explain::cleanup_json_for_explain;
 use crate::postgres::customscan::CreateUpperPathsHookArgs;
 use crate::postgres::customscan::CustomScan;
+use crate::postgres::storage::metadata::Version;
 use crate::postgres::utils::sort_json_keys;
 use crate::postgres::PgSearchRelation;
 use crate::query::SearchQueryInput;
@@ -93,6 +94,7 @@ pub struct AggregateCSClause {
     limit_offset: Option<LimitOffset>,
     quals: SearchQueryClause,
     indexrelid: pg_sys::Oid,
+    index_created_by_version: Option<Version>,
     is_execution_time: bool,
     aggregate_orderby: Option<AggregateOrderBy>,
 }
@@ -316,6 +318,10 @@ impl AggregateCSClause {
         !self.targetlist.grouping_columns().is_empty()
     }
 
+    pub fn index_created_by_version(&self) -> Option<Version> {
+        self.index_created_by_version
+    }
+
     /// Determines if MVCC filtering should be enabled for this aggregate scan.
     /// Also validates that there are no contradicting solve_mvcc settings among custom aggregates.
     pub fn mvcc_enabled(&self) -> bool {
@@ -474,6 +480,7 @@ impl CustomScanClause<AggregateScan> for AggregateCSClause {
             limit_offset,
             quals,
             indexrelid: index.oid(),
+            index_created_by_version: index.created_by_version(),
             is_execution_time: false,
             aggregate_orderby,
         })

@@ -574,6 +574,10 @@ pub unsafe fn resolve_window_aggregate_filters_at_plan_time(
     for window_agg in window_aggregates.iter_mut() {
         // Convert filters for all aggregates in this targetlist
         for agg_type in window_agg.targetlist.aggregates_mut() {
+            // Always fill in the index info - these were left unset at
+            // convert_window_func_to_aggregate_type time.
+            agg_type.set_unfilled_indexrelid(bm25_index.oid());
+
             // Check if this aggregate has a FILTER
             if !agg_type.has_filter() {
                 continue;

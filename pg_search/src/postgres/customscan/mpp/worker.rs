@@ -69,6 +69,13 @@ pub async fn run_worker_fragment(
         )));
     }
 
+    // Snapshot `paradedb.mpp_trace` once for the fragment-level instruments
+    // outside the per-partition futures. Read here (synchronous, backend
+    // thread) rather than inside the join_all closure below to avoid pgrx
+    // FFI from a tokio worker context. Per-partition futures re-read the
+    // GUC inside their own closure as today.
+    let trace_on = crate::gucs::mpp_trace();
+
     // Execute every output partition concurrently. Each partition gets its
     // own sender; pushes are independent. `Arc<MppSender>` so each
     // partition's future has its own clone (MppSender is `Sync`).

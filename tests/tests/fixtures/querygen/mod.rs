@@ -369,6 +369,7 @@ pub struct PgGucs {
     pub columnar_exec: bool,
     /// Enable sorted execution for ColumnarExecState.
     pub columnar_sort: bool,
+    pub enable_mpp: bool,
 }
 
 /// When `PARADEDB_FORCE_PARALLEL=1` (or `=true`), the proptest `Arbitrary` impl pins
@@ -402,9 +403,9 @@ impl Arbitrary for PgGucs {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-        any::<[bool; 11]>()
+        any::<[bool; 12]>()
             .prop_map(|b| {
-                let mut g = PgGucs {
+                let mut g = Self {
                     aggregate_custom_scan: b[0],
                     custom_scan: b[1],
                     custom_scan_without_operator: b[2],
@@ -413,9 +414,10 @@ impl Arbitrary for PgGucs {
                     seqscan: b[5],
                     indexscan: b[6],
                     parallel_workers: b[7],
-                    columnar_exec: b[8],
-                    columnar_sort: b[9],
-                    parallel_leader_participation: b[10],
+                    parallel_leader_participation: b[8],
+                    columnar_exec: b[9],
+                    columnar_sort: b[10],
+                    enable_mpp: b[11],
                 };
                 if force_parallel() {
                     g.parallel_workers = true;
@@ -426,8 +428,9 @@ impl Arbitrary for PgGucs {
     }
 }
 
-impl Default for PgGucs {
-    fn default() -> Self {
+impl PgGucs {
+    /// Creates an instance of PgGucs with all pg_search scans disabled.
+    pub fn pg_search_disabled() -> Self {
         Self {
             aggregate_custom_scan: false,
             custom_scan: false,
@@ -439,12 +442,11 @@ impl Default for PgGucs {
             parallel_workers: true,
             parallel_leader_participation: true,
             columnar_exec: false,
-            columnar_sort: true,
+            columnar_sort: false,
+            enable_mpp: false,
         }
     }
-}
 
-impl PgGucs {
     pub fn set(&self) -> String {
         let PgGucs {
             aggregate_custom_scan,
@@ -458,6 +460,7 @@ impl PgGucs {
             parallel_leader_participation,
             columnar_exec,
             columnar_sort,
+            enable_mpp,
         } = self;
 
         let max_parallel_workers = if *parallel_workers { 8 } else { 0 };
@@ -503,6 +506,7 @@ impl PgGucs {
             "SET paradedb.enable_columnar_sort TO {columnar_sort};"
         )
         .unwrap();
+        writeln!(gucs, "SET paradedb.enable_mpp TO {enable_mpp};").unwrap();
         writeln!(gucs, "SET statement_timeout TO {};", statement_timeout_ms()).unwrap();
         if force_parallel() {
             writeln!(gucs, "SET debug_parallel_query TO on;").unwrap();
@@ -565,7 +569,7 @@ where
     // the postgres query is always run with the paradedb custom scan turned off
     // this ensures we get the actual, known-to-be-correct result from Postgres'
     // plan, and not from ours where we did some kind of pushdown
-    PgGucs::default().set().execute(conn);
+    PgGucs::pg_search_disabled().set().execute(conn);
 
     conn.deallocate_all()?;
 
@@ -645,7 +649,7 @@ Original error:
 "#,
         failure_type = failure_type,
         setup_sql = setup_sql,
-        default_gucs = PgGucs::default().set(),
+        default_gucs = PgGucs::pg_search_disabled().set(),
         gucs_sql = gucs.set(),
         pg_query = pg_query,
         bm25_query = bm25_query,

@@ -151,19 +151,26 @@ static MPP_TRACE: GucSetting<bool> = GucSetting::<bool>::new(false);
 /// at exec time, so users in constrained environments see fewer.
 static MPP_WORKER_COUNT: GucSetting<i32> = GucSetting::<i32>::new(4);
 
-/// Per-edge shm_mq queue size in bytes. Each MPP query allocates
-/// `num_meshes × N×(N-1) × mpp_queue_size` of dynamic shared memory: at
-/// N=4 with 3 meshes (group-by aggregate's worst case) the default 64 MiB
-/// produces ~2.3 GiB per query, sized so a ~100 MiB Partial-aggregate burst
-/// on the post-agg mesh fits without backpressure. Operators on memory-
-/// constrained boxes will want to dial this down; that's the explicit
-/// reason it's exposed instead of held as a `pub const`.
+/// Per-inbox DSM-MPSC ring size in bytes. Each MPP query allocates
+/// `num_meshes × N × mpp_queue_size` of dynamic shared memory under the
+/// mesh-multiplexed layout (one inbox per receiver, multiplexed by
+/// sender_proc in the frame header) — N rather than the old N×(N-1)
+/// per-pair shm_mq fanout.
 ///
-/// This is a foundation-era knob and may be replaced once mesh
-/// multiplexing lands (one queue carrying tagged messages from N stages
-/// instead of N meshes), at which point the right user knob is more
-/// likely a per-query DSM cap than a raw per-edge byte count.
-static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(64 * 1024 * 1024);
+/// Sized so a single Arrow IPC frame fits in one ring slot: with
+/// `RING_SLOTS = 8` the per-slot capacity is `queue_size / 8`, so 128 MiB
+/// yields a 16 MiB slot. That covers high-cardinality string GROUP BY
+/// partial-agg batches (e.g. the 20M Stack Overflow `GROUP BY title` shape
+/// where a single 8192-row batch can carry 10+ MiB of strings) without
+/// hitting the per-slot ceiling. At N=24 with 3 meshes that's
+/// `24 × 128 MiB × 3 = 9.2 GiB`, still well under `MPP_DSM_MAX_BYTES`
+/// (16 GiB). Operators on memory-constrained boxes can dial this down;
+/// queries with smaller per-frame payloads tolerate it.
+///
+/// Foundation-era knob; the proper fix for the per-slot ceiling is
+/// multi-slot frame fragmentation in the ring primitive, after which
+/// `mpp_queue_size` will gate buffering rather than per-frame size.
+static MPP_QUEUE_SIZE: GucSetting<i32> = GucSetting::<i32>::new(128 * 1024 * 1024);
 
 /// Per-source-per-worker build-side cache slot size (bytes). The build-side
 /// all-gather reserves N slots of this size in DSM; total cache reservation
@@ -631,20 +638,21 @@ pub fn init() {
 
     GucRegistry::define_int_guc(
         c"paradedb.mpp_queue_size",
-        c"Per-edge shm_mq queue size for MPP shuffles",
-        c"Sets the per-edge shm_mq queue size for MPP shuffles. Accepts standard \
-          Postgres byte units (e.g. '64MB', '1GB', '512kB'). Total DSM per query is \
-          `num_meshes × N×(N-1) × mpp_queue_size`; at the default 64MB and N=4 with \
-          3 meshes that is ~2.3GB per query. Lower this on memory-constrained boxes; \
-          raise it only if a single shuffle batch routinely backs up the queue. \
-          Tuning note (per `benchmarks/mpp_scaling/FINDINGS.md` Path B lever 2 sweep): \
-          on small/medium workloads where the post-agg shuffle stays under a few MB \
-          per consumer, dropping to '4MB' or '8MB' saves DSM-init latency for a \
-          5-10% wall-time win (biggest at higher producer counts where mesh edge \
-          count scales as N²). The default stays 64MB because larger production \
-          datasets can burst 100MB+ into the post-agg mesh and need the headroom. \
-          Foundation-era knob — likely to be replaced by a per-query DSM cap once \
-          mesh multiplexing lands.",
+        c"Per-inbox DSM-MPSC ring size for MPP shuffles",
+        c"Sets the per-inbox DSM-MPSC ring size for MPP shuffles. Accepts standard \
+          Postgres byte units (e.g. '128MB', '1GB', '512kB'). Under the \
+          mesh-multiplexed layout total DSM per query is \
+          `num_meshes × N × mpp_queue_size` (N inboxes, multiplexed by sender_proc, \
+          not the old per-pair fanout); at the default 128MB and N=24 with 3 meshes \
+          that is ~9.2GB per query, still under MPP_DSM_MAX_BYTES (16GB). The ring \
+          divides the inbox into RING_SLOTS=8 fixed-size slots, so a single Arrow \
+          IPC frame must fit in `mpp_queue_size / 8` bytes: 128MB → 16MB per slot, \
+          enough for high-cardinality string GROUP BY partial-agg batches. Lower \
+          this on memory-constrained boxes (down to ~32MB for workloads with small \
+          batches); raise it only if you hit `mpp: DSM MPSC frame exceeds \
+          slot_capacity`. Foundation-era knob — the per-slot ceiling will go away \
+          once multi-slot frame fragmentation lands, after which this gates \
+          buffering rather than per-frame size.",
         &MPP_QUEUE_SIZE,
         64 * 1024,
         1024 * 1024 * 1024,

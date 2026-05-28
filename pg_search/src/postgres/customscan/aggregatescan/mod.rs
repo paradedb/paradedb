@@ -22,6 +22,7 @@ pub mod exec;
 pub mod filterquery;
 pub mod groupby;
 pub mod join_targetlist;
+mod json_rewrite;
 pub mod limit_offset;
 pub mod mpp;
 pub mod orderby;
@@ -43,10 +44,12 @@ use datafusion_distributed::{display_plan_ascii, DistributedExec, DistributedTas
 
 use crate::postgres::customscan::mpp::dsm::MppDsmHeader;
 use crate::postgres::customscan::mpp::glue::{
-    estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, producer_worker_count, pscan_offset,
+    estimate_dsm_size, leader_setup, mpp_is_active, producer_worker_count, pscan_offset,
     read_custom_scan_header, worker_setup, write_custom_scan_header, CustomScanMppHeader,
 };
 use crate::postgres::customscan::mpp::runtime::MppMesh;
+use crate::postgres::storage::metadata::Version;
+use crate::schema::SearchIndexSchema;
 
 use crate::api::agg_funcoid;
 use crate::api::SortDirection;
@@ -618,6 +621,67 @@ impl CustomScan for AggregateScan {
                 pg_sys::ExecDropSingleTupleTableSlot(slot);
             }
         }
+    }
+}
+
+/// A collection of index information that is necessary for making result-rewriting decisions
+pub struct AggIndexInfo {
+    created_by_version: Option<Version>,
+    schema: SearchIndexSchema,
+}
+impl From<&PgSearchRelation> for AggIndexInfo {
+    fn from(value: &PgSearchRelation) -> Self {
+        Self {
+            created_by_version: value.created_by_version(),
+            schema: value.schema().expect("schema should be initialized by now"),
+        }
+    }
+}
+
+/// MPP DSM hook impl. The query's serialized worker-fragment plan bytes are
+/// stashed on the customscan state by `begin_custom_scan` so estimate +
+/// initialize see the same bytes; without that we'd have to re-build the
+/// plan twice. The serialization itself happens via the
+/// `PgSearchExtensionCodec` and the DF-D fork's `DistributedCodec` so
+/// `NetworkShuffleExec` round-trips through the worker side.
+/// DSM layout used by AggregateScan in MPP mode:
+///
+/// ```text
+/// [0 .. 8)                     u64 mpp_offset            (offset to MPP region)
+/// [8 .. 16)                    u64 partitioning_source_idx
+/// [pscan_offset .. mpp_offset) ParallelScanState (variable size)
+/// [mpp_offset .. total)        MPP region (header + queues + plan_bytes)
+/// ```
+///
+/// Workers don't carry the source manifests the leader saw, so the
+/// MPP-region offset and the partitioning-source index are stamped into
+/// the first 16 bytes by the leader and read back by workers — neither
+/// has to be re-derived.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct MppAggDsmHeader {
+    mpp_offset: u64,
+    partitioning_source_idx: u64,
+}
+
+const MPP_AGG_DSM_HEADER_SIZE: usize = std::mem::size_of::<MppAggDsmHeader>();
+
+fn mpp_align(n: usize) -> usize {
+    let a = pg_sys::MAXIMUM_ALIGNOF as usize;
+    n.next_multiple_of(a)
+}
+
+fn mpp_agg_pscan_offset() -> usize {
+    mpp_align(MPP_AGG_DSM_HEADER_SIZE)
+}
+
+unsafe fn mpp_agg_read_header(coordinate: *const std::os::raw::c_void) -> MppAggDsmHeader {
+    unsafe { *(coordinate as *const MppAggDsmHeader) }
+}
+
+unsafe fn mpp_agg_write_header(coordinate: *mut std::os::raw::c_void, header: MppAggDsmHeader) {
+    unsafe {
+        *(coordinate as *mut MppAggDsmHeader) = header;
     }
 }
 
@@ -1317,7 +1381,13 @@ impl AggregateScan {
                 .expect("scan_slot should be initialized in begin_custom_scan");
             pg_sys::ExecClearTuple(slot);
 
-            fill_slot_from_row(slot, &tupdesc, &row, &state.custom_state().aggregate_clause);
+            fill_slot_from_row(
+                slot,
+                &tupdesc,
+                &row,
+                &state.custom_state().aggregate_clause,
+                &AggIndexInfo::from(state.custom_state().indexrel()),
+            );
 
             Self::project_wrapped_aggregates(state, slot, &row)
         }
@@ -1427,6 +1497,7 @@ impl AggregateScan {
                         (*const_node).consttype,
                         aggregate_clause,
                         next_aggregate,
+                        &AggIndexInfo::from(state.custom_state().indexrel()),
                     ) {
                         Some(datum) => (datum, false),
                         None => (pg_sys::Datum::null(), true),
@@ -1681,6 +1752,7 @@ unsafe fn aggregate_value_to_datum(
     target_typoid: pg_sys::Oid,
     aggregate_clause: &AggregateCSClause,
     next_aggregate: Option<AggregateResult>,
+    index_info: &AggIndexInfo,
 ) -> Option<pg_sys::Datum> {
     if row.is_empty() {
         return agg_type.nullish().value.and_then(|value| {
@@ -1696,12 +1768,7 @@ unsafe fn aggregate_value_to_datum(
             .ok()
             .flatten();
     }
-    exec::aggregate_result_to_datum(
-        next_aggregate,
-        agg_type,
-        target_typoid,
-        aggregate_clause.index_created_by_version(),
-    )
+    exec::aggregate_result_to_datum(next_aggregate, agg_type, target_typoid, index_info)
 }
 
 /// Fill the scan slot's `tts_values` / `tts_isnull` arrays from a single
@@ -1720,6 +1787,7 @@ unsafe fn fill_slot_from_row(
     tupdesc: &PgTupleDesc<'_>,
     row: &AggregationResultsRow,
     aggregate_clause: &AggregateCSClause,
+    index_info: &AggIndexInfo,
 ) {
     let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
     let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
@@ -1758,6 +1826,7 @@ unsafe fn fill_slot_from_row(
                     expected_typoid,
                     aggregate_clause,
                     next_aggregate,
+                    index_info,
                 )
             }
         };

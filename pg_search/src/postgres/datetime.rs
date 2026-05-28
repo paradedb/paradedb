@@ -125,7 +125,8 @@ impl PostgresDateTime {
 }
 impl Display for PostgresDateTime {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        let s: String = (*self).into();
+        f.write_str(&s)
     }
 }
 impl TryFrom<String> for PostgresDateTime {

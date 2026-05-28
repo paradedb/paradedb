@@ -386,6 +386,7 @@ impl ExecMethod for TopKScanExecState {
                     local_limit,
                     self.offset,
                     maybe_aux_collector,
+                    state.parallel_state,
                 )
         } else {
             self.search_reader

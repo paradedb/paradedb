@@ -161,36 +161,10 @@ impl CustomScanClause<AggregateScan> for TargetList {
         heap_rti: pg_sys::Index,
         index: &PgSearchRelation,
     ) -> Result<Self, CustomScanBuildError> {
-        // DISTINCT ON (col1, ...) ORDER BY col2 is not pushable: the deduplication
-        // key and the sort key diverge, making Tantivy TermsAggregation inapplicable.
-        unsafe {
-            let parse = args.root().parse;
-            if !parse.is_null() && (*parse).hasDistinctOn {
-                return Err("DISTINCT ON is not supported (see https://github.com/paradedb/paradedb/issues/new/choose)".into());
-            }
-        }
-
         let schema = index.schema().expect("Could not get index schema");
-
-        // At UPPERREL_DISTINCT the planner does not populate output_rel.reltarget.exprs,
-        // so we have to look at the raw parse tree targetList. For regular GROUP BY
-        // queries the output_rel.reltarget.exprs can be used directly.
-        let is_distinct = args.stage == pg_sys::UpperRelationKind::UPPERREL_DISTINCT;
-        let target_exprs: Vec<*mut pg_sys::Expr> = unsafe {
-            let from_reltarget =
-                PgList::<pg_sys::Expr>::from_pg((*args.output_rel().reltarget).exprs);
-            if is_distinct && from_reltarget.is_empty() {
-                let parse = args.root().parse;
-                PgList::<pg_sys::TargetEntry>::from_pg((*parse).targetList)
-                    .iter_ptr()
-                    .filter(|te| !(**te).resjunk)
-                    .map(|te| (*te).expr)
-                    .collect()
-            } else {
-                from_reltarget.iter_ptr().collect()
-            }
-        };
-        if target_exprs.is_empty() {
+        let target_list =
+            unsafe { PgList::<pg_sys::Expr>::from_pg((*args.output_rel().reltarget).exprs) };
+        if target_list.is_empty() {
             return Err("Target list is empty".into());
         }
 
@@ -212,7 +186,7 @@ impl CustomScanClause<AggregateScan> for TargetList {
 
         let index_expressions = index.index_expressions();
 
-        for &expr in &target_exprs {
+        for expr in target_list.iter_ptr() {
             unsafe {
                 let var_context = VarContext::from_planner(args.root() as *const _ as *mut _);
 

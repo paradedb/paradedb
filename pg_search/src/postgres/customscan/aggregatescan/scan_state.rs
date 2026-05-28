@@ -18,9 +18,7 @@
 use crate::customscan::aggregatescan::exec::AggregationResultsRow;
 use crate::customscan::aggregatescan::AggregateCSClause;
 use crate::postgres::customscan::aggregatescan::join_targetlist::JoinAggregateTargetList;
-use crate::postgres::customscan::aggregatescan::privdat::{
-    DataFusionTopK, DistinctOverflowPlan, FilterExpr,
-};
+use crate::postgres::customscan::aggregatescan::privdat::{DataFusionTopK, FilterExpr};
 use crate::postgres::customscan::joinscan::build::{
     JoinLevelSearchPredicate, MultiTablePredicateInfo, RelNode,
 };
@@ -164,12 +162,6 @@ pub struct AggregateScanState {
     /// header by the leader and read back by workers; used in
     /// `exec_mpp_worker` to key `index_segment_ids` correctly.
     pub mpp_partitioning_source_idx: Option<usize>,
-
-    /// Pre-computed DataFusion overflow fallback for `SELECT DISTINCT`.
-    /// `Some` only when the Tantivy path was planned for `UPPERREL_DISTINCT`.
-    /// Consumed on first truncation detection: the plan is extracted, used to
-    /// initialise `datafusion_state`, and this field is left as `None`.
-    pub distinct_overflow_plan: Option<DistinctOverflowPlan>,
 }
 
 impl AggregateScanState {

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780000443574,
+  "lastUpdate": 1780000476842,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20504,6 +20504,114 @@ window.BENCHMARK_DATA = {
             "value": 173.92578125,
             "unit": "median mem",
             "extra": "avg mem: 171.36798227539677, max mem: 174.6015625, count: 55509"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6382af00416f8b2fd2171d3b8e1a02dddffe89b2",
+          "message": "fix(joinscan): preserve cross-table OR pushed into sub-join joinrestrictinfo. (#5178)\n\n# Ticket(s) Closed\n\n- Closes #5177\n\n## What\n\nThis PR fixes JoinScan dropping cross-table `OR` clauses when PG pushes\nthem into an inner sub-join's `joinrestrictinfo`. Before this fix, BM25\nreturned join pairs that didn't satisfy the `WHERE`. See #5177 for the\nSQL repro and the PG vs BM25 row sets.\n\n## Why\n\nPG places a `WHERE` clause at the lowest join level that has all\nreferenced relations. For `WHERE (a.x @@@ ...) OR (b.y @@@ ...)`, that's\noften an inner sub-join. The inner JoinScan can't fire there (no `LIMIT`\non the sub-join), so the outer JoinScan's\n`collect_join_sources_join_rel` reconstructs that sub-join from PG's\nstandard `JoinPath`. Reconstruction went through\n`extract_join_conditions_from_list`, which dropped any non-equi clause\ncontaining `@@@` (`!is_equi_join && !has_search_op`). The cross-table OR\nvanished and the WHERE was effectively gone.\n\nThe guard made sense when the function had one caller (the outer hook),\nbecause `extract_join_level_conditions` handles `@@@` clauses over the\nsame `extra->restrictlist`. When #4039 split the function for multi-way\nreconstruction, the new caller had no such second pass and the\nassumption silently broke.\n\n## How\n\n- `extract_join_conditions_from_list` keeps every non-equi clause in\n`other_conditions`, `@@@` included. Consumers filter as needed.\n- `collect_join_sources_join_rel`'s reconstruction partitions:\nnon-search-op clauses still trip the reject gate, `@@@` clauses get\nstashed on a new `JoinNode.absorbed_search_clauses` field\n(planning-only, `#[serde(skip)]`).\n- `extract_join_level_conditions` runs a pre-pass\n(`lower_absorbed_search_clauses_node`) that walks the `RelNode` tree,\nfinds `JoinNode`s with absorbed clauses, lowers them into a\n`RelNode::Filter` via the existing `transform_to_search_expr` (interning\npredicates into `join_level_predicates`), and drains the field.\n- The Semi/Anti disjunction absorber in `try_build_join_custom_path`\nskips `@@@` clauses so they don't get lowered as generic\n`PgExpression`s. `extract_join_level_conditions` picks them up.\n\n## Tests\n\n- Added `pg_search/tests/pg_regress/sql/joinscan_cross_table_or.sql`. It\npins the join order via subquery nesting + `join_collapse_limit = 1` so\nPG pushes the OR into the inner sub-join. The first commit locks in the\nbuggy output; the fix commit flips the expected to match PG.",
+          "timestamp": "2026-05-28T12:36:09-07:00",
+          "tree_id": "db7f212ced1598dd905981cc68e845960dd2ebac",
+          "url": "https://github.com/paradedb/paradedb/commit/6382af00416f8b2fd2171d3b8e1a02dddffe89b2"
+        },
+        "date": 1780000445334,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.713654595719134, max cpu: 47.477745, count: 55527"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 178.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 162.3335369223531, max mem: 180.0234375, count: 55527"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.69855608234596, max cpu: 28.070175, count: 55527"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 121.609375,
+            "unit": "median mem",
+            "extra": "avg mem: 120.36687451881517, max mem: 121.74609375, count: 55527"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.290784776588179, max cpu: 18.695229, count: 55527"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 173.81640625,
+            "unit": "median mem",
+            "extra": "avg mem: 146.89194347457092, max mem: 180.10546875, count: 55527"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16435,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16807.114070632306, max block_count: 31337.0, count: 55527"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.604765979965886, max cpu: 4.7058825, count: 55527"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 111.10546875,
+            "unit": "median mem",
+            "extra": "avg mem: 96.70934684646659, max mem: 137.3984375, count: 55527"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 25.53192140760351, max segment_count: 38.0, count: 55527"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.28233843006859, max cpu: 32.463768, count: 111054"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 181.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 163.68299810790245, max mem: 182.65234375, count: 111054"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.88621,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.85948831893198, max cpu: 28.070175, count: 55527"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 173.92578125,
+            "unit": "median mem",
+            "extra": "avg mem: 171.5029825017559, max mem: 174.77734375, count: 55527"
           }
         ]
       }

@@ -23,9 +23,10 @@ use crate::postgres::customscan::parameterized_value::ParameterizedValue;
 use crate::postgres::var::find_one_var;
 
 use pgrx::pg_sys::expression_tree_walker;
+use pgrx::pg_sys::panic::ErrorReport;
 use pgrx::{
     default, direct_function_call, extension_sql, pg_extern, pg_guard, pg_sys, AnyElement,
-    IntoDatum, PgList,
+    IntoDatum, PgList, PgLogLevel, PgSqlErrorCode,
 };
 use std::sync::OnceLock;
 use tantivy::snippet::{SnippetGenerator, SnippetSortOrder};
@@ -35,6 +36,23 @@ const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
 const DEFAULT_SNIPPET_MAX_NUM_CHARS: i32 = 150;
 const DEFAULT_SNIPPET_LIMIT: i32 = 5;
 const DEFAULT_SNIPPET_OFFSET: i32 = 0;
+
+fn unsupported_snippet_placeholder(function_name: &'static str) -> ! {
+    ErrorReport::new(
+        PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
+        format!("{function_name}() could not run because the BM25 custom scan was not selected for this relation"),
+        function_name,
+    )
+    .set_detail(
+        "The planner left the snippet placeholder in the plan, usually because the BM25 custom scan cannot drive this query shape.",
+    )
+    .set_hint(
+        "Materialize the BM25 search in a subquery first, then apply DISTINCT ON, LATERAL, or joins on top. Please report at https://github.com/paradedb/paradedb/issues/new/choose",
+    )
+    .report(PgLogLevel::ERROR);
+
+    unreachable!("Postgres ERROR reports do not return");
+}
 
 /// The limit and offset for "fragments" (essentially, matches with a small amount of context).
 ///
@@ -348,7 +366,7 @@ pub mod pdb {
         limit: default!(Option<i32>, "NULL"),
         offset: default!(Option<i32>, "NULL"),
     ) -> String {
-        panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+        super::unsupported_snippet_placeholder("pdb.snippet");
     }
 
     #[allow(unused_variables)]
@@ -362,7 +380,7 @@ pub mod pdb {
         offset: default!(Option<i32>, "NULL"),
         sort_by: default!(String, "'score'"),
     ) -> Vec<String> {
-        panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+        super::unsupported_snippet_placeholder("pdb.snippets");
     }
 
     #[allow(unused_variables)]
@@ -386,7 +404,7 @@ AS 'MODULE_PATHNAME', 'snippet_positions_from_relation_wrapper';
         limit: default!(Option<i32>, "NULL"),
         offset: default!(Option<i32>, "NULL"),
     ) -> IntArray2D {
-        panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+        super::unsupported_snippet_placeholder("pdb.snippet_positions");
     }
 }
 
@@ -403,7 +421,7 @@ fn paradedb_snippet_from_relation(
     limit: default!(Option<i32>, "NULL"),
     offset: default!(Option<i32>, "NULL"),
 ) -> Option<String> {
-    panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+    unsupported_snippet_placeholder("paradedb.snippet");
 }
 
 #[warn(deprecated)]
@@ -418,7 +436,7 @@ fn paradedb_snippets_from_relation(
     offset: default!(Option<i32>, "NULL"),
     sort_by: default!(String, "'score'"),
 ) -> Option<Vec<String>> {
-    panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+    unsupported_snippet_placeholder("paradedb.snippets");
 }
 
 #[warn(deprecated)]
@@ -443,7 +461,7 @@ fn paradedb_snippet_positions_from_relation(
     limit: default!(Option<i32>, "NULL"),
     offset: default!(Option<i32>, "NULL"),
 ) -> pdb::IntArray2D {
-    panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+    unsupported_snippet_placeholder("paradedb.snippet_positions");
 }
 
 extension_sql!(

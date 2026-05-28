@@ -18,8 +18,28 @@
 use crate::nodecast;
 use crate::postgres::customscan::score_funcoids;
 use pgrx::pg_sys::expression_tree_walker;
-use pgrx::{extension_sql, pg_extern, pg_guard, pg_sys, AnyElement, PgList};
+use pgrx::pg_sys::panic::ErrorReport;
+use pgrx::{
+    extension_sql, pg_extern, pg_guard, pg_sys, AnyElement, PgList, PgLogLevel, PgSqlErrorCode,
+};
 use std::ptr::addr_of_mut;
+
+fn unsupported_score_placeholder(function_name: &'static str) -> ! {
+    ErrorReport::new(
+        PgSqlErrorCode::ERRCODE_FEATURE_NOT_SUPPORTED,
+        format!("{function_name}() could not run because the BM25 custom scan was not selected for this relation"),
+        function_name,
+    )
+    .set_detail(
+        "The planner left the score placeholder in the plan, usually because the BM25 custom scan cannot drive this query shape.",
+    )
+    .set_hint(
+        "Materialize the BM25 search in a subquery first, then apply DISTINCT ON, LATERAL, or joins on top. Please report at https://github.com/paradedb/paradedb/issues/new/choose",
+    )
+    .report(PgLogLevel::ERROR);
+
+    unreachable!("Postgres ERROR reports do not return");
+}
 
 #[pgrx::pg_schema]
 mod pdb {
@@ -28,7 +48,7 @@ mod pdb {
     #[allow(unused_variables)]
     #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
     fn score_from_relation(relation_reference: AnyElement) -> f32 {
-        panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+        super::unsupported_score_placeholder("pdb.score");
     }
 
     extension_sql!(
@@ -46,7 +66,7 @@ mod pdb {
 #[allow(unused_variables)]
 #[pg_extern(name = "score", stable, parallel_safe, cost = 1)]
 fn paradedb_score_from_relation(relation_reference: AnyElement) -> Option<f32> {
-    panic!("Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose");
+    unsupported_score_placeholder("paradedb.score");
 }
 
 extension_sql!(

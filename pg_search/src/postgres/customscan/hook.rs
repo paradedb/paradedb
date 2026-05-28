@@ -21,21 +21,27 @@ use crate::api::{agg_funcoid, agg_with_solve_mvcc_funcoid};
 use crate::gucs;
 use crate::nodecast;
 use crate::postgres::customscan::aggregatescan::targetlist::TargetList;
-use crate::postgres::customscan::basescan::projections::window_agg;
+use crate::postgres::customscan::basescan::projections::{
+    snippet::{snippet_funcoids, snippet_positions_funcoids, snippets_funcoids},
+    window_agg,
+};
 use crate::postgres::customscan::builders::custom_path::{
     CustomPathBuilder, Flags, RestrictInfoType,
 };
 use crate::postgres::customscan::orderby::validate_topk_compatibility;
 use crate::postgres::customscan::qual_inspect::{extract_quals, PlannerContext, QualExtractState};
 use crate::postgres::customscan::{
-    CreateUpperPathsHookArgs, CustomScan, JoinPathlistHookArgs, RelPathlistHookArgs,
+    score_funcoids, CreateUpperPathsHookArgs, CustomScan, JoinPathlistHookArgs, RelPathlistHookArgs,
 };
-use crate::postgres::planner_warnings::{clear_planner_warnings, emit_planner_warnings};
+use crate::postgres::planner_warnings::{
+    add_planner_warning, clear_planner_warnings, emit_planner_warnings,
+};
 use crate::postgres::rel_get_bm25_index;
 use crate::postgres::utils::{expr_contains_any_operator, pg_search_extension_installed};
 use once_cell::sync::Lazy;
 use pgrx::{pg_guard, pg_sys, PgList, PgMemoryContexts};
 use std::collections::{hash_map::Entry, HashMap};
+use std::ffi::CStr;
 
 unsafe fn add_path(rel: *mut pg_sys::RelOptInfo, mut path: pg_sys::CustomPath) {
     let forced = path.flags & Flags::Force as u32 != 0;
@@ -538,6 +544,176 @@ unsafe fn should_replace_window_functions(parse: *mut pg_sys::Query) -> bool {
     false
 }
 
+fn placeholder_not_rewritten_message(function_name: &str) -> String {
+    format!(
+        "{function_name}() may fail because the BM25 custom scan was not selected, leaving its planner placeholder in the plan. \
+         This is usually caused by query shapes the BM25 custom scan cannot drive, such as DISTINCT ON over LATERAL or certain joins. \
+         Materialize the BM25 search in a subquery first, then apply DISTINCT ON, LATERAL, or joins on top. \
+         Please report at https://github.com/paradedb/paradedb/issues/new/choose"
+    )
+}
+
+unsafe fn warn_on_leftover_placeholder_functions(planned_stmt: *mut pg_sys::PlannedStmt) {
+    if planned_stmt.is_null() {
+        return;
+    }
+
+    let mut found = Vec::new();
+    collect_leftover_placeholder_functions_in_plan((*planned_stmt).planTree, &mut found);
+
+    if !(*planned_stmt).subplans.is_null() {
+        for subplan in PgList::<pg_sys::Plan>::from_pg((*planned_stmt).subplans).iter_ptr() {
+            collect_leftover_placeholder_functions_in_plan(subplan, &mut found);
+        }
+    }
+
+    found.sort_unstable();
+    found.dedup();
+
+    for function_name in found {
+        add_planner_warning(
+            "BM25 placeholder",
+            placeholder_not_rewritten_message(function_name),
+            (),
+        );
+    }
+}
+
+unsafe fn collect_leftover_placeholder_functions_in_plan(
+    plan: *mut pg_sys::Plan,
+    found: &mut Vec<&'static str>,
+) {
+    if plan.is_null() {
+        return;
+    }
+
+    if let Some(cscan) = nodecast!(CustomScan, T_CustomScan, plan.cast()) {
+        if is_paradedb_custom_scan(cscan) {
+            return;
+        }
+
+        collect_leftover_placeholder_functions_in_plan_list((*cscan).custom_plans, found);
+    }
+
+    collect_leftover_placeholder_functions_in_expr((*plan).targetlist.cast(), found);
+    collect_leftover_placeholder_functions_in_expr((*plan).qual.cast(), found);
+    collect_leftover_placeholder_functions_in_expr((*plan).initPlan.cast(), found);
+
+    if let Some(join) = nodecast!(Join, T_NestLoop, plan.cast())
+        .or_else(|| nodecast!(Join, T_MergeJoin, plan.cast()))
+        .or_else(|| nodecast!(Join, T_HashJoin, plan.cast()))
+    {
+        collect_leftover_placeholder_functions_in_expr((*join).joinqual.cast(), found);
+    }
+
+    if let Some(append) = nodecast!(Append, T_Append, plan.cast()) {
+        collect_leftover_placeholder_functions_in_plan_list((*append).appendplans, found);
+    }
+
+    if let Some(merge_append) = nodecast!(MergeAppend, T_MergeAppend, plan.cast()) {
+        collect_leftover_placeholder_functions_in_plan_list((*merge_append).mergeplans, found);
+    }
+
+    if let Some(bitmap_and) = nodecast!(BitmapAnd, T_BitmapAnd, plan.cast()) {
+        collect_leftover_placeholder_functions_in_plan_list((*bitmap_and).bitmapplans, found);
+    }
+
+    if let Some(bitmap_or) = nodecast!(BitmapOr, T_BitmapOr, plan.cast()) {
+        collect_leftover_placeholder_functions_in_plan_list((*bitmap_or).bitmapplans, found);
+    }
+
+    if let Some(subquery_scan) = nodecast!(SubqueryScan, T_SubqueryScan, plan.cast()) {
+        collect_leftover_placeholder_functions_in_plan((*subquery_scan).subplan, found);
+    }
+
+    collect_leftover_placeholder_functions_in_plan((*plan).lefttree, found);
+    collect_leftover_placeholder_functions_in_plan((*plan).righttree, found);
+}
+
+unsafe fn collect_leftover_placeholder_functions_in_plan_list(
+    plans: *mut pg_sys::List,
+    found: &mut Vec<&'static str>,
+) {
+    if plans.is_null() {
+        return;
+    }
+
+    for plan in PgList::<pg_sys::Plan>::from_pg(plans).iter_ptr() {
+        collect_leftover_placeholder_functions_in_plan(plan, found);
+    }
+}
+
+unsafe fn collect_leftover_placeholder_functions_in_expr(
+    node: *mut pg_sys::Node,
+    found: &mut Vec<&'static str>,
+) {
+    if node.is_null() {
+        return;
+    }
+
+    struct WalkerData<'a> {
+        placeholder_funcoids: Vec<(pg_sys::Oid, &'static str)>,
+        found: &'a mut Vec<&'static str>,
+    }
+
+    #[pg_guard]
+    unsafe extern "C-unwind" fn walker(
+        node: *mut pg_sys::Node,
+        data: *mut core::ffi::c_void,
+    ) -> bool {
+        if node.is_null() {
+            return false;
+        }
+
+        if let Some(funcexpr) = nodecast!(FuncExpr, T_FuncExpr, node) {
+            let data = data.cast::<WalkerData>();
+            if let Some((_, function_name)) = (*data)
+                .placeholder_funcoids
+                .iter()
+                .find(|(funcoid, _)| *funcoid == (*funcexpr).funcid)
+            {
+                let function_name = *function_name;
+                if !(*data).found.contains(&function_name) {
+                    (*data).found.push(function_name);
+                }
+            }
+        }
+
+        pg_sys::expression_tree_walker(node, Some(walker), data)
+    }
+
+    let scores = score_funcoids();
+    let snippets = snippet_funcoids();
+    let snippets_plural = snippets_funcoids();
+    let snippet_positions = snippet_positions_funcoids();
+    let mut data = WalkerData {
+        placeholder_funcoids: vec![
+            (scores[0], "pdb.score"),
+            (scores[1], "paradedb.score"),
+            (snippets[0], "pdb.snippet"),
+            (snippets[1], "paradedb.snippet"),
+            (snippets_plural[0], "pdb.snippets"),
+            (snippets_plural[1], "paradedb.snippets"),
+            (snippet_positions[0], "pdb.snippet_positions"),
+            (snippet_positions[1], "paradedb.snippet_positions"),
+        ],
+        found,
+    };
+
+    walker(node, std::ptr::addr_of_mut!(data).cast());
+}
+
+unsafe fn is_paradedb_custom_scan(cscan: *mut pg_sys::CustomScan) -> bool {
+    if cscan.is_null() || (*cscan).methods.is_null() || (*(*cscan).methods).CustomName.is_null() {
+        return false;
+    }
+
+    matches!(
+        CStr::from_ptr((*(*cscan).methods).CustomName).to_bytes(),
+        b"ParadeDB Base Scan" | b"ParadeDB Join Scan" | b"ParadeDB Aggregate Scan"
+    )
+}
+
 /// Planner hook that replaces WindowFunc nodes before PostgreSQL processes them.
 ///
 /// This hook runs at the very start of query planning, before `grouping_planner()`
@@ -590,6 +766,8 @@ unsafe extern "C-unwind" fn paradedb_planner_hook(
     } else {
         pg_sys::standard_planner(parse, query_string, cursor_options, bound_params)
     };
+
+    warn_on_leftover_placeholder_functions(result);
 
     // Emit collected warnings
     emit_planner_warnings();

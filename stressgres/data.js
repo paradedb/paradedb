@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780001125614,
+  "lastUpdate": 1780001158711,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -28110,6 +28110,186 @@ window.BENCHMARK_DATA = {
             "value": 31.04296875,
             "unit": "median mem",
             "extra": "avg mem: 30.34800284354689, max mem: 31.16015625, count: 53850"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6382af00416f8b2fd2171d3b8e1a02dddffe89b2",
+          "message": "fix(joinscan): preserve cross-table OR pushed into sub-join joinrestrictinfo. (#5178)\n\n# Ticket(s) Closed\n\n- Closes #5177\n\n## What\n\nThis PR fixes JoinScan dropping cross-table `OR` clauses when PG pushes\nthem into an inner sub-join's `joinrestrictinfo`. Before this fix, BM25\nreturned join pairs that didn't satisfy the `WHERE`. See #5177 for the\nSQL repro and the PG vs BM25 row sets.\n\n## Why\n\nPG places a `WHERE` clause at the lowest join level that has all\nreferenced relations. For `WHERE (a.x @@@ ...) OR (b.y @@@ ...)`, that's\noften an inner sub-join. The inner JoinScan can't fire there (no `LIMIT`\non the sub-join), so the outer JoinScan's\n`collect_join_sources_join_rel` reconstructs that sub-join from PG's\nstandard `JoinPath`. Reconstruction went through\n`extract_join_conditions_from_list`, which dropped any non-equi clause\ncontaining `@@@` (`!is_equi_join && !has_search_op`). The cross-table OR\nvanished and the WHERE was effectively gone.\n\nThe guard made sense when the function had one caller (the outer hook),\nbecause `extract_join_level_conditions` handles `@@@` clauses over the\nsame `extra->restrictlist`. When #4039 split the function for multi-way\nreconstruction, the new caller had no such second pass and the\nassumption silently broke.\n\n## How\n\n- `extract_join_conditions_from_list` keeps every non-equi clause in\n`other_conditions`, `@@@` included. Consumers filter as needed.\n- `collect_join_sources_join_rel`'s reconstruction partitions:\nnon-search-op clauses still trip the reject gate, `@@@` clauses get\nstashed on a new `JoinNode.absorbed_search_clauses` field\n(planning-only, `#[serde(skip)]`).\n- `extract_join_level_conditions` runs a pre-pass\n(`lower_absorbed_search_clauses_node`) that walks the `RelNode` tree,\nfinds `JoinNode`s with absorbed clauses, lowers them into a\n`RelNode::Filter` via the existing `transform_to_search_expr` (interning\npredicates into `join_level_predicates`), and drains the field.\n- The Semi/Anti disjunction absorber in `try_build_join_custom_path`\nskips `@@@` clauses so they don't get lowered as generic\n`PgExpression`s. `extract_join_level_conditions` picks them up.\n\n## Tests\n\n- Added `pg_search/tests/pg_regress/sql/joinscan_cross_table_or.sql`. It\npins the join order via subquery nesting + `join_collapse_limit = 1` so\nPG pushes the OR into the inner sub-join. The first commit locks in the\nbuggy output; the fix commit flips the expected to match PG.",
+          "timestamp": "2026-05-28T12:36:09-07:00",
+          "tree_id": "db7f212ced1598dd905981cc68e845960dd2ebac",
+          "url": "https://github.com/paradedb/paradedb/commit/6382af00416f8b2fd2171d3b8e1a02dddffe89b2"
+        },
+        "date": 1780001127474,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.071587892631424, max cpu: 9.430255, count: 53856"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 53.0703125,
+            "unit": "median mem",
+            "extra": "avg mem: 53.133680990743834, max mem: 59.06640625, count: 53856"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.1995928600624093, max cpu: 4.5801525, count: 53856"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 30.609375,
+            "unit": "median mem",
+            "extra": "avg mem: 29.93542785100546, max mem: 30.953125, count: 53856"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.125476,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.072223187424672, max cpu: 28.290766, count: 53856"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 56.10546875,
+            "unit": "median mem",
+            "extra": "avg mem: 55.81090967696264, max mem: 61.91796875, count: 53856"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.031038258831894, max cpu: 9.430255, count: 53856"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 52.12890625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.14587953582238, max mem: 57.953125, count: 53856"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.682150917389953, max cpu: 9.221902, count: 53856"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 33.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 33.88251120464758, max mem: 38.95703125, count: 53856"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1091,
+            "unit": "median pages",
+            "extra": "avg pages: 1093.6197638146168, max pages: 1819.0, count: 53856"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.5234375,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.543904694927214, max relation_size:MB: 14.2109375, count: 53856"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 7.695707070707071, max segment_count: 14.0, count: 53856"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.46799013870197, max cpu: 4.6065254, count: 53856"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.76171875,
+            "unit": "median mem",
+            "extra": "avg mem: 29.066453612991126, max mem: 30.11328125, count: 53856"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.247633058154922, max cpu: 4.610951, count: 53856"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.63671875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.933366726780676, max mem: 30.01171875, count: 53856"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.500582862055801, max cpu: 27.221172, count: 53856"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 51.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.096567118798276, max mem: 56.90625, count: 53856"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.00002475430833677132, max replication_lag:MB: 0.0933074951171875, count: 53856"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.31979915006511, max cpu: 14.145383, count: 107712"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 51.8515625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.868213311307, max mem: 57.94921875, count: 107712"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5584044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.372137001293193, max cpu: 4.5757866, count: 53856"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 31.36328125,
+            "unit": "median mem",
+            "extra": "avg mem: 30.608508322540665, max mem: 31.71875, count: 53856"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.9475732045844065, max cpu: 4.6065254, count: 53856"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 31.42578125,
+            "unit": "median mem",
+            "extra": "avg mem: 30.720653513536096, max mem: 31.48046875, count: 53856"
           }
         ]
       }

@@ -371,10 +371,13 @@ fn json_numeric_range_mixed_bound_types(mut conn: PgConnection) {
     }'::jsonb
     ORDER BY id"#
         .fetch_result::<(i32,)>(&mut conn);
-    let err = result.expect_err("string-typed lower bound vs numeric upper bound should error, not panic");
+    let err = result
+        .expect_err("string-typed lower bound vs numeric upper bound should error, not panic");
     let err_msg = format!("{err}");
     assert!(
-        err_msg.to_lowercase().contains("type") || err_msg.to_lowercase().contains("mismatch") || err_msg.contains("not-a-number"),
+        err_msg.to_lowercase().contains("type")
+            || err_msg.to_lowercase().contains("mismatch")
+            || err_msg.contains("not-a-number"),
         "expected an error mentioning type/mismatch, got: {err_msg}"
     );
 

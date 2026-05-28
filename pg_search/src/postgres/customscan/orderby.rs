@@ -347,88 +347,92 @@ where
 
         let mut found_valid_member = false;
 
+        // If the collation for this pathkey isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering
         let collation = (*equivclass).ec_collation;
-        // TODO @stajwar: the below blocks default collation OID, which for many people (including me) is the same as the C collation, adding an
-        // unnessecary sort node - lets fix that!
-        if collation == pg_sys::C_COLLATION_OID {
-            // if the collation for this pathkey isn't C, then we can't pushdown as Tantivy uses byte ordering
-            for member in members.iter_ptr() {
-                let expr = (*member).em_expr;
+        if !is_collation_pushdown_safe(collation) {
+            if pathkey_styles.is_empty() {
+                return PathKeyInfo::Unusable(UnusableReason::NotSortable);
+            } else {
+                return PathKeyInfo::UsablePrefix(pathkey_styles);
+            }
+        }
 
-                // Handle PlaceHolderVar: unwrap to check if it contains a sortable expression.
-                // We support any valid sort expression (Score, Lower, Raw, IndexedExpression)
-                // that might be wrapped.
-                let mut expr_to_analyze = expr;
-                if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, expr) {
-                    if let Some(funcexpr) = extract_funcexpr_from_placeholder(phv) {
-                        expr_to_analyze = funcexpr.cast();
-                    }
+        for member in members.iter_ptr() {
+            let expr = (*member).em_expr;
+
+            // Handle PlaceHolderVar: unwrap to check if it contains a sortable expression.
+            // We support any valid sort expression (Score, Lower, Raw, IndexedExpression)
+            // that might be wrapped.
+            let mut expr_to_analyze = expr;
+            if let Some(phv) = nodecast!(PlaceHolderVar, T_PlaceHolderVar, expr) {
+                if let Some(funcexpr) = extract_funcexpr_from_placeholder(phv) {
+                    expr_to_analyze = funcexpr.cast();
+                }
+            }
+
+            let index_info = index_expressions.map(|idx_exprs| IndexExpressionInfo {
+                index_expressions: idx_exprs,
+                schema,
+                heap_rti: rti,
+            });
+
+            if let Some((sort_type, var, field_name_opt)) = analyze_sort_expression(
+                expr_to_analyze.cast(),
+                VarContext::from_planner(root),
+                index_info.as_ref(),
+            ) {
+                // Verify the var belongs to the correct relation (either the relation itself or its parent)
+                if !is_varno_valid_for_relation(root, (*var).varno as pg_sys::Index, rti) {
+                    continue;
                 }
 
-                let index_info = index_expressions.map(|idx_exprs| IndexExpressionInfo {
-                    index_expressions: idx_exprs,
-                    schema,
-                    heap_rti: rti,
-                });
-
-                if let Some((sort_type, var, field_name_opt)) = analyze_sort_expression(
-                    expr_to_analyze.cast(),
-                    VarContext::from_planner(root),
-                    index_info.as_ref(),
-                ) {
-                    // Verify the var belongs to the correct relation (either the relation itself or its parent)
-                    if !is_varno_valid_for_relation(root, (*var).varno as pg_sys::Index, rti) {
-                        continue;
+                match sort_type {
+                    SortExpressionType::Score => {
+                        pathkey_styles.push(OrderByStyle::Score { pathkey, rti });
+                        found_valid_member = true;
+                        break;
                     }
-
-                    match sort_type {
-                        SortExpressionType::Score => {
-                            pathkey_styles.push(OrderByStyle::Score { pathkey, rti });
-                            found_valid_member = true;
-                            break;
-                        }
-                        SortExpressionType::Lower => {
-                            if let Some(field_name) = field_name_opt {
-                                if let Some(search_field) = schema.search_field(field_name.root()) {
-                                    if lower_sortability_check(&search_field) {
-                                        pathkey_styles.push(OrderByStyle::Field {
-                                            pathkey,
-                                            name: field_name,
-                                            rti,
-                                        });
-                                        found_valid_member = true;
-                                        break;
-                                    }
+                    SortExpressionType::Lower => {
+                        if let Some(field_name) = field_name_opt {
+                            if let Some(search_field) = schema.search_field(field_name.root()) {
+                                if lower_sortability_check(&search_field) {
+                                    pathkey_styles.push(OrderByStyle::Field {
+                                        pathkey,
+                                        name: field_name,
+                                        rti,
+                                    });
+                                    found_valid_member = true;
+                                    break;
                                 }
                             }
                         }
-                        SortExpressionType::Raw => {
-                            if let Some(field_name) = field_name_opt {
-                                if let Some(search_field) = schema.search_field(field_name.root()) {
-                                    if regular_sortability_check(&search_field) {
-                                        pathkey_styles.push(OrderByStyle::Field {
-                                            pathkey,
-                                            name: field_name,
-                                            rti,
-                                        });
-                                        found_valid_member = true;
-                                        break;
-                                    }
+                    }
+                    SortExpressionType::Raw => {
+                        if let Some(field_name) = field_name_opt {
+                            if let Some(search_field) = schema.search_field(field_name.root()) {
+                                if regular_sortability_check(&search_field) {
+                                    pathkey_styles.push(OrderByStyle::Field {
+                                        pathkey,
+                                        name: field_name,
+                                        rti,
+                                    });
+                                    found_valid_member = true;
+                                    break;
                                 }
                             }
                         }
-                        SortExpressionType::IndexedExpression => {
-                            if let Some(field_name) = field_name_opt {
-                                if let Some(search_field) = schema.search_field(field_name.root()) {
-                                    if search_field.is_fast() {
-                                        pathkey_styles.push(OrderByStyle::Field {
-                                            pathkey,
-                                            name: field_name,
-                                            rti,
-                                        });
-                                        found_valid_member = true;
-                                        break;
-                                    }
+                    }
+                    SortExpressionType::IndexedExpression => {
+                        if let Some(field_name) = field_name_opt {
+                            if let Some(search_field) = schema.search_field(field_name.root()) {
+                                if search_field.is_fast() {
+                                    pathkey_styles.push(OrderByStyle::Field {
+                                        pathkey,
+                                        name: field_name,
+                                        rti,
+                                    });
+                                    found_valid_member = true;
+                                    break;
                                 }
                             }
                         }
@@ -489,6 +493,12 @@ pub unsafe fn validate_topk_compatibility(parse: *mut pg_sys::Query) -> bool {
         };
 
         let expr = (*te).expr as *mut pg_sys::Node;
+
+        // If the collation for this pathkey isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering
+        let expr_collation = pg_sys::exprCollation(expr as *const pg_sys::Node);
+        if !is_collation_pushdown_safe(expr_collation) {
+            return false;
+        }
 
         // Pass index expressions if we have them (after first sort clause identifies the relation)
         let index_info = target_relation_info
@@ -714,10 +724,10 @@ pub unsafe fn pathkey_matches_sort_by(
     // PostgreSQL will add a Sort node to achieve the requested ordering.
 
     // Note: Tantivty uses byte ordering (like C locale) - for fields with non-C collation, an incorrect order may be produced, so we must
-    // return false in those cases
+    // check for safety using `is_collation_pushdown_safe`
     let collation = (*(*pathkey).pk_eclass).ec_collation;
 
     is_desc == sort_by_is_desc
         && (*pathkey).pk_nulls_first == sort_by_nulls_first
-        && collation == pg_sys::C_COLLATION_OID
+        && is_collation_pushdown_safe(collation)
 }

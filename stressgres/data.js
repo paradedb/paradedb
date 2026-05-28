@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779999881545,
+  "lastUpdate": 1779999917403,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15172,6 +15172,108 @@ window.BENCHMARK_DATA = {
             "value": 163.7890625,
             "unit": "median mem",
             "extra": "avg mem: 182.1001587677302, max mem: 222.39453125, count: 55978"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1b9ba79b53f9a4420dba252a876bc97b42f63550",
+          "message": "chore: Switch to thin LTO to reduce compile time memory usage. (#5160)\n\n## What\n\nSwitch from `fat` to `thin` LTO.\n\n## Why\n\nWe have previously needed to switch to larger CI runners due to memory\nissues during compilation. Additionally, locally I have observed\nswapping on macOS during release mode compilation, due to more than 20\nGB of RAM being used, as well as 10+GB of compressed RAM.\n\n`thin` LTO gets 98% of the performance benefits of `fat` LTO, with\nreduced memory usage. I observed about a 50% reduction in memory usage\nduring compilation locally, and no more swapping.\n\n## Tests\n\nBenchmarks are unchanged.",
+          "timestamp": "2026-05-28T12:36:55-07:00",
+          "tree_id": "9246f1db81ceec6ae057b23266ab9165051117d1",
+          "url": "https://github.com/paradedb/paradedb/commit/1b9ba79b53f9a4420dba252a876bc97b42f63550"
+        },
+        "date": 1779999884080,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.05669609615998298, max background_merging: 2.0, count: 56406"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6817124487417665, max cpu: 9.67742, count: 56406"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.6484375,
+            "unit": "median mem",
+            "extra": "avg mem: 25.63987534293781, max mem: 25.65234375, count: 56406"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.07677153345433, max cpu: 18.60465, count: 56406"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 170.78515625,
+            "unit": "median mem",
+            "extra": "avg mem: 177.85310516611707, max mem: 190.0234375, count: 56406"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 53898,
+            "unit": "median block_count",
+            "extra": "avg block_count: 53739.6864340673, max block_count: 53898.0, count: 56406"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.84329681239584, max segment_count: 56.0, count: 56406"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.77396960855812, max cpu: 28.263002, count: 56406"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 152.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 141.32517990384446, max mem: 165.3046875, count: 56406"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.242870697950952, max cpu: 32.495163, count: 56406"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 200.35546875,
+            "unit": "median mem",
+            "extra": "avg mem: 198.51717334481262, max mem: 232.15625, count: 56406"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.74782318607166, max cpu: 33.905144, count: 56406"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 164.1171875,
+            "unit": "median mem",
+            "extra": "avg mem: 182.31532577429707, max mem: 222.58984375, count: 56406"
           }
         ]
       }

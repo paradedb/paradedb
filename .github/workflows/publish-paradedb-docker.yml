@@ -311,6 +311,7 @@ jobs:
         paradedb/rails-paradedb
         paradedb/sqlalchemy-paradedb
         paradedb/drizzle-paradedb
+        paradedb/efcore-paradedb
 
     steps:
       - name: Retrieve GitHub Release Version

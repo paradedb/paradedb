@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779999797122,
+  "lastUpdate": 1779999881545,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11762,6 +11762,54 @@ window.BENCHMARK_DATA = {
             "value": 5.291903170451481,
             "unit": "median tps",
             "extra": "avg tps: 5.324812125920544, max tps: 8.81021779457483, count: 55978"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1b9ba79b53f9a4420dba252a876bc97b42f63550",
+          "message": "chore: Switch to thin LTO to reduce compile time memory usage. (#5160)\n\n## What\n\nSwitch from `fat` to `thin` LTO.\n\n## Why\n\nWe have previously needed to switch to larger CI runners due to memory\nissues during compilation. Additionally, locally I have observed\nswapping on macOS during release mode compilation, due to more than 20\nGB of RAM being used, as well as 10+GB of compressed RAM.\n\n`thin` LTO gets 98% of the performance benefits of `fat` LTO, with\nreduced memory usage. I observed about a 50% reduction in memory usage\nduring compilation locally, and no more swapping.\n\n## Tests\n\nBenchmarks are unchanged.",
+          "timestamp": "2026-05-28T12:36:55-07:00",
+          "tree_id": "9246f1db81ceec6ae057b23266ab9165051117d1",
+          "url": "https://github.com/paradedb/paradedb/commit/1b9ba79b53f9a4420dba252a876bc97b42f63550"
+        },
+        "date": 1779999850169,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1076.1006710445345,
+            "unit": "median tps",
+            "extra": "avg tps: 1070.487785940333, max tps: 1142.2953487964905, count: 56406"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1202.2673417822257,
+            "unit": "median tps",
+            "extra": "avg tps: 1167.431882441458, max tps: 1228.1621603872572, count: 56406"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1135.3766036070465,
+            "unit": "median tps",
+            "extra": "avg tps: 1028.8795413082546, max tps: 1487.0709871491927, count: 56406"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.413360757702092,
+            "unit": "median tps",
+            "extra": "avg tps: 5.449845892595861, max tps: 7.035925003878377, count: 56406"
           }
         ]
       }

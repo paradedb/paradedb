@@ -77,8 +77,8 @@ SELECT 'PG' AS source, users.id AS uid, users.name AS uname,
        products.id AS pid, products.name AS pname, orders.id AS oid
 FROM orders JOIN (products JOIN users ON users.id = products.id)
        ON products.age = orders.age
-WHERE (users.name = 'bob') AND (users.name = 'bob')
-  AND (NOT (products.name = 'bob')) OR (products.name = 'bob')
+WHERE (users.name = 'bob') AND (NOT (products.name = 'bob'))
+   OR (products.name = 'bob')
 ORDER BY users.id, products.id, orders.id LIMIT 20;
 
 -- BM25 path with JoinScan.
@@ -90,16 +90,16 @@ SELECT 'BM25' AS source, users.id AS uid, users.name AS uname,
        products.id AS pid, products.name AS pname, orders.id AS oid
 FROM orders JOIN (products JOIN users ON users.id = products.id)
        ON products.age = orders.age
-WHERE (users.name @@@ 'bob') AND (users.name @@@ 'bob')
-  AND (NOT (products.name @@@ 'bob')) OR (products.name @@@ 'bob')
+WHERE (users.name @@@ 'bob') AND (NOT (products.name @@@ 'bob'))
+   OR (products.name @@@ 'bob')
 ORDER BY users.id, products.id, orders.id LIMIT 20;
 
 SELECT 'BM25' AS source, users.id AS uid, users.name AS uname,
        products.id AS pid, products.name AS pname, orders.id AS oid
 FROM orders JOIN (products JOIN users ON users.id = products.id)
        ON products.age = orders.age
-WHERE (users.name @@@ 'bob') AND (users.name @@@ 'bob')
-  AND (NOT (products.name @@@ 'bob')) OR (products.name @@@ 'bob')
+WHERE (users.name @@@ 'bob') AND (NOT (products.name @@@ 'bob'))
+   OR (products.name @@@ 'bob')
 ORDER BY users.id, products.id, orders.id LIMIT 20;
 
 DROP TABLE users CASCADE;

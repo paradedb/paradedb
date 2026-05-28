@@ -27,7 +27,9 @@
 //! - Cross-relation heap conditions (evaluated by PostgreSQL)
 //! - Boolean expression trees (AND/OR/NOT)
 
-use super::build::{JoinCSClause, JoinLevelExpr, JoinSource, ScanInfo};
+use super::build::{
+    FilterNode, JoinCSClause, JoinLevelExpr, JoinNode, JoinSource, RelNode, ScanInfo,
+};
 use crate::api::operator::anyelement_query_input_opoid;
 use crate::postgres::customscan::builders::custom_path::RestrictInfoType;
 use crate::postgres::customscan::datafusion::explain::format_expr_for_explain;
@@ -49,6 +51,11 @@ use pgrx::{pg_sys, PgList};
 /// - Cross-relation conditions: transformed into MultiTablePredicate nodes
 /// - Boolean expressions: recursively processed to preserve structure
 ///
+/// `JoinNode.absorbed_search_clauses` carries `@@@` `RestrictInfo`s parked
+/// during sub-join reconstruction. This is the first point a `JoinCSClause`
+/// exists to receive the interned predicates, so we drain them here before
+/// the regular `extra->restrictlist` walk.
+///
 /// Returns the updated JoinCSClause and a list of heap condition clause pointers
 /// (in the same order as multi_table_predicates in the clause) for adding to custom_exprs.
 pub unsafe fn extract_join_level_conditions(
@@ -60,7 +67,25 @@ pub unsafe fn extract_join_level_conditions(
 ) -> Result<(JoinCSClause, Vec<*mut pg_sys::Expr>), String> {
     let mut multi_table_predicate_clauses: Vec<*mut pg_sys::Expr> = Vec::new();
 
-    if extra.is_null() || sources.is_empty() {
+    if sources.is_empty() {
+        return Ok((join_clause, multi_table_predicate_clauses));
+    }
+
+    // The absorbed-clause walk is independent of `extra`: it mutates
+    // `join_clause.plan` and `join_clause.join_level_predicates` from each
+    // sub-join's `joinrestrictinfo`. PG files each clause at its lowest
+    // applicable join, and the absorbed path only runs on Inner sub-joins
+    // (the Inner-only gate in `collect_join_sources_join_rel`), so in
+    // practice the two passes process disjoint clause sets.
+    let new_plan = lower_absorbed_search_clauses(
+        root,
+        std::mem::take(&mut join_clause.plan),
+        &mut join_clause,
+        &mut multi_table_predicate_clauses,
+    )?;
+    join_clause.plan = new_plan;
+
+    if extra.is_null() {
         return Ok((join_clause, multi_table_predicate_clauses));
     }
 
@@ -349,6 +374,134 @@ pub unsafe fn extract_single_table_predicate(
 
     let idx = join_clause.add_join_level_predicate(rti, indexrelid, heaprelid, query, display_str);
     Some(idx)
+}
+
+/// Sub-join reconstruction stashes `@@@` `RestrictInfo`s onto
+/// `JoinNode.absorbed_search_clauses` without lowering them, because no
+/// `JoinCSClause` exists yet to receive interned `plan_position`s. Once one
+/// does, walking the tree converts each entry into a `RelNode::Filter`
+/// wrapping the absorbing `JoinNode`.
+pub(super) unsafe fn lower_absorbed_search_clauses(
+    root: *mut pg_sys::PlannerInfo,
+    node: RelNode,
+    join_clause: &mut JoinCSClause,
+    multi_table_predicate_clauses: &mut Vec<*mut pg_sys::Expr>,
+) -> Result<RelNode, String> {
+    match node {
+        RelNode::Scan(s) => Ok(RelNode::Scan(s)),
+        RelNode::Filter(mut f) => {
+            recurse_into(
+                root,
+                &mut f.input,
+                join_clause,
+                multi_table_predicate_clauses,
+            )?;
+            Ok(RelNode::Filter(f))
+        }
+        RelNode::Join(mut j) => {
+            recurse_into(
+                root,
+                &mut j.left,
+                join_clause,
+                multi_table_predicate_clauses,
+            )?;
+            recurse_into(
+                root,
+                &mut j.right,
+                join_clause,
+                multi_table_predicate_clauses,
+            )?;
+
+            // Drain before any fallible step: the field is `#[serde(skip)]`
+            // and an error path that left it populated would mean the
+            // pointers got dropped on the floor on the next plan walk.
+            let absorbed = std::mem::take(&mut j.absorbed_search_clauses);
+            if absorbed.is_empty() {
+                return Ok(RelNode::Join(j));
+            }
+
+            let predicate = build_absorbed_filter(
+                root,
+                &j,
+                &absorbed,
+                join_clause,
+                multi_table_predicate_clauses,
+            )?;
+            Ok(RelNode::Filter(Box::new(FilterNode {
+                input: RelNode::Join(j),
+                predicate,
+            })))
+        }
+    }
+}
+
+/// `RelNode` moves through this rewrite by value; an `&mut RelNode` slot needs
+/// a placeholder while the taken value transforms, and forgetting the reassign
+/// step would leave a `Default::default()` shard in the tree.
+unsafe fn recurse_into(
+    root: *mut pg_sys::PlannerInfo,
+    slot: &mut RelNode,
+    join_clause: &mut JoinCSClause,
+    multi_table_predicate_clauses: &mut Vec<*mut pg_sys::Expr>,
+) -> Result<(), String> {
+    let taken = std::mem::take(slot);
+    *slot = lower_absorbed_search_clauses(root, taken, join_clause, multi_table_predicate_clauses)?;
+    Ok(())
+}
+
+/// `absorbed` was populated from a live `joinrestrictinfo` minutes ago in the
+/// same planning pass; every entry should still translate. We error rather
+/// than skip so a future refactor that drops a clause on the floor blows up
+/// the test suite instead of producing wrong rows.
+unsafe fn build_absorbed_filter(
+    root: *mut pg_sys::PlannerInfo,
+    join: &JoinNode,
+    absorbed: &[usize],
+    join_clause: &mut JoinCSClause,
+    multi_table_predicate_clauses: &mut Vec<*mut pg_sys::Expr>,
+) -> Result<JoinLevelExpr, String> {
+    // PG files RestrictInfo clauses against RTIs in the sub-tree, so the
+    // sources we need to resolve them against are everything below.
+    let mut sub_sources = join.left.sources();
+    sub_sources.extend(join.right.sources());
+
+    let expr_trees: Vec<JoinLevelExpr> = absorbed
+        .iter()
+        .copied()
+        .map(|ri_usize| {
+            let ri = ri_usize as *mut pg_sys::RestrictInfo;
+            if ri.is_null() {
+                return Err("absorbed search clause is a null RestrictInfo".to_string());
+            }
+            let clause = (*ri).clause;
+            if clause.is_null() {
+                return Err("absorbed search clause has a null clause".to_string());
+            }
+            transform_to_search_expr(
+                root,
+                clause.cast(),
+                &sub_sources,
+                join_clause,
+                multi_table_predicate_clauses,
+            )
+            .ok_or_else(|| {
+                format!(
+                    "Failed to lower absorbed search clause: {}",
+                    format_expr_for_explain(clause.cast()).as_str()
+                )
+            })
+        })
+        .collect::<Result<_, _>>()?;
+
+    // Caller guarantees `absorbed` is non-empty; collect either yielded N
+    // entries or short-circuited with `Err`. An empty result here would
+    // otherwise lower to `And(vec![])`, which evaluates to TRUE and silently
+    // wipes the WHERE.
+    match expr_trees.len() {
+        0 => Err("absorbed clause set lowered to empty expr tree".to_string()),
+        1 => Ok(expr_trees.into_iter().next().unwrap()),
+        _ => Ok(JoinLevelExpr::And(expr_trees)),
+    }
 }
 
 /// Check if all Var references in an expression are fast fields.

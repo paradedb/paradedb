@@ -64,8 +64,8 @@ SELECT 'PG' AS source, users.id AS uid, users.name AS uname,
        products.id AS pid, products.name AS pname, orders.id AS oid
 FROM orders JOIN (products JOIN users ON users.id = products.id)
        ON products.age = orders.age
-WHERE (users.name = 'bob') AND (users.name = 'bob')
-  AND (NOT (products.name = 'bob')) OR (products.name = 'bob')
+WHERE (users.name = 'bob') AND (NOT (products.name = 'bob'))
+   OR (products.name = 'bob')
 ORDER BY users.id, products.id, orders.id LIMIT 20;
  source | uid | uname | pid | pname | oid 
 --------+-----+-------+-----+-------+-----
@@ -81,11 +81,11 @@ SELECT 'BM25' AS source, users.id AS uid, users.name AS uname,
        products.id AS pid, products.name AS pname, orders.id AS oid
 FROM orders JOIN (products JOIN users ON users.id = products.id)
        ON products.age = orders.age
-WHERE (users.name @@@ 'bob') AND (users.name @@@ 'bob')
-  AND (NOT (products.name @@@ 'bob')) OR (products.name @@@ 'bob')
+WHERE (users.name @@@ 'bob') AND (NOT (products.name @@@ 'bob'))
+   OR (products.name @@@ 'bob')
 ORDER BY users.id, products.id, orders.id LIMIT 20;
-                                                                                                                                                                                                QUERY PLAN                                                                                                                                                                                                 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                                                                                                                                                                                                                                                        QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                         
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    ->  Result
          ->  Custom Scan (ParadeDB Join Scan)
@@ -98,11 +98,11 @@ ORDER BY users.id, products.id, orders.id LIMIT 20;
                  :   SortExec: TopK(fetch=20), expr=[id@1 ASC NULLS LAST, id@5 ASC NULLS LAST], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[users, products, orders]
                  :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@3, age@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4, ctid_2@5, id@7]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@2)]
+                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, id@2)], filter=pdb_search_predicate(ctid_0@0) AND pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_1@1)
                  :           CooperativeExec
                  :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
                  :           CooperativeExec
-                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"boolean":{"must":[{"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}},{"boolean":{"should":[{"boolean":{"must":["all"],"must_not":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}},{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}]}}]}}
                  :         CooperativeExec
                  :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
 (19 rows)
@@ -111,17 +111,14 @@ SELECT 'BM25' AS source, users.id AS uid, users.name AS uname,
        products.id AS pid, products.name AS pname, orders.id AS oid
 FROM orders JOIN (products JOIN users ON users.id = products.id)
        ON products.age = orders.age
-WHERE (users.name @@@ 'bob') AND (users.name @@@ 'bob')
-  AND (NOT (products.name @@@ 'bob')) OR (products.name @@@ 'bob')
+WHERE (users.name @@@ 'bob') AND (NOT (products.name @@@ 'bob'))
+   OR (products.name @@@ 'bob')
 ORDER BY users.id, products.id, orders.id LIMIT 20;
- source | uid | uname  | pid |  pname  | oid 
---------+-----+--------+-----+---------+-----
- BM25   |   1 | bob    |   1 | cloe    | 101
- BM25   |   2 | alice  |   2 | alice   | 102
- BM25   |   3 | cloe   |   3 | sally   | 103
- BM25   |   4 | brandy |   4 | brisket | 104
- BM25   |   5 | sally  |   5 | bob     | 105
-(5 rows)
+ source | uid | uname | pid | pname | oid 
+--------+-----+-------+-----+-------+-----
+ BM25   |   1 | bob   |   1 | cloe  | 101
+ BM25   |   5 | sally |   5 | bob   | 105
+(2 rows)
 
 DROP TABLE users CASCADE;
 DROP TABLE products CASCADE;

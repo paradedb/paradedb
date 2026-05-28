@@ -113,8 +113,10 @@ pub(super) unsafe fn expr_uses_scores_from_source(
 pub(super) struct JoinConditions {
     /// Equi-join keys with type info for composite key extraction.
     pub equi_keys: Vec<JoinKeyPair>,
-    /// Other join conditions (non-equijoin) that need to be evaluated after join.
-    /// These are the RestrictInfo nodes themselves.
+    /// Every non-equijoin clause, `@@@` included. The producer keeps the two
+    /// kinds in one list so a future consumer can't silently lose `@@@`
+    /// clauses by forgetting they exist; each consumer decides explicitly
+    /// what it accepts.
     pub other_conditions: Vec<*mut pg_sys::RestrictInfo>,
     /// Whether any join-level condition contains our @@@ operator.
     pub has_search_predicate: bool,
@@ -456,6 +458,7 @@ pub unsafe fn wrap_with_semi_anti(
             equi_keys: equi_keys.clone(),
             filter: None,
             subplan_id: Some(plan_id),
+            absorbed_search_clauses: Vec::new(),
         };
 
         all_keys.extend(equi_keys);
@@ -506,6 +509,7 @@ unsafe fn wrap_with_mark_filter(
             equi_keys: equi_keys.clone(),
             filter: None,
             subplan_id: Some(plan_id),
+            absorbed_search_clauses: Vec::new(),
         };
 
         all_keys.extend(equi_keys);
@@ -599,8 +603,23 @@ unsafe fn collect_join_sources_join_rel(
             return None;
         }
 
-        // Reject if there are other conditions (filters) we can't handle yet
-        if !join_conditions.other_conditions.is_empty() {
+        // PG files a `WHERE` clause at the lowest join with all its relations,
+        // so a cross-table `OR` over outer-side relations lands in *this*
+        // sub-join's `joinrestrictinfo`. Without a `JoinCSClause` we can't
+        // intern them yet; park the pointers and let
+        // `extract_join_level_conditions` lower them once one exists.
+        let search_op = anyelement_query_input_opoid();
+        let mut absorbed_search_clauses: Vec<usize> = Vec::new();
+        let mut has_non_search_leftover = false;
+        for ri in &join_conditions.other_conditions {
+            let clause = (**ri).clause;
+            if !clause.is_null() && expr_contains_any_operator(clause.cast(), &[search_op]) {
+                absorbed_search_clauses.push(*ri as usize);
+            } else {
+                has_non_search_leftover = true;
+            }
+        }
+        if has_non_search_leftover {
             return None;
         }
 
@@ -647,6 +666,18 @@ unsafe fn collect_join_sources_join_rel(
                 return None;
             }
         };
+
+        // Inner is the only join type where wrapping the reconstructed join in
+        // a `RelNode::Filter` is semantically equivalent. Outer joins
+        // (Left/Right/Full) would drop outer-fill rows the post-Filter
+        // shouldn't see; pruned-side joins (Semi/Anti/Mark, both directions)
+        // would leave Vars unresolved against the pruned schema;
+        // UniqueOuter/UniqueInner aren't lowerable to DataFusion at all.
+        if !absorbed_search_clauses.is_empty() && !matches!(parsed_jointype, build::JoinType::Inner)
+        {
+            return None;
+        }
+
         let join_node = crate::postgres::customscan::joinscan::build::JoinNode {
             join_type: parsed_jointype,
             left: outer_node,
@@ -654,6 +685,7 @@ unsafe fn collect_join_sources_join_rel(
             equi_keys: join_conditions.equi_keys.clone(),
             filter: None,
             subplan_id: None,
+            absorbed_search_clauses,
         };
 
         keys.extend(join_conditions.equi_keys);
@@ -1059,7 +1091,7 @@ unsafe fn extract_join_conditions_from_list(
             is_equi_join = true;
         }
 
-        if !is_equi_join && !has_search_op {
+        if !is_equi_join {
             result.other_conditions.push(ri);
         }
     }

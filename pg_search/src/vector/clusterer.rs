@@ -23,10 +23,7 @@ use tantivy::{Index, TantivyError};
 
 use crate::postgres::options::BM25IndexOptions;
 
-#[cfg(target_os = "macos")]
 const DEFAULT_ASSIGN_BATCH_SIZE: usize = 40_960;
-#[cfg(not(target_os = "macos"))]
-const DEFAULT_ASSIGN_BATCH_SIZE: usize = 4_096;
 
 #[derive(Clone, Debug)]
 pub struct SuperKMeansIvfClusterer {

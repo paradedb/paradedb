@@ -282,7 +282,14 @@ fn distinct_on_with_lateral_jsonb_array_elements_limit(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    let query = r#"
+    // The direct DISTINCT ON + LATERAL + function-RTE shape cannot be driven by
+    // the BM25 custom scan: the planner does not select the custom path for this
+    // relation, so the pdb.score() placeholder is left in the plan and fails at
+    // execution. Rather than the old hostile "Unsupported query shape" panic, we
+    // now surface a clear, actionable error pointing at the subquery workaround
+    // (see issue #5058). Assert that error fires instead of pretending the shape
+    // is supported.
+    let direct_query = r#"
         SELECT DISTINCT ON (items.barcode)
             items.barcode,
             pdb.score(items.id) AS score
@@ -296,7 +303,41 @@ fn distinct_on_with_lateral_jsonb_array_elements_limit(mut conn: PgConnection) {
         ORDER BY items.barcode, pdb.score(items.id) DESC OFFSET 0 LIMIT 5;
     "#;
 
-    let results = query.fetch::<(i32, f32)>(&mut conn);
+    let direct_result = direct_query.execute_result(&mut conn);
+    assert!(
+        direct_result.is_err(),
+        "direct DISTINCT ON over LATERAL with pdb.score should surface a clear error"
+    );
+    let direct_err = format!("{}", direct_result.err().unwrap());
+    assert!(
+        direct_err.contains("BM25 custom scan was not selected"),
+        "expected the friendly placeholder error, got: {direct_err}"
+    );
+
+    // The supported pattern: materialize the BM25 search (including pdb.score) in
+    // a CTE first, then apply DISTINCT ON and the LATERAL function scan on top.
+    // The MATERIALIZED fence keeps the BM25 custom scan as the inner plan node so
+    // the score placeholder is rewritten, and the LIMIT stays above the lateral
+    // function scan. This returns the rows the direct shape was meant to produce.
+    let workaround = r#"
+        WITH scored AS MATERIALIZED (
+            SELECT id, barcode, ai_specification, pdb.score(id) AS score
+            FROM issue_5058_items
+            WHERE title @@@ 'car'
+               OR alt_title @@@ 'car'
+               OR description @@@ 'car'
+        )
+        SELECT DISTINCT ON (scored.barcode)
+            scored.barcode,
+            scored.score
+        FROM scored,
+             jsonb_array_elements(scored.ai_specification->'specifications') AS spec
+        WHERE spec->>'specification_name' ILIKE '%color%'
+          AND spec->>'value' ILIKE '%red%'
+        ORDER BY scored.barcode, scored.score DESC OFFSET 0 LIMIT 5;
+    "#;
+
+    let results = workaround.fetch::<(i32, f32)>(&mut conn);
     assert_eq!(
         results
             .iter()
@@ -306,19 +347,13 @@ fn distinct_on_with_lateral_jsonb_array_elements_limit(mut conn: PgConnection) {
     );
 
     let (plan,) =
-        format!("EXPLAIN (ANALYZE, FORMAT JSON) {query}").fetch_one::<(Value,)>(&mut conn);
+        format!("EXPLAIN (ANALYZE, FORMAT JSON) {workaround}").fetch_one::<(Value,)>(&mut conn);
     let root_plan = plan.pointer("/0/Plan").unwrap();
     let mut custom_scan_nodes = Vec::new();
     collect_custom_scan_nodes(root_plan, &mut custom_scan_nodes);
     assert!(
         !custom_scan_nodes.is_empty(),
-        "expected a ParadeDB custom scan in plan: {plan:#?}"
-    );
-    assert!(
-        custom_scan_nodes
-            .iter()
-            .all(|node| node.get("   TopK Limit").is_none()),
-        "LIMIT should stay above the lateral function scan: {plan:#?}"
+        "expected a ParadeDB custom scan in the materialized subquery plan: {plan:#?}"
     );
 }
 

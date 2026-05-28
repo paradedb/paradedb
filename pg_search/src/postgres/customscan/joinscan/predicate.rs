@@ -73,7 +73,7 @@ pub unsafe fn extract_join_level_conditions(
 
     // The absorbed-clause walk is independent of `extra`: it mutates
     // `join_clause.plan` and `join_clause.join_level_predicates` from each
-    // sub-join's `joinrestrictinfo`. PG files each clause at its lowest
+    // sub-join's `joinrestrictinfo`. PG places each clause at its lowest
     // applicable join, and the absorbed path only runs on Inner sub-joins
     // (the Inner-only gate in `collect_join_sources_join_rel`), so in
     // practice the two passes process disjoint clause sets.
@@ -389,87 +389,94 @@ pub(super) unsafe fn lower_absorbed_search_clauses(
 ) -> Result<RelNode, String> {
     match node {
         RelNode::Scan(s) => Ok(RelNode::Scan(s)),
-        RelNode::Filter(mut f) => {
-            recurse_into(
+        RelNode::Filter(f) => {
+            let FilterNode { input, predicate } = *f;
+            let input = lower_absorbed_search_clauses(
                 root,
-                &mut f.input,
+                input,
                 join_clause,
                 multi_table_predicate_clauses,
             )?;
-            Ok(RelNode::Filter(f))
+            Ok(RelNode::Filter(Box::new(FilterNode { input, predicate })))
         }
-        RelNode::Join(mut j) => {
-            recurse_into(
+        RelNode::Join(j) => {
+            let JoinNode {
+                join_type,
+                left,
+                right,
+                equi_keys,
+                filter,
+                subplan_id,
+                absorbed_search_clauses,
+            } = *j;
+            let left = lower_absorbed_search_clauses(
                 root,
-                &mut j.left,
+                left,
                 join_clause,
                 multi_table_predicate_clauses,
             )?;
-            recurse_into(
+            let right = lower_absorbed_search_clauses(
                 root,
-                &mut j.right,
+                right,
                 join_clause,
                 multi_table_predicate_clauses,
             )?;
 
-            // Drain before any fallible step: the field is `#[serde(skip)]`
-            // and an error path that left it populated would mean the
-            // pointers got dropped on the floor on the next plan walk.
-            let absorbed = std::mem::take(&mut j.absorbed_search_clauses);
-            if absorbed.is_empty() {
-                return Ok(RelNode::Join(j));
+            if absorbed_search_clauses.is_empty() {
+                return Ok(RelNode::Join(Box::new(JoinNode {
+                    join_type,
+                    left,
+                    right,
+                    equi_keys,
+                    filter,
+                    subplan_id,
+                    absorbed_search_clauses: Vec::new(),
+                })));
             }
+
+            // PG anchors `RestrictInfo`s against RTIs from the sub-tree, so
+            // resolve against everything reachable below this join.
+            let mut sub_sources = left.sources();
+            sub_sources.extend(right.sources());
 
             let predicate = build_absorbed_filter(
                 root,
-                &j,
-                &absorbed,
+                &sub_sources,
+                &absorbed_search_clauses,
                 join_clause,
                 multi_table_predicate_clauses,
             )?;
             Ok(RelNode::Filter(Box::new(FilterNode {
-                input: RelNode::Join(j),
+                input: RelNode::Join(Box::new(JoinNode {
+                    join_type,
+                    left,
+                    right,
+                    equi_keys,
+                    filter,
+                    subplan_id,
+                    absorbed_search_clauses: Vec::new(),
+                })),
                 predicate,
             })))
         }
     }
 }
 
-/// `RelNode` moves through this rewrite by value; an `&mut RelNode` slot needs
-/// a placeholder while the taken value transforms, and forgetting the reassign
-/// step would leave a `Default::default()` shard in the tree.
-unsafe fn recurse_into(
-    root: *mut pg_sys::PlannerInfo,
-    slot: &mut RelNode,
-    join_clause: &mut JoinCSClause,
-    multi_table_predicate_clauses: &mut Vec<*mut pg_sys::Expr>,
-) -> Result<(), String> {
-    let taken = std::mem::take(slot);
-    *slot = lower_absorbed_search_clauses(root, taken, join_clause, multi_table_predicate_clauses)?;
-    Ok(())
-}
-
-/// `absorbed` was populated from a live `joinrestrictinfo` minutes ago in the
-/// same planning pass; every entry should still translate. We error rather
-/// than skip so a future refactor that drops a clause on the floor blows up
-/// the test suite instead of producing wrong rows.
+/// `absorbed` was populated from a live `joinrestrictinfo` earlier in the
+/// same planning pass, so every entry should still translate. We error
+/// rather than skip so a future refactor that drops a clause on the floor
+/// blows up the test suite instead of producing wrong rows.
 unsafe fn build_absorbed_filter(
     root: *mut pg_sys::PlannerInfo,
-    join: &JoinNode,
-    absorbed: &[usize],
+    sub_sources: &[&JoinSource],
+    absorbed: &[*mut pg_sys::RestrictInfo],
     join_clause: &mut JoinCSClause,
     multi_table_predicate_clauses: &mut Vec<*mut pg_sys::Expr>,
 ) -> Result<JoinLevelExpr, String> {
-    // PG files RestrictInfo clauses against RTIs in the sub-tree, so the
-    // sources we need to resolve them against are everything below.
-    let mut sub_sources = join.left.sources();
-    sub_sources.extend(join.right.sources());
-
     let expr_trees: Vec<JoinLevelExpr> = absorbed
         .iter()
         .copied()
-        .map(|ri_usize| {
-            let ri = ri_usize as *mut pg_sys::RestrictInfo;
+        .map(|ri| {
             if ri.is_null() {
                 return Err("absorbed search clause is a null RestrictInfo".to_string());
             }
@@ -480,7 +487,7 @@ unsafe fn build_absorbed_filter(
             transform_to_search_expr(
                 root,
                 clause.cast(),
-                &sub_sources,
+                sub_sources,
                 join_clause,
                 multi_table_predicate_clauses,
             )
@@ -493,10 +500,10 @@ unsafe fn build_absorbed_filter(
         })
         .collect::<Result<_, _>>()?;
 
-    // Caller guarantees `absorbed` is non-empty; collect either yielded N
-    // entries or short-circuited with `Err`. An empty result here would
-    // otherwise lower to `And(vec![])`, which evaluates to TRUE and silently
-    // wipes the WHERE.
+    // Caller guarantees `absorbed` is non-empty; `collect` either yielded
+    // N entries or short-circuited with `Err`. An empty result here would
+    // otherwise lower to `And(vec![])`, which evaluates to TRUE and
+    // silently wipes the WHERE.
     match expr_trees.len() {
         0 => Err("absorbed clause set lowered to empty expr tree".to_string()),
         1 => Ok(expr_trees.into_iter().next().unwrap()),

@@ -2026,10 +2026,13 @@ impl JoinScan {
             let search_op = crate::api::operator::anyelement_query_input_opoid();
             for ri in join_conditions.other_conditions {
                 let clause = (*ri).clause;
-                // The disjunction absorber lowers via
-                // `PredicateTranslator::can_translate`, which doesn't recognize
-                // `@@@`. Pass these through to `extract_join_level_conditions`
-                // below; `transform_to_search_expr` handles them there.
+                // Skip `@@@` (and any of our search ops, all of which the
+                // simplifier has rewritten to `@@@` by now): the
+                // Semi/Anti absorption path lowers via
+                // `PredicateTranslator::can_translate`, which only
+                // recognizes non-search predicates. Search clauses pass
+                // through to `extract_join_level_conditions`, where
+                // `transform_to_search_expr` handles them.
                 if !clause.is_null() && expr_contains_any_operator(clause.cast(), &[search_op]) {
                     continue;
                 }

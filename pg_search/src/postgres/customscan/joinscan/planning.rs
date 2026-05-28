@@ -603,18 +603,24 @@ unsafe fn collect_join_sources_join_rel(
             return None;
         }
 
-        // PG files a `WHERE` clause at the lowest join with all its relations,
-        // so a cross-table `OR` over outer-side relations lands in *this*
-        // sub-join's `joinrestrictinfo`. Without a `JoinCSClause` we can't
-        // intern them yet; park the pointers and let
-        // `extract_join_level_conditions` lower them once one exists.
+        // PG places each `WHERE` predicate at the lowest join carrying all
+        // its rels, so a cross-table `OR` over the outer-side rels lands in
+        // *this* sub-join's `joinrestrictinfo`. We can't intern it yet (no
+        // `JoinCSClause` exists at reconstruction time); park the pointers
+        // and let `extract_join_level_conditions` lower them once one does.
+        //
+        // `@@@` is the only search op visible here: PG's
+        // `SupportRequestSimplify` has already rewritten `|||`/`&&&`/`===`/
+        // `###` to `@@@`, and `##`/`##>` appear as arguments inside an
+        // `@@@`, not as standalone predicates. Same convention as
+        // `transform_to_search_expr`.
         let search_op = anyelement_query_input_opoid();
-        let mut absorbed_search_clauses: Vec<usize> = Vec::new();
+        let mut absorbed_search_clauses: Vec<*mut pg_sys::RestrictInfo> = Vec::new();
         let mut has_non_search_leftover = false;
         for ri in &join_conditions.other_conditions {
             let clause = (**ri).clause;
             if !clause.is_null() && expr_contains_any_operator(clause.cast(), &[search_op]) {
-                absorbed_search_clauses.push(*ri as usize);
+                absorbed_search_clauses.push(*ri);
             } else {
                 has_non_search_leftover = true;
             }

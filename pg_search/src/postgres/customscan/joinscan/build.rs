@@ -697,19 +697,16 @@ pub struct JoinNode {
     /// `wrap_with_semi_anti` and `wrap_with_mark_filter`; `None` for joins
     /// that come from the normal join-hook path or path reconstruction.
     pub subplan_id: Option<i32>,
-    /// PG files a `WHERE` clause at the lowest join with all its relations.
-    /// `collect_join_sources_join_rel` (the producer) parks `@@@`
-    /// `RestrictInfo`s here when no `JoinCSClause` exists yet to receive
-    /// interned `plan_position`s. `lower_absorbed_search_clauses` (the
-    /// consumer) drains the field once one does, leaving it empty everywhere
-    /// after the outer hook returns.
-    ///
-    /// Stored as `usize` so the public field signature doesn't leak a raw
-    /// pointer type that would force every downstream walker to be `unsafe`.
-    /// The field is `serde(skip)` so the pointers never reach a serialized
-    /// plan.
-    #[serde(skip, default)]
-    pub absorbed_search_clauses: Vec<usize>,
+    /// Cross-table `@@@` predicates that PG placed on this sub-join's
+    /// `joinrestrictinfo`. The reconstruction in
+    /// `collect_join_sources_join_rel` parks them here because no
+    /// `JoinCSClause` exists yet to receive interned `plan_position`s;
+    /// `lower_absorbed_search_clauses` drains the field once one does, so
+    /// the vector is empty by the time the outer hook returns.
+    /// `#[serde(skip)]` because the pointers are valid only within this
+    /// planning pass and never reach the serialized plan.
+    #[serde(skip)]
+    pub absorbed_search_clauses: Vec<*mut pg_sys::RestrictInfo>,
 }
 
 /// A filter node in the relational plan tree.

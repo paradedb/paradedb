@@ -159,6 +159,7 @@ use self::privdat::PrivateData;
 use crate::postgres::customscan::datafusion::explain::{format_join_level_expr, get_attname_safe};
 use crate::postgres::customscan::datafusion::translator::PredicateTranslator;
 use crate::postgres::customscan::pullup::resolve_fast_field;
+use crate::postgres::utils::expr_contains_any_operator;
 
 use self::scan_state::{
     build_joinscan_logical_plan, build_physical_plan, build_task_context,
@@ -1846,8 +1847,19 @@ impl JoinScan {
             let mut absorbed_clauses: Vec<*mut pg_sys::Node> = Vec::new();
             let mut remaining: Vec<*mut pg_sys::RestrictInfo> =
                 Vec::with_capacity(join_conditions.other_conditions.len());
+            let search_op = crate::api::operator::anyelement_query_input_opoid();
             for ri in join_conditions.other_conditions {
                 let clause = (*ri).clause;
+                // Skip `@@@` (and any of our search ops, all of which the
+                // simplifier has rewritten to `@@@` by now): the
+                // Semi/Anti absorption path lowers via
+                // `PredicateTranslator::can_translate`, which only
+                // recognizes non-search predicates. Search clauses pass
+                // through to `extract_join_level_conditions`, where
+                // `transform_to_search_expr` handles them.
+                if !clause.is_null() && expr_contains_any_operator(clause.cast(), &[search_op]) {
+                    continue;
+                }
                 if clause.is_null()
                     || !all_vars_are_fast_fields_recursive(clause.cast(), &current_sources)
                     || !PredicateTranslator::can_translate(&current_sources, clause.cast())
@@ -1911,6 +1923,7 @@ impl JoinScan {
             equi_keys: join_conditions.equi_keys,
             filter: initial_filter,
             subplan_id: None,
+            absorbed_search_clauses: Vec::new(),
         }));
 
         let unsupported = plan.unsupported_join_types();

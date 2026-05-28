@@ -139,8 +139,8 @@ pub fn facet_encoded_str_to_ltree_text(s: &str) -> String {
     s.trim_start_matches('\0').replace('\0', ".")
 }
 
-/// Helper function to lookup the database's LC_COLLATE setting from `pg_database`
-pub fn lookup_database_collation() -> Option<String> {
+/// Helper function to lookup the database's `datcollate` and `datlocprovider` settings from `pg_database`
+pub fn lookup_database_collation_and_provider() -> Option<(String, String)> {
     unsafe {
         let entry = pg_sys::SearchSysCache1(
             pg_sys::SysCacheIdentifier::DATABASEOID as _,
@@ -150,18 +150,69 @@ pub fn lookup_database_collation() -> Option<String> {
             return None;
         }
 
-        let mut is_null = false;
-        let collation_datum = pg_sys::SysCacheGetAttr(
+        let mut is_datcollate_null = false;
+        let datcollate_datum = pg_sys::SysCacheGetAttr(
             pg_sys::SysCacheIdentifier::DATABASEOID as _,
             entry,
             pg_sys::Anum_pg_database_datcollate as _,
-            &mut is_null,
+            &mut is_datcollate_null,
         );
 
-        let collation =
-            <&CStr>::from_datum(collation_datum, is_null).map(|s| s.to_string_lossy().to_string());
+        let datcollate = <&CStr>::from_datum(datcollate_datum, is_datcollate_null)
+            .map(|s| s.to_string_lossy().to_string())?;
+
+        let mut is_datlocprovider_null: bool = false;
+        let datlocprovider_datum = pg_sys::SysCacheGetAttr(
+            pg_sys::SysCacheIdentifier::DATABASEOID as _,
+            entry,
+            pg_sys::Anum_pg_database_datlocprovider as _,
+            &mut is_datlocprovider_null,
+        );
+
+        let datlocprovider = <&CStr>::from_datum(datlocprovider_datum, is_datlocprovider_null)
+            .map(|s| s.to_string_lossy().to_string())?;
 
         pg_sys::ReleaseSysCache(entry);
-        collation
+        Some((datcollate, datlocprovider))
+    }
+}
+
+/// Helper function to lookup the `collcollate` and `collprovider` fields for a collation object in `pg_collation`
+pub fn lookup_collation_collcollate_and_provider(
+    collation: pg_sys::Oid,
+) -> Option<(String, String)> {
+    unsafe {
+        let entry = pg_sys::SearchSysCache1(
+            pg_sys::SysCacheIdentifier::COLLOID as _,
+            collation.into_datum().unwrap(),
+        );
+        if entry.is_null() {
+            return None;
+        }
+
+        let mut is_collcollate_null = false;
+        let collcollate_datum = pg_sys::SysCacheGetAttr(
+            pg_sys::SysCacheIdentifier::COLLOID as _,
+            entry,
+            pg_sys::Anum_pg_collation_collcollate as _,
+            &mut is_collcollate_null,
+        );
+
+        let collcollate = <&CStr>::from_datum(collcollate_datum, is_collcollate_null)
+            .map(|s| s.to_string_lossy().to_string())?;
+
+        let mut is_collprovider_null = false;
+        let collprovider_datum = pg_sys::SysCacheGetAttr(
+            pg_sys::SysCacheIdentifier::COLLOID as _,
+            entry,
+            pg_sys::Anum_pg_collation_collprovider as _,
+            &mut is_collprovider_null,
+        );
+
+        let collprovider = <&CStr>::from_datum(collprovider_datum, is_collprovider_null)
+            .map(|s| s.to_string_lossy().to_string())?;
+
+        pg_sys::ReleaseSysCache(entry);
+        Some((collcollate, collprovider))
     }
 }

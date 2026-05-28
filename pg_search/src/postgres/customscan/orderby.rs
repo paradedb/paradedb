@@ -27,6 +27,7 @@
 use crate::api::FieldName;
 use crate::index::reader::index::MAX_TOPK_FEATURES;
 use crate::nodecast;
+use crate::postgres::catalog::{lookup_collation_collcollate, lookup_database_collation};
 use crate::postgres::customscan::basescan::exec_methods::fast_fields::find_matching_fast_field;
 use crate::postgres::customscan::builders::custom_path::OrderByStyle;
 use crate::postgres::customscan::score_funcoids;
@@ -292,11 +293,15 @@ unsafe fn find_target_entry_by_ref(
 // If a field does not have a collation (ex: integers, non-text data), it's considered safe
 // Otherwise, for collatable fields, if the collation is C-like it's safe
 fn is_collation_pushdown_safe(collation: pg_sys::Oid) -> bool {
-    if collation == pg_sys::Oid::INVALID || collation == pg_sys::C_COLLATION_OID {
-        return true;
+    match collation {
+        pg_sys::Oid::INVALID => true,
+        pg_sys::C_COLLATION_OID => true,
+        pg_sys::DEFAULT_COLLATION_OID => {
+            // if using the default collation, we look at the database's LC_COLLATE
+            lookup_database_collation().is_some_and(|c| c == "C" || c == "POSIX")
+        }
+        _ => lookup_collation_collcollate(collation).is_some_and(|c| c == "C" || c == "POSIX"), // for all other collations, we check the LC_COLLATE for this collation object
     }
-
-    false
 }
 
 /// Extract pathkeys from ORDER BY clauses using comprehensive expression handling

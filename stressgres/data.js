@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780000563644,
+  "lastUpdate": 1780000597130,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20666,6 +20666,114 @@ window.BENCHMARK_DATA = {
             "value": 173.92578125,
             "unit": "median mem",
             "extra": "avg mem: 171.5029825017559, max mem: 174.77734375, count: 55527"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1b9ba79b53f9a4420dba252a876bc97b42f63550",
+          "message": "chore: Switch to thin LTO to reduce compile time memory usage. (#5160)\n\n## What\n\nSwitch from `fat` to `thin` LTO.\n\n## Why\n\nWe have previously needed to switch to larger CI runners due to memory\nissues during compilation. Additionally, locally I have observed\nswapping on macOS during release mode compilation, due to more than 20\nGB of RAM being used, as well as 10+GB of compressed RAM.\n\n`thin` LTO gets 98% of the performance benefits of `fat` LTO, with\nreduced memory usage. I observed about a 50% reduction in memory usage\nduring compilation locally, and no more swapping.\n\n## Tests\n\nBenchmarks are unchanged.",
+          "timestamp": "2026-05-28T12:36:55-07:00",
+          "tree_id": "9246f1db81ceec6ae057b23266ab9165051117d1",
+          "url": "https://github.com/paradedb/paradedb/commit/1b9ba79b53f9a4420dba252a876bc97b42f63550"
+        },
+        "date": 1780000565872,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.832487516289863, max cpu: 42.561577, count: 55524"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 178.61328125,
+            "unit": "median mem",
+            "extra": "avg mem: 167.42055863511726, max mem: 179.9375, count: 55524"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.705629024140958, max cpu: 33.64486, count: 55524"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 121.22265625,
+            "unit": "median mem",
+            "extra": "avg mem: 120.03973190365878, max mem: 121.40234375, count: 55524"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.410135582440446, max cpu: 27.853, count: 55524"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 171.12109375,
+            "unit": "median mem",
+            "extra": "avg mem: 145.54368184253656, max mem: 180.02734375, count: 55524"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16411,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16681.727883437794, max block_count: 31014.0, count: 55524"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.41658686603204, max cpu: 4.6511626, count: 55524"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 108.71484375,
+            "unit": "median mem",
+            "extra": "avg mem: 95.30524068139454, max mem: 138.0234375, count: 55524"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.594553706505295, max segment_count: 36.0, count: 55524"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.366062308852033, max cpu: 33.64486, count: 111048"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 180.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 162.3406889292806, max mem: 181.66015625, count: 111048"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.899614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.601836802189313, max cpu: 27.934044, count: 55524"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 174.4453125,
+            "unit": "median mem",
+            "extra": "avg mem: 171.8603652108773, max mem: 175.03125, count: 55524"
           }
         ]
       }

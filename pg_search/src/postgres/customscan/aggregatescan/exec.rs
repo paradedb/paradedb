@@ -39,22 +39,6 @@ use tantivy::aggregation::agg_result::{
 use tantivy::aggregation::metric::SingleMetricResult as TantivySingleMetricResult;
 use tantivy::aggregation::Key;
 
-/// Returns `true` if any top-level `TermsAggregation` bucket was truncated,
-/// i.e. `sum_other_doc_count > 0` meaning some distinct values were dropped
-/// because the `size` cap was reached. Used to trigger the DataFusion fallback
-/// for `SELECT DISTINCT` queries where Tantivy cannot return all distinct values.
-pub fn tantivy_result_was_truncated(results: &TantivyAggregationResults) -> bool {
-    results.0.values().any(|r| {
-        matches!(
-            r,
-            TantivyAggregationResult::BucketResult(BucketResult::Terms {
-                sum_other_doc_count,
-                ..
-            }) if *sum_other_doc_count > 0
-        )
-    })
-}
-
 /// Unified result type for aggregates
 /// Can hold either a standard metric (f64) or a custom aggregate (JSON)
 #[derive(Debug, Clone)]
@@ -65,16 +49,9 @@ pub enum AggregateResult {
     Json(serde_json::Value),
 }
 
-/// Execute the Tantivy aggregation and return a row iterator plus a truncation flag.
-///
-/// The truncation flag is `true` when `sum_other_doc_count > 0` in the raw
-/// Tantivy result, meaning some distinct values were silently dropped because
-/// the `max_term_agg_buckets` cap was reached. Callers that hold a pre-computed
-/// DataFusion fallback plan should discard the (partial) Tantivy rows and
-/// re-execute via DataFusion when this flag is set.
 pub fn aggregation_results_iter(
     state: &mut CustomScanStateWrapper<AggregateScan>,
-) -> (std::vec::IntoIter<AggregationResultsRow>, bool) {
+) -> std::vec::IntoIter<AggregationResultsRow> {
     state
         .custom_state_mut()
         .aggregate_clause
@@ -94,7 +71,7 @@ pub fn aggregation_results_iter(
     let bucket_limit: u32 = gucs::max_term_agg_buckets() as u32;
     let mvcc_enabled = aggregate_clause.mvcc_enabled();
 
-    let tantivy_result = execute_aggregate(
+    let result: AggregationResults = execute_aggregate(
         state.custom_state().indexrel(),
         query,
         AggregateRequest::Sql(aggregate_clause),
@@ -104,12 +81,10 @@ pub fn aggregation_results_iter(
         expr_context,
         planstate,
     )
-    .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e));
+    .unwrap_or_else(|e| pgrx::error!("Failed to execute filter aggregation: {}", e))
+    .into();
 
-    let was_truncated = tantivy_result_was_truncated(&tantivy_result);
-    let result: AggregationResults = tantivy_result.into();
-
-    let iter = if result.is_empty() {
+    if result.is_empty() {
         if state.custom_state().aggregate_clause.has_groupby() {
             vec![].into_iter()
         } else {
@@ -117,9 +92,7 @@ pub fn aggregation_results_iter(
         }
     } else {
         result.into_iter()
-    };
-
-    (iter, was_truncated)
+    }
 }
 
 #[derive(Debug)]

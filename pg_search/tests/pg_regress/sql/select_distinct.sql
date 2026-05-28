@@ -1,11 +1,9 @@
 -- Tests for SELECT DISTINCT pushdown into the BM25 index.
 --
--- Plain SELECT DISTINCT (no DISTINCT ON) on a fast field maps to a
--- GROUP BY without aggregates. The AggregateScan hook fires at
--- UPPERREL_DISTINCT in addition to UPPERREL_GROUP_AGG. Tantivy's
--- TermsAggregation is always attempted first; if it truncates
--- (sum_other_doc_count > 0) a pre-computed DataFusion fallback plan
--- is activated transparently to return the complete result set.
+-- Plain SELECT DISTINCT on a fast field maps to a GROUP BY without
+-- aggregates. The AggregateScan hook fires at UPPERREL_DISTINCT in
+-- addition to UPPERREL_GROUP_AGG. DISTINCT always routes to DataFusion:
+-- no bucket cap, correct NULL semantics.
 
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
@@ -45,7 +43,7 @@ VALUES
     ('USB Hub',               'Accessories', 'BrandC', 4, 29.99,   true),
     ('Monitor 4K',            'Electronics', 'BrandB', 5, 599.99,  true);
 
--- Index: category and brand are fast text fields; name is NOT fast (tests fallback);
+-- Index: category and brand are fast text fields; name is not fast;
 -- rating and price are fast numeric fields.
 CREATE INDEX dist_products_idx ON dist_products
 USING bm25 (id, name, category, brand, rating, price)
@@ -161,7 +159,7 @@ ORDER BY name;
 
 -- =============================================================================
 -- TEST 6: DISTINCT ON - must fall back gracefully (DISTINCT ON is not supported)
--- DISTINCT ON uses a different key/sort pair which TermsAggregation cannot model.
+-- DISTINCT ON is not a plain GROUP BY and cannot be modelled as an aggregate.
 -- The planner should decline and fall back to native PG execution.
 -- =============================================================================
 
@@ -192,19 +190,17 @@ ORDER BY category;
 -- native PG deduplication runs instead.
 -- =============================================================================
 
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT category
+FROM dist_products
+ORDER BY category;
+
 SELECT DISTINCT category
 FROM dist_products
 ORDER BY category;
 
 -- =============================================================================
--- TEST 9: SELECT DISTINCT via AggregateScan DataFusion path (JOIN scenario)
---
--- JOINs always route to AggregateScan's DataFusion backend (RELOPT_JOINREL).
--- At UPPERREL_DISTINCT, output_rel.reltarget.exprs is empty — the DataFusion
--- path must fall back to parse->targetList to extract the target list.
---
--- No LIMIT on the outer query so JoinScan does not activate; only
--- AggregateScan handles the GROUP BY (DISTINCT) deduplication.
+-- TEST 9: SELECT DISTINCT on a JOIN — DataFusion path
 -- =============================================================================
 
 DROP TABLE IF EXISTS dist_regions CASCADE;
@@ -338,11 +334,24 @@ WITH (
 
 ANALYZE dist_nullable;
 
+-- EXPLAIN must show Backend: DataFusion (always-DataFusion for DISTINCT).
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT DISTINCT category
+FROM dist_nullable
+WHERE name @@@ 'laptop OR keyboard OR widget OR gadget OR thingamajig'
+ORDER BY category;
+
 -- DISTINCT must return: Accessories, Electronics, NULL (three rows)
 SELECT DISTINCT category
 FROM dist_nullable
 WHERE name @@@ 'laptop OR keyboard OR widget OR gadget OR thingamajig'
 ORDER BY category;
+
+-- NULL rows must be included; expected count is 2.
+SELECT COUNT(*)
+FROM dist_nullable
+WHERE name @@@ 'laptop OR keyboard OR widget OR gadget OR thingamajig'
+  AND category IS NULL;
 
 -- Correctness: compare with native PG
 SET paradedb.enable_aggregate_custom_scan TO off;
@@ -357,13 +366,13 @@ SET paradedb.enable_aggregate_custom_scan TO on;
 DROP TABLE IF EXISTS dist_nullable CASCADE;
 
 -- =============================================================================
--- TEST 12: High-cardinality DISTINCT — DataFusion guarantees completeness
+-- TEST 12: High-cardinality DISTINCT — DataFusion returns all distinct values
 --
--- 70 000 rows, each with a unique URL, indexed as (url::pdb.literal) so the
--- field is a fast keyword field. SELECT DISTINCT url routes to DataFusion
--- (no bucket cap), proving all 70 000 distinct values are returned even
--- though default max_term_agg_buckets = 65 000 (Tantivy would truncate).
+-- max_term_agg_buckets is pinned low so the test is independent of the GUC
+-- default. All 20 distinct values must be returned.
 -- =============================================================================
+
+SET paradedb.max_term_agg_buckets = 10;
 
 DROP TABLE IF EXISTS dist_highcard CASCADE;
 
@@ -377,7 +386,7 @@ INSERT INTO dist_highcard (name, url)
 SELECT
     'Page ' || i,
     'https://example.com/page/' || i
-FROM generate_series(1, 70000) AS i;
+FROM generate_series(1, 20) AS i;
 
 CREATE INDEX dist_highcard_idx ON dist_highcard
 USING bm25 (id, name, (url::pdb.literal))
@@ -385,24 +394,22 @@ WITH (key_field = 'id');
 
 ANALYZE dist_highcard;
 
--- EXPLAIN shows the Tantivy plan (DataFusion fallback activates at execution time,
--- not at planning time). The COUNT below proves all 70 000 values are returned.
+-- EXPLAIN must show Backend: DataFusion (DISTINCT always routes to DataFusion).
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT DISTINCT url
 FROM dist_highcard
 WHERE name @@@ 'Page'
 ORDER BY url;
 
--- Verify all 70 000 distinct values are returned, not just 65 000.
--- Raise work_mem so DataFusion can materialise the full 70 000-URL result set.
-SET work_mem = '256MB';
+-- Verify all 20 distinct values are returned, not just 10.
 SELECT COUNT(*)
 FROM (
     SELECT DISTINCT url
     FROM dist_highcard
     WHERE name @@@ 'Page'
 ) t;
-RESET work_mem;
+
+RESET paradedb.max_term_agg_buckets;
 
 DROP TABLE IF EXISTS dist_highcard CASCADE;
 

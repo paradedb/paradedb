@@ -587,7 +587,7 @@ unsafe fn collect_leftover_placeholder_functions_in_plan(
         return;
     }
 
-    if let Some(cscan) = nodecast!(CustomScan, T_CustomScan, plan.cast()) {
+    if let Some(cscan) = nodecast!(CustomScan, T_CustomScan, plan.cast::<pg_sys::Node>()) {
         if is_paradedb_custom_scan(cscan) {
             return;
         }
@@ -599,30 +599,32 @@ unsafe fn collect_leftover_placeholder_functions_in_plan(
     collect_leftover_placeholder_functions_in_expr((*plan).qual.cast(), found);
     collect_leftover_placeholder_functions_in_expr((*plan).initPlan.cast(), found);
 
-    if let Some(join) = nodecast!(Join, T_NestLoop, plan.cast())
-        .or_else(|| nodecast!(Join, T_MergeJoin, plan.cast()))
-        .or_else(|| nodecast!(Join, T_HashJoin, plan.cast()))
+    if let Some(join) = nodecast!(Join, T_NestLoop, plan.cast::<pg_sys::Node>())
+        .or_else(|| nodecast!(Join, T_MergeJoin, plan.cast::<pg_sys::Node>()))
+        .or_else(|| nodecast!(Join, T_HashJoin, plan.cast::<pg_sys::Node>()))
     {
         collect_leftover_placeholder_functions_in_expr((*join).joinqual.cast(), found);
     }
 
-    if let Some(append) = nodecast!(Append, T_Append, plan.cast()) {
+    if let Some(append) = nodecast!(Append, T_Append, plan.cast::<pg_sys::Node>()) {
         collect_leftover_placeholder_functions_in_plan_list((*append).appendplans, found);
     }
 
-    if let Some(merge_append) = nodecast!(MergeAppend, T_MergeAppend, plan.cast()) {
+    if let Some(merge_append) = nodecast!(MergeAppend, T_MergeAppend, plan.cast::<pg_sys::Node>()) {
         collect_leftover_placeholder_functions_in_plan_list((*merge_append).mergeplans, found);
     }
 
-    if let Some(bitmap_and) = nodecast!(BitmapAnd, T_BitmapAnd, plan.cast()) {
+    if let Some(bitmap_and) = nodecast!(BitmapAnd, T_BitmapAnd, plan.cast::<pg_sys::Node>()) {
         collect_leftover_placeholder_functions_in_plan_list((*bitmap_and).bitmapplans, found);
     }
 
-    if let Some(bitmap_or) = nodecast!(BitmapOr, T_BitmapOr, plan.cast()) {
+    if let Some(bitmap_or) = nodecast!(BitmapOr, T_BitmapOr, plan.cast::<pg_sys::Node>()) {
         collect_leftover_placeholder_functions_in_plan_list((*bitmap_or).bitmapplans, found);
     }
 
-    if let Some(subquery_scan) = nodecast!(SubqueryScan, T_SubqueryScan, plan.cast()) {
+    if let Some(subquery_scan) =
+        nodecast!(SubqueryScan, T_SubqueryScan, plan.cast::<pg_sys::Node>())
+    {
         collect_leftover_placeholder_functions_in_plan((*subquery_scan).subplan, found);
     }
 
@@ -682,6 +684,12 @@ unsafe fn collect_leftover_placeholder_functions_in_expr(
         pg_sys::expression_tree_walker(node, Some(walker), data)
     }
 
+    // score_funcoids() / snippet_funcoids() et al. resolve softly: during a
+    // CREATE/ALTER EXTENSION script (when this planner hook still fires for the
+    // extension's own internal queries) the placeholder functions may not exist
+    // yet, in which case these return InvalidOid instead of erroring. An
+    // InvalidOid never matches a real FuncExpr funcid, so absent placeholders are
+    // simply not detected during that window.
     let scores = score_funcoids();
     let snippets = snippet_funcoids();
     let snippets_plural = snippets_funcoids();

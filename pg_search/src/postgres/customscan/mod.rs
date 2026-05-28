@@ -387,22 +387,35 @@ pub unsafe fn operator_oid(signature: &str) -> pg_sys::Oid {
 
 pub fn score_funcoids() -> [pg_sys::Oid; 2] {
     static OID_CACHE: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
-    *OID_CACHE.get_or_init(|| {
+    if let Some(cached) = OID_CACHE.get() {
+        return *cached;
+    }
+
+    // Resolve softly. This is reachable from the planner hook, which fires for
+    // every planned statement - including the internal queries Postgres runs
+    // while a CREATE/ALTER EXTENSION script is mid-flight, before pdb.score /
+    // paradedb.score are defined. `to_regprocedure` returns NULL (None) instead
+    // of erroring like `regprocedurein` does, so we return InvalidOid in that
+    // window rather than aborting the install. The result is cached only once
+    // both functions resolve, so the InvalidOid placeholders are never memoized
+    // and real lookups succeed once the extension is fully installed.
+    // `to_regprocedure` takes `text`, so each argument is a `&str` (not a CStr).
+    let oids = unsafe {
         [
-            unsafe {
-                direct_function_call::<pg_sys::Oid>(
-                    pg_sys::regprocedurein,
-                    &[c"pdb.score(anyelement)".into_datum()],
-                )
-                .expect("the `pdb.score(anyelement)` function should exist")
-            },
-            unsafe {
-                direct_function_call::<pg_sys::Oid>(
-                    pg_sys::regprocedurein,
-                    &[c"paradedb.score(anyelement)".into_datum()],
-                )
-                .expect("the `paradedb.score(anyelement)` function should exist")
-            },
+            direct_function_call::<pg_sys::Oid>(
+                pg_sys::to_regprocedure,
+                &["pdb.score(anyelement)".into_datum()],
+            )
+            .unwrap_or(pg_sys::InvalidOid),
+            direct_function_call::<pg_sys::Oid>(
+                pg_sys::to_regprocedure,
+                &["paradedb.score(anyelement)".into_datum()],
+            )
+            .unwrap_or(pg_sys::InvalidOid),
         ]
-    })
+    };
+    if oids.iter().all(|oid| *oid != pg_sys::InvalidOid) {
+        let _ = OID_CACHE.set(oids);
+    }
+    oids
 }

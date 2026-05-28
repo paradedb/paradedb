@@ -501,46 +501,68 @@ extension_sql!(
 
 pub fn snippet_funcoids() -> [pg_sys::Oid; 2] {
     static OID_CACHE: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
-    *OID_CACHE.get_or_init(|| {
-        resolve_funcoids(&[
+    cached_funcoids(
+        &OID_CACHE,
+        &[
             "pdb.snippet(anyelement, text, text, int, int, int)",
             "paradedb.snippet(anyelement, text, text, int, int, int)",
-        ])
-    })
+        ],
+    )
 }
 
 pub fn snippets_funcoids() -> [pg_sys::Oid; 2] {
     static OID_CACHE: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
-    *OID_CACHE.get_or_init(|| {
-        resolve_funcoids(&[
+    cached_funcoids(
+        &OID_CACHE,
+        &[
             "pdb.snippets(anyelement, text, text, int, int, int, text)",
             "paradedb.snippets(anyelement, text, text, int, int, int, text)",
-        ])
-    })
+        ],
+    )
 }
 
 pub fn snippet_positions_funcoids() -> [pg_sys::Oid; 2] {
     static OID_CACHE: OnceLock<[pg_sys::Oid; 2]> = OnceLock::new();
-    *OID_CACHE.get_or_init(|| {
-        resolve_funcoids(&[
+    cached_funcoids(
+        &OID_CACHE,
+        &[
             "pdb.snippet_positions(anyelement, int, int)",
             "paradedb.snippet_positions(anyelement, int, int)",
-        ])
-    })
+        ],
+    )
+}
+
+/// Resolve a pair of placeholder funcoids, caching the result only once both
+/// resolve. This lookup is reachable from the planner hook, which fires for
+/// every planned statement - including the internal queries Postgres runs while
+/// a CREATE/ALTER EXTENSION script is mid-flight, before these functions are
+/// defined. In that window `resolve_funcoids` yields InvalidOid (rather than the
+/// hard error `regprocedurein` would raise, which would abort the install).
+/// InvalidOid is left uncached so a later call resolves the real OIDs, and it
+/// never matches a real FuncExpr funcid.
+fn cached_funcoids(cache: &OnceLock<[pg_sys::Oid; 2]>, signatures: &[&str; 2]) -> [pg_sys::Oid; 2] {
+    if let Some(cached) = cache.get() {
+        return *cached;
+    }
+    let oids = resolve_funcoids(signatures);
+    if oids.iter().all(|oid| *oid != pg_sys::InvalidOid) {
+        let _ = cache.set(oids);
+    }
+    oids
 }
 
 fn resolve_funcoids(signatures: &[&str; 2]) -> [pg_sys::Oid; 2] {
+    // `to_regprocedure` takes `text` and returns NULL (None) instead of erroring
+    // when the function is absent, so each argument is a `&str` (not a CStr).
     unsafe {
         signatures
             .iter()
             .map(|signature| {
-                let cstr =
-                    std::ffi::CString::new(*signature).expect("signature contained interior NUL");
                 direct_function_call::<pg_sys::Oid>(
-                    pg_sys::regprocedurein,
-                    &[cstr.as_c_str().into_datum()],
+                    pg_sys::to_regprocedure,
+                    &[(*signature).into_datum()],
                 )
-                .unwrap_or_else(|| panic!("the `{}` function should exist", signature))
+                .unwrap_or(pg_sys::InvalidOid)
             })
             .collect::<Vec<pg_sys::Oid>>()
             .try_into()

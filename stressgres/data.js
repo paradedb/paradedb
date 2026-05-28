@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779998449853,
+  "lastUpdate": 1779998484806,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -6794,6 +6794,138 @@ window.BENCHMARK_DATA = {
             "value": 57.48046875,
             "unit": "median mem",
             "extra": "avg mem: 57.124333183024774, max mem: 70.265625, count: 55095"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1b9ba79b53f9a4420dba252a876bc97b42f63550",
+          "message": "chore: Switch to thin LTO to reduce compile time memory usage. (#5160)\n\n## What\n\nSwitch from `fat` to `thin` LTO.\n\n## Why\n\nWe have previously needed to switch to larger CI runners due to memory\nissues during compilation. Additionally, locally I have observed\nswapping on macOS during release mode compilation, due to more than 20\nGB of RAM being used, as well as 10+GB of compressed RAM.\n\n`thin` LTO gets 98% of the performance benefits of `fat` LTO, with\nreduced memory usage. I observed about a 50% reduction in memory usage\nduring compilation locally, and no more swapping.\n\n## Tests\n\nBenchmarks are unchanged.",
+          "timestamp": "2026-05-28T12:36:55-07:00",
+          "tree_id": "9246f1db81ceec6ae057b23266ab9165051117d1",
+          "url": "https://github.com/paradedb/paradedb/commit/1b9ba79b53f9a4420dba252a876bc97b42f63550"
+        },
+        "date": 1779998451893,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.266409,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.413969307993609, max cpu: 18.972332, count: 55196"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 66.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 66.42538436888543, max mem: 77.6953125, count: 55196"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.5806650554225286, max cpu: 18.953604, count: 55196"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 65.765625,
+            "unit": "median mem",
+            "extra": "avg mem: 65.50919457761884, max mem: 76.8046875, count: 55196"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.740248873423984, max cpu: 9.29332, count: 55196"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 36.53125,
+            "unit": "median mem",
+            "extra": "avg mem: 36.342627791755746, max mem: 38.28125, count: 55196"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.634325887536567, max cpu: 9.239654, count: 55196"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 64.09765625,
+            "unit": "median mem",
+            "extra": "avg mem: 63.52008878021052, max mem: 75.25390625, count: 55196"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.768336202077683, max cpu: 9.320388, count: 110392"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 55.6328125,
+            "unit": "median mem",
+            "extra": "avg mem: 55.223816285090855, max mem: 70.8515625, count: 110392"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1762,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1774.6762446554098, max block_count: 3157.0, count: 55196"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 12.30652583520545, max segment_count: 30.0, count: 55196"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.5848785163580414, max cpu: 18.953604, count: 55196"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 65.515625,
+            "unit": "median mem",
+            "extra": "avg mem: 65.28405498983169, max mem: 76.57421875, count: 55196"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5522331735903885, max cpu: 9.169055, count: 55196"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 54.30859375,
+            "unit": "median mem",
+            "extra": "avg mem: 54.237499943383575, max mem: 65.13671875, count: 55196"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.3983196025539835, max cpu: 4.6875, count: 55196"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 57.14453125,
+            "unit": "median mem",
+            "extra": "avg mem: 57.52805018139902, max mem: 70.5859375, count: 55196"
           }
         ]
       }

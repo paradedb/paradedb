@@ -65,27 +65,27 @@ JOIN products ON users.age = products.age
 JOIN orders ON products.uuid = orders.uuid
 WHERE users.name @@@ 'bob'
 ORDER BY users.id, products.id, orders.id LIMIT 1;
-WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: products, users)
-                                                                                                        QUERY PLAN                                                                                                         
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                              QUERY PLAN                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: users.id, products.id, orders.id
-         ->  Nested Loop
-               ->  Nested Loop
-                     ->  Bitmap Heap Scan on users
-                           Recheck Cond: (id @@@ '{"with_index":{"oid":976533,"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
-                           ->  Bitmap Index Scan on idxusers
-                                 Index Cond: (id @@@ '{"with_index":{"oid":976533,"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput)
-                     ->  Bitmap Heap Scan on products
-                           Recheck Cond: (users.age = age)
-                           ->  Bitmap Index Scan on idxproducts_age
-                                 Index Cond: (age = users.age)
-               ->  Bitmap Heap Scan on orders
-                     Recheck Cond: (products.uuid = uuid)
-                     ->  Bitmap Index Scan on idxorders_uuid
-                           Index Cond: (uuid = products.uuid)
-(17 rows)
+   ->  Custom Scan (ParadeDB Join Scan)
+         Relation Tree: users INNER (products INNER orders)
+         Join Cond: users.age = products.age, products.uuid = orders.uuid
+         Limit: 1
+         Order By: users.id asc, products.id asc, orders.id asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, id@3 as col_3, id@5 as col_4, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1, ctid_2@4 as ctid_2]
+           :   SortExec: TopK(fetch=1), expr=[id@1 ASC NULLS LAST, id@3 ASC NULLS LAST, id@5 ASC NULLS LAST], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[users, products, orders]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(uuid@3, uuid@1)], projection=[ctid_0@0, id@1, ctid_1@2, id@4, ctid_2@5, id@7]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(age@1, age@1)], projection=[ctid_0@0, id@2, ctid_1@3, uuid@5, id@6]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"bob","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(18 rows)
 
 SELECT users.id, users.name
 FROM users
@@ -93,7 +93,6 @@ JOIN products ON users.age = products.age
 JOIN orders ON products.uuid = orders.uuid
 WHERE users.name @@@ 'bob'
 ORDER BY users.id, products.id, orders.id LIMIT 1;
-WARNING:  JoinScan not used: LIMIT pushdown is unsafe due to un-absorbed relations (tables: products, users)
  id | name 
 ----+------
   1 | bob

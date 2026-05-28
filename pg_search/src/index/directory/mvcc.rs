@@ -23,8 +23,8 @@ use crate::postgres::composite::CompositeSlotValues;
 use crate::postgres::heap::{ExpressionState, HeapFetchState};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
-    bm25_max_free_space, FileEntry, MVCCEntry, SegmentFileDetails, SegmentMetaEntry,
-    SegmentMetaEntryContent, SegmentMetaEntryImmutable, SegmentMetaEntryMutable,
+    bm25_max_free_space, FileEntry, MVCCEntry, SegmentMetaEntry, SegmentMetaEntryContent,
+    SegmentMetaEntryImmutable, SegmentMetaEntryMutable,
 };
 use crate::postgres::storage::buffer::{BorrowedBuffer, BufferManager, PinnedBuffer};
 use crate::postgres::storage::metadata::MetaPage;
@@ -326,60 +326,9 @@ impl Directory for MVCCDirectory {
         Ok(())
     }
 
-    // Internally, Tantivy uses this for meta.json, and vector storage uses it
-    // to distinguish flat and IVF segment components.
-    fn exists(&self, path: &Path) -> Result<bool, OpenReadError> {
-        if self.new_files.lock().contains_key(path) {
-            return Ok(true);
-        }
-
-        let Some(segment_id) = path.segment_id() else {
-            return Ok(true);
-        };
-
-        let file_name = path
-            .file_name()
-            .expect("path should have a filename")
-            .to_str()
-            .expect("path should be valid UTF8");
-        let uuid_string = &file_name[..file_name.find('.').unwrap_or(file_name.len())];
-
-        let Some(meta_entry) = self.all_entries.lock().get(&segment_id).cloned() else {
-            return Ok(false);
-        };
-
-        match meta_entry {
-            LoadedSegmentMetaEntry::Persisted { entry, .. } => {
-                Ok(entry.file_entry(uuid_string, path).is_some())
-            }
-            LoadedSegmentMetaEntry::Memory {
-                meta,
-                tantivy_meta,
-                directory,
-                ..
-            } => directory
-                .get_or_init(|| {
-                    let heap_fetch_state = self.heap_fetch_state.get_or_init(|| {
-                        let heaprel = self
-                            .indexrel
-                            .heap_relation()
-                            .expect("Should have a heap relation.");
-                        HeapFetchState::new(&heaprel)
-                    });
-                    let expression_state = self
-                        .expression_state
-                        .get_or_init(|| ExpressionState::new(&self.indexrel));
-                    index_memory_segment(
-                        &self.indexrel,
-                        &tantivy_meta,
-                        &meta,
-                        heap_fetch_state,
-                        expression_state,
-                    )
-                    .expect("Failed to index mutable segment.")
-                })
-                .exists(path),
-        }
+    // Internally, Tantivy only uses this for meta.json, which should always exist
+    fn exists(&self, _path: &Path) -> Result<bool, OpenReadError> {
+        Ok(true)
     }
 
     /// Returns a segment writer that implements std::io::Write

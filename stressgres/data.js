@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779999155901,
+  "lastUpdate": 1779999190935,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10122,6 +10122,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.51444486731481, max segment_count: 128.0, count: 57806"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1b9ba79b53f9a4420dba252a876bc97b42f63550",
+          "message": "chore: Switch to thin LTO to reduce compile time memory usage. (#5160)\n\n## What\n\nSwitch from `fat` to `thin` LTO.\n\n## Why\n\nWe have previously needed to switch to larger CI runners due to memory\nissues during compilation. Additionally, locally I have observed\nswapping on macOS during release mode compilation, due to more than 20\nGB of RAM being used, as well as 10+GB of compressed RAM.\n\n`thin` LTO gets 98% of the performance benefits of `fat` LTO, with\nreduced memory usage. I observed about a 50% reduction in memory usage\nduring compilation locally, and no more swapping.\n\n## Tests\n\nBenchmarks are unchanged.",
+          "timestamp": "2026-05-28T12:36:55-07:00",
+          "tree_id": "9246f1db81ceec6ae057b23266ab9165051117d1",
+          "url": "https://github.com/paradedb/paradedb/commit/1b9ba79b53f9a4420dba252a876bc97b42f63550"
+        },
+        "date": 1779999157721,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.945907512824736, max cpu: 42.72997, count: 57753"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.93359375,
+            "unit": "median mem",
+            "extra": "avg mem: 235.77896758339395, max mem: 237.4453125, count: 57753"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.517757209839885, max cpu: 33.366436, count: 57753"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 178.4296875,
+            "unit": "median mem",
+            "extra": "avg mem: 178.35688365214793, max mem: 179.109375, count: 57753"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34439,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33667.641629006284, max block_count: 36174.0, count: 57753"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.4447734316832, max segment_count: 129.0, count: 57753"
           }
         ]
       }

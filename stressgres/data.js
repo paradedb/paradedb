@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779824469451,
+  "lastUpdate": 1779998332570,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2298,6 +2298,78 @@ window.BENCHMARK_DATA = {
             "value": 69.96807539539519,
             "unit": "median tps",
             "extra": "avg tps: 99.87426060416902, max tps: 679.6336231064558, count: 55058"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6382af00416f8b2fd2171d3b8e1a02dddffe89b2",
+          "message": "fix(joinscan): preserve cross-table OR pushed into sub-join joinrestrictinfo. (#5178)\n\n# Ticket(s) Closed\n\n- Closes #5177\n\n## What\n\nThis PR fixes JoinScan dropping cross-table `OR` clauses when PG pushes\nthem into an inner sub-join's `joinrestrictinfo`. Before this fix, BM25\nreturned join pairs that didn't satisfy the `WHERE`. See #5177 for the\nSQL repro and the PG vs BM25 row sets.\n\n## Why\n\nPG places a `WHERE` clause at the lowest join level that has all\nreferenced relations. For `WHERE (a.x @@@ ...) OR (b.y @@@ ...)`, that's\noften an inner sub-join. The inner JoinScan can't fire there (no `LIMIT`\non the sub-join), so the outer JoinScan's\n`collect_join_sources_join_rel` reconstructs that sub-join from PG's\nstandard `JoinPath`. Reconstruction went through\n`extract_join_conditions_from_list`, which dropped any non-equi clause\ncontaining `@@@` (`!is_equi_join && !has_search_op`). The cross-table OR\nvanished and the WHERE was effectively gone.\n\nThe guard made sense when the function had one caller (the outer hook),\nbecause `extract_join_level_conditions` handles `@@@` clauses over the\nsame `extra->restrictlist`. When #4039 split the function for multi-way\nreconstruction, the new caller had no such second pass and the\nassumption silently broke.\n\n## How\n\n- `extract_join_conditions_from_list` keeps every non-equi clause in\n`other_conditions`, `@@@` included. Consumers filter as needed.\n- `collect_join_sources_join_rel`'s reconstruction partitions:\nnon-search-op clauses still trip the reject gate, `@@@` clauses get\nstashed on a new `JoinNode.absorbed_search_clauses` field\n(planning-only, `#[serde(skip)]`).\n- `extract_join_level_conditions` runs a pre-pass\n(`lower_absorbed_search_clauses_node`) that walks the `RelNode` tree,\nfinds `JoinNode`s with absorbed clauses, lowers them into a\n`RelNode::Filter` via the existing `transform_to_search_expr` (interning\npredicates into `join_level_predicates`), and drains the field.\n- The Semi/Anti disjunction absorber in `try_build_join_custom_path`\nskips `@@@` clauses so they don't get lowered as generic\n`PgExpression`s. `extract_join_level_conditions` picks them up.\n\n## Tests\n\n- Added `pg_search/tests/pg_regress/sql/joinscan_cross_table_or.sql`. It\npins the join order via subquery nesting + `join_collapse_limit = 1` so\nPG pushes the OR into the inner sub-join. The first commit locks in the\nbuggy output; the fix commit flips the expected to match PG.",
+          "timestamp": "2026-05-28T12:36:09-07:00",
+          "tree_id": "db7f212ced1598dd905981cc68e845960dd2ebac",
+          "url": "https://github.com/paradedb/paradedb/commit/6382af00416f8b2fd2171d3b8e1a02dddffe89b2"
+        },
+        "date": 1779998301419,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 140.4305818932499,
+            "unit": "median tps",
+            "extra": "avg tps: 139.83887435006426, max tps: 142.55222616881835, count: 55095"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 483.3170646276216,
+            "unit": "median tps",
+            "extra": "avg tps: 480.7950182033593, max tps: 602.5397726260734, count: 55095"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3338.9415981260895,
+            "unit": "median tps",
+            "extra": "avg tps: 3330.94186993294, max tps: 3385.124875954703, count: 55095"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 430.987065927832,
+            "unit": "median tps",
+            "extra": "avg tps: 427.99373437684164, max tps: 522.4545751869604, count: 55095"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2904.3940015910766,
+            "unit": "median tps",
+            "extra": "avg tps: 2891.507665581947, max tps: 2967.2710008605086, count: 110190"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 483.1949278660878,
+            "unit": "median tps",
+            "extra": "avg tps: 481.1750232909546, max tps: 648.0884355555622, count: 55095"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1930.5829110476675,
+            "unit": "median tps",
+            "extra": "avg tps: 1920.2260264665285, max tps: 1936.8800689936936, count: 55095"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 38.90725615061246,
+            "unit": "median tps",
+            "extra": "avg tps: 40.15703687717973, max tps: 263.3635955662212, count: 55095"
           }
         ]
       }

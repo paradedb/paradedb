@@ -18,7 +18,6 @@ PARADEDB_PORT="${PARADEDB_PORT:-28818}"
 PARADEDB_DATABASE="${PARADEDB_DATABASE:-postgres}"
 PARADEDB_USER="${PARADEDB_USER:-$(id -un)}"
 PARADEDB_PASSWORD="${PARADEDB_PASSWORD:-}"
-EFCORE_PARADEDB_DIR="${EFCORE_PARADEDB_DIR:-${REPO_ROOT}/../efcore-paradedb}"
 PYTHON_ENV_DIR="$(mktemp -d -t paradedb-docs-python.XXXXXX)"
 PYTHON_BIN="$PYTHON_ENV_DIR/bin/python"
 RUBY_GEM_HOME="$(mktemp -d -t paradedb-docs-ruby.XXXXXX)"
@@ -282,10 +281,10 @@ fi
 csharp_pass_count=0
 csharp_fail_count=0
 if [[ $LANGUAGES =~ "csharp" ]]; then
-  echo "Referencing local ParadeDB.EntityFrameworkCore..."
+  echo "Installing ParadeDB.EntityFrameworkCore from NuGet..."
   dotnet new console --framework net10.0 --output "$CSHARP_ENV_DIR" >/dev/null
-  dotnet add "$CSHARP_ENV_DIR" reference \
-    "${EFCORE_PARADEDB_DIR}/src/ParadeDB.EntityFrameworkCore.csproj" \
+  dotnet add "$CSHARP_ENV_DIR" package ParadeDB.EntityFrameworkCore \
+    --version 0.0.1 \
     >/dev/null
   dotnet restore "$CSHARP_ENV_DIR" -p:NuGetAudit=false >/dev/null
 

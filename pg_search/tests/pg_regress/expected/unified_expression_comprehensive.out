@@ -211,6 +211,7 @@ FROM products
 WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
   OR TRUE OR category_name = 'Electronics'
 ORDER BY score DESC;
+WARNING:  pdb.score() may fail because the BM25 custom scan was not selected, leaving its planner placeholder in the plan. This is usually caused by query shapes the BM25 custom scan cannot drive, such as DISTINCT ON over LATERAL or certain joins. Materialize the BM25 search in a subquery first, then apply DISTINCT ON, LATERAL, or joins on top. Please report at https://github.com/paradedb/paradedb/issues/new/choose
             QUERY PLAN            
 ----------------------------------
  Sort
@@ -227,7 +228,8 @@ FROM products
 WHERE (name @@@ 'Apple' AND description @@@ 'smartphone') 
   OR TRUE OR category_name = 'Electronics'
 ORDER BY score DESC;
-ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+WARNING:  pdb.score() may fail because the BM25 custom scan was not selected, leaving its planner placeholder in the plan. This is usually caused by query shapes the BM25 custom scan cannot drive, such as DISTINCT ON over LATERAL or certain joins. Materialize the BM25 search in a subquery first, then apply DISTINCT ON, LATERAL, or joins on top. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+ERROR:  pdb.score() could not run because the BM25 custom scan was not selected for this relation
 -- Test Case 3: Another example with price filter (non-indexed)
 -- Should show the same issue - scores become null due to non-indexed predicate
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -730,6 +732,7 @@ FROM products
 WHERE price BETWEEN 100.00 AND 300.00
   AND in_stock = true
 ORDER BY score DESC;
+WARNING:  pdb.score() may fail because the BM25 custom scan was not selected, leaving its planner placeholder in the plan. This is usually caused by query shapes the BM25 custom scan cannot drive, such as DISTINCT ON over LATERAL or certain joins. Materialize the BM25 search in a subquery first, then apply DISTINCT ON, LATERAL, or joins on top. Please report at https://github.com/paradedb/paradedb/issues/new/choose
                                QUERY PLAN                               
 ------------------------------------------------------------------------
  Sort
@@ -748,7 +751,8 @@ FROM products
 WHERE price BETWEEN 100.00 AND 300.00
   AND in_stock = true
 ORDER BY score DESC;
-ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+WARNING:  pdb.score() may fail because the BM25 custom scan was not selected, leaving its planner placeholder in the plan. This is usually caused by query shapes the BM25 custom scan cannot drive, such as DISTINCT ON over LATERAL or certain joins. Materialize the BM25 search in a subquery first, then apply DISTINCT ON, LATERAL, or joins on top. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+ERROR:  pdb.score() could not run because the BM25 custom scan was not selected for this relation
 -- Test Case 14: Array operations (if supported)
 -- Tests heap filtering with array predicates
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

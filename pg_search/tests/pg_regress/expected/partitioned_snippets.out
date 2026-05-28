@@ -83,6 +83,7 @@ FROM logs
 WHERE message @@@ 'research' AND country @@@ 'Canada'
 ORDER BY id
 LIMIT 3;
+WARNING:  pdb.snippets() may fail because the BM25 custom scan was not selected, leaving its planner placeholder in the plan. This is usually caused by query shapes the BM25 custom scan cannot drive, such as DISTINCT ON over LATERAL or certain joins. Materialize the BM25 search in a subquery first, then apply DISTINCT ON, LATERAL, or joins on top. Please report at https://github.com/paradedb/paradedb/issues/new/choose
                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                       
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -113,7 +114,8 @@ FROM logs
 WHERE message @@@ 'research' AND country @@@ 'Canada'
 ORDER BY id
 LIMIT 3;
-ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+WARNING:  pdb.snippets() may fail because the BM25 custom scan was not selected, leaving its planner placeholder in the plan. This is usually caused by query shapes the BM25 custom scan cannot drive, such as DISTINCT ON over LATERAL or certain joins. Materialize the BM25 search in a subquery first, then apply DISTINCT ON, LATERAL, or joins on top. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+ERROR:  pdb.snippets() could not run because the BM25 custom scan was not selected for this relation
 \echo 'Test 3: UNNEST(pdb.snippets(...)) on a child table'
 Test 3: UNNEST(pdb.snippets(...)) on a child table
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
@@ -221,6 +223,7 @@ FROM logs_2020
 WHERE message @@@ 'research' AND country @@@ 'Canada'
 ORDER BY id
 LIMIT 3;
+WARNING:  pdb.snippets() may fail because the BM25 custom scan was not selected, leaving its planner placeholder in the plan. This is usually caused by query shapes the BM25 custom scan cannot drive, such as DISTINCT ON over LATERAL or certain joins. Materialize the BM25 search in a subquery first, then apply DISTINCT ON, LATERAL, or joins on top. Please report at https://github.com/paradedb/paradedb/issues/new/choose
                                                                                                                                                              QUERY PLAN                                                                                                                                                              
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -241,5 +244,6 @@ FROM logs_2020
 WHERE message @@@ 'research' AND country @@@ 'Canada'
 ORDER BY id
 LIMIT 3;
-ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+WARNING:  pdb.snippets() may fail because the BM25 custom scan was not selected, leaving its planner placeholder in the plan. This is usually caused by query shapes the BM25 custom scan cannot drive, such as DISTINCT ON over LATERAL or certain joins. Materialize the BM25 search in a subquery first, then apply DISTINCT ON, LATERAL, or joins on top. Please report at https://github.com/paradedb/paradedb/issues/new/choose
+ERROR:  pdb.snippets() could not run because the BM25 custom scan was not selected for this relation
 DROP TABLE IF EXISTS logs CASCADE;

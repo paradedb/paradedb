@@ -18,7 +18,10 @@ license = "AGPL-3.0"
 panic = "unwind"
 
 [profile.release]
-lto = "fat"
+# Note: We switched from `fat` to `thin` LTO to reduce compile time memory usage, which had been
+# sufficient to cause swapping on local machines, and to kill CI builds on smaller instances.
+# Benchmarks were unaffected.
+lto = "thin"
 panic = "unwind"
 opt-level = 3
 codegen-units = 1

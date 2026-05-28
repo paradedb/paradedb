@@ -558,7 +558,7 @@ unsafe fn warn_on_leftover_placeholder_functions(planned_stmt: *mut pg_sys::Plan
         return;
     }
 
-    let mut found = Vec::new();
+    let mut found: Vec<&'static str> = Vec::new();
     collect_leftover_placeholder_functions_in_plan((*planned_stmt).planTree, &mut found);
 
     if !(*planned_stmt).subplans.is_null() {

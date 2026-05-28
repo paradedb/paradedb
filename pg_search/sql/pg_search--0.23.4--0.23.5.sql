@@ -1,3 +1,5 @@
+\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.23.5'" to load this file. \quit
+
 ALTER TYPE pdb.ngram SET (RECEIVE = NONE, SEND = NONE, STORAGE = EXTENDED);
 DROP FUNCTION IF EXISTS pdb.ngram_send(pdb.ngram);
 DROP FUNCTION IF EXISTS pdb.ngram_recv(internal);

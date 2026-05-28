@@ -1,0 +1,189 @@
+-- Test ORDER BY collation safety for pushdown
+-- Ensures that ParadeDB correctly refuses to push down ORDER BY when a non-C collation
+-- is in use, since Tantivy sorts by raw byte order (equivalent to C/POSIX only).
+--
+-- Tests cover:
+-- 1. TopK (base scan ORDER BY ... LIMIT) with C vs non-C collation
+-- 2. Aggregate scan ORDER BY with C vs non-C collation
+-- 3. Sorted index scan (sort_by) with C vs non-C collation
+-- 4. Non-text columns (integers) are unaffected by collation checks
+-- 5. Result correctness
+
+\i common/common_setup.sql
+
+-- =============================================================================
+-- SETUP
+-- =============================================================================
+
+-- Create an ICU collation for testing non-C ordering (always available in PG15+)
+CREATE COLLATION IF NOT EXISTS test_icu (provider = icu, locale = 'en-US');
+
+DROP TABLE IF EXISTS collation_test CASCADE;
+CREATE TABLE collation_test (
+    id SERIAL PRIMARY KEY,
+    name_c TEXT COLLATE "C",
+    name_icu TEXT COLLATE "test_icu",
+    priority INTEGER
+);
+
+INSERT INTO collation_test (name_c, name_icu, priority) VALUES
+    ('apple', 'apple', 10),
+    ('Banana', 'Banana', 20),
+    ('cherry', 'cherry', 30),
+    ('Date', 'Date', 40),
+    ('elderberry', 'elderberry', 50);
+
+CREATE INDEX collation_test_idx ON collation_test
+USING bm25 (id, name_c, name_icu, priority)
+WITH (
+    key_field = 'id',
+    text_fields = '{"name_c": {"indexed": true, "fast": true}, "name_icu": {"indexed": true, "fast": true}}',
+    numeric_fields = '{"priority": {"indexed": true, "fast": true}}'
+);
+
+ANALYZE collation_test;
+
+-- =============================================================================
+-- SECTION 1: TopK (Base Scan ORDER BY ... LIMIT)
+-- =============================================================================
+
+\echo '=== SECTION 1: TopK Base Scan ORDER BY ... LIMIT ==='
+
+\echo 'Test 1.1: ORDER BY C-collation text column -> TopK pushdown (no Sort node)'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name_c FROM collation_test
+WHERE id @@@ paradedb.all()
+ORDER BY name_c
+LIMIT 5;
+
+\echo 'Test 1.2: ORDER BY ICU-collation text column -> Sort node expected'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name_icu FROM collation_test
+WHERE id @@@ paradedb.all()
+ORDER BY name_icu
+LIMIT 5;
+
+\echo 'Test 1.3: ORDER BY integer column -> TopK pushdown (collation is InvalidOid for non-text)'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, priority FROM collation_test
+WHERE id @@@ paradedb.all()
+ORDER BY priority
+LIMIT 5;
+
+\echo 'Test 1.4: ORDER BY with explicit COLLATE "C" on ICU column -> TopK pushdown'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name_icu FROM collation_test
+WHERE id @@@ paradedb.all()
+ORDER BY name_icu COLLATE "C"
+LIMIT 5;
+
+\echo 'Test 1.5: ORDER BY with explicit COLLATE "test_icu" on C column -> Sort node expected'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, name_c FROM collation_test
+WHERE id @@@ paradedb.all()
+ORDER BY name_c COLLATE "test_icu"
+LIMIT 5;
+
+-- =============================================================================
+-- SECTION 2: Aggregate Scan ORDER BY
+-- =============================================================================
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+\echo '=== SECTION 2: Aggregate Scan ORDER BY ==='
+
+\echo 'Test 2.1: GROUP BY + ORDER BY C-collation text -> aggregate pushdown (no Sort node)'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_c, COUNT(*) FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_c
+ORDER BY name_c;
+
+\echo 'Test 2.2: GROUP BY + ORDER BY ICU-collation text -> Sort node expected'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_icu, COUNT(*) FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_icu
+ORDER BY name_icu;
+
+\echo 'Test 2.3: GROUP BY + ORDER BY integer -> aggregate pushdown (collation is InvalidOid)'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT priority, COUNT(*) FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY priority
+ORDER BY priority;
+
+RESET paradedb.enable_aggregate_custom_scan;
+
+-- =============================================================================
+-- SECTION 3: Sorted Index Scan (sort_by pathkey matching)
+-- =============================================================================
+
+\echo '=== SECTION 3: Sorted Index Scan (sort_by) ==='
+
+SET paradedb.enable_columnar_sort = true;
+
+DROP TABLE IF EXISTS collation_sortby_test CASCADE;
+CREATE TABLE collation_sortby_test (
+    id SERIAL PRIMARY KEY,
+    city TEXT COLLATE "C",
+    population INTEGER
+);
+
+INSERT INTO collation_sortby_test (city, population) VALUES
+    ('berlin', 3600000),
+    ('Amsterdam', 900000),
+    ('chicago', 2700000),
+    ('Delhi', 32000000),
+    ('edmonton', 1000000);
+
+CREATE INDEX collation_sortby_test_idx ON collation_sortby_test
+USING bm25 (id, city, population)
+WITH (
+    key_field = 'id',
+    text_fields = '{"city": {"indexed": true, "fast": true}}',
+    numeric_fields = '{"population": {"indexed": true, "fast": true}}',
+    sort_by = 'city ASC NULLS FIRST'
+);
+
+ANALYZE collation_sortby_test;
+
+\echo 'Test 3.1: ORDER BY city (C collation, matches sort_by) -> no Sort node'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, city FROM collation_sortby_test
+WHERE id @@@ paradedb.all()
+ORDER BY city ASC NULLS FIRST;
+
+\echo 'Test 3.2: ORDER BY city with explicit COLLATE "test_icu" -> Sort node expected'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT id, city FROM collation_sortby_test
+WHERE id @@@ paradedb.all()
+ORDER BY city COLLATE "test_icu" ASC NULLS FIRST;
+
+-- =============================================================================
+-- SECTION 4: Result Correctness
+-- =============================================================================
+
+\echo '=== SECTION 4: Result Correctness ==='
+
+\echo 'Test 4.1: C collation ORDER BY -> byte order (uppercase before lowercase in ASCII)'
+SELECT id, city FROM collation_sortby_test
+WHERE id @@@ paradedb.all()
+ORDER BY city ASC NULLS FIRST;
+
+\echo 'Test 4.2: ICU collation ORDER BY -> linguistic order (case-insensitive from Postgres Sort)'
+SELECT id, city FROM collation_sortby_test
+WHERE id @@@ paradedb.all()
+ORDER BY city COLLATE "test_icu" ASC NULLS FIRST;
+
+-- =============================================================================
+-- CLEANUP
+-- =============================================================================
+
+RESET paradedb.enable_columnar_sort;
+
+DROP TABLE IF EXISTS collation_test CASCADE;
+DROP TABLE IF EXISTS collation_sortby_test CASCADE;
+DROP COLLATION IF EXISTS test_icu;
+
+\i common/common_cleanup.sql

@@ -28,6 +28,8 @@ use std::sync::OnceLock;
 
 use futures::executor::block_on;
 use proptest::prelude::*;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use sqlx::{Connection, PgConnection};
 
 use crate::fixtures::db::Query;
@@ -147,12 +149,16 @@ pub fn generated_queries_setup(
     "SET log_error_verbosity TO VERBOSE;".execute(conn);
     "SET log_min_duration_statement TO 1000;".execute(conn);
 
-    let seed_sql = format!("SET seed TO {};\n", rand::rng().random_range(-1.0..=1.0));
+    let qgen_seed = qgen_seed().unwrap_or_else(|| rand::rng().random::<u64>());
+    let mut rng = StdRng::seed_from_u64(qgen_seed);
+    let pg_seed: f64 = rng.random_range(-1.0..=1.0);
+    let segmentation = pick_segmentation(&mut rng);
+
+    let seed_sql = format!("SET seed TO {pg_seed};\n");
     seed_sql.as_str().execute(conn);
 
-    let segmentation = qgen_segmentation();
-
     let mut setup_sql = seed_sql;
+    setup_sql.push_str(&format!("-- PARADEDB_QGEN_SEED: {qgen_seed}\n"));
     setup_sql.push_str(&format!("-- qgen segmentation: {segmentation:?}\n"));
 
     let column_definitions = columns_def
@@ -429,10 +435,23 @@ impl Segmentation {
     }
 }
 
-/// Reads `PARADEDB_QGEN_SEGMENTATION`. Recognised values: `single`, `multi`,
-/// `random` (default). Re-rolls on every call so different tables within the
-/// same test process can exercise different shapes.
-fn qgen_segmentation() -> Segmentation {
+/// Reads `PARADEDB_QGEN_SEED`, the optional u64 that pins both the Postgres
+/// `SET seed` value and the `Segmentation` coin. Unset means
+/// `generated_queries_setup` picks one fresh per call. Either way the seed
+/// used lands in the reproduction script, so a failing run can be replayed
+/// with `PARADEDB_QGEN_SEED=<n> PROPTEST_RNG_SEED=<m> cargo test ...`.
+fn qgen_seed() -> Option<u64> {
+    std::env::var("PARADEDB_QGEN_SEED").ok().map(|s| {
+        s.parse::<u64>()
+            .unwrap_or_else(|_| panic!("PARADEDB_QGEN_SEED must parse as u64; got '{s}'"))
+    })
+}
+
+/// Picks a `Segmentation` honoring `PARADEDB_QGEN_SEGMENTATION` first
+/// (`single`, `multi`, `random`); falls back to a coin flip on the supplied
+/// RNG. One call per `generated_queries_setup`: every table built in the same
+/// call gets the same shape; different `#[test]` functions roll independently.
+fn pick_segmentation(rng: &mut impl Rng) -> Segmentation {
     let mode = std::env::var("PARADEDB_QGEN_SEGMENTATION")
         .ok()
         .unwrap_or_default();
@@ -440,7 +459,7 @@ fn qgen_segmentation() -> Segmentation {
         "single" => Segmentation::Single,
         "multi" => Segmentation::Multi(MULTI_SEGMENT_CHUNKS),
         "" | "random" => {
-            if rand::rng().random_bool(0.5) {
+            if rng.random_bool(0.5) {
                 Segmentation::Multi(MULTI_SEGMENT_CHUNKS)
             } else {
                 Segmentation::Single
@@ -718,10 +737,23 @@ pub fn handle_compare_error(
         "RESULT MISMATCH"
     };
 
+    let qgen_seed = setup_sql
+        .lines()
+        .find_map(|l| l.strip_prefix("-- PARADEDB_QGEN_SEED: "))
+        .unwrap_or("<not captured>");
+    let proptest_seed = std::env::var("PROPTEST_RNG_SEED")
+        .ok()
+        .unwrap_or_else(|| "<from proptest output above>".to_string());
+
     let repro_script = format!(
         r#"
 -- ==== {failure_type} REPRODUCTION SCRIPT ====
 -- Copy and paste this entire block to reproduce the issue
+--
+-- To replay the full proptest end-to-end, pair the seed below with
+-- `PROPTEST_RNG_SEED` from the proptest output and run:
+--   PARADEDB_QGEN_SEED={qgen_seed} PROPTEST_RNG_SEED={proptest_seed} \
+--     cargo test --package tests --test qgen <test_fn_name>
 --
 -- Prerequisites: Ensure pg_search extension is available
 CREATE EXTENSION IF NOT EXISTS pg_search;
@@ -747,6 +779,8 @@ Original error:
 {error_msg}
 "#,
         failure_type = failure_type,
+        qgen_seed = qgen_seed,
+        proptest_seed = proptest_seed,
         setup_sql = setup_sql,
         default_gucs = PgGucs::pg_search_disabled().set(),
         gucs_sql = gucs.set(),

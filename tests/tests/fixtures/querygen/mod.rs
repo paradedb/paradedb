@@ -601,6 +601,11 @@ impl PgGucs {
         )
         .unwrap();
         writeln!(gucs, "SET paradedb.enable_mpp TO {enable_mpp};").unwrap();
+        // Pin `min_rows_per_worker` low so MPP actually engages on qgen's
+        // 10-1000-row tables. The production default is 300K, which would
+        // never trip on a property-test fixture and leave every MPP-only
+        // code path (e.g. per-source segment claim accounting) uncovered.
+        writeln!(gucs, "SET paradedb.min_rows_per_worker TO 10;").unwrap();
         writeln!(gucs, "SET statement_timeout TO {};", statement_timeout_ms()).unwrap();
         if force_parallel() {
             writeln!(gucs, "SET debug_parallel_query TO on;").unwrap();

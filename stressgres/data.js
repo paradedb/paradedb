@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780075324849,
+  "lastUpdate": 1780075370229,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11022,6 +11022,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.92778077050063, max segment_count: 128.0, count: 57547"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "60c5a4dce3ce7060caed29af7768942a321dc063",
+          "message": "chore: port shared changes from enterprise (WAL ordering, replication deflake, field alias) (#5201)\n\nCloses #5202\n\n## What & why\n\nThese changes already live in the `paradedb-enterprise` mirror but are\n**not enterprise-specific**. Porting them upstream shrinks the\nenterprise↔community divergence (so they stop reappearing in every\nrebase) and they stand on their own merits for community. Bundled into\none PR per request; happy to split.\n\nEach change was applied onto current `main` (the enterprise base for\nthese files is identical to `main`, so they apply cleanly).\n\n## Changes\n\n| Type | Area | Description |\n|------|------|-------------|\n| `fix` | `storage/linked_items.rs` | In `LinkedItemList::add_items`,\nemit the **new-page** WAL record before the previous tail's\n`next_blockno` **pointer-update** record. A standby replaying WAL\nserially could otherwise briefly see a pointer to a block the file\ndoesn't yet contain, and concurrent readers walking the chain fail with\n`XX001: could not read blocks … read only 0 of 8192 bytes`. The primary\nwas always safe (the file grows synchronously in `new_buffer()`); this\nonly bites on a replica. Includes a new\n`test_linked_items_extension_chain_is_walkable` regression test. |\n| `test` | `tests/replication.rs` | Deflake `test_logical_replication`:\nintroduce `RETRIES`/`RETRY_DELAY`, raise retries from 5→60, and **fix\ntwo incorrect validators** — the delete check waited for `!is_empty()`\n(which can never become true after a delete) and now waits for\n`is_empty()`; the COPY check now waits for exactly 3 rows instead of\n\"non-empty\". |\n| `fix` | `tests/fixtures/db.rs` | `fetch_retry` no longer returns an\nempty `vec![]` on the final attempt — that silently masked failures. It\nnow exhausts all retries and panics loudly on persistent failure. |\n| `feat` | `api/config.rs` | Add an optional `alias` argument to\n`paradedb.field(...)` to key the field config under an alias instead of\nthe column name. |\n| `refactor` | `postgres/parallel.rs` | Take `IndexScanDesc` by value in\n`get_bm25_scan_state` and callers; removes pointless `&mut` indirection,\nno behavior change. |\n| `docs` | `pg_search/README.md` | Remove a stray \"Install stable Rust:\"\nline. |\n\n## Testing\n\nCI\n\n---------\n\nSigned-off-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-05-29T12:49:57-04:00",
+          "tree_id": "76b8d037aae4b06552432286dc20c97f1873fb25",
+          "url": "https://github.com/paradedb/paradedb/commit/60c5a4dce3ce7060caed29af7768942a321dc063"
+        },
+        "date": 1780075326768,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.76374527140453, max cpu: 42.857143, count: 57542"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 236.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 236.08711272852872, max mem: 237.80078125, count: 57542"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.498109755199874, max cpu: 33.366436, count: 57542"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 178.421875,
+            "unit": "median mem",
+            "extra": "avg mem: 178.38771618719804, max mem: 179.20703125, count: 57542"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34385,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33726.81394459699, max block_count: 36210.0, count: 57542"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.76587536060616, max segment_count: 131.0, count: 57542"
           }
         ]
       }

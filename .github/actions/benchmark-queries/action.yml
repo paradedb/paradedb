@@ -49,11 +49,11 @@ runs:
 
         echo "ROWS_LABEL=${{ inputs.size }}" >> $GITHUB_ENV
 
-    # Each query file produces N variants ("base", "base - alternative 1",
-    # "base - alternative 2"). All variants of a file run the same logical
-    # query under different GUC combinations (PG default, DataFusion agg,
-    # MPP). If they don't agree on `num_results`, one of the custom-scan
-    # paths has a correctness regression.
+    # Group alternatives that share the same trailing `SELECT` (only the
+    # `SET` prefix differs, e.g. PG default vs DataFusion agg vs MPP). If
+    # they don't agree on `num_results`, one of the custom-scan paths has a
+    # correctness regression. Alternatives with different `SELECT`s
+    # (different query shapes — see `cardinality.sql`) don't get compared.
     - name: Verify alternative-vs-base num_results equality
       working-directory: benchmarks/
       shell: bash
@@ -62,25 +62,37 @@ runs:
         import json, re, sys
         with open("results.json") as f:
             results = json.load(f)
+
+        def select_text(extra: str) -> str:
+            m = re.search(r'query=(.*)$', extra, re.S)
+            if not m:
+                return ""
+            full = m.group(1).strip()
+            return full.rsplit(";", 1)[-1].strip().lower()
+
         groups = {}
         for r in results:
-            base = re.sub(r' - alternative \d+$', '', r["name"])
-            groups.setdefault(base, []).append((r["name"], r.get("num_results")))
+            base_name = re.sub(r' - alternative \d+$', '', r["name"])
+            key = (base_name, select_text(r.get("extra", "")))
+            groups.setdefault(key, []).append((r["name"], r.get("num_results")))
+
         mismatches = []
-        for base, members in groups.items():
+        for key, members in groups.items():
             if len(members) < 2:
                 continue
             counts = {n for _, n in members}
             if len(counts) > 1:
-                mismatches.append((base, members))
+                mismatches.append((key, members))
+
         if mismatches:
-            print("MPP vs non-MPP num_results mismatch:")
-            for base, members in mismatches:
+            print("Alternatives sharing the same SELECT disagree on num_results:")
+            for (base, sel), members in mismatches:
                 print(f"  {base}:")
+                print(f"    SELECT: {sel[:120]}{'...' if len(sel) > 120 else ''}")
                 for name, n in members:
-                    print(f"    {name}: {n}")
+                    print(f"      {name}: {n}")
             sys.exit(1)
-        print("All alternatives produced matching num_results.")
+        print("All same-SELECT alternatives produced matching num_results.")
         PY
 
     - name: Print the Postgres Logs

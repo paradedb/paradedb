@@ -176,11 +176,18 @@ struct ParallelScanPayloadLayout {
     all_counts: Range<usize>,
     /// Concatenated 16-byte segment UUIDs for all sources, in ascending source-index order.
     all_ids: Range<usize>,
+    /// One `u32` per source: remaining unclaimed segments. Lets every source in a
+    /// multi-source MPP plan be partitioned across workers, not just the planner-chosen
+    /// partitioning source.
+    remaining_by_source: Range<usize>,
     /// One `u32` per segment in the partitioning source: deleted doc count.
     partitioning_deleted_docs: Range<usize>,
     /// One `u32` per segment in the partitioning source: max doc count.
     partitioning_max_docs: Range<usize>,
     /// One `i32` per segment in the partitioning source: which worker claimed it.
+    /// Sized to `partitioning_nsegments`, so non-partitioning sources have no slot
+    /// here. Read by [`ParallelScanState::explain_data`] to populate the "Parallel
+    /// Workers" section of `EXPLAIN ANALYZE`.
     claims: Range<usize>,
     aggregates_header: Option<Range<usize>>,
     aggregates_data: Option<Range<usize>>,
@@ -215,6 +222,10 @@ impl ParallelScanPayloadLayout {
         let all_ids_layout = Layout::from_size_align(total_segs * SEGMENT_ID_SIZE, 1)?;
         let (layout, all_ids_offset) = layout.extend(all_ids_layout)?;
         let all_ids_range = all_ids_offset..(all_ids_offset + all_ids_layout.size());
+
+        let remaining_layout = Layout::array::<u32>(n_sources)?;
+        let (layout, remaining_offset) = layout.extend(remaining_layout)?;
+        let remaining_range = remaining_offset..(remaining_offset + remaining_layout.size());
 
         // Deleted doc counts for the partitioning source only: [u32; partitioning_nsegments].
         let partitioning_del_layout = Layout::array::<u32>(partitioning_nsegments)?;
@@ -253,6 +264,7 @@ impl ParallelScanPayloadLayout {
             query: query_range,
             all_counts: all_counts_range,
             all_ids: all_ids_range,
+            remaining_by_source: remaining_range,
             partitioning_deleted_docs: partitioning_deleted_docs_range,
             partitioning_max_docs: partitioning_max_docs_range,
             claims: claims_range,
@@ -345,6 +357,17 @@ impl ParallelScanPayload {
         for claim in self.claims_mut().iter_mut() {
             *claim = SEGMENT_CLAIM_UNCLAIMED;
         }
+
+        // Skip slab init on single-source scans to keep the non-MPP parallel hot
+        // path free of per-source bookkeeping.
+        if all_sources.len() > 1 {
+            let remaining_range = self.layout.remaining_by_source.clone();
+            let remaining_slice: &mut [u32] =
+                bytemuck::try_cast_slice_mut(&mut self.data_mut()[remaining_range]).unwrap();
+            for (source, target) in all_sources.iter().zip(remaining_slice.iter_mut()) {
+                *target = source.len() as u32;
+            }
+        }
     }
 
     fn data(&self) -> &[u8] {
@@ -396,6 +419,11 @@ impl ParallelScanPayload {
 
     fn partitioning_max_docs(&self) -> &[u32] {
         bytemuck::try_cast_slice(&self.data()[self.layout.partitioning_max_docs.clone()]).unwrap()
+    }
+
+    fn remaining_by_source_mut(&mut self) -> &mut [u32] {
+        let range = self.layout.remaining_by_source.clone();
+        bytemuck::try_cast_slice_mut(&mut self.data_mut()[range]).unwrap()
     }
 
     /// An array of `i32` parallel worker numbers (as returned by pg_sys::ParallelWorkerNumber)
@@ -633,6 +661,12 @@ impl ParallelScanState {
     pub fn mark_initialized_empty(&mut self) {
         self.nsegments = 0;
         self.remaining_segments = 0;
+        // Mirror `populate()`'s gate: nothing to zero on single-source scans.
+        if self.payload.all_counts().len() > 1 {
+            for slot in self.payload.remaining_by_source_mut() {
+                *slot = 0;
+            }
+        }
         self.init_cv.broadcast();
     }
 
@@ -839,8 +873,35 @@ impl ParallelScanState {
             // this means we're purposely checking out segments from largest-to-smallest.
             let claimed_segment = self.decrement_remaining_segments();
             self.payload.claims_mut()[claimed_segment] = parallel_worker_number;
+            // `checkout_segment_for_source` never reads the partitioning slot, so
+            // don't mirror this decrement onto `remaining_by_source[partitioning_idx]`.
             break Some(self.segment_id(claimed_segment));
         }
+    }
+
+    /// Source-aware checkout for MPP non-partitioning sources. The `claims` array is
+    /// sized to the partitioning source's segment count and indexed by its segment
+    /// positions, so there's no slot to record a non-partitioning claim.
+    pub fn checkout_segment_for_source(&mut self, source_idx: usize) -> Option<SegmentId> {
+        self.wait_for_initialization();
+        let _mutex = self.acquire_mutex();
+        let counts = self.payload.all_counts();
+        let count_for_source = *counts.get(source_idx)? as usize;
+        if count_for_source == 0 {
+            return None;
+        }
+        let by_source = self.payload.remaining_by_source_mut();
+        let slot = by_source.get_mut(source_idx)?;
+        if *slot == 0 {
+            return None;
+        }
+        *slot -= 1;
+        let claimed_idx = *slot as usize;
+        // Positional lookup gives the same largest-to-smallest claim order
+        // `checkout_segment` uses on the partitioning source.
+        Some(SegmentId::from_bytes(
+            self.payload.source_ids(source_idx)[claimed_idx],
+        ))
     }
 
     /// Returns a map of segment IDs to their deleted document counts.
@@ -940,8 +1001,35 @@ impl ParallelScanState {
     /// Reset remaining_segments for a rescan. Called by amparallelrescan.
     pub fn reset(&mut self) {
         self.remaining_segments = self.nsegments;
+        // Rescan must re-partition the same way as the initial scan; without this,
+        // every source observes zero remaining and emits nothing. Skip for
+        // single-source (slab never populated).
+        if self.payload.all_counts().len() > 1 {
+            let counts: Vec<u32> = self.payload.all_counts().to_vec();
+            for (slot, count) in self
+                .payload
+                .remaining_by_source_mut()
+                .iter_mut()
+                .zip(counts.iter())
+            {
+                *slot = *count;
+            }
+        }
         // NOTE: We do not reset `queries_per_worker` here, so that it can be tracked across
         // rescans.
+    }
+
+    /// Per-source frozen segment set for `MvccSatisfies::ParallelWorker(ids)`. Lives
+    /// in the shared payload so workers don't need a codec channel for it. Waits for
+    /// leader init; otherwise a racing worker reads zero IDs.
+    pub fn segment_ids_for_source(&mut self, source_idx: usize) -> HashSet<SegmentId> {
+        self.wait_for_initialization();
+        let _mutex = self.acquire_mutex();
+        self.payload
+            .source_ids(source_idx)
+            .iter()
+            .map(|b| SegmentId::from_bytes(*b))
+            .collect()
     }
 }
 

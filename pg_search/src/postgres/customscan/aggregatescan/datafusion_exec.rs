@@ -601,6 +601,11 @@ async fn build_source_df(
     let mut provider = PgSearchTableProvider::new(scan_info, fields, is_parallel);
     if let Some(idx) = np_idx {
         provider.set_non_partitioning_index(idx);
+        // MPP: this source claims via `checkout_segment_for_source(plan_position)`
+        // instead of scanning the full data. Non-MPP: no `parallel_state`, no-op.
+        if mpp_ctx.is_some() {
+            provider.set_mpp_source_idx(plan_position);
+        }
     }
     // HeapFilter queries (e.g. `=` on a column indexed via a
     // `pdb.literal(...)` cast) compile to runtime Postgres expressions

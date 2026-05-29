@@ -93,9 +93,14 @@ pub enum ScanRecipe {
         segment_ids: Vec<SegmentId>,
         scanner_config: ScannerConfig,
     },
-    /// Lazy scan: segments are claimed dynamically from parallel state.
+    /// Lazy claim from `ParallelScanState`. `source_idx = Some(i)` claims from source
+    /// `i`'s pool for MPP non-partitioning sources; `None` uses the single-counter
+    /// `checkout_segment` for the basescan IAM, the MPP partitioning source, and
+    /// non-MPP parallel hash join. The non-partitioning path can't update the
+    /// partitioning-source-sized `claims` array.
     Lazy {
         parallel_state: Option<*mut ParallelScanState>,
+        source_idx: Option<usize>,
         planner_estimated_rows: u64,
         scanner_config: ScannerConfig,
     },
@@ -488,13 +493,18 @@ impl ExecutionPlan for PgSearchScanPlan {
                         }
                         ScanRecipe::Lazy {
                             parallel_state,
+                            source_idx,
                             planner_estimated_rows,
                             scanner_config,
                         } => {
-                            let res = if let Some(ps) = parallel_state {
-                                reader.search_lazy(ps, planner_estimated_rows)
-                            } else {
-                                reader.search()
+                            let res = match (parallel_state, source_idx) {
+                                (Some(ps), idx) => {
+                                    reader.search_lazy(ps, idx, planner_estimated_rows)
+                                }
+                                (None, Some(_)) => panic!(
+                                    "per-source claim needs `parallel_state` installed before recipe execution"
+                                ),
+                                (None, None) => reader.search(),
                             };
                             (res, scanner_config)
                         }

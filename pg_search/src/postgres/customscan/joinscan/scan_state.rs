@@ -1058,6 +1058,13 @@ fn build_source_df<'a>(
         // canonical segment IDs during decode.
         if let Some(idx) = np_idx {
             provider.set_non_partitioning_index(idx);
+            // Gate on `mpp_is_active()`: joinscan EXEC passes `parallel_state` to the
+            // codec on both MPP and PG-parallel runs, but PG-parallel hash join still
+            // needs canonical-segment-ids replication so every worker sees the full
+            // build side.
+            if crate::postgres::customscan::mpp::glue::mpp_is_active() {
+                provider.set_mpp_source_idx(plan_position);
+            }
         }
 
         if let Some(ref sort_order) = scan_info.sort_order {

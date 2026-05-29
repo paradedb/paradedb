@@ -253,7 +253,11 @@ SET paradedb.enable_mpp TO false;
 SET statement_timeout TO 60000;
 SELECT COUNT(*) FROM users JOIN products ON users.id = products.id
 WHERE (products.name @@@ 'bob') AND (users.id @@@ '4');
-ERROR:  attempt to subtract with overflow
+ count 
+-------
+     0
+(1 row)
+
 DROP TABLE users CASCADE;
 DROP TABLE products CASCADE;
 DROP TABLE orders CASCADE;

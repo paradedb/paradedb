@@ -27,6 +27,7 @@
 //!   [`crate::postgres::customscan::mpp::glue::producer_worker_count`]).
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
@@ -34,6 +35,20 @@ use datafusion::physical_plan::{ExecutionPlan, ExecutionPlanProperties};
 use futures::stream::StreamExt;
 
 use crate::postgres::customscan::mpp::transport::{MppSender, SendBatchStats};
+
+/// Read this thread's accumulated CPU time in nanoseconds, via
+/// `CLOCK_THREAD_CPUTIME_ID`. Available on Linux and macOS 10.12+.
+/// Returns 0 if the clock isn't readable — diagnostics shouldn't propagate.
+fn thread_cpu_ns() -> u64 {
+    let mut ts: libc::timespec = unsafe { std::mem::zeroed() };
+    let rc = unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
+    if rc != 0 {
+        return 0;
+    }
+    (ts.tv_sec as u64)
+        .saturating_mul(1_000_000_000)
+        .saturating_add(ts.tv_nsec as u64)
+}
 
 /// Run a producer fragment plan to exhaustion and push every output batch
 /// through the corresponding `outbound_senders[partition]`.
@@ -54,6 +69,13 @@ pub async fn run_worker_fragment(
         )));
     }
 
+    // Snapshot `paradedb.mpp_trace` once for the fragment-level instruments
+    // outside the per-partition futures. Read here (synchronous, backend
+    // thread) rather than inside the join_all closure below to avoid pgrx
+    // FFI from a tokio worker context. Per-partition futures re-read the
+    // GUC inside their own closure as today.
+    let trace_on = crate::gucs::mpp_trace();
+
     // Execute every output partition concurrently. Each partition gets its
     // own sender; pushes are independent. `Arc<MppSender>` so each
     // partition's future has its own clone (MppSender is `Sync`).
@@ -71,22 +93,87 @@ pub async fn run_worker_fragment(
         // explicitly here.
         futures.push(async move {
             let mut stats = SendBatchStats::default();
+            let trace_on = crate::gucs::mpp_trace();
+            let wall_start = trace_on.then(Instant::now);
+            let mut first_batch_ms: f64 = 0.0;
+            let mut pull_ns: u64 = 0;
+            let mut send_ns: u64 = 0;
+            let mut rows_in: u64 = 0;
+            let mut batches: u64 = 0;
             let stream_result: Result<(), DataFusionError> = async {
                 let mut stream = plan.execute(partition, ctx)?;
-                while let Some(batch) = stream.next().await {
+                let mut t = Instant::now();
+                loop {
+                    let next = stream.next().await;
+                    if trace_on {
+                        let dt = t.elapsed();
+                        pull_ns = pull_ns.saturating_add(dt.as_nanos() as u64);
+                        if batches == 0 && next.is_some() {
+                            first_batch_ms = wall_start.unwrap().elapsed().as_secs_f64() * 1000.0;
+                        }
+                    }
+                    let Some(batch) = next else { break };
                     let batch = batch?;
                     if batch.num_rows() == 0 {
+                        if trace_on { t = Instant::now(); }
                         continue;
                     }
+                    rows_in += batch.num_rows() as u64;
+                    batches += 1;
+                    let t_send = trace_on.then(Instant::now);
                     sender
                         .as_ref()
                         .send_batch_traced(&batch, &mut stats)
                         .await?;
+                    if let Some(t_send) = t_send {
+                        send_ns = send_ns.saturating_add(t_send.elapsed().as_nanos() as u64);
+                    }
+                    if trace_on { t = Instant::now(); }
                 }
                 Ok(())
             }
             .await;
             let eof_result = sender.as_ref().send_eof_traced(&mut stats).await;
+            if let Some(wall_start) = wall_start {
+                let header = sender.as_ref().header;
+                // spin_iters and drain_in_spin_ms split send_wait_ms into "why":
+                //   spin_iters > 0 means the outbound shm_mq was full at least once.
+                //   drain_in_spin_ms is the subset of send_wait_ms this partition spent
+                //   in try_drain_pass during the spin (cooperative drain to unblock the mesh).
+                //
+                // The remainder (send_wait_ms - drain_in_spin_ms) is everything else inside
+                // the spin loop: try_send_bytes calls, check_for_interrupts, yield_now().await,
+                // and scheduler wait between iterations. Under today's current_thread runtime
+                // with mpp_use_ffi_relay=off, those are sub-µs and the remainder is dominated
+                // by "consumer-side drain isn't keeping up." Under G7-MT (multi_thread runtime
+                // and/or ffi_relay routing), try_send/check_interrupts can hop through a relay
+                // round-trip per iter and the remainder no longer cleanly maps to "consumer slow."
+                //
+                // Per-edge attribution holds only under today's 1-partition-per-queue topology.
+                // MppSender supports multiplexing K partitions onto one shm_mq queue via per-frame
+                // headers; if that gets used, all partitions sharing a queue see the same spins
+                // and these counters become ambiguous on the producer side.
+                //
+                // Counters include the trailing send_eof_traced spin, so symmetric-EOF stalls
+                // (every peer full at the same instant) inflate spin_iters with a roughly
+                // constant offset across partitions — that's by design, but worth knowing when
+                // reading the trace.
+                pgrx::warning!(
+                    "mpp_trace stage={} part={} rows_in={} batches={} wall_ms={:.1} first_batch_ms={:.1} pull_ms={:.1} send_ms={:.1} encode_ms={:.1} send_wait_ms={:.1} spin_iters={} drain_in_spin_ms={:.1}",
+                    header.stage_id,
+                    header.partition,
+                    rows_in,
+                    batches,
+                    wall_start.elapsed().as_secs_f64() * 1000.0,
+                    first_batch_ms,
+                    pull_ns as f64 / 1.0e6,
+                    send_ns as f64 / 1.0e6,
+                    stats.encode.as_secs_f64() * 1000.0,
+                    stats.send_wait.as_secs_f64() * 1000.0,
+                    stats.spin_iters,
+                    stats.coop_drain_in_spin.as_secs_f64() * 1000.0,
+                );
+            }
             // Stream error first, then any EOF-send error so neither failure mode disappears.
             stream_result.and(eof_result)
         });
@@ -94,7 +181,31 @@ pub async fn run_worker_fragment(
     // `join_all`, not `try_join_all`: fail-fast would cancel sibling partitions mid-await before
     // they hit `send_eof_traced`, leaving the consumer's channel buffer stuck and the leader's
     // `select_all` blocked.
+    //
+    // Fragment-level CPU saturation: with a current-thread tokio runtime, all partition futures
+    // share this thread. Sampling CPU around the whole join_all answers "did this PG worker's
+    // thread max out a core during the fragment, or was it blocked on shm_mq / upstream?" — a
+    // ~100% reading means adding cores per producer (G7-MT) would unlock parallelism; a low
+    // reading means shuffle or scan blocking is the binding constraint.
+    let frag_wall_start = trace_on.then(Instant::now);
+    let frag_cpu_start = trace_on.then(thread_cpu_ns);
     let results = futures::future::join_all(futures).await;
+    if trace_on {
+        let wall_ms = frag_wall_start.unwrap().elapsed().as_secs_f64() * 1000.0;
+        let cpu_ms = thread_cpu_ns().saturating_sub(frag_cpu_start.unwrap()) as f64 / 1.0e6;
+        let cpu_pct = if wall_ms > 0.0 {
+            cpu_ms / wall_ms * 100.0
+        } else {
+            0.0
+        };
+        pgrx::warning!(
+            "mpp_trace fragment_cpu partitions={} wall_ms={:.2} cpu_ms={:.2} cpu_pct={:.1}",
+            n_partitions,
+            wall_ms,
+            cpu_ms,
+            cpu_pct,
+        );
+    }
     drop(senders);
     for r in results {
         r?;

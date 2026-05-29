@@ -82,6 +82,7 @@ datafusion-distributed = { git = "https://github.com/paradedb/datafusion-distrib
 futures = "0.3"
 async-stream = "0.3.6"
 prost = "0.14.3"
+libc = "0.2"
 
 [dev-dependencies]
 pgrx-tests.workspace = true

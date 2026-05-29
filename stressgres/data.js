@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780086756126,
+  "lastUpdate": 1780086791870,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16972,6 +16972,108 @@ window.BENCHMARK_DATA = {
             "value": 164.21875,
             "unit": "median mem",
             "extra": "avg mem: 182.48675510694758, max mem: 222.59375, count: 56149"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a7f59d43233a552f40c49f0dce5fecdfbad9fa77",
+          "message": "fix: bumped Tantivy to fix the `TermSetDocSet::size_hint` overflow. (#5199)\n\n# Ticket(s) Closed\n\n- Closes #5197\n\n## What\n\nThis PR bumps the Tantivy fork rev to pick up the fix for\n`TermSetDocSet::size_hint` underflowing on an empty docset.\n\n## Why\n\n`size_hint` did `max_doc - doc_id.saturating_add(1)`. When `advance()`\nexhausts the column, `doc_id` lands on `TERMINATED` (`u32::MAX`) and the\nsubtraction wraps. `intersect_scorers` reaches for the hint via `cost()`\nwhile sorting sub-scorers, so any intersection that includes an empty\n`TermSetDocSet` panics in debug builds.\n\nqgen's `generated_joins_small` proptest hits this on `(products.name @@@\n'bob') AND (users.id @@@ '4')` whenever the seeded random data lands on\na no-match predicate.\n\n## How\n\nThe Tantivy fix is at paradedb/tantivy#146 (one-line `saturating_sub`).\n`Cargo.toml` and `Cargo.lock` get bumped here. Drafting because the rev\ncurrently pins the PR branch head; once #146 lands, this needs\nre-pinning to the merged commit before merging.\n\n## Tests\n\n- New regression test `aggregate_count_overflow` pins the failing shape.\nThe first commit captures today's `ERROR: attempt to subtract with\noverflow`; the bump flips it to `count = 0`.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-05-29T12:48:05-07:00",
+          "tree_id": "77ec8dc63afa48bd99ce5db767f00c78784a7a07",
+          "url": "https://github.com/paradedb/paradedb/commit/a7f59d43233a552f40c49f0dce5fecdfbad9fa77"
+        },
+        "date": 1780086758365,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.055374302472767464, max background_merging: 2.0, count: 56091"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.621476569947473, max cpu: 9.825998, count: 56091"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 26.09143171085825, max mem: 26.09765625, count: 56091"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.976474239322202, max cpu: 28.402367, count: 56091"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 190.21875,
+            "unit": "median mem",
+            "extra": "avg mem: 183.6164969368972, max mem: 190.44921875, count: 56091"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 62633,
+            "unit": "median block_count",
+            "extra": "avg block_count: 62378.26701253321, max block_count: 62633.0, count: 56091"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 41.98074557415628, max segment_count: 57.0, count: 56091"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.250368022275862, max cpu: 32.55814, count: 56091"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 197.30859375,
+            "unit": "median mem",
+            "extra": "avg mem: 196.37421897285216, max mem: 215.92578125, count: 56091"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.8018631483324565, max cpu: 28.015566, count: 56091"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 193.109375,
+            "unit": "median mem",
+            "extra": "avg mem: 186.39754699673298, max mem: 193.22265625, count: 56091"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.460411,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.81320153983594, max cpu: 33.870968, count: 56091"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 163.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 180.85040178849994, max mem: 222.26171875, count: 56091"
           }
         ]
       }

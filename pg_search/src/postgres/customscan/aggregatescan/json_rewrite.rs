@@ -1,3 +1,7 @@
+use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
+use tantivy::aggregation::bucket::{DateHistogramAggregationReq, HistogramAggregation};
+use tantivy::aggregation::AggregationError;
+
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::types::is_pgoid_datetime_type;
 use crate::schema::SearchIndexSchema;
@@ -133,4 +137,23 @@ pub fn rewrite_aggregate_result_json_timestamps(
             }
         }
     }
+}
+
+fn date_histogram_req_to_histogram_agg(
+    _date_histogram: &DateHistogramAggregationReq,
+) -> Result<HistogramAggregation, AggregationError> {
+    unimplemented!();
+}
+
+/// If this agg contains date_histograms, rewrite them as regular histograms against the underlying
+/// pg_micros I64 representation
+pub fn rewrite_date_histogram_to_histogram(agg: &mut Aggregation) -> Result<(), AggregationError> {
+    if let AggregationVariants::DateHistogram(date_histogram) = &agg.agg {
+        agg.agg =
+            AggregationVariants::Histogram(date_histogram_req_to_histogram_agg(date_histogram)?);
+    }
+    for subagg in agg.sub_aggregation.values_mut() {
+        rewrite_date_histogram_to_histogram(subagg)?;
+    }
+    Ok(())
 }

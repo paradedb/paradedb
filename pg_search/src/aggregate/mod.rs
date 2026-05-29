@@ -29,10 +29,11 @@ use crate::parallel_worker::ParallelStateManager;
 use crate::parallel_worker::{chunk_range, QueryWorkerStyle, WorkerStyle};
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
 use crate::postgres::customscan::aggregatescan::build::{AggregateCSClause, CollectAggregations};
+use crate::postgres::customscan::aggregatescan::json_rewrite::rewrite_date_histogram_to_histogram;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::locks::{AcquiredSpinLock, Spinlock};
 use crate::postgres::rel::PgSearchRelation;
-use crate::postgres::storage::metadata::MetaPage;
+use crate::postgres::storage::metadata::{MetaPage, VersionInfo};
 use crate::postgres::utils::ExprContextGuard;
 use crate::query::SearchQueryInput;
 use crate::schema::SearchIndexSchema;
@@ -375,13 +376,23 @@ impl ParallelWorker for ParallelAggregationWorker<'_> {
 pub fn execute_aggregate(
     index: &PgSearchRelation,
     query: SearchQueryInput,
-    agg_req: AggregateRequest,
+    mut agg_req: AggregateRequest,
     solve_mvcc: bool,
     memory_limit: u64,
     bucket_limit: u32,
     expr_context: *mut pg_sys::ExprContext,
     planstate: *mut pg_sys::PlanState,
 ) -> Result<AggregationResults, Box<dyn Error>> {
+    if index.created_by_version().stores_datetimes_in_i64() {
+        // We rewrite these here instead of at AggregateRequest construction time because we need
+        // the unmodified json later to decide how to rewrite the results.
+        if let AggregateRequest::Json(aggregations) = &mut agg_req {
+            for agg in aggregations.values_mut() {
+                rewrite_date_histogram_to_histogram(agg)?;
+            }
+        }
+    }
+
     unsafe {
         // Determine once whether this aggregation request originated from SQL
         let agg_from_sql = matches!(&agg_req, AggregateRequest::Sql(_));

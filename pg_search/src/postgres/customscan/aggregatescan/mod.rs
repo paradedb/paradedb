@@ -22,7 +22,7 @@ pub mod exec;
 pub mod filterquery;
 pub mod groupby;
 pub mod join_targetlist;
-mod json_rewrite;
+pub mod json_rewrite;
 pub mod limit_offset;
 pub mod mpp;
 pub mod orderby;

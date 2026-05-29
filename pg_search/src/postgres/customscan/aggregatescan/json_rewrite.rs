@@ -84,25 +84,25 @@ pub fn rewrite_aggregate_result_json_timestamps(
     }
 
     // BUCKETS
-    let (rewrite_key, add_key_as_string) =
-        if let Some(key) = agg_json.pointer("/terms/field").and_then(|v| v.as_str()) {
-            if is_a_datetime_field(key, schema) {
-                (true, false)
+    // (path, (rewrite key, add key as string))
+    let path_and_rewrite_rules = [
+        ("/terms/field", (true, false)),
+        ("/histogram/field", (false, true)),
+    ];
+    let (rewrite_key, add_key_as_string) = path_and_rewrite_rules
+        .into_iter()
+        .find_map(|(path, rules)| {
+            if let Some(key) = agg_json.pointer(path).and_then(|v| v.as_str()) {
+                if is_a_datetime_field(key, schema) {
+                    Some(rules)
+                } else {
+                    None
+                }
             } else {
-                (false, false)
+                None
             }
-        } else if let Some(key) = agg_json
-            .pointer("/histogram/field")
-            .and_then(|v| v.as_str())
-        {
-            if is_a_datetime_field(key, schema) {
-                (false, true)
-            } else {
-                (false, false)
-            }
-        } else {
-            (false, false)
-        };
+        })
+        .unwrap_or((false, false));
 
     // process buckets
     if let Some(buckets) = output_json
@@ -167,6 +167,7 @@ fn date_histogram_req_to_histogram_agg(
 /// If this agg contains date_histograms, rewrite them as regular histograms against the underlying
 /// pg_micros I64 representation
 pub fn rewrite_date_histogram_to_histogram(agg: &mut Aggregation) -> Result<(), TantivyError> {
+    println!("rewriting: {agg:?}");
     if let AggregationVariants::DateHistogram(date_histogram) = &agg.agg {
         agg.agg =
             AggregationVariants::Histogram(date_histogram_req_to_histogram_agg(date_histogram)?);
@@ -174,5 +175,6 @@ pub fn rewrite_date_histogram_to_histogram(agg: &mut Aggregation) -> Result<(), 
     for subagg in agg.sub_aggregation.values_mut() {
         rewrite_date_histogram_to_histogram(subagg)?;
     }
+    println!("rewritten: {agg:?}");
     Ok(())
 }

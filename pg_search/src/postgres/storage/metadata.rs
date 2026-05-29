@@ -37,9 +37,9 @@ pub struct Version {
     pub patch: u16,
 }
 
-pub const TIMESTAMP_I64_STORAGE_VERSION: Version = Version::new(0, 23, 5);
+pub const TIMESTAMP_I64_STORAGE_VERSION: Version = Version::new(0, 23, 6);
 #[allow(dead_code)]
-pub const MIN_VERSION_STAMPED_VERSION: Version = Version::new(0, 23, 5);
+pub const MIN_VERSION_STAMPED_VERSION: Version = Version::new(0, 23, 6);
 
 impl Version {
     pub const fn new(major: u16, minor: u16, patch: u16) -> Self {
@@ -449,6 +449,7 @@ mod tests {
         assert!(Version::new(0, 18, 0) < Version::new(0, 18, 1));
         assert!(Version::new(0, 18, 9) < Version::new(0, 19, 0));
         assert!(Version::new(0, 99, 99) < Version::new(1, 0, 0));
+        assert!(Version::new(0, 23, 6) > Version::new(0, 23, 5));
         assert_eq!(Version::new(1, 2, 3), Version::new(1, 2, 3));
     }
 

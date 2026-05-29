@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780031558740,
+  "lastUpdate": 1780032208460,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23014,6 +23014,54 @@ window.BENCHMARK_DATA = {
             "value": 263.52639274615024,
             "unit": "median tps",
             "extra": "avg tps: 262.2690357703239, max tps: 553.0732955658686, count: 107698"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3c76fee2659fe68cb769c88b5a570bd2b77f8f26",
+          "message": "chore: Bump 0.23.5 to 0.23.6 (#5203)\n\n# Description\n\nBumps the workspace version from `0.23.5` to `0.23.6` and adds an empty\nupgrade script (`pg_search--0.23.5--0.23.6.sql`).\n\n- `Cargo.toml` / `Cargo.lock`: workspace version `0.23.5` → `0.23.6`\n- `pg_search/sql/pg_search--0.23.5--0.23.6.sql`: empty upgrade script\n(just the `\\echo ... \\quit` header)\n\nDocs are intentionally left untouched.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-29T00:16:46-04:00",
+          "tree_id": "7471e7f211175bd1926a0be2b3d8445a20e05b2d",
+          "url": "https://github.com/paradedb/paradedb/commit/3c76fee2659fe68cb769c88b5a570bd2b77f8f26"
+        },
+        "date": 1780032176105,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 582.0423980652035,
+            "unit": "median tps",
+            "extra": "avg tps: 580.8779029643134, max tps: 738.5535777314549, count: 53822"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 644.6572614671879,
+            "unit": "median tps",
+            "extra": "avg tps: 644.3237948259409, max tps: 827.7401187932076, count: 53822"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 88.63669925113825,
+            "unit": "median tps",
+            "extra": "avg tps: 88.7698850192402, max tps: 98.24677310835428, count: 53822"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 272.4534486347037,
+            "unit": "median tps",
+            "extra": "avg tps: 266.5058389545726, max tps: 511.4812687521821, count: 107644"
           }
         ]
       }

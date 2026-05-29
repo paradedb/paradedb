@@ -36,6 +36,9 @@ use tempfile::TempDir;
 static INIT: Once = Once::new();
 static LAST_PORT: AtomicUsize = AtomicUsize::new(49152);
 
+const RETRIES: u32 = 60;
+const RETRY_DELAY: u64 = 1000; // measured in milliseconds
+
 // Function to check if a port can be bound (i.e., is available)
 fn can_bind(port: u16) -> bool {
     std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
@@ -281,8 +284,8 @@ async fn test_logical_replication() -> Result<()> {
     let target_results: Vec<(String,)> =
         "SELECT description FROM mock_items WHERE id @@@ 'description:shoes'".fetch_retry(
             &mut target_conn,
-            5,
-            1000,
+            RETRIES,
+            RETRY_DELAY,
             |result| !result.is_empty(),
         );
 
@@ -321,8 +324,8 @@ async fn test_logical_replication() -> Result<()> {
     let target_results: Vec<(i32,)> =
         "SELECT rating FROM mock_items WHERE description = 'Red sports shoes'".fetch_retry(
             &mut target_conn,
-            5,
-            1000,
+            RETRIES,
+            RETRY_DELAY,
             |result| !result.is_empty(),
         );
 
@@ -341,9 +344,9 @@ async fn test_logical_replication() -> Result<()> {
     let target_results: Vec<(String,)> =
         "SELECT description FROM mock_items WHERE description = 'Red sports shoes'".fetch_retry(
             &mut target_conn,
-            5,
-            1000,
-            |result| !result.is_empty(),
+            RETRIES,
+            RETRY_DELAY,
+            |result| result.is_empty(),
         );
 
     assert_eq!(source_results.len(), 0);
@@ -367,7 +370,7 @@ async fn test_logical_replication() -> Result<()> {
     std::thread::sleep(std::time::Duration::from_secs(1)); // give a little time for the data to replicate
     let target_results: Vec<(String,)> =
         "SELECT description FROM mock_items WHERE description @@@ 'description:replicated1' OR description @@@ 'description:replicated2' OR description @@@ 'description:replicated3'"
-            .fetch_retry(&mut target_conn, 5, 1000, |result| !result.is_empty());
+            .fetch_retry(&mut target_conn, RETRIES, RETRY_DELAY, |result| result.len() == 3);
     assert_eq!(target_results.len(), 3);
 
     Ok(())

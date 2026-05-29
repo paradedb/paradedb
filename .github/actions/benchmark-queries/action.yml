@@ -49,6 +49,40 @@ runs:
 
         echo "ROWS_LABEL=${{ inputs.size }}" >> $GITHUB_ENV
 
+    # Each query file produces N variants ("base", "base - alternative 1",
+    # "base - alternative 2"). All variants of a file run the same logical
+    # query under different GUC combinations (PG default, DataFusion agg,
+    # MPP). If they don't agree on `num_results`, one of the custom-scan
+    # paths has a correctness regression.
+    - name: Verify alternative-vs-base num_results equality
+      working-directory: benchmarks/
+      shell: bash
+      run: |
+        python3 - <<'PY'
+        import json, re, sys
+        with open("results.json") as f:
+            results = json.load(f)
+        groups = {}
+        for r in results:
+            base = re.sub(r' - alternative \d+$', '', r["name"])
+            groups.setdefault(base, []).append((r["name"], r.get("num_results")))
+        mismatches = []
+        for base, members in groups.items():
+            if len(members) < 2:
+                continue
+            counts = {n for _, n in members}
+            if len(counts) > 1:
+                mismatches.append((base, members))
+        if mismatches:
+            print("MPP vs non-MPP num_results mismatch:")
+            for base, members in mismatches:
+                print(f"  {base}:")
+                for name, n in members:
+                    print(f"    {name}: {n}")
+            sys.exit(1)
+        print("All alternatives produced matching num_results.")
+        PY
+
     - name: Print the Postgres Logs
       if: failure()
       shell: bash

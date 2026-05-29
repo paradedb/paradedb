@@ -154,6 +154,9 @@ struct JSONBenchmarkResult {
     value: f64,
     range: String,
     extra: String,
+    // Carried into the JSON output so a post-process step can verify
+    // alternative-vs-base equality (MPP vs non-MPP).
+    num_results: usize,
 }
 
 impl From<QueryResult> for JSONBenchmarkResult {
@@ -179,6 +182,7 @@ impl From<QueryResult> for JSONBenchmarkResult {
             value: mean,
             range: range_str,
             extra: cold_query_extra,
+            num_results: res.results.num_results,
         }
     }
 }

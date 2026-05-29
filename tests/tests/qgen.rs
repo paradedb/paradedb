@@ -663,6 +663,7 @@ async fn generated_joinscan(database: Db) {
         include_expr_ordering in proptest::bool::ANY,
         // Result limit
         limit in 1..=50usize,
+        mut gucs in any::<PgGucs>(),
     )| {
         // DISTINCT + expression ORDER BY requires projecting the expression in SELECT,
         // which JoinScan doesn't support yet. Skip this combination.
@@ -753,10 +754,7 @@ async fn generated_joinscan(database: Db) {
         let order_by = order_parts.join(", ");
 
         // GUCs with JoinScan enabled
-        let gucs = PgGucs {
-            join_custom_scan: true,
-            ..PgGucs::default()
-        };
+        gucs.join_custom_scan = true;
 
         // PostgreSQL native join query
         let pg_query = format!(
@@ -872,6 +870,7 @@ async fn generated_aggregate_join(database: Db) {
                 "MAX(users.rating)",
             ],
         ),
+        mut gucs in any::<PgGucs>(),
     )| {
         // Build join with selected number of tables
         let tables_for_join: Vec<&str> = all_tables[..num_tables].to_vec();
@@ -910,12 +909,9 @@ async fn generated_aggregate_join(database: Db) {
         );
 
         // GUCs: enable both join and aggregate custom scans
-        let gucs = PgGucs {
-            aggregate_custom_scan: true,
-            join_custom_scan: true,
-            custom_scan: true,
-            ..PgGucs::default()
-        };
+        gucs.aggregate_custom_scan = true;
+        gucs.join_custom_scan = true;
+        gucs.custom_scan = true;
 
         compare(
             &pg_query,
@@ -990,6 +986,7 @@ async fn generated_aggregate_join_distinct(database: Db) {
                 "AVG(DISTINCT users.age)",
             ],
         ),
+        mut gucs in any::<PgGucs>(),
     )| {
         let tables_for_join: Vec<&str> = all_tables[..num_tables].to_vec();
 
@@ -1020,12 +1017,9 @@ async fn generated_aggregate_join_distinct(database: Db) {
             "SELECT {select_list} {join_clause} WHERE {bm25_where} {group_by_clause}"
         );
 
-        let gucs = PgGucs {
-            aggregate_custom_scan: true,
-            join_custom_scan: true,
-            custom_scan: true,
-            ..PgGucs::default()
-        };
+        gucs.aggregate_custom_scan = true;
+        gucs.join_custom_scan = true;
+        gucs.custom_scan = true;
 
         compare(
             &pg_query,
@@ -1225,6 +1219,7 @@ async fn generated_join_aggregates(database: Db) {
             grouping_columns.clone(),
             vec!["COUNT(*)", "SUM(users.age)", "AVG(users.age)", "MIN(users.rating)", "MAX(users.rating)"],
         ),
+        mut gucs in any::<PgGucs>(),
     )| {
         // Generate join expression (INNER JOIN only)
         let join = arb_joins(
@@ -1260,12 +1255,9 @@ async fn generated_join_aggregates(database: Db) {
         );
 
         // GUCs: enable both join and aggregate custom scans
-        let gucs = PgGucs {
-            aggregate_custom_scan: true,
-            join_custom_scan: true,
-            custom_scan: true,
-            ..PgGucs::default()
-        };
+        gucs.aggregate_custom_scan = true;
+        gucs.join_custom_scan = true;
+        gucs.custom_scan = true;
 
         compare(
             &pg_query,
@@ -1432,6 +1424,7 @@ async fn generated_joinscan_semi_like(database: Db) {
         nested_join in proptest::option::of(arb_semi_joins(all_tables.clone(), join_key_columns.clone())),
         nested_term in proptest::sample::select(search_terms.clone()),
         nested_is_anti in proptest::bool::ANY,
+        mut gucs in any::<PgGucs>(),
     )| {
         let outer = semi_join.outer_table();
         let inner = semi_join.inner_table();
@@ -1518,10 +1511,7 @@ async fn generated_joinscan_semi_like(database: Db) {
         );
 
         for join_custom_scan in [false, true] {
-            let gucs = PgGucs {
-                join_custom_scan,
-                ..PgGucs::default()
-            };
+            gucs.join_custom_scan = join_custom_scan;
 
             compare(
                 &pg_query,

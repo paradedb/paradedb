@@ -1530,9 +1530,8 @@ impl AggregateScan {
                         if launched < expected {
                             pgrx::error!(
                                 "mpp aggregate: PG launched {launched} of {expected} requested \
-                                 parallel workers; missing slots would hang the query. Retry, or \
-                                 raise `max_parallel_workers` / `max_parallel_workers_per_gather` \
-                                 so PG can launch the full set. Long-term fix tracked in \
+                                 parallel workers because the machine is saturated; missing slots \
+                                 would hang the query. Please retry. Long-term fix tracked in \
                                  https://github.com/paradedb/paradedb/issues/5061."
                             );
                         }

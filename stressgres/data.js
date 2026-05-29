@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780074618178,
+  "lastUpdate": 1780074652516,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7406,6 +7406,138 @@ window.BENCHMARK_DATA = {
             "value": 57.51171875,
             "unit": "median mem",
             "extra": "avg mem: 56.33904702970297, max mem: 69.6015625, count: 54540"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "60c5a4dce3ce7060caed29af7768942a321dc063",
+          "message": "chore: port shared changes from enterprise (WAL ordering, replication deflake, field alias) (#5201)\n\nCloses #5202\n\n## What & why\n\nThese changes already live in the `paradedb-enterprise` mirror but are\n**not enterprise-specific**. Porting them upstream shrinks the\nenterprise↔community divergence (so they stop reappearing in every\nrebase) and they stand on their own merits for community. Bundled into\none PR per request; happy to split.\n\nEach change was applied onto current `main` (the enterprise base for\nthese files is identical to `main`, so they apply cleanly).\n\n## Changes\n\n| Type | Area | Description |\n|------|------|-------------|\n| `fix` | `storage/linked_items.rs` | In `LinkedItemList::add_items`,\nemit the **new-page** WAL record before the previous tail's\n`next_blockno` **pointer-update** record. A standby replaying WAL\nserially could otherwise briefly see a pointer to a block the file\ndoesn't yet contain, and concurrent readers walking the chain fail with\n`XX001: could not read blocks … read only 0 of 8192 bytes`. The primary\nwas always safe (the file grows synchronously in `new_buffer()`); this\nonly bites on a replica. Includes a new\n`test_linked_items_extension_chain_is_walkable` regression test. |\n| `test` | `tests/replication.rs` | Deflake `test_logical_replication`:\nintroduce `RETRIES`/`RETRY_DELAY`, raise retries from 5→60, and **fix\ntwo incorrect validators** — the delete check waited for `!is_empty()`\n(which can never become true after a delete) and now waits for\n`is_empty()`; the COPY check now waits for exactly 3 rows instead of\n\"non-empty\". |\n| `fix` | `tests/fixtures/db.rs` | `fetch_retry` no longer returns an\nempty `vec![]` on the final attempt — that silently masked failures. It\nnow exhausts all retries and panics loudly on persistent failure. |\n| `feat` | `api/config.rs` | Add an optional `alias` argument to\n`paradedb.field(...)` to key the field config under an alias instead of\nthe column name. |\n| `refactor` | `postgres/parallel.rs` | Take `IndexScanDesc` by value in\n`get_bm25_scan_state` and callers; removes pointless `&mut` indirection,\nno behavior change. |\n| `docs` | `pg_search/README.md` | Remove a stray \"Install stable Rust:\"\nline. |\n\n## Testing\n\nCI\n\n---------\n\nSigned-off-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-05-29T12:49:57-04:00",
+          "tree_id": "76b8d037aae4b06552432286dc20c97f1873fb25",
+          "url": "https://github.com/paradedb/paradedb/commit/60c5a4dce3ce7060caed29af7768942a321dc063"
+        },
+        "date": 1780074621005,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.469656630468634, max cpu: 23.391813, count: 55071"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 66.43359375,
+            "unit": "median mem",
+            "extra": "avg mem: 66.51502818520638, max mem: 77.890625, count: 55071"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.672143334434122, max cpu: 18.842003, count: 55071"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 65.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 65.89512678803273, max mem: 77.19921875, count: 55071"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.588888877414794, max cpu: 9.195402, count: 55071"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 36.47265625,
+            "unit": "median mem",
+            "extra": "avg mem: 36.20035946494071, max mem: 37.90625, count: 55071"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.60132556605301, max cpu: 9.338522, count: 55071"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 63.90234375,
+            "unit": "median mem",
+            "extra": "avg mem: 63.47639098845127, max mem: 75.453125, count: 55071"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.633513579666019, max cpu: 9.29332, count: 110142"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 59.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 57.11300557604047, max mem: 71.1875, count: 110142"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1762,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1778.5555555555557, max block_count: 3162.0, count: 55071"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 16,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 16.465453687058524, max segment_count: 31.0, count: 55071"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.712192184229876, max cpu: 18.86051, count: 55071"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 65.13671875,
+            "unit": "median mem",
+            "extra": "avg mem: 65.22259617130614, max mem: 76.60546875, count: 55071"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.692941557076689, max cpu: 9.275363, count: 55071"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 54.35546875,
+            "unit": "median mem",
+            "extra": "avg mem: 54.274334211744836, max mem: 65.44921875, count: 55071"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6065254,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.0987230671533625, max cpu: 4.6511626, count: 55071"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 57.26171875,
+            "unit": "median mem",
+            "extra": "avg mem: 56.454062639025075, max mem: 70.125, count: 55071"
           }
         ]
       }

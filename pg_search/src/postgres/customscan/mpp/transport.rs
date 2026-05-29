@@ -43,6 +43,8 @@ use datafusion::arrow::ipc::reader::StreamReader;
 use datafusion::arrow::ipc::writer::StreamWriter;
 use datafusion::common::DataFusionError;
 
+use super::fail_loud;
+
 /// Magic bytes "MPPF" (MPP Frame) at the start of every wire message.
 /// Lets receivers reject misrouted / corrupt frames before they hit Arrow IPC.
 const MPP_FRAME_MAGIC: u32 = 0x4D505046;
@@ -70,10 +72,7 @@ pub(super) enum MppFrameKind {
 /// senders prepend before the Arrow IPC stream bytes and what receivers
 /// parse before deciding which channel buffer the payload belongs to.
 ///
-/// The `flags` word currently encodes `MppFrameKind` in its low byte (mask
-/// `0x0000_00FF`); the upper 24 bits are reserved-must-be-zero and are
-/// validated at parse time so a future use can repurpose them without a
-/// wire-format break.
+/// See the `flags` bit-layout block below for the encoding of the `flags` word.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MppFrameHeader {
@@ -83,43 +82,69 @@ pub struct MppFrameHeader {
     pub partition: u32,
 }
 
-/// Bit mask in [`MppFrameHeader::flags`] for the [`MppFrameKind`] discriminant.
+/// `flags` bit layout:
+///   bits  0..8:  frame kind (Batch | Eof)
+///   bits  8..16: reserved (must be 0)
+///   bits 16..32: sender_proc (mesh peer that wrote the frame)
 const FRAME_KIND_MASK: u32 = 0x0000_00FF;
+const FRAME_RESERVED_MASK: u32 = 0x0000_FF00;
+const FRAME_SENDER_SHIFT: u32 = 16;
+/// Maximum `sender_proc` representable in the header. Asserted at construction time so an
+/// overflow becomes a hard error in the producer rather than silent flag corruption on the wire.
+pub const MPP_MAX_SENDER_PROC: u32 = 0xFFFF;
 
 const _: () = {
     // shm_mq slot layout calculations depend on this being exact.
     assert!(std::mem::size_of::<MppFrameHeader>() == MPP_FRAME_HEADER_SIZE);
 };
 
+#[inline]
+fn pack_flags(kind: MppFrameKind, sender_proc: u32) -> u32 {
+    // fail_loud rather than debug_assert: in release builds the check would be compiled out and
+    // an out-of-range value would silently truncate to `sender_proc & 0xFFFF`. Catching the case
+    // where a refactor accidentally passes a task_id or partition here is the whole point.
+    if sender_proc > MPP_MAX_SENDER_PROC {
+        fail_loud(format!(
+            "mpp: sender_proc {sender_proc} > MPP_MAX_SENDER_PROC ({MPP_MAX_SENDER_PROC})"
+        ));
+    }
+    (kind as u32) | (sender_proc << FRAME_SENDER_SHIFT)
+}
+
 impl MppFrameHeader {
-    /// Build a `Batch` header for the given `(stage_id, partition)`.
-    pub fn batch(stage_id: u32, partition: u32) -> Self {
+    /// Build a `Batch` header for the given `(stage_id, partition)` stamped with `sender_proc`.
+    pub fn batch(stage_id: u32, partition: u32, sender_proc: u32) -> Self {
         Self {
             magic: MPP_FRAME_MAGIC,
-            flags: MppFrameKind::Batch as u32,
+            flags: pack_flags(MppFrameKind::Batch, sender_proc),
             stage_id,
             partition,
         }
     }
 
-    /// Build an `Eof` header for the given `(stage_id, partition)`. Carries no payload; receivers
-    /// route it to the channel buffer's source-done counter. Emitted by
-    /// [`MppSender::send_eof_traced`] after a producer fragment's per-partition stream exhausts
-    /// (or errors), and consumed by the matching channel buffer's `notify_source_done`.
-    pub fn eof(stage_id: u32, partition: u32) -> Self {
+    /// Build an `Eof` header for the given `(stage_id, partition)` stamped with `sender_proc`.
+    /// Carries no payload; receivers route it to the channel buffer's source-done counter.
+    pub fn eof(stage_id: u32, partition: u32, sender_proc: u32) -> Self {
         Self {
             magic: MPP_FRAME_MAGIC,
-            flags: MppFrameKind::Eof as u32,
+            flags: pack_flags(MppFrameKind::Eof, sender_proc),
             stage_id,
             partition,
         }
+    }
+
+    /// The mesh peer that wrote this frame. The drain demuxes incoming frames into the
+    /// per-channel buffer registry by `(sender_proc, stage_id, partition)`.
+    pub fn sender_proc(&self) -> u32 {
+        (self.flags >> FRAME_SENDER_SHIFT) & 0xFFFF
     }
 
     /// Read the kind out of `flags`. Returns an error if the kind byte is
-    /// unknown or if any reserved upper bit is set, which catches wire-format
-    /// drift early.
+    /// unknown or if any reserved bit (bits 8..16) is set, which catches wire-format
+    /// drift early. Sender_proc bits (16..32) are not validated here; readers extract
+    /// them with `sender_proc()`.
     pub(super) fn kind(&self) -> Result<MppFrameKind, DataFusionError> {
-        let reserved = self.flags & !FRAME_KIND_MASK;
+        let reserved = self.flags & FRAME_RESERVED_MASK;
         if reserved != 0 {
             return Err(DataFusionError::Internal(format!(
                 "mpp: reserved frame flag bits set ({reserved:#x})"
@@ -185,6 +210,9 @@ impl MppFrameHeader {
 /// |---------- 16 bytes --------|           |---- variable ----|
 /// ```
 ///
+/// `flags` encodes kind + sender_proc; see the bit-layout block near
+/// `FRAME_KIND_MASK` for details.
+///
 /// Caller is expected to hold `buf` alive across many encodes so the peak-sized
 /// allocation amortizes (~500 KB/batch on the 25M GROUP BY bench).
 fn encode_frame_into(
@@ -211,11 +239,13 @@ fn encode_frame_into(
 fn encode_eof_frame_into(
     stage_id: u32,
     partition: u32,
+    sender_proc: u32,
     buf: &mut Vec<u8>,
 ) -> Result<(), DataFusionError> {
     buf.clear();
     buf.resize(MPP_FRAME_HEADER_SIZE, 0);
-    MppFrameHeader::eof(stage_id, partition).write_to(&mut buf[..MPP_FRAME_HEADER_SIZE]);
+    MppFrameHeader::eof(stage_id, partition, sender_proc)
+        .write_to(&mut buf[..MPP_FRAME_HEADER_SIZE]);
     Ok(())
 }
 
@@ -310,8 +340,7 @@ impl DrainBuffer {
     }
 
     /// Mark one source queue as detached. Safe to call from the drain thread
-    /// after observing `SHM_MQ_DETACHED` on a given inbound queue or from
-    /// [`DrainHandle::mark_detached`] when the underlying receiver has died.
+    /// after observing `SHM_MQ_DETACHED` on a given inbound queue.
     pub fn notify_source_done(&self) {
         let mut guard = self.inner.lock().expect("DrainBuffer mutex poisoned");
         guard.sources_done = guard.sources_done.saturating_add(1);
@@ -370,6 +399,19 @@ pub(super) enum RecvOutcome {
 /// ownership.
 pub(super) trait BatchChannelReceiver: Send + Sync {
     fn try_recv(&self) -> RecvOutcome;
+
+    /// Tell producers to stop sending. Default no-op; concrete impls override when the
+    /// underlying transport doesn't get a "drop = detach" signal for free.
+    ///
+    /// `ShmMqReceiver` doesn't override: shm_mq's `MessageQueueReceiver::Drop` calls
+    /// `shm_mq_detach`, which is enough to make producers see Detached.
+    ///
+    /// `DsmInboxReceiver` overrides: the DSM MPSC ring's detach is mostly handled by
+    /// `DsmMpscSender::Drop` flipping `detached` when the last sender goes away, but
+    /// the consumer side can force-detach early (e.g., query teardown before producers
+    /// finish) via this method. `DrainHandle::Drop` calls it on teardown.
+    #[allow(dead_code)]
+    fn set_detached(&self) {}
 }
 
 /// Byte channel sender paired with [`BatchChannelReceiver`]. `send` blocks when
@@ -381,7 +423,7 @@ pub(super) trait BatchChannelReceiver: Send + Sync {
 /// (`nowait=false`) touches `WaitLatch`/`CHECK_FOR_INTERRUPTS`, which is not
 /// safe off-thread. See [`crate::postgres::customscan::mpp::mesh::ShmMqSender`]
 /// for the safety contract.
-pub(super) trait BatchChannelSender: Send + Sync {
+pub(crate) trait BatchChannelSender: Send + Sync {
     fn send_bytes(&self, bytes: &[u8]) -> Result<(), DataFusionError>;
 
     /// Non-blocking variant. Returns `Ok(true)` on success, `Ok(false)`
@@ -428,13 +470,13 @@ pub struct MppSender {
     /// `shm_mq` queue while tagging frames with different `(stage_id, partition)` headers, which
     /// is the multiplexed path's natural pattern. Clone the Arc, build a new `MppSender` with a
     /// different header, both write into the same queue.
-    channel: Arc<dyn BatchChannelSender>,
+    pub(super) channel: Arc<dyn BatchChannelSender>,
     cooperative_drain: Option<Arc<dyn CooperativeDrainSet>>,
     /// Frame header prepended to every outgoing batch. Identifies the logical
     /// `(stage_id, partition)` channel the receiver demultiplexes on. Per-sender rather than
     /// per-call: each partition gets its own `MppSender` via `clone_with_header`, all sharing
     /// the underlying `Arc<dyn BatchChannelSender>` of a single shm_mq queue.
-    header: MppFrameHeader,
+    pub(super) header: MppFrameHeader,
     /// Scratch buffer reused across every `encode_frame_into` on this sender. Sized by the
     /// first batch; subsequent batches clear and re-fill without reallocating. Interior
     /// mutability lets the caller keep the `&self` signature (each producer fragment holds
@@ -552,7 +594,12 @@ impl MppSender {
         scratch: &mut Vec<u8>,
         stats: &mut SendBatchStats,
     ) -> Result<(), DataFusionError> {
-        encode_eof_frame_into(self.header.stage_id, self.header.partition, scratch)?;
+        encode_eof_frame_into(
+            self.header.stage_id,
+            self.header.partition,
+            self.header.sender_proc(),
+            scratch,
+        )?;
         let Some(drain) = self.cooperative_drain.as_ref() else {
             return self.channel.send_bytes(scratch);
         };
@@ -562,9 +609,9 @@ impl MppSender {
         let mut first_try = true;
         let t_wait_start = Instant::now();
         loop {
-            #[cfg(not(test))]
-            pgrx::check_for_interrupts!();
-            if self.channel.try_send_bytes(scratch)? {
+            self.spin_check_for_interrupts().await?;
+            let send_ok = self.spin_try_send_bytes(scratch).await?;
+            if send_ok {
                 if !first_try {
                     stats.send_wait += t_wait_start.elapsed();
                 }
@@ -573,10 +620,31 @@ impl MppSender {
             first_try = false;
             stats.spin_iters += 1;
             let t_drain = Instant::now();
-            drain.try_drain_pass()?;
+            self.spin_try_drain_pass(drain).await?;
             stats.coop_drain_in_spin += t_drain.elapsed();
             tokio::task::yield_now().await;
         }
+    }
+
+    /// Spin-loop helper: call `check_for_interrupts`. Gated out of test builds because the
+    /// pgrx macro pulls in symbols the lib-test binary doesn't link.
+    async fn spin_check_for_interrupts(&self) -> Result<(), DataFusionError> {
+        #[cfg(not(test))]
+        pgrx::check_for_interrupts!();
+        Ok(())
+    }
+
+    /// Spin-loop helper: call `channel.try_send_bytes(scratch)`.
+    async fn spin_try_send_bytes(&self, scratch: &[u8]) -> Result<bool, DataFusionError> {
+        self.channel.try_send_bytes(scratch)
+    }
+
+    /// Spin-loop helper: call `drain.try_drain_pass()`.
+    async fn spin_try_drain_pass(
+        &self,
+        drain: &Arc<dyn CooperativeDrainSet>,
+    ) -> Result<(), DataFusionError> {
+        drain.try_drain_pass()
     }
 
     async fn send_with_scratch(
@@ -597,6 +665,13 @@ impl MppSender {
         // partial write through the shared shm_mq handle. See `BatchChannelSender::send_lock`.
         // Long-term, switching shm_mq for an async-friendly ring buffer (cf. #4184) drops the
         // partial-send invariant entirely and removes the need for this lock.
+        //
+        // Latent under the current-thread runtime: today every fragment owns its own
+        // `Arc<dyn BatchChannelSender>` (one sender per `Arc`), so the FIFO Mutex below
+        // is uncontended. A future multi-thread runtime that shares a sender across
+        // sibling fragment tasks (multi-partition fan-out) would let one task starve
+        // another for the duration of a large shuffle; the fix at that point is to move
+        // the entire spin off the compute thread.
         let _send_guard = self.channel.send_lock().lock().await;
         let mut first_try = true;
         let t_wait_start = Instant::now();
@@ -607,13 +682,9 @@ impl MppSender {
         // sends advance. `yield_now().await` between iterations hands the runtime back to
         // siblings if any are ready, mostly a no-op under today's linear MPP topology.
         loop {
-            // Gate the check out of test builds. `pgrx::check_for_interrupts!()` pulls in PG
-            // symbols (`ProcessInterrupts`, etc.) that the `--tests` / llvm-cov build can't
-            // link. `InProc` channels used in tests never block, so the loop returns on the
-            // first iteration anyway.
-            #[cfg(not(test))]
-            pgrx::check_for_interrupts!();
-            if self.channel.try_send_bytes(scratch)? {
+            self.spin_check_for_interrupts().await?;
+            let send_ok = self.spin_try_send_bytes(scratch).await?;
+            if send_ok {
                 if !first_try {
                     stats.send_wait += t_wait_start.elapsed();
                 }
@@ -626,7 +697,7 @@ impl MppSender {
             // propagate so a peer detaching mid-spin doesn't leave us spinning on a closed
             // mesh.
             let t_drain = Instant::now();
-            drain.try_drain_pass()?;
+            self.spin_try_drain_pass(drain).await?;
             stats.coop_drain_in_spin += t_drain.elapsed();
             tokio::task::yield_now().await;
         }
@@ -696,21 +767,22 @@ pub(super) enum RecvBatchOutcome {
     Error(DataFusionError),
 }
 
-/// Per-`(stage_id, partition)` channel buffer registry owned by a cooperative [`DrainHandle`]. The
-/// handle serves one sender_proc, whose shm_mq queue carries frames for many logical channels,
-/// each tagged by the [`MppFrameHeader`] prefix. `try_drain_pass` looks up the right channel buffer
-/// on every frame and pushes the payload into it. Consumers waiting on
-/// `(stage_id=s, partition=p)` only see frames matching that key.
+/// Per-`(sender_proc, stage_id, partition)` channel buffer registry owned by a cooperative
+/// [`DrainHandle`]. The handle may host several cooperative receivers (DSM MPSC inbox + self-loop
+/// in-proc), each demultiplexed by the [`MppFrameHeader`] prefix into the same `map`.
+/// `try_drain_pass` looks up the right channel buffer on every frame and pushes the payload into
+/// it. Consumers waiting on a given key only see frames matching that key.
 ///
-/// Each entry is a `DrainBuffer::new(1)` because exactly one source (the sender_proc this handle
-/// serves) emits frames for any given channel via this drain. When the sender_proc detaches
-/// (`Detached` outcome on the underlying receiver), `detached` flips to `true` and every existing
-/// channel buffer is notified, so any consumer blocked on `try_pop` unblocks with `DrainItem::Eof`.
-/// Channel buffers registered *after* detach come back already EOF'd so a late consumer doesn't hang.
+/// Each entry is a `DrainBuffer::new(1)`: exactly one sender_proc emits frames for any given
+/// channel. Per-channel EOF flows via the `Eof` frame demuxed onto the matching buffer; query-
+/// teardown unblock flows via [`DrainHandle::cancel_channel_buffers`] from the handle's `Drop`.
 #[derive(Default)]
 struct ChannelBufferRegistry {
-    map: HashMap<(u32, u32), Arc<DrainBuffer>>,
-    detached: bool,
+    /// Keyed by `(sender_proc, stage_id, partition)`. Under mesh-multiplexing the unified
+    /// inbox carries frames from every peer, so each `(stage, partition)` consumer gets
+    /// its own per-sender buffer. This preserves the implicit "one stream per sender"
+    /// semantics that `WorkerConnection::stream_partition` consumers rely on.
+    map: HashMap<(u32, u32, u32), Arc<DrainBuffer>>,
 }
 
 /// Per-sender-proc drain: stashes the receivers and polls them inline from the cooperative spin
@@ -752,63 +824,41 @@ impl DrainHandle {
         }
     }
 
-    /// Register (or look up) the channel buffer for `(stage_id, partition)`. The returned
-    /// `Arc<DrainBuffer>` is the canonical destination for frames matching that key:
-    /// `try_drain_pass` pushes into the same entry on every `Batch { header, .. }` whose header
-    /// matches.
-    ///
-    /// If the drain has already observed `Detached` from its underlying receiver, the
-    /// newly-created buffer comes back with `notify_source_done` already called so a consumer
-    /// registering after detach sees `Eof` on the first `try_pop` instead of hanging forever.
-    pub(super) fn register_channel(&self, stage_id: u32, partition: u32) -> Arc<DrainBuffer> {
+    /// Register (or look up) the channel buffer for `(sender_proc, stage_id, partition)`.
+    /// The returned `Arc<DrainBuffer>` is the canonical destination for frames matching
+    /// that key: `try_drain_pass` pushes into the same entry on every `Batch { header, .. }`
+    /// whose `header.sender_proc()` / `stage_id` / `partition` matches.
+    pub(super) fn register_channel(
+        &self,
+        sender_proc: u32,
+        stage_id: u32,
+        partition: u32,
+    ) -> Arc<DrainBuffer> {
         let mut guard = self
             .channel_buffers
             .lock()
             .expect("DrainHandle channel_buffers mutex poisoned");
-        let detached = guard.detached;
         guard
             .map
-            .entry((stage_id, partition))
+            .entry((sender_proc, stage_id, partition))
             .or_insert_with(|| {
-                let buf = DrainBuffer::new(1);
-                if detached {
-                    buf.notify_source_done();
-                }
-                buf
+                // num_sources stays 1: under mesh-multiplexing each
+                // (sender_proc, stage, partition) tuple has exactly one upstream (the
+                // named sender), even though the underlying inbox is shared across all
+                // senders.
+                DrainBuffer::new(1)
             })
             .clone()
     }
 
-    /// Mark the drain as detached and `notify_source_done` every registered channel buffer.
-    /// Idempotent. Used by `try_drain_pass` after `Detached` / `Error` outcomes; the
-    /// cooperative-path equivalent fires from `Drop` via [`Self::cancel_channel_buffers`] so any
-    /// consumer blocked on `try_pop` unblocks with `Eof` even if the query is torn down before
-    /// EOF frames flow.
-    ///
-    /// Collects buffer handles under the registry lock, then notifies after releasing it.
-    /// Notifying inline would block any concurrent [`Self::register_channel`] for as long as it
-    /// takes to acquire `DrainBuffer::inner` N times. Fine today (single backend thread), but
-    /// cheap insurance against the multi-thread variant landing later.
-    fn mark_detached(&self) {
-        let to_notify = {
-            let mut guard = self
-                .channel_buffers
-                .lock()
-                .expect("DrainHandle channel_buffers mutex poisoned");
-            if guard.detached {
-                return;
-            }
-            guard.detached = true;
-            guard.map.values().cloned().collect::<Vec<_>>()
-        };
-        for buf in to_notify {
-            buf.notify_source_done();
-        }
-    }
-
     /// Cancel every registered channel buffer. Called from `Drop` to unblock any consumer waiting on
-    /// a channel buffer when the handle goes away mid-query. Same collect-then-notify pattern as
-    /// [`Self::mark_detached`].
+    /// a channel buffer when the handle goes away mid-query.
+    ///
+    /// Collects buffer handles under the registry lock, then notifies after releasing
+    /// it. Notifying inline would block any concurrent [`Self::register_channel`] for
+    /// as long as it takes to acquire `DrainBuffer::inner` N times. Fine today (single
+    /// backend thread), but cheap insurance against the multi-thread variant landing
+    /// later.
     fn cancel_channel_buffers(&self) {
         let to_cancel = {
             let guard = self
@@ -860,24 +910,39 @@ impl DrainHandle {
             for _ in 0..MAX_BATCHES_PER_SOURCE_PER_PASS {
                 match rx.try_recv_batch() {
                     RecvBatchOutcome::Batch { header, batch } => {
-                        let buf = self.register_channel(header.stage_id, header.partition);
+                        let buf = self.register_channel(
+                            header.sender_proc(),
+                            header.stage_id,
+                            header.partition,
+                        );
                         buf.push_batch(batch);
                     }
                     RecvBatchOutcome::Eof { header } => {
-                        let buf = self.register_channel(header.stage_id, header.partition);
+                        let buf = self.register_channel(
+                            header.sender_proc(),
+                            header.stage_id,
+                            header.partition,
+                        );
                         buf.notify_source_done();
                         // Other channels may still flow on this queue, so the receiver slot
                         // stays live.
                     }
                     RecvBatchOutcome::Empty => break,
                     RecvBatchOutcome::Detached => {
+                        // Only THIS receiver is dead. Under mesh-multiplexing the drain holds
+                        // multiple receivers (own-inbox MPSC + self-loop in-proc); one going
+                        // away does not imply the others have. Do not fire a registry-wide
+                        // "all channels EOF" here. Channel buffers waiting on a still-live
+                        // sibling receiver would falsely terminate. Per-channel EOF flows via
+                        // the demuxed Eof frame above; query-teardown unblock flows via
+                        // `cancel_channel_buffers` from `DrainHandle::Drop`.
                         *slot = None;
-                        self.mark_detached();
                         break;
                     }
                     RecvBatchOutcome::Error(e) => {
+                        // Same reasoning as Detached: drop only this slot. The error itself
+                        // still propagates up; caller surfaces it as a query error.
                         *slot = None;
-                        self.mark_detached();
                         return Err(e);
                     }
                 }
@@ -1021,7 +1086,7 @@ mod tests {
         /// Construct a sender with the default `(stage_id=0, partition=0)` header. Used where
         /// the header carries no actionable routing info.
         fn new(channel: Arc<dyn BatchChannelSender>) -> Self {
-            Self::with_header(channel, MppFrameHeader::batch(0, 0))
+            Self::with_header(channel, MppFrameHeader::batch(0, 0, 0))
         }
 
         /// Stats-less wrapper around `send_batch_traced`. Production call sites
@@ -1176,7 +1241,7 @@ mod tests {
     #[test]
     fn frame_round_trips_a_batch_with_header() {
         let orig = sample_batch(64);
-        let header = MppFrameHeader::batch(7, 3);
+        let header = MppFrameHeader::batch(7, 3, 0);
         let mut buf = Vec::with_capacity(1024);
         encode_frame_into(header, &orig, &mut buf).expect("encode_frame");
 
@@ -1195,11 +1260,11 @@ mod tests {
     #[test]
     fn frame_round_trips_eof() {
         let mut buf = Vec::new();
-        encode_eof_frame_into(2, 5, &mut buf).expect("encode_eof");
+        encode_eof_frame_into(2, 5, 0, &mut buf).expect("encode_eof");
         assert_eq!(buf.len(), MPP_FRAME_HEADER_SIZE);
 
         let (header, batch_opt) = decode_frame(&buf).expect("decode_frame");
-        assert_eq!(header, MppFrameHeader::eof(2, 5));
+        assert_eq!(header, MppFrameHeader::eof(2, 5, 0));
         assert_eq!(header.kind().unwrap(), MppFrameKind::Eof);
         assert!(batch_opt.is_none());
     }
@@ -1240,24 +1305,66 @@ mod tests {
 
     #[test]
     fn frame_rejects_reserved_flag_bits() {
-        // Any bit above the low byte of `flags` is reserved-must-be-zero;
-        // setting one should trip `kind()` before the kind byte is consulted.
+        // Reserved range is bits 8..16. Bits 16..32 are sender_proc and must NOT trip the
+        // reserved check. Cover both boundaries of the reserved range.
+        for bit in [0x0000_0100u32, 0x0000_8000u32] {
+            let header = MppFrameHeader {
+                magic: MPP_FRAME_MAGIC,
+                flags: bit, // kind byte 0 (Batch), reserved bit set, no sender_proc
+                stage_id: 0,
+                partition: 0,
+            };
+            let mut buf = vec![0u8; MPP_FRAME_HEADER_SIZE];
+            header.write_to(&mut buf);
+            let err = decode_frame(&buf).expect_err(&format!("reserved bit {bit:#x} must fail"));
+            assert!(
+                format!("{err}").contains("reserved frame flag bits"),
+                "bit {bit:#x}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn frame_kind_coexists_with_max_sender_proc() {
+        // Negative-space companion to frame_rejects_reserved_flag_bits: setting every bit in
+        // 16..32 (= max sender_proc) along with kind=Eof in bit 0 must parse cleanly without
+        // tripping the reserved-bits check, and sender_proc()/kind() must read both back.
         let header = MppFrameHeader {
             magic: MPP_FRAME_MAGIC,
-            flags: 0x0000_0100, // bit 8 set, kind byte 0 (would be Batch)
+            flags: 0xFFFF_0001, // Eof in low byte, max sender_proc in high half, reserved=0
             stage_id: 0,
             partition: 0,
         };
-        let mut buf = vec![0u8; MPP_FRAME_HEADER_SIZE];
-        header.write_to(&mut buf);
-        let err = decode_frame(&buf).expect_err("reserved bit must fail");
-        assert!(format!("{err}").contains("reserved frame flag bits"));
+        assert_eq!(header.kind().unwrap(), MppFrameKind::Eof);
+        assert_eq!(header.sender_proc(), MPP_MAX_SENDER_PROC);
+    }
+
+    #[test]
+    fn frame_sender_proc_round_trip() {
+        // sender_proc lives in flags bits 16..32 and shouldn't collide with kind or reserved.
+        for &sp in &[0u32, 1, 7, 255, 256, 1023, 65534, MPP_MAX_SENDER_PROC] {
+            let header = MppFrameHeader::batch(11, 5, sp);
+            assert_eq!(header.sender_proc(), sp, "batch round-trip sp={sp}");
+            assert_eq!(header.kind().unwrap(), MppFrameKind::Batch);
+
+            let mut buf = Vec::with_capacity(MPP_FRAME_HEADER_SIZE);
+            let payload = sample_batch(8);
+            encode_frame_into(header, &payload, &mut buf).expect("encode batch");
+            let (parsed, _) = decode_frame(&buf).expect("decode batch");
+            assert_eq!(parsed.sender_proc(), sp, "decoded batch sender_proc");
+
+            let mut eof_buf = Vec::new();
+            encode_eof_frame_into(11, 5, sp, &mut eof_buf).expect("encode eof");
+            let (parsed_eof, _) = decode_frame(&eof_buf).expect("decode eof");
+            assert_eq!(parsed_eof.sender_proc(), sp, "decoded eof sender_proc");
+            assert_eq!(parsed_eof.kind().unwrap(), MppFrameKind::Eof);
+        }
     }
 
     #[test]
     fn frame_eof_with_payload_is_rejected() {
         let mut buf = Vec::with_capacity(32);
-        encode_eof_frame_into(0, 0, &mut buf).expect("encode_eof");
+        encode_eof_frame_into(0, 0, 0, &mut buf).expect("encode_eof");
         buf.push(0xAB); // smuggle a payload byte after the Eof header
         let err = decode_frame(&buf).expect_err("Eof+payload must fail");
         assert!(format!("{err}").contains("Eof frame carries payload"));
@@ -1268,7 +1375,7 @@ mod tests {
         let mut buf = Vec::with_capacity(1024);
         for rows in [0, 1, 7, 64, 1024] {
             let orig = sample_batch(rows);
-            encode_frame_into(MppFrameHeader::batch(0, 0), &orig, &mut buf).expect("encode");
+            encode_frame_into(MppFrameHeader::batch(0, 0, 0), &orig, &mut buf).expect("encode");
             let (_header, decoded) = decode_frame(&buf).expect("decode");
             let decoded = decoded.expect("Batch frame must carry a payload");
             assert_eq!(orig.num_rows(), decoded.num_rows());
@@ -1543,7 +1650,7 @@ mod tests {
         let mut enc_bytes = 0usize;
         let mut enc_buf = Vec::with_capacity(1024);
         for _ in 0..batches {
-            encode_frame_into(MppFrameHeader::batch(0, 0), &template, &mut enc_buf)
+            encode_frame_into(MppFrameHeader::batch(0, 0, 0), &template, &mut enc_buf)
                 .expect("encode");
             enc_bytes += enc_buf.len();
         }
@@ -1643,20 +1750,20 @@ mod tests {
     fn drain_until_detached(handle: &DrainHandle) {
         for _ in 0..64 {
             handle.try_drain_pass().expect("try_drain_pass");
-            // After enough passes the in-proc backend reports `Detached`, which flips
-            // `mark_detached` and notifies every channel buffer. We keep polling so any queued
-            // frames flow through first.
         }
     }
 
     #[test]
     fn drain_handle_demuxes_frames_by_header() {
         // One queue carrying two channels: `(0, 0)` and `(0, 1)`. Each
-        // channel buffer receives only its own batches.
+        // channel buffer receives only its own batches. Per-channel EOF is out of scope
+        // here. See `drain_handle_eof_frame_closes_one_channel` for explicit-Eof routing
+        // and `drain_handle_drop_cancels_registered_channel_buffers` for the
+        // teardown-EOF contract.
         let (tx, rx) = in_proc_channel(8);
         let base = MppSender::new(Arc::new(tx));
-        let s00 = base.clone_with_header(MppFrameHeader::batch(0, 0));
-        let s01 = base.clone_with_header(MppFrameHeader::batch(0, 1));
+        let s00 = base.clone_with_header(MppFrameHeader::batch(0, 0, 0));
+        let s01 = base.clone_with_header(MppFrameHeader::batch(0, 1, 0));
         let receiver = MppReceiver::new(Box::new(rx));
         let handle = DrainHandle::cooperative(vec![receiver]);
 
@@ -1665,10 +1772,10 @@ mod tests {
         s00.send_batch(&sample_batch(3)).unwrap();
         drop(s00);
         drop(s01);
-        drop(base); // Last sender dropped. Receiver will report Detached.
+        drop(base);
 
-        let buf00 = handle.register_channel(0, 0);
-        let buf01 = handle.register_channel(0, 1);
+        let buf00 = handle.register_channel(0, 0, 0);
+        let buf01 = handle.register_channel(0, 0, 1);
 
         drain_until_detached(&handle);
 
@@ -1682,33 +1789,30 @@ mod tests {
         }
         assert_eq!(p0_rows, vec![2, 3]);
         assert_eq!(p1_rows, vec![7]);
-        assert!(matches!(buf00.try_pop(), Some(DrainItem::Eof)));
-        assert!(matches!(buf01.try_pop(), Some(DrainItem::Eof)));
     }
 
     #[test]
     fn drain_handle_eof_frame_closes_one_channel() {
         // An `Eof` frame on `(0, 0)` closes that channel buffer while frames on
-        // `(0, 1)` continue to flow on the same queue.
+        // `(0, 1)` continue to flow on the same queue. `Detached` doesn't broadcast a
+        // registry-wide EOF, so `(0, 1)` surfaces EOF only when the handle's `Drop`
+        // runs `cancel_channel_buffers`.
         let (tx, rx) = in_proc_channel(8);
         let tx_arc: Arc<dyn BatchChannelSender> = Arc::new(tx);
-        let s00 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(0, 0));
-        let s01 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(0, 1));
+        let s00 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(0, 0, 0));
+        let s01 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(0, 1, 0));
         let receiver = MppReceiver::new(Box::new(rx));
         let handle = DrainHandle::cooperative(vec![receiver]);
 
         s00.send_batch(&sample_batch(4)).unwrap();
-        // Hand-roll an Eof frame for (0, 0) onto the same shared channel.
         let mut eof_buf = Vec::new();
-        encode_eof_frame_into(0, 0, &mut eof_buf).unwrap();
+        encode_eof_frame_into(0, 0, 0, &mut eof_buf).unwrap();
         tx_arc.send_bytes(&eof_buf).unwrap();
-        // (0, 1) is still live and ships another batch after the EOF.
         s01.send_batch(&sample_batch(6)).unwrap();
 
-        let buf00 = handle.register_channel(0, 0);
-        let buf01 = handle.register_channel(0, 1);
+        let buf00 = handle.register_channel(0, 0, 0);
+        let buf01 = handle.register_channel(0, 0, 1);
 
-        // Drop senders so the receiver eventually observes Detached.
         drop(s00);
         drop(s01);
         drop(tx_arc);
@@ -1718,50 +1822,15 @@ mod tests {
             Some(DrainItem::Batch(b)) => assert_eq!(b.num_rows(), 4),
             other => panic!("expected (0,0) batch, got {other:?}"),
         }
-        // The Eof frame closed (0, 0) before the queue detached.
         assert!(matches!(buf00.try_pop(), Some(DrainItem::Eof)));
 
         match buf01.try_pop() {
             Some(DrainItem::Batch(b)) => assert_eq!(b.num_rows(), 6),
             other => panic!("expected (0,1) batch, got {other:?}"),
         }
-        // (0, 1) sees EOF at receiver-detach time.
+        assert!(buf01.try_pop().is_none());
+        drop(handle);
         assert!(matches!(buf01.try_pop(), Some(DrainItem::Eof)));
-    }
-
-    #[test]
-    fn drain_handle_detach_eofs_all_registered_channel_buffers() {
-        // No frames flow; consumer pre-registers two channels. When the sender drops and
-        // `try_drain_pass` observes `Detached`, both channel buffers immediately surface `Eof`.
-        // Without that, a consumer blocked on `try_pop` would hang past the producer's death.
-        let (tx, rx) = in_proc_channel(8);
-        drop(tx); // detach immediately
-        let receiver = MppReceiver::new(Box::new(rx));
-        let handle = DrainHandle::cooperative(vec![receiver]);
-
-        let buf00 = handle.register_channel(0, 0);
-        let buf01 = handle.register_channel(0, 1);
-        // No frames ever land; the next poll observes Detached and notifies.
-        handle.try_drain_pass().unwrap();
-
-        assert!(matches!(buf00.try_pop(), Some(DrainItem::Eof)));
-        assert!(matches!(buf01.try_pop(), Some(DrainItem::Eof)));
-    }
-
-    #[test]
-    fn drain_handle_register_after_detach_returns_eof_buffer() {
-        // Detach first, then register. The returned buffer is already
-        // EOF'd so a late consumer doesn't block forever waiting on a
-        // channel whose source is gone.
-        let (tx, rx) = in_proc_channel(8);
-        drop(tx);
-        let receiver = MppReceiver::new(Box::new(rx));
-        let handle = DrainHandle::cooperative(vec![receiver]);
-
-        handle.try_drain_pass().unwrap(); // observes Detached, marks handle
-
-        let late_buf = handle.register_channel(5, 9);
-        assert!(matches!(late_buf.try_pop(), Some(DrainItem::Eof)));
     }
 
     #[test]
@@ -1772,8 +1841,8 @@ mod tests {
         let receiver = MppReceiver::new(Box::new(rx));
         let handle = DrainHandle::cooperative(vec![receiver]);
 
-        let first = handle.register_channel(2, 3);
-        let second = handle.register_channel(2, 3);
+        let first = handle.register_channel(0, 2, 3);
+        let second = handle.register_channel(0, 2, 3);
         assert!(Arc::ptr_eq(&first, &second));
     }
 
@@ -1783,8 +1852,8 @@ mod tests {
         // The registry's compound key keeps them on separate channel buffers.
         let (tx, rx) = in_proc_channel(8);
         let tx_arc: Arc<dyn BatchChannelSender> = Arc::new(tx);
-        let s_stage0 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(0, 0));
-        let s_stage1 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(1, 0));
+        let s_stage0 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(0, 0, 0));
+        let s_stage1 = MppSender::with_header(Arc::clone(&tx_arc), MppFrameHeader::batch(1, 0, 0));
         let receiver = MppReceiver::new(Box::new(rx));
         let handle = DrainHandle::cooperative(vec![receiver]);
 
@@ -1795,8 +1864,8 @@ mod tests {
         drop(s_stage1);
         drop(tx_arc);
 
-        let buf0 = handle.register_channel(0, 0);
-        let buf1 = handle.register_channel(1, 0);
+        let buf0 = handle.register_channel(0, 0, 0);
+        let buf1 = handle.register_channel(0, 1, 0);
 
         drain_until_detached(&handle);
 
@@ -1821,8 +1890,8 @@ mod tests {
         let receiver = MppReceiver::new(Box::new(rx));
         let handle = DrainHandle::cooperative(vec![receiver]);
 
-        let buf_a = handle.register_channel(0, 0);
-        let buf_b = handle.register_channel(7, 3);
+        let buf_a = handle.register_channel(0, 0, 0);
+        let buf_b = handle.register_channel(0, 7, 3);
         // No data ever flows; the handle is just dropped.
         drop(handle);
 

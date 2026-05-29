@@ -314,10 +314,14 @@ pub(crate) fn run_mpp_worker(
                 // queue doesn't block the backend thread. The spin pulls every inbound drain
                 // while retrying the send, breaking N×N symmetric stalls.
                 per_partition_senders.push(
-                    base.clone_with_header(MppFrameHeader::batch(fragment.stage_id, q_u32))
-                        .with_cooperative_drain(
-                            Arc::clone(&worker_mesh) as Arc<dyn CooperativeDrainSet>
-                        ),
+                    base.clone_with_header(MppFrameHeader::batch(
+                        fragment.stage_id,
+                        q_u32,
+                        worker_mesh.this_proc,
+                    ))
+                    .with_cooperative_drain(
+                        Arc::clone(&worker_mesh) as Arc<dyn CooperativeDrainSet>
+                    ),
                 );
             }
 

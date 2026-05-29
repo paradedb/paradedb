@@ -45,7 +45,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
 use tantivy::json_utils::split_json_path;
 
-use crate::vector::metric::{l2_normalize_in_place, VectorMetric};
+use crate::vector::metric::VectorMetric;
 use crate::vector::PgVector;
 
 #[derive(Debug, Clone)]
@@ -471,7 +471,6 @@ impl OrderByInfo {
         let OrderByFeature::VectorDistance {
             query_vector,
             query_vector_param_id,
-            metric,
             ..
         } = &mut self.feature
         else {
@@ -520,12 +519,9 @@ impl OrderByInfo {
         };
         assert!(!isnull, "vector ORDER BY parameter ${paramid} is NULL");
 
-        let mut floats = PgVector::from_datum(value, false)
+        let floats = PgVector::from_datum(value, false)
             .expect("vector ORDER BY parameter should not be NULL")
             .0;
-        if metric.requires_unit_norm() {
-            l2_normalize_in_place(&mut floats);
-        }
         *query_vector = floats;
         *query_vector_param_id = None;
     }

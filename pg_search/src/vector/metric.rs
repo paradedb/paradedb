@@ -43,12 +43,6 @@ pub enum VectorMetric {
 }
 
 impl VectorMetric {
-    /// Whether query/insert vectors should be L2-normalized at the
-    /// Postgres boundary.
-    pub fn requires_unit_norm(&self) -> bool {
-        matches!(self, VectorMetric::L2 | VectorMetric::Cosine)
-    }
-
     /// Map the pgvector-facing metric to Tantivy's vector metric.
     pub fn runtime_metric(self) -> TantivyMetric {
         match self {
@@ -140,21 +134,5 @@ impl From<VectorMetric> for TantivyMetric {
             VectorMetric::Cosine => TantivyMetric::Cosine,
             VectorMetric::InnerProduct => TantivyMetric::Dot,
         }
-    }
-}
-
-/// L2-normalize a vector in-place (divide by its L2 norm). For zero
-/// vectors the input is left unchanged.
-pub fn l2_normalize_in_place(v: &mut [f32]) {
-    let mut norm_sq = 0.0f32;
-    for &x in v.iter() {
-        norm_sq += x * x;
-    }
-    if norm_sq <= 0.0 {
-        return;
-    }
-    let inv = 1.0 / norm_sq.sqrt();
-    for x in v.iter_mut() {
-        *x *= inv;
     }
 }

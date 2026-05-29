@@ -55,8 +55,10 @@ pub enum SortExpressionType {
     /// Carries the resolved query vector (if a `Const`), or the
     /// `Param` ID to resolve at execution time (if a parameterized
     /// generic plan), plus the metric implied by the operator
-    /// (`<->` → L2, `<=>` → Cosine, `<#>` → InnerProduct). Whether
-    /// to L2-normalize is derived from `metric.requires_unit_norm()`.
+    /// (`<->` → L2, `<=>` → Cosine, `<#>` → InnerProduct).
+    /// Query vectors are passed through to tantivy raw — the storage
+    /// layer owns unit-norm policy for the doc side, and the cosine
+    /// scoring kernel handles non-unit queries via `inv_norm_q`.
     VectorDistance {
         query_vector: Vec<f32>,
         query_vector_param_id: Option<i32>,
@@ -369,12 +371,9 @@ unsafe fn extract_vector_distance(
             return None;
         }
         let datum = (*const_node).constvalue;
-        let mut query_vector = unsafe { crate::vector::PgVector::from_datum(datum, false) }
+        let query_vector = unsafe { crate::vector::PgVector::from_datum(datum, false) }
             .expect("vector ORDER BY constant should not be NULL")
             .0;
-        if op_metric.requires_unit_norm() {
-            crate::vector::metric::l2_normalize_in_place(&mut query_vector);
-        }
         return Some((
             var_node,
             SortExpressionType::VectorDistance {

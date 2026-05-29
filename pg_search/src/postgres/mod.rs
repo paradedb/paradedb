@@ -358,15 +358,11 @@ impl ParallelScanPayload {
             *claim = SEGMENT_CLAIM_UNCLAIMED;
         }
 
-        // Skip slab init on single-source scans to keep the non-MPP parallel hot
-        // path free of per-source bookkeeping.
-        if all_sources.len() > 1 {
-            let remaining_range = self.layout.remaining_by_source.clone();
-            let remaining_slice: &mut [u32] =
-                bytemuck::try_cast_slice_mut(&mut self.data_mut()[remaining_range]).unwrap();
-            for (source, target) in all_sources.iter().zip(remaining_slice.iter_mut()) {
-                *target = source.len() as u32;
-            }
+        let remaining_range = self.layout.remaining_by_source.clone();
+        let remaining_slice: &mut [u32] =
+            bytemuck::try_cast_slice_mut(&mut self.data_mut()[remaining_range]).unwrap();
+        for (source, target) in all_sources.iter().zip(remaining_slice.iter_mut()) {
+            *target = source.len() as u32;
         }
     }
 
@@ -834,6 +830,13 @@ impl ParallelScanState {
 
     /// Claim a segment from the shared pool.
     /// Waits for initialization if needed, then returns None if no segments remain.
+    ///
+    /// Sibling of [`Self::checkout_segment_for_source`]; the two are kept apart
+    /// because the `claims` array is sized to the partitioning source's segment
+    /// count and only this path writes it, and the `debug_parallel_query` deadline
+    /// retry only matters on the partitioning source. A future refactor could fold
+    /// both into one source-indexed checkout once the `claims` array can grow over
+    /// all sources.
     pub fn checkout_segment(&mut self) -> Option<SegmentId> {
         let parallel_worker_number = unsafe { pg_sys::ParallelWorkerNumber };
 
@@ -1022,6 +1025,11 @@ impl ParallelScanState {
     /// Per-source frozen segment set for `MvccSatisfies::ParallelWorker(ids)`. Lives
     /// in the shared payload so workers don't need a codec channel for it. Waits for
     /// leader init; otherwise a racing worker reads zero IDs.
+    ///
+    /// Sibling of [`Self::non_partitioning_segment_ids`] which folds every
+    /// non-partitioning source in one mutex acquire; this one takes the mutex per
+    /// call. Same TODO as the checkout pair: a single source-indexed entry point
+    /// would be cleaner once the locking discipline is unified.
     pub fn segment_ids_for_source(&mut self, source_idx: usize) -> HashSet<SegmentId> {
         self.wait_for_initialization();
         let _mutex = self.acquire_mutex();

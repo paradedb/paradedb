@@ -137,7 +137,6 @@ pub struct PgSearchTableProvider {
     /// `checkout_segment_for_source(source_idx)`, so `NetworkShuffleExec` doesn't
     /// receive N copies. `None` for serial, the partitioning source, and non-MPP
     /// parallel hash join.
-    #[serde(default)]
     mpp_source_idx: Option<usize>,
 }
 
@@ -234,6 +233,7 @@ impl PgSearchTableProvider {
     pub(crate) fn mpp_source_idx(&self) -> Option<usize> {
         self.mpp_source_idx
     }
+
     fn enable_deferred_columns(&mut self, required_early_columns: &HashSet<String>) {
         for wff in self.fields.iter_mut() {
             if let WhichFastField::Named(name, field_type) = wff {

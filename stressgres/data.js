@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780077429405,
+  "lastUpdate": 1780077463179,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -30858,6 +30858,186 @@ window.BENCHMARK_DATA = {
             "value": 31.2734375,
             "unit": "median mem",
             "extra": "avg mem: 30.521049226932146, max mem: 31.3359375, count: 53852"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "60c5a4dce3ce7060caed29af7768942a321dc063",
+          "message": "chore: port shared changes from enterprise (WAL ordering, replication deflake, field alias) (#5201)\n\nCloses #5202\n\n## What & why\n\nThese changes already live in the `paradedb-enterprise` mirror but are\n**not enterprise-specific**. Porting them upstream shrinks the\nenterprise↔community divergence (so they stop reappearing in every\nrebase) and they stand on their own merits for community. Bundled into\none PR per request; happy to split.\n\nEach change was applied onto current `main` (the enterprise base for\nthese files is identical to `main`, so they apply cleanly).\n\n## Changes\n\n| Type | Area | Description |\n|------|------|-------------|\n| `fix` | `storage/linked_items.rs` | In `LinkedItemList::add_items`,\nemit the **new-page** WAL record before the previous tail's\n`next_blockno` **pointer-update** record. A standby replaying WAL\nserially could otherwise briefly see a pointer to a block the file\ndoesn't yet contain, and concurrent readers walking the chain fail with\n`XX001: could not read blocks … read only 0 of 8192 bytes`. The primary\nwas always safe (the file grows synchronously in `new_buffer()`); this\nonly bites on a replica. Includes a new\n`test_linked_items_extension_chain_is_walkable` regression test. |\n| `test` | `tests/replication.rs` | Deflake `test_logical_replication`:\nintroduce `RETRIES`/`RETRY_DELAY`, raise retries from 5→60, and **fix\ntwo incorrect validators** — the delete check waited for `!is_empty()`\n(which can never become true after a delete) and now waits for\n`is_empty()`; the COPY check now waits for exactly 3 rows instead of\n\"non-empty\". |\n| `fix` | `tests/fixtures/db.rs` | `fetch_retry` no longer returns an\nempty `vec![]` on the final attempt — that silently masked failures. It\nnow exhausts all retries and panics loudly on persistent failure. |\n| `feat` | `api/config.rs` | Add an optional `alias` argument to\n`paradedb.field(...)` to key the field config under an alias instead of\nthe column name. |\n| `refactor` | `postgres/parallel.rs` | Take `IndexScanDesc` by value in\n`get_bm25_scan_state` and callers; removes pointless `&mut` indirection,\nno behavior change. |\n| `docs` | `pg_search/README.md` | Remove a stray \"Install stable Rust:\"\nline. |\n\n## Testing\n\nCI\n\n---------\n\nSigned-off-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-05-29T12:49:57-04:00",
+          "tree_id": "76b8d037aae4b06552432286dc20c97f1873fb25",
+          "url": "https://github.com/paradedb/paradedb/commit/60c5a4dce3ce7060caed29af7768942a321dc063"
+        },
+        "date": 1780077431532,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.073197860527914, max cpu: 9.248554, count: 53857"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 53.6171875,
+            "unit": "median mem",
+            "extra": "avg mem: 53.615710861053344, max mem: 59.5, count: 53857"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.7930789079853646, max cpu: 4.6065254, count: 53857"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 30.97265625,
+            "unit": "median mem",
+            "extra": "avg mem: 30.30091702622222, max mem: 31.75390625, count: 53857"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.116809,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.403401073692931, max cpu: 18.461538, count: 53857"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 56.33203125,
+            "unit": "median mem",
+            "extra": "avg mem: 55.999265851003585, max mem: 62.13671875, count: 53857"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.0742593882714475, max cpu: 9.257474, count: 53857"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 52.66015625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.61203598185937, max mem: 58.51171875, count: 53857"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6051055721340335, max cpu: 9.221902, count: 53857"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 34.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 34.36988104784429, max mem: 39.53515625, count: 53857"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1139,
+            "unit": "median pages",
+            "extra": "avg pages: 1133.1135042798521, max pages: 1869.0, count: 53857"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.8984375,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.852449397246412, max relation_size:MB: 14.6015625, count: 53857"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 7.905341923983883, max segment_count: 14.0, count: 53857"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5584044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.386212161022627, max cpu: 4.5801525, count: 53857"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.96273276338266, max mem: 30.04296875, count: 53857"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.771427067733829, max cpu: 4.5933013, count: 53857"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.578125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.004003657834637, max mem: 30.1875, count: 53857"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.58891,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.440861812341282, max cpu: 22.922636, count: 53857"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 51.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.57940725845758, max mem: 57.4296875, count: 53857"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000025268075309311578, max replication_lag:MB: 0.1192779541015625, count: 53857"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.2865350023730535, max cpu: 13.846154, count: 107714"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 52.189453125,
+            "unit": "median mem",
+            "extra": "avg mem: 52.16297991672392, max mem: 58.41796875, count: 107714"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.16254038557313, max cpu: 4.58891, count: 53857"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 31.63671875,
+            "unit": "median mem",
+            "extra": "avg mem: 30.872794289159255, max mem: 31.6484375, count: 53857"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.504100378781294, max cpu: 4.6021094, count: 53857"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 31.859375,
+            "unit": "median mem",
+            "extra": "avg mem: 31.193545595860336, max mem: 32.28125, count: 53857"
           }
         ]
       }

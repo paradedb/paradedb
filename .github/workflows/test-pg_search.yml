@@ -134,7 +134,7 @@ jobs:
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \
             lsof build-essential clang flex bison pkg-config ca-certificates git \
             libreadline-dev zlib1g-dev libssl-dev libkrb5-dev liblz4-dev libzstd-dev \
-            libcurl4-openssl-dev
+            libcurl4-openssl-dev libeigen3-dev libomp-dev
 
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview

@@ -182,7 +182,7 @@ jobs:
           rustflags: "" # Use .cargo/config.toml target-cpu flags
 
       - name: Install required system tools
-        run: sudo apt-get update && sudo apt-get install -y lsof fontconfig pkg-config libfontconfig1-dev
+        run: sudo apt-get update && sudo apt-get install -y lsof fontconfig pkg-config libfontconfig1-dev libeigen3-dev libomp-dev
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |

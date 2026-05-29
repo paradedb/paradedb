@@ -622,17 +622,10 @@ impl ParallelScanState {
     /// segments that the leader snapshotted for each replicated source. Returns an empty
     /// `Vec` for non-join or serial scans.
     pub fn non_partitioning_segment_ids(&self) -> Vec<HashSet<SegmentId>> {
-        let counts = self.payload.all_counts();
-        let mut result = Vec::new();
-        for i in 0..counts.len() {
-            if i == self.partitioning_source_idx {
-                continue;
-            }
-            let ids = self.payload.source_ids(i);
-            let set: HashSet<SegmentId> = ids.iter().map(|b| SegmentId::from_bytes(*b)).collect();
-            result.push(set);
-        }
-        result
+        (0..self.payload.all_counts().len())
+            .filter(|&i| i != self.partitioning_source_idx)
+            .map(|i| self.segment_ids_for_source_unlocked(i))
+            .collect()
     }
 
     /// Phase 1: Create the mutex but mark state as uninitialized.
@@ -1007,7 +1000,13 @@ impl ParallelScanState {
     /// leader init; otherwise a racing worker reads zero IDs.
     pub fn segment_ids_for_source(&mut self, source_idx: usize) -> HashSet<SegmentId> {
         self.wait_for_initialization();
-        let _mutex = self.acquire_mutex();
+        self.segment_ids_for_source_unlocked(source_idx)
+    }
+
+    /// Read-only sibling of [`Self::segment_ids_for_source`] for callers that already
+    /// know initialization is complete. No mutex acquire because the IDs are immutable
+    /// after `populate`.
+    fn segment_ids_for_source_unlocked(&self, source_idx: usize) -> HashSet<SegmentId> {
         self.payload
             .source_ids(source_idx)
             .iter()

@@ -34,9 +34,11 @@ Then install `cargo-pgrx` and let it bootstrap a managed PostgreSQL installation
 
 ```bash
 cargo install --locked cargo-pgrx --version 0.18.0
-# On macOS, if `cargo pgrx init` fails with ICU-related errors, run (the
-# icu4c version may differ depending on what Homebrew has installed):
-# export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c@78/lib/pkgconfig:$PKG_CONFIG_PATH"
+# On macOS, if `cargo pgrx init` fails with ICU-related errors, run
+# `brew install icu4c`
+# and then run
+# `export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c@78/lib/pkgconfig:$PKG_CONFIG_PATH"`
+# (the icu4c version may differ depending on what Homebrew has installed):
 cargo pgrx init
 ```
 

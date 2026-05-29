@@ -638,51 +638,9 @@ impl From<&PgSearchRelation> for AggIndexInfo {
     }
 }
 
-/// MPP DSM hook impl. The query's serialized worker-fragment plan bytes are
-/// stashed on the customscan state by `begin_custom_scan` so estimate +
-/// initialize see the same bytes; without that we'd have to re-build the
-/// plan twice. The serialization itself happens via the
-/// `PgSearchExtensionCodec` and the DF-D fork's `DistributedCodec` so
-/// `NetworkShuffleExec` round-trips through the worker side.
-/// DSM layout used by AggregateScan in MPP mode:
-///
-/// ```text
-/// [0 .. 8)                     u64 mpp_offset            (offset to MPP region)
-/// [8 .. 16)                    u64 partitioning_source_idx
-/// [pscan_offset .. mpp_offset) ParallelScanState (variable size)
-/// [mpp_offset .. total)        MPP region (header + queues + plan_bytes)
-/// ```
-///
-/// Workers don't carry the source manifests the leader saw, so the
-/// MPP-region offset and the partitioning-source index are stamped into
-/// the first 16 bytes by the leader and read back by workers — neither
-/// has to be re-derived.
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct MppAggDsmHeader {
-    mpp_offset: u64,
-    partitioning_source_idx: u64,
-}
-
-const MPP_AGG_DSM_HEADER_SIZE: usize = std::mem::size_of::<MppAggDsmHeader>();
-
 fn mpp_align(n: usize) -> usize {
     let a = pg_sys::MAXIMUM_ALIGNOF as usize;
     n.next_multiple_of(a)
-}
-
-fn mpp_agg_pscan_offset() -> usize {
-    mpp_align(MPP_AGG_DSM_HEADER_SIZE)
-}
-
-unsafe fn mpp_agg_read_header(coordinate: *const std::os::raw::c_void) -> MppAggDsmHeader {
-    unsafe { *(coordinate as *const MppAggDsmHeader) }
-}
-
-unsafe fn mpp_agg_write_header(coordinate: *mut std::os::raw::c_void, header: MppAggDsmHeader) {
-    unsafe {
-        *(coordinate as *mut MppAggDsmHeader) = header;
-    }
 }
 
 impl ParallelQueryCapable for AggregateScan {

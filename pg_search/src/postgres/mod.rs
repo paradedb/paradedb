@@ -528,10 +528,9 @@ pub struct ParallelScanState {
     /// Workers sleep on this CV instead of busy-waiting, and are woken
     /// when the leader calls `populate()`.
     init_cv: ConditionVariable,
-    /// Remaining segments to be claimed. Protected by mutex.
-    remaining_segments: usize,
     /// Number of segments in the partitioning source. Set to PARALLEL_STATE_UNINITIALIZED
-    /// until leader initializes. Protected by mutex.
+    /// until the leader initializes. Protected by mutex. Remaining work lives in
+    /// `payload.remaining_by_source[partitioning_source_idx]`.
     nsegments: usize,
     /// Index into the unified sources array identifying the partitioning source —
     /// the one from which workers claim segments via `checkout_segment`.
@@ -607,8 +606,10 @@ impl ParallelScanState {
             .get(partitioning_source_idx)
             .expect("partitioning_source_idx out of bounds")
             .len();
-        self.remaining_segments = partitioning_count;
-        // Set nsegments LAST - this signals initialization is complete
+        // Set nsegments LAST - this signals initialization is complete.
+        // Remaining counts live in `payload.remaining_by_source` (initialized in
+        // `ParallelScanPayload::init`); for the partitioning source the slot starts
+        // at `partitioning_count`.
         self.nsegments = partitioning_count;
 
         // Wake up any workers waiting in `wait_for_initialization()`.
@@ -648,7 +649,6 @@ impl ParallelScanState {
     /// Called by amparallelrescan before rescans.
     pub fn mark_uninitialized(&mut self) {
         self.nsegments = PARALLEL_STATE_UNINITIALIZED;
-        self.remaining_segments = 0;
     }
 
     /// Signal that initialization is complete with zero segments available.
@@ -656,23 +656,14 @@ impl ParallelScanState {
     /// segment count. Wakes workers so they exit cleanly.
     pub fn mark_initialized_empty(&mut self) {
         self.nsegments = 0;
-        self.remaining_segments = 0;
-        // Mirror `populate()`'s gate: nothing to zero on single-source scans.
-        if self.payload.all_counts().len() > 1 {
-            for slot in self.payload.remaining_by_source_mut() {
-                *slot = 0;
-            }
+        for slot in self.payload.remaining_by_source_mut() {
+            *slot = 0;
         }
         self.init_cv.broadcast();
     }
 
     pub fn acquire_mutex(&mut self) -> impl Drop {
         self.mutex.acquire()
-    }
-
-    fn decrement_remaining_segments(&mut self) -> usize {
-        self.remaining_segments -= 1;
-        self.remaining_segments
     }
 
     fn query_count(&mut self, parallel_worker_number: i32) -> Option<&mut u16> {
@@ -828,83 +819,76 @@ impl ParallelScanState {
         }
     }
 
-    /// Claim a segment from the shared pool.
-    /// Waits for initialization if needed, then returns None if no segments remain.
+    /// Claim a segment from the shared pool for the partitioning source.
     ///
-    /// Sibling of [`Self::checkout_segment_for_source`]; the two are kept apart
-    /// because the `claims` array is sized to the partitioning source's segment
-    /// count and only this path writes it, and the `debug_parallel_query` deadline
-    /// retry only matters on the partitioning source. A future refactor could fold
-    /// both into one source-indexed checkout once the `claims` array can grow over
-    /// all sources.
+    /// Thin wrapper over [`Self::checkout_for_source`] with `defer_leader_for_debug = true`,
+    /// which engages the `debug_parallel_query` deadline retry that only matters on
+    /// the partitioning source.
     pub fn checkout_segment(&mut self) -> Option<SegmentId> {
-        let parallel_worker_number = unsafe { pg_sys::ParallelWorkerNumber };
+        self.checkout_for_source(self.partitioning_source_idx, true)
+    }
 
-        // Wait for state to be initialized (defensive - should already be initialized
-        // by the time we get here since amrescan calls maybe_init_parallel_scan first)
+    /// Source-aware segment checkout. For the partitioning source, also records the
+    /// claim in the per-segment `claims` array (which is sized to that source's segment
+    /// count, so non-partitioning sources have no slot to write).
+    pub fn checkout_segment_for_source(&mut self, source_idx: usize) -> Option<SegmentId> {
+        self.checkout_for_source(source_idx, false)
+    }
+
+    fn checkout_for_source(
+        &mut self,
+        source_idx: usize,
+        defer_leader_for_debug: bool,
+    ) -> Option<SegmentId> {
+        let parallel_worker_number = unsafe { pg_sys::ParallelWorkerNumber };
         self.wait_for_initialization();
+
+        let total = *self.payload.all_counts().get(source_idx)? as usize;
+        if total == 0 {
+            return None;
+        }
+        let writes_claims = source_idx == self.partitioning_source_idx;
 
         #[cfg(not(feature = "pg15"))]
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(50);
 
         loop {
             let _mutex = self.acquire_mutex();
-            let remaining = self.remaining_segments;
+            let remaining = *self.payload.remaining_by_source_mut().get(source_idx)? as usize;
             if remaining == 0 {
-                break None;
+                return None;
             }
 
-            // If debug_parallel_query is enabled and we're the leader, then do not take the first
-            // segment (unless a deadline has passed, since in some cases we may not have any workers:
-            // e.g. UNIONS under a Gather node, etc).
-            //
-            // This significantly improves the reproducibility of parallel worker issues with small
-            // datasets, since it means that unlike in the non-parallel case, the leader will be
-            // unlikely to emit all of the segments before the workers have had a chance to start up.
+            // `debug_parallel_query` leader-defer applies only to the partitioning
+            // source. With small datasets it gives workers a chance to start up
+            // before the leader walks the whole pool, which improves the
+            // reproducibility of parallel-worker issues; UNIONs under a Gather node
+            // may run without workers at all, hence the deadline escape.
             #[cfg(not(feature = "pg15"))]
-            if unsafe { pg_sys::debug_parallel_query } != 0
+            if defer_leader_for_debug
+                && unsafe { pg_sys::debug_parallel_query } != 0
                 && parallel_worker_number == -1
-                && remaining == self.nsegments
+                && remaining == total
                 && std::time::Instant::now() < deadline
             {
                 continue;
             }
 
-            // segments are claimed back-to-front and they were already organized smallest-to-largest
-            // by num_docs over in [`ParallelScanPayload::init()`].
-            //
-            // this means we're purposely checking out segments from largest-to-smallest.
-            let claimed_segment = self.decrement_remaining_segments();
-            self.payload.claims_mut()[claimed_segment] = parallel_worker_number;
-            // `checkout_segment_for_source` never reads the partitioning slot, so
-            // don't mirror this decrement onto `remaining_by_source[partitioning_idx]`.
-            break Some(self.segment_id(claimed_segment));
+            // segments are claimed back-to-front; the per-source ids were organized
+            // smallest-to-largest by num_docs in `ParallelScanPayload::init`, so
+            // claiming back-to-front gives largest-first.
+            let claimed_idx = {
+                let slot = self.payload.remaining_by_source_mut().get_mut(source_idx)?;
+                *slot -= 1;
+                *slot as usize
+            };
+            if writes_claims {
+                self.payload.claims_mut()[claimed_idx] = parallel_worker_number;
+            }
+            return Some(SegmentId::from_bytes(
+                self.payload.source_ids(source_idx)[claimed_idx],
+            ));
         }
-    }
-
-    /// Source-aware checkout for MPP non-partitioning sources. The `claims` array is
-    /// sized to the partitioning source's segment count and indexed by its segment
-    /// positions, so there's no slot to record a non-partitioning claim.
-    pub fn checkout_segment_for_source(&mut self, source_idx: usize) -> Option<SegmentId> {
-        self.wait_for_initialization();
-        let _mutex = self.acquire_mutex();
-        let counts = self.payload.all_counts();
-        let count_for_source = *counts.get(source_idx)? as usize;
-        if count_for_source == 0 {
-            return None;
-        }
-        let by_source = self.payload.remaining_by_source_mut();
-        let slot = by_source.get_mut(source_idx)?;
-        if *slot == 0 {
-            return None;
-        }
-        *slot -= 1;
-        let claimed_idx = *slot as usize;
-        // Positional lookup gives the same largest-to-smallest claim order
-        // `checkout_segment` uses on the partitioning source.
-        Some(SegmentId::from_bytes(
-            self.payload.source_ids(source_idx)[claimed_idx],
-        ))
     }
 
     /// Returns a map of segment IDs to their deleted document counts.
@@ -1001,22 +985,18 @@ impl ParallelScanState {
         self.payload.query()
     }
 
-    /// Reset remaining_segments for a rescan. Called by amparallelrescan.
+    /// Restore the per-source remaining counts for a rescan. Called by amparallelrescan.
     pub fn reset(&mut self) {
-        self.remaining_segments = self.nsegments;
-        // Rescan must re-partition the same way as the initial scan; without this,
-        // every source observes zero remaining and emits nothing. Skip for
-        // single-source (slab never populated).
-        if self.payload.all_counts().len() > 1 {
-            let counts: Vec<u32> = self.payload.all_counts().to_vec();
-            for (slot, count) in self
-                .payload
-                .remaining_by_source_mut()
-                .iter_mut()
-                .zip(counts.iter())
-            {
-                *slot = *count;
-            }
+        // Rescan re-partitions the same way as the initial scan, so reset every source's
+        // remaining count back to its initial value.
+        let counts: Vec<u32> = self.payload.all_counts().to_vec();
+        for (slot, count) in self
+            .payload
+            .remaining_by_source_mut()
+            .iter_mut()
+            .zip(counts.iter())
+        {
+            *slot = *count;
         }
         // NOTE: We do not reset `queries_per_worker` here, so that it can be tracked across
         // rescans.
@@ -1025,11 +1005,6 @@ impl ParallelScanState {
     /// Per-source frozen segment set for `MvccSatisfies::ParallelWorker(ids)`. Lives
     /// in the shared payload so workers don't need a codec channel for it. Waits for
     /// leader init; otherwise a racing worker reads zero IDs.
-    ///
-    /// Sibling of [`Self::non_partitioning_segment_ids`] which folds every
-    /// non-partitioning source in one mutex acquire; this one takes the mutex per
-    /// call. Same TODO as the checkout pair: a single source-indexed entry point
-    /// would be cleaner once the locking discipline is unified.
     pub fn segment_ids_for_source(&mut self, source_idx: usize) -> HashSet<SegmentId> {
         self.wait_for_initialization();
         let _mutex = self.acquire_mutex();

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780077463179,
+  "lastUpdate": 1780085330108,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2658,6 +2658,78 @@ window.BENCHMARK_DATA = {
             "value": 68.56634064585616,
             "unit": "median tps",
             "extra": "avg tps: 80.58691715048376, max tps: 822.2852458180629, count: 55071"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a7f59d43233a552f40c49f0dce5fecdfbad9fa77",
+          "message": "fix: bumped Tantivy to fix the `TermSetDocSet::size_hint` overflow. (#5199)\n\n# Ticket(s) Closed\n\n- Closes #5197\n\n## What\n\nThis PR bumps the Tantivy fork rev to pick up the fix for\n`TermSetDocSet::size_hint` underflowing on an empty docset.\n\n## Why\n\n`size_hint` did `max_doc - doc_id.saturating_add(1)`. When `advance()`\nexhausts the column, `doc_id` lands on `TERMINATED` (`u32::MAX`) and the\nsubtraction wraps. `intersect_scorers` reaches for the hint via `cost()`\nwhile sorting sub-scorers, so any intersection that includes an empty\n`TermSetDocSet` panics in debug builds.\n\nqgen's `generated_joins_small` proptest hits this on `(products.name @@@\n'bob') AND (users.id @@@ '4')` whenever the seeded random data lands on\na no-match predicate.\n\n## How\n\nThe Tantivy fix is at paradedb/tantivy#146 (one-line `saturating_sub`).\n`Cargo.toml` and `Cargo.lock` get bumped here. Drafting because the rev\ncurrently pins the PR branch head; once #146 lands, this needs\nre-pinning to the merged commit before merging.\n\n## Tests\n\n- New regression test `aggregate_count_overflow` pins the failing shape.\nThe first commit captures today's `ERROR: attempt to subtract with\noverflow`; the bump flips it to `count = 0`.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-05-29T12:48:05-07:00",
+          "tree_id": "77ec8dc63afa48bd99ce5db767f00c78784a7a07",
+          "url": "https://github.com/paradedb/paradedb/commit/a7f59d43233a552f40c49f0dce5fecdfbad9fa77"
+        },
+        "date": 1780085298722,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 129.67653985606276,
+            "unit": "median tps",
+            "extra": "avg tps: 130.25969984502586, max tps: 171.29422614290473, count: 55057"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 458.94617177045325,
+            "unit": "median tps",
+            "extra": "avg tps: 461.7715321072081, max tps: 606.2831487206198, count: 55057"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3297.0744990088688,
+            "unit": "median tps",
+            "extra": "avg tps: 3280.1996788571582, max tps: 3323.277682312511, count: 55057"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 380.44846469176764,
+            "unit": "median tps",
+            "extra": "avg tps: 385.60747000046706, max tps: 451.080540881655, count: 55057"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2877.5524587044592,
+            "unit": "median tps",
+            "extra": "avg tps: 2841.7223388577095, max tps: 2891.455423653495, count: 110114"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 461.4063887217151,
+            "unit": "median tps",
+            "extra": "avg tps: 461.2802457535994, max tps: 618.5738552955746, count: 55057"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1886.6718045839289,
+            "unit": "median tps",
+            "extra": "avg tps: 1884.2183247963455, max tps: 1918.250659325357, count: 55057"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 55.94448535166943,
+            "unit": "median tps",
+            "extra": "avg tps: 79.70424075794223, max tps: 583.2226668323019, count: 55057"
           }
         ]
       }

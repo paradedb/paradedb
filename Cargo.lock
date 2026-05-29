@@ -788,7 +788,7 @@ checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "benchmarks"
-version = "0.23.5"
+version = "0.23.6"
 dependencies = [
  "anyhow",
  "approx",
@@ -2171,7 +2171,7 @@ dependencies = [
 [[package]]
 name = "datafusion-distributed"
 version = "1.0.0"
-source = "git+https://github.com/paradedb/datafusion-distributed?rev=650c530#650c5307507cb4d79fc0e06b4a545a5bac04d68a"
+source = "git+https://github.com/paradedb/datafusion-distributed?rev=340ceb5#340ceb52a10415ea5c81ba0de2541326faccedca"
 dependencies = [
  "arrow-flight",
  "arrow-ipc",
@@ -4975,7 +4975,7 @@ dependencies = [
 
 [[package]]
 name = "macros"
-version = "0.23.5"
+version = "0.23.6"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5690,7 +5690,7 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
-version = "0.23.5"
+version = "0.23.6"
 dependencies = [
  "anyhow",
  "arrow-array",
@@ -5743,7 +5743,6 @@ dependencies = [
  "tokenizers",
  "tokio",
  "typetag",
- "url",
  "uuid",
 ]
 
@@ -7998,7 +7997,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stressgres"
-version = "0.23.5"
+version = "0.23.6"
 dependencies = [
  "anyhow",
  "clap",
@@ -8072,7 +8071,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "superkmeans"
-version = "0.23.5"
+version = "0.23.6"
 
 [[package]]
 name = "supports-color"
@@ -8390,7 +8389,7 @@ dependencies = [
 
 [[package]]
 name = "tests"
-version = "0.23.5"
+version = "0.23.6"
 dependencies = [
  "anyhow",
  "approx",
@@ -8569,7 +8568,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokenizers"
-version = "0.23.5"
+version = "0.23.6"
 dependencies = [
  "anyhow",
  "emoji",

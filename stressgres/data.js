@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780074109650,
+  "lastUpdate": 1780074618178,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2586,6 +2586,78 @@ window.BENCHMARK_DATA = {
             "value": 84.5292562199061,
             "unit": "median tps",
             "extra": "avg tps: 93.4454073749433, max tps: 800.750142733713, count: 54540"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "60c5a4dce3ce7060caed29af7768942a321dc063",
+          "message": "chore: port shared changes from enterprise (WAL ordering, replication deflake, field alias) (#5201)\n\nCloses #5202\n\n## What & why\n\nThese changes already live in the `paradedb-enterprise` mirror but are\n**not enterprise-specific**. Porting them upstream shrinks the\nenterprise↔community divergence (so they stop reappearing in every\nrebase) and they stand on their own merits for community. Bundled into\none PR per request; happy to split.\n\nEach change was applied onto current `main` (the enterprise base for\nthese files is identical to `main`, so they apply cleanly).\n\n## Changes\n\n| Type | Area | Description |\n|------|------|-------------|\n| `fix` | `storage/linked_items.rs` | In `LinkedItemList::add_items`,\nemit the **new-page** WAL record before the previous tail's\n`next_blockno` **pointer-update** record. A standby replaying WAL\nserially could otherwise briefly see a pointer to a block the file\ndoesn't yet contain, and concurrent readers walking the chain fail with\n`XX001: could not read blocks … read only 0 of 8192 bytes`. The primary\nwas always safe (the file grows synchronously in `new_buffer()`); this\nonly bites on a replica. Includes a new\n`test_linked_items_extension_chain_is_walkable` regression test. |\n| `test` | `tests/replication.rs` | Deflake `test_logical_replication`:\nintroduce `RETRIES`/`RETRY_DELAY`, raise retries from 5→60, and **fix\ntwo incorrect validators** — the delete check waited for `!is_empty()`\n(which can never become true after a delete) and now waits for\n`is_empty()`; the COPY check now waits for exactly 3 rows instead of\n\"non-empty\". |\n| `fix` | `tests/fixtures/db.rs` | `fetch_retry` no longer returns an\nempty `vec![]` on the final attempt — that silently masked failures. It\nnow exhausts all retries and panics loudly on persistent failure. |\n| `feat` | `api/config.rs` | Add an optional `alias` argument to\n`paradedb.field(...)` to key the field config under an alias instead of\nthe column name. |\n| `refactor` | `postgres/parallel.rs` | Take `IndexScanDesc` by value in\n`get_bm25_scan_state` and callers; removes pointless `&mut` indirection,\nno behavior change. |\n| `docs` | `pg_search/README.md` | Remove a stray \"Install stable Rust:\"\nline. |\n\n## Testing\n\nCI\n\n---------\n\nSigned-off-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-05-29T12:49:57-04:00",
+          "tree_id": "76b8d037aae4b06552432286dc20c97f1873fb25",
+          "url": "https://github.com/paradedb/paradedb/commit/60c5a4dce3ce7060caed29af7768942a321dc063"
+        },
+        "date": 1780074586904,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 130.75110517847605,
+            "unit": "median tps",
+            "extra": "avg tps: 130.66960374916982, max tps: 146.56542141096836, count: 55071"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 469.83786088268363,
+            "unit": "median tps",
+            "extra": "avg tps: 466.0997157328791, max tps: 582.1246404531414, count: 55071"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3382.4910517272506,
+            "unit": "median tps",
+            "extra": "avg tps: 3361.605916673005, max tps: 3405.617972469081, count: 55071"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 389.43246680470713,
+            "unit": "median tps",
+            "extra": "avg tps: 389.3180197493115, max tps: 502.9643208176027, count: 55071"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2927.6617926956824,
+            "unit": "median tps",
+            "extra": "avg tps: 2909.721236001819, max tps: 2978.383153084789, count: 110142"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 469.3295634049947,
+            "unit": "median tps",
+            "extra": "avg tps: 466.8193118380009, max tps: 580.9035087564305, count: 55071"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1931.6878056683772,
+            "unit": "median tps",
+            "extra": "avg tps: 1919.557491597426, max tps: 1951.5951756396453, count: 55071"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 68.56634064585616,
+            "unit": "median tps",
+            "extra": "avg tps: 80.58691715048376, max tps: 822.2852458180629, count: 55071"
           }
         ]
       }

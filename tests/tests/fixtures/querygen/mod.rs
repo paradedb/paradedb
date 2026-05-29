@@ -150,7 +150,10 @@ pub fn generated_queries_setup(
     let seed_sql = format!("SET seed TO {};\n", rand::rng().random_range(-1.0..=1.0));
     seed_sql.as_str().execute(conn);
 
+    let segmentation = qgen_segmentation();
+
     let mut setup_sql = seed_sql;
+    setup_sql.push_str(&format!("-- qgen segmentation: {segmentation:?}\n"));
 
     let column_definitions = columns_def
         .iter()
@@ -269,6 +272,20 @@ pub fn generated_queries_setup(
             .map(|field| format!(",\n    sort_by = '{field} DESC NULLS LAST'"))
             .unwrap_or_default();
 
+        // Pin `target_segment_count` to match the number of commits we're about
+        // to do, so the layered merge policy doesn't immediately collapse the
+        // Multi-mode chunks back into a single segment. See `Segmentation`.
+        let target_segments = segmentation.target_segment_count();
+        let target_segment_clause = format!(",\n    target_segment_count = {target_segments}");
+
+        let bulk_inserts = build_bulk_inserts(
+            tname,
+            *row_count,
+            &insert_columns,
+            &random_generators,
+            segmentation,
+        );
+
         let sql = format!(
             r#"
 CREATE TABLE {tname} (
@@ -279,12 +296,12 @@ CREATE INDEX idx{tname} ON {tname} USING bm25 ({bm25_columns}) WITH (
     key_field = '{key_field}',
     text_fields = '{{ {text_fields} }}',
     numeric_fields = '{{ {numeric_fields} }}',
-    json_fields = '{{ {json_fields} }}'{sort_by_clause}
+    json_fields = '{{ {json_fields} }}'{sort_by_clause}{target_segment_clause}
 );
 
 INSERT into {tname} ({insert_columns}) VALUES ({sample_values});
 
-INSERT into {tname} ({insert_columns}) SELECT {random_generators} FROM generate_series(1, {row_count});
+{bulk_inserts}
 
 {b_tree_indexes}
 
@@ -383,6 +400,83 @@ fn force_parallel() -> bool {
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false)
     })
+}
+
+/// Default chunk count for [`Segmentation::Multi`]. The bulk `INSERT ... SELECT
+/// generate_series(...)` is split into this many separate statements, each its
+/// own commit so Tantivy writes a fresh segment per chunk.
+const MULTI_SEGMENT_CHUNKS: usize = 8;
+
+/// Controls whether each table in `generated_queries_setup` is built as one
+/// segment or as multiple segments. A single-segment shape is easy to plan
+/// against but hides any code path that depends on per-segment work
+/// distribution (e.g. parallel workers splitting segments across processes).
+#[derive(Copy, Clone, Debug)]
+pub enum Segmentation {
+    Single,
+    Multi(usize),
+}
+
+impl Segmentation {
+    /// Value passed to the `target_segment_count` index reloption. The layered
+    /// merge policy short-circuits when `current_segments <= target`, so we set
+    /// this to the number of commits we expect (1 sample row + bulk chunks).
+    fn target_segment_count(self) -> usize {
+        match self {
+            Segmentation::Single => 1,
+            Segmentation::Multi(k) => k + 1,
+        }
+    }
+}
+
+/// Reads `PARADEDB_QGEN_SEGMENTATION`. Recognised values: `single`, `multi`,
+/// `random` (default). Re-rolls on every call so different tables within the
+/// same test process can exercise different shapes.
+fn qgen_segmentation() -> Segmentation {
+    let mode = std::env::var("PARADEDB_QGEN_SEGMENTATION")
+        .ok()
+        .unwrap_or_default();
+    match mode.to_ascii_lowercase().as_str() {
+        "single" => Segmentation::Single,
+        "multi" => Segmentation::Multi(MULTI_SEGMENT_CHUNKS),
+        "" | "random" => {
+            if rand::rng().random_bool(0.5) {
+                Segmentation::Multi(MULTI_SEGMENT_CHUNKS)
+            } else {
+                Segmentation::Single
+            }
+        }
+        other => panic!(
+            "PARADEDB_QGEN_SEGMENTATION must be 'single', 'multi', or 'random'; got '{other}'"
+        ),
+    }
+}
+
+/// Emit the bulk-INSERT block for one table. For Single this is the historical
+/// single statement. For Multi(k) we split `row_count` rows into k separate
+/// `INSERT ... generate_series` statements, distributed as evenly as possible.
+fn build_bulk_inserts(
+    tname: &str,
+    row_count: usize,
+    insert_columns: &str,
+    random_generators: &str,
+    segmentation: Segmentation,
+) -> String {
+    let chunk_sizes: Vec<usize> = match segmentation {
+        Segmentation::Single => vec![row_count],
+        Segmentation::Multi(k) => (0..k).map(|i| (row_count + i) / k).collect(),
+    };
+
+    chunk_sizes
+        .into_iter()
+        .filter(|chunk| *chunk > 0)
+        .map(|chunk| {
+            format!(
+                "INSERT into {tname} ({insert_columns}) SELECT {random_generators} FROM generate_series(1, {chunk});",
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 /// Server-side `statement_timeout` (ms) emitted by `PgGucs::set`, so a hung query

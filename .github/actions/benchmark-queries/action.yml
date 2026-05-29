@@ -102,8 +102,18 @@ runs:
             rows = sorted(proc.stdout.splitlines())
             return hashlib.sha256("\n".join(rows).encode()).hexdigest(), None
 
+        # Only check files that have an MPP alternative. The other files
+        # are deliberately running shape-different variants (and many add
+        # `LIMIT N` over `ORDER BY` columns with ties, where SQL itself
+        # doesn't pin a unique row set so the hashes legitimately diverge).
+        def file_touches_mpp(path):
+            with open(path) as f:
+                return "enable_mpp" in f.read().lower()
+
         mismatches, errors = [], []
         for path in sorted(glob.glob(f"datasets/{dataset}/queries/*.sql")):
+            if not file_touches_mpp(path):
+                continue
             base = os.path.basename(path)
             alts = alternatives(path)
             by_select = {}

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780076776950,
+  "lastUpdate": 1780077429405,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24334,6 +24334,54 @@ window.BENCHMARK_DATA = {
             "value": 273.19006774136926,
             "unit": "median tps",
             "extra": "avg tps: 264.64301818953135, max tps: 563.7611263854451, count: 107704"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "60c5a4dce3ce7060caed29af7768942a321dc063",
+          "message": "chore: port shared changes from enterprise (WAL ordering, replication deflake, field alias) (#5201)\n\nCloses #5202\n\n## What & why\n\nThese changes already live in the `paradedb-enterprise` mirror but are\n**not enterprise-specific**. Porting them upstream shrinks the\nenterprise↔community divergence (so they stop reappearing in every\nrebase) and they stand on their own merits for community. Bundled into\none PR per request; happy to split.\n\nEach change was applied onto current `main` (the enterprise base for\nthese files is identical to `main`, so they apply cleanly).\n\n## Changes\n\n| Type | Area | Description |\n|------|------|-------------|\n| `fix` | `storage/linked_items.rs` | In `LinkedItemList::add_items`,\nemit the **new-page** WAL record before the previous tail's\n`next_blockno` **pointer-update** record. A standby replaying WAL\nserially could otherwise briefly see a pointer to a block the file\ndoesn't yet contain, and concurrent readers walking the chain fail with\n`XX001: could not read blocks … read only 0 of 8192 bytes`. The primary\nwas always safe (the file grows synchronously in `new_buffer()`); this\nonly bites on a replica. Includes a new\n`test_linked_items_extension_chain_is_walkable` regression test. |\n| `test` | `tests/replication.rs` | Deflake `test_logical_replication`:\nintroduce `RETRIES`/`RETRY_DELAY`, raise retries from 5→60, and **fix\ntwo incorrect validators** — the delete check waited for `!is_empty()`\n(which can never become true after a delete) and now waits for\n`is_empty()`; the COPY check now waits for exactly 3 rows instead of\n\"non-empty\". |\n| `fix` | `tests/fixtures/db.rs` | `fetch_retry` no longer returns an\nempty `vec![]` on the final attempt — that silently masked failures. It\nnow exhausts all retries and panics loudly on persistent failure. |\n| `feat` | `api/config.rs` | Add an optional `alias` argument to\n`paradedb.field(...)` to key the field config under an alias instead of\nthe column name. |\n| `refactor` | `postgres/parallel.rs` | Take `IndexScanDesc` by value in\n`get_bm25_scan_state` and callers; removes pointless `&mut` indirection,\nno behavior change. |\n| `docs` | `pg_search/README.md` | Remove a stray \"Install stable Rust:\"\nline. |\n\n## Testing\n\nCI\n\n---------\n\nSigned-off-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-05-29T12:49:57-04:00",
+          "tree_id": "76b8d037aae4b06552432286dc20c97f1873fb25",
+          "url": "https://github.com/paradedb/paradedb/commit/60c5a4dce3ce7060caed29af7768942a321dc063"
+        },
+        "date": 1780077395713,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 579.8922122531717,
+            "unit": "median tps",
+            "extra": "avg tps: 580.6115302368987, max tps: 752.3141797468617, count: 53857"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 611.8811673543486,
+            "unit": "median tps",
+            "extra": "avg tps: 612.1691814259874, max tps: 803.7031365060814, count: 53857"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 90.20696224637574,
+            "unit": "median tps",
+            "extra": "avg tps: 90.24709139170945, max tps: 91.94025193419252, count: 53857"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 271.1984518090431,
+            "unit": "median tps",
+            "extra": "avg tps: 263.06629584742365, max tps: 550.5589463678164, count: 107714"
           }
         ]
       }

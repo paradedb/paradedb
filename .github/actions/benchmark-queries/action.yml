@@ -83,11 +83,18 @@ runs:
             return stmt.rsplit(";", 1)[-1].strip().lower()
 
         def hash_rows(stmt):
-            # Use raw `psql` so SET ... ; SELECT ... runs in a single session.
-            # `-At` gives unaligned, tuple-only output; rows sorted to absorb
-            # non-deterministic ordering in `ORDER BY`-less queries.
+            # `-q -X -P "tuples_only=on" -P "format=unaligned"` suppresses
+            # the "SET" command tags emitted by the GUC prefix so only the
+            # SELECT's rows reach stdout. Rows sorted to absorb queries
+            # that don't carry an `ORDER BY`.
             proc = subprocess.run(
-                ["psql", url, "-At", "-v", "ON_ERROR_STOP=1", "-c", stmt],
+                [
+                    "psql", url, "-q", "-X",
+                    "-P", "tuples_only=on",
+                    "-P", "format=unaligned",
+                    "-v", "ON_ERROR_STOP=1",
+                    "-c", stmt,
+                ],
                 capture_output=True, text=True
             )
             if proc.returncode != 0:

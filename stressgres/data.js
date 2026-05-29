@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780073369155,
+  "lastUpdate": 1780073403362,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7202,6 +7202,138 @@ window.BENCHMARK_DATA = {
             "value": 56.62890625,
             "unit": "median mem",
             "extra": "avg mem: 56.22416993694733, max mem: 68.73046875, count: 55073"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d1bbfa0c8ab4f28084b2cdeb898310bceb72ad06",
+          "message": "fix(joinscan): recover equi-key from parameterized inner index when joinrestrictinfo is empty. (#5185)\n\n# Ticket(s) Closed\n\n- Closes #5186\n\n## What\n\nThis PR adds a fallback to `inner_path->param_info->ppi_clauses` in\n`collect_join_sources_join_rel` for when `JoinPath.joinrestrictinfo`\ncarries no equi-key.\n\n## Why\n\nPG drops a join clause from `joinrestrictinfo` when a parameterized\ninner index lookup already enforces it. For a `NestPath` whose inner\nside is a parameterized bitmap-index scan, the equi-key disappears from\n`joinrestrictinfo` and shows up only on `ppi_clauses` for the inner base\nrel.\n\n`collect_join_sources_join_rel` read only `joinrestrictinfo`, saw no\nequi-key, returned `None`, and the 3-way `JoinScan` never got\nregistered. PG fell back to its own nested-loop / bitmap plan. Rows were\ncorrect; BM25 acceleration was lost.\n\nThe shape comes up whenever `enable_seqscan = off` and `enable_indexscan\n= off` are both set with `paradedb.enable_join_custom_scan = on`.\n#5176's `de7eef6b` flipped the qgen test from forced-default GUCs to\nproptest-generated GUCs, which is how the failure showed up.\n\n## How\n\nWhen the `joinrestrictinfo` extraction yields no equi-key, walk\n`inner_path->param_info->ppi_clauses` and merge any equi-keys / `@@@`\nclauses into the in-progress `JoinConditions`. The rest of the\nreconstruction (fast-field checks, `absorbed_search_clauses` partition,\n`Inner`-only gate, `JoinNode` build) runs unchanged.\n\n## Tests\n\n- New regression test `joinscan_null_jri` captures the failing shape and\npins the post-fix `EXPLAIN` showing `Custom Scan (ParadeDB Join Scan)`.\n- `joinscan_*` and `aggregate_join_*` regression suites pass.\n- `cargo test --package tests --test qgen generated_joinscan` passes.",
+          "timestamp": "2026-05-29T09:29:04-07:00",
+          "tree_id": "0181994e38d84b2afe518b3cea12d22196646b56",
+          "url": "https://github.com/paradedb/paradedb/commit/d1bbfa0c8ab4f28084b2cdeb898310bceb72ad06"
+        },
+        "date": 1780073371903,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.275363,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.689452779727308, max cpu: 24.024025, count: 54540"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 66.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 66.24595172407865, max mem: 77.265625, count: 54540"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.895230343790378, max cpu: 19.009901, count: 54540"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 65.39453125,
+            "unit": "median mem",
+            "extra": "avg mem: 65.31424513545105, max mem: 76.30078125, count: 54540"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.736022795700512, max cpu: 9.430255, count: 54540"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 36.21875,
+            "unit": "median mem",
+            "extra": "avg mem: 36.14481250859461, max mem: 38.23828125, count: 54540"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.690457108435365, max cpu: 9.338522, count: 54540"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 63.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 63.182953021864684, max mem: 74.7734375, count: 54540"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.682252358195942, max cpu: 9.495549, count: 109080"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 62.8203125,
+            "unit": "median mem",
+            "extra": "avg mem: 62.046260879343144, max mem: 73.8203125, count: 109080"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1758,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1752.073230656399, max block_count: 3080.0, count: 54540"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 14.40914924825816, max segment_count: 31.0, count: 54540"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.943788140348676, max cpu: 18.953604, count: 54540"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 65.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 65.1918963576045, max mem: 76.1640625, count: 54540"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.768069246526329, max cpu: 9.375, count: 54540"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 54.40234375,
+            "unit": "median mem",
+            "extra": "avg mem: 54.20272785742116, max mem: 64.95703125, count: 54540"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.879479846994191, max cpu: 4.7524753, count: 54540"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 57.51171875,
+            "unit": "median mem",
+            "extra": "avg mem: 56.33904702970297, max mem: 69.6015625, count: 54540"
           }
         ]
       }

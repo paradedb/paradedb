@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780001304979,
+  "lastUpdate": 1780029416677,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2442,6 +2442,78 @@ window.BENCHMARK_DATA = {
             "value": 61.08920288954316,
             "unit": "median tps",
             "extra": "avg tps: 64.16209526386389, max tps: 240.47589217157187, count: 55196"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3c76fee2659fe68cb769c88b5a570bd2b77f8f26",
+          "message": "chore: Bump 0.23.5 to 0.23.6 (#5203)\n\n# Description\n\nBumps the workspace version from `0.23.5` to `0.23.6` and adds an empty\nupgrade script (`pg_search--0.23.5--0.23.6.sql`).\n\n- `Cargo.toml` / `Cargo.lock`: workspace version `0.23.5` → `0.23.6`\n- `pg_search/sql/pg_search--0.23.5--0.23.6.sql`: empty upgrade script\n(just the `\\echo ... \\quit` header)\n\nDocs are intentionally left untouched.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-29T00:16:46-04:00",
+          "tree_id": "7471e7f211175bd1926a0be2b3d8445a20e05b2d",
+          "url": "https://github.com/paradedb/paradedb/commit/3c76fee2659fe68cb769c88b5a570bd2b77f8f26"
+        },
+        "date": 1780029385446,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 132.87389140017902,
+            "unit": "median tps",
+            "extra": "avg tps: 133.5805827602655, max tps: 144.42802323703398, count: 55073"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 486.06995497954614,
+            "unit": "median tps",
+            "extra": "avg tps: 487.4877552530206, max tps: 608.3715213704096, count: 55073"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3316.3170563417298,
+            "unit": "median tps",
+            "extra": "avg tps: 3303.9323070334312, max tps: 3335.7764331842695, count: 55073"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 409.7855764475292,
+            "unit": "median tps",
+            "extra": "avg tps: 414.86001168911696, max tps: 635.7464998976448, count: 55073"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2898.4834583205206,
+            "unit": "median tps",
+            "extra": "avg tps: 2863.6732334633157, max tps: 2935.5325425840383, count: 110146"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 487.12195344327154,
+            "unit": "median tps",
+            "extra": "avg tps: 488.98978875743256, max tps: 621.5541127942457, count: 55073"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1895.634000897305,
+            "unit": "median tps",
+            "extra": "avg tps: 1883.2466565061954, max tps: 1901.485972830572, count: 55073"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 106.55150733661458,
+            "unit": "median tps",
+            "extra": "avg tps: 108.6325968595413, max tps: 832.7538754283478, count: 55073"
           }
         ]
       }

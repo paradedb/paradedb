@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780073403362,
+  "lastUpdate": 1780074074014,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8590,6 +8590,42 @@ window.BENCHMARK_DATA = {
             "value": 5.367471430104428,
             "unit": "median tps",
             "extra": "avg tps: 4.8156473810441955, max tps: 6.007285335749914, count: 57719"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d1bbfa0c8ab4f28084b2cdeb898310bceb72ad06",
+          "message": "fix(joinscan): recover equi-key from parameterized inner index when joinrestrictinfo is empty. (#5185)\n\n# Ticket(s) Closed\n\n- Closes #5186\n\n## What\n\nThis PR adds a fallback to `inner_path->param_info->ppi_clauses` in\n`collect_join_sources_join_rel` for when `JoinPath.joinrestrictinfo`\ncarries no equi-key.\n\n## Why\n\nPG drops a join clause from `joinrestrictinfo` when a parameterized\ninner index lookup already enforces it. For a `NestPath` whose inner\nside is a parameterized bitmap-index scan, the equi-key disappears from\n`joinrestrictinfo` and shows up only on `ppi_clauses` for the inner base\nrel.\n\n`collect_join_sources_join_rel` read only `joinrestrictinfo`, saw no\nequi-key, returned `None`, and the 3-way `JoinScan` never got\nregistered. PG fell back to its own nested-loop / bitmap plan. Rows were\ncorrect; BM25 acceleration was lost.\n\nThe shape comes up whenever `enable_seqscan = off` and `enable_indexscan\n= off` are both set with `paradedb.enable_join_custom_scan = on`.\n#5176's `de7eef6b` flipped the qgen test from forced-default GUCs to\nproptest-generated GUCs, which is how the failure showed up.\n\n## How\n\nWhen the `joinrestrictinfo` extraction yields no equi-key, walk\n`inner_path->param_info->ppi_clauses` and merge any equi-keys / `@@@`\nclauses into the in-progress `JoinConditions`. The rest of the\nreconstruction (fast-field checks, `absorbed_search_clauses` partition,\n`Inner`-only gate, `JoinNode` build) runs unchanged.\n\n## Tests\n\n- New regression test `joinscan_null_jri` captures the failing shape and\npins the post-fix `EXPLAIN` showing `Custom Scan (ParadeDB Join Scan)`.\n- `joinscan_*` and `aggregate_join_*` regression suites pass.\n- `cargo test --package tests --test qgen generated_joinscan` passes.",
+          "timestamp": "2026-05-29T09:29:04-07:00",
+          "tree_id": "0181994e38d84b2afe518b3cea12d22196646b56",
+          "url": "https://github.com/paradedb/paradedb/commit/d1bbfa0c8ab4f28084b2cdeb898310bceb72ad06"
+        },
+        "date": 1780074042065,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.882814545569281,
+            "unit": "median tps",
+            "extra": "avg tps: 6.753894666084297, max tps: 10.271448586885269, count: 57547"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.372331190680419,
+            "unit": "median tps",
+            "extra": "avg tps: 4.832518023679057, max tps: 6.029806482736096, count: 57547"
           }
         ]
       }

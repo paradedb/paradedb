@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780086067117,
+  "lastUpdate": 1780086756126,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13154,6 +13154,54 @@ window.BENCHMARK_DATA = {
             "value": 5.422840978163555,
             "unit": "median tps",
             "extra": "avg tps: 5.461613121935052, max tps: 7.552773684384241, count: 56149"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a7f59d43233a552f40c49f0dce5fecdfbad9fa77",
+          "message": "fix: bumped Tantivy to fix the `TermSetDocSet::size_hint` overflow. (#5199)\n\n# Ticket(s) Closed\n\n- Closes #5197\n\n## What\n\nThis PR bumps the Tantivy fork rev to pick up the fix for\n`TermSetDocSet::size_hint` underflowing on an empty docset.\n\n## Why\n\n`size_hint` did `max_doc - doc_id.saturating_add(1)`. When `advance()`\nexhausts the column, `doc_id` lands on `TERMINATED` (`u32::MAX`) and the\nsubtraction wraps. `intersect_scorers` reaches for the hint via `cost()`\nwhile sorting sub-scorers, so any intersection that includes an empty\n`TermSetDocSet` panics in debug builds.\n\nqgen's `generated_joins_small` proptest hits this on `(products.name @@@\n'bob') AND (users.id @@@ '4')` whenever the seeded random data lands on\na no-match predicate.\n\n## How\n\nThe Tantivy fix is at paradedb/tantivy#146 (one-line `saturating_sub`).\n`Cargo.toml` and `Cargo.lock` get bumped here. Drafting because the rev\ncurrently pins the PR branch head; once #146 lands, this needs\nre-pinning to the merged commit before merging.\n\n## Tests\n\n- New regression test `aggregate_count_overflow` pins the failing shape.\nThe first commit captures today's `ERROR: attempt to subtract with\noverflow`; the bump flips it to `count = 0`.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-05-29T12:48:05-07:00",
+          "tree_id": "77ec8dc63afa48bd99ce5db767f00c78784a7a07",
+          "url": "https://github.com/paradedb/paradedb/commit/a7f59d43233a552f40c49f0dce5fecdfbad9fa77"
+        },
+        "date": 1780086724945,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1096.5253417004667,
+            "unit": "median tps",
+            "extra": "avg tps: 1087.954081031946, max tps: 1149.629372197305, count: 56091"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 624.9036038033777,
+            "unit": "median tps",
+            "extra": "avg tps: 566.2344933986982, max tps: 975.3788875914624, count: 56091"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1767.102757151554,
+            "unit": "median tps",
+            "extra": "avg tps: 1715.3604260240961, max tps: 1948.0970129630748, count: 56091"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.320588848014965,
+            "unit": "median tps",
+            "extra": "avg tps: 5.3372618256936075, max tps: 6.433018739846767, count: 56091"
           }
         ]
       }

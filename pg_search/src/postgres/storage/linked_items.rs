@@ -373,15 +373,46 @@ impl<T: From<PgItem> + Into<PgItem> + Debug + Clone> LinkedItemList<T> {
                     let next_blockno = page.next_blockno();
                     buffer = self.bman.get_buffer_mut(next_blockno);
                 } else {
-                    // need to create new block and link it to this one
-                    let mut new_page = self.bman.new_buffer();
-                    let new_blockno = new_page.number();
-                    new_page.init_page();
+                    // Extend the list with a new tail block.
+                    //
+                    // Ordering is load-bearing for physical replication:
+                    // we must emit the WAL record for the new block
+                    // (`log_newpage_buffer`) BEFORE the WAL record for the
+                    // previous tail's `next_blockno` update
+                    // (`GenericXLogFinish`), so that a standby replaying
+                    // serially always materializes the new block on disk
+                    // before any pointer references it.
+                    //
+                    // On the primary this ordering is already safe because
+                    // `new_buffer()` extends the relation file synchronously;
+                    // but on a standby, the file grows only when WAL replays.
+                    // If the pointer-update record lands in the log ahead of
+                    // the new-page record, a standby briefly sees
+                    // `prev.next_blockno = new_blockno` while the file is
+                    // still too short to contain `new_blockno`, and
+                    // concurrent readers walking the chain fail with
+                    // `XX001: could not read blocks N..N ... read only 0 of
+                    // 8192 bytes`.
+                    //
+                    // We achieve the correct order by allocating and
+                    // initializing the new page in an inner scope so its
+                    // `BufferMut` drops (and emits `log_newpage_buffer`)
+                    // before we touch the previous tail's `next_blockno`.
+                    // Re-opening the new block via `get_buffer_mut` then
+                    // makes the reassignment of `buffer` drop the old tail
+                    // (emitting `GenericXLogFinish` for the pointer update)
+                    // strictly after the new-page record.
+                    let new_blockno = {
+                        let mut new_page = self.bman.new_buffer();
+                        let bn = new_page.number();
+                        new_page.init_page();
+                        bn
+                    };
 
                     let special = page.special_mut::<BM25PageSpecialData>();
                     special.next_blockno = new_blockno;
 
-                    buffer = new_page;
+                    buffer = self.bman.get_buffer_mut(new_blockno);
                 }
             }
         }
@@ -920,6 +951,70 @@ mod tests {
         guard.commit();
         assert_eq!(linked_list_block_numbers(&list), duplicate_block_numbers);
         assert_eq!(list.list(None), duplicate_contents);
+    }
+
+    /// Extending the linked list with enough entries to span many pages must
+    /// keep the chain consistent: every `next_blockno` pointer on every page
+    /// must reference a block that is already part of the list, and reading
+    /// the list back must return every entry that was added, in order.
+    ///
+    /// The `add_items` extension path was historically vulnerable to a
+    /// WAL-ordering bug where the pointer-update WAL record could be emitted
+    /// before the new-page WAL record, causing standby replay to briefly
+    /// see a pointer to a not-yet-materialized block. On the primary the
+    /// file grows synchronously inside `new_buffer()`, so chain walks there
+    /// were always well-formed; this test asserts that invariant holds and
+    /// guards against future refactors that could regress it.
+    #[pg_test]
+    unsafe fn test_linked_items_extension_chain_is_walkable() {
+        let relation_oid = init_bm25_index();
+        let indexrel = PgSearchRelation::open(relation_oid);
+
+        // Force the list to span many pages by inserting enough entries
+        // that add_items must extend the chain several times.
+        let n = 5000usize;
+        let entries = (0..n)
+            .map(|_| {
+                SegmentMetaEntry::new_immutable(
+                    random_segment_id(),
+                    0,
+                    pg_sys::InvalidTransactionId,
+                    SegmentMetaEntryImmutable {
+                        postings: Some(make_fake_postings(&indexrel)),
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let mut list = LinkedItemList::<SegmentMetaEntry>::create_with_fsm(&indexrel);
+        list.add_items(&entries, None);
+
+        // Every next_blockno pointer must reference a block that is itself
+        // part of the chain. `linked_list_block_numbers` walks the chain via
+        // `next_blockno` and collects block numbers; if any pointer led to
+        // a block that could not be opened, the walk would panic (on the
+        // primary) or short-read (on a standby). Completing the walk plus
+        // a read of every page's special area proves the chain is intact.
+        let chain_blocks = linked_list_block_numbers(&list);
+        assert!(
+            chain_blocks.len() > 1,
+            "expected multiple pages for {n} entries, got {} page(s)",
+            chain_blocks.len()
+        );
+
+        // Reading the list back must return exactly the entries we added,
+        // preserving insertion order. This also exercises every page on
+        // the chain (including the most recently-extended tail pages).
+        let read_back = list.list(None);
+        assert_eq!(read_back.len(), entries.len(), "entry count mismatch");
+        for (i, (got, expected)) in read_back.iter().zip(entries.iter()).enumerate() {
+            assert_eq!(
+                got.segment_id(),
+                expected.segment_id(),
+                "entry {i} segment_id mismatch after chain extension"
+            );
+        }
     }
 
     fn init_bm25_index() -> pg_sys::Oid {

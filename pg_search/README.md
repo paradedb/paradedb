@@ -11,8 +11,6 @@ This README covers development of the `pg_search` extension. For installation, d
 
 ### Rust
 
-Install stable Rust:
-
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 rustup install stable

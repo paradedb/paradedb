@@ -595,7 +595,31 @@ unsafe fn collect_join_sources_join_rel(
 
         // Extract keys for this level
         let join_restrict_info = (*join_path).joinrestrictinfo;
-        let join_conditions = extract_join_conditions_from_list(join_restrict_info, &all_sources);
+        let mut join_conditions =
+            extract_join_conditions_from_list(join_restrict_info, &all_sources);
+
+        // PG drops a join clause from `joinrestrictinfo` when a parameterized
+        // inner index lookup already enforces it (the inner index's `ppi`
+        // clauses become the join condition for the `NestPath`). The clause
+        // still lives on `inner_path->param_info->ppi_clauses` for the base
+        // rel. Pull it in here so we can recover the equi-key. Without this
+        // the 3-way `JoinScan` declines whenever PG picks a parameterized
+        // inner bitmap-index plan.
+        if join_conditions.equi_keys.is_empty() {
+            let inner_param = (*inner_path).param_info;
+            if !inner_param.is_null() {
+                let ppi_clauses = (*inner_param).ppi_clauses;
+                if !ppi_clauses.is_null() {
+                    let extra = extract_join_conditions_from_list(ppi_clauses, &all_sources);
+                    join_conditions.equi_keys.extend(extra.equi_keys);
+                    join_conditions
+                        .other_conditions
+                        .extend(extra.other_conditions);
+                    join_conditions.has_search_predicate =
+                        join_conditions.has_search_predicate || extra.has_search_predicate;
+                }
+            }
+        }
 
         let jointype = (*join_path).jointype;
 

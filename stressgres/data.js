@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780030153495,
+  "lastUpdate": 1780030842864,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12110,6 +12110,54 @@ window.BENCHMARK_DATA = {
             "value": 5.413360757702092,
             "unit": "median tps",
             "extra": "avg tps: 5.449845892595861, max tps: 7.035925003878377, count: 56406"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3c76fee2659fe68cb769c88b5a570bd2b77f8f26",
+          "message": "chore: Bump 0.23.5 to 0.23.6 (#5203)\n\n# Description\n\nBumps the workspace version from `0.23.5` to `0.23.6` and adds an empty\nupgrade script (`pg_search--0.23.5--0.23.6.sql`).\n\n- `Cargo.toml` / `Cargo.lock`: workspace version `0.23.5` → `0.23.6`\n- `pg_search/sql/pg_search--0.23.5--0.23.6.sql`: empty upgrade script\n(just the `\\echo ... \\quit` header)\n\nDocs are intentionally left untouched.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-29T00:16:46-04:00",
+          "tree_id": "7471e7f211175bd1926a0be2b3d8445a20e05b2d",
+          "url": "https://github.com/paradedb/paradedb/commit/3c76fee2659fe68cb769c88b5a570bd2b77f8f26"
+        },
+        "date": 1780030811677,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1098.4309107743218,
+            "unit": "median tps",
+            "extra": "avg tps: 1091.9562877201631, max tps: 1168.5120192344755, count: 56298"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 617.418321416063,
+            "unit": "median tps",
+            "extra": "avg tps: 572.8971205714384, max tps: 1029.3933002390618, count: 56298"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1801.0943956394658,
+            "unit": "median tps",
+            "extra": "avg tps: 1751.6954066770033, max tps: 1938.026610291188, count: 56298"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.32245133702692,
+            "unit": "median tps",
+            "extra": "avg tps: 5.348557496113785, max tps: 6.792877008189269, count: 56298"
           }
         ]
       }

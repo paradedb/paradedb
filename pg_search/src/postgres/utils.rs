@@ -33,7 +33,7 @@ use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::var::find_vars;
 use crate::schema::{CategorizedFieldData, SearchField, SearchFieldType};
-use crate::vector::metric::{l2_normalize_in_place, VectorMetric};
+use crate::vector::metric::VectorMetric;
 use crate::vector::PgVector;
 use anyhow::{anyhow, Result};
 use chrono::{NaiveDate, NaiveTime};
@@ -827,18 +827,12 @@ pub unsafe fn row_to_search_document<'a>(
                     &value.into_tantivy_value(created_by_version),
                 );
             }
-        } else if let SearchFieldType::Vector(_, _, metric) = search_field.field_type() {
-            let mut vec = unsafe {
+        } else if matches!(search_field.field_type(), SearchFieldType::Vector(..)) {
+            let vec = unsafe {
                 PgVector::from_datum(actual_datum, false)
                     .expect("vector field datum should not be NULL")
                     .0
             };
-            // Keep cosine/L2 vectors on the unit sphere at the boundary.
-            // InnerProduct is left un-normalized because the caller asked
-            // for magnitude-aware IP.
-            if matches!(metric, VectorMetric::L2 | VectorMetric::Cosine) {
-                l2_normalize_in_place(&mut vec);
-            }
             document.add_vector(search_field.field(), &vec);
         } else {
             let tv = match search_field.field_type() {

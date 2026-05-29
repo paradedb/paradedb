@@ -1,8 +1,10 @@
 use tantivy::aggregation::agg_req::{Aggregation, AggregationVariants};
-use tantivy::aggregation::bucket::{DateHistogramAggregationReq, HistogramAggregation};
-use tantivy::aggregation::AggregationError;
+use tantivy::aggregation::bucket::{
+    DateHistogramAggregationReq, HistogramAggregation, HistogramBounds,
+};
+use tantivy::TantivyError;
 
-use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::datetime::{unix_millis_to_pg_micros, PostgresDateTime};
 use crate::postgres::types::is_pgoid_datetime_type;
 use crate::schema::SearchIndexSchema;
 
@@ -139,15 +141,32 @@ pub fn rewrite_aggregate_result_json_timestamps(
     }
 }
 
+fn unix_millis_bounds_to_pg_micros(bounds: HistogramBounds) -> HistogramBounds {
+    HistogramBounds {
+        min: unix_millis_to_pg_micros(bounds.min as i64) as f64,
+        max: unix_millis_to_pg_micros(bounds.max as i64) as f64,
+    }
+}
+
 fn date_histogram_req_to_histogram_agg(
-    _date_histogram: &DateHistogramAggregationReq,
-) -> Result<HistogramAggregation, AggregationError> {
-    unimplemented!();
+    date_histogram: &DateHistogramAggregationReq,
+) -> Result<HistogramAggregation, TantivyError> {
+    let mut histogram = date_histogram.to_histogram_req()?;
+    // tantivy converts the intervals to milliseconds, so we need to convert that to microseconds
+    histogram.interval *= 1_000.0;
+    histogram.offset = histogram.offset.map(|v| v * 1_000.0);
+    // the bounds are specified as unix milliseconds, so we need to convert that to pg microseconds
+    histogram.hard_bounds = histogram.hard_bounds.map(unix_millis_bounds_to_pg_micros);
+    histogram.extended_bounds = histogram
+        .extended_bounds
+        .map(unix_millis_bounds_to_pg_micros);
+
+    Ok(histogram)
 }
 
 /// If this agg contains date_histograms, rewrite them as regular histograms against the underlying
 /// pg_micros I64 representation
-pub fn rewrite_date_histogram_to_histogram(agg: &mut Aggregation) -> Result<(), AggregationError> {
+pub fn rewrite_date_histogram_to_histogram(agg: &mut Aggregation) -> Result<(), TantivyError> {
     if let AggregationVariants::DateHistogram(date_histogram) = &agg.agg {
         agg.agg =
             AggregationVariants::Histogram(date_histogram_req_to_histogram_agg(date_histogram)?);

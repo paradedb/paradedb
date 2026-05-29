@@ -24,6 +24,7 @@ use crate::index::reader::index::{
     SearchIndexReader, TopKAuxiliaryCollector, TopKSearchResults, MAX_TOPK_FEATURES,
 };
 use crate::postgres::customscan::aggregatescan::exec::AggregationResults;
+use crate::postgres::customscan::aggregatescan::json_rewrite::rewrite_date_histogram_to_histogram;
 use crate::postgres::customscan::aggregatescan::{AggIndexInfo, AggregateType};
 use crate::postgres::customscan::basescan::exec_methods::{ExecMethod, ExecState};
 use crate::postgres::customscan::basescan::projections::window_agg::WindowAggregateInfo;
@@ -32,6 +33,7 @@ use crate::postgres::customscan::builders::custom_path::ExecMethodType;
 use crate::postgres::customscan::limit_offset::LimitOffset;
 use crate::postgres::customscan::parallel::checkout_segment;
 use crate::postgres::heap::VisibilityChecker;
+use crate::postgres::storage::metadata::VersionInfo;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
 
@@ -219,7 +221,7 @@ impl TopKScanExecState {
         // Convert aggregates to Tantivy Aggregations
         let mut aggregations: tantivy::aggregation::agg_req::Aggregations = Default::default();
         for (idx, agg_type) in combined_agg_types.iter().enumerate() {
-            let agg = if let AggregateType::Custom { agg_json, .. } = agg_type {
+            let mut agg = if let AggregateType::Custom { agg_json, .. } = agg_type {
                 // For Custom aggregates, Tantivy's deserializer handles nested "aggs" automatically
                 serde_json::from_value(agg_json.clone())
                     .unwrap_or_else(|e| panic!("Failed to deserialize custom aggregate: {}", e))
@@ -231,6 +233,17 @@ impl TopKScanExecState {
                     sub_aggregation: Default::default(),
                 }
             };
+            if state
+                .indexrel()
+                .created_by_version()
+                .stores_datetimes_in_i64()
+            {
+                // We need to rewrite date_histogram requests to regular histogram rewquests because we are
+                // no longer storing dates in tantivy's DateTime
+                // We rewrite these here instead of at AggregateRequest construction time because we need
+                // the unmodified json later to decide how to rewrite the results.
+                rewrite_date_histogram_to_histogram(&mut agg).expect("This should always succeed because a valid date_histogram should always be a valid histogram");
+            }
             aggregations.insert(idx.to_string(), agg);
         }
 

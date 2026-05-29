@@ -384,14 +384,17 @@ pub fn execute_aggregate(
     planstate: *mut pg_sys::PlanState,
 ) -> Result<AggregationResults, Box<dyn Error>> {
     if index.created_by_version().stores_datetimes_in_i64() {
+        // We need to rewrite date_histogram requests to regular histogram rewquests because we are
+        // no longer storing dates in tantivy's DateTime
         // We rewrite these here instead of at AggregateRequest construction time because we need
         // the unmodified json later to decide how to rewrite the results.
         if let AggregateRequest::Json(aggregations) = &mut agg_req {
             for agg in aggregations.values_mut() {
-                rewrite_date_histogram_to_histogram(agg)?;
+                rewrite_date_histogram_to_histogram(agg).expect("This should always succeed because a valid date_histogram should always be a valid histogram");
             }
         }
     }
+    let agg_req = agg_req;
 
     unsafe {
         // Determine once whether this aggregation request originated from SQL

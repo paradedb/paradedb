@@ -35,11 +35,15 @@ pub fn pg_micros_to_unix_micros(pg_micros: i64) -> i64 {
         .unwrap()
 }
 
-#[allow(dead_code)]
 pub fn unix_micros_to_pg_micros(unix_micros: i64) -> i64 {
     unix_micros
         .checked_sub(PG_EPOCH_DIFF_FROM_UNIX_EPHOCH_MICROS)
         .unwrap()
+}
+
+pub fn unix_millis_to_pg_micros(unix_millis: i64) -> i64 {
+    let unix_micros = unix_millis.checked_mul(1_000).unwrap();
+    unix_micros_to_pg_micros(unix_micros)
 }
 
 /// The minimum microseconds from 1970-01-01 00:00:00 UTC that can be safely

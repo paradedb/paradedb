@@ -87,6 +87,13 @@ fn main() {
         println!("cargo:rustc-link-lib=c++");
     } else {
         println!("cargo:rustc-link-lib=stdc++");
+        // BLAS (sgemm_). apt: libopenblas-dev. Override via env if a distro
+        // ships a different provider (e.g. SKMEANS_BLAS_LIB=blas).
+        let blas_lib = env::var("SKMEANS_BLAS_LIB").unwrap_or_else(|_| "openblas".to_string());
+        if let Ok(dir) = env::var("SKMEANS_BLAS_LIB_DIR") {
+            println!("cargo:rustc-link-search=native={dir}");
+        }
+        println!("cargo:rustc-link-lib=dylib={blas_lib}");
     }
 }
 

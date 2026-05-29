@@ -48,7 +48,7 @@ class SIMDComputer<skmeans::DistanceFunction::l2, Quantization::u8> {
             vector1 += 64, vector2 += 64, num_dimensions -= 64;
         }
 
-        // Substracting unsigned vectors in AVX-512 is done by saturating subtraction:
+        // Subtracting unsigned vectors in AVX-512 is done by saturating subtraction:
         __m512i d_u8_vec = _mm512_or_si512(
             _mm512_subs_epu8(a_u8_vec, b_u8_vec), _mm512_subs_epu8(b_u8_vec, a_u8_vec)
         );

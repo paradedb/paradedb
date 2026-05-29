@@ -1094,7 +1094,7 @@ class SuperKMeans {
      *
      * @param data Data matrix
      * @param n_clusters Number of centroids to generate
-     * @param rotate Wheter to rotate the sampled centroids
+     * @param rotate Whether to rotate the sampled centroids
      * @return PDXLayout wrapper for the centroids
      */
     PDXLayout<q, alpha> GenerateCentroids(

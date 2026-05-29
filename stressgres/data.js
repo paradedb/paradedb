@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780032241486,
+  "lastUpdate": 1780073369155,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2514,6 +2514,78 @@ window.BENCHMARK_DATA = {
             "value": 106.55150733661458,
             "unit": "median tps",
             "extra": "avg tps: 108.6325968595413, max tps: 832.7538754283478, count: 55073"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d1bbfa0c8ab4f28084b2cdeb898310bceb72ad06",
+          "message": "fix(joinscan): recover equi-key from parameterized inner index when joinrestrictinfo is empty. (#5185)\n\n# Ticket(s) Closed\n\n- Closes #5186\n\n## What\n\nThis PR adds a fallback to `inner_path->param_info->ppi_clauses` in\n`collect_join_sources_join_rel` for when `JoinPath.joinrestrictinfo`\ncarries no equi-key.\n\n## Why\n\nPG drops a join clause from `joinrestrictinfo` when a parameterized\ninner index lookup already enforces it. For a `NestPath` whose inner\nside is a parameterized bitmap-index scan, the equi-key disappears from\n`joinrestrictinfo` and shows up only on `ppi_clauses` for the inner base\nrel.\n\n`collect_join_sources_join_rel` read only `joinrestrictinfo`, saw no\nequi-key, returned `None`, and the 3-way `JoinScan` never got\nregistered. PG fell back to its own nested-loop / bitmap plan. Rows were\ncorrect; BM25 acceleration was lost.\n\nThe shape comes up whenever `enable_seqscan = off` and `enable_indexscan\n= off` are both set with `paradedb.enable_join_custom_scan = on`.\n#5176's `de7eef6b` flipped the qgen test from forced-default GUCs to\nproptest-generated GUCs, which is how the failure showed up.\n\n## How\n\nWhen the `joinrestrictinfo` extraction yields no equi-key, walk\n`inner_path->param_info->ppi_clauses` and merge any equi-keys / `@@@`\nclauses into the in-progress `JoinConditions`. The rest of the\nreconstruction (fast-field checks, `absorbed_search_clauses` partition,\n`Inner`-only gate, `JoinNode` build) runs unchanged.\n\n## Tests\n\n- New regression test `joinscan_null_jri` captures the failing shape and\npins the post-fix `EXPLAIN` showing `Custom Scan (ParadeDB Join Scan)`.\n- `joinscan_*` and `aggregate_join_*` regression suites pass.\n- `cargo test --package tests --test qgen generated_joinscan` passes.",
+          "timestamp": "2026-05-29T09:29:04-07:00",
+          "tree_id": "0181994e38d84b2afe518b3cea12d22196646b56",
+          "url": "https://github.com/paradedb/paradedb/commit/d1bbfa0c8ab4f28084b2cdeb898310bceb72ad06"
+        },
+        "date": 1780073336649,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 125.89481161264536,
+            "unit": "median tps",
+            "extra": "avg tps: 126.08120466996544, max tps: 148.94405032294094, count: 54540"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 454.97377198920077,
+            "unit": "median tps",
+            "extra": "avg tps: 452.6678946045612, max tps: 606.0984937759746, count: 54540"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3220.5634102313634,
+            "unit": "median tps",
+            "extra": "avg tps: 3215.4822911216143, max tps: 3232.539945997585, count: 54540"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 385.50459449916076,
+            "unit": "median tps",
+            "extra": "avg tps: 386.7559344823316, max tps: 477.6820193402304, count: 54540"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2820.651908931115,
+            "unit": "median tps",
+            "extra": "avg tps: 2806.9658661086323, max tps: 2847.06586576484, count: 109080"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 456.537162127578,
+            "unit": "median tps",
+            "extra": "avg tps: 455.951394174823, max tps: 609.4674607636417, count: 54540"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1837.8339097486771,
+            "unit": "median tps",
+            "extra": "avg tps: 1824.6502133233644, max tps: 1868.0035674054877, count: 54540"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 84.5292562199061,
+            "unit": "median tps",
+            "extra": "avg tps: 93.4454073749433, max tps: 800.750142733713, count: 54540"
           }
         ]
       }

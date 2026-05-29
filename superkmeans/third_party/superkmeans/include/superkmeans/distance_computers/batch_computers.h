@@ -86,7 +86,7 @@ class BatchComputer<DistanceFunction::l2, Quantization::f32> {
     /**
      * @brief Finds the top-1 nearest neighbor for each query vector.
      *
-     * Computes L2 distances between X abd Y
+     * Computes L2 distances between X and Y
      * using the identity: ||x-y||² = ||x||² + ||y||² - 2*x·y
      *
      * @param x Query vectors in row-major layout (n_x × d)

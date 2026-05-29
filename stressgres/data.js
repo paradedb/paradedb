@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780030120468,
+  "lastUpdate": 1780030153495,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10422,6 +10422,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.4447734316832, max segment_count: 129.0, count: 57753"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3c76fee2659fe68cb769c88b5a570bd2b77f8f26",
+          "message": "chore: Bump 0.23.5 to 0.23.6 (#5203)\n\n# Description\n\nBumps the workspace version from `0.23.5` to `0.23.6` and adds an empty\nupgrade script (`pg_search--0.23.5--0.23.6.sql`).\n\n- `Cargo.toml` / `Cargo.lock`: workspace version `0.23.5` → `0.23.6`\n- `pg_search/sql/pg_search--0.23.5--0.23.6.sql`: empty upgrade script\n(just the `\\echo ... \\quit` header)\n\nDocs are intentionally left untouched.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-05-29T00:16:46-04:00",
+          "tree_id": "7471e7f211175bd1926a0be2b3d8445a20e05b2d",
+          "url": "https://github.com/paradedb/paradedb/commit/3c76fee2659fe68cb769c88b5a570bd2b77f8f26"
+        },
+        "date": 1780030122242,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.166023,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.609951953625643, max cpu: 42.72997, count: 57719"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 235.80105405607338, max mem: 237.58984375, count: 57719"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.502833248446112, max cpu: 33.267326, count: 57719"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 178.61328125,
+            "unit": "median mem",
+            "extra": "avg mem: 178.58012695397096, max mem: 179.3984375, count: 57719"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34835,
+            "unit": "median block_count",
+            "extra": "avg block_count: 34026.602176059874, max block_count: 36934.0, count: 57719"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 80,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 82.56761205149084, max segment_count: 135.0, count: 57719"
           }
         ]
       }

@@ -22,7 +22,7 @@ PYTHON_ENV_DIR="$(mktemp -d -t paradedb-docs-python.XXXXXX)"
 PYTHON_BIN="$PYTHON_ENV_DIR/bin/python"
 RUBY_GEM_HOME="$(mktemp -d -t paradedb-docs-ruby.XXXXXX)"
 DRIZZLE_ENV_DIR="$(mktemp -d -t paradedb-docs-drizzle.XXXXXX)"
-CSHARP_ENV_DIR="$(mktemp -d /private/tmp/paradedb-docs-csharp.XXXXXX)"
+CSHARP_ENV_DIR="$(mktemp -d -t paradedb-docs-csharp.XXXXXX)"
 
 cleanup() {
   rm -rf "$PYTHON_ENV_DIR"

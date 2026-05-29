@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780085330108,
+  "lastUpdate": 1780085364876,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -7610,6 +7610,138 @@ window.BENCHMARK_DATA = {
             "value": 57.26171875,
             "unit": "median mem",
             "extra": "avg mem: 56.454062639025075, max mem: 70.125, count: 55071"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a7f59d43233a552f40c49f0dce5fecdfbad9fa77",
+          "message": "fix: bumped Tantivy to fix the `TermSetDocSet::size_hint` overflow. (#5199)\n\n# Ticket(s) Closed\n\n- Closes #5197\n\n## What\n\nThis PR bumps the Tantivy fork rev to pick up the fix for\n`TermSetDocSet::size_hint` underflowing on an empty docset.\n\n## Why\n\n`size_hint` did `max_doc - doc_id.saturating_add(1)`. When `advance()`\nexhausts the column, `doc_id` lands on `TERMINATED` (`u32::MAX`) and the\nsubtraction wraps. `intersect_scorers` reaches for the hint via `cost()`\nwhile sorting sub-scorers, so any intersection that includes an empty\n`TermSetDocSet` panics in debug builds.\n\nqgen's `generated_joins_small` proptest hits this on `(products.name @@@\n'bob') AND (users.id @@@ '4')` whenever the seeded random data lands on\na no-match predicate.\n\n## How\n\nThe Tantivy fix is at paradedb/tantivy#146 (one-line `saturating_sub`).\n`Cargo.toml` and `Cargo.lock` get bumped here. Drafting because the rev\ncurrently pins the PR branch head; once #146 lands, this needs\nre-pinning to the merged commit before merging.\n\n## Tests\n\n- New regression test `aggregate_count_overflow` pins the failing shape.\nThe first commit captures today's `ERROR: attempt to subtract with\noverflow`; the bump flips it to `count = 0`.\n\n---------\n\nCo-authored-by: Stu Hood <stuhood@paradedb.com>",
+          "timestamp": "2026-05-29T12:48:05-07:00",
+          "tree_id": "77ec8dc63afa48bd99ce5db767f00c78784a7a07",
+          "url": "https://github.com/paradedb/paradedb/commit/a7f59d43233a552f40c49f0dce5fecdfbad9fa77"
+        },
+        "date": 1780085332555,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.397854857526239, max cpu: 24.0, count: 55057"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 66.3984375,
+            "unit": "median mem",
+            "extra": "avg mem: 66.26415876387199, max mem: 77.09765625, count: 55057"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.752856361547675, max cpu: 18.768328, count: 55057"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 65.41796875,
+            "unit": "median mem",
+            "extra": "avg mem: 65.29699710356994, max mem: 76.05859375, count: 55057"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.563342317566788, max cpu: 4.819277, count: 55057"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.890625,
+            "unit": "median mem",
+            "extra": "avg mem: 35.94707622611566, max mem: 37.5234375, count: 55057"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.72228771262429, max cpu: 9.257474, count: 55057"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 64.11328125,
+            "unit": "median mem",
+            "extra": "avg mem: 63.7809317928465, max mem: 75.046875, count: 55057"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.619345777552143, max cpu: 9.393347, count: 110114"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 63.578125,
+            "unit": "median mem",
+            "extra": "avg mem: 62.48593432147592, max mem: 74.2890625, count: 110114"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1761,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1762.3033038487386, max block_count: 3059.0, count: 55057"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 14,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 15.53266614599415, max segment_count: 28.0, count: 55057"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.747822008945803, max cpu: 18.768328, count: 55057"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 65.3515625,
+            "unit": "median mem",
+            "extra": "avg mem: 65.252372328337, max mem: 76.03515625, count: 55057"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.610951,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.560435210782558, max cpu: 4.729064, count: 55057"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 54.859375,
+            "unit": "median mem",
+            "extra": "avg mem: 54.31305851208747, max mem: 65.29296875, count: 55057"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6021094,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.076826093190604, max cpu: 4.6153846, count: 55057"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 57.86328125,
+            "unit": "median mem",
+            "extra": "avg mem: 54.83710766512433, max mem: 69.78515625, count: 55057"
           }
         ]
       }

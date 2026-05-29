@@ -82,7 +82,7 @@ runs:
         def select_text(stmt):
             return stmt.rsplit(";", 1)[-1].strip().lower()
 
-        def hash_rows(stmt):
+        def run_alt(stmt):
             # `-q -X -P "tuples_only=on" -P "format=unaligned"` suppresses
             # the "SET" command tags emitted by the GUC prefix so only the
             # SELECT's rows reach stdout. Rows sorted to absorb queries
@@ -98,9 +98,9 @@ runs:
                 capture_output=True, text=True
             )
             if proc.returncode != 0:
-                return None, (proc.stderr or proc.stdout).strip()
+                return None, None, (proc.stderr or proc.stdout).strip()
             rows = sorted(proc.stdout.splitlines())
-            return hashlib.sha256("\n".join(rows).encode()).hexdigest(), None
+            return rows, hashlib.sha256("\n".join(rows).encode()).hexdigest(), None
 
         # Only check files that have an MPP alternative. The other files
         # are deliberately running shape-different variants (and many add
@@ -109,6 +109,23 @@ runs:
         def file_touches_mpp(path):
             with open(path) as f:
                 return "enable_mpp" in f.read().lower()
+
+        def diff_snippet(rows_a, rows_b, label_a, label_b, limit=20):
+            set_a, set_b = set(rows_a), set(rows_b)
+            only_a = sorted(set_a - set_b)[:limit]
+            only_b = sorted(set_b - set_a)[:limit]
+            lines = [
+                f"      rowcounts: {label_a}={len(rows_a)} {label_b}={len(rows_b)}",
+                f"      symmetric-diff: {label_a}-only={len(set_a - set_b)}"
+                f" {label_b}-only={len(set_b - set_a)}",
+            ]
+            if only_a:
+                lines.append(f"      first {len(only_a)} {label_a}-only rows:")
+                lines.extend(f"        {r}" for r in only_a)
+            if only_b:
+                lines.append(f"      first {len(only_b)} {label_b}-only rows:")
+                lines.extend(f"        {r}" for r in only_b)
+            return "\n".join(lines)
 
         mismatches, errors = [], []
         for path in sorted(glob.glob(f"datasets/{dataset}/queries/*.sql")):
@@ -122,14 +139,14 @@ runs:
             for sel, members in by_select.items():
                 if len(members) < 2:
                     continue
-                results = []
+                runs = []
                 for idx, alt in members:
-                    h, err = hash_rows(alt)
+                    rows, h, err = run_alt(alt)
                     if err:
                         errors.append((base, idx, err))
-                    results.append((idx, h))
-                if len({h for _, h in results if h is not None}) > 1:
-                    mismatches.append((base, sel, results))
+                    runs.append((idx, rows, h))
+                if len({h for _, _, h in runs if h is not None}) > 1:
+                    mismatches.append((base, sel, runs))
 
         if errors:
             print("Query errors:")
@@ -137,11 +154,20 @@ runs:
                 print(f"  {f} alt {i}: {e}")
         if mismatches:
             print("\nAlternatives with the same SELECT but different result sets:")
-            for f, sel, results in mismatches:
+            for f, sel, runs in mismatches:
                 snip = sel[:120] + ("..." if len(sel) > 120 else "")
                 print(f"  {f}: {snip}")
-                for i, h in results:
+                for i, _rows, h in runs:
                     print(f"    alt {i}: {h}")
+                # Pin alt 0 as the reference and diff every other alt against it.
+                ref_idx, ref_rows, _ = runs[0]
+                for i, rows, h in runs[1:]:
+                    if h is None or rows is None:
+                        continue
+                    if h == runs[0][2]:
+                        continue
+                    print(f"    --- diff alt {ref_idx} vs alt {i} ---")
+                    print(diff_snippet(ref_rows, rows, f"alt{ref_idx}", f"alt{i}"))
         if errors or mismatches:
             sys.exit(1)
         print("All same-SELECT alternatives returned identical result sets.")

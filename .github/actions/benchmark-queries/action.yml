@@ -50,49 +50,84 @@ runs:
         echo "ROWS_LABEL=${{ inputs.size }}" >> $GITHUB_ENV
 
     # Group alternatives that share the same trailing `SELECT` (only the
-    # `SET` prefix differs, e.g. PG default vs DataFusion agg vs MPP). If
-    # they don't agree on `num_results`, one of the custom-scan paths has a
-    # correctness regression. Alternatives with different `SELECT`s
-    # (different query shapes — see `cardinality.sql`) don't get compared.
-    - name: Verify alternative-vs-base num_results equality
+    # `SET` prefix differs, e.g. PG default vs DataFusion agg vs MPP), run
+    # each variant and compare hashed result sets. `num_results` alone
+    # can't tell `COUNT(*) = 42` from `COUNT(*) = 99` (both have one row),
+    # so we hash the sorted rows and require an exact match. Alternatives
+    # with different `SELECT`s (different query shapes) don't get compared.
+    - name: Verify alternative-vs-base result equality
       working-directory: benchmarks/
       shell: bash
+      env:
+        DATASET: ${{ inputs.dataset }}
       run: |
         python3 - <<'PY'
-        import json, re, sys
-        with open("results.json") as f:
-            results = json.load(f)
+        import glob, hashlib, os, re, subprocess, sys
 
-        def select_text(extra: str) -> str:
-            m = re.search(r'query=(.*)$', extra, re.S)
-            if not m:
-                return ""
-            full = m.group(1).strip()
-            return full.rsplit(";", 1)[-1].strip().lower()
+        dataset = os.environ["DATASET"]
+        url = f"postgresql://localhost:288{os.environ['pg_version']}/postgres"
 
-        groups = {}
-        for r in results:
-            base_name = re.sub(r' - alternative \d+$', '', r["name"])
-            key = (base_name, select_text(r.get("extra", "")))
-            groups.setdefault(key, []).append((r["name"], r.get("num_results")))
+        def alternatives(path):
+            with open(path) as f:
+                content = f.read()
+            out = []
+            for raw in content.split(";\n"):
+                stripped = " ".join(
+                    line.split("--")[0].strip() for line in raw.splitlines()
+                ).strip()
+                if stripped:
+                    out.append(stripped)
+            return out
 
-        mismatches = []
-        for key, members in groups.items():
-            if len(members) < 2:
-                continue
-            counts = {n for _, n in members}
-            if len(counts) > 1:
-                mismatches.append((key, members))
+        def select_text(stmt):
+            return stmt.rsplit(";", 1)[-1].strip().lower()
 
+        def hash_rows(stmt):
+            # Use raw `psql` so SET ... ; SELECT ... runs in a single session.
+            # `-At` gives unaligned, tuple-only output; rows sorted to absorb
+            # non-deterministic ordering in `ORDER BY`-less queries.
+            proc = subprocess.run(
+                ["psql", url, "-At", "-v", "ON_ERROR_STOP=1", "-c", stmt],
+                capture_output=True, text=True
+            )
+            if proc.returncode != 0:
+                return None, (proc.stderr or proc.stdout).strip()
+            rows = sorted(proc.stdout.splitlines())
+            return hashlib.sha256("\n".join(rows).encode()).hexdigest(), None
+
+        mismatches, errors = [], []
+        for path in sorted(glob.glob(f"datasets/{dataset}/queries/*.sql")):
+            base = os.path.basename(path)
+            alts = alternatives(path)
+            by_select = {}
+            for idx, alt in enumerate(alts):
+                by_select.setdefault(select_text(alt), []).append((idx, alt))
+            for sel, members in by_select.items():
+                if len(members) < 2:
+                    continue
+                results = []
+                for idx, alt in members:
+                    h, err = hash_rows(alt)
+                    if err:
+                        errors.append((base, idx, err))
+                    results.append((idx, h))
+                if len({h for _, h in results if h is not None}) > 1:
+                    mismatches.append((base, sel, results))
+
+        if errors:
+            print("Query errors:")
+            for f, i, e in errors:
+                print(f"  {f} alt {i}: {e}")
         if mismatches:
-            print("Alternatives sharing the same SELECT disagree on num_results:")
-            for (base, sel), members in mismatches:
-                print(f"  {base}:")
-                print(f"    SELECT: {sel[:120]}{'...' if len(sel) > 120 else ''}")
-                for name, n in members:
-                    print(f"      {name}: {n}")
+            print("\nAlternatives with the same SELECT but different result sets:")
+            for f, sel, results in mismatches:
+                snip = sel[:120] + ("..." if len(sel) > 120 else "")
+                print(f"  {f}: {snip}")
+                for i, h in results:
+                    print(f"    alt {i}: {h}")
+        if errors or mismatches:
             sys.exit(1)
-        print("All same-SELECT alternatives produced matching num_results.")
+        print("All same-SELECT alternatives returned identical result sets.")
         PY
 
     - name: Print the Postgres Logs

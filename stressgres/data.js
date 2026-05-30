@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780103356335,
+  "lastUpdate": 1780103389169,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23726,6 +23726,114 @@ window.BENCHMARK_DATA = {
             "value": 174.91796875,
             "unit": "median mem",
             "extra": "avg mem: 172.31692384718517, max mem: 175.80078125, count: 55847"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "79d8906bf0aac7d91f22351327bd0acf49d2b93c",
+          "message": "fix(mpp): split non-partitioning source segments across MPP workers. (#5167)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis PR adds a per-source segment-claim counter to `ParallelScanState`.\nEach source in a multi-source MPP plan gets its own dynamic checkout,\ninstead of every worker scanning the full data for every\nnon-partitioning source.\n\n## Why\n\nMPP returned `n_workers * correct_count` on every join shape. PG-only\nreturned 7.5M; MPP at N=3 returned 15M, N=5 returned 30M, N=9 returned\n60M. Workers all opened the same frozen segment set for every\nnon-partitioning source and scanned the full data. The shuffle then\nshipped N copies of those rows to consumer tasks, and the join +\naggregate above counted each row N times.\n\nThe frozen-set replication is deliberate. It keeps `(segment_ord,\ndoc_id)` pairs consistent across workers for late materialization. The\nbug was the missing follow-up step to actually divide the segments\nbetween workers.\n\n## How\n\nThe shared parallel-scan state used to track remaining segments only for\nthe partitioning source. It now tracks them for every source. When MPP\nruns a multi-source plan, each non-partitioning source gets its own\ncounter in shared memory, and workers claim from whichever source\nthey're scanning. Each source's segments get divided between workers the\nsame way the partitioning source's already were.\n\nWorkers still open the same frozen segment set per non-partitioning\nsource, which is what keeps late materialization correct after the\nshuffle. The set itself moved out of the per-fragment codec channel into\nshared payload state, since every worker can read it directly once the\nleader has snapshotted.\n\nThe two MPP customscans tag each non-partitioning source with its\nposition in the source list. The tag activates the per-source claim path\nonly when MPP is the active execution mode. Under PG's own parallel hash\njoin, the driver does its own work splitting and still wants every\nworker to open the full set, so the replication path stays in place\nthere.\n\nSingle-source scans (BaseScan parallel, single-table top-k, paging,\ncount) never enter any of this. The per-source bookkeeping is gated on\nmultiple sources being present, so the non-MPP parallel hot path pays no\nextra cost.\n\n## Tests\n\nMPP multi-source join + aggregate returns correct result. Non-MPP\nparallel hash join returns the same.\n\nCaveat: per-source work distribution is bounded by segment count. With\none segment and N workers, only one worker scans that source. A\nlow-segment fallback (doc-modulo or `target_min_segments` GUC) is a\nfollow-up.",
+          "timestamp": "2026-05-29T17:13:59-07:00",
+          "tree_id": "a02254bb4654981b7ecc6807b58f208808ddd484",
+          "url": "https://github.com/paradedb/paradedb/commit/79d8906bf0aac7d91f22351327bd0acf49d2b93c"
+        },
+        "date": 1780103358026,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.9224673094846, max cpu: 41.7795, count: 55481"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 169.921875,
+            "unit": "median mem",
+            "extra": "avg mem: 145.4068845781664, max mem: 179.6953125, count: 55481"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.623120335803499, max cpu: 28.015566, count: 55481"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 121.171875,
+            "unit": "median mem",
+            "extra": "avg mem: 119.9859695774229, max mem: 121.25, count: 55481"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.2645311753793385, max cpu: 23.166023, count: 55481"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 170.4296875,
+            "unit": "median mem",
+            "extra": "avg mem: 145.45551031828464, max mem: 180.36328125, count: 55481"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16488,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16766.524161424633, max block_count: 31352.0, count: 55481"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.555140088658415, max cpu: 4.660194, count: 55481"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 111.203125,
+            "unit": "median mem",
+            "extra": "avg mem: 97.13118504251456, max mem: 139.6484375, count: 55481"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 25.668823561219156, max segment_count: 37.0, count: 55481"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.363998180708574, max cpu: 28.015566, count: 110962"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 181.88671875,
+            "unit": "median mem",
+            "extra": "avg mem: 163.52487017655818, max mem: 184.1171875, count: 110962"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.819577,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.071706726548642, max cpu: 27.826086, count: 55481"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 174.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 171.63771775472685, max mem: 175.3046875, count: 55481"
           }
         ]
       }

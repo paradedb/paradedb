@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780127252506,
+  "lastUpdate": 1780127285574,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11922,6 +11922,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 82.09379976459185, max segment_count: 130.0, count: 57772"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bd1caad7500eeb62509b82aca975f1403e061d41",
+          "message": "test: added randomized segmentation to qgen property-test setup. (#5209)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nTwo qgen tweaks so the property tests actually exercise MPP code paths.\n\n1. `Segmentation` knob in `generated_queries_setup`. Tables are randomly\nbuilt as one segment or as several.\n2. Pinned `paradedb.min_rows_per_worker` to `10` in `PgGucs::set()` so\nthe MPP planner engages on the 10-to-1000-row fixtures.\n\n## Why\n\nqgen used to do one bulk `INSERT ... SELECT generate_series(...)` per\ntable, which produced one BM25 segment. Anything that only shows up with\n`>1` segment per source slipped past every qgen run. The recent MPP\nper-source over-count is a fresh example: caught at 1M by the\nbench-equality check, missed by qgen.\n\nThe MPP planner also gates on `paradedb.min_rows_per_worker`, which\ndefaults to 300K. qgen tops out at 1000 rows, so even when `enable_mpp =\non` lands via `any::<PgGucs>()` the planner stays on the single-worker\npath. So even with multi-segment data from (1), every MPP-only code path\n(per-source segment claim accounting, worker fan-out) stayed uncovered.\nLowering the gate fixes that.\n\n## How\n\n**(1)** `qgen_segmentation()` picks `Single` or `Multi` at setup time,\n50/50. `Multi(k)` splits the bulk `INSERT` into `k` statements (default\n8), each its own commit so Tantivy writes a fresh segment per chunk. The\n`CREATE INDEX` pins `target_segment_count = k + 1` so the layered merge\npolicy short-circuits (it returns empty layer sizes when\n`current_segments <= target`) instead of collapsing the chunks back into\none.\n\nOverride with `PARADEDB_QGEN_SEGMENTATION=single|multi|random` to\nreproduce a failing case. The chosen mode is logged as `-- qgen\nsegmentation: ...` in the reproduction script.\n\n**(2)** One added line in `PgGucs::set()`: `SET\nparadedb.min_rows_per_worker TO 10;`.\n\n## Tests\n\nThe existing qgen suite picks up the random shape and the lowered gate\nautomatically.",
+          "timestamp": "2026-05-30T00:15:31-07:00",
+          "tree_id": "2cadb2b2c8968dd0ba1778308797188bcb6de33e",
+          "url": "https://github.com/paradedb/paradedb/commit/bd1caad7500eeb62509b82aca975f1403e061d41"
+        },
+        "date": 1780127254209,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.695506549507897, max cpu: 43.02789, count: 57741"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.87890625,
+            "unit": "median mem",
+            "extra": "avg mem: 235.73909888283455, max mem: 237.37109375, count: 57741"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.518133209838453, max cpu: 33.267326, count: 57741"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 178.16015625,
+            "unit": "median mem",
+            "extra": "avg mem: 177.99459568103688, max mem: 178.7265625, count: 57741"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34509,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33705.28200065811, max block_count: 36444.0, count: 57741"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.88491712994232, max segment_count: 132.0, count: 57741"
           }
         ]
       }

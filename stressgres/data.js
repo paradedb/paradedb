@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780129336761,
+  "lastUpdate": 1780129370019,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -33378,6 +33378,186 @@ window.BENCHMARK_DATA = {
             "value": 31.29296875,
             "unit": "median mem",
             "extra": "avg mem: 30.550060556275668, max mem: 31.39453125, count: 53811"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bd1caad7500eeb62509b82aca975f1403e061d41",
+          "message": "test: added randomized segmentation to qgen property-test setup. (#5209)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nTwo qgen tweaks so the property tests actually exercise MPP code paths.\n\n1. `Segmentation` knob in `generated_queries_setup`. Tables are randomly\nbuilt as one segment or as several.\n2. Pinned `paradedb.min_rows_per_worker` to `10` in `PgGucs::set()` so\nthe MPP planner engages on the 10-to-1000-row fixtures.\n\n## Why\n\nqgen used to do one bulk `INSERT ... SELECT generate_series(...)` per\ntable, which produced one BM25 segment. Anything that only shows up with\n`>1` segment per source slipped past every qgen run. The recent MPP\nper-source over-count is a fresh example: caught at 1M by the\nbench-equality check, missed by qgen.\n\nThe MPP planner also gates on `paradedb.min_rows_per_worker`, which\ndefaults to 300K. qgen tops out at 1000 rows, so even when `enable_mpp =\non` lands via `any::<PgGucs>()` the planner stays on the single-worker\npath. So even with multi-segment data from (1), every MPP-only code path\n(per-source segment claim accounting, worker fan-out) stayed uncovered.\nLowering the gate fixes that.\n\n## How\n\n**(1)** `qgen_segmentation()` picks `Single` or `Multi` at setup time,\n50/50. `Multi(k)` splits the bulk `INSERT` into `k` statements (default\n8), each its own commit so Tantivy writes a fresh segment per chunk. The\n`CREATE INDEX` pins `target_segment_count = k + 1` so the layered merge\npolicy short-circuits (it returns empty layer sizes when\n`current_segments <= target`) instead of collapsing the chunks back into\none.\n\nOverride with `PARADEDB_QGEN_SEGMENTATION=single|multi|random` to\nreproduce a failing case. The chosen mode is logged as `-- qgen\nsegmentation: ...` in the reproduction script.\n\n**(2)** One added line in `PgGucs::set()`: `SET\nparadedb.min_rows_per_worker TO 10;`.\n\n## Tests\n\nThe existing qgen suite picks up the random shape and the lowered gate\nautomatically.",
+          "timestamp": "2026-05-30T00:15:31-07:00",
+          "tree_id": "2cadb2b2c8968dd0ba1778308797188bcb6de33e",
+          "url": "https://github.com/paradedb/paradedb/commit/bd1caad7500eeb62509b82aca975f1403e061d41"
+        },
+        "date": 1780129338647,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.069296902420893, max cpu: 13.819577, count: 53846"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 53.5859375,
+            "unit": "median mem",
+            "extra": "avg mem: 53.63025986435854, max mem: 59.625, count: 53846"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.562738,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.074885860084462, max cpu: 4.610951, count: 53846"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 30.45703125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.732305222880996, max mem: 30.92578125, count: 53846"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.125476,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.540399921802768, max cpu: 18.426102, count: 53846"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 55.9921875,
+            "unit": "median mem",
+            "extra": "avg mem: 55.7359052610686, max mem: 61.96484375, count: 53846"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.050861396450182, max cpu: 9.266409, count: 53846"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 51.80859375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.87540269646306, max mem: 57.92578125, count: 53846"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.644857273983671, max cpu: 9.257474, count: 53846"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 33.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 33.926517362594254, max mem: 39.1875, count: 53846"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1082,
+            "unit": "median pages",
+            "extra": "avg pages: 1088.9952085577388, max pages: 1836.0, count: 53846"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.453125,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.507775211947035, max relation_size:MB: 14.34375, count: 53846"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.760539315826616, max segment_count: 20.0, count: 53846"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.549763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.164354428217736, max cpu: 4.549763, count: 53846"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 29.5234375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.8267678309438, max mem: 29.890625, count: 53846"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.549763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.9337780894652385, max cpu: 4.58891, count: 53846"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 29.52734375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.831755507024663, max mem: 29.921875, count: 53846"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.570187656200363, max cpu: 23.076923, count: 53846"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 51.0078125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.0370789787078, max mem: 56.9765625, count: 53846"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.00001694545682797933, max replication_lag:MB: 0.1060791015625, count: 53846"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.3199761300080315, max cpu: 13.793103, count: 107692"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 51.49609375,
+            "unit": "median mem",
+            "extra": "avg mem: 51.538274227658505, max mem: 57.875, count: 107692"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.209497660059331, max cpu: 4.5714283, count: 53846"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 31.34375,
+            "unit": "median mem",
+            "extra": "avg mem: 30.653272904440442, max mem: 31.79296875, count: 53846"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.227458359095277, max cpu: 4.58891, count: 53846"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 31.46484375,
+            "unit": "median mem",
+            "extra": "avg mem: 30.70882579195762, max mem: 31.58984375, count: 53846"
           }
         ]
       }

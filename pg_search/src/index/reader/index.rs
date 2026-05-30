@@ -662,6 +662,9 @@ impl SearchIndexReader {
     /// Search all available index segments for matching documents using lazy checkout from the
     /// parallel state to allow load balancing across parallel workers.
     ///
+    /// `source_idx = Some(i)` routes to `checkout_segment_for_source(i)` for MPP
+    /// non-partitioning sources. `None` uses the single-counter `checkout_segment` path.
+    ///
     /// `estimated_rows` is required because a lazily-evaluated iterator does not inherently know
     /// which or how many segments it will eventually open, and thus cannot compute an accurate
     /// sum of matching documents by asking each segment upfront. It should be passed the value
@@ -669,11 +672,18 @@ impl SearchIndexReader {
     pub fn search_lazy(
         &self,
         parallel_state: *mut crate::postgres::ParallelScanState,
+        source_idx: Option<usize>,
         estimated_rows: u64,
     ) -> MultiSegmentSearchResults {
         struct ParallelSegmentIterator {
             parallel_state: *mut crate::postgres::ParallelScanState,
+            source_idx: Option<usize>,
         }
+        // SAFETY: the pointer addresses DSM shared memory; the state's mutex serializes
+        // every access, including the cross-process claims this iterator drives.
+        // `Send`/`Sync` are required so DataFusion can wrap the iterator in
+        // `Box<dyn Iterator<...> + Send + Sync>` even though the runtime is
+        // current-thread.
         unsafe impl Send for ParallelSegmentIterator {}
         unsafe impl Sync for ParallelSegmentIterator {}
         impl Iterator for ParallelSegmentIterator {
@@ -681,13 +691,20 @@ impl SearchIndexReader {
             fn next(&mut self) -> Option<Self::Item> {
                 pgrx::check_for_interrupts!();
                 unsafe {
-                    crate::postgres::customscan::parallel::checkout_segment(self.parallel_state)
+                    match self.source_idx {
+                        Some(idx) => (*self.parallel_state).checkout_segment_for_source(idx),
+                        None => crate::postgres::customscan::parallel::checkout_segment(
+                            self.parallel_state,
+                        ),
+                    }
                 }
             }
         }
 
-        let segment_ids = ParallelSegmentIterator { parallel_state };
-
+        let segment_ids = ParallelSegmentIterator {
+            parallel_state,
+            source_idx,
+        };
         let searcher = self.searcher.clone();
         let query = self.query.box_clone();
         let need_scores = self.need_scores;

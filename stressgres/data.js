@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780128007608,
+  "lastUpdate": 1780128654195,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20076,6 +20076,60 @@ window.BENCHMARK_DATA = {
             "value": 16.456586300830807,
             "unit": "median tps",
             "extra": "avg tps: 16.234016062475575, max tps: 21.060658571848098, count: 55481"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bd1caad7500eeb62509b82aca975f1403e061d41",
+          "message": "test: added randomized segmentation to qgen property-test setup. (#5209)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nTwo qgen tweaks so the property tests actually exercise MPP code paths.\n\n1. `Segmentation` knob in `generated_queries_setup`. Tables are randomly\nbuilt as one segment or as several.\n2. Pinned `paradedb.min_rows_per_worker` to `10` in `PgGucs::set()` so\nthe MPP planner engages on the 10-to-1000-row fixtures.\n\n## Why\n\nqgen used to do one bulk `INSERT ... SELECT generate_series(...)` per\ntable, which produced one BM25 segment. Anything that only shows up with\n`>1` segment per source slipped past every qgen run. The recent MPP\nper-source over-count is a fresh example: caught at 1M by the\nbench-equality check, missed by qgen.\n\nThe MPP planner also gates on `paradedb.min_rows_per_worker`, which\ndefaults to 300K. qgen tops out at 1000 rows, so even when `enable_mpp =\non` lands via `any::<PgGucs>()` the planner stays on the single-worker\npath. So even with multi-segment data from (1), every MPP-only code path\n(per-source segment claim accounting, worker fan-out) stayed uncovered.\nLowering the gate fixes that.\n\n## How\n\n**(1)** `qgen_segmentation()` picks `Single` or `Multi` at setup time,\n50/50. `Multi(k)` splits the bulk `INSERT` into `k` statements (default\n8), each its own commit so Tantivy writes a fresh segment per chunk. The\n`CREATE INDEX` pins `target_segment_count = k + 1` so the layered merge\npolicy short-circuits (it returns empty layer sizes when\n`current_segments <= target`) instead of collapsing the chunks back into\none.\n\nOverride with `PARADEDB_QGEN_SEGMENTATION=single|multi|random` to\nreproduce a failing case. The chosen mode is logged as `-- qgen\nsegmentation: ...` in the reproduction script.\n\n**(2)** One added line in `PgGucs::set()`: `SET\nparadedb.min_rows_per_worker TO 10;`.\n\n## Tests\n\nThe existing qgen suite picks up the random shape and the lowered gate\nautomatically.",
+          "timestamp": "2026-05-30T00:15:31-07:00",
+          "tree_id": "2cadb2b2c8968dd0ba1778308797188bcb6de33e",
+          "url": "https://github.com/paradedb/paradedb/commit/bd1caad7500eeb62509b82aca975f1403e061d41"
+        },
+        "date": 1780128622869,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 28.936818420882915,
+            "unit": "median tps",
+            "extra": "avg tps: 28.928694127024297, max tps: 31.279247525055403, count: 55589"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 131.64747878326912,
+            "unit": "median tps",
+            "extra": "avg tps: 174.26790513806372, max tps: 2839.507804137023, count: 55589"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 527.0770917165042,
+            "unit": "median tps",
+            "extra": "avg tps: 524.825945891359, max tps: 755.5729650895249, count: 55589"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 162.99801291442836,
+            "unit": "median tps",
+            "extra": "avg tps: 144.65580678590524, max tps: 1128.1632366399454, count: 111178"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.616883435141157,
+            "unit": "median tps",
+            "extra": "avg tps: 15.709941456300577, max tps: 21.552462216863418, count: 55589"
           }
         ]
       }

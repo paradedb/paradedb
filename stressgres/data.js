@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780128654195,
+  "lastUpdate": 1780128687936,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24338,6 +24338,114 @@ window.BENCHMARK_DATA = {
             "value": 174.640625,
             "unit": "median mem",
             "extra": "avg mem: 171.63771775472685, max mem: 175.3046875, count: 55481"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bd1caad7500eeb62509b82aca975f1403e061d41",
+          "message": "test: added randomized segmentation to qgen property-test setup. (#5209)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nTwo qgen tweaks so the property tests actually exercise MPP code paths.\n\n1. `Segmentation` knob in `generated_queries_setup`. Tables are randomly\nbuilt as one segment or as several.\n2. Pinned `paradedb.min_rows_per_worker` to `10` in `PgGucs::set()` so\nthe MPP planner engages on the 10-to-1000-row fixtures.\n\n## Why\n\nqgen used to do one bulk `INSERT ... SELECT generate_series(...)` per\ntable, which produced one BM25 segment. Anything that only shows up with\n`>1` segment per source slipped past every qgen run. The recent MPP\nper-source over-count is a fresh example: caught at 1M by the\nbench-equality check, missed by qgen.\n\nThe MPP planner also gates on `paradedb.min_rows_per_worker`, which\ndefaults to 300K. qgen tops out at 1000 rows, so even when `enable_mpp =\non` lands via `any::<PgGucs>()` the planner stays on the single-worker\npath. So even with multi-segment data from (1), every MPP-only code path\n(per-source segment claim accounting, worker fan-out) stayed uncovered.\nLowering the gate fixes that.\n\n## How\n\n**(1)** `qgen_segmentation()` picks `Single` or `Multi` at setup time,\n50/50. `Multi(k)` splits the bulk `INSERT` into `k` statements (default\n8), each its own commit so Tantivy writes a fresh segment per chunk. The\n`CREATE INDEX` pins `target_segment_count = k + 1` so the layered merge\npolicy short-circuits (it returns empty layer sizes when\n`current_segments <= target`) instead of collapsing the chunks back into\none.\n\nOverride with `PARADEDB_QGEN_SEGMENTATION=single|multi|random` to\nreproduce a failing case. The chosen mode is logged as `-- qgen\nsegmentation: ...` in the reproduction script.\n\n**(2)** One added line in `PgGucs::set()`: `SET\nparadedb.min_rows_per_worker TO 10;`.\n\n## Tests\n\nThe existing qgen suite picks up the random shape and the lowered gate\nautomatically.",
+          "timestamp": "2026-05-30T00:15:31-07:00",
+          "tree_id": "2cadb2b2c8968dd0ba1778308797188bcb6de33e",
+          "url": "https://github.com/paradedb/paradedb/commit/bd1caad7500eeb62509b82aca975f1403e061d41"
+        },
+        "date": 1780128656605,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.1464485110718, max cpu: 42.352943, count: 55589"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 179.3515625,
+            "unit": "median mem",
+            "extra": "avg mem: 177.36267987765115, max mem: 179.53515625, count: 55589"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.24621121159149, max cpu: 28.042841, count: 55589"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 121.52734375,
+            "unit": "median mem",
+            "extra": "avg mem: 120.31780483773768, max mem: 121.69921875, count: 55589"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.3774564328939025, max cpu: 23.099133, count: 55589"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 140.9921875,
+            "unit": "median mem",
+            "extra": "avg mem: 138.02509025504148, max mem: 180.171875, count: 55589"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 15351,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16153.977567504362, max block_count: 30159.0, count: 55589"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.619827,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.5880166836558636, max cpu: 4.660194, count: 55589"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 92.0625,
+            "unit": "median mem",
+            "extra": "avg mem: 90.15512518495116, max mem: 134.328125, count: 55589"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.535141844609544, max segment_count: 36.0, count: 55589"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.914078080007227, max cpu: 27.988338, count: 111178"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 180.87890625,
+            "unit": "median mem",
+            "extra": "avg mem: 158.60796566092213, max mem: 181.8359375, count: 111178"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.859479,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.940176182289967, max cpu: 32.495163, count: 55589"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 174.609375,
+            "unit": "median mem",
+            "extra": "avg mem: 171.8368018936975, max mem: 175.09375, count: 55589"
           }
         ]
       }

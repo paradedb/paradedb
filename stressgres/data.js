@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780101989774,
+  "lastUpdate": 1780102678328,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13502,6 +13502,54 @@ window.BENCHMARK_DATA = {
             "value": 5.320588848014965,
             "unit": "median tps",
             "extra": "avg tps: 5.3372618256936075, max tps: 6.433018739846767, count: 56091"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "79d8906bf0aac7d91f22351327bd0acf49d2b93c",
+          "message": "fix(mpp): split non-partitioning source segments across MPP workers. (#5167)\n\n# Ticket(s) Closed\n\n- Closes #\n\n## What\n\nThis PR adds a per-source segment-claim counter to `ParallelScanState`.\nEach source in a multi-source MPP plan gets its own dynamic checkout,\ninstead of every worker scanning the full data for every\nnon-partitioning source.\n\n## Why\n\nMPP returned `n_workers * correct_count` on every join shape. PG-only\nreturned 7.5M; MPP at N=3 returned 15M, N=5 returned 30M, N=9 returned\n60M. Workers all opened the same frozen segment set for every\nnon-partitioning source and scanned the full data. The shuffle then\nshipped N copies of those rows to consumer tasks, and the join +\naggregate above counted each row N times.\n\nThe frozen-set replication is deliberate. It keeps `(segment_ord,\ndoc_id)` pairs consistent across workers for late materialization. The\nbug was the missing follow-up step to actually divide the segments\nbetween workers.\n\n## How\n\nThe shared parallel-scan state used to track remaining segments only for\nthe partitioning source. It now tracks them for every source. When MPP\nruns a multi-source plan, each non-partitioning source gets its own\ncounter in shared memory, and workers claim from whichever source\nthey're scanning. Each source's segments get divided between workers the\nsame way the partitioning source's already were.\n\nWorkers still open the same frozen segment set per non-partitioning\nsource, which is what keeps late materialization correct after the\nshuffle. The set itself moved out of the per-fragment codec channel into\nshared payload state, since every worker can read it directly once the\nleader has snapshotted.\n\nThe two MPP customscans tag each non-partitioning source with its\nposition in the source list. The tag activates the per-source claim path\nonly when MPP is the active execution mode. Under PG's own parallel hash\njoin, the driver does its own work splitting and still wants every\nworker to open the full set, so the replication path stays in place\nthere.\n\nSingle-source scans (BaseScan parallel, single-table top-k, paging,\ncount) never enter any of this. The per-source bookkeeping is gated on\nmultiple sources being present, so the non-MPP parallel hot path pays no\nextra cost.\n\n## Tests\n\nMPP multi-source join + aggregate returns correct result. Non-MPP\nparallel hash join returns the same.\n\nCaveat: per-source work distribution is bounded by segment count. With\none segment and N workers, only one worker scans that source. A\nlow-segment fallback (doc-modulo or `target_min_segments` GUC) is a\nfollow-up.",
+          "timestamp": "2026-05-29T17:13:59-07:00",
+          "tree_id": "a02254bb4654981b7ecc6807b58f208808ddd484",
+          "url": "https://github.com/paradedb/paradedb/commit/79d8906bf0aac7d91f22351327bd0acf49d2b93c"
+        },
+        "date": 1780102647252,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1046.4320322352899,
+            "unit": "median tps",
+            "extra": "avg tps: 1036.1897177199573, max tps: 1135.986330066119, count: 56299"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1251.7487884418526,
+            "unit": "median tps",
+            "extra": "avg tps: 1230.3086836524274, max tps: 1265.277215655962, count: 56299"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1747.10815836262,
+            "unit": "median tps",
+            "extra": "avg tps: 1705.3942987174437, max tps: 1918.429576656405, count: 56299"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.222552862712899,
+            "unit": "median tps",
+            "extra": "avg tps: 5.2679457780483405, max tps: 6.532096849205198, count: 56299"
           }
         ]
       }

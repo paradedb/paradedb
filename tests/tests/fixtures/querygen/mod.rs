@@ -24,6 +24,7 @@ pub mod pagegen;
 pub mod wheregen;
 
 use std::fmt::{Debug, Write};
+use std::num::NonZeroUsize;
 use std::sync::OnceLock;
 
 use futures::executor::block_on;
@@ -152,14 +153,14 @@ pub fn generated_queries_setup(
     let qgen_seed = qgen_seed().unwrap_or_else(|| rand::rng().random::<u64>());
     let mut rng = StdRng::seed_from_u64(qgen_seed);
     let pg_seed: f64 = rng.random_range(-1.0..=1.0);
-    let segmentation = pick_segmentation(&mut rng);
+    let bulk_inserts = pick_bulk_inserts(&mut rng);
 
     let seed_sql = format!("SET seed TO {pg_seed};\n");
     seed_sql.as_str().execute(conn);
 
     let mut setup_sql = seed_sql;
     setup_sql.push_str(&format!("-- PARADEDB_QGEN_SEED: {qgen_seed}\n"));
-    setup_sql.push_str(&format!("-- qgen segmentation: {segmentation:?}\n"));
+    setup_sql.push_str(&format!("-- qgen bulk inserts: {bulk_inserts}\n"));
 
     let column_definitions = columns_def
         .iter()
@@ -278,18 +279,20 @@ pub fn generated_queries_setup(
             .map(|field| format!(",\n    sort_by = '{field} DESC NULLS LAST'"))
             .unwrap_or_default();
 
-        // Pin `target_segment_count` to match the number of commits we're about
-        // to do, so the layered merge policy doesn't immediately collapse the
-        // Multi-mode chunks back into a single segment. See `Segmentation`.
-        let target_segments = segmentation.target_segment_count();
+        // Total commits per table = the sample-row `INSERT` + `bulk_inserts`
+        // bulk chunks. Pin `target_segment_count` to that so the layered merge
+        // policy short-circuits (it returns empty layer sizes when
+        // `current_segments <= target`) and the chunks survive as distinct
+        // segments instead of being merged back into one.
+        let target_segments = bulk_inserts.get() + 1;
         let target_segment_clause = format!(",\n    target_segment_count = {target_segments}");
 
-        let bulk_inserts = build_bulk_inserts(
+        let bulk_insert_sql = build_bulk_inserts(
             tname,
             *row_count,
             &insert_columns,
             &random_generators,
-            segmentation,
+            bulk_inserts,
         );
 
         let sql = format!(
@@ -307,7 +310,7 @@ CREATE INDEX idx{tname} ON {tname} USING bm25 ({bm25_columns}) WITH (
 
 INSERT into {tname} ({insert_columns}) VALUES ({sample_values});
 
-{bulk_inserts}
+{bulk_insert_sql}
 
 {b_tree_indexes}
 
@@ -408,35 +411,18 @@ fn force_parallel() -> bool {
     })
 }
 
-/// Default chunk count for [`Segmentation::Multi`]. The bulk `INSERT ... SELECT
-/// generate_series(...)` is split into this many separate statements, each its
-/// own commit so Tantivy writes a fresh segment per chunk.
-const MULTI_SEGMENT_CHUNKS: usize = 8;
+/// Chunk count used when `PARADEDB_QGEN_SEGMENTATION=multi`. Picked to be
+/// larger than the typical Postgres parallel-worker count so the per-worker
+/// segment-claim logic actually has work to split.
+const MULTI_SEGMENT_CHUNKS: NonZeroUsize = NonZeroUsize::new(8).unwrap();
 
-/// Controls whether each table in `generated_queries_setup` is built as one
-/// segment or as multiple segments. A single-segment shape is easy to plan
-/// against but hides any code path that depends on per-segment work
-/// distribution (e.g. parallel workers splitting segments across processes).
-#[derive(Copy, Clone, Debug)]
-pub enum Segmentation {
-    Single,
-    Multi(usize),
-}
-
-impl Segmentation {
-    /// Value passed to the `target_segment_count` index reloption. The layered
-    /// merge policy short-circuits when `current_segments <= target`, so we set
-    /// this to the number of commits we expect (1 sample row + bulk chunks).
-    fn target_segment_count(self) -> usize {
-        match self {
-            Segmentation::Single => 1,
-            Segmentation::Multi(k) => k + 1,
-        }
-    }
-}
+/// The "single" mode count: one combined bulk `INSERT` per table (plus the
+/// always-present sample-row INSERT). A named constant so `pick_bulk_inserts`
+/// returns a `NonZeroUsize` in either arm without repeating the literal.
+const SINGLE_BULK_INSERT: NonZeroUsize = NonZeroUsize::new(1).unwrap();
 
 /// Reads `PARADEDB_QGEN_SEED`, the optional u64 that pins both the Postgres
-/// `SET seed` value and the `Segmentation` coin. Unset means
+/// `SET seed` value and the bulk-insert chunk-count roll. Unset means
 /// `generated_queries_setup` picks one fresh per call. Either way the seed
 /// used lands in the reproduction script, so a failing run can be replayed
 /// with `PARADEDB_QGEN_SEED=<n> PROPTEST_RNG_SEED=<m> cargo test ...`.
@@ -447,22 +433,26 @@ fn qgen_seed() -> Option<u64> {
     })
 }
 
-/// Picks a `Segmentation` honoring `PARADEDB_QGEN_SEGMENTATION` first
-/// (`single`, `multi`, `random`); falls back to a coin flip on the supplied
-/// RNG. One call per `generated_queries_setup`: every table built in the same
-/// call gets the same shape; different `#[test]` functions roll independently.
-fn pick_segmentation(rng: &mut impl Rng) -> Segmentation {
+/// Picks how many separate bulk `INSERT` statements the setup will emit per
+/// table. Each chunk = one Tantivy writer commit = one segment, so the index
+/// ends with `bulk_inserts + 1` segments (the +1 is the sample-row INSERT).
+///
+/// Honors `PARADEDB_QGEN_SEGMENTATION=single|multi|random` first, then falls
+/// back to a coin flip on the supplied RNG. One call per
+/// `generated_queries_setup`; every table built in the same call gets the
+/// same count, different `#[test]` functions roll independently.
+fn pick_bulk_inserts(rng: &mut impl Rng) -> NonZeroUsize {
     let mode = std::env::var("PARADEDB_QGEN_SEGMENTATION")
         .ok()
         .unwrap_or_default();
     match mode.to_ascii_lowercase().as_str() {
-        "single" => Segmentation::Single,
-        "multi" => Segmentation::Multi(MULTI_SEGMENT_CHUNKS),
+        "single" => SINGLE_BULK_INSERT,
+        "multi" => MULTI_SEGMENT_CHUNKS,
         "" | "random" => {
             if rng.random_bool(0.5) {
-                Segmentation::Multi(MULTI_SEGMENT_CHUNKS)
+                MULTI_SEGMENT_CHUNKS
             } else {
-                Segmentation::Single
+                SINGLE_BULK_INSERT
             }
         }
         other => panic!(
@@ -471,23 +461,19 @@ fn pick_segmentation(rng: &mut impl Rng) -> Segmentation {
     }
 }
 
-/// Emit the bulk-INSERT block for one table. For Single this is the historical
-/// single statement. For Multi(k) we split `row_count` rows into k separate
-/// `INSERT ... generate_series` statements, distributed as evenly as possible.
+/// Emit the bulk-INSERT block for one table. `row_count` rows are split into
+/// `bulk_inserts` separate `INSERT ... generate_series` statements,
+/// distributed as evenly as possible.
 fn build_bulk_inserts(
     tname: &str,
     row_count: usize,
     insert_columns: &str,
     random_generators: &str,
-    segmentation: Segmentation,
+    bulk_inserts: NonZeroUsize,
 ) -> String {
-    let chunk_sizes: Vec<usize> = match segmentation {
-        Segmentation::Single => vec![row_count],
-        Segmentation::Multi(k) => (0..k).map(|i| (row_count + i) / k).collect(),
-    };
-
-    chunk_sizes
-        .into_iter()
+    let k = bulk_inserts.get();
+    (0..k)
+        .map(|i| (row_count + i) / k)
         .filter(|chunk| *chunk > 0)
         .map(|chunk| {
             format!(
@@ -620,11 +606,15 @@ impl PgGucs {
         )
         .unwrap();
         writeln!(gucs, "SET paradedb.enable_mpp TO {enable_mpp};").unwrap();
-        // Pin `min_rows_per_worker` low so MPP actually engages on qgen's
-        // 10-1000-row tables. The production default is 300K, which would
-        // never trip on a property-test fixture and leave every MPP-only
-        // code path (e.g. per-source segment claim accounting) uncovered.
-        writeln!(gucs, "SET paradedb.min_rows_per_worker TO 10;").unwrap();
+        // Pin `min_rows_per_worker` low when we want MPP to actually fire on
+        // the 10-1000-row fixtures. The production default of 300K never trips
+        // here. Cases that aren't exercising MPP keep the production default
+        // so they don't fan out over tiny tables for unrelated reasons.
+        if *enable_mpp {
+            writeln!(gucs, "SET paradedb.min_rows_per_worker TO 10;").unwrap();
+        } else {
+            writeln!(gucs, "RESET paradedb.min_rows_per_worker;").unwrap();
+        }
         writeln!(gucs, "SET statement_timeout TO {};", statement_timeout_ms()).unwrap();
         if force_parallel() {
             writeln!(gucs, "SET debug_parallel_query TO on;").unwrap();
@@ -740,7 +730,12 @@ pub fn handle_compare_error(
     let qgen_seed = setup_sql
         .lines()
         .find_map(|l| l.strip_prefix("-- PARADEDB_QGEN_SEED: "))
-        .unwrap_or("<not captured>");
+        .unwrap_or_else(|| {
+            panic!(
+                "qgen seed marker missing from setup_sql; \
+                 `generated_queries_setup` must emit `-- PARADEDB_QGEN_SEED: <n>`"
+            )
+        });
     let proptest_seed = std::env::var("PROPTEST_RNG_SEED")
         .ok()
         .unwrap_or_else(|| "<from proptest output above>".to_string());
@@ -749,11 +744,6 @@ pub fn handle_compare_error(
         r#"
 -- ==== {failure_type} REPRODUCTION SCRIPT ====
 -- Copy and paste this entire block to reproduce the issue
---
--- To replay the full proptest end-to-end, pair the seed below with
--- `PROPTEST_RNG_SEED` from the proptest output and run:
---   PARADEDB_QGEN_SEED={qgen_seed} PROPTEST_RNG_SEED={proptest_seed} \
---     cargo test --package tests --test qgen <test_fn_name>
 --
 -- Prerequisites: Ensure pg_search extension is available
 CREATE EXTENSION IF NOT EXISTS pg_search;
@@ -774,6 +764,10 @@ CREATE EXTENSION IF NOT EXISTS pg_search;
 {bm25_query};
 --
 -- ==== END REPRODUCTION SCRIPT ====
+
+Replay this proptest case end-to-end:
+  PARADEDB_QGEN_SEED={qgen_seed} PROPTEST_RNG_SEED={proptest_seed} \
+    cargo test --package tests --test qgen <test_fn_name>
 
 Original error:
 {error_msg}

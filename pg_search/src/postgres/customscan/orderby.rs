@@ -295,30 +295,51 @@ unsafe fn find_target_entry_by_ref(
 // If a field does not have a collation (ex: integers, non-text data), it's considered safe
 // Otherwise, for collatable fields, if the collation is C-like it's safe
 fn is_collation_pushdown_safe(collation: pg_sys::Oid) -> bool {
-    match collation {
+    let result = match collation {
         pg_sys::Oid::INVALID => true,
         pg_sys::C_COLLATION_OID => true,
         // for default collation - if using the builtin provider, we're always safe, icu is always unsafe, and otherwise we check LC_COLLATE
-        pg_sys::DEFAULT_COLLATION_OID => match lookup_database_datcollate_and_provider() {
-            #[cfg(any(feature = "pg15", feature = "pg16"))]
-            Some((_, 98)) => true,
-            #[cfg(any(feature = "pg17", feature = "pg18"))]
-            Some((_, pg_sys::COLLPROVIDER_BUILTIN)) => true,
-            Some((_, pg_sys::COLLPROVIDER_ICU)) => false,
-            Some((datcollate, _)) => datcollate == "C" || datcollate == "POSIX",
-            None => false,
-        },
+        pg_sys::DEFAULT_COLLATION_OID => {
+            let db_info = lookup_database_datcollate_and_provider();
+            pgrx::warning!(
+                "[DEBUG collation] DEFAULT_COLLATION_OID path: db_info={:?}",
+                db_info
+            );
+            match db_info {
+                #[cfg(any(feature = "pg15", feature = "pg16"))]
+                Some((_, 98)) => true,
+                #[cfg(any(feature = "pg17", feature = "pg18"))]
+                Some((_, pg_sys::COLLPROVIDER_BUILTIN)) => true,
+                Some((_, pg_sys::COLLPROVIDER_ICU)) => false,
+                Some((ref datcollate, _)) => datcollate == "C" || datcollate == "POSIX",
+                None => false,
+            }
+        }
         // for all other collations, same as above
-        _ => match lookup_collation_collcollate_and_provider(collation) {
-            #[cfg(any(feature = "pg15", feature = "pg16"))]
-            Some((_, 98)) => true,
-            #[cfg(any(feature = "pg17", feature = "pg18"))]
-            Some((_, pg_sys::COLLPROVIDER_BUILTIN)) => true,
-            Some((_, pg_sys::COLLPROVIDER_ICU)) => false,
-            Some((Some(collcollate), _)) => collcollate == "C" || collcollate == "POSIX",
-            _ => false,
-        },
-    }
+        _ => {
+            let coll_info = lookup_collation_collcollate_and_provider(collation);
+            pgrx::warning!(
+                "[DEBUG collation] other OID path: collation={:?}, coll_info={:?}",
+                collation,
+                coll_info
+            );
+            match coll_info {
+                #[cfg(any(feature = "pg15", feature = "pg16"))]
+                Some((_, 98)) => true,
+                #[cfg(any(feature = "pg17", feature = "pg18"))]
+                Some((_, pg_sys::COLLPROVIDER_BUILTIN)) => true,
+                Some((_, pg_sys::COLLPROVIDER_ICU)) => false,
+                Some((Some(ref collcollate), _)) => collcollate == "C" || collcollate == "POSIX",
+                _ => false,
+            }
+        }
+    };
+    pgrx::warning!(
+        "[DEBUG collation] is_collation_pushdown_safe(collation={:?}) => {}",
+        collation,
+        result
+    );
+    result
 }
 
 /// Extract pathkeys from ORDER BY clauses using comprehensive expression handling
@@ -449,6 +470,10 @@ where
         // If we couldn't find any valid member for this pathkey, then we can't handle this series
         // of pathkeys.
         if !found_valid_member {
+            pgrx::warning!(
+                "[DEBUG collation] found_valid_member=false for pathkey, pathkey_styles.len()={}",
+                pathkey_styles.len()
+            );
             if pathkey_styles.is_empty() {
                 return PathKeyInfo::Unusable(UnusableReason::NotSortable);
             } else {

@@ -274,7 +274,7 @@ jobs:
           # The cached ~/.pgrx directory includes the data directory, so restore hits
           # can already contain a pg_search database from a previous run.
           ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/dropdb --if-exists -p 288${{ matrix.pg_version }} -h localhost pg_search
-          ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 288${{ matrix.pg_version }} -h localhost pg_search
+          ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 288${{ matrix.pg_version }} -h localhost --locale=C pg_search
 
       # ---------- Tests ----------
       - name: Run pg_search Integration Tests (system)
@@ -308,6 +308,9 @@ jobs:
         if: matrix.pg_impl == 'pgrx'
         run: |
           set -e
+          PGPORT=288${{ matrix.pg_version }}
+          ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/dropdb --if-exists -p $PGPORT -h localhost pg_search_regress
+          ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p $PGPORT -h localhost --locale=C pg_search_regress
           if ! cargo pgrx regress --package pg_search pg${{ matrix.pg_version }} --auto; then
             git diff
             exit 1

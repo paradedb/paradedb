@@ -300,6 +300,9 @@ fn is_collation_pushdown_safe(collation: pg_sys::Oid) -> bool {
         pg_sys::C_COLLATION_OID => true,
         // for default collation - if using the builtin provider, we're always safe, icu is always unsafe, and otherwise we check LC_COLLATE
         pg_sys::DEFAULT_COLLATION_OID => match lookup_database_datcollate_and_provider() {
+            #[cfg(any(feature = "pg15", feature = "pg16"))]
+            Some((_, 98)) => true,
+            #[cfg(any(feature = "pg17", feature = "pg18"))]
             Some((_, pg_sys::COLLPROVIDER_BUILTIN)) => true,
             Some((_, pg_sys::COLLPROVIDER_ICU)) => false,
             Some((datcollate, _)) => datcollate == "C" || datcollate == "POSIX",

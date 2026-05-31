@@ -158,8 +158,7 @@ pub fn lookup_database_datcollate_and_provider() -> Option<(String, u8)> {
             &mut is_datcollate_null,
         );
 
-        let datcollate = <&CStr>::from_datum(datcollate_datum, is_datcollate_null)
-            .map(|s| s.to_string_lossy().to_string())?;
+        let datcollate = String::from_datum(datcollate_datum, is_datcollate_null)?;
 
         let mut is_datlocprovider_null: bool = false;
         let datlocprovider_datum = pg_sys::SysCacheGetAttr(
@@ -199,8 +198,7 @@ pub fn lookup_collation_collcollate_and_provider(
         );
 
         // note that while `collprovider` is always present in `pg_collation`, `collcollate` may be NULL: https://www.postgresql.org/docs/current/catalog-pg-collation.html
-        let collcollate = <&CStr>::from_datum(collcollate_datum, is_collcollate_null)
-            .map(|s| s.to_string_lossy().to_string());
+        let collcollate = String::from_datum(collcollate_datum, is_collcollate_null);
 
         let mut is_collprovider_null = false;
         let collprovider_datum = pg_sys::SysCacheGetAttr(

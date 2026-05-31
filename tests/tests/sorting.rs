@@ -24,6 +24,30 @@ use serde_json::Value;
 use sqlx::PgConnection;
 
 fn field_sort_fixture(conn: &mut PgConnection) -> Value {
+    // DEBUG: print collation info for the current database
+    let collation_info: Vec<(String, String, String, String)> = r#"
+        SELECT current_database()::text,
+               d.datcollate::text,
+               d.datctype::text,
+               d.datlocprovider::text
+        FROM pg_database d WHERE d.datname = current_database()
+    "#
+    .fetch(conn);
+    eprintln!("=== DATABASE COLLATION DEBUG ===");
+    for (db, collate, ctype, provider) in &collation_info {
+        eprintln!(
+            "  database={db}, datcollate={collate}, datctype={ctype}, datlocprovider={provider}"
+        );
+    }
+
+    let template1_info: Vec<(String, String, String)> = r#"
+        SELECT datcollate::text, datctype::text, datlocprovider::text
+        FROM pg_database WHERE datname = 'template1'
+    "#
+    .fetch(conn);
+    eprintln!("  template1: {:?}", template1_info);
+    eprintln!("================================");
+
     // ensure our custom scan wins against our small test table
     r#"
         SET enable_indexscan TO off;
@@ -101,6 +125,23 @@ fn sort_by_lower_parallel(mut conn: PgConnection) {
 
 #[rstest]
 fn sort_by_raw(mut conn: PgConnection) {
+    // DEBUG: print collation info for the current database
+    let collation_info: Vec<(String, String, String, String)> = r#"
+        SELECT current_database()::text,
+               d.datcollate::text,
+               d.datctype::text,
+               d.datlocprovider::text
+        FROM pg_database d WHERE d.datname = current_database()
+    "#
+    .fetch(&mut conn);
+    eprintln!("=== sort_by_raw DATABASE COLLATION DEBUG ===");
+    for (db, collate, ctype, provider) in &collation_info {
+        eprintln!(
+            "  database={db}, datcollate={collate}, datctype={ctype}, datlocprovider={provider}"
+        );
+    }
+    eprintln!("=============================================");
+
     // ensure our custom scan wins against our small test table
     r#"
         SET enable_indexscan TO off;

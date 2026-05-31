@@ -25,25 +25,29 @@ SELECT id, description FROM mock_items
 WHERE id @@@ pdb.all()
 ORDER BY description
 LIMIT 5;
-                               QUERY PLAN                               
-------------------------------------------------------------------------
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Columnar instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Limit
    Output: id, description
-   ->  Custom Scan (ParadeDB Base Scan) on public.mock_items
+   ->  Sort
          Output: id, description
-         Table: mock_items
-         Index: search_idx
-         Exec Method: TopKScanExecState
-         Scores: false
-            TopK Order By: description asc
-            TopK Limit: 5
-         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(11 rows)
+         Sort Key: mock_items.description
+         ->  Custom Scan (ParadeDB Base Scan) on public.mock_items
+               Output: id, description
+               Table: mock_items
+               Index: search_idx
+               Exec Method: ColumnarExecState
+               Fast Fields: description, id
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(13 rows)
 
 SELECT id, description FROM mock_items
 WHERE id @@@ pdb.all()
 ORDER BY description
 LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Columnar instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
  id |        description        
 ----+---------------------------
  25 | Anti-aging serum
@@ -59,19 +63,22 @@ WHERE id @@@ pdb.all()
 GROUP BY description
 ORDER BY description
 LIMIT 5;
-                                                               QUERY PLAN                                                               
-----------------------------------------------------------------------------------------------------------------------------------------
+                                                      QUERY PLAN                                                       
+-----------------------------------------------------------------------------------------------------------------------
  Limit
    Output: description, (pdb.agg_fn('COUNT(*)'::text))
-   ->  Custom Scan (ParadeDB Aggregate Scan) on public.mock_items
-         Output: description, pdb.agg_fn('COUNT(*)'::text)
-         Index: search_idx
-         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-           Applies to Aggregates: COUNT(*)
-           Group By: description
-           Limit: 5
-           Aggregate Definition: {"grouped":{"terms":{"field":"description","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(10 rows)
+   ->  Sort
+         Output: description, (pdb.agg_fn('COUNT(*)'::text))
+         Sort Key: mock_items.description
+         ->  Custom Scan (ParadeDB Aggregate Scan) on public.mock_items
+               Output: description, pdb.agg_fn('COUNT(*)'::text)
+               Index: search_idx
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+                 Applies to Aggregates: COUNT(*)
+                 Group By: description
+                 Limit: 5
+                 Aggregate Definition: {"grouped":{"terms":{"field":"description","segment_size":65000,"size":65000}}}
+(13 rows)
 
 SELECT description, COUNT(*) FROM mock_items
 WHERE id @@@ pdb.all()
@@ -96,25 +103,28 @@ SELECT id, description FROM mock_items
 WHERE id @@@ pdb.all()
 ORDER BY lower(description)
 LIMIT 5;
-                               QUERY PLAN                               
-------------------------------------------------------------------------
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Limit
    Output: id, description, (lower(description))
-   ->  Custom Scan (ParadeDB Base Scan) on public.mock_items
-         Output: id, description, lower(description)
-         Table: mock_items
-         Index: search_idx
-         Exec Method: TopKScanExecState
-         Scores: false
-            TopK Order By: description asc
-            TopK Limit: 5
-         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(11 rows)
+   ->  Sort
+         Output: id, description, (lower(description))
+         Sort Key: (lower(mock_items.description))
+         ->  Custom Scan (ParadeDB Base Scan) on public.mock_items
+               Output: id, description, lower(description)
+               Table: mock_items
+               Index: search_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+(12 rows)
 
 SELECT id, description FROM mock_items
 WHERE id @@@ pdb.all()
 ORDER BY lower(description)
 LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
  id |        description        
 ----+---------------------------
  25 | Anti-aging serum
@@ -130,19 +140,22 @@ WHERE id @@@ pdb.all()
 GROUP BY description
 ORDER BY description
 LIMIT 5;
-                                                               QUERY PLAN                                                               
-----------------------------------------------------------------------------------------------------------------------------------------
+                                                      QUERY PLAN                                                       
+-----------------------------------------------------------------------------------------------------------------------
  Limit
    Output: description, (pdb.agg_fn('COUNT(*)'::text))
-   ->  Custom Scan (ParadeDB Aggregate Scan) on public.mock_items
-         Output: description, pdb.agg_fn('COUNT(*)'::text)
-         Index: search_idx
-         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-           Applies to Aggregates: COUNT(*)
-           Group By: description
-           Limit: 5
-           Aggregate Definition: {"grouped":{"terms":{"field":"description","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(10 rows)
+   ->  Sort
+         Output: description, (pdb.agg_fn('COUNT(*)'::text))
+         Sort Key: mock_items.description
+         ->  Custom Scan (ParadeDB Aggregate Scan) on public.mock_items
+               Output: description, pdb.agg_fn('COUNT(*)'::text)
+               Index: search_idx
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+                 Applies to Aggregates: COUNT(*)
+                 Group By: description
+                 Limit: 5
+                 Aggregate Definition: {"grouped":{"terms":{"field":"description","segment_size":65000,"size":65000}}}
+(13 rows)
 
 SELECT description, COUNT(*) FROM mock_items
 WHERE id @@@ pdb.all()
@@ -176,19 +189,22 @@ WHERE id @@@ pdb.all()
 GROUP BY metadata->>'color'
 ORDER BY metadata->>'color'
 LIMIT 5;
-                                                                QUERY PLAN                                                                 
--------------------------------------------------------------------------------------------------------------------------------------------
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: ((metadata ->> 'color'::text)), (pdb.agg_fn('COUNT(*)'::text))
-   ->  Custom Scan (ParadeDB Aggregate Scan) on public.mock_items
-         Output: (metadata ->> 'color'::text), pdb.agg_fn('COUNT(*)'::text)
-         Index: search_idx
-         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-           Applies to Aggregates: COUNT(*)
-           Group By: metadata.color
-           Limit: 5
-           Aggregate Definition: {"grouped":{"terms":{"field":"metadata.color","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(10 rows)
+   ->  Sort
+         Output: ((metadata ->> 'color'::text)), (pdb.agg_fn('COUNT(*)'::text))
+         Sort Key: ((mock_items.metadata ->> 'color'::text))
+         ->  Custom Scan (ParadeDB Aggregate Scan) on public.mock_items
+               Output: (metadata ->> 'color'::text), pdb.agg_fn('COUNT(*)'::text)
+               Index: search_idx
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+                 Applies to Aggregates: COUNT(*)
+                 Group By: metadata.color
+                 Limit: 5
+                 Aggregate Definition: {"grouped":{"terms":{"field":"metadata.color","segment_size":65000,"size":65000}}}
+(13 rows)
 
 SELECT metadata->>'color', COUNT(*) FROM mock_items
 WHERE id @@@ pdb.all()

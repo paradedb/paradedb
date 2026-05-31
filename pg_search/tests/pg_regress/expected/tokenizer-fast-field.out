@@ -34,20 +34,22 @@ SELECT * FROM paradedb.schema('idxtokenizer_fast') ORDER BY name;
 -- Top K over literal
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t, id LIMIT 5;
-                               QUERY PLAN                               
-------------------------------------------------------------------------
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: tokenizer_fast)
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Base Scan) on tokenizer_fast
-         Table: tokenizer_fast
-         Index: idxtokenizer_fast
-         Exec Method: TopKScanExecState
-         Scores: false
-            TopK Order By: t asc, id asc
-            TopK Limit: 5
-         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+   ->  Sort
+         Sort Key: t, id
+         ->  Custom Scan (ParadeDB Base Scan) on tokenizer_fast
+               Table: tokenizer_fast
+               Index: idxtokenizer_fast
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (9 rows)
 
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t, id LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: tokenizer_fast)
  id |   t   |     t_long      |                metadata                
 ----+-------+-----------------+----------------------------------------
   1 | hello | The big cat     | {"key": "The big cat", "value": 1}
@@ -58,17 +60,19 @@ SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t, id LIMIT 5;
 -- Aggregate scan pushdown over literal
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT t, COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY t ORDER BY t LIMIT 5;
-                                                          QUERY PLAN                                                          
-------------------------------------------------------------------------------------------------------------------------------
+                                                 QUERY PLAN                                                  
+-------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Aggregate Scan) on tokenizer_fast
-         Index: idxtokenizer_fast
-         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-           Applies to Aggregates: COUNT(*)
-           Group By: t
-           Limit: 5
-           Aggregate Definition: {"grouped":{"terms":{"field":"t","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(8 rows)
+   ->  Sort
+         Sort Key: t
+         ->  Custom Scan (ParadeDB Aggregate Scan) on tokenizer_fast
+               Index: idxtokenizer_fast
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+                 Applies to Aggregates: COUNT(*)
+                 Group By: t
+                 Limit: 5
+                 Aggregate Definition: {"grouped":{"terms":{"field":"t","segment_size":65000,"size":65000}}}
+(10 rows)
 
 SELECT t, COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY t ORDER BY t LIMIT 5;
    t   | count 
@@ -80,20 +84,22 @@ SELECT t, COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY t ORDER B
 -- Top K over literal normalized
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t_long, id LIMIT 5;
-                               QUERY PLAN                               
-------------------------------------------------------------------------
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: tokenizer_fast)
+                                  QUERY PLAN                                  
+------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Base Scan) on tokenizer_fast
-         Table: tokenizer_fast
-         Index: idxtokenizer_fast
-         Exec Method: TopKScanExecState
-         Scores: false
-            TopK Order By: t_long asc, id asc
-            TopK Limit: 5
-         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+   ->  Sort
+         Sort Key: t_long, id
+         ->  Custom Scan (ParadeDB Base Scan) on tokenizer_fast
+               Table: tokenizer_fast
+               Index: idxtokenizer_fast
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
 (9 rows)
 
 SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t_long, id LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: tokenizer_fast)
  id |   t   |     t_long      |                metadata                
 ----+-------+-----------------+----------------------------------------
   3 | world | Quick brown fox | {"key": "Quick brown fox", "value": 2}
@@ -104,17 +110,19 @@ SELECT * FROM tokenizer_fast WHERE id @@@ pdb.all() ORDER BY t_long, id LIMIT 5;
 -- Aggregate scan pushdown over literal normalized
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT t_long, COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY t_long ORDER BY t_long LIMIT 5;
-                                                            QUERY PLAN                                                             
------------------------------------------------------------------------------------------------------------------------------------
+                                                    QUERY PLAN                                                    
+------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Aggregate Scan) on tokenizer_fast
-         Index: idxtokenizer_fast
-         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-           Applies to Aggregates: COUNT(*)
-           Group By: t_long
-           Limit: 5
-           Aggregate Definition: {"grouped":{"terms":{"field":"t_long","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(8 rows)
+   ->  Sort
+         Sort Key: t_long
+         ->  Custom Scan (ParadeDB Aggregate Scan) on tokenizer_fast
+               Index: idxtokenizer_fast
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+                 Applies to Aggregates: COUNT(*)
+                 Group By: t_long
+                 Limit: 5
+                 Aggregate Definition: {"grouped":{"terms":{"field":"t_long","segment_size":65000,"size":65000}}}
+(10 rows)
 
 SELECT t_long, COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY t_long ORDER BY t_long LIMIT 5;
      t_long      | count 
@@ -127,17 +135,19 @@ SELECT t_long, COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY t_lo
 -- Aggregate scan pushdown over JSON
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT metadata->>'key', COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY metadata->>'key' ORDER BY metadata->>'key' LIMIT 5;
-                                                               QUERY PLAN                                                                
------------------------------------------------------------------------------------------------------------------------------------------
+                                                       QUERY PLAN                                                       
+------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Aggregate Scan) on tokenizer_fast
-         Index: idxtokenizer_fast
-         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-           Applies to Aggregates: COUNT(*)
-           Group By: metadata.key
-           Limit: 5
-           Aggregate Definition: {"grouped":{"terms":{"field":"metadata.key","order":{"_key":"asc"},"segment_size":65000,"size":65000}}}
-(8 rows)
+   ->  Sort
+         Sort Key: ((metadata ->> 'key'::text))
+         ->  Custom Scan (ParadeDB Aggregate Scan) on tokenizer_fast
+               Index: idxtokenizer_fast
+               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+                 Applies to Aggregates: COUNT(*)
+                 Group By: metadata.key
+                 Limit: 5
+                 Aggregate Definition: {"grouped":{"terms":{"field":"metadata.key","segment_size":65000,"size":65000}}}
+(10 rows)
 
 SELECT metadata->>'key', COUNT(*) FROM tokenizer_fast WHERE id @@@ pdb.all() GROUP BY metadata->>'key' ORDER BY metadata->>'key' LIMIT 5;
     ?column?     | count 

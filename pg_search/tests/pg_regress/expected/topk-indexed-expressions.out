@@ -26,23 +26,25 @@ SELECT description, rating FROM mock_items
 WHERE category === 'electronics'
 ORDER BY upper(description) DESC
     LIMIT 5;
-                                             QUERY PLAN                                              
------------------------------------------------------------------------------------------------------
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
+                                                QUERY PLAN                                                 
+-----------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Base Scan) on mock_items
-         Table: mock_items
-         Index: upper_idx
-         Exec Method: TopKScanExecState
-         Scores: false
-            TopK Order By: description desc
-            TopK Limit: 5
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"electronics"}}}}
+   ->  Sort
+         Sort Key: (upper(description)) DESC
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items
+               Table: mock_items
+               Index: upper_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"electronics"}}}}
 (9 rows)
 
 SELECT description, rating FROM mock_items
 WHERE category === 'electronics'
 ORDER BY upper(description) DESC
     LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
          description         | rating 
 -----------------------------+--------
  Plastic Keyboard            |      4
@@ -62,23 +64,25 @@ SELECT description, rating FROM mock_items
 WHERE category === 'electronics'
 ORDER BY trim(description) DESC
     LIMIT 5;
-                                             QUERY PLAN                                              
------------------------------------------------------------------------------------------------------
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
+                                                QUERY PLAN                                                 
+-----------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Base Scan) on mock_items
-         Table: mock_items
-         Index: trim_idx
-         Exec Method: TopKScanExecState
-         Scores: false
-            TopK Order By: description desc
-            TopK Limit: 5
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"electronics"}}}}
+   ->  Sort
+         Sort Key: (TRIM(BOTH FROM description)) DESC
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items
+               Table: mock_items
+               Index: trim_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"electronics"}}}}
 (9 rows)
 
 SELECT description, rating FROM mock_items
 WHERE category === 'electronics'
 ORDER BY trim(description) DESC
     LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
          description         | rating 
 -----------------------------+--------
  Plastic Keyboard            |      4
@@ -122,23 +126,25 @@ SELECT description, rating FROM mock_items
 WHERE description === 'sleek running shoes'
 ORDER BY lower(description) DESC
     LIMIT 5;
-                                                   QUERY PLAN                                                   
-----------------------------------------------------------------------------------------------------------------
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
+                                                      QUERY PLAN                                                      
+----------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Base Scan) on mock_items
-         Table: mock_items
-         Index: lower_idx
-         Exec Method: TopKScanExecState
-         Scores: false
-            TopK Order By: description desc
-            TopK Limit: 5
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"sleek running shoes"}}}}
+   ->  Sort
+         Sort Key: (lower(description)) DESC
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items
+               Table: mock_items
+               Index: lower_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"sleek running shoes"}}}}
 (9 rows)
 
 SELECT description, rating FROM mock_items
 WHERE description === 'sleek running shoes'
 ORDER BY lower(description) DESC
     LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
      description     | rating 
 ---------------------+--------
  Sleek running shoes |      5
@@ -154,23 +160,25 @@ SELECT description, rating FROM mock_items
 WHERE description === 'sleek running shoes'
 ORDER BY lower(description) ASC, rating DESC
     LIMIT 5;
-                                                   QUERY PLAN                                                   
-----------------------------------------------------------------------------------------------------------------
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
+                                                      QUERY PLAN                                                      
+----------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Base Scan) on mock_items
-         Table: mock_items
-         Index: mixed_idx
-         Exec Method: TopKScanExecState
-         Scores: false
-            TopK Order By: description asc, rating desc
-            TopK Limit: 5
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"sleek running shoes"}}}}
+   ->  Sort
+         Sort Key: (lower(description)), rating DESC
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items
+               Table: mock_items
+               Index: mixed_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"term":{"field":"description","value":"sleek running shoes"}}}}
 (9 rows)
 
 SELECT description, rating FROM mock_items
 WHERE description === 'sleek running shoes'
 ORDER BY lower(description) ASC, rating DESC
     LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
      description     | rating 
 ---------------------+--------
  Sleek running shoes |      5
@@ -186,23 +194,25 @@ SELECT description, rating FROM mock_items
 WHERE category === 'electronics'
 ORDER BY upper(description) ASC, rating DESC
     LIMIT 5;
-                                             QUERY PLAN                                              
------------------------------------------------------------------------------------------------------
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
+                                                QUERY PLAN                                                 
+-----------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Base Scan) on mock_items
-         Table: mock_items
-         Index: mixed_expr_idx
-         Exec Method: TopKScanExecState
-         Scores: false
-            TopK Order By: description asc, rating desc
-            TopK Limit: 5
-         Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"electronics"}}}}
+   ->  Sort
+         Sort Key: (upper(description)), rating DESC
+         ->  Custom Scan (ParadeDB Base Scan) on mock_items
+               Table: mock_items
+               Index: mixed_expr_idx
+               Exec Method: NormalScanExecState
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"term":{"field":"category","value":"electronics"}}}}
 (9 rows)
 
 SELECT description, rating FROM mock_items
 WHERE category === 'electronics'
 ORDER BY upper(description) ASC, rating DESC
     LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: mock_items)
          description         | rating 
 -----------------------------+--------
  Bluetooth-enabled speaker   |      3

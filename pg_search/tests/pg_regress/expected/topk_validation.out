@@ -90,7 +90,7 @@ SELECT id FROM test_products
 WHERE category @@@ 'electronics'
 ORDER BY rating DESC, created_at DESC, id DESC, category DESC, description DESC, last_updated_date DESC  -- 6 columns, max is 5
 LIMIT 10;
-WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: ORDER BY has 6 columns but Top K supports maximum 5. This may cause poor performance on large datasets. Remedies: Reduce ORDER BY columns to 5 or fewer. To disable this warning: SET paradedb.check_topk_scan = false (table: test_products)
+WARNING:  Query has LIMIT 10 but is not using Top K scan (using Normal instead). Reason: only partial prefix of ORDER BY can be pushed down (3 columns matched). This may cause poor performance on large datasets. Remedies: Ensure all ORDER BY columns are indexed with pdb::literal tokenizer for strings, or verify that normalizer/collation matches the index. To disable this warning: SET paradedb.check_topk_scan = false (table: test_products)
  id 
 ----
 (0 rows)
@@ -108,6 +108,7 @@ SELECT id, category FROM test_products
 WHERE category === 'Electronics'
 ORDER BY lower(category) DESC  -- Matches index
 LIMIT 5;
+WARNING:  Query has LIMIT 5 but is not using Top K scan (using Normal instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: test_products)
  id | category 
 ----+----------
 (0 rows)

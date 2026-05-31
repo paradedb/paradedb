@@ -259,44 +259,28 @@ jobs:
         run: cargo pgrx install --pg-config ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/pg_config --features="pg${{ matrix.pg_version }},block_tracker"
 
       # ---------- Start Postgres ----------
-      - name: Start Postgres and create database (system)
+      - name: Start Postgres (system)
         if: matrix.pg_impl == 'system'
         working-directory: pg_search/
         run: |
           sudo chown -R $(whoami) /var/run/postgresql/
           RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
-          PGPORT=288${{ matrix.pg_version }}
-          PSQL="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/psql -p $PGPORT -h localhost"
-          # Recreate template1 with C locale so sqlx ephemeral test databases inherit it
-          $PSQL -d postgres -c "UPDATE pg_database SET datistemplate = false WHERE datname = 'template1';"
-          /usr/lib/postgresql/${{ matrix.pg_version }}/bin/dropdb --if-exists -p $PGPORT -h localhost template1
-          /usr/lib/postgresql/${{ matrix.pg_version }}/bin/createdb -p $PGPORT -h localhost --locale=C --template=template0 template1
-          $PSQL -d postgres -c "UPDATE pg_database SET datistemplate = true WHERE datname = 'template1';"
-          /usr/lib/postgresql/${{ matrix.pg_version }}/bin/dropdb --if-exists -p $PGPORT -h localhost pg_search
-          /usr/lib/postgresql/${{ matrix.pg_version }}/bin/createdb -p $PGPORT -h localhost --locale=C --template=template0 pg_search
 
       - name: Start Postgres and create database (pgrx)
         if: matrix.pg_impl == 'pgrx'
         working-directory: tests/
         run: |
           RUST_BACKTRACE=1 cargo pgrx start pg${{ matrix.pg_version }}
-          PGPORT=288${{ matrix.pg_version }}
-          PSQL="$(ls -d ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin | head -n1)/psql -p $PGPORT -h localhost"
-          # Recreate template1 with C locale so sqlx ephemeral test databases inherit it
-          $PSQL -d postgres -c "UPDATE pg_database SET datistemplate = false WHERE datname = 'template1';"
-          ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/dropdb --if-exists -p $PGPORT -h localhost template1
-          ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p $PGPORT -h localhost --locale=C --template=template0 template1
-          $PSQL -d postgres -c "UPDATE pg_database SET datistemplate = true WHERE datname = 'template1';"
           # The cached ~/.pgrx directory includes the data directory, so restore hits
           # can already contain a pg_search database from a previous run.
-          ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/dropdb --if-exists -p $PGPORT -h localhost pg_search
-          ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p $PGPORT -h localhost --locale=C --template=template0 pg_search
+          ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/dropdb --if-exists -p 288${{ matrix.pg_version }} -h localhost pg_search
+          ~/.pgrx/${{ matrix.pg_version }}.*/pgrx-install/bin/createdb -p 288${{ matrix.pg_version }} -h localhost pg_search
 
       # ---------- Tests ----------
       - name: Run pg_search Integration Tests (system)
         if: matrix.pg_impl == 'system'
         run: |
-          export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search
+          export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
           if [[ "${{ github.event_name }}" == "pull_request" && "${{ matrix.pg_version }}" != "18" ]]; then
             RUST_BACKTRACE=1 cargo test --jobs $(nproc) --package tests --package tokenizers
@@ -309,7 +293,7 @@ jobs:
         working-directory: pg_search/
         run: |
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/
-          export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/pg_search
+          export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           if [[ "${{ github.event_name }}" == "pull_request" && "${{ matrix.pg_version }}" != "18" ]]; then
             RUST_BACKTRACE=1 cargo test --jobs $(nproc) --features pg${{ matrix.pg_version }} --no-default-features
           else

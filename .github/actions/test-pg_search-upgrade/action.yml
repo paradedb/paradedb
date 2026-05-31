@@ -127,12 +127,6 @@ runs:
         RUST_BACKTRACE=1 cargo pgrx start pg${{ inputs.pg_version }}
         # Necessary for the ephemeral Postgres test to have proper permissions
         sudo chown -R $(whoami) /var/run/postgresql/
-        # Recreate template1 with C locale so sqlx ephemeral test databases inherit it
-        PGPORT=288${{ inputs.pg_version }}
-        psql -h localhost -p $PGPORT postgres -c "UPDATE pg_database SET datistemplate = false WHERE datname = 'template1';"
-        dropdb --if-exists -h localhost -p $PGPORT template1
-        createdb -h localhost -p $PGPORT --locale=C --template=template0 template1
-        psql -h localhost -p $PGPORT postgres -c "UPDATE pg_database SET datistemplate = true WHERE datname = 'template1';"
 
     - name: Alter pg_search extension to the latest version
       working-directory: pg_search/

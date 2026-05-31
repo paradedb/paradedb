@@ -406,24 +406,27 @@ FROM limit_topk_test
 WHERE category @@@ 'Books OR Electronics'
 ORDER BY title
 LIMIT 15;
-                                                                               QUERY PLAN                                                                               
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  Query has LIMIT 15 but is not using Top K scan (using Columnar instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: limit_topk_test)
+                                                                                  QUERY PLAN                                                                                  
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Custom Scan (ParadeDB Base Scan) on limit_topk_test
-         Table: limit_topk_test
-         Index: limit_topk_idx
-         Exec Method: TopKScanExecState
-         Scores: false
-            TopK Order By: title asc
-            TopK Limit: 15
-         Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Books OR Electronics","lenient":null,"conjunction_mode":null}}}}
-(9 rows)
+   ->  Sort
+         Sort Key: title
+         ->  Custom Scan (ParadeDB Base Scan) on limit_topk_test
+               Table: limit_topk_test
+               Index: limit_topk_idx
+               Exec Method: ColumnarExecState
+               Fast Fields: category, title
+               Scores: false
+               Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"category","query_string":"Books OR Electronics","lenient":null,"conjunction_mode":null}}}}
+(10 rows)
 
 SELECT title, category
 FROM limit_topk_test
 WHERE category @@@ 'Books OR Electronics'
 ORDER BY title
 LIMIT 15;
+WARNING:  Query has LIMIT 15 but is not using Top K scan (using Columnar instead). Reason: ORDER BY columns cannot be pushed down to the index. This may cause poor performance on large datasets. Remedies: Ensure ORDER BY columns are indexed. Numeric columns are fast by default. For string columns, use pdb.literal tokenizer. To disable this warning: SET paradedb.check_topk_scan = false (table: limit_topk_test)
     title    |  category   
 -------------+-------------
  Product 1   | Books

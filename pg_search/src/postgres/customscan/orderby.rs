@@ -232,20 +232,13 @@ fn pg_type_to_tantivy_type(pg_type: pg_sys::Oid) -> Option<tantivy::schema::Type
         || pg_type == pg_sys::NAMEOID
     {
         Some(Type::Str)
-    } else if pg_type == pg_sys::INT2OID || pg_type == pg_sys::INT4OID || pg_type == pg_sys::INT8OID
-    {
+    } else if pg_type == pg_sys::INT8OID {
         Some(Type::I64)
-    } else if pg_type == pg_sys::FLOAT4OID
-        || pg_type == pg_sys::FLOAT8OID
-        || pg_type == pg_sys::NUMERICOID
-    {
+    } else if pg_type == pg_sys::FLOAT8OID {
         Some(Type::F64)
     } else if pg_type == pg_sys::BOOLOID {
         Some(Type::Bool)
-    } else if pg_type == pg_sys::TIMESTAMPOID
-        || pg_type == pg_sys::TIMESTAMPTZOID
-        || pg_type == pg_sys::DATEOID
-    {
+    } else if pg_type == pg_sys::TIMESTAMPOID || pg_type == pg_sys::TIMESTAMPTZOID {
         Some(Type::Date)
     } else {
         None

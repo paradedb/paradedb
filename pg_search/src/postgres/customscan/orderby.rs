@@ -729,7 +729,7 @@ pub unsafe fn pathkey_matches_sort_by(
     // If query requests incompatible NULLS ordering, we return None and
     // PostgreSQL will add a Sort node to achieve the requested ordering.
 
-    // Note: Tantivty uses byte ordering (like C locale) - for fields with non-C collation, an incorrect order may be produced, so we must
+    // Note: Tantivy uses byte ordering (like C locale) - for fields with non-C collation, an incorrect order may be produced, so we must
     // check for safety using `is_collation_pushdown_safe`
     let collation = (*(*pathkey).pk_eclass).ec_collation;
 

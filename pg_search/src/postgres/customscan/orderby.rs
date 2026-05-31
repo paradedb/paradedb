@@ -310,6 +310,9 @@ fn is_collation_pushdown_safe(collation: pg_sys::Oid) -> bool {
         },
         // for all other collations, same as above
         _ => match lookup_collation_collcollate_and_provider(collation) {
+            #[cfg(any(feature = "pg15", feature = "pg16"))]
+            Some((_, 98)) => true,
+            #[cfg(any(feature = "pg17", feature = "pg18"))]
             Some((_, pg_sys::COLLPROVIDER_BUILTIN)) => true,
             Some((_, pg_sys::COLLPROVIDER_ICU)) => false,
             Some((Some(collcollate), _)) => collcollate == "C" || collcollate == "POSIX",

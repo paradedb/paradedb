@@ -15,7 +15,7 @@ TARGET_SUFFIXES = {
     "rails": "rb",
     "sqlalchemy": "py",
     "drizzle": "ts",
-    "csharp": "cs",
+    "efcore": "cs",
 }
 IGNORED_CODEGROUPS = {
     # CodeGroup is used here to switch between Chinese, Korean, and Japanese
@@ -45,7 +45,7 @@ def classify(info: str) -> str:
     if (info.startswith("ts")) and "drizzle" in parts:
         return "drizzle"
     if info.startswith("cs"):
-        return "csharp"
+        return "efcore"
     return ""
 
 

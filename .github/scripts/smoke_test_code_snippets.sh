@@ -4,7 +4,7 @@ set -euo pipefail
 
 # If you don't want check the snippets for all languages at once, pass in the list you'd like to check:
 # scripts/smoke_test_code_snippets.sh sql rails
-LANGUAGES=${*:-'sql django sqlalchemy rails drizzle efcore'}
+ORMS=${*:-'sql django sqlalchemy rails drizzle efcore'}
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 VERIFY_DIR="${SCRIPT_DIR}/verify"
@@ -93,7 +93,7 @@ python3 "${SCRIPT_DIR}/extract_code_snippets.py" >/dev/null
 
 sql_pass_count=0
 sql_fail_count=0
-if [[ $LANGUAGES =~ "sql" ]]; then
+if [[ $ORMS =~ "sql" ]]; then
   run_psql_file "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql"
 
 
@@ -118,7 +118,7 @@ fi
 
 django_pass_count=0
 django_fail_count=0
-if [[ $LANGUAGES =~ "django" ]]; then
+if [[ $ORMS =~ "django" ]]; then
   if [[ ! -x "$PYTHON_BIN" ]]; then
     echo "Creating temporary Python environment for Python snippet verification..."
     python3 -m venv "$PYTHON_ENV_DIR"
@@ -159,7 +159,7 @@ fi
 
 rails_pass_count=0
 rails_fail_count=0
-if [[ $LANGUAGES =~ "rails" ]]; then
+if [[ $ORMS =~ "rails" ]]; then
   echo "Installing rails-paradedb from RubyGems..."
   GEM_HOME="$RUBY_GEM_HOME" GEM_PATH="$RUBY_GEM_HOME" \
     gem install --silent --no-document --install-dir "$RUBY_GEM_HOME" \
@@ -199,7 +199,7 @@ fi
 
 sqlalchemy_pass_count=0
 sqlalchemy_fail_count=0
-if [[ $LANGUAGES =~ "sqlalchemy" ]]; then
+if [[ $ORMS =~ "sqlalchemy" ]]; then
   if [[ ! -x "$PYTHON_BIN" ]]; then
     echo "Creating temporary Python environment for Python snippet verification..."
     python3 -m venv "$PYTHON_ENV_DIR"
@@ -239,7 +239,7 @@ fi
 
 drizzle_pass_count=0
 drizzle_fail_count=0
-if [[ $LANGUAGES =~ "drizzle" ]]; then
+if [[ $ORMS =~ "drizzle" ]]; then
   echo "Installing @paradedb/drizzle-paradedb from npm..."
   npm --prefix "$JAVASCRIPT_ENV_DIR" install --silent \
     "@paradedb/drizzle-paradedb@0.1.0" \
@@ -280,7 +280,7 @@ fi
 
 efcore_pass_count=0
 efcore_fail_count=0
-if [[ $LANGUAGES =~ "efcore" ]]; then
+if [[ $ORMS =~ "efcore" ]]; then
   echo "Installing ParadeDB.EntityFrameworkCore from NuGet..."
   dotnet new console --framework net10.0 --output "$CSHARP_ENV_DIR" >/dev/null
   dotnet add "$CSHARP_ENV_DIR" package ParadeDB.EntityFrameworkCore \

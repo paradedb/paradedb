@@ -138,8 +138,28 @@ sudo pacman -S extra/clang
 `pgvector` is needed for hybrid search integration tests.
 
 ```bash
+<<<<<<< HEAD
 # Note: Replace 18 with your version of Postgres
 git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git
+=======
+cargo install --locked cargo-pgrx --version 0.18.1
+# On macOS, if `cargo pgrx init` fails with ICU-related errors, run
+# `brew install icu4c`
+# and then run
+# `export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c@78/lib/pkgconfig:$PKG_CONFIG_PATH"`
+# (the icu4c version may differ depending on what Homebrew has installed):
+cargo pgrx init
+```
+
+`cargo pgrx init` builds every supported Postgres version this project targets (currently 15–18) into `~/.pgrx/<version>/pgrx-install/` and points future `cargo pgrx` commands at it — no system Postgres required. To target only a single version, pass e.g. `cargo pgrx init --pg18 download`.
+
+### pgvector
+
+`pgvector` is needed for hybrid search integration tests. To build it against the pgrx-managed Postgres install (replace `18.3` with the version under `~/.pgrx/`):
+
+```bash
+git clone --branch v0.8.2 https://github.com/pgvector/pgvector.git
+>>>>>>> cedd532b4 (chore: upgrade pgrx to 0.18.1 (#5221))
 cd pgvector/
 
 # macOS arm64

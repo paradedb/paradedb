@@ -27,10 +27,6 @@ import { diagnostics } from "@paradedb/drizzle-paradedb";
 await db.execute(diagnostics.verifyIndex("search_idx"));
 ```
 
-```cs EF Core
-await dbContext.Database.VerifyIndex("search_idx").ToListAsync();
-```
-
 ```python Django
 from paradedb import paradedb_verify_index
 
@@ -45,6 +41,10 @@ diagnostics.paradedb_verify_index(engine, "search_idx")
 
 ```ruby Rails
 ParadeDB.paradedb_verify_index("search_idx")
+```
+
+```cs EF Core
+await dbContext.Database.VerifyIndex("search_idx").ToListAsync();
 ```
 
 </CodeGroup>
@@ -87,13 +87,6 @@ await db.execute(
 );
 ```
 
-```cs EF Core
-await dbContext.Database.VerifyIndex(
-    "search_idx",
-    new VerifyIndexOptions { HeapAllIndexed = true }
-).ToListAsync();
-```
-
 ```python Django
 from paradedb import paradedb_verify_index
 
@@ -115,6 +108,13 @@ ParadeDB.paradedb_verify_index(
   "search_idx",
   heapallindexed: true
 )
+```
+
+```cs EF Core
+await dbContext.Database.VerifyIndex(
+    "search_idx",
+    new VerifyIndexOptions { HeapAllIndexed = true }
+).ToListAsync();
 ```
 
 </CodeGroup>
@@ -154,17 +154,6 @@ await db.execute(
 );
 ```
 
-```cs EF Core
-await dbContext.Database.VerifyIndex(
-    "search_idx",
-    new VerifyIndexOptions
-    {
-        HeapAllIndexed = true,
-        SampleRate = 0.1,
-    }
-).ToListAsync();
-```
-
 ```python Django
 from paradedb import paradedb_verify_index
 
@@ -194,6 +183,17 @@ ParadeDB.paradedb_verify_index(
 )
 ```
 
+```cs EF Core
+await dbContext.Database.VerifyIndex(
+    "search_idx",
+    new VerifyIndexOptions
+    {
+        HeapAllIndexed = true,
+        SampleRate = 0.1,
+    }
+).ToListAsync();
+```
+
 </CodeGroup>
 
 ### Progress Reporting
@@ -217,17 +217,6 @@ await db.execute(
     reportProgress: true,
   }),
 );
-```
-
-```cs EF Core
-await dbContext.Database.VerifyIndex(
-    "search_idx",
-    new VerifyIndexOptions
-    {
-        HeapAllIndexed = true,
-        ReportProgress = true,
-    }
-).ToListAsync();
 ```
 
 ```python Django
@@ -259,6 +248,17 @@ ParadeDB.paradedb_verify_index(
 )
 ```
 
+```cs EF Core
+await dbContext.Database.VerifyIndex(
+    "search_idx",
+    new VerifyIndexOptions
+    {
+        HeapAllIndexed = true,
+        ReportProgress = true,
+    }
+).ToListAsync();
+```
+
 </CodeGroup>
 
 Progress messages are emitted via PostgreSQL's `NOTICE` channel.
@@ -286,18 +286,6 @@ await db.execute(
     verbose: true,
   }),
 );
-```
-
-```cs EF Core
-await dbContext.Database.VerifyIndex(
-    "search_idx",
-    new VerifyIndexOptions
-    {
-        HeapAllIndexed = true,
-        ReportProgress = true,
-        Verbose = true,
-    }
-).ToListAsync();
 ```
 
 ```python Django
@@ -332,6 +320,18 @@ ParadeDB.paradedb_verify_index(
 )
 ```
 
+```cs EF Core
+await dbContext.Database.VerifyIndex(
+    "search_idx",
+    new VerifyIndexOptions
+    {
+        HeapAllIndexed = true,
+        ReportProgress = true,
+        Verbose = true,
+    }
+).ToListAsync();
+```
+
 </CodeGroup>
 
 ### Stop on First Error
@@ -351,13 +351,6 @@ await db.execute(
     onErrorStop: true,
   }),
 );
-```
-
-```cs EF Core
-await dbContext.Database.VerifyIndex(
-    "search_idx",
-    new VerifyIndexOptions { OnErrorStop = true }
-).ToListAsync();
 ```
 
 ```python Django
@@ -381,6 +374,13 @@ ParadeDB.paradedb_verify_index(
   "search_idx",
   on_error_stop: true
 )
+```
+
+```cs EF Core
+await dbContext.Database.VerifyIndex(
+    "search_idx",
+    new VerifyIndexOptions { OnErrorStop = true }
+).ToListAsync();
 ```
 
 </CodeGroup>
@@ -407,10 +407,6 @@ import { diagnostics } from "@paradedb/drizzle-paradedb";
 await db.execute(diagnostics.indexSegments("search_idx"));
 ```
 
-```cs EF Core
-await dbContext.Database.IndexSegments("search_idx").ToListAsync();
-```
-
 ```python Django
 from paradedb import paradedb_index_segments
 
@@ -425,6 +421,10 @@ diagnostics.paradedb_index_segments(engine, "search_idx")
 
 ```ruby Rails
 ParadeDB.paradedb_index_segments("search_idx")
+```
+
+```cs EF Core
+await dbContext.Database.IndexSegments("search_idx").ToListAsync();
 ```
 
 </CodeGroup>
@@ -488,39 +488,6 @@ if (oddSegments.length) {
 }
 ```
 
-```cs EF Core
-var segments = await dbContext.Database.IndexSegments("search_idx").ToListAsync();
-var evenSegments = segments
-    .Select(segment => segment.SegmentIdx)
-    .Where(segmentIdx => segmentIdx % 2 == 0)
-    .ToArray();
-var oddSegments = segments
-    .Select(segment => segment.SegmentIdx)
-    .Where(segmentIdx => segmentIdx % 2 == 1)
-    .ToArray();
-
-await dbContext.Database.VerifyIndex(
-    "search_idx",
-    new VerifyIndexOptions
-    {
-        HeapAllIndexed = true,
-        SegmentIds = evenSegments,
-    }
-).ToListAsync();
-
-if (oddSegments.Length > 0)
-{
-    await dbContext.Database.VerifyIndex(
-        "search_idx",
-        new VerifyIndexOptions
-        {
-            HeapAllIndexed = true,
-            SegmentIds = oddSegments,
-        }
-    ).ToListAsync();
-}
-```
-
 ```python Django
 from paradedb import paradedb_verify_index
 
@@ -575,6 +542,39 @@ ParadeDB.paradedb_verify_index(
 )
 ```
 
+```cs EF Core
+var segments = await dbContext.Database.IndexSegments("search_idx").ToListAsync();
+var evenSegments = segments
+    .Select(segment => segment.SegmentIdx)
+    .Where(segmentIdx => segmentIdx % 2 == 0)
+    .ToArray();
+var oddSegments = segments
+    .Select(segment => segment.SegmentIdx)
+    .Where(segmentIdx => segmentIdx % 2 == 1)
+    .ToArray();
+
+await dbContext.Database.VerifyIndex(
+    "search_idx",
+    new VerifyIndexOptions
+    {
+        HeapAllIndexed = true,
+        SegmentIds = evenSegments,
+    }
+).ToListAsync();
+
+if (oddSegments.Length > 0)
+{
+    await dbContext.Database.VerifyIndex(
+        "search_idx",
+        new VerifyIndexOptions
+        {
+            HeapAllIndexed = true,
+            SegmentIds = oddSegments,
+        }
+    ).ToListAsync();
+}
+```
+
 </CodeGroup>
 
 ### Automation Example
@@ -615,22 +615,6 @@ await db.execute(
 );
 ```
 
-```cs EF Core
-var segments = await dbContext.Database.IndexSegments("search_idx").ToListAsync();
-
-await dbContext.Database.VerifyIndex(
-    "search_idx",
-    new VerifyIndexOptions
-    {
-        HeapAllIndexed = true,
-        SegmentIds = segments
-            .Select(segment => segment.SegmentIdx)
-            .Where(segmentIdx => segmentIdx % 4 == 0)
-            .ToArray(),
-    }
-).ToListAsync();
-```
-
 ```python Django
 from paradedb import paradedb_index_segments, paradedb_verify_index
 
@@ -669,6 +653,22 @@ ParadeDB.paradedb_verify_index(
   })
 ```
 
+```cs EF Core
+var segments = await dbContext.Database.IndexSegments("search_idx").ToListAsync();
+
+await dbContext.Database.VerifyIndex(
+    "search_idx",
+    new VerifyIndexOptions
+    {
+        HeapAllIndexed = true,
+        SegmentIds = segments
+            .Select(segment => segment.SegmentIdx)
+            .Where(segmentIdx => segmentIdx % 4 == 0)
+            .ToArray(),
+    }
+).ToListAsync();
+```
+
 </CodeGroup>
 
 ## Verifying All BM25 Indexes
@@ -686,10 +686,6 @@ import { diagnostics } from "@paradedb/drizzle-paradedb";
 await db.execute(diagnostics.verifyAllIndexes());
 ```
 
-```cs EF Core
-await dbContext.Database.VerifyAllIndexes().ToListAsync();
-```
-
 ```python Django
 from paradedb import paradedb_verify_all_indexes
 
@@ -704,6 +700,10 @@ diagnostics.paradedb_verify_all_indexes(engine)
 
 ```ruby Rails
 ParadeDB.paradedb_verify_all_indexes()
+```
+
+```cs EF Core
+await dbContext.Database.VerifyAllIndexes().ToListAsync();
 ```
 
 </CodeGroup>
@@ -753,28 +753,6 @@ await db.execute(
     heapAllIndexed: true,
   }),
 );
-```
-
-```cs EF Core
-// Verify indexes in the 'public' schema only
-await dbContext.Database.VerifyAllIndexes(
-    new VerifyAllIndexesOptions { SchemaPattern = "public" }
-).ToListAsync();
-
-// Verify indexes matching a name pattern
-await dbContext.Database.VerifyAllIndexes(
-    new VerifyAllIndexesOptions { IndexPattern = "search_%" }
-).ToListAsync();
-
-// Combine filters
-await dbContext.Database.VerifyAllIndexes(
-    new VerifyAllIndexesOptions
-    {
-        SchemaPattern = "public",
-        IndexPattern = "search_%",
-        HeapAllIndexed = true,
-    }
-).ToListAsync();
 ```
 
 ```python Django
@@ -833,6 +811,28 @@ ParadeDB.paradedb_verify_all_indexes(
 )
 ```
 
+```cs EF Core
+// Verify indexes in the 'public' schema only
+await dbContext.Database.VerifyAllIndexes(
+    new VerifyAllIndexesOptions { SchemaPattern = "public" }
+).ToListAsync();
+
+// Verify indexes matching a name pattern
+await dbContext.Database.VerifyAllIndexes(
+    new VerifyAllIndexesOptions { IndexPattern = "search_%" }
+).ToListAsync();
+
+// Combine filters
+await dbContext.Database.VerifyAllIndexes(
+    new VerifyAllIndexesOptions
+    {
+        SchemaPattern = "public",
+        IndexPattern = "search_%",
+        HeapAllIndexed = true,
+    }
+).ToListAsync();
+```
+
 </CodeGroup>
 
 ## Listing All BM25 Indexes
@@ -850,20 +850,6 @@ import { diagnostics } from "@paradedb/drizzle-paradedb";
 await db.execute(diagnostics.indexes());
 ```
 
-```cs EF Core
-await dbContext.Database
-    .Indexes()
-    .Select(index => new
-    {
-        index.SchemaName,
-        index.TableName,
-        index.IndexName,
-        index.NumSegments,
-        index.TotalDocs,
-    })
-    .ToListAsync();
-```
-
 ```python Django
 from paradedb import paradedb_indexes
 
@@ -878,6 +864,20 @@ diagnostics.paradedb_indexes(engine)
 
 ```ruby Rails
 ParadeDB.paradedb_indexes()
+```
+
+```cs EF Core
+await dbContext.Database
+    .Indexes()
+    .Select(index => new
+    {
+        index.SchemaName,
+        index.TableName,
+        index.IndexName,
+        index.NumSegments,
+        index.TotalDocs,
+    })
+    .ToListAsync();
 ```
 
 </CodeGroup>

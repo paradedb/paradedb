@@ -27,12 +27,6 @@ import { indexing } from "@paradedb/drizzle-paradedb";
 indexing.bm25Index("search_idx").on(arrayDemo.id, arrayDemo.categories);
 ```
 
-```cs EF Core
-modelBuilder.Entity<ArrayDemo>()
-    .HasBm25Index("search_idx", e => e.Id)
-    .HasField(e => e.Categories);
-```
-
 ```python Django
 from django.db import connection
 from paradedb.indexes import BM25Index
@@ -79,6 +73,12 @@ ActiveRecord::Base.connection.add_bm25_index(
 )
 ```
 
+```cs EF Core
+modelBuilder.Entity<ArrayDemo>()
+    .HasBm25Index("search_idx", e => e.Id)
+    .HasField(e => e.Categories);
+```
+
 </CodeGroup>
 
 Under the hood, each element in the array is indexed as a separate entry. This means that an array is considered a
@@ -113,12 +113,6 @@ indexing
     arrayDemo.id,
     indexing.bm25Field(arrayDemo.categories, tokenizer.literal()),
   );
-```
-
-```cs EF Core
-modelBuilder.Entity<ArrayDemo>()
-    .HasBm25Index("search_idx", e => e.Id)
-    .HasField(e => e.Categories, Tokenizer.Literal());
 ```
 
 ```python Django
@@ -166,6 +160,12 @@ ActiveRecord::Base.connection.add_bm25_index(
   key_field: :id,
   name: :search_idx
 )
+```
+
+```cs EF Core
+modelBuilder.Entity<ArrayDemo>()
+    .HasBm25Index("search_idx", e => e.Id)
+    .HasField(e => e.Categories, Tokenizer.Literal());
 ```
 
 </CodeGroup>

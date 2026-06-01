@@ -108,29 +108,32 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                      QUERY PLAN                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
+                                                                                      QUERY PLAN                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name
    ->  Unique
          Output: p.name, s.name
-         ->  Custom Scan (ParadeDB Join Scan)
+         ->  Sort
                Output: p.name, s.name
-               Relation Tree: s INNER p
-               Join Cond: p.supplier_id = s.id
-               Limit: 10
-               Distinct: true
-               Order By: p.name asc, s.name asc
-               DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[name@3 as col_1, name@1 as col_2], aggr=[ctid_0, ctid_1]
-                 :     VisibilityFilterExec: tables=[s, p]
-                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                 :         CooperativeExec
-                 :           PgSearchScan: segments=1, query="all"
-                 :         CooperativeExec
-                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+               Sort Key: p.name, s.name
+               ->  Hash Join
+                     Output: p.name, s.name
+                     Hash Cond: (s.id = p.supplier_id)
+                     ->  Seq Scan on public.dist_suppliers s
+                           Output: s.id, s.name, s.contact_info, s.country
+                     ->  Hash
+                           Output: p.name, p.supplier_id
+                           ->  Custom Scan (ParadeDB Base Scan) on public.dist_products p
+                                 Output: p.name, p.supplier_id
+                                 Table: dist_products
+                                 Index: dist_products_bm25_idx
+                                 Exec Method: ColumnarExecState
+                                 Fast Fields: name, supplier_id
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(22 rows)
 
 -- =============================================================================
 -- TEST 2: DISTINCT actually deduplicates rows
@@ -148,25 +151,25 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY s.name
     LIMIT 20;
-                                                                                                    QUERY PLAN                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=10.00..11.00 rows=20 width=32)
-   ->  Custom Scan (ParadeDB Join Scan)  (cost=10.00..11.00 rows=20 width=32)
-         Relation Tree: s INNER p
-         Join Cond: p.supplier_id = s.id
-         Limit: 20
-         Order By: s.name asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[name@1 as col_1, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
-           :   TantivyLookupExec: decode=[name]
-           :     SegmentedTopKExec: expr=[name@1 ASC NULLS LAST], k=20
-           :       VisibilityFilterExec: tables=[s, p]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3]
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(16 rows)
+WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
+                                                                                   QUERY PLAN                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=11.17..11.18 rows=2 width=32)
+   ->  Sort  (cost=11.17..11.18 rows=2 width=32)
+         Sort Key: s.name
+         ->  Hash Join  (cost=10.09..11.16 rows=2 width=32)
+               Hash Cond: (s.id = p.supplier_id)
+               ->  Seq Scan on dist_suppliers s  (cost=0.00..1.04 rows=4 width=36)
+               ->  Hash  (cost=10.03..10.03 rows=5 width=4)
+                     ->  Custom Scan (ParadeDB Base Scan) on dist_products p  (cost=10.00..10.03 rows=5 width=4)
+                           Table: dist_products
+                           Index: dist_products_bm25_idx
+                           Segment Count: 1
+                           Exec Method: ColumnarExecState
+                           Fast Fields: supplier_id
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(15 rows)
 
 SELECT s.name AS supplier_name
 FROM dist_products p
@@ -174,6 +177,7 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY s.name
     LIMIT 20;
+WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
  supplier_name 
 ---------------
  GlobalSupply
@@ -190,6 +194,7 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY s.name
     LIMIT 10;
+WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
  supplier_name 
 ---------------
  GlobalSupply
@@ -208,6 +213,7 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 10;
+WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
        name       | supplier_name 
 ------------------+---------------
  Headphones       | TechCorp
@@ -249,29 +255,30 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY paradedb.score(p.id) DESC, p.name
     LIMIT 10;
-                                                                                                       QUERY PLAN                                                                                                        
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
+                                                                                      QUERY PLAN                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, (paradedb.score(p.id))
    ->  Unique
          Output: p.name, (paradedb.score(p.id))
-         ->  Custom Scan (ParadeDB Join Scan)
+         ->  Sort
                Output: p.name, (paradedb.score(p.id))
-               Relation Tree: s INNER p
-               Join Cond: p.supplier_id = s.id
-               Limit: 10
-               Distinct: true
-               Order By: pdb.score() desc, p.name asc
-               DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=10), expr=[col_2@1 DESC, col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[name@3 as col_1, score@1 as col_2], aggr=[ctid_0, ctid_1]
-                 :     VisibilityFilterExec: tables=[s, p]
-                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], projection=[ctid_0@0, score@2, ctid_1@3, name@5]
-                 :         CooperativeExec
-                 :           PgSearchScan: segments=1, query="all"
-                 :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, supplier_id@2 as supplier_id, name@3 as name]
-                 :           CooperativeExec
-                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+               Sort Key: (paradedb.score(p.id)) DESC, p.name
+               ->  Hash Join
+                     Output: p.name, (paradedb.score(p.id))
+                     Hash Cond: (s.id = p.supplier_id)
+                     ->  Seq Scan on public.dist_suppliers s
+                           Output: s.id, s.name, s.contact_info, s.country
+                     ->  Hash
+                           Output: p.name, p.supplier_id, (paradedb.score(p.id)), (paradedb.score(p.id))
+                           ->  Custom Scan (ParadeDB Base Scan) on public.dist_products p
+                                 Output: p.name, p.supplier_id, paradedb.score(p.id), paradedb.score(p.id)
+                                 Table: dist_products
+                                 Index: dist_products_bm25_idx
+                                 Exec Method: NormalScanExecState
+                                 Scores: true
+                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
 (21 rows)
 
 SELECT DISTINCT p.name, paradedb.score(p.id) AS score
@@ -280,6 +287,7 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY paradedb.score(p.id) DESC, p.name
     LIMIT 10;
+WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
        name       |   score   
 ------------------+-----------
  Keyboard         | 0.7199212
@@ -302,6 +310,7 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY s.name
     LIMIT 10;
+WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
  supplier_name 
 ---------------
  GlobalSupply
@@ -323,34 +332,39 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                         QUERY PLAN                                                                                                          
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: DISTINCT columns must be fast fields (tables: c, p, s)
+WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: c, p, s)
+                                                                                            QUERY PLAN                                                                                             
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name, c.name
    ->  Unique
          Output: p.name, s.name, c.name
-         ->  Custom Scan (ParadeDB Join Scan)
+         ->  Sort
                Output: p.name, s.name, c.name
-               Relation Tree: s INNER (c INNER p)
-               Join Cond: p.supplier_id = s.id, p.category_id = c.id
-               Limit: 10
-               Distinct: true
-               Order By: p.name asc, s.name asc, c.name asc
-               DataFusion Physical Plan: 
-                 : ProjectionExec: expr=[col_1@0 as col_1, col_2@1 as col_2, col_3@2 as col_3, ctid_0@3 as ctid_0, ctid_1@5 as ctid_1, ctid_2@4 as ctid_2]
-                 :   SortExec: TopK(fetch=10), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST, col_3@2 ASC NULLS LAST], preserve_partitioning=[false]
-                 :     AggregateExec: mode=Single, gby=[name@5 as col_1, name@1 as col_2, name@3 as col_3], aggr=[ctid_0, ctid_2, ctid_1]
-                 :       VisibilityFilterExec: tables=[s, c, p]
-                 :         ProjectionExec: expr=[ctid_0@2 as ctid_0, name@3 as name, ctid_1@0 as ctid_1, name@1 as name, ctid_2@4 as ctid_2, name@5 as name]
-                 :           HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, category_id@3)], projection=[ctid_1@0, name@2, ctid_0@3, name@4, ctid_2@5, name@7]
-                 :             CooperativeExec
-                 :               PgSearchScan: segments=1, query="all"
-                 :             HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_2@3, category_id@5, name@6]
-                 :               CooperativeExec
-                 :                 PgSearchScan: segments=1, query="all"
-                 :               CooperativeExec
-                 :                 PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(25 rows)
+               Sort Key: p.name, s.name, c.name
+               ->  Nested Loop
+                     Output: p.name, s.name, c.name
+                     Join Filter: (p.category_id = c.id)
+                     ->  Seq Scan on public.dist_categories c
+                           Output: c.id, c.name, c.description
+                     ->  Materialize
+                           Output: p.name, p.category_id, s.name
+                           ->  Hash Join
+                                 Output: p.name, p.category_id, s.name
+                                 Hash Cond: (s.id = p.supplier_id)
+                                 ->  Seq Scan on public.dist_suppliers s
+                                       Output: s.id, s.name, s.contact_info, s.country
+                                 ->  Hash
+                                       Output: p.name, p.supplier_id, p.category_id
+                                       ->  Custom Scan (ParadeDB Base Scan) on public.dist_products p
+                                             Output: p.name, p.supplier_id, p.category_id
+                                             Table: dist_products
+                                             Index: dist_products_bm25_idx
+                                             Exec Method: NormalScanExecState
+                                             Scores: false
+                                             Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(28 rows)
 
 SELECT DISTINCT p.name AS product, s.name AS supplier, c.name AS category
 FROM dist_products p
@@ -359,6 +373,8 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 10;
+WARNING:  JoinScan not used: DISTINCT columns must be fast fields (tables: c, p, s)
+WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: c, p, s)
      product      |   supplier   |  category   
 ------------------+--------------+-------------
  Headphones       | TechCorp     | Electronics
@@ -399,6 +415,7 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 10;
+WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
    product_name   | supplier_name 
 ------------------+---------------
  Headphones       | TechCorp
@@ -427,29 +444,32 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY s.name
     LIMIT 10;
-                                                                                                      QUERY PLAN                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
+                                                                                      QUERY PLAN                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name
    ->  Unique
          Output: p.name, s.name
-         ->  Custom Scan (ParadeDB Join Scan)
+         ->  Sort
                Output: p.name, s.name
-               Relation Tree: s INNER p
-               Join Cond: p.supplier_id = s.id
-               Limit: 10
-               Distinct: true
-               Order By: s.name asc, p.name asc
-               DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=10), expr=[col_2@1 ASC NULLS LAST, col_1@0 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[name@3 as col_1, name@1 as col_2], aggr=[ctid_0, ctid_1]
-                 :     VisibilityFilterExec: tables=[s, p]
-                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                 :         CooperativeExec
-                 :           PgSearchScan: segments=1, query="all"
-                 :         CooperativeExec
-                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(20 rows)
+               Sort Key: s.name, p.name
+               ->  Hash Join
+                     Output: p.name, s.name
+                     Hash Cond: (s.id = p.supplier_id)
+                     ->  Seq Scan on public.dist_suppliers s
+                           Output: s.id, s.name, s.contact_info, s.country
+                     ->  Hash
+                           Output: p.name, p.supplier_id
+                           ->  Custom Scan (ParadeDB Base Scan) on public.dist_products p
+                                 Output: p.name, p.supplier_id
+                                 Table: dist_products
+                                 Index: dist_products_bm25_idx
+                                 Exec Method: ColumnarExecState
+                                 Fast Fields: name, supplier_id
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(22 rows)
 
 -- =============================================================================
 -- TEST 9: Non-DISTINCT queries still use SegmentedTopKExec
@@ -464,27 +484,30 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                    QUERY PLAN                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
+                                                                                   QUERY PLAN                                                                                    
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Sort
          Output: p.name, s.name
-         Relation Tree: s INNER p
-         Join Cond: p.supplier_id = s.id
-         Limit: 10
-         Order By: p.name asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[name@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   TantivyLookupExec: decode=[name]
-           :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=10
-           :       VisibilityFilterExec: tables=[s, p]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, query="all"
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+         Sort Key: p.name
+         ->  Hash Join
+               Output: p.name, s.name
+               Hash Cond: (s.id = p.supplier_id)
+               ->  Seq Scan on public.dist_suppliers s
+                     Output: s.id, s.name, s.contact_info, s.country
+               ->  Hash
+                     Output: p.name, p.supplier_id
+                     ->  Custom Scan (ParadeDB Base Scan) on public.dist_products p
+                           Output: p.name, p.supplier_id
+                           Table: dist_products
+                           Index: dist_products_bm25_idx
+                           Exec Method: ColumnarExecState
+                           Fast Fields: name, supplier_id
+                           Scores: false
+                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(20 rows)
 
 -- =============================================================================
 -- TEST 9b: WHERE clause anchoring for LateMaterializeNode
@@ -499,27 +522,29 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless' AND s.name = 'TechCorp'
 ORDER BY p.name
     LIMIT 10;
-                                                                                                    QUERY PLAN                                                                                                     
--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
+                                                                                QUERY PLAN                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name
-   ->  Custom Scan (ParadeDB Join Scan)
+   ->  Sort
          Output: p.name, s.name
-         Relation Tree: s INNER p
-         Join Cond: p.supplier_id = s.id
-         Limit: 10
-         Order By: p.name asc
-         DataFusion Physical Plan: 
-           : ProjectionExec: expr=[name@2 as col_1, NULL as col_2, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1]
-           :   TantivyLookupExec: decode=[name]
-           :     SegmentedTopKExec: expr=[name@2 ASC NULLS LAST], k=10
-           :       VisibilityFilterExec: tables=[s, p]
-           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, ctid_1@2, name@4]
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, query={"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(name = 'TechCorp'::text)"}]}}
-           :           CooperativeExec
-           :             PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(18 rows)
+         Sort Key: p.name
+         ->  Nested Loop
+               Output: p.name, s.name
+               Join Filter: (p.supplier_id = s.id)
+               ->  Seq Scan on public.dist_suppliers s
+                     Output: s.id, s.name, s.contact_info, s.country
+                     Filter: (s.name = 'TechCorp'::text)
+               ->  Custom Scan (ParadeDB Base Scan) on public.dist_products p
+                     Output: p.name, p.supplier_id
+                     Table: dist_products
+                     Index: dist_products_bm25_idx
+                     Exec Method: ColumnarExecState
+                     Fast Fields: name, supplier_id
+                     Scores: false
+                     Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(19 rows)
 
 -- =============================================================================
 -- TEST 10: Fallback — DISTINCT with non-fast-field column
@@ -662,6 +687,7 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless' AND s.contact_info @@@ 'technology'
 ORDER BY p.name
     LIMIT 10;
+WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
      product      | supplier 
 ------------------+----------
  Headphones       | TechCorp
@@ -699,6 +725,7 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 3;
+WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
     name    | supplier_name 
 ------------+---------------
  Headphones | TechCorp
@@ -726,31 +753,39 @@ WHERE
 ORDER BY
     score DESC
 LIMIT 10;
-                                                                                                                                               QUERY PLAN                                                                                                                                               
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
+                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, (paradedb.score(p.id))
    ->  Unique
          Output: p.id, p.name, (paradedb.score(p.id))
-         ->  Custom Scan (ParadeDB Join Scan)
+         ->  Sort
                Output: p.id, p.name, (paradedb.score(p.id))
-               Relation Tree: s INNER p
-               Join Cond: p.supplier_id = s.id
-               Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}})
-               Limit: 10
-               Distinct: true
-               Order By: pdb.score() desc, p.id asc, p.name asc
-               DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=10), expr=[col_3@2 DESC, col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[id@3 as col_1, name@4 as col_2, score@1 as col_3], aggr=[ctid_0, ctid_1]
-                 :     VisibilityFilterExec: tables=[s, p]
-                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_0@0), projection=[ctid_0@0, score@2, ctid_1@3, id@5, name@6]
-                 :         CooperativeExec
-                 :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"USA","lenient":null,"conjunction_mode":null}}}}
-                 :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, supplier_id@2 as supplier_id, id@3 as id, name@4 as name]
-                 :           CooperativeExec
-                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
-(22 rows)
+               Sort Key: (paradedb.score(p.id)) DESC, p.id, p.name
+               ->  Hash Join
+                     Output: p.id, p.name, (paradedb.score(p.id))
+                     Inner Unique: true
+                     Hash Cond: (p.supplier_id = s.id)
+                     Join Filter: ((p.id @@@ '{"with_index":{"oid":56157,"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (s.id @@@ '{"with_index":{"oid":56158,"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
+                     ->  Custom Scan (ParadeDB Base Scan) on public.dist_products p
+                           Output: p.id, p.name, p.supplier_id, paradedb.score(p.id), paradedb.score(p.id)
+                           Table: dist_products
+                           Index: dist_products_bm25_idx
+                           Exec Method: NormalScanExecState
+                           Scores: true
+                           Full Index Scan: true
+                           Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}},"all"]}}
+                     ->  Hash
+                           Output: s.id
+                           ->  Custom Scan (ParadeDB Base Scan) on public.dist_suppliers s
+                                 Output: s.id
+                                 Table: dist_suppliers
+                                 Index: dist_suppliers_bm25_idx
+                                 Exec Method: NormalScanExecState
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"USA","lenient":null,"conjunction_mode":null}}}}
+(29 rows)
 
 SELECT DISTINCT
     p.id,
@@ -768,10 +803,11 @@ WHERE
 ORDER BY
     score DESC
 LIMIT 10;
- id  |       name       | score 
------+------------------+-------
- 201 | Wireless Mouse   |     0
- 209 | Wireless Charger |     0
+WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
+ id  |       name       |   score   
+-----+------------------+-----------
+ 201 | Wireless Mouse   | 1.3818457
+ 209 | Wireless Charger | 1.3818457
 (2 rows)
 
 -- =============================================================================
@@ -793,6 +829,7 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 3 OFFSET 0;
+WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
     name    | supplier_name 
 ------------+---------------
  Headphones | TechCorp
@@ -808,6 +845,7 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 3 OFFSET 2;
+WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
        name       | supplier_name 
 ------------------+---------------
  Mouse Pad        | GlobalSupply
@@ -823,6 +861,7 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 3 OFFSET 4;
+WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
       name      | supplier_name 
 ----------------+---------------
  Wireless Mouse | TechCorp
@@ -836,6 +875,7 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 3 OFFSET 10;
+WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
  name | supplier_name 
 ------+---------------
 (0 rows)
@@ -866,30 +906,32 @@ FROM dist_products p
 WHERE p.description @@@ 'wireless'
 ORDER BY p.name
     LIMIT 3 OFFSET 2;
-                                                                                                      QUERY PLAN                                                                                                       
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
+                                                                                      QUERY PLAN                                                                                       
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.name, s.name
    ->  Unique
          Output: p.name, s.name
-         ->  Custom Scan (ParadeDB Join Scan)
+         ->  Sort
                Output: p.name, s.name
-               Relation Tree: s INNER p
-               Join Cond: p.supplier_id = s.id
-               Limit: 3
-               Offset: 2
-               Distinct: true
-               Order By: p.name asc, s.name asc
-               DataFusion Physical Plan: 
-                 : SortExec: TopK(fetch=5), expr=[col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
-                 :   AggregateExec: mode=Single, gby=[name@3 as col_1, name@1 as col_2], aggr=[ctid_0, ctid_1]
-                 :     VisibilityFilterExec: tables=[s, p]
-                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@1)], projection=[ctid_0@0, name@2, ctid_1@3, name@5]
-                 :         CooperativeExec
-                 :           PgSearchScan: segments=1, query="all"
-                 :         CooperativeExec
-                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
-(21 rows)
+               Sort Key: p.name, s.name
+               ->  Hash Join
+                     Output: p.name, s.name
+                     Hash Cond: (s.id = p.supplier_id)
+                     ->  Seq Scan on public.dist_suppliers s
+                           Output: s.id, s.name, s.contact_info, s.country
+                     ->  Hash
+                           Output: p.name, p.supplier_id
+                           ->  Custom Scan (ParadeDB Base Scan) on public.dist_products p
+                                 Output: p.name, p.supplier_id
+                                 Table: dist_products
+                                 Index: dist_products_bm25_idx
+                                 Exec Method: ColumnarExecState
+                                 Fast Fields: name, supplier_id
+                                 Scores: false
+                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"description","query_string":"wireless","lenient":null,"conjunction_mode":null}}}}
+(22 rows)
 
 -- Expected: Offset: 2 appears in the Custom Scan (ParadeDB Join Scan) node
 -- =============================================================================

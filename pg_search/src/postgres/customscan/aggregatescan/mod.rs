@@ -35,6 +35,7 @@ pub mod targetlist;
 // Re-export commonly used types for easier access
 pub use aggregate_type::AggregateType;
 pub use groupby::GroupingColumn;
+use pgrx::pg_sys::exprCollation;
 pub use targetlist::TargetListEntry;
 
 use std::sync::Arc;
@@ -91,6 +92,7 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::hook::query_has_paradedb_agg;
 use crate::postgres::customscan::joinscan::scan_state::{build_physical_plan, build_task_context};
 use crate::postgres::customscan::limit_offset::LimitOffset;
+use crate::postgres::customscan::orderby::is_collation_pushdown_safe;
 use crate::postgres::customscan::projections::{create_placeholder_targetlist, placeholder_procid};
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
 use crate::postgres::customscan::{range_table, CreateUpperPathsHookArgs, CustomScan};
@@ -1930,6 +1932,13 @@ unsafe fn detect_join_aggregate_topk(
         if (*sort_expr).type_ != pg_sys::NodeTag::T_Var {
             return None;
         }
+
+        // If the collation for this pathkey isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering
+        let collation = exprCollation(sort_expr);
+        if !is_collation_pushdown_safe(collation) {
+            return None;
+        }
+
         return Some(privdat::DataFusionTopK {
             sort_target: privdat::TopKSortTarget::GroupColumn(gc_idx),
             direction,

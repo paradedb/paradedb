@@ -177,6 +177,125 @@ WHERE id @@@ paradedb.all()
 ORDER BY city COLLATE "test_icu" ASC NULLS FIRST;
 
 -- =============================================================================
+-- SECTION 5: JoinScan ORDER BY collation check
+-- =============================================================================
+
+\echo '=== SECTION 5: JoinScan ORDER BY ==='
+
+SET paradedb.enable_join_custom_scan = on;
+
+DROP TABLE IF EXISTS collation_join_products CASCADE;
+DROP TABLE IF EXISTS collation_join_suppliers CASCADE;
+
+CREATE TABLE collation_join_products (
+    id INTEGER PRIMARY KEY,
+    name_c TEXT COLLATE "C" NOT NULL,
+    name_icu TEXT COLLATE "test_icu" NOT NULL,
+    description TEXT COLLATE "C"
+);
+
+CREATE TABLE collation_join_suppliers (
+    id INTEGER PRIMARY KEY,
+    product_id INTEGER NOT NULL,
+    supplier_name TEXT COLLATE "C" NOT NULL
+);
+
+INSERT INTO collation_join_products (id, name_c, name_icu, description) VALUES
+    (1, 'Wireless Mouse', 'Wireless Mouse', 'ergonomic wireless mouse'),
+    (2, 'USB Cable', 'USB Cable', 'high-speed cable'),
+    (3, 'Keyboard', 'Keyboard', 'mechanical keyboard wireless'),
+    (4, 'Monitor Stand', 'Monitor Stand', 'adjustable monitor stand'),
+    (5, 'Webcam', 'Webcam', 'HD webcam wireless');
+
+INSERT INTO collation_join_suppliers (id, product_id, supplier_name) VALUES
+    (1, 1, 'TechCorp'),
+    (2, 2, 'CableCo'),
+    (3, 3, 'TechCorp'),
+    (4, 4, 'FurniPro'),
+    (5, 5, 'TechCorp');
+
+CREATE INDEX collation_join_products_idx ON collation_join_products
+USING bm25 (id, name_c, name_icu, description)
+WITH (
+    key_field = 'id',
+    text_fields = '{"name_c": {"fast": true}, "name_icu": {"fast": true}, "description": {}}'
+);
+
+CREATE INDEX collation_join_suppliers_idx ON collation_join_suppliers
+USING bm25 (id, product_id, supplier_name)
+WITH (
+    key_field = 'id',
+    text_fields = '{"supplier_name": {"fast": true}}',
+    numeric_fields = '{"product_id": {"fast": true}}'
+);
+
+ANALYZE collation_join_products;
+ANALYZE collation_join_suppliers;
+
+\echo 'Test 5.1: JoinScan ORDER BY C-collation column -> JoinScan used'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT p.name_c, s.supplier_name
+FROM collation_join_products p
+JOIN collation_join_suppliers s ON p.id = s.product_id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.name_c
+LIMIT 5;
+
+\echo 'Test 5.2: JoinScan ORDER BY ICU-collation column -> JoinScan declined (Sort node expected)'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT p.name_icu, s.supplier_name
+FROM collation_join_products p
+JOIN collation_join_suppliers s ON p.id = s.product_id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.name_icu
+LIMIT 5;
+
+\echo 'Test 5.3: JoinScan ORDER BY integer -> JoinScan used (collation is InvalidOid)'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT p.name_c, s.supplier_name
+FROM collation_join_products p
+JOIN collation_join_suppliers s ON p.id = s.product_id
+WHERE p.description @@@ 'wireless'
+ORDER BY p.id
+LIMIT 5;
+
+RESET paradedb.enable_join_custom_scan;
+
+-- =============================================================================
+-- SECTION 6: Aggregate-on-Join TopK collation check
+-- =============================================================================
+
+\echo '=== SECTION 6: Aggregate-on-Join TopK ==='
+
+SET paradedb.enable_aggregate_custom_scan TO on;
+
+\echo 'Test 6.1: GROUP BY + ORDER BY C-collation text + LIMIT -> aggregate TopK pushdown'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_c, COUNT(*) FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_c
+ORDER BY name_c
+LIMIT 3;
+
+\echo 'Test 6.2: GROUP BY + ORDER BY ICU-collation text + LIMIT -> no TopK (Sort node expected)'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT name_icu, COUNT(*) FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY name_icu
+ORDER BY name_icu
+LIMIT 3;
+
+\echo 'Test 6.3: GROUP BY + ORDER BY integer + LIMIT -> aggregate TopK pushdown'
+EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
+SELECT priority, COUNT(*) FROM collation_test
+WHERE id @@@ paradedb.all()
+GROUP BY priority
+ORDER BY priority
+LIMIT 3;
+
+RESET paradedb.enable_aggregate_custom_scan;
+
+-- =============================================================================
 -- CLEANUP
 -- =============================================================================
 
@@ -184,6 +303,8 @@ RESET paradedb.enable_columnar_sort;
 
 DROP TABLE IF EXISTS collation_test CASCADE;
 DROP TABLE IF EXISTS collation_sortby_test CASCADE;
+DROP TABLE IF EXISTS collation_join_products CASCADE;
+DROP TABLE IF EXISTS collation_join_suppliers CASCADE;
 DROP COLLATION IF EXISTS test_icu;
 
 \i common/common_cleanup.sql

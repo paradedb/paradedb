@@ -135,11 +135,39 @@ jobs:
           export BINDGEN_EXTRA_CLANG_ARGS="$(xcrun --show-sdk-path | xargs -I{} echo -isysroot {})"
           cargo pgrx package --pg-config $PG_CONFIG
 
-      # TODO: wire up Apple Developer codesigning + notarytool before merging this
-      # PR. Upstream's build.zsh runs `codesign --sign "Developer ID Application"`
-      # on the dylibs and signs the pkg with `Developer ID Installer`, then submits
-      # to `xcrun notarytool` using a `postgresapp` keychain profile. Without those,
-      # the produced pkg trips Gatekeeper on first install.
+      # Import the Developer ID Application + Installer certificates into a dedicated
+      # temporary keychain so codesign/pkgbuild/productbuild can sign with them. The
+      # keychain is the only one on the user search list for the rest of the job, so
+      # the partial "Developer ID Application"/"Developer ID Installer" identity
+      # strings used below match unambiguously. Mirrors GitHub's "Installing an Apple
+      # certificate on macOS runners" guide.
+      - name: Import Apple Developer ID Certificates
+        env:
+          APPLE_DEVELOPER_ID_APPLICATION_CERT: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERT }}
+          APPLE_DEVELOPER_ID_INSTALLER_CERT: ${{ secrets.APPLE_DEVELOPER_ID_INSTALLER_CERT }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+
+          # Create, configure, and unlock a throwaway keychain for the job.
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Decode and import both Developer ID certificates (.p12), then wipe the files.
+          echo "$APPLE_DEVELOPER_ID_APPLICATION_CERT" | base64 --decode > "$RUNNER_TEMP/application.p12"
+          echo "$APPLE_DEVELOPER_ID_INSTALLER_CERT" | base64 --decode > "$RUNNER_TEMP/installer.p12"
+          security import "$RUNNER_TEMP/application.p12" -P "$APPLE_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security import "$RUNNER_TEMP/installer.p12" -P "$APPLE_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          rm -f "$RUNNER_TEMP/application.p12" "$RUNNER_TEMP/installer.p12"
+
+          # Allow the signing tools to use the private keys without an interactive prompt,
+          # and make this the keychain that codesign/pkgbuild/productbuild search.
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+
       - name: Build Postgres.app Installer Package
         id: pkg
         run: |
@@ -156,6 +184,11 @@ jobs:
             ls -R "${GITHUB_WORKSPACE}/target/release" || true
             exit 1
           fi
+
+          # Sign the loadable library with the Developer ID Application identity before
+          # packaging, matching upstream build.zsh. Without this the notarized pkg would
+          # contain an unsigned dylib and fail notarization.
+          codesign --force --sign "Developer ID Application" --timestamp "$INSTALL_ROOT"/lib/postgresql/*.dylib
 
           BUILD=$(mktemp -d)
           mkdir -p "$BUILD/Resources" "$BUILD/Scripts"
@@ -188,12 +221,14 @@ jobs:
             --identifier "com.postgresapp.extension.${PG_MAJOR_VERSION}.${EXTENSION_NAME}" \
             --version "${EXTENSION_VERSION}" \
             --scripts Scripts \
+            --sign "Developer ID Installer" \
             "${COMPONENT_PKG}"
 
           productbuild \
             --distribution distribution.xml \
             --resources Resources \
             --package-path . \
+            --sign "Developer ID Installer" \
             "${FINAL_PKG}"
 
           rm "${COMPONENT_PKG}"
@@ -201,6 +236,26 @@ jobs:
           ls -lh "${GITHUB_WORKSPACE}/${FINAL_PKG}"
           echo "pkg_path=${FINAL_PKG}" >> $GITHUB_OUTPUT
           echo "pkg_name=${FINAL_PKG}" >> $GITHUB_OUTPUT
+
+      # Submit the signed pkg to Apple's notary service and staple the ticket onto it
+      # so Gatekeeper accepts the installer on first open, even offline. Authenticates
+      # with an App Store Connect API key (notarytool --key). Runs before attestation
+      # and upload so the artifact we attest and ship is the stapled one.
+      - name: Notarize and Staple Installer Package
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          echo "$APPLE_API_KEY_P8" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+          xcrun notarytool submit "${{ steps.pkg.outputs.pkg_path }}" \
+            --key "$RUNNER_TEMP/AuthKey.p8" \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER_ID" \
+            --wait
+          xcrun stapler staple "${{ steps.pkg.outputs.pkg_path }}"
+          rm -f "$RUNNER_TEMP/AuthKey.p8"
 
       - name: Sign and Attest Build Provenance
         uses: actions/attest-build-provenance@v4

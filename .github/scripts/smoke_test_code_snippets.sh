@@ -284,7 +284,7 @@ if [[ $LANGUAGES =~ "efcore" ]]; then
   echo "Installing ParadeDB.EntityFrameworkCore from NuGet..."
   dotnet new console --framework net10.0 --output "$CSHARP_ENV_DIR" >/dev/null
   dotnet add "$CSHARP_ENV_DIR" package ParadeDB.EntityFrameworkCore \
-    --version 0.0.1 \
+    --version 0.1.0 \
     >/dev/null
   dotnet restore "$CSHARP_ENV_DIR" -p:NuGetAudit=false >/dev/null
 

@@ -64,7 +64,7 @@ MockItem.more_like_this(3)
 
 ```cs EF Core
 await dbContext
-    .MockItems.Where(item => EF.Functions.MoreLikeThis(item.Id, Pdb.DocumentId(3)))
+    .MockItems.Where(item => EF.Functions.MoreLikeThisId(item.Id, 3))
     .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
     .OrderBy(item => item.Id)
     .ToListAsync();
@@ -147,10 +147,10 @@ MockItem.more_like_this(3, fields: [:description])
 ```
 
 ```cs EF Core
+var moreLikeThisOptions = new MoreLikeThisOptions { Fields = new[] { "description" } };
+
 await dbContext
-    .MockItems.Where(item =>
-        EF.Functions.MoreLikeThis(item.Id, Pdb.DocumentId(3).Fields("description"))
-    )
+    .MockItems.Where(item => EF.Functions.MoreLikeThisId(item.Id, 3, moreLikeThisOptions))
     .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
     .OrderBy(item => item.Id)
     .ToListAsync();
@@ -252,9 +252,9 @@ MockItem.more_like_this({ description: "Sleek running shoes", category: "footwea
 ```cs EF Core
 await dbContext
     .MockItems.Where(item =>
-        EF.Functions.MoreLikeThis(
+        EF.Functions.MoreLikeThisDocument(
             item.Id,
-            Pdb.Document("""{"description":"Sleek running shoes","category":"footwear"}""")
+            """{"description":"Sleek running shoes","category":"footwear"}"""
         )
     )
     .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
@@ -327,10 +327,10 @@ MockItem.more_like_this(3, min_term_freq: 2)
 ```
 
 ```cs EF Core
+var moreLikeThisOptions = new MoreLikeThisOptions { MinTermFrequency = 2 };
+
 await dbContext
-    .MockItems.Where(item =>
-        EF.Functions.MoreLikeThis(item.Id, Pdb.DocumentId(3).MinTermFrequency(2))
-    )
+    .MockItems.Where(item => EF.Functions.MoreLikeThisId(item.Id, 3, moreLikeThisOptions))
     .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
     .OrderBy(item => item.Id)
     .ToListAsync();
@@ -397,10 +397,10 @@ MockItem.more_like_this(3, min_doc_freq: 3)
 ```
 
 ```cs EF Core
+var moreLikeThisOptions = new MoreLikeThisOptions { MinDocFrequency = 3 };
+
 await dbContext
-    .MockItems.Where(item =>
-        EF.Functions.MoreLikeThis(item.Id, Pdb.DocumentId(3).MinDocFrequency(3))
-    )
+    .MockItems.Where(item => EF.Functions.MoreLikeThisId(item.Id, 3, moreLikeThisOptions))
     .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
     .OrderBy(item => item.Id)
     .ToListAsync();
@@ -469,10 +469,10 @@ MockItem.more_like_this(3, max_query_terms: 10)
 ```
 
 ```cs EF Core
+var moreLikeThisOptions = new MoreLikeThisOptions { MaxQueryTerms = 10 };
+
 await dbContext
-    .MockItems.Where(item =>
-        EF.Functions.MoreLikeThis(item.Id, Pdb.DocumentId(3).MaxQueryTerms(10))
-    )
+    .MockItems.Where(item => EF.Functions.MoreLikeThisId(item.Id, 3, moreLikeThisOptions))
     .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
     .OrderBy(item => item.Id)
     .ToListAsync();
@@ -538,10 +538,10 @@ MockItem.more_like_this(3, min_word_length: 5)
 ```
 
 ```cs EF Core
+var moreLikeThisOptions = new MoreLikeThisOptions { MinWordLength = 5 };
+
 await dbContext
-    .MockItems.Where(item =>
-        EF.Functions.MoreLikeThis(item.Id, Pdb.DocumentId(3).MinWordLength(5))
-    )
+    .MockItems.Where(item => EF.Functions.MoreLikeThisId(item.Id, 3, moreLikeThisOptions))
     .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
     .OrderBy(item => item.Id)
     .ToListAsync();
@@ -606,10 +606,10 @@ MockItem.more_like_this(3, stopwords: %w[the a])
 ```
 
 ```cs EF Core
+var moreLikeThisOptions = new MoreLikeThisOptions { Stopwords = new[] { "the", "a" } };
+
 await dbContext
-    .MockItems.Where(item =>
-        EF.Functions.MoreLikeThis(item.Id, Pdb.DocumentId(3).Stopwords("the", "a"))
-    )
+    .MockItems.Where(item => EF.Functions.MoreLikeThisId(item.Id, 3, moreLikeThisOptions))
     .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
     .OrderBy(item => item.Id)
     .ToListAsync();

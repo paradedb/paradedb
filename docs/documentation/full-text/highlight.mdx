@@ -162,7 +162,7 @@ MockItem.search(:description)
 ```
 
 ```cs EF Core
-var snippetOptions = new SnippetOptions("<i>", "</i>", null);
+var snippetOptions = new SnippetOptions { StartTag = "<i>", EndTag = "</i>" };
 
 await dbContext
     .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "shoes"))
@@ -236,7 +236,7 @@ MockItem.search(:description)
 ```
 
 ```cs EF Core
-var snippetsOptions = new SnippetsOptions(null, null, 15, null, null, null);
+var snippetsOptions = new SnippetsOptions { MaxNumChars = 15 };
 
 await dbContext
     .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "artistic vase"))
@@ -345,7 +345,7 @@ MockItem.search(:description)
 ```
 
 ```cs EF Core
-var snippetsOptions = new SnippetsOptions(null, null, 15, 1, null, null);
+var snippetsOptions = new SnippetsOptions { MaxNumChars = 15, Limit = 1 };
 
 await dbContext
     .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "running"))
@@ -424,7 +424,7 @@ MockItem.search(:description)
 ```
 
 ```cs EF Core
-var snippetsOptions = new SnippetsOptions(null, null, 15, 1, 1, null);
+var snippetsOptions = new SnippetsOptions { MaxNumChars = 15, Limit = 1, Offset = 1 };
 
 await dbContext
     .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "running"))
@@ -506,7 +506,7 @@ MockItem.search(:description)
 ```
 
 ```cs EF Core
-var snippetsOptions = new SnippetsOptions(null, null, 15, null, null, "position");
+var snippetsOptions = new SnippetsOptions { MaxNumChars = 15, SortBy = "position" };
 
 await dbContext
     .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "artistic vase"))

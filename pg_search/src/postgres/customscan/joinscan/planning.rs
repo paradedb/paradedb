@@ -1546,18 +1546,18 @@ pub(super) unsafe fn order_by_columns_have_unsafe_collation(
 ) -> bool {
     let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
     if pathkeys.is_empty() {
-        return true;
+        return false;
     }
 
     for pathkey_ptr in pathkeys.iter_ptr() {
         let equivclass = (*pathkey_ptr).pk_eclass;
         let collation = (*equivclass).ec_collation;
         if !is_collation_pushdown_safe(collation) {
-            return false;
+            return true;
         }
     }
 
-    true
+    false
 }
 
 /// Check if all Var dependencies of an expression are fast fields in any source.

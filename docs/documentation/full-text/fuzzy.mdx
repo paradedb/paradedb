@@ -100,18 +100,21 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from paradedb.sqlalchemy import search
 
+# Fuzzy match disjunction
 fuzzy_or_stmt = (
     select(MockItem.id, MockItem.description)
     .where(search.match_any(MockItem.description, "runing shose", distance=2))
     .limit(5)
 )
 
+# Fuzzy match conjunction
 fuzzy_and_stmt = (
     select(MockItem.id, MockItem.description)
     .where(search.match_all(MockItem.description, "runing shose", distance=2))
     .limit(5)
 )
 
+# Fuzzy term
 fuzzy_term_stmt = (
     select(MockItem.id, MockItem.description)
     .where(search.term(MockItem.description, "shose", distance=2))
@@ -147,6 +150,7 @@ MockItem.search(:description)
 ```
 
 ```cs EF Core
+// Fuzzy match disjunction
 await dbContext
     .MockItems.Where(item =>
         EF.Functions.MatchAny(item.Description, Pdb.Fuzzy("runing shose", 2))
@@ -155,6 +159,7 @@ await dbContext
     .Take(5)
     .ToListAsync();
 
+// Fuzzy match conjunction
 await dbContext
     .MockItems.Where(item =>
         EF.Functions.MatchAll(item.Description, Pdb.Fuzzy("runing shose", 2))
@@ -163,6 +168,7 @@ await dbContext
     .Take(5)
     .ToListAsync();
 
+// Fuzzy term
 await dbContext
     .MockItems.Where(item => EF.Functions.Term(item.Description, Pdb.Fuzzy("shose", 2)))
     .Select(item => new { item.Id, item.Description })

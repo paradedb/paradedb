@@ -1503,7 +1503,7 @@ impl CustomScan for BaseScan {
                         let needs_special_projection = state.custom_state().need_scores()
                             || state.custom_state().need_snippets()
                             || state.custom_state().window_aggregate_results.is_some()
-                            || !state.custom_state().const_distance_nodes.is_empty();
+                            || state.custom_state().vector_distance_placeholder;
 
                         if !needs_special_projection {
                             //
@@ -1533,20 +1533,6 @@ impl CustomScan for BaseScan {
                                     .expect("const_score_node should be set");
                                 (*const_score_node).constvalue = score.into_datum().unwrap();
                                 (*const_score_node).constisnull = false;
-                            }
-
-                            // Inject the vector distance into any placeholder
-                            // Const nodes that replaced ORDER-BY `<->` exprs.
-                            // TopK pushes `-distance` as the score, so
-                            // `-score` is the distance we want to emit.
-                            if !state.custom_state().const_distance_nodes.is_empty() {
-                                let distance = (-score) as f64;
-                                let distance_datum = distance.into_datum().expect("f64 into_datum");
-                                for &const_node in state.custom_state().const_distance_nodes.iter()
-                                {
-                                    (*const_node).constvalue = distance_datum;
-                                    (*const_node).constisnull = false;
-                                }
                             }
 
                             // Update window aggregate values
@@ -2111,19 +2097,18 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
     let need_scores = state.custom_state().need_scores();
     let need_snippets = state.custom_state().need_snippets();
     let has_window_aggs = !state.custom_state().window_aggregates.is_empty();
-    // Vector-distance ORDER BY queries also need placeholder injection so
-    // the `embedding <-> query` OpExpr in the targetlist is replaced with
-    // a pre-computed Const at exec time (skipping `l2_distance` +
-    // `detoast_attr` per output row). We can't cheaply know at this point
-    // whether there's such an OpExpr, but the walker is idempotent and
-    // cheap on a miss, so we always run it and gate on whether it
-    // actually replaced anything.
-    let is_topk_vector_order = matches!(
+    // A TopK scan that orders by `embedding <-> query` also needs the special
+    // projection: it lets us blank the junk distance column (see
+    // `inject_vector_distance_placeholders`) and skip the per-row
+    // `l2_distance` + `detoast_attr`. We only consider TopK here because that
+    // is the only exec method that provides the vector ordering itself; in any
+    // other plan a Sort consumes the distance column and we must leave it be.
+    let is_topk = matches!(
         state.custom_state().exec_method_type,
         crate::postgres::customscan::builders::custom_path::ExecMethodType::TopK { .. }
     );
 
-    if !need_scores && !need_snippets && !has_window_aggs && !is_topk_vector_order {
+    if !need_scores && !need_snippets && !has_window_aggs && !is_topk {
         // nothing to inject, use whatever we originally setup as our ProjectionInfo
         return;
     }
@@ -2152,41 +2137,50 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
         (targetlist, HashMap::default())
     };
 
-    // Inject vector-distance ORDER BY placeholders. When the ORDER BY is
-    // `embedding <-> query`, pg adds that `OpExpr` to the scan's targetlist
-    // as a junk column, then evaluates it per output row — triggering
-    // `detoast_attr` on the TOAST'd heap vector (~27 % of query time at
-    // LIMIT 100). TopK already has the exact same distance computed; stuff
-    // it into a Const placeholder so `ExecProject` skips the recompute.
-    let (targetlist, const_distance_nodes) = inject_vector_distance_placeholders(targetlist);
+    // Blank out the junk vector-distance ORDER BY column. When the ORDER BY is
+    // `embedding <-> query`, pg adds that `OpExpr` to the scan's targetlist as
+    // a junk column and evaluates it per output row — triggering `detoast_attr`
+    // on the TOAST'd heap vector (~27 % of query time at LIMIT 100). The TopK
+    // scan already produced the rows in order, so the column's value is unused
+    // and junk-stripped; replacing it with a NULL Const skips the recompute.
+    // Only safe for TopK (it owns the ordering); other plans Sort by it.
+    let vector_distance_placeholder = is_topk && inject_vector_distance_placeholders(targetlist);
 
     state.custom_state_mut().placeholder_targetlist = Some(targetlist);
     state.custom_state_mut().const_score_node = Some(const_score_node);
     state.custom_state_mut().const_snippet_nodes = const_snippet_nodes;
     state.custom_state_mut().const_window_agg_nodes = const_window_agg_nodes;
-    state.custom_state_mut().const_distance_nodes = const_distance_nodes;
+    state.custom_state_mut().vector_distance_placeholder = vector_distance_placeholder;
 }
 
-/// Replace every top-level pgvector distance `OpExpr` (e.g. `embedding <-> q`)
-/// in `targetlist` with a `Const(float8, null)` placeholder, mutating each
-/// `TargetEntry`'s `expr` in place. Returns the (same) targetlist and the list
-/// of `Const` nodes, in left-to-right order, so exec-time can fill them with
-/// the TopK-computed distance.
+/// Replace every *junk* top-level pgvector distance `OpExpr`
+/// (e.g. `embedding <-> q`) in `targetlist` with a NULL `Const(float8)`,
+/// mutating the `TargetEntry`'s `expr` in place. Returns `true` if at least one
+/// entry was replaced.
 ///
-/// This intentionally does NOT use `expression_tree_mutator`: that deep-copies
-/// every node it visits, which would orphan the score/snippet/window `Const`
-/// pointers already collected for this targetlist and leave those columns NULL.
-/// The vector-distance ORDER BY key is always a top-level `TargetEntry` expr,
-/// so an in-place per-entry rewrite is sufficient.
-unsafe fn inject_vector_distance_placeholders(
-    targetlist: *mut pg_sys::List,
-) -> (*mut pg_sys::List, Vec<*mut pg_sys::Const>) {
+/// A junk distance column only exists to carry the ORDER BY key; with a TopK
+/// scan the rows already arrive ordered and the column is junk-stripped from
+/// the result, so its value is never observed. Blanking it to NULL lets
+/// `ExecProject` skip `l2_distance(embedding, q)` and the heap-vector detoast.
+///
+/// Two deliberate restrictions:
+/// * `resjunk` only — a SELECT-ed `vec <-> q` must be computed exactly; the
+///   TopK score is an approximate, squared/normalized ordering key, not the
+///   pgvector distance.
+/// * the caller invokes this only for TopK scans — any other plan has a Sort
+///   that consumes the distance value, so it cannot be blanked.
+///
+/// This does NOT use `expression_tree_mutator`: that deep-copies every node it
+/// visits, which would orphan the score/snippet/window `Const` pointers already
+/// collected for this targetlist. The ORDER BY key is always a top-level
+/// `TargetEntry` expr, so an in-place per-entry rewrite is sufficient.
+unsafe fn inject_vector_distance_placeholders(targetlist: *mut pg_sys::List) -> bool {
     use crate::postgres::customscan::orderby::metric_for_opoid;
 
-    let mut nodes = Vec::new();
+    let mut replaced = false;
     let tlist = PgList::<pg_sys::TargetEntry>::from_pg(targetlist);
     for te in tlist.iter_ptr() {
-        if te.is_null() {
+        if te.is_null() || !(*te).resjunk {
             continue;
         }
         let Some(opexpr) = nodecast!(OpExpr, T_OpExpr, (*te).expr.cast::<pg_sys::Node>()) else {
@@ -2203,10 +2197,10 @@ unsafe fn inject_vector_distance_placeholders(
                 true,
             );
             (*te).expr = const_node.cast();
-            nodes.push(const_node);
+            replaced = true;
         }
     }
-    (targetlist, nodes)
+    replaced
 }
 
 /// Inject placeholder Const nodes for window aggregates at execution time

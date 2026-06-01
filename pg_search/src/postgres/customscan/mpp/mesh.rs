@@ -332,11 +332,10 @@ mod tests {
         }
     }
 
-    /// Dropping the last DsmInboxSender flips `detached` and the receiver sees the
+    /// Dropping the last `DsmInboxSender` flips `detached` and the receiver sees the
     /// queued bytes followed by `Detached`. This is the structural equivalent of
     /// shm_mq's "drop the last sender, receiver sees detach" guarantee, and is what
-    /// keeps the drain loop from wedging on a clean shutdown (no explicit
-    /// `set_detached` needed when every sender goes away cleanly).
+    /// keeps the drain loop from wedging on a clean shutdown.
     #[test]
     fn dropping_last_sender_triggers_detach() {
         let (tx, rx, _region) = test_dsm_inbox_pair(4, 64);

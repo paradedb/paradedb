@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780332633802,
+  "lastUpdate": 1780332667470,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18772,6 +18772,108 @@ window.BENCHMARK_DATA = {
             "value": 164.79296875,
             "unit": "median mem",
             "extra": "avg mem: 183.15756856861123, max mem: 223.1484375, count: 56474"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cb32e29f9faab09562525f00a062e5642e1b7b8b",
+          "message": "chore: upgrade Rust toolchain to 1.96 (#5224)\n\n## What\n\nUpgrades the Rust toolchain from 1.95 to 1.96 everywhere it was pinned:\n\n- `rust-toolchain.toml` — `channel = \"1.96.0\"`\n- `docker/Dockerfile.proptests` — `FROM rust:1.96-slim`\n- `docker/Dockerfile.stressgres` — `FROM rust:1.96-slim-trixie`\n\n## Why\n\nKeep the toolchain current.\n\n## Notes\n\nThe GitHub workflows use `actions-rust-lang/setup-rust-toolchain@v1`,\nwhich reads the version from `rust-toolchain.toml`, so they pick up 1.96\nautomatically — no workflow changes needed.",
+          "timestamp": "2026-06-01T12:03:33-04:00",
+          "tree_id": "cf2f0c1edefcd00590cab43aa43fb1c44b6947b3",
+          "url": "https://github.com/paradedb/paradedb/commit/cb32e29f9faab09562525f00a062e5642e1b7b8b"
+        },
+        "date": 1780332635840,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07778571428571429, max background_merging: 2.0, count: 56000"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.782932811343035, max cpu: 9.81595, count: 56000"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.671875,
+            "unit": "median mem",
+            "extra": "avg mem: 26.667316615513393, max mem: 26.67578125, count: 56000"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.014502879668475, max cpu: 23.188406, count: 56000"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 184.59375,
+            "unit": "median mem",
+            "extra": "avg mem: 179.35372977120537, max mem: 186.91796875, count: 56000"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51542,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51408.842892857145, max block_count: 51542.0, count: 56000"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.85167857142857, max segment_count: 56.0, count: 56000"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.717232244764254, max cpu: 32.844578, count: 56000"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 175.39453125,
+            "unit": "median mem",
+            "extra": "avg mem: 154.3616429966518, max mem: 180.89453125, count: 56000"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.835617829913456, max cpu: 23.575638, count: 56000"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 192.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 184.82075809151786, max mem: 192.3046875, count: 56000"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.30097,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.760406917529796, max cpu: 33.267326, count: 56000"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 164.32421875,
+            "unit": "median mem",
+            "extra": "avg mem: 182.71377176339286, max mem: 222.75390625, count: 56000"
           }
         ]
       }

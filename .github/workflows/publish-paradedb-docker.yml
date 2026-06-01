@@ -307,10 +307,11 @@ jobs:
     env:
       # ORM repos to notify on new releases
       ORM_REPOS: |
-        paradedb/django-paradedb
-        paradedb/rails-paradedb
-        paradedb/sqlalchemy-paradedb
         paradedb/drizzle-paradedb
+        paradedb/django-paradedb
+        paradedb/sqlalchemy-paradedb
+        paradedb/rails-paradedb
+        paradedb/efcore-paradedb
 
     steps:
       - name: Retrieve GitHub Release Version

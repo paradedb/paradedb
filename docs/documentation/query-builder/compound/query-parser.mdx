@@ -56,6 +56,15 @@ MockItem.search(:id)
         .select(:description, :rating, :category)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.Parse(item.Id, "description:(sleek shoes) AND rating:>3")
+    )
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 Please refer to the [Tantivy docs](https://docs.rs/tantivy/latest/tantivy/query/struct.QueryParser.html) for an overview of
@@ -117,6 +126,19 @@ MockItem.search(:id)
         .select(:description, :rating, :category)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.Parse(
+            item.Id,
+            "description:(sleek shoes) AND rating:>3",
+            lenient: true
+        )
+    )
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ## Conjunction Mode
@@ -173,6 +195,20 @@ with Session(engine) as session:
 MockItem.search(:id)
         .parse("description:(sleek shoes)", conjunction_mode: true)
         .select(:description, :rating, :category)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.Parse(
+            item.Id,
+            "description:(sleek shoes)",
+            null,
+            true
+        )
+    )
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
 ```
 
 </CodeGroup>

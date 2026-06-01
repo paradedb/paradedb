@@ -69,6 +69,15 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "shoes"))
+    .Select(item => new { item.Id, Score = EF.Functions.Score(item.Id) })
+    .OrderByDescending(item => item.Score)
+    .Take(5)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 In order for a field to be factored into the BM25 score, it must be present in the BM25 index. For instance,
@@ -138,6 +147,17 @@ MockItem.search(:description)
         .select(:id)
         .order(search_score: :desc)
         .limit(5)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAny(item.Description, "keyboard") || item.Rating < 2
+    )
+    .Select(item => new { item.Id, Score = EF.Functions.Score(item.Id) })
+    .OrderByDescending(item => item.Score)
+    .Take(5)
+    .ToListAsync();
 ```
 
 </CodeGroup>
@@ -273,6 +293,31 @@ Order.joins(join)
        Arel::Nodes::Ascending.new(orders[:order_id])
      )
      .limit(5)
+```
+
+```cs EF Core
+await dbContext
+    .Orders.Join(
+        dbContext.MockItems,
+        order => order.ProductId,
+        item => item.Id,
+        (order, item) => new { Order = order, Item = item }
+    )
+    .Where(row =>
+        EF.Functions.MatchAny(row.Order.CustomerName, "Johnson")
+        && EF.Functions.MatchAny(row.Item.Description, "running shoes")
+    )
+    .Select(row => new
+    {
+        row.Order.OrderId,
+        row.Order.CustomerName,
+        row.Item.Description,
+        Score = EF.Functions.Score(row.Order.OrderId) + EF.Functions.Score(row.Item.Id)
+    })
+    .OrderByDescending(row => row.Score)
+    .ThenBy(row => row.OrderId)
+    .Take(5)
+    .ToListAsync();
 ```
 
 </CodeGroup>

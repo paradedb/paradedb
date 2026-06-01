@@ -71,6 +71,19 @@ MockItem.search(:id)
         .limit(10)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.All(item.Id))
+    .GroupBy(item => item.Rating)
+    .Select(group => new
+    {
+        Rating = group.Key,
+        Agg = EF.Functions.Agg(new { value_count = new { field = "id" } })
+    })
+    .Take(10)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -146,6 +159,20 @@ MockItem.search(:id)
         )
         .order(:rating)
         .limit(10)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.All(item.Id))
+    .GroupBy(item => item.Rating)
+    .Select(group => new
+    {
+        Rating = group.Key,
+        Agg = EF.Functions.Agg(new { value_count = new { field = "id" } })
+    })
+    .OrderBy(result => result.Rating)
+    .Take(10)
+    .ToListAsync();
 ```
 
 </CodeGroup>

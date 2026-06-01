@@ -52,6 +52,13 @@ MockItem.search(:id)
         .facets_agg(agg: { cardinality: { field: "rating" } })
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.All(item.Id))
+    .Select(item => EF.Functions.Agg(new { cardinality = new { field = "rating" } }))
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ```ini Expected Response

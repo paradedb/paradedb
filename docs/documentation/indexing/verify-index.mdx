@@ -43,6 +43,10 @@ diagnostics.paradedb_verify_index(engine, "search_idx")
 ParadeDB.paradedb_verify_index("search_idx")
 ```
 
+```cs EF Core
+await dbContext.Database.VerifyIndex("search_idx").ToListAsync();
+```
+
 </CodeGroup>
 
 This returns a table with three columns:
@@ -104,6 +108,13 @@ ParadeDB.paradedb_verify_index(
   "search_idx",
   heapallindexed: true
 )
+```
+
+```cs EF Core
+await dbContext.Database.VerifyIndex(
+    "search_idx",
+    new VerifyIndexOptions { HeapAllIndexed = true }
+).ToListAsync();
 ```
 
 </CodeGroup>
@@ -172,6 +183,17 @@ ParadeDB.paradedb_verify_index(
 )
 ```
 
+```cs EF Core
+await dbContext.Database.VerifyIndex(
+    "search_idx",
+    new VerifyIndexOptions
+    {
+        HeapAllIndexed = true,
+        SampleRate = 0.1,
+    }
+).ToListAsync();
+```
+
 </CodeGroup>
 
 ### Progress Reporting
@@ -224,6 +246,17 @@ ParadeDB.paradedb_verify_index(
   heapallindexed: true,
   report_progress: true
 )
+```
+
+```cs EF Core
+await dbContext.Database.VerifyIndex(
+    "search_idx",
+    new VerifyIndexOptions
+    {
+        HeapAllIndexed = true,
+        ReportProgress = true,
+    }
+).ToListAsync();
 ```
 
 </CodeGroup>
@@ -287,6 +320,18 @@ ParadeDB.paradedb_verify_index(
 )
 ```
 
+```cs EF Core
+await dbContext.Database.VerifyIndex(
+    "search_idx",
+    new VerifyIndexOptions
+    {
+        HeapAllIndexed = true,
+        ReportProgress = true,
+        Verbose = true,
+    }
+).ToListAsync();
+```
+
 </CodeGroup>
 
 ### Stop on First Error
@@ -331,6 +376,13 @@ ParadeDB.paradedb_verify_index(
 )
 ```
 
+```cs EF Core
+await dbContext.Database.VerifyIndex(
+    "search_idx",
+    new VerifyIndexOptions { OnErrorStop = true }
+).ToListAsync();
+```
+
 </CodeGroup>
 
 ## Parallel Verification
@@ -369,6 +421,10 @@ diagnostics.paradedb_index_segments(engine, "search_idx")
 
 ```ruby Rails
 ParadeDB.paradedb_index_segments("search_idx")
+```
+
+```cs EF Core
+await dbContext.Database.IndexSegments("search_idx").ToListAsync();
 ```
 
 </CodeGroup>
@@ -486,6 +542,39 @@ ParadeDB.paradedb_verify_index(
 )
 ```
 
+```cs EF Core
+var segments = await dbContext.Database.IndexSegments("search_idx").ToListAsync();
+var evenSegments = segments
+    .Select(segment => segment.SegmentIdx)
+    .Where(segmentIdx => segmentIdx % 2 == 0)
+    .ToArray();
+var oddSegments = segments
+    .Select(segment => segment.SegmentIdx)
+    .Where(segmentIdx => segmentIdx % 2 == 1)
+    .ToArray();
+
+await dbContext.Database.VerifyIndex(
+    "search_idx",
+    new VerifyIndexOptions
+    {
+        HeapAllIndexed = true,
+        SegmentIds = evenSegments,
+    }
+).ToListAsync();
+
+if (oddSegments.Length > 0)
+{
+    await dbContext.Database.VerifyIndex(
+        "search_idx",
+        new VerifyIndexOptions
+        {
+            HeapAllIndexed = true,
+            SegmentIds = oddSegments,
+        }
+    ).ToListAsync();
+}
+```
+
 </CodeGroup>
 
 ### Automation Example
@@ -564,6 +653,22 @@ ParadeDB.paradedb_verify_index(
   })
 ```
 
+```cs EF Core
+var segments = await dbContext.Database.IndexSegments("search_idx").ToListAsync();
+
+await dbContext.Database.VerifyIndex(
+    "search_idx",
+    new VerifyIndexOptions
+    {
+        HeapAllIndexed = true,
+        SegmentIds = segments
+            .Select(segment => segment.SegmentIdx)
+            .Where(segmentIdx => segmentIdx % 4 == 0)
+            .ToArray(),
+    }
+).ToListAsync();
+```
+
 </CodeGroup>
 
 ## Verifying All BM25 Indexes
@@ -580,6 +685,7 @@ import { diagnostics } from "@paradedb/drizzle-paradedb";
 
 await db.execute(diagnostics.verifyAllIndexes());
 ```
+
 ```python Django
 from paradedb import paradedb_verify_all_indexes
 
@@ -594,6 +700,10 @@ diagnostics.paradedb_verify_all_indexes(engine)
 
 ```ruby Rails
 ParadeDB.paradedb_verify_all_indexes()
+```
+
+```cs EF Core
+await dbContext.Database.VerifyAllIndexes().ToListAsync();
 ```
 
 </CodeGroup>
@@ -701,6 +811,28 @@ ParadeDB.paradedb_verify_all_indexes(
 )
 ```
 
+```cs EF Core
+// Verify indexes in the 'public' schema only
+await dbContext.Database.VerifyAllIndexes(
+    new VerifyAllIndexesOptions { SchemaPattern = "public" }
+).ToListAsync();
+
+// Verify indexes matching a name pattern
+await dbContext.Database.VerifyAllIndexes(
+    new VerifyAllIndexesOptions { IndexPattern = "search_%" }
+).ToListAsync();
+
+// Combine filters
+await dbContext.Database.VerifyAllIndexes(
+    new VerifyAllIndexesOptions
+    {
+        SchemaPattern = "public",
+        IndexPattern = "search_%",
+        HeapAllIndexed = true,
+    }
+).ToListAsync();
+```
+
 </CodeGroup>
 
 ## Listing All BM25 Indexes
@@ -732,6 +864,20 @@ diagnostics.paradedb_indexes(engine)
 
 ```ruby Rails
 ParadeDB.paradedb_indexes()
+```
+
+```cs EF Core
+await dbContext.Database
+    .Indexes()
+    .Select(index => new
+    {
+        index.SchemaName,
+        index.TableName,
+        index.IndexName,
+        index.NumSegments,
+        index.TotalDocs,
+    })
+    .ToListAsync();
 ```
 
 </CodeGroup>

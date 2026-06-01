@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780295164424,
+  "lastUpdate": 1780331199384,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -2946,6 +2946,78 @@ window.BENCHMARK_DATA = {
             "value": 289.6631878678442,
             "unit": "median tps",
             "extra": "avg tps: 265.894097474825, max tps: 698.8901624220737, count: 55070"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cb32e29f9faab09562525f00a062e5642e1b7b8b",
+          "message": "chore: upgrade Rust toolchain to 1.96 (#5224)\n\n## What\n\nUpgrades the Rust toolchain from 1.95 to 1.96 everywhere it was pinned:\n\n- `rust-toolchain.toml` — `channel = \"1.96.0\"`\n- `docker/Dockerfile.proptests` — `FROM rust:1.96-slim`\n- `docker/Dockerfile.stressgres` — `FROM rust:1.96-slim-trixie`\n\n## Why\n\nKeep the toolchain current.\n\n## Notes\n\nThe GitHub workflows use `actions-rust-lang/setup-rust-toolchain@v1`,\nwhich reads the version from `rust-toolchain.toml`, so they pick up 1.96\nautomatically — no workflow changes needed.",
+          "timestamp": "2026-06-01T12:03:33-04:00",
+          "tree_id": "cf2f0c1edefcd00590cab43aa43fb1c44b6947b3",
+          "url": "https://github.com/paradedb/paradedb/commit/cb32e29f9faab09562525f00a062e5642e1b7b8b"
+        },
+        "date": 1780331162662,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 130.43806206441255,
+            "unit": "median tps",
+            "extra": "avg tps: 130.71707432291245, max tps: 140.46148243361407, count: 55213"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 510.6001587297484,
+            "unit": "median tps",
+            "extra": "avg tps: 509.328464162209, max tps: 581.495319294234, count: 55213"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3441.295495397552,
+            "unit": "median tps",
+            "extra": "avg tps: 3423.3266471395245, max tps: 3468.3310577399347, count: 55213"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 442.4890164733749,
+            "unit": "median tps",
+            "extra": "avg tps: 441.63591111056064, max tps: 660.6075012642376, count: 55213"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2889.779436176559,
+            "unit": "median tps",
+            "extra": "avg tps: 2877.1803581604095, max tps: 2926.5923398427512, count: 110426"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 491.4458737078117,
+            "unit": "median tps",
+            "extra": "avg tps: 490.917149175031, max tps: 632.065804370893, count: 55213"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1999.7291824761546,
+            "unit": "median tps",
+            "extra": "avg tps: 1985.7495191431665, max tps: 2016.1481037605943, count: 55213"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 75.07096989458232,
+            "unit": "median tps",
+            "extra": "avg tps: 90.7872570291562, max tps: 437.5464321290504, count: 55213"
           }
         ]
       }

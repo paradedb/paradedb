@@ -15,6 +15,7 @@ TARGET_SUFFIXES = {
     "rails": "rb",
     "sqlalchemy": "py",
     "drizzle": "ts",
+    "efcore": "cs",
 }
 IGNORED_CODEGROUPS = {
     # CodeGroup is used here to switch between Chinese, Korean, and Japanese
@@ -32,6 +33,7 @@ def classify(info: str) -> str:
     info = info.strip().lower()
     parts = set(info.split())
 
+    # ignore: R0911
     if info.startswith("sql"):
         return "sql"
     if info.startswith("python") and "django" in parts:
@@ -42,6 +44,8 @@ def classify(info: str) -> str:
         return "sqlalchemy"
     if (info.startswith("ts")) and "drizzle" in parts:
         return "drizzle"
+    if info.startswith("cs"):
+        return "efcore"
     return ""
 
 

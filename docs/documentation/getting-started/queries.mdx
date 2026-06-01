@@ -74,6 +74,17 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAny(item.Description, "running shoes") && item.Rating > 2
+    )
+    .OrderBy(item => item.Rating)
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .Take(5)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -154,6 +165,17 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAll(item.Description, "running shoes") && item.Rating > 2
+    )
+    .OrderBy(item => item.Rating)
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .Take(5)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -231,6 +253,17 @@ MockItem.search(:description)
         .select(:description)
         .order(search_score: :desc)
         .limit(5)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAny(item.Description, "running shoes") && item.Rating > 2
+    )
+    .Select(item => new { item.Description, Score = EF.Functions.Score(item.Id) })
+    .OrderByDescending(item => item.Score)
+    .Take(5)
+    .ToListAsync();
 ```
 
 </CodeGroup>
@@ -322,6 +355,22 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAny(item.Description, "running shoes") && item.Rating > 2
+    )
+    .Select(item => new
+    {
+        item.Description,
+        Snippet = EF.Functions.Snippet(item.Description),
+        Score = EF.Functions.Score(item.Id)
+    })
+    .OrderByDescending(item => item.Score)
+    .Take(5)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -391,6 +440,15 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
         .order(:rating)
         .limit(5)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "running shoes"))
+    .OrderBy(item => item.Rating)
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .Take(5)
+    .ToListAsync();
 ```
 
 </CodeGroup>
@@ -479,6 +537,21 @@ relation = MockItem.search(:description)
 
 rows = relation.to_a
 facets = relation.aggregates
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "running shoes"))
+    .OrderBy(item => item.Rating)
+    .Select(item => new
+    {
+        item.Description,
+        item.Rating,
+        item.Category,
+        Agg = EF.Functions.AggOver(new { value_count = new { field = "id" } })
+    })
+    .Take(5)
+    .ToListAsync();
 ```
 
 </CodeGroup>

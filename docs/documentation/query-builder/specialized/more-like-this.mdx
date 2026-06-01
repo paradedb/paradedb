@@ -62,6 +62,14 @@ MockItem.more_like_this(3)
         .order(:id)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.MoreLikeThisId(item.Id, 3))
+    .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
+    .OrderBy(item => item.Id)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -136,6 +144,16 @@ with Session(engine) as session:
 MockItem.more_like_this(3, fields: [:description])
         .select(:id, :description, :rating, :category)
         .order(:id)
+```
+
+```cs EF Core
+var moreLikeThisOptions = new MoreLikeThisOptions { Fields = new[] { "description" } };
+
+await dbContext
+    .MockItems.Where(item => EF.Functions.MoreLikeThisId(item.Id, 3, moreLikeThisOptions))
+    .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
+    .OrderBy(item => item.Id)
+    .ToListAsync();
 ```
 
 </CodeGroup>
@@ -231,6 +249,19 @@ MockItem.more_like_this({ description: "Sleek running shoes", category: "footwea
         .order(:id)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MoreLikeThisDocument(
+            item.Id,
+            """{"description":"Sleek running shoes","category":"footwear"}"""
+        )
+    )
+    .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
+    .OrderBy(item => item.Id)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ## Configuration Options
@@ -295,6 +326,16 @@ MockItem.more_like_this(3, min_term_freq: 2)
         .order(:id)
 ```
 
+```cs EF Core
+var moreLikeThisOptions = new MoreLikeThisOptions { MinTermFrequency = 2 };
+
+await dbContext
+    .MockItems.Where(item => EF.Functions.MoreLikeThisId(item.Id, 3, moreLikeThisOptions))
+    .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
+    .OrderBy(item => item.Id)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ### Document Frequency
@@ -353,6 +394,16 @@ with Session(engine) as session:
 MockItem.more_like_this(3, min_doc_freq: 3)
         .select(:id, :description, :rating, :category)
         .order(:id)
+```
+
+```cs EF Core
+var moreLikeThisOptions = new MoreLikeThisOptions { MinDocFrequency = 3 };
+
+await dbContext
+    .MockItems.Where(item => EF.Functions.MoreLikeThisId(item.Id, 3, moreLikeThisOptions))
+    .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
+    .OrderBy(item => item.Id)
+    .ToListAsync();
 ```
 
 </CodeGroup>
@@ -417,6 +468,16 @@ MockItem.more_like_this(3, max_query_terms: 10)
         .order(:id)
 ```
 
+```cs EF Core
+var moreLikeThisOptions = new MoreLikeThisOptions { MaxQueryTerms = 10 };
+
+await dbContext
+    .MockItems.Where(item => EF.Functions.MoreLikeThisId(item.Id, 3, moreLikeThisOptions))
+    .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
+    .OrderBy(item => item.Id)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ### Term Length
@@ -476,6 +537,16 @@ MockItem.more_like_this(3, min_word_length: 5)
         .order(:id)
 ```
 
+```cs EF Core
+var moreLikeThisOptions = new MoreLikeThisOptions { MinWordLength = 5 };
+
+await dbContext
+    .MockItems.Where(item => EF.Functions.MoreLikeThisId(item.Id, 3, moreLikeThisOptions))
+    .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
+    .OrderBy(item => item.Id)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ### Custom Stopwords
@@ -532,6 +603,16 @@ with Session(engine) as session:
 MockItem.more_like_this(3, stopwords: %w[the a])
         .select(:id, :description, :rating, :category)
         .order(:id)
+```
+
+```cs EF Core
+var moreLikeThisOptions = new MoreLikeThisOptions { Stopwords = new[] { "the", "a" } };
+
+await dbContext
+    .MockItems.Where(item => EF.Functions.MoreLikeThisId(item.Id, 3, moreLikeThisOptions))
+    .Select(item => new { item.Id, item.Description, item.Rating, item.Category })
+    .OrderBy(item => item.Id)
+    .ToListAsync();
 ```
 
 </CodeGroup>

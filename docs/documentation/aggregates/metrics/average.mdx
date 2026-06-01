@@ -52,6 +52,13 @@ MockItem.search(:id)
         .facets_agg(agg: ParadeDB::Aggregations.avg(:rating))
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.All(item.Id))
+    .Select(item => EF.Functions.Agg(new { avg = new { field = "rating" } }))
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ```ini Expected Response

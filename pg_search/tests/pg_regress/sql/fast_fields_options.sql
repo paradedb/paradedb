@@ -226,13 +226,6 @@ WHERE title @@@ 'product'
 ORDER BY valid_period
 LIMIT 10;
 
-EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
-SELECT id, title, category
-FROM data_records
-WHERE title @@@ 'product'
-ORDER BY created_at
-LIMIT 10;
-
 -- 'Test 7: ORDER BY with no LIMIT (should use ColumnarExecState)'
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

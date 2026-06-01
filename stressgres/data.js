@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780294481181,
+  "lastUpdate": 1780295130822,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -26974,6 +26974,54 @@ window.BENCHMARK_DATA = {
             "value": 266.7452558796705,
             "unit": "median tps",
             "extra": "avg tps: 261.29873227222384, max tps: 585.4782851857863, count: 107692"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cedd532b4af1ad227529040aacc7b949bd50487b",
+          "message": "chore: upgrade pgrx to 0.18.1 (#5221)\n\n## What\n\nBumps `pgrx` and `pgrx-tests` from `=0.18.0` to `=0.18.1`, and updates\n`Cargo.lock` accordingly.\n\n## Why\n\npgrx 0.18.1 fixes aarch64 RHEL packaging. See #4886.\n\n## How\n\n- Updated workspace `Cargo.toml` (`pgrx` / `pgrx-tests` → `=0.18.1`)\n- Ran `cargo update --precise 0.18.1` to refresh the lockfile (pulls in\npgrx sub-crates plus a few transitive bumps)\n- CI extracts the cargo-pgrx version dynamically from `Cargo.toml`, so\nno workflow changes are needed\n- Verified with `cargo check --features pg17 -p pg_search` (clean, no\nsource changes required)\n\nCloses #4886\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-01T01:16:33-04:00",
+          "tree_id": "117c32d7a4fd8cbcbfc90d8bb77cdbd6ff1ee56c",
+          "url": "https://github.com/paradedb/paradedb/commit/cedd532b4af1ad227529040aacc7b949bd50487b"
+        },
+        "date": 1780295099133,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 546.3285030956358,
+            "unit": "median tps",
+            "extra": "avg tps: 549.3811674718233, max tps: 738.8733789762837, count: 53880"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 569.8925141018923,
+            "unit": "median tps",
+            "extra": "avg tps: 574.3976473524551, max tps: 828.426235494177, count: 53880"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 87.57866894901139,
+            "unit": "median tps",
+            "extra": "avg tps: 87.60484199713129, max tps: 88.40086908859747, count: 53880"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 255.47409533550487,
+            "unit": "median tps",
+            "extra": "avg tps: 253.8858170549978, max tps: 548.8595748027828, count: 107760"
           }
         ]
       }

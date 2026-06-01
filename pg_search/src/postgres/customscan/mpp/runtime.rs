@@ -57,11 +57,11 @@ pub fn proc_for_task(n_workers: u32, task_idx: u32) -> u32 {
 
 /// Runtime handle the customscan populates at DSM-init time.
 ///
-/// Mesh-multiplexed layout: each process has ONE MPSC inbox in DSM that receives frames
-/// from every peer. The `inbound_drain` consolidates that inbox plus the in-proc self-loop
-/// channel (for producer-and-consumer-on-same-worker fragments) into a single
-/// [`DrainHandle`]. Frames carry `(sender_proc, stage_id, partition)` in their header so the
-/// drain's channel-buffer registry routes each frame to the matching consumer.
+/// Each process owns one MPSC inbox in DSM that receives frames from every peer.
+/// `inbound_drain` consolidates that inbox plus the in-proc self-loop channel (for
+/// producer-and-consumer-on-same-worker fragments) into a single [`DrainHandle`]. Frames
+/// carry `(sender_proc, stage_id, partition)` in their header so the drain's
+/// channel-buffer registry routes each frame to the matching consumer.
 ///
 /// [`MppFrameHeader`]: crate::postgres::customscan::mpp::transport::MppFrameHeader
 pub struct MppMesh {
@@ -71,10 +71,10 @@ pub struct MppMesh {
     /// Total proc count. Bounds the producer/consumer proc lookups in
     /// [`ShmMqWorkerTransport::open`].
     pub n_procs: u32,
-    /// Single cooperative drain pulling every frame addressed to this proc. Under
-    /// mesh-multiplexing there is one DSM MPSC inbox per process plus an in-proc self-loop
-    /// receiver; both feed into this drain. Demux to per-`(sender_proc, stage_id, partition)`
-    /// channel buffers happens inside the drain via `DrainHandle::register_channel`.
+    /// Single cooperative drain pulling every frame addressed to this proc. The DSM MPSC
+    /// inbox and an in-proc self-loop receiver both feed into this drain. Demux to
+    /// per-`(sender_proc, stage_id, partition)` channel buffers happens inside the drain
+    /// via `DrainHandle::register_channel`.
     pub(super) inbound_drain: Arc<DrainHandle>,
 }
 
@@ -202,10 +202,10 @@ impl WorkerConnection for ShmMqWorkerConnection {
                 "ShmMqWorkerConnection: partition={partition} > u32::MAX"
             ))
         })?;
-        // Mesh-multiplexed: one drain per process, shared across all sender_procs. The
-        // channel-buffer registry keys by (sender_proc, stage_id, partition) so this
-        // consumer still sees only its named sender's slice even though the underlying
-        // inbox is shared with all peers.
+        // One drain per process, shared across all sender_procs. The channel-buffer
+        // registry keys by (sender_proc, stage_id, partition) so this consumer still
+        // sees only its named sender's slice even though the underlying inbox is
+        // shared with all peers.
         let drain = Arc::clone(self.mesh.inbound_drain());
         let buffer = drain.register_channel(self.sender_proc, self.stage_id, partition_u32);
         crate::mpp_log!(

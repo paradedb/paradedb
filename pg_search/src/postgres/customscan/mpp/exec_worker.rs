@@ -310,9 +310,10 @@ pub(crate) fn run_mpp_worker(
                     fragment.stage_id,
                     fragment.task_idx,
                 );
-                // Attach the worker mesh as the cooperative drain so a full outbound shm_mq
-                // queue doesn't block the backend thread. The spin pulls every inbound drain
-                // while retrying the send, breaking N×N symmetric stalls.
+                // Attach the worker mesh as the cooperative drain so a full outbound
+                // ring doesn't block the backend thread. The spin pulls every inbound
+                // drain while retrying the send, breaking the symmetric-send stall
+                // pattern where every peer is blocked sending to a full peer.
                 per_partition_senders.push(
                     base.clone_with_header(MppFrameHeader::batch(
                         fragment.stage_id,

@@ -24,15 +24,14 @@
 //! - [`encode_frame_into`] / [`decode_frame`] serialize a `RecordBatch` with a header prefix via
 //!   Arrow IPC. They're the only codec entry points; tests round-trip through the same path so
 //!   the wire format under test always matches production.
-//! - [`DrainBuffer`] is the local per-proc queue that the drain thread
-//!   writes into and the DataFusion consumer reads from. It decouples
-//!   consumer-side backpressure from producer-side backpressure: the drain thread
-//!   always makes forward progress on the inbound shm_mqs, so a stalled consumer
-//!   cannot propagate backpressure to remote producers and cause an N×N
-//!   peer-stall cycle.
+//! - [`DrainBuffer`] is the local per-proc queue that the drain thread writes into and
+//!   the DataFusion consumer reads from. It decouples consumer-side backpressure from
+//!   producer-side backpressure: the drain thread always makes forward progress on the
+//!   inbound rings, so a stalled consumer cannot propagate backpressure to remote
+//!   producers and cause a peer-mesh stall cycle.
 //!
-//! The shm_mq-backed sender/receiver and drain thread spawn logic build on
-//! top of these primitives.
+//! The DSM-backed sender/receiver and drain spawn logic build on top of these
+//! primitives.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
@@ -394,35 +393,17 @@ pub(super) enum RecvOutcome {
     Detached,
 }
 
-/// Non-blocking byte channel receiver. Implementations: shm_mq (production),
-/// `std::sync::mpsc` (tests). Must be `Send` because the drain thread takes
-/// ownership.
+/// Non-blocking byte channel receiver. Implementations: `DsmInboxReceiver` (production),
+/// `std::sync::mpsc` (tests). Must be `Send` because the drain thread takes ownership.
 pub(super) trait BatchChannelReceiver: Send + Sync {
     fn try_recv(&self) -> RecvOutcome;
-
-    /// Tell producers to stop sending. Default no-op; concrete impls override when the
-    /// underlying transport doesn't get a "drop = detach" signal for free.
-    ///
-    /// `ShmMqReceiver` doesn't override: shm_mq's `MessageQueueReceiver::Drop` calls
-    /// `shm_mq_detach`, which is enough to make producers see Detached.
-    ///
-    /// `DsmInboxReceiver` overrides: the DSM MPSC ring's detach is mostly handled by
-    /// `DsmMpscSender::Drop` flipping `detached` when the last sender goes away, but
-    /// the consumer side can force-detach early (e.g., query teardown before producers
-    /// finish) via this method. `DrainHandle::Drop` calls it on teardown.
-    #[allow(dead_code)]
-    fn set_detached(&self) {}
 }
 
 /// Byte channel sender paired with [`BatchChannelReceiver`]. `send` blocks when
 /// the channel is full. Dropping the sender signals EOF to the receiver.
 ///
 /// `Send` is required because unit tests and future producer-pump threads move
-/// senders across thread boundaries. Production shm_mq senders, however, must
-/// only be *used* from the main backend thread — the blocking shm_mq send path
-/// (`nowait=false`) touches `WaitLatch`/`CHECK_FOR_INTERRUPTS`, which is not
-/// safe off-thread. See [`crate::postgres::customscan::mpp::mesh::ShmMqSender`]
-/// for the safety contract.
+/// senders across thread boundaries.
 pub(crate) trait BatchChannelSender: Send + Sync {
     fn send_bytes(&self, bytes: &[u8]) -> Result<(), DataFusionError>;
 
@@ -489,8 +470,7 @@ pub struct MppSender {
 // compose `send_*_traced` futures via `tokio::spawn` / `join_all`, which makes the compiler
 // require `&Self: Send` and therefore `Self: Sync`. At runtime those futures run on the
 // current-thread tokio runtime pinned to the PG backend thread, so the cell is never actually
-// observed from another thread. Same single-thread-by-construction contract as
-// `unsafe impl Send for ShmMqSender` in `mesh.rs`.
+// observed from another thread.
 unsafe impl Sync for MppSender {}
 
 impl MppSender {
@@ -778,10 +758,10 @@ pub(super) enum RecvBatchOutcome {
 /// teardown unblock flows via [`DrainHandle::cancel_channel_buffers`] from the handle's `Drop`.
 #[derive(Default)]
 struct ChannelBufferRegistry {
-    /// Keyed by `(sender_proc, stage_id, partition)`. Under mesh-multiplexing the unified
-    /// inbox carries frames from every peer, so each `(stage, partition)` consumer gets
-    /// its own per-sender buffer. This preserves the implicit "one stream per sender"
-    /// semantics that `WorkerConnection::stream_partition` consumers rely on.
+    /// Keyed by `(sender_proc, stage_id, partition)`. The unified inbox carries frames
+    /// from every peer, so each `(stage, partition)` consumer gets its own per-sender
+    /// buffer. This preserves the implicit "one stream per sender" semantics that
+    /// `WorkerConnection::stream_partition` consumers rely on.
     map: HashMap<(u32, u32, u32), Arc<DrainBuffer>>,
 }
 
@@ -842,10 +822,9 @@ impl DrainHandle {
             .map
             .entry((sender_proc, stage_id, partition))
             .or_insert_with(|| {
-                // num_sources stays 1: under mesh-multiplexing each
-                // (sender_proc, stage, partition) tuple has exactly one upstream (the
-                // named sender), even though the underlying inbox is shared across all
-                // senders.
+                // num_sources stays 1: each (sender_proc, stage, partition) tuple has
+                // exactly one upstream (the named sender), even though the underlying
+                // inbox is shared across all senders.
                 DrainBuffer::new(1)
             })
             .clone()
@@ -929,12 +908,12 @@ impl DrainHandle {
                     }
                     RecvBatchOutcome::Empty => break,
                     RecvBatchOutcome::Detached => {
-                        // Only THIS receiver is dead. Under mesh-multiplexing the drain holds
-                        // multiple receivers (own-inbox MPSC + self-loop in-proc); one going
-                        // away does not imply the others have. Do not fire a registry-wide
-                        // "all channels EOF" here. Channel buffers waiting on a still-live
-                        // sibling receiver would falsely terminate. Per-channel EOF flows via
-                        // the demuxed Eof frame above; query-teardown unblock flows via
+                        // Only THIS receiver is dead. The drain holds multiple receivers
+                        // (own-inbox MPSC + self-loop in-proc); one going away doesn't
+                        // imply the others have. Don't fire a registry-wide "all channels
+                        // EOF" here, or channel buffers waiting on a still-live sibling
+                        // receiver would falsely terminate. Per-channel EOF flows via the
+                        // demuxed Eof frame above; query-teardown unblock flows via
                         // `cancel_channel_buffers` from `DrainHandle::Drop`.
                         *slot = None;
                         break;
@@ -961,12 +940,13 @@ impl Drop for DrainHandle {
 }
 /// SPSC channel pair for two use cases:
 /// - Unit tests (bounded capacity, exercising backpressure).
-/// - Production self-loop slots: when a worker's fragment emits a partition destined for its OWN
-///   proc (e.g. peer-mesh hash routing where consumer task t lands on the same worker as
-///   producer task t), the shm_mq grid leaves the `slot(this_proc, this_proc)` diagonal
-///   unattached. The dispatcher routes those self-loops through this in-proc channel instead.
-///   It shares the same `BatchChannelSender`/`BatchChannelReceiver` abstraction as shm_mq, so the
-///   drain and channel buffer registry don't need a special case.
+/// - Production self-loop slots: when a worker's fragment emits a partition destined for
+///   its OWN proc (e.g. peer-mesh hash routing where consumer task t lands on the same
+///   worker as producer task t), the DSM layout has no self-pair inbox: a process is
+///   not its own peer. The dispatcher routes those self-loops through this in-proc
+///   channel, which exposes the same `BatchChannelSender` / `BatchChannelReceiver`
+///   surface as the DSM ring so the drain and channel-buffer registry don't need a
+///   special case.
 ///
 /// Production callers pass a very large `capacity` so the channel is effectively unbounded under
 /// steady state. The current-thread Tokio runtime interleaves producer and consumer fragments
@@ -988,8 +968,8 @@ pub(super) struct InProcSender {
     /// Per-instance lock so the [`BatchChannelSender::send_lock`] contract holds even when an
     /// in-proc channel ends up in a code path that would otherwise need serialization. In-proc
     /// `send_bytes` is already atomic (each call pushes a complete `Vec<u8>`), so the lock is
-    /// effectively a no-op here, but keeping it uniform with `ShmMqSender` avoids special-casing
-    /// the caller.
+    /// effectively a no-op here; keeping it uniform with `DsmInboxSender` avoids
+    /// special-casing the caller.
     send_lock: tokio::sync::Mutex<()>,
 }
 

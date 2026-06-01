@@ -158,12 +158,6 @@ impl SearchFieldType {
         )
     }
 
-    // pub fn is_i64_stored_timestamp(&self) -> bool {
-    //     matches!(self,
-    //         Self::I64(oid) if *oid == pg_sys::TIMESTAMPOID || *oid == pg_sys::TIMESTAMPTZOID
-    //     )
-    // }
-
     /// Returns the Arrow DataType used to store this field type in fast fields.
     ///
     /// Multiple SearchFieldType variants may map to the same Arrow storage type.
@@ -193,7 +187,7 @@ impl SearchFieldType {
             // Boolean type
             SearchFieldType::Bool(_) => arrow_schema::DataType::Boolean,
 
-            // Date stored as timestamp
+            // Date stored as datetime
             SearchFieldType::Date(_) => {
                 // < TIMESTAMP_I64_STORAGE_VERSION datetime types are stored as tantivy DateTime
                 arrow_schema::DataType::Timestamp(arrow_schema::TimeUnit::Microsecond, None)
@@ -231,7 +225,7 @@ fn derive_field_type_from_schema(
     // For most types, the tantivy schema matches what we computed.
     // The exceptions are:
     // - NUMERIC, where legacy indexes used F64 but new code computes Numeric64/NumericBytes.
-    // - TIMESTAMP and TIMESTAMPTZ, where legacy indexes used Date but new code computes I64
+    // - TIMESTAMP, TIMESTAMPTZ, TIME, TIMETZ, DATE, where legacy indexes used Date but new code computes I64
     match (field_entry.field_type(), computed_type) {
         // If computed type was Numeric64/NumericBytes but stored type is F64,
         // this is a legacy index - use F64

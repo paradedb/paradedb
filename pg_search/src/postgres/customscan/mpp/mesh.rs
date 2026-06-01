@@ -15,19 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Low-level shm_mq primitives for the MPP mesh: `ShmMqSender`,
-//! `ShmMqReceiver`, and the alignment helpers used to size queue slots.
-//!
-//! The N×K queue layout is described in
-//! [`super::dsm`](crate::postgres::customscan::mpp::dsm); this module owns
-//! only the per-slot FFI wrappers.
+//! MPP mesh adapters around `DsmMpscRing` plus the alignment helpers used to size
+//! the per-inbox DSM regions.
 
 use pgrx::pg_sys;
 
-use crate::mpp_log;
-use crate::parallel_worker::mqueue::{
-    MessageQueueReceiver, MessageQueueRecvError, MessageQueueSendError, MessageQueueSender,
-};
 #[cfg(test)]
 use crate::postgres::customscan::mpp::dsm_mpsc_ring::{self, DsmMpscRingHeader};
 use crate::postgres::customscan::mpp::dsm_mpsc_ring::{
@@ -38,9 +30,9 @@ use crate::postgres::customscan::mpp::transport::{
 };
 use datafusion::common::DataFusionError;
 
-/// MAXALIGN-DOWN of `queue_bytes`. Postgres requires shm_mq slot sizes to be
-/// MAXALIGN-aligned; this rounds the user request down so every slot in a
-/// queue array is the same size and slot indexing is a simple multiply.
+/// MAXALIGN-DOWN of `queue_bytes`. Postgres requires shm-style slot sizes to be
+/// MAXALIGN-aligned; this rounds the user request down so every per-inbox region in
+/// the DSM grid is the same size and offset math is a simple multiply.
 #[inline]
 pub(super) fn aligned_queue_bytes(queue_bytes: usize) -> usize {
     const MAXIMUM_ALIGNOF: usize = pg_sys::MAXIMUM_ALIGNOF as usize;
@@ -57,194 +49,26 @@ pub(super) fn align_up_maxalign_checked(n: usize) -> Option<usize> {
     n.checked_add(mask).map(|x| x & !mask)
 }
 
-/// shm_mq-backed `BatchChannelSender`. Wraps `MessageQueueSender` so we reuse
-/// its detach-on-drop behavior and the pgrx-safe FFI.
+/// DSM-MPSC-ring-backed `BatchChannelSender`. Multiple producer processes hold their
+/// own `DsmInboxSender` clones targeting the same receiver inbox; the underlying ring
+/// serializes them via Vyukov-style CAS on `tail`.
 ///
-/// `unsafe impl Send` below is safe **only** when the sender is *used* from
-/// a thread that owns a valid `PGPROC` — i.e., the main backend thread or a
-/// dedicated parallel-worker backend. The blocking `shm_mq_send(nowait=false)`
-/// path uses `WaitLatch` + `CHECK_FOR_INTERRUPTS` — both process-global
-/// Postgres primitives, not thread-safe off a backend thread.
-// Kept for reference and possible reuse; mesh multiplexing routes through
-// DsmInboxSender/DsmInboxReceiver instead.
-#[allow(dead_code)]
-pub(crate) struct ShmMqSender {
-    inner: MessageQueueSender,
-    attach_thread: std::thread::ThreadId,
-    /// Async serialization lock around the shm_mq handle. Held by [`MppSender::send_*_traced`]
-    /// across the cooperative-drain spin to keep partial sends from interleaving — see the
-    /// [`BatchChannelSender::send_lock`] doc and PG's `shm_mq_send` invariants. Multiple
-    /// [`MppSender`] clones share the same `Arc<dyn BatchChannelSender>` to multiplex
-    /// `(stage_id, partition)` channels onto one shm_mq, and yielding between `try_send_bytes`
-    /// retries can otherwise stitch one sender's length prefix to another sender's payload and
-    /// corrupt the queue.
-    send_lock: tokio::sync::Mutex<()>,
-}
-
-// SAFETY: see struct doc.
-unsafe impl Send for ShmMqSender {}
-// SAFETY: `MppSender` ensures all `send_*` paths execute on the attach thread (a
-// `debug_assert!` in `send_bytes` / `try_send_bytes` pins this), so cross-thread sharing of
-// `&ShmMqSender` never actually crosses threads at the FFI boundary. The Sync bound is there so
-// multiple `MppSender`s can hold `Arc<dyn BatchChannelSender>` clones of the same underlying
-// queue (the multi-partition fan-out pattern) without the type system rejecting the `Arc::clone`
-// at compile time.
-unsafe impl Sync for ShmMqSender {}
-
-#[allow(dead_code)]
-impl ShmMqSender {
-    /// # Safety
-    /// - `seg` must be a valid `dsm_segment*` (or NULL on workers).
-    /// - `mq` must point to a shm_mq region that has been `shm_mq_create`'d
-    ///   at its address with the expected size and has had
-    ///   `shm_mq_set_receiver` called by the peer.
-    pub(super) unsafe fn attach(seg: *mut pg_sys::dsm_segment, mq: *mut pg_sys::shm_mq) -> Self {
-        unsafe {
-            Self {
-                inner: MessageQueueSender::new(seg, mq),
-                attach_thread: std::thread::current().id(),
-                send_lock: tokio::sync::Mutex::new(()),
-            }
-        }
-    }
-}
-
-impl BatchChannelSender for ShmMqSender {
-    fn send_bytes(&self, bytes: &[u8]) -> Result<(), DataFusionError> {
-        debug_assert_eq!(
-            std::thread::current().id(),
-            self.attach_thread,
-            "ShmMqSender::send_bytes called off the attach thread"
-        );
-        self.inner.send(bytes).map_err(|e| match e {
-            MessageQueueSendError::Detached => {
-                DataFusionError::Execution("mpp: shm_mq sender detached".into())
-            }
-            MessageQueueSendError::WouldBlock => {
-                DataFusionError::Execution("mpp: shm_mq send would block".into())
-            }
-            MessageQueueSendError::Unknown(code) => {
-                mpp_log!("mpp: shm_mq send unknown code {code}");
-                DataFusionError::Execution(format!("mpp: shm_mq send unknown code {code}"))
-            }
-        })
-    }
-
-    fn try_send_bytes(&self, bytes: &[u8]) -> Result<bool, DataFusionError> {
-        debug_assert_eq!(
-            std::thread::current().id(),
-            self.attach_thread,
-            "ShmMqSender::try_send_bytes called off the attach thread"
-        );
-        match self.inner.try_send(bytes) {
-            Ok(Some(())) => Ok(true),
-            Ok(None) => Ok(false),
-            Err(MessageQueueSendError::Detached) => Err(DataFusionError::Execution(
-                "mpp: shm_mq sender detached".into(),
-            )),
-            Err(MessageQueueSendError::WouldBlock) => Ok(false),
-            Err(MessageQueueSendError::Unknown(code)) => {
-                mpp_log!("mpp: shm_mq try_send unknown code {code}");
-                Err(DataFusionError::Execution(format!(
-                    "mpp: shm_mq try_send unknown code {code}"
-                )))
-            }
-        }
-    }
-
-    fn send_lock(&self) -> &tokio::sync::Mutex<()> {
-        &self.send_lock
-    }
-}
-
-/// shm_mq-backed `BatchChannelReceiver`. The leader creates the shm_mq via
-/// `shm_mq_create` during DSM init; this attaches as receiver to an already-
-/// initialized queue.
-// Kept for reference; mesh multiplexing routes through `DsmInboxReceiver` instead.
-#[allow(dead_code)]
-pub(super) struct ShmMqReceiver {
-    inner: MessageQueueReceiver,
-}
-
-// SAFETY: `NonNull<shm_mq_handle>` is a pointer into DSM valid across threads
-// within the same backend process; the drain thread is the only reader after
-// attach, and only via `shm_mq_receive(nowait=true)` (no thread-unsafe latch
-// or CFI calls).
-unsafe impl Send for ShmMqReceiver {}
-
-// SAFETY: production invariant is that only the backend thread calls `try_recv` (the cooperative
-// drain runs inline on `DrainGatherStream::poll_next`; pgrx's `check_active_thread` would panic
-// on a non-backend caller anyway). `shm_mq_receive(nowait=true)` is therefore not reentered
-// concurrently on the same handle. We need `Sync` to satisfy the `BatchChannelReceiver: Send +
-// Sync` bound, which in turn lets `DrainHandle: Sync` come from the concrete types instead of
-// from the `Mutex<Vec<…>>` wrapper on `coop_receivers` having to provide it.
-unsafe impl Sync for ShmMqReceiver {}
-
-#[allow(dead_code)]
-impl ShmMqReceiver {
-    /// Attach as receiver to an *already-created* shm_mq.
-    ///
-    /// # Safety
-    /// - `mq` must point to a shm_mq previously initialized by `shm_mq_create`.
-    /// - `seg` may be NULL on workers.
-    /// - No other proc has already set itself as receiver for `mq`.
-    pub(super) unsafe fn attach_existing(
-        seg: *mut pg_sys::dsm_segment,
-        mq: *mut pg_sys::shm_mq,
-    ) -> Self {
-        unsafe {
-            pg_sys::shm_mq_set_receiver(mq, pg_sys::MyProc);
-            let handle = pg_sys::shm_mq_attach(mq, seg, std::ptr::null_mut());
-            Self {
-                inner: MessageQueueReceiver::from_raw_handle(handle),
-            }
-        }
-    }
-}
-
-impl BatchChannelReceiver for ShmMqReceiver {
-    fn try_recv(&self) -> RecvOutcome {
-        match self.inner.try_recv() {
-            Ok(Some(bytes)) => RecvOutcome::Bytes(bytes),
-            Ok(None) => RecvOutcome::Empty,
-            Err(MessageQueueRecvError::Detached) => RecvOutcome::Detached,
-            Err(MessageQueueRecvError::WouldBlock) => RecvOutcome::Empty,
-            Err(MessageQueueRecvError::Unknown(code)) => {
-                mpp_log!("mpp: shm_mq recv unknown code {code}, treating as detached");
-                RecvOutcome::Detached
-            }
-        }
-    }
-}
-
-// The DSM-MPSC adapter types below are reached from the in-file tests in this commit;
-// the `dsm.rs` / `glue.rs` wire-up lands in the follow-up commit. The per-item
-// `#[allow(dead_code)]` keeps clippy quiet until then; the wire-up commit strips them.
-
-/// DSM-MPSC-ring-backed `BatchChannelSender`. Wraps a `DsmMpscSender` so the existing
-/// `MppSender` / cooperative-drain machinery can drive it through the same trait surface
-/// as `ShmMqSender`. Multiple producer processes hold their own `DsmInboxSender` clones
-/// targeting the same receiver inbox; the underlying ring serializes them via
-/// Vyukov-style CAS on `tail`.
-///
-/// Unlike `ShmMqSender`, this adapter is genuinely thread-safe. The ring's atomic
-/// operations are the synchronization point, so the `send_bytes` / `try_send_bytes`
-/// paths don't `debug_assert!` an attach-thread invariant.
+/// The ring's atomic operations are the synchronization point, so the
+/// `send_bytes` / `try_send_bytes` paths don't `debug_assert!` an attach-thread
+/// invariant.
 ///
 /// Detach-on-drop: the inner `DsmMpscSender::Drop` decrements the ring's
 /// `sender_count`; the last drop flips `detached` and wakes the receiver, mirroring
 /// shm_mq's "drop the last sender, receiver sees detach" structural guarantee.
-#[allow(dead_code)]
 pub(super) struct DsmInboxSender {
     inner: DsmMpscSender,
     send_lock: tokio::sync::Mutex<()>,
 }
 
-// `DsmInboxSender` auto-derives Send + Sync. Both fields are Send + Sync (DsmMpscSender
-// via its unsafe impls; tokio::sync::Mutex by definition), so no manual unsafe impls
-// are needed. Auto-derive also defends against a future field that's !Send / !Sync.
+// Send + Sync auto-derive. Both fields are Send + Sync (`DsmMpscSender` via its unsafe
+// impls; `tokio::sync::Mutex` by definition), so no manual `unsafe impl` is needed; the
+// auto-derive also surfaces a compile error if a future field is `!Send` / `!Sync`.
 
-#[allow(dead_code)]
 impl DsmInboxSender {
     /// Wrap a `DsmMpscSender` for use through the `BatchChannelSender` trait.
     pub(super) fn new(inner: DsmMpscSender) -> Self {
@@ -301,16 +125,14 @@ impl BatchChannelSender for DsmInboxSender {
     }
 }
 
-/// DSM-MPSC-ring-backed `BatchChannelReceiver`. Wraps a `DsmMpscReceiver` and a single
-/// scratch `Vec<u8>` that the inner primitive's `try_recv` populates each call; we hand
-/// the populated buffer to the caller via `mem::take` and leave an empty `Vec` behind.
+/// DSM-MPSC-ring-backed `BatchChannelReceiver`. The scratch `Vec<u8>` lives behind a
+/// `parking_lot::Mutex` so a `&self` `try_recv` can hand the populated buffer to the
+/// caller via `mem::take` without `RefCell`-style runtime borrow tracking.
 ///
-/// The single-consumer invariant comes from how this is used: one `DsmInboxReceiver`
+/// The single-consumer invariant comes from the call pattern: one `DsmInboxReceiver`
 /// per process, owned by `DrainHandle::cooperative_receivers`, polled inline from the
-/// drain's `try_drain_pass`. No two threads ever race on the same receiver; the
-/// `parking_lot::Mutex` on `scratch` is interior-mutability boilerplate, uncontended in
-/// production.
-#[allow(dead_code)]
+/// drain's `try_drain_pass`. No two threads ever race on the same receiver; the mutex
+/// is interior-mutability boilerplate, uncontended in production.
 pub(super) struct DsmInboxReceiver {
     inner: DsmMpscReceiver,
     /// Scratch the inner primitive's `try_recv` reuses across calls (via reserve+set_len).
@@ -354,14 +176,6 @@ impl BatchChannelReceiver for DsmInboxReceiver {
             MpscRecvOutcome::Empty => RecvOutcome::Empty,
             MpscRecvOutcome::Detached => RecvOutcome::Detached,
         }
-    }
-
-    /// Force-detach the inbox early (e.g., query teardown before producers finish).
-    /// Producers' subsequent `try_send_bytes` return `Err(detached)`. Frames already
-    /// in the ring stay drainable; the next `try_recv` past the last queued frame
-    /// returns `Detached`.
-    fn set_detached(&self) {
-        self.inner.set_detached();
     }
 }
 
@@ -469,21 +283,6 @@ mod tests {
         // Drain one, then send again succeeds.
         assert!(matches!(rx.try_recv(), RecvOutcome::Bytes(_)));
         assert!(tx.try_send_bytes(b"c").unwrap());
-    }
-
-    #[test]
-    fn dsm_inbox_recv_signals_detached_after_set_detached() {
-        let (tx, rx, _region) = test_dsm_inbox_pair(4, 64);
-        tx.try_send_bytes(b"keep").unwrap();
-        rx.set_detached();
-        // Subsequent send rejected with an Execution error (mapped from MpscSendError::Detached).
-        let err = tx
-            .try_send_bytes(b"drop")
-            .expect_err("expected detached error");
-        assert!(format!("{err}").contains("detached"));
-        // Already-queued frame still drains; then recv returns Detached.
-        assert!(matches!(rx.try_recv(), RecvOutcome::Bytes(_)));
-        assert!(matches!(rx.try_recv(), RecvOutcome::Detached));
     }
 
     #[test]

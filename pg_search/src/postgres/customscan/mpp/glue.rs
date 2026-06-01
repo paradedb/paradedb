@@ -163,8 +163,8 @@ pub(super) fn mpp_queue_size() -> usize {
     gucs_mpp_queue_size()
 }
 
-/// Body of `estimate_dsm_custom_scan`. Returns total DSM bytes the leader will need for the
-/// plan, the multiplexed `n_procs × n_procs` queue mesh, and the worker plan. `n_procs` is the
+/// Body of `estimate_dsm_custom_scan`. Returns the total DSM bytes the leader will need
+/// for the header, the worker plan, and one MPSC inbox per process. `n_procs` is the
 /// total proc count (leader + `producer_worker_count()` parallel workers).
 pub fn estimate_dsm_size(plan_bytes_len: usize) -> Result<usize, String> {
     let layout = compute_dsm_layout(mpp_worker_count(), mpp_queue_size(), plan_bytes_len)

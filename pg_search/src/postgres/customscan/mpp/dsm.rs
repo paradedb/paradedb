@@ -79,10 +79,9 @@ fn align_up_ring(n: usize) -> Option<usize> {
 }
 
 const MPP_DSM_MAGIC: u32 = 0x4D50_5052; // "MPPR" (RPC variant)
-/// Bumped on any wire-incompatible change to the DSM header layout or to the inbox-offset math,
-/// so attaching workers reject mismatched leaders loudly rather than reading garbage. Validated
-/// in [`MppDsmHeader::validate`]. v4: mesh-multiplexed layout (one MPSC ring per receiver, was
-/// per-pair shm_mq grid in v3).
+/// Bump on any wire-incompatible change to the DSM header layout or to the inbox-offset
+/// math, so attaching workers reject mismatched leaders loudly rather than reading
+/// garbage. Validated in [`MppDsmHeader::validate`].
 const MPP_DSM_HEADER_VERSION: u32 = 4;
 
 /// Absolute cap on DSM region size. 16 GiB is two orders of magnitude beyond
@@ -99,7 +98,8 @@ pub struct MppDsmHeader {
     pub(super) magic: u32,
     pub(super) header_version: u32,
     /// Total proc count. Leader is `proc_idx = 0`; workers are
-    /// `proc_idx = ParallelWorkerNumber + 1`. The shm_mq grid is `n_procs × n_procs`.
+    /// `proc_idx = ParallelWorkerNumber + 1`. The DSM region holds `n_procs`
+    /// per-receiver MPSC inboxes laid out contiguously after the plan bytes.
     pub n_procs: u32,
     pub(super) _pad: u32,
     pub(super) queue_bytes: u64,
@@ -152,11 +152,9 @@ impl MppDsmHeader {
 
     /// Byte offset (relative to DSM base) of `receiver_proc`'s MPSC inbox.
     ///
-    /// Mesh-multiplexed layout: exactly one `DsmMpscRing`-shaped inbox per process.
     /// The owner attaches as receiver (`DsmMpscReceiver`); every other process attaches
     /// as sender (`DsmMpscSender`) to the same inbox and stamps its identity into the
-    /// frame header (`MppFrameHeader::sender_proc`). Total queues per mesh is `n_procs`
-    /// rings (one per receiver) instead of `n_procs * (n_procs - 1)` per-pair queues.
+    /// frame header (`MppFrameHeader::sender_proc`).
     pub(super) fn inbox_offset(&self, receiver_proc: u32) -> u64 {
         debug_assert!(receiver_proc < self.n_procs);
         self.queues_offset + (receiver_proc as u64) * self.queue_bytes
@@ -176,13 +174,12 @@ pub(super) struct DsmLayout {
 
 /// Compute the DSM region size and field offsets for one MPP query.
 ///
-/// `n_procs` is the total proc count (1 leader + N workers). Mesh-multiplexed layout:
-/// one `DsmMpscRing` inbox per process (`n_procs` queues total per mesh). Every other
-/// process attaches as sender to that inbox and demultiplexes by
-/// `MppFrameHeader::sender_proc` on the receive side.
+/// `n_procs` is the total proc count (1 leader + N workers); the region holds one
+/// `DsmMpscRing` inbox per process. Every other process attaches as sender to that
+/// inbox and the receiver demultiplexes by `MppFrameHeader::sender_proc`.
 ///
-/// `queue_bytes` is the per-inbox total (ring header + `RING_SLOTS` slots). Operator-
-/// facing `paradedb.mpp_queue_size` controls this value.
+/// `queue_bytes` is the per-inbox total (ring header + `RING_SLOTS` slots).
+/// Operator-facing `paradedb.mpp_queue_size` controls this value.
 pub(super) fn compute_dsm_layout(
     n_procs: u32,
     queue_bytes: usize,
@@ -249,11 +246,11 @@ fn ring_dims_for(queue_bytes: usize) -> (u32, u32) {
     (RING_SLOTS, slot_capacity)
 }
 
-/// Per-proc return from `attach_proc` under the mesh-multiplexed layout: N-1 outbound
-/// senders (one per peer inbox) + a single inbound receiver (this proc's own inbox).
+/// Per-proc return from `attach_proc`: N-1 outbound senders (one per peer inbox) plus a
+/// single inbound receiver (this proc's own inbox).
 ///
-/// The own-inbox is the multiplexed entry point: all N-1 peers attach to it as senders
-/// (each `DsmMpscSender` increments the ring's `sender_count`) and stamp their identity
+/// The own-inbox is the multiplexed entry point: every peer attaches to it as a sender
+/// (each `DsmMpscSender` increments the ring's `sender_count`) and stamps its identity
 /// into `MppFrameHeader::sender_proc` on every frame. The receiver side pulls frames
 /// off that single ring and routes them to per-`(sender_proc, stage_id, partition)`
 /// channel buffers via [`DrainHandle`].
@@ -361,29 +358,24 @@ pub(super) unsafe fn leader_init(
         );
     }
 
-    // Silence unused-warning when `seg` was only consumed by the shm_mq path. The new
-    // primitive doesn't take a dsm_segment handle (drop-on-exit via Drop instead of PG's
-    // on_dsm_detach callback); the parameter stays for future use.
+    // `DsmMpscRing` releases its DSM mapping in `Drop`, so it doesn't need a
+    // `dsm_segment` handle the way `shm_mq_attach` does; kept on the signature for
+    // future use.
     let _ = seg;
 
     Ok(attach)
 }
 
-/// Attach to the leader-initialized DSM region as `proc_idx` (`0 = leader`, `1..N = parallel
-/// workers`) under the mesh-multiplexed layout: attach as receiver to this proc's own MPSC
-/// inbox, and (if `attach_senders` is true) as sender to every peer's inbox.
+/// Attach to the leader-initialized DSM region as `proc_idx` (`0 = leader`, `1..N` =
+/// parallel workers). Attach as receiver to this proc's own MPSC inbox, and (if
+/// `attach_senders` is true) as sender to every peer's inbox.
 ///
-/// Workers use this from `initialize_worker_custom_scan` via `worker_attach` with
-/// `attach_senders = true`; the leader uses it from `leader_init` with
-/// `attach_senders = false` because the leader is consumer-only and never hosts a
-/// producer fragment.
-///
-/// **Why the leader skips outbound attach**: `DsmMpscSender::new` increments the ring's
-/// `sender_count`, and `Drop` decrements it; the 1 → 0 transition flips `detached`. If
-/// the leader attached as sender to each peer inbox before any worker had, the leader's
-/// subsequent drop would prematurely mark every inbox detached and workers' later sends
-/// would all fail with `SendError::Detached`. Skipping the attach entirely keeps
-/// `sender_count` accurate (only workers ever increment for peer inboxes).
+/// `attach_senders = false` is for the leader: it's consumer-only. A consumer-only proc
+/// that attached as sender would increment every peer inbox's `sender_count`, and its
+/// `Drop` would decrement them all back; if it dropped before any worker incremented,
+/// the 1 → 0 transition would flip `detached` on every peer inbox and every later
+/// worker send would fail with `SendError::Detached`. Skipping the attach keeps
+/// `sender_count` accurate (only producers ever increment).
 ///
 /// # Safety
 /// - `base` must point to a DSM region whose header has been validated.
@@ -476,7 +468,9 @@ pub(super) unsafe fn worker_attach(
     let attach = unsafe {
         attach_proc(base, &header, proc_idx, /* attach_senders */ true)
     };
-    let _ = seg; // DsmMpscRing doesn't use the dsm_segment handle today.
+    // `DsmMpscRing` releases its mapping in `Drop`; the `seg` handle stays on the
+    // signature to mirror `leader_init`.
+    let _ = seg;
     if trace_on {
         let attach_ms = t_attach.unwrap().elapsed().as_secs_f64() * 1000.0;
         // N attach calls per proc: 1 own-inbox receiver + N-1 peer-inbox senders.
@@ -500,7 +494,7 @@ mod tests {
     fn compute_dsm_layout_works() {
         let l = compute_dsm_layout(4, 64 * 1024, 1024).unwrap();
         assert_eq!(l.n_procs, 4);
-        // Mesh-multiplexed: one inbox per receiver, not N². 4 procs → 4 inboxes.
+        // 4 procs => 4 inboxes laid out contiguously after the plan bytes.
         let aligned = aligned_queue_bytes(64 * 1024);
         let queues_size = 4 * aligned;
         assert_eq!(l.region_total, l.queues_offset + queues_size);
@@ -518,9 +512,9 @@ mod tests {
 
     #[test]
     fn compute_dsm_layout_scales_linearly_in_n_procs() {
-        // Total queue area must grow as O(N), not O(N²). Pinning the math here so a
-        // regression that re-introduces the per-pair grid trips at compile-time of
-        // this test, not at the N=24 cliff in production.
+        // Total queue area must grow as O(N) in proc count. Pinning the math here so a
+        // regression that grows queues per-pair fails this test at compile time rather
+        // than at the N=24 wall-time cliff in production.
         let queue_bytes = 64 * 1024;
         let aligned = aligned_queue_bytes(queue_bytes);
         for n in [2u32, 4, 8, 16, 24] {
@@ -536,7 +530,7 @@ mod tests {
 
     #[test]
     fn header_inbox_offset_is_per_receiver() {
-        // 4 procs → 4 inboxes, contiguous, sized by queue_bytes each.
+        // 4 procs => 4 inboxes, contiguous, sized by queue_bytes each.
         let l = compute_dsm_layout(4, 64 * 1024, 0).unwrap();
         let h = MppDsmHeader::from_layout(&l);
         let aligned = h.queue_bytes;

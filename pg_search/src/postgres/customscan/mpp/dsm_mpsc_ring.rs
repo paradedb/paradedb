@@ -85,11 +85,6 @@
 //! spin-retry indefinitely. If this primitive ever ships in a context where wrap is
 //! conceivable, add a `tail < u64::MAX - margin` check and reset the ring.
 
-// The wire-up in `mesh.rs` lives in a follow-up commit; in this commit the
-// pub(super) API is only reached from the in-file tests, and clippy's
-// dead-code lint is otherwise hard-erroring under pre-commit.
-#![allow(dead_code)]
-
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
@@ -499,6 +494,7 @@ impl DsmMpscReceiver {
     /// wakes are no-ops until a subsequent `set_receiver`. Sentinels both fields to
     /// `(NO_RECEIVER, 0)`. Note that pgprocno 0 is the valid postmaster slot, so
     /// callers must NOT use `set_receiver(0, 0)` as a clear.
+    #[allow(dead_code)]
     pub(super) fn clear_receiver(&self) {
         self.set_receiver(NO_RECEIVER, 0);
     }
@@ -566,6 +562,7 @@ impl DsmMpscReceiver {
     /// Tell producers to stop sending. Idempotent. Subsequent `try_send` calls will
     /// fail-fast with `SendError::Detached`. Does NOT block; caller can still drain
     /// already-queued frames via `try_recv` until it returns `RecvOutcome::Detached`.
+    #[allow(dead_code)]
     pub(super) fn set_detached(&self) {
         let header = unsafe { self.ring.as_ref() };
         header.detached.store(true, Ordering::Release);
@@ -575,6 +572,7 @@ impl DsmMpscReceiver {
     }
 
     /// True when `set_detached` has been called.
+    #[allow(dead_code)]
     pub(super) fn is_detached(&self) -> bool {
         let header = unsafe { self.ring.as_ref() };
         header.detached.load(Ordering::Acquire)

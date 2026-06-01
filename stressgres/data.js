@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780333352233,
+  "lastUpdate": 1780334004544,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -27634,6 +27634,54 @@ window.BENCHMARK_DATA = {
             "value": 255.47409533550487,
             "unit": "median tps",
             "extra": "avg tps: 253.8858170549978, max tps: 548.8595748027828, count: 107760"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cb32e29f9faab09562525f00a062e5642e1b7b8b",
+          "message": "chore: upgrade Rust toolchain to 1.96 (#5224)\n\n## What\n\nUpgrades the Rust toolchain from 1.95 to 1.96 everywhere it was pinned:\n\n- `rust-toolchain.toml` — `channel = \"1.96.0\"`\n- `docker/Dockerfile.proptests` — `FROM rust:1.96-slim`\n- `docker/Dockerfile.stressgres` — `FROM rust:1.96-slim-trixie`\n\n## Why\n\nKeep the toolchain current.\n\n## Notes\n\nThe GitHub workflows use `actions-rust-lang/setup-rust-toolchain@v1`,\nwhich reads the version from `rust-toolchain.toml`, so they pick up 1.96\nautomatically — no workflow changes needed.",
+          "timestamp": "2026-06-01T12:03:33-04:00",
+          "tree_id": "cf2f0c1edefcd00590cab43aa43fb1c44b6947b3",
+          "url": "https://github.com/paradedb/paradedb/commit/cb32e29f9faab09562525f00a062e5642e1b7b8b"
+        },
+        "date": 1780333970113,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 539.8305886274828,
+            "unit": "median tps",
+            "extra": "avg tps: 549.3762975389724, max tps: 687.5542868950001, count: 53849"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 571.6058702731156,
+            "unit": "median tps",
+            "extra": "avg tps: 581.7570405164339, max tps: 761.3586992374724, count: 53849"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 88.87002807768413,
+            "unit": "median tps",
+            "extra": "avg tps: 89.1057446313051, max tps: 99.35774491303249, count: 53849"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 266.856156717918,
+            "unit": "median tps",
+            "extra": "avg tps: 259.0831486701571, max tps: 518.2964820119505, count: 107698"
           }
         ]
       }

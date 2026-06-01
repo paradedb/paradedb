@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780293763627,
+  "lastUpdate": 1780293797829,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18322,6 +18322,108 @@ window.BENCHMARK_DATA = {
             "value": 163.828125,
             "unit": "median mem",
             "extra": "avg mem: 182.19624238122813, max mem: 222.2734375, count: 56337"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cedd532b4af1ad227529040aacc7b949bd50487b",
+          "message": "chore: upgrade pgrx to 0.18.1 (#5221)\n\n## What\n\nBumps `pgrx` and `pgrx-tests` from `=0.18.0` to `=0.18.1`, and updates\n`Cargo.lock` accordingly.\n\n## Why\n\npgrx 0.18.1 fixes aarch64 RHEL packaging. See #4886.\n\n## How\n\n- Updated workspace `Cargo.toml` (`pgrx` / `pgrx-tests` → `=0.18.1`)\n- Ran `cargo update --precise 0.18.1` to refresh the lockfile (pulls in\npgrx sub-crates plus a few transitive bumps)\n- CI extracts the cargo-pgrx version dynamically from `Cargo.toml`, so\nno workflow changes are needed\n- Verified with `cargo check --features pg17 -p pg_search` (clean, no\nsource changes required)\n\nCloses #4886\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-01T01:16:33-04:00",
+          "tree_id": "117c32d7a4fd8cbcbfc90d8bb77cdbd6ff1ee56c",
+          "url": "https://github.com/paradedb/paradedb/commit/cedd532b4af1ad227529040aacc7b949bd50487b"
+        },
+        "date": 1780293765493,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07546835712009066, max background_merging: 2.0, count: 56474"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.837760146823377, max cpu: 9.657948, count: 56474"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.80859375,
+            "unit": "median mem",
+            "extra": "avg mem: 25.729135171716187, max mem: 25.8515625, count: 56474"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.9977748332351215, max cpu: 27.961164, count: 56474"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 184.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 182.47126567646174, max mem: 192.91015625, count: 56474"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51522,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51391.79457803591, max block_count: 51522.0, count: 56474"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.792240677125754, max segment_count: 56.0, count: 56474"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.598475871939662, max cpu: 9.552238, count: 56474"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 124.71875,
+            "unit": "median mem",
+            "extra": "avg mem: 115.03244537862557, max mem: 141.3984375, count: 56474"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.82660745137051, max cpu: 28.09756, count: 56474"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 187.2109375,
+            "unit": "median mem",
+            "extra": "avg mem: 181.33589758948807, max mem: 192.58984375, count: 56474"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.848712010067352, max cpu: 33.7011, count: 56474"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 164.79296875,
+            "unit": "median mem",
+            "extra": "avg mem: 183.15756856861123, max mem: 223.1484375, count: 56474"
           }
         ]
       }

@@ -186,7 +186,7 @@ fn joinscan_self_join_matches_fallback(mut conn: PgConnection) -> Result<(), sql
         JOIN dup_items b ON a.grp = b.grp
         WHERE a.body @@@ 'left'
           AND b.body @@@ 'right'
-        ORDER BY b.ord ASC, a.id ASC
+        ORDER BY b.ord COLLATE "C" ASC, a.id ASC
         LIMIT 3
     "#;
 
@@ -271,7 +271,7 @@ fn joinscan_self_join_duplicate_name_sort_matches_fallback(
         JOIN dup_items b ON a.grp = b.grp
         WHERE a.body @@@ 'left'
           AND b.body @@@ 'right'
-        ORDER BY a.ord ASC, b.ord ASC
+        ORDER BY a.ord COLLATE "C" ASC, b.ord COLLATE "C" ASC
         LIMIT 3
     "#;
 

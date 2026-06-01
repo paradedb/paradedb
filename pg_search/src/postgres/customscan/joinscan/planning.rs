@@ -36,6 +36,7 @@ use crate::index::fast_fields_helper::WhichFastField;
 use crate::nodecast;
 use crate::postgres::customscan::basescan::projections::score::is_score_func;
 use crate::postgres::customscan::opexpr::lookup_operator;
+use crate::postgres::customscan::orderby::is_collation_pushdown_safe;
 use crate::postgres::customscan::pullup::{
     field_type_for_pullup, get_attno_by_name, resolve_fast_field,
 };
@@ -1461,7 +1462,6 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
 
     'pathkey: for pathkey_ptr in pathkeys.iter_ptr() {
         let equivclass = (*pathkey_ptr).pk_eclass;
-
         if pathkey_is_outer_only(equivclass, &source_rtis) {
             continue;
         }
@@ -1535,6 +1535,26 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
         }
 
         return false;
+    }
+
+    true
+}
+
+// If a collation isn't "safe" (C-like), then we can't pushdown as Tantivy uses byte ordering
+pub(super) unsafe fn order_by_columns_have_unsafe_collation(
+    root: *mut pg_sys::PlannerInfo,
+) -> bool {
+    let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
+    if pathkeys.is_empty() {
+        return true;
+    }
+
+    for pathkey_ptr in pathkeys.iter_ptr() {
+        let equivclass = (*pathkey_ptr).pk_eclass;
+        let collation = (*equivclass).ec_collation;
+        if !is_collation_pushdown_safe(collation) {
+            return false;
+        }
     }
 
     true

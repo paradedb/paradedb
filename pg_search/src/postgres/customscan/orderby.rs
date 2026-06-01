@@ -294,7 +294,7 @@ unsafe fn find_target_entry_by_ref(
 // This helper function tells us whether a collation is "safe", for the purposes of pushing down ORDER BY
 // If a field does not have a collation (ex: integers, non-text data), it's considered safe
 // Otherwise, for collatable fields, if the collation is C-like it's safe
-fn is_collation_pushdown_safe(collation: pg_sys::Oid) -> bool {
+pub fn is_collation_pushdown_safe(collation: pg_sys::Oid) -> bool {
     match collation {
         pg_sys::Oid::INVALID => true,
         pg_sys::C_COLLATION_OID => true,

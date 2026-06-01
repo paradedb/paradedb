@@ -39,8 +39,8 @@ tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy"
   "stemmer",
   "stopwords",
 ], default-features = false }
-pgrx = "=0.18.0"
-pgrx-tests = "=0.18.0"
+pgrx = "=0.18.1"
+pgrx-tests = "=0.18.1"
 tantivy-jieba = "0.18.0"
 
 [patch.crates-io]

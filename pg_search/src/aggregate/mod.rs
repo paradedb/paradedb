@@ -29,7 +29,10 @@ use crate::parallel_worker::ParallelStateManager;
 use crate::parallel_worker::{chunk_range, QueryWorkerStyle, WorkerStyle};
 use crate::parallel_worker::{ParallelProcess, ParallelState, ParallelStateType, ParallelWorker};
 use crate::postgres::customscan::aggregatescan::build::{AggregateCSClause, CollectAggregations};
-use crate::postgres::customscan::aggregatescan::json_rewrite::rewrite_date_histogram_to_histogram;
+use crate::postgres::customscan::aggregatescan::json_rewrite::{
+    rewrite_date_histogram_to_histogram, rewrite_json_date_histogram_to_histogram,
+};
+use crate::postgres::customscan::aggregatescan::AggregateType;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::locks::{AcquiredSpinLock, Spinlock};
 use crate::postgres::rel::PgSearchRelation;
@@ -388,9 +391,19 @@ pub fn execute_aggregate(
         // no longer storing dates in tantivy's DateTime
         // We rewrite these here instead of at AggregateRequest construction time because we need
         // the unmodified json later to decide how to rewrite the results.
-        if let AggregateRequest::Json(aggregations) = &mut agg_req {
-            for agg in aggregations.values_mut() {
-                rewrite_date_histogram_to_histogram(agg).expect("This should always succeed because a valid date_histogram should always be a valid histogram");
+
+        match &mut agg_req {
+            AggregateRequest::Json(aggregations) => {
+                for agg in aggregations.values_mut() {
+                    rewrite_date_histogram_to_histogram(agg).expect("This should always succeed because a valid date_histogram should always be a valid histogram");
+                }
+            }
+            AggregateRequest::Sql(clause) => {
+                for agg in clause.aggregates_mut() {
+                    if let AggregateType::Custom { agg_json, .. } = agg {
+                        rewrite_json_date_histogram_to_histogram(agg_json);
+                    }
+                }
             }
         }
     }

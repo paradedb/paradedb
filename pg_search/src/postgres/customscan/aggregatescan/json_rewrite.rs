@@ -4,7 +4,9 @@ use tantivy::aggregation::bucket::{
 };
 use tantivy::TantivyError;
 
-use crate::postgres::datetime::{unix_millis_to_pg_micros, PostgresDateTime};
+use crate::postgres::datetime::{
+    unix_micros_to_pg_micros, unix_millis_to_pg_micros, PostgresDateTime,
+};
 use crate::postgres::types::is_pgoid_datetime_type;
 use crate::schema::SearchIndexSchema;
 
@@ -88,6 +90,7 @@ pub fn rewrite_aggregate_result_json_timestamps(
     let path_and_rewrite_rules = [
         ("/terms/field", (true, false)),
         ("/histogram/field", (false, true)),
+        ("/date_histogram/field", (false, true)),
     ];
     let (rewrite_key, add_key_as_string) = path_and_rewrite_rules
         .into_iter()
@@ -152,9 +155,14 @@ fn date_histogram_req_to_histogram_agg(
     date_histogram: &DateHistogramAggregationReq,
 ) -> Result<HistogramAggregation, TantivyError> {
     let mut histogram = date_histogram.to_histogram_req()?;
+    // adjust offset so that histogram buckets are based on unix epoch instead of pg epoch
+    let offset = match histogram.offset {
+        Some(v) => Some(unix_micros_to_pg_micros((v * 1_000.0) as i64) as f64),
+        None => Some(unix_micros_to_pg_micros(0) as f64),
+    };
     // tantivy converts the intervals to milliseconds, so we need to convert that to microseconds
     histogram.interval *= 1_000.0;
-    histogram.offset = histogram.offset.map(|v| v * 1_000.0);
+    histogram.offset = offset;
     // the bounds are specified as unix milliseconds, so we need to convert that to pg microseconds
     histogram.hard_bounds = histogram.hard_bounds.map(unix_millis_bounds_to_pg_micros);
     histogram.extended_bounds = histogram
@@ -177,4 +185,33 @@ pub fn rewrite_date_histogram_to_histogram(agg: &mut Aggregation) -> Result<(), 
     }
     println!("rewritten: {agg:?}");
     Ok(())
+}
+
+fn json_date_histogram_to_histogram(value: serde_json::Value) -> Option<serde_json::Value> {
+    let as_req: DateHistogramAggregationReq = serde_json::from_value(value).ok()?;
+    let histogram_obj = date_histogram_req_to_histogram_agg(&as_req).ok()?;
+    serde_json::to_value(histogram_obj).ok()
+}
+
+/// If this agg contains date_histograms, rewrite them as regular histograms against the underlying
+/// pg_micros I64 representation
+pub fn rewrite_json_date_histogram_to_histogram(agg_json: &mut serde_json::Value) {
+    if let Some(agg_obj) = agg_json.as_object_mut() {
+        if let Some(date_histogram_obj) = agg_obj.get("date_histogram") {
+            // only modify the object if the rewrite is successful. Otherwise let the object
+            // pass-through and allow tantivy to reject the bad structure
+            if let Some(histogram_obj) =
+                json_date_histogram_to_histogram(date_histogram_obj.clone())
+            {
+                agg_obj.remove("date_histogram");
+                agg_obj.insert("histogram".to_string(), histogram_obj);
+            }
+        }
+    }
+    // recurse into subaggs
+    if let Some(subaggs) = agg_json.get_mut("aggs").and_then(|v| v.as_object_mut()) {
+        for v in subaggs.values_mut() {
+            rewrite_json_date_histogram_to_histogram(v);
+        }
+    }
 }

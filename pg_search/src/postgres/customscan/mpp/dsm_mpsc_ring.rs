@@ -167,9 +167,8 @@ pub(super) struct DsmMpscRingHeader {
     slot_capacity: u32,
     /// Live `DsmMpscSender` count. Incremented in `DsmMpscSender::new`, decremented in
     /// `DsmMpscSender::Drop`. The drop that takes the count from 1 → 0 sets `detached`
-    /// (with Release) and wakes the receiver, so producers don't need to call
-    /// `set_detached` explicitly: dropping the last sender is sufficient. Mirrors
-    /// shm_mq's "drop = detach" structural guarantee.
+    /// (with Release) and wakes the receiver, mirroring shm_mq's "drop = detach"
+    /// structural guarantee.
     sender_count: AtomicU32,
     /// Set by the consumer (or by the leader on query teardown) to tell producers to
     /// fail-fast on subsequent sends. Sticky.
@@ -341,10 +340,9 @@ pub(super) struct DsmMpscSender {
 // either across threads requires only the atomic ordering already in use.
 //
 // `DsmMpscReceiver` is deliberately !Sync: the type-level invariant that exactly one
-// thread calls `try_recv` / `set_detached` at a time is what makes the lock-free MPSC
-// math correct (single consumer owns `head` without CAS). `DsmMpscSender` is Sync so
-// multiple producer threads can share one `Arc<DsmMpscSender>` and race on `tail` via
-// CAS.
+// thread calls `try_recv` at a time is what makes the lock-free MPSC math correct (the
+// single consumer owns `head` without CAS). `DsmMpscSender` is Sync so multiple producer
+// threads can share one `Arc<DsmMpscSender>` and race on `tail` via CAS.
 unsafe impl Send for DsmMpscReceiver {}
 unsafe impl Send for DsmMpscSender {}
 unsafe impl Sync for DsmMpscSender {}
@@ -476,8 +474,7 @@ impl DsmMpscReceiver {
 
     /// Register this process as the receiver. Producers' subsequent wakeups resolve
     /// the latch from `ProcGlobal->allProcs[pgprocno]` and check `proc->pid == pid`
-    /// to defend against PGPROC slot reuse if the receiver process exits. Use
-    /// [`Self::clear_receiver`] on teardown.
+    /// to defend against PGPROC slot reuse if the receiver process exits.
     ///
     /// Caller passes the LOCAL process's pgprocno and pid (in PG's parlance:
     /// `MyProcNumber` and `MyProc->pid`). The pair is packed into one `AtomicU64`
@@ -488,15 +485,6 @@ impl DsmMpscReceiver {
         header
             .receiver_packed
             .store(pack_receiver(pgprocno, pid), Ordering::Release);
-    }
-
-    /// Clear the registered receiver (e.g., on query teardown). After this, producer
-    /// wakes are no-ops until a subsequent `set_receiver`. Sentinels both fields to
-    /// `(NO_RECEIVER, 0)`. Note that pgprocno 0 is the valid postmaster slot, so
-    /// callers must NOT use `set_receiver(0, 0)` as a clear.
-    #[allow(dead_code)]
-    pub(super) fn clear_receiver(&self) {
-        self.set_receiver(NO_RECEIVER, 0);
     }
 
     /// Try to read one frame into `out`. On `Bytes`, `out` holds the payload. On
@@ -557,25 +545,6 @@ impl DsmMpscReceiver {
         // to claim sees the empty slot before seeing the new head value.
         header.head.store(head.wrapping_add(1), Ordering::Release);
         RecvOutcome::Bytes
-    }
-
-    /// Tell producers to stop sending. Idempotent. Subsequent `try_send` calls will
-    /// fail-fast with `SendError::Detached`. Does NOT block; caller can still drain
-    /// already-queued frames via `try_recv` until it returns `RecvOutcome::Detached`.
-    #[allow(dead_code)]
-    pub(super) fn set_detached(&self) {
-        let header = unsafe { self.ring.as_ref() };
-        header.detached.store(true, Ordering::Release);
-        // Defensive self-wake: if a signal handler or supervisor thread calls
-        // set_detached while the receiver is in WaitLatch, this breaks it out.
-        unsafe { wake_receiver(header) };
-    }
-
-    /// True when `set_detached` has been called.
-    #[allow(dead_code)]
-    pub(super) fn is_detached(&self) -> bool {
-        let header = unsafe { self.ring.as_ref() };
-        header.detached.load(Ordering::Acquire)
     }
 }
 
@@ -774,20 +743,6 @@ mod tests {
     }
 
     #[test]
-    fn detach_blocks_subsequent_sends() {
-        let (_region, rx, tx) = make_ring(4, 64);
-        tx.try_send(b"keep").unwrap();
-        rx.set_detached();
-        assert!(rx.is_detached());
-        assert_eq!(tx.try_send(b"drop"), Err(SendError::Detached));
-        // Already-queued frame still readable, then Detached signaled.
-        let mut buf = Vec::new();
-        assert_eq!(rx.try_recv(&mut buf), RecvOutcome::Bytes);
-        assert_eq!(&buf[..], b"keep");
-        assert_eq!(rx.try_recv(&mut buf), RecvOutcome::Detached);
-    }
-
-    #[test]
     fn message_too_large_is_rejected() {
         let (_region, _rx, tx) = make_ring(2, 32);
         // payload_cap = 32 - SLOT_HEADER_BYTES; one byte over is too large.
@@ -975,60 +930,6 @@ mod tests {
         // Restore version, mismatched ring_size.
         unsafe { (*header_ptr).version = MPSC_RING_VERSION };
         assert!(unsafe { attach_at(region.as_mut_ptr(), 8, 64) }.is_none());
-    }
-
-    /// Consumer-side detach race: producers are mid-flight when the receiver detaches.
-    /// Every Ok send must produce a matching Bytes recv before the drain returns
-    /// Detached. Catches the half-claim-wedge if the predicate is too strict.
-    #[test]
-    fn drain_completes_after_detach_under_load() {
-        const K_PRODUCERS: usize = 4;
-        let (_region, rx, tx_template) = make_ring(16, 32);
-        let ring_nn = SharedRing(tx_template.ring);
-        let stop = Arc::new(AtomicBool::new(false));
-        let sent_count = Arc::new(AtomicUsize::new(0));
-        let mut handles = Vec::with_capacity(K_PRODUCERS);
-        for _ in 0..K_PRODUCERS {
-            let tx = unsafe { DsmMpscSender::new(ring_nn.0) };
-            let stop = Arc::clone(&stop);
-            let sent_count = Arc::clone(&sent_count);
-            handles.push(std::thread::spawn(move || {
-                let payload = [0xABu8; 8];
-                while !stop.load(O::Relaxed) {
-                    match tx.try_send(&payload) {
-                        Ok(_) => {
-                            sent_count.fetch_add(1, O::Relaxed);
-                        }
-                        Err(SendError::Full) => std::thread::yield_now(),
-                        Err(SendError::Detached) => break,
-                        Err(e) => panic!("unexpected: {e:?}"),
-                    }
-                }
-            }));
-        }
-        // Drain a bit then trigger detach.
-        let mut buf = Vec::new();
-        let mut recv_count = 0usize;
-        // Let producers stretch their legs before detaching.
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        rx.set_detached();
-        stop.store(true, O::Relaxed);
-        // Drain until the ring confirms Detached.
-        loop {
-            match rx.try_recv(&mut buf) {
-                RecvOutcome::Bytes => recv_count += 1,
-                RecvOutcome::Empty => std::thread::yield_now(),
-                RecvOutcome::Detached => break,
-            }
-        }
-        for h in handles {
-            h.join().unwrap();
-        }
-        let sent = sent_count.load(O::Relaxed);
-        assert_eq!(
-            recv_count, sent,
-            "every successful send must be received before Detached"
-        );
     }
 
     /// Stress test at the production-worst contention level (K=24 producers, matching

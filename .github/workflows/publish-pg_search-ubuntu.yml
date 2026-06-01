@@ -271,6 +271,26 @@ jobs:
           echo 'Maintainer: ParadeDB <support@paradedb.com>' >> $CONTROL_FILE
           echo 'Description: Postgres for Search and Analytics' >> $CONTROL_FILE
 
+          # Copyright file (Debian Policy §12.5). Also consumed by the
+          # CloudNativePG postgres-extensions-containers Dockerfiles, which
+          # COPY /usr/share/doc/<pkg>/copyright into the extension image's
+          # /licenses/ tree.
+          doc_dir=${package_dir}/usr/share/doc/postgresql-${{ matrix.pg_version }}-pg-search
+          mkdir -p ${doc_dir}
+          cat > ${doc_dir}/copyright <<'EOF'
+          Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+          Upstream-Name: pg_search
+          Upstream-Contact: ParadeDB <support@paradedb.com>
+          Source: https://github.com/paradedb/paradedb
+
+          Files: *
+          Copyright: ParadeDB <support@paradedb.com>
+          License: AGPL-3.0-or-later
+           The full license text is in this package at LICENSE,
+           and online at https://www.gnu.org/licenses/agpl-3.0.txt
+          EOF
+          cp LICENSE ${doc_dir}/LICENSE
+
           # Create .deb package
           sudo chown -R root:root ${package_dir}
           sudo chmod -R 755 ${package_dir}

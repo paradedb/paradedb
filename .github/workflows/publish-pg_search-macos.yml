@@ -167,6 +167,10 @@ jobs:
           cp archive/*.control ${package_dir}/${share_path}
           cp archive/*.sql ${package_dir}/${share_path}
 
+          # Bundle the LICENSE so it lands at /opt/homebrew/opt/paradedb/LICENSE
+          # alongside the Homebrew install prefix.
+          cp LICENSE ${package_dir}/LICENSE
+
           # Create postinstall script
           mkdir -p ~/tmp/pg_search_postinstall_script/
           postinstall_file=~/tmp/pg_search_postinstall_script/postinstall

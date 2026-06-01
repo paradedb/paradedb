@@ -328,11 +328,14 @@ jobs:
           %{__rm} -rf %{buildroot}
           install -d %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/lib/
           install -d %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
+          install -d %{buildroot}/usr/share/licenses/%{name}/
           install -m 755 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/lib/pg_search.so %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/lib/
           install -m 644 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search*.sql %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
           install -m 644 %{_sourcedir}/pg_search_${{ matrix.pg_version }}/usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search.control %{buildroot}/usr/pgsql-${{ matrix.pg_version }}/share/extension/
+          install -m 644 %{_sourcedir}/LICENSE %{buildroot}/usr/share/licenses/%{name}/LICENSE
 
           %files
+          %license /usr/share/licenses/%{name}/LICENSE
           /usr/pgsql-${{ matrix.pg_version }}/lib/pg_search.so
           /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search.control
           /usr/pgsql-${{ matrix.pg_version }}/share/extension/pg_search*sql
@@ -346,6 +349,7 @@ jobs:
 
           echo "Copying pg_search binaries to RPM build directory..."
           cp -r target/release/pg_search-pg${{ matrix.pg_version }}/ ~/rpmbuild/SOURCES/pg_search_${{ matrix.pg_version }}
+          cp LICENSE ~/rpmbuild/SOURCES/LICENSE
 
           echo "Building RPM package..."
           rpmbuild --without debuginfo -ba ~/rpmbuild/SPECS/pg_search.spec

@@ -83,7 +83,7 @@ use crate::{nodecast, DEFAULT_STARTUP_COST, PARAMETERIZED_SELECTIVITY, UNKNOWN_S
 use crate::{FULL_RELATION_SELECTIVITY, UNASSIGNED_SELECTIVITY};
 
 use crate::postgres::customscan::limit_offset::LimitOffset;
-use pgrx::{pg_guard, pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts};
+use pgrx::{pg_sys, FromDatum, IntoDatum, PgList, PgMemoryContexts};
 use tantivy::snippet::SnippetGenerator;
 use tantivy::Index;
 
@@ -2163,59 +2163,46 @@ unsafe fn inject_pdb_placeholders(state: &mut CustomScanStateWrapper<BaseScan>) 
     state.custom_state_mut().const_distance_nodes = const_distance_nodes;
 }
 
-/// Walk `targetlist`, replacing every pgvector `<->` `OpExpr` (L2 distance)
-/// with a `Const(float8, null)` placeholder. Returns the rewritten targetlist
-/// and the list of `Const` nodes, in left-to-right order, so exec-time can
-/// fill them with the TopK-computed distance.
+/// Replace every top-level pgvector distance `OpExpr` (e.g. `embedding <-> q`)
+/// in `targetlist` with a `Const(float8, null)` placeholder, mutating each
+/// `TargetEntry`'s `expr` in place. Returns the (same) targetlist and the list
+/// of `Const` nodes, in left-to-right order, so exec-time can fill them with
+/// the TopK-computed distance.
+///
+/// This intentionally does NOT use `expression_tree_mutator`: that deep-copies
+/// every node it visits, which would orphan the score/snippet/window `Const`
+/// pointers already collected for this targetlist and leave those columns NULL.
+/// The vector-distance ORDER BY key is always a top-level `TargetEntry` expr,
+/// so an in-place per-entry rewrite is sufficient.
 unsafe fn inject_vector_distance_placeholders(
     targetlist: *mut pg_sys::List,
 ) -> (*mut pg_sys::List, Vec<*mut pg_sys::Const>) {
     use crate::postgres::customscan::orderby::metric_for_opoid;
 
-    struct Ctx {
-        nodes: Vec<*mut pg_sys::Const>,
-    }
-
-    #[pg_guard]
-    unsafe extern "C-unwind" fn walker(
-        node: *mut pg_sys::Node,
-        context: *mut std::ffi::c_void,
-    ) -> *mut pg_sys::Node {
-        if node.is_null() {
-            return std::ptr::null_mut();
+    let mut nodes = Vec::new();
+    let tlist = PgList::<pg_sys::TargetEntry>::from_pg(targetlist);
+    for te in tlist.iter_ptr() {
+        if te.is_null() {
+            continue;
         }
-        if let Some(opexpr) = nodecast!(OpExpr, T_OpExpr, node) {
-            if metric_for_opoid((*opexpr).opno).is_some() {
-                let const_node = pg_sys::makeConst(
-                    pg_sys::FLOAT8OID,
-                    -1,
-                    pg_sys::Oid::INVALID,
-                    size_of::<f64>() as _,
-                    pg_sys::Datum::null(),
-                    true,
-                    true,
-                );
-                let ctx = &mut *context.cast::<Ctx>();
-                ctx.nodes.push(const_node);
-                return const_node.cast();
-            }
-        }
-        #[cfg(not(any(feature = "pg16", feature = "pg17", feature = "pg18")))]
-        {
-            let fnptr = walker as usize as *const ();
-            let walker: unsafe extern "C-unwind" fn() -> *mut pg_sys::Node =
-                std::mem::transmute(fnptr);
-            pg_sys::expression_tree_mutator(node, Some(walker), context)
-        }
-        #[cfg(any(feature = "pg16", feature = "pg17", feature = "pg18"))]
-        {
-            pg_sys::expression_tree_mutator_impl(node, Some(walker), context)
+        let Some(opexpr) = nodecast!(OpExpr, T_OpExpr, (*te).expr.cast::<pg_sys::Node>()) else {
+            continue;
+        };
+        if metric_for_opoid((*opexpr).opno).is_some() {
+            let const_node = pg_sys::makeConst(
+                pg_sys::FLOAT8OID,
+                -1,
+                pg_sys::Oid::INVALID,
+                size_of::<f64>() as _,
+                pg_sys::Datum::null(),
+                true,
+                true,
+            );
+            (*te).expr = const_node.cast();
+            nodes.push(const_node);
         }
     }
-
-    let mut ctx = Ctx { nodes: Vec::new() };
-    let new_tl = walker(targetlist.cast(), std::ptr::addr_of_mut!(ctx).cast());
-    (new_tl.cast(), ctx.nodes)
+    (targetlist, nodes)
 }
 
 /// Inject placeholder Const nodes for window aggregates at execution time

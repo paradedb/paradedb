@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780333315519,
+  "lastUpdate": 1780333352233,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -25562,6 +25562,114 @@ window.BENCHMARK_DATA = {
             "value": 174.98828125,
             "unit": "median mem",
             "extra": "avg mem: 172.43237715639458, max mem: 175.421875, count: 55547"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cb32e29f9faab09562525f00a062e5642e1b7b8b",
+          "message": "chore: upgrade Rust toolchain to 1.96 (#5224)\n\n## What\n\nUpgrades the Rust toolchain from 1.95 to 1.96 everywhere it was pinned:\n\n- `rust-toolchain.toml` — `channel = \"1.96.0\"`\n- `docker/Dockerfile.proptests` — `FROM rust:1.96-slim`\n- `docker/Dockerfile.stressgres` — `FROM rust:1.96-slim-trixie`\n\n## Why\n\nKeep the toolchain current.\n\n## Notes\n\nThe GitHub workflows use `actions-rust-lang/setup-rust-toolchain@v1`,\nwhich reads the version from `rust-toolchain.toml`, so they pick up 1.96\nautomatically — no workflow changes needed.",
+          "timestamp": "2026-06-01T12:03:33-04:00",
+          "tree_id": "cf2f0c1edefcd00590cab43aa43fb1c44b6947b3",
+          "url": "https://github.com/paradedb/paradedb/commit/cb32e29f9faab09562525f00a062e5642e1b7b8b"
+        },
+        "date": 1780333317699,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.58664,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.874408175342722, max cpu: 42.436146, count: 55505"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 143.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 149.93908748367264, max mem: 179.1875, count: 55505"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.979588867321743, max cpu: 32.338787, count: 55505"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 121.01953125,
+            "unit": "median mem",
+            "extra": "avg mem: 119.67337014964868, max mem: 121.24609375, count: 55505"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.444304228920258, max cpu: 23.255816, count: 55505"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 114.5390625,
+            "unit": "median mem",
+            "extra": "avg mem: 129.41623023826682, max mem: 180.24609375, count: 55505"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 15119,
+            "unit": "median block_count",
+            "extra": "avg block_count: 15849.960544095127, max block_count: 29493.0, count: 55505"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.713883703504093, max cpu: 4.6647234, count: 55505"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 74.5,
+            "unit": "median mem",
+            "extra": "avg mem: 83.6064961771462, max mem: 130.01171875, count: 55505"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 24,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.440969282046662, max segment_count: 36.0, count: 55505"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.266409,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.806764630639284, max cpu: 27.988338, count: 111010"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 179.75,
+            "unit": "median mem",
+            "extra": "avg mem: 154.53163802106792, max mem: 182.0234375, count: 111010"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.846154,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.354391822485743, max cpu: 27.533463, count: 55505"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 174.55859375,
+            "unit": "median mem",
+            "extra": "avg mem: 171.77132479618953, max mem: 174.9375, count: 55505"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780293797829,
+  "lastUpdate": 1780294446221,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20580,6 +20580,60 @@ window.BENCHMARK_DATA = {
             "value": 15.616883435141157,
             "unit": "median tps",
             "extra": "avg tps: 15.709941456300577, max tps: 21.552462216863418, count: 55589"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cedd532b4af1ad227529040aacc7b949bd50487b",
+          "message": "chore: upgrade pgrx to 0.18.1 (#5221)\n\n## What\n\nBumps `pgrx` and `pgrx-tests` from `=0.18.0` to `=0.18.1`, and updates\n`Cargo.lock` accordingly.\n\n## Why\n\npgrx 0.18.1 fixes aarch64 RHEL packaging. See #4886.\n\n## How\n\n- Updated workspace `Cargo.toml` (`pgrx` / `pgrx-tests` → `=0.18.1`)\n- Ran `cargo update --precise 0.18.1` to refresh the lockfile (pulls in\npgrx sub-crates plus a few transitive bumps)\n- CI extracts the cargo-pgrx version dynamically from `Cargo.toml`, so\nno workflow changes are needed\n- Verified with `cargo check --features pg17 -p pg_search` (clean, no\nsource changes required)\n\nCloses #4886\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-01T01:16:33-04:00",
+          "tree_id": "117c32d7a4fd8cbcbfc90d8bb77cdbd6ff1ee56c",
+          "url": "https://github.com/paradedb/paradedb/commit/cedd532b4af1ad227529040aacc7b949bd50487b"
+        },
+        "date": 1780294412234,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 28.44016499199231,
+            "unit": "median tps",
+            "extra": "avg tps: 28.47802991901122, max tps: 33.56360690048515, count: 55547"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 76.03579233071068,
+            "unit": "median tps",
+            "extra": "avg tps: 126.70386460050119, max tps: 3178.183880396647, count: 55547"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 490.2204662362282,
+            "unit": "median tps",
+            "extra": "avg tps: 492.0331373439854, max tps: 767.6364029056399, count: 55547"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 165.64698322207312,
+            "unit": "median tps",
+            "extra": "avg tps: 128.61163483242754, max tps: 882.2414482704188, count: 111094"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.252819305071704,
+            "unit": "median tps",
+            "extra": "avg tps: 15.2357687835567, max tps: 19.94318068164715, count: 55547"
           }
         ]
       }

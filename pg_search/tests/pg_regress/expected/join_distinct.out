@@ -753,39 +753,31 @@ WHERE
 ORDER BY
     score DESC
 LIMIT 10;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
-                                                                                                                                                                                                  QUERY PLAN                                                                                                                                                                                                   
----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                               QUERY PLAN                                                                                                                                               
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.name, (paradedb.score(p.id))
    ->  Unique
          Output: p.id, p.name, (paradedb.score(p.id))
-         ->  Sort
+         ->  Custom Scan (ParadeDB Join Scan)
                Output: p.id, p.name, (paradedb.score(p.id))
-               Sort Key: (paradedb.score(p.id)) DESC, p.id, p.name
-               ->  Hash Join
-                     Output: p.id, p.name, (paradedb.score(p.id))
-                     Inner Unique: true
-                     Hash Cond: (p.supplier_id = s.id)
-                     Join Filter: ((p.id @@@ '{"with_index":{"oid":56157,"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput) OR (s.id @@@ '{"with_index":{"oid":56158,"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}}'::paradedb.searchqueryinput))
-                     ->  Custom Scan (ParadeDB Base Scan) on public.dist_products p
-                           Output: p.id, p.name, p.supplier_id, paradedb.score(p.id), paradedb.score(p.id)
-                           Table: dist_products
-                           Index: dist_products_bm25_idx
-                           Exec Method: NormalScanExecState
-                           Scores: true
-                           Full Index Scan: true
-                           Tantivy Query: {"boolean":{"should":[{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}},"all"]}}
-                     ->  Hash
-                           Output: s.id
-                           ->  Custom Scan (ParadeDB Base Scan) on public.dist_suppliers s
-                                 Output: s.id
-                                 Table: dist_suppliers
-                                 Index: dist_suppliers_bm25_idx
-                                 Exec Method: NormalScanExecState
-                                 Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"USA","lenient":null,"conjunction_mode":null}}}}
-(29 rows)
+               Relation Tree: s INNER p
+               Join Cond: p.supplier_id = s.id
+               Join Predicate: (p:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}} OR s:{"with_index":{"query":{"parse_with_field":{"field":"name","query_string":"Wireless","lenient":null,"conjunction_mode":null}}}})
+               Limit: 10
+               Distinct: true
+               Order By: pdb.score() desc, p.id asc, p.name asc
+               DataFusion Physical Plan: 
+                 : SortExec: TopK(fetch=10), expr=[col_3@2 DESC, col_1@0 ASC NULLS LAST, col_2@1 ASC NULLS LAST], preserve_partitioning=[false]
+                 :   AggregateExec: mode=Single, gby=[id@3 as col_1, name@4 as col_2, score@1 as col_3], aggr=[ctid_0, ctid_1]
+                 :     VisibilityFilterExec: tables=[s, p]
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, supplier_id@2)], filter=pdb_search_predicate(ctid_1@1) OR pdb_search_predicate(ctid_0@0), projection=[ctid_0@0, score@2, ctid_1@3, id@5, name@6]
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"country","query_string":"USA","lenient":null,"conjunction_mode":null}}}}
+                 :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, supplier_id@2 as supplier_id, id@3 as id, name@4 as name]
+                 :           CooperativeExec
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query="all"
+(22 rows)
 
 SELECT DISTINCT
     p.id,
@@ -803,11 +795,10 @@ WHERE
 ORDER BY
     score DESC
 LIMIT 10;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: p, s)
- id  |       name       |   score   
------+------------------+-----------
- 201 | Wireless Mouse   | 1.3818457
- 209 | Wireless Charger | 1.3818457
+ id  |       name       | score 
+-----+------------------+-------
+ 201 | Wireless Mouse   |     0
+ 209 | Wireless Charger |     0
 (2 rows)
 
 -- =============================================================================

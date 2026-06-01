@@ -38,28 +38,37 @@ AND p.seniority_slug IN ('manager', 'director')
 AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c))
 ORDER BY id DESC
 LIMIT 26;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: c, p)
-                                                                                                                          QUERY PLAN                                                                                                                          
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                                              QUERY PLAN                                                                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
    Output: p.id, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
-   ->  Unique
+   ->  Sort
          Output: p.id, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
-         ->  Sort
+         Sort Key: p.id DESC
+         ->  HashAggregate
                Output: p.id, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
-               Sort Key: p.id DESC, p.full_name, ((p.full_name IS NULL)), p.linkedin_followers, ((p.linkedin_followers IS NULL)), p.seniority_slug, ((p.seniority_slug IS NULL))
-               ->  Custom Scan (ParadeDB Base Scan) on public.people p
+               Group Key: p.id, p.full_name, (p.full_name IS NULL), p.linkedin_followers, (p.linkedin_followers IS NULL), p.seniority_slug, (p.seniority_slug IS NULL)
+               ->  Result
                      Output: p.id, p.full_name, (p.full_name IS NULL), p.linkedin_followers, (p.linkedin_followers IS NULL), p.seniority_slug, (p.seniority_slug IS NULL)
-                     Filter: ((p.company_id IS NULL) OR (ANY (p.company_id = (hashed SubPlan 1).col1)))
-                     Table: people
-                     Index: people_search_idx
-                     Exec Method: NormalScanExecState
-                     Scores: false
-                     Tantivy Query: {"boolean":{"must":[{"heap_filter":{"indexed_query":{"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}}]}},"field_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
-                     SubPlan 1
-                       ->  Seq Scan on public.companies c
-                             Output: c.id
-(18 rows)
+                     ->  Custom Scan (ParadeDB Join Scan)
+                           Output: p.id, p.full_name, p.linkedin_followers, p.seniority_slug
+                           Relation Tree: p LEFTMARK c
+                           Join Cond: p.company_id = c.id
+                           Join Predicate: (mark = true OR col IS NULL)
+                           Limit: 26
+                           Order By: p.id desc
+                           DataFusion Physical Plan: 
+                             : ProjectionExec: expr=[id@1 as col_1, NULL as col_2, NULL as col_3, NULL as col_4, ctid_0@0 as ctid_0]
+                             :   SortExec: TopK(fetch=26), expr=[id@1 DESC], preserve_partitioning=[false]
+                             :     FilterExec: mark@3 OR company_id@1 IS NULL, projection=[ctid_0@0, id@2]
+                             :       HashJoinExec: mode=CollectLeft, join_type=LeftMark, on=[(company_id@1, id@1)]
+                             :         VisibilityFilterExec: tables=[p]
+                             :           CooperativeExec
+                             :             PgSearchScan: segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"heap_filter":{"indexed_query":"all","field_filters":[{"heap_filter":"(seniority_slug = ANY ('{manager,director}'::text[]))"}]}}]}}
+                             :         VisibilityFilterExec: tables=[c]
+                             :           CooperativeExec
+                             :             PgSearchScan: segments=1, query="all"
+(28 rows)
 
 SELECT DISTINCT
     p.id AS id,
@@ -75,7 +84,6 @@ AND p.seniority_slug IN ('manager', 'director')
 AND (p.company_id IS NULL OR p.company_id IN (SELECT c.id FROM companies AS c))
 ORDER BY id DESC
 LIMIT 26;
-WARNING:  JoinScan not used: ORDER BY columns must have C collation (tables: c, p)
  id |    nameSort    | nameIsNull | followersSort | followersIsNull | senioritySort | seniorityIsNull 
 ----+----------------+------------+---------------+-----------------+---------------+-----------------
   3 | Carol Manager  | f          |           800 | f               | manager       | f

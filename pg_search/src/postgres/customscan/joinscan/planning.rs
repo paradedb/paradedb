@@ -1544,7 +1544,7 @@ pub(super) unsafe fn order_by_columns_are_fast_fields(
 pub(super) unsafe fn order_by_columns_have_unsafe_collation(
     root: *mut pg_sys::PlannerInfo,
 ) -> bool {
-    let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).query_pathkeys);
+    let pathkeys = PgList::<pg_sys::PathKey>::from_pg((*root).sort_pathkeys);
     if pathkeys.is_empty() {
         return false;
     }

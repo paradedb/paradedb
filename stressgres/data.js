@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780331199384,
+  "lastUpdate": 1780331236189,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8426,6 +8426,138 @@ window.BENCHMARK_DATA = {
             "value": 57.7734375,
             "unit": "median mem",
             "extra": "avg mem: 56.734590209052115, max mem: 70.09765625, count: 55070"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cb32e29f9faab09562525f00a062e5642e1b7b8b",
+          "message": "chore: upgrade Rust toolchain to 1.96 (#5224)\n\n## What\n\nUpgrades the Rust toolchain from 1.95 to 1.96 everywhere it was pinned:\n\n- `rust-toolchain.toml` — `channel = \"1.96.0\"`\n- `docker/Dockerfile.proptests` — `FROM rust:1.96-slim`\n- `docker/Dockerfile.stressgres` — `FROM rust:1.96-slim-trixie`\n\n## Why\n\nKeep the toolchain current.\n\n## Notes\n\nThe GitHub workflows use `actions-rust-lang/setup-rust-toolchain@v1`,\nwhich reads the version from `rust-toolchain.toml`, so they pick up 1.96\nautomatically — no workflow changes needed.",
+          "timestamp": "2026-06-01T12:03:33-04:00",
+          "tree_id": "cf2f0c1edefcd00590cab43aa43fb1c44b6947b3",
+          "url": "https://github.com/paradedb/paradedb/commit/cb32e29f9faab09562525f00a062e5642e1b7b8b"
+        },
+        "date": 1780331202440,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.266409,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.441909445618112, max cpu: 24.072216, count: 55213"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 66.65234375,
+            "unit": "median mem",
+            "extra": "avg mem: 66.45202407890805, max mem: 77.9296875, count: 55213"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.528600727272077, max cpu: 18.60465, count: 55213"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 65.26953125,
+            "unit": "median mem",
+            "extra": "avg mem: 65.00719776422672, max mem: 76.41015625, count: 55213"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.679273028357289, max cpu: 9.338522, count: 55213"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.82421875,
+            "unit": "median mem",
+            "extra": "avg mem: 35.77562462644667, max mem: 37.453125, count: 55213"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.891332476998753, max cpu: 9.338522, count: 55213"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 63.6875,
+            "unit": "median mem",
+            "extra": "avg mem: 63.17352316257041, max mem: 75.12890625, count: 55213"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.689279621897361, max cpu: 9.476802, count: 110426"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 56.53125,
+            "unit": "median mem",
+            "extra": "avg mem: 57.34556382073742, max mem: 73.3125, count: 110426"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1798,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1795.122199482006, max block_count: 3186.0, count: 55213"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 11,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.497889989676345, max segment_count: 23.0, count: 55213"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.695796025860068, max cpu: 18.786694, count: 55213"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 65.0390625,
+            "unit": "median mem",
+            "extra": "avg mem: 64.81210295808958, max mem: 76.2109375, count: 55213"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.639647313173116, max cpu: 4.7477746, count: 55213"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 54.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 54.505413551835616, max mem: 65.68359375, count: 55213"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.308821400890813, max cpu: 4.7666335, count: 55213"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 57.15234375,
+            "unit": "median mem",
+            "extra": "avg mem: 57.198583497093075, max mem: 70.53515625, count: 55213"
           }
         ]
       }

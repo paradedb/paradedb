@@ -619,9 +619,8 @@ fn set_missing_on_terms(
                         // This matches standard SQL behavior where NULLs are typically excluded
                         // from aggregations unless explicitly handled.
                         //
-                        // TODO: When Tantivy adds Key::Date support to its aggregation Key enum,
-                        // we should use that here to properly handle NULL datetime values in
-                        // GROUP BY, similar to how other types use sentinels.
+                        // As of v0.23.6(?), this is a legacy-only codepath because we store datetime
+                        // values in I64
                         continue;
                     }
                     Some(SearchFieldType::U64(_)) => {

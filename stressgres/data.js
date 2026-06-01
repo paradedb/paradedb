@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780292336424,
+  "lastUpdate": 1780292370181,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8222,6 +8222,138 @@ window.BENCHMARK_DATA = {
             "value": 57.7265625,
             "unit": "median mem",
             "extra": "avg mem: 57.30273384237797, max mem: 70.73046875, count: 55005"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cedd532b4af1ad227529040aacc7b949bd50487b",
+          "message": "chore: upgrade pgrx to 0.18.1 (#5221)\n\n## What\n\nBumps `pgrx` and `pgrx-tests` from `=0.18.0` to `=0.18.1`, and updates\n`Cargo.lock` accordingly.\n\n## Why\n\npgrx 0.18.1 fixes aarch64 RHEL packaging. See #4886.\n\n## How\n\n- Updated workspace `Cargo.toml` (`pgrx` / `pgrx-tests` → `=0.18.1`)\n- Ran `cargo update --precise 0.18.1` to refresh the lockfile (pulls in\npgrx sub-crates plus a few transitive bumps)\n- CI extracts the cargo-pgrx version dynamically from `Cargo.toml`, so\nno workflow changes are needed\n- Verified with `cargo check --features pg17 -p pg_search` (clean, no\nsource changes required)\n\nCloses #4886\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-01T01:16:33-04:00",
+          "tree_id": "117c32d7a4fd8cbcbfc90d8bb77cdbd6ff1ee56c",
+          "url": "https://github.com/paradedb/paradedb/commit/cedd532b4af1ad227529040aacc7b949bd50487b"
+        },
+        "date": 1780292338294,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.33470102964072, max cpu: 24.096386, count: 55070"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 66.98046875,
+            "unit": "median mem",
+            "extra": "avg mem: 66.65971859678591, max mem: 77.85546875, count: 55070"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.81933362010543, max cpu: 18.879055, count: 55070"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 65.75390625,
+            "unit": "median mem",
+            "extra": "avg mem: 65.42822054600963, max mem: 76.6015625, count: 55070"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.58635213813347, max cpu: 4.7524753, count: 55070"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 34.8046875,
+            "unit": "median mem",
+            "extra": "avg mem: 34.82734488491919, max mem: 36.05078125, count: 55070"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.582714751356523, max cpu: 9.266409, count: 55070"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 64.12890625,
+            "unit": "median mem",
+            "extra": "avg mem: 63.43417277158616, max mem: 75.23828125, count: 55070"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.638712150775534, max cpu: 9.347614, count: 110140"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 63.32421875,
+            "unit": "median mem",
+            "extra": "avg mem: 62.55683561830398, max mem: 74.6640625, count: 110140"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1844,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1815.0019429816598, max block_count: 3173.0, count: 55070"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 14,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 15.421826765934265, max segment_count: 30.0, count: 55070"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.841500059981719, max cpu: 18.879055, count: 55070"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 65.828125,
+            "unit": "median mem",
+            "extra": "avg mem: 65.49005590895678, max mem: 76.69921875, count: 55070"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.549398695575917, max cpu: 9.275363, count: 55070"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 55.39453125,
+            "unit": "median mem",
+            "extra": "avg mem: 55.09393740353187, max mem: 65.91015625, count: 55070"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 1.2412750183400094, max cpu: 4.64666, count: 55070"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 57.7734375,
+            "unit": "median mem",
+            "extra": "avg mem: 56.734590209052115, max mem: 70.09765625, count: 55070"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780418316570,
+  "lastUpdate": 1780418349892,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12822,6 +12822,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 82.0123928211893, max segment_count: 135.0, count: 57614"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "71215065+junnjiee@users.noreply.github.com",
+            "name": "Jun Jie",
+            "username": "junnjiee"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d3dafbcc83ed925bc34e6121353496b6f6312ff0",
+          "message": "test: add `order by ... limit ...offset` coverage to `group by` (#5231)\n\n# Ticket(s) Closed\n\n- Closes #3156\n\n## What\n\nAdds test coverage for `GROUP BY...ORDER BY...LIMIT/OFFSET` in the\n`GROUP BY` prop tests.\n\n## Why\n\nCurrently missing test coverage for #3134 \n\n## How\n\nin `qgen.rs` -> `generated_group_by_aggregates()` test\n- added limit and offset ranges in the proptest params for random\ngeneration\n- removed manual result sorting in `compare_results`, as we now use\n`ORDER BY` for sorting\n- added building of `ORDER BY ... OFFSET` clause (details below)\n\nhow `ORDER BY ... OFFSET` clause is built within the proptest\n(`order_by_and_offset_clause`):\n\nA limitation to follow when testing `ORDER BY` here is that we can only\nuse fields in `group_by_expr.group_by_columns`, instead of generating\narbitrary `ORDER BY` queries\n\n`ORDER BY` uses all fields in `group_by_columns` to ensure no ties after\nsorting, since each group is unique\n\nIf `group_by_columns` is empty, we return a empty clause, since an\naggregate operation without `GROUP BY` returns only 1 row\n\n`OFFSET` is only added when `group_by_columns` is non-empty, since\noffsetting any >0 value over 1 row returns 0 rows (not sure if asserting\nempty outputs is relevant for this test)\n\n## Question\n\nDo we want to include coverage for ordering by aggregate? for example,\nthis would look like\n```\naggregate = [count, sum]\ngroup_by_columns = [name, age]\n\nquery = \"... ORDER BY COUNT, SUM, NAME, AGE ...\"\n```\n\ninstead of right now which looks like\n```\nquery = \"... ORDER BY NAME, AGE ...\"\n```",
+          "timestamp": "2026-06-02T12:06:05-04:00",
+          "tree_id": "5ac1eb3615d5a2cfe2759058eeb1522f424e4328",
+          "url": "https://github.com/paradedb/paradedb/commit/d3dafbcc83ed925bc34e6121353496b6f6312ff0"
+        },
+        "date": 1780418318579,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.637572616770022, max cpu: 42.772278, count: 57897"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 235.70054788838368, max mem: 237.36328125, count: 57897"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.398677665328957, max cpu: 33.168808, count: 57897"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 178.4765625,
+            "unit": "median mem",
+            "extra": "avg mem: 178.07760292523793, max mem: 178.7734375, count: 57897"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34477,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33740.74237007099, max block_count: 36627.0, count: 57897"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.73627303659948, max segment_count: 128.0, count: 57897"
           }
         ]
       }

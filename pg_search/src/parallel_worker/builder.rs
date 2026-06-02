@@ -293,19 +293,6 @@ impl ParallelProcessFinish {
 pub struct ParallelProcessMessageQueue {
     finisher: Option<ParallelProcessFinish>,
     batch: Vec<(usize, Vec<u8>)>,
-    // optional callback function that will execute when there are no messages available in the queue, before yielding to the OS
-    still_processing_callback: Option<Box<dyn Fn()>>,
-}
-
-impl ParallelProcessMessageQueue {
-    // constructor method for callers who want to iterate over this queue while having a closure called when workers are still processing
-    pub fn new(process: ParallelProcessFinish, still_processing_callback: Box<dyn Fn()>) -> Self {
-        Self {
-            finisher: Some(process),
-            batch: Vec::new(),
-            still_processing_callback: Some(still_processing_callback),
-        }
-    }
 }
 
 impl IntoIterator for ParallelProcessFinish {
@@ -316,7 +303,6 @@ impl IntoIterator for ParallelProcessFinish {
         ParallelProcessMessageQueue {
             finisher: Some(self),
             batch: Vec::new(),
-            still_processing_callback: None,
         }
     }
 }
@@ -337,11 +323,6 @@ impl Iterator for ParallelProcessMessageQueue {
                     self.batch = self.finisher.take().unwrap().wait_for_finish();
                 }
                 Some(batch) if batch.is_empty() => {
-                    // Calling the (optional) callback specified
-                    if let Some(cb) = &self.still_processing_callback {
-                        cb();
-                    }
-
                     // Workers are still processing; yield to avoid CPU spinning.
                     std::thread::yield_now();
                 }

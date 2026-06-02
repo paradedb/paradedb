@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780419071970,
+  "lastUpdate": 1780419718386,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21588,6 +21588,60 @@ window.BENCHMARK_DATA = {
             "value": 15.71886082960162,
             "unit": "median tps",
             "extra": "avg tps: 15.681612474301325, max tps: 20.298747218158187, count: 55505"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "71215065+junnjiee@users.noreply.github.com",
+            "name": "Jun Jie",
+            "username": "junnjiee"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d3dafbcc83ed925bc34e6121353496b6f6312ff0",
+          "message": "test: add `order by ... limit ...offset` coverage to `group by` (#5231)\n\n# Ticket(s) Closed\n\n- Closes #3156\n\n## What\n\nAdds test coverage for `GROUP BY...ORDER BY...LIMIT/OFFSET` in the\n`GROUP BY` prop tests.\n\n## Why\n\nCurrently missing test coverage for #3134 \n\n## How\n\nin `qgen.rs` -> `generated_group_by_aggregates()` test\n- added limit and offset ranges in the proptest params for random\ngeneration\n- removed manual result sorting in `compare_results`, as we now use\n`ORDER BY` for sorting\n- added building of `ORDER BY ... OFFSET` clause (details below)\n\nhow `ORDER BY ... OFFSET` clause is built within the proptest\n(`order_by_and_offset_clause`):\n\nA limitation to follow when testing `ORDER BY` here is that we can only\nuse fields in `group_by_expr.group_by_columns`, instead of generating\narbitrary `ORDER BY` queries\n\n`ORDER BY` uses all fields in `group_by_columns` to ensure no ties after\nsorting, since each group is unique\n\nIf `group_by_columns` is empty, we return a empty clause, since an\naggregate operation without `GROUP BY` returns only 1 row\n\n`OFFSET` is only added when `group_by_columns` is non-empty, since\noffsetting any >0 value over 1 row returns 0 rows (not sure if asserting\nempty outputs is relevant for this test)\n\n## Question\n\nDo we want to include coverage for ordering by aggregate? for example,\nthis would look like\n```\naggregate = [count, sum]\ngroup_by_columns = [name, age]\n\nquery = \"... ORDER BY COUNT, SUM, NAME, AGE ...\"\n```\n\ninstead of right now which looks like\n```\nquery = \"... ORDER BY NAME, AGE ...\"\n```",
+          "timestamp": "2026-06-02T12:06:05-04:00",
+          "tree_id": "5ac1eb3615d5a2cfe2759058eeb1522f424e4328",
+          "url": "https://github.com/paradedb/paradedb/commit/d3dafbcc83ed925bc34e6121353496b6f6312ff0"
+        },
+        "date": 1780419687020,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 29.12909622222433,
+            "unit": "median tps",
+            "extra": "avg tps: 29.10957368116303, max tps: 32.12230824005305, count: 55574"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 134.16645190320963,
+            "unit": "median tps",
+            "extra": "avg tps: 177.58566370241604, max tps: 3034.9785463645826, count: 55574"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 553.2246995920079,
+            "unit": "median tps",
+            "extra": "avg tps: 550.2914672782614, max tps: 783.6920543631959, count: 55574"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 169.2777074798584,
+            "unit": "median tps",
+            "extra": "avg tps: 148.37323401689105, max tps: 968.2351520819057, count: 111148"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.592043859291197,
+            "unit": "median tps",
+            "extra": "avg tps: 15.642061393730172, max tps: 19.97696168879417, count: 55574"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780438549143,
+  "lastUpdate": 1780438582545,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19672,6 +19672,108 @@ window.BENCHMARK_DATA = {
             "value": 164.28515625,
             "unit": "median mem",
             "extra": "avg mem: 183.83547172697803, max mem: 222.765625, count: 56685"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0ba79ed3982cfe5a9a05ca3199acef4c3d0a0995",
+          "message": "fix: Support modern emoji in unicode_words tokenizer (#5232)\n\n# Ticket(s) Closed\n\nWhile looking for dependencies to remove, I found the `emoji` crate. It\nwas only used in the `unicode_words` crate in one place. After looking\nmore closely I realized that this is a good dependency to keep as the\nlist of emojis is updated frequently and using a crate allows us to stay\nup to date with new versions. The `emoji` crate has not been updated in\nmany years so I'm replacing it with `emojis` instead which has the most\nrecent unicode and is actively maintained.\n\nBefore this change modern emojis would be removed from the tokenized\noutput (whether or not `remove_emojis` was set) because the crate did\nnot recognize them.\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-02T17:31:31-04:00",
+          "tree_id": "e8b720605ecf9e08815aacef7bf3ef870ad1224e",
+          "url": "https://github.com/paradedb/paradedb/commit/0ba79ed3982cfe5a9a05ca3199acef4c3d0a0995"
+        },
+        "date": 1780438551228,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07769463744877962, max background_merging: 2.0, count: 56130"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.766119309106206, max cpu: 9.638554, count: 56130"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.96875,
+            "unit": "median mem",
+            "extra": "avg mem: 25.955359071574915, max mem: 25.97265625, count: 56130"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.126614155322346, max cpu: 14.145383, count: 56130"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 170.44140625,
+            "unit": "median mem",
+            "extra": "avg mem: 169.33012837108052, max mem: 170.63671875, count: 56130"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51530,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51395.35932656333, max block_count: 51530.0, count: 56130"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.89134152859433, max segment_count: 56.0, count: 56130"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.645738163686382, max cpu: 9.476802, count: 56130"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 125.59375,
+            "unit": "median mem",
+            "extra": "avg mem: 115.66642427456351, max mem: 141.90234375, count: 56130"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.79629116833616, max cpu: 9.590409, count: 56130"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 170.15234375,
+            "unit": "median mem",
+            "extra": "avg mem: 166.40729911310797, max mem: 170.40625, count: 56130"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.414635,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.89387872217948, max cpu: 33.267326, count: 56130"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 163.15625,
+            "unit": "median mem",
+            "extra": "avg mem: 181.8968398555808, max mem: 221.50390625, count: 56130"
           }
         ]
       }

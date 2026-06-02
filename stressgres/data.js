@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780417609212,
+  "lastUpdate": 1780417646158,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8630,6 +8630,138 @@ window.BENCHMARK_DATA = {
             "value": 57.15234375,
             "unit": "median mem",
             "extra": "avg mem: 57.198583497093075, max mem: 70.53515625, count: 55213"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "71215065+junnjiee@users.noreply.github.com",
+            "name": "Jun Jie",
+            "username": "junnjiee"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d3dafbcc83ed925bc34e6121353496b6f6312ff0",
+          "message": "test: add `order by ... limit ...offset` coverage to `group by` (#5231)\n\n# Ticket(s) Closed\n\n- Closes #3156\n\n## What\n\nAdds test coverage for `GROUP BY...ORDER BY...LIMIT/OFFSET` in the\n`GROUP BY` prop tests.\n\n## Why\n\nCurrently missing test coverage for #3134 \n\n## How\n\nin `qgen.rs` -> `generated_group_by_aggregates()` test\n- added limit and offset ranges in the proptest params for random\ngeneration\n- removed manual result sorting in `compare_results`, as we now use\n`ORDER BY` for sorting\n- added building of `ORDER BY ... OFFSET` clause (details below)\n\nhow `ORDER BY ... OFFSET` clause is built within the proptest\n(`order_by_and_offset_clause`):\n\nA limitation to follow when testing `ORDER BY` here is that we can only\nuse fields in `group_by_expr.group_by_columns`, instead of generating\narbitrary `ORDER BY` queries\n\n`ORDER BY` uses all fields in `group_by_columns` to ensure no ties after\nsorting, since each group is unique\n\nIf `group_by_columns` is empty, we return a empty clause, since an\naggregate operation without `GROUP BY` returns only 1 row\n\n`OFFSET` is only added when `group_by_columns` is non-empty, since\noffsetting any >0 value over 1 row returns 0 rows (not sure if asserting\nempty outputs is relevant for this test)\n\n## Question\n\nDo we want to include coverage for ordering by aggregate? for example,\nthis would look like\n```\naggregate = [count, sum]\ngroup_by_columns = [name, age]\n\nquery = \"... ORDER BY COUNT, SUM, NAME, AGE ...\"\n```\n\ninstead of right now which looks like\n```\nquery = \"... ORDER BY NAME, AGE ...\"\n```",
+          "timestamp": "2026-06-02T12:06:05-04:00",
+          "tree_id": "5ac1eb3615d5a2cfe2759058eeb1522f424e4328",
+          "url": "https://github.com/paradedb/paradedb/commit/d3dafbcc83ed925bc34e6121353496b6f6312ff0"
+        },
+        "date": 1780417612015,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.239654,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.305557973072204, max cpu: 23.210833, count: 55184"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 66.37890625,
+            "unit": "median mem",
+            "extra": "avg mem: 66.21826837262613, max mem: 77.5234375, count: 55184"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.519595708270652, max cpu: 14.243324, count: 55184"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 64.8515625,
+            "unit": "median mem",
+            "extra": "avg mem: 64.70236553790501, max mem: 76.09765625, count: 55184"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.614734057726754, max cpu: 4.743083, count: 55184"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 36.71875,
+            "unit": "median mem",
+            "extra": "avg mem: 36.414908179340934, max mem: 38.73046875, count: 55184"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.608008290240604, max cpu: 4.733728, count: 55184"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 63.56640625,
+            "unit": "median mem",
+            "extra": "avg mem: 63.072010229414325, max mem: 74.8828125, count: 55184"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.63333399332643, max cpu: 9.347614, count: 110368"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 60.08203125,
+            "unit": "median mem",
+            "extra": "avg mem: 58.915099867602024, max mem: 73.09375, count: 110368"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1772,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1770.1258154537547, max block_count: 3139.0, count: 55184"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.97647868947521, max segment_count: 25.0, count: 55184"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.6442373537313415, max cpu: 18.934912, count: 55184"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 64.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 64.67383768109869, max mem: 76.06640625, count: 55184"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.5833847405491195, max cpu: 4.7244096, count: 55184"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 54.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 54.27884349120669, max mem: 65.3203125, count: 55184"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.7058825,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.240299406747692, max cpu: 4.7477746, count: 55184"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 57.58984375,
+            "unit": "median mem",
+            "extra": "avg mem: 56.896566699020546, max mem: 70.2890625, count: 55184"
           }
         ]
       }

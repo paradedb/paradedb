@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780437119063,
+  "lastUpdate": 1780437154689,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -8834,6 +8834,138 @@ window.BENCHMARK_DATA = {
             "value": 57.58984375,
             "unit": "median mem",
             "extra": "avg mem: 56.896566699020546, max mem: 70.2890625, count: 55184"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0ba79ed3982cfe5a9a05ca3199acef4c3d0a0995",
+          "message": "fix: Support modern emoji in unicode_words tokenizer (#5232)\n\n# Ticket(s) Closed\n\nWhile looking for dependencies to remove, I found the `emoji` crate. It\nwas only used in the `unicode_words` crate in one place. After looking\nmore closely I realized that this is a good dependency to keep as the\nlist of emojis is updated frequently and using a crate allows us to stay\nup to date with new versions. The `emoji` crate has not been updated in\nmany years so I'm replacing it with `emojis` instead which has the most\nrecent unicode and is actively maintained.\n\nBefore this change modern emojis would be removed from the tokenized\noutput (whether or not `remove_emojis` was set) because the crate did\nnot recognize them.\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-02T17:31:31-04:00",
+          "tree_id": "e8b720605ecf9e08815aacef7bf3ef870ad1224e",
+          "url": "https://github.com/paradedb/paradedb/commit/0ba79ed3982cfe5a9a05ca3199acef4c3d0a0995"
+        },
+        "date": 1780437120887,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.221902,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.209053120503155, max cpu: 24.0, count: 55071"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 65.62890625,
+            "unit": "median mem",
+            "extra": "avg mem: 65.6294774586443, max mem: 77.0703125, count: 55071"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.453163310259678, max cpu: 18.82353, count: 55071"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 64.1484375,
+            "unit": "median mem",
+            "extra": "avg mem: 64.15131155973653, max mem: 75.56640625, count: 55071"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.582776062325898, max cpu: 4.7999997, count: 55071"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.3828125,
+            "unit": "median mem",
+            "extra": "avg mem: 35.1268960608805, max mem: 36.12109375, count: 55071"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.499954236308251, max cpu: 9.221902, count: 55071"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 62.79296875,
+            "unit": "median mem",
+            "extra": "avg mem: 62.38658369706833, max mem: 74.3046875, count: 55071"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.677107009735369, max cpu: 9.393347, count: 110142"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 50.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 52.86785297615805, max mem: 70.96875, count: 110142"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1775,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1778.4971763723195, max block_count: 3163.0, count: 55071"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 11.070908463619691, max segment_count: 30.0, count: 55071"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.537494654767659, max cpu: 18.532818, count: 55071"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 64.140625,
+            "unit": "median mem",
+            "extra": "avg mem: 64.08769879167347, max mem: 75.4921875, count: 55071"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.606235820751491, max cpu: 4.733728, count: 55071"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 53.8984375,
+            "unit": "median mem",
+            "extra": "avg mem: 53.87066092805197, max mem: 64.94140625, count: 55071"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.333219679835681, max cpu: 4.7105007, count: 55071"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 57.3203125,
+            "unit": "median mem",
+            "extra": "avg mem: 56.96293520523506, max mem: 69.80078125, count: 55071"
           }
         ]
       }

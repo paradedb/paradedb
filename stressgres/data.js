@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780334038438,
+  "lastUpdate": 1780417609212,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3018,6 +3018,78 @@ window.BENCHMARK_DATA = {
             "value": 75.07096989458232,
             "unit": "median tps",
             "extra": "avg tps: 90.7872570291562, max tps: 437.5464321290504, count: 55213"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "71215065+junnjiee@users.noreply.github.com",
+            "name": "Jun Jie",
+            "username": "junnjiee"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d3dafbcc83ed925bc34e6121353496b6f6312ff0",
+          "message": "test: add `order by ... limit ...offset` coverage to `group by` (#5231)\n\n# Ticket(s) Closed\n\n- Closes #3156\n\n## What\n\nAdds test coverage for `GROUP BY...ORDER BY...LIMIT/OFFSET` in the\n`GROUP BY` prop tests.\n\n## Why\n\nCurrently missing test coverage for #3134 \n\n## How\n\nin `qgen.rs` -> `generated_group_by_aggregates()` test\n- added limit and offset ranges in the proptest params for random\ngeneration\n- removed manual result sorting in `compare_results`, as we now use\n`ORDER BY` for sorting\n- added building of `ORDER BY ... OFFSET` clause (details below)\n\nhow `ORDER BY ... OFFSET` clause is built within the proptest\n(`order_by_and_offset_clause`):\n\nA limitation to follow when testing `ORDER BY` here is that we can only\nuse fields in `group_by_expr.group_by_columns`, instead of generating\narbitrary `ORDER BY` queries\n\n`ORDER BY` uses all fields in `group_by_columns` to ensure no ties after\nsorting, since each group is unique\n\nIf `group_by_columns` is empty, we return a empty clause, since an\naggregate operation without `GROUP BY` returns only 1 row\n\n`OFFSET` is only added when `group_by_columns` is non-empty, since\noffsetting any >0 value over 1 row returns 0 rows (not sure if asserting\nempty outputs is relevant for this test)\n\n## Question\n\nDo we want to include coverage for ordering by aggregate? for example,\nthis would look like\n```\naggregate = [count, sum]\ngroup_by_columns = [name, age]\n\nquery = \"... ORDER BY COUNT, SUM, NAME, AGE ...\"\n```\n\ninstead of right now which looks like\n```\nquery = \"... ORDER BY NAME, AGE ...\"\n```",
+          "timestamp": "2026-06-02T12:06:05-04:00",
+          "tree_id": "5ac1eb3615d5a2cfe2759058eeb1522f424e4328",
+          "url": "https://github.com/paradedb/paradedb/commit/d3dafbcc83ed925bc34e6121353496b6f6312ff0"
+        },
+        "date": 1780417577840,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 128.97710141718085,
+            "unit": "median tps",
+            "extra": "avg tps: 129.4316697336753, max tps: 138.56605746825323, count: 55184"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 508.75162969427936,
+            "unit": "median tps",
+            "extra": "avg tps: 508.5282417921478, max tps: 619.4643608806545, count: 55184"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3455.786154175861,
+            "unit": "median tps",
+            "extra": "avg tps: 3424.3999149431565, max tps: 3468.3851840490825, count: 55184"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 446.41404898833537,
+            "unit": "median tps",
+            "extra": "avg tps: 447.74291373219074, max tps: 499.0765835512842, count: 55184"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2905.5012396247544,
+            "unit": "median tps",
+            "extra": "avg tps: 2916.313354490165, max tps: 3010.7238546942663, count: 110368"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 480.76008729280295,
+            "unit": "median tps",
+            "extra": "avg tps: 481.9989076210343, max tps: 588.8361897857013, count: 55184"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1864.099133106238,
+            "unit": "median tps",
+            "extra": "avg tps: 1861.5810630352294, max tps: 1872.8471044670962, count: 55184"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 33.193903705456826,
+            "unit": "median tps",
+            "extra": "avg tps: 43.04401417941942, max tps: 755.4741658054262, count: 55184"
           }
         ]
       }

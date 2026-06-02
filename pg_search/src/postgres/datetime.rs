@@ -15,7 +15,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use std::cmp::Ordering;
 use std::fmt::Display;
+use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 
 use pgrx::datum::datetime_support::DateTimeConversionError;
@@ -77,9 +79,33 @@ const ONE_DAY_MICROS: i64 = 24 * HOUR_MICROS;
 
 /// A wrapper type for working with postgres time values. Holds a postgres timestamp, which is
 /// really just a wrapper around an i64 representing microseconds from the PG epoch.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(into = "String", try_from = "String")]
 pub struct PostgresDateTime(pgrx::datum::Timestamp);
+
+// Compare/hash/order via the inner i64 directly rather than `#[derive]`-ing. Deriving would route
+// through `<pgrx::datum::Timestamp as PartialEq/Hash/PartialOrd>`, which pgrx implements (via
+// `impl_wrappers!`) by calling PG backend functions through `pg_guard_ffi_boundary`. That wrapper
+// references PG globals (`CurrentMemoryContext`, `PG_exception_stack`, `error_context_stack`) and
+// `timestamp_eq/cmp/hash` — none of which are resolvable at test-binary link time, breaking CI
+// against a system Postgres install.
+impl PartialEq for PostgresDateTime {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.into_inner() == other.0.into_inner()
+    }
+}
+impl Eq for PostgresDateTime {}
+impl Hash for PostgresDateTime {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.into_inner().hash(state);
+    }
+}
+impl PartialOrd for PostgresDateTime {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.0.into_inner().partial_cmp(&other.0.into_inner())
+    }
+}
+
 impl PostgresDateTime {
     pub fn into_inner(self) -> i64 {
         self.0.into_inner()

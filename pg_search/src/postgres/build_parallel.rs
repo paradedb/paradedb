@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::version::Version;
 use crate::gucs;
 use crate::index::mvcc::MvccSatisfies;
 use crate::index::writer::index::{
@@ -299,6 +300,7 @@ struct WorkerBuildState {
     next_xid: pg_sys::FullTransactionId,
     indexrel: PgSearchRelation,
     heaprel: PgSearchRelation,
+    index_created_by_version: Option<Version>,
     // the following statistics are used to determine when and what to merge:
     //
     // 1. how many segments does this worker expect to make, assuming no merges?
@@ -349,6 +351,7 @@ impl WorkerBuildState {
         let writer = SerialIndexWriter::open(indexrel, config, worker_number)?;
         let schema = writer.schema();
         let categorized_fields = schema.categorized_fields().clone();
+        let created_by_version = indexrel.created_by_version();
         Ok(Self {
             writer: Some(writer),
             categorized_fields,
@@ -362,6 +365,7 @@ impl WorkerBuildState {
             estimated_nsegments: OnceLock::new(),
             nmerges: Default::default(),
             unmerged_metas: Default::default(),
+            index_created_by_version: created_by_version,
             cnt: 0,
         })
     }
@@ -520,6 +524,7 @@ unsafe extern "C-unwind" fn build_callback(
                     (datum, is_null, field, categorized)
                 }),
             &mut doc,
+            build_state.index_created_by_version,
         )
         .unwrap_or_else(|e| panic!("{e}"));
 

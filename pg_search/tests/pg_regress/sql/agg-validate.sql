@@ -44,8 +44,7 @@ USING bm25 (id, description, rating, created_at)
 WITH (
     key_field = 'id',
     text_fields = '{"description": {}}',
-    numeric_fields = '{"rating": {"fast": true}}',
-    datetime_fields = '{"created_at": {"fast": true}}'
+    numeric_fields = '{"rating": {"fast": true}}'
 );
 
 -- =====================================================================

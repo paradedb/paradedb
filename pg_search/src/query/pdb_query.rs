@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::api::version::Version;
 use crate::api::FieldName;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::query::numeric::{
@@ -443,6 +444,7 @@ impl pdb::Query {
         self,
         field: FieldName,
         schema: &SearchIndexSchema,
+        index_created_by_version: Option<Version>,
         parser: &QueryParserCtor,
         searcher: &Searcher,
     ) -> anyhow::Result<Box<dyn TantivyQuery>> {
@@ -468,6 +470,7 @@ impl pdb::Query {
             pdb::Query::ScoreAdjusted { query, score } => score_adjust_query(
                 field,
                 schema,
+                index_created_by_version,
                 parser,
                 searcher,
                 *query,
@@ -485,6 +488,7 @@ impl pdb::Query {
             } => fuzzy_term(
                 &field,
                 schema,
+                index_created_by_version,
                 value,
                 distance,
                 transposition_cost_one,
@@ -500,6 +504,7 @@ impl pdb::Query {
             } => match_query(
                 &field,
                 schema,
+                index_created_by_version,
                 searcher,
                 &value,
                 tokenizer,
@@ -517,6 +522,7 @@ impl pdb::Query {
             } => match_array_query(
                 &field,
                 schema,
+                index_created_by_version,
                 value,
                 distance,
                 transposition_cost_one,
@@ -537,54 +543,101 @@ impl pdb::Query {
                 &field,
                 parser,
                 schema,
+                index_created_by_version,
                 query_string,
                 lenient,
                 conjunction_mode,
                 fuzzy_data,
             )?,
 
-            pdb::Query::Phrase { phrases, slop } => {
-                phrase(&field, schema, searcher, phrases, slop)?
+            pdb::Query::Phrase { phrases, slop } => phrase(
+                &field,
+                schema,
+                index_created_by_version,
+                searcher,
+                phrases,
+                slop,
+            )?,
+            pdb::Query::PhraseArray { tokens, slop } => {
+                phrase_array(&field, schema, index_created_by_version, tokens, slop)?
             }
-            pdb::Query::PhraseArray { tokens, slop } => phrase_array(&field, schema, tokens, slop)?,
 
             pdb::Query::PhrasePrefix {
                 phrases,
                 max_expansions,
-            } => phrase_prefix(&field, schema, phrases, max_expansions)?,
+            } => phrase_prefix(
+                &field,
+                schema,
+                index_created_by_version,
+                phrases,
+                max_expansions,
+            )?,
             pdb::Query::Proximity {
                 left,
                 distance,
                 right,
             } => proximity(&field, schema, left, distance, right)?,
-            pdb::Query::TokenizedPhrase { phrase, slop } => {
-                tokenized_phrase(&field, schema, searcher, &phrase, slop)?
-            }
+            pdb::Query::TokenizedPhrase { phrase, slop } => tokenized_phrase(
+                &field,
+                schema,
+                index_created_by_version,
+                searcher,
+                &phrase,
+                slop,
+            )?,
             pdb::Query::Range {
                 lower_bound,
                 upper_bound,
-            } => range(&field, schema, lower_bound, upper_bound)?,
+            } => range(
+                &field,
+                schema,
+                index_created_by_version,
+                lower_bound,
+                upper_bound,
+            )?,
             pdb::Query::RangeContains {
                 lower_bound,
                 upper_bound,
-            } => range_contains(&field, schema, lower_bound, upper_bound)?,
+            } => range_contains(
+                &field,
+                schema,
+                index_created_by_version,
+                lower_bound,
+                upper_bound,
+            )?,
             pdb::Query::RangeIntersects {
                 lower_bound,
                 upper_bound,
-            } => range_intersects(&field, schema, lower_bound, upper_bound)?,
-            pdb::Query::RangeTerm { value } => range_term(&field, schema, &value)?,
+            } => range_intersects(
+                &field,
+                schema,
+                index_created_by_version,
+                lower_bound,
+                upper_bound,
+            )?,
+            pdb::Query::RangeTerm { value } => {
+                range_term(&field, schema, index_created_by_version, &value)?
+            }
             pdb::Query::RangeWithin {
                 lower_bound,
                 upper_bound,
-            } => range_within(&field, schema, lower_bound, upper_bound)?,
+            } => range_within(
+                &field,
+                schema,
+                index_created_by_version,
+                lower_bound,
+                upper_bound,
+            )?,
             pdb::Query::Regex { pattern } => regex(&field, schema, &pattern)?,
             pdb::Query::RegexPhrase {
                 regexes,
                 slop,
                 max_expansions,
             } => regex_phrase(&field, schema, regexes, slop, max_expansions)?,
-            pdb::Query::Term { value } => term(field, schema, &value)?,
-            pdb::Query::TermSet { terms } => term_set(field, schema, terms)?,
+            pdb::Query::Term { value } => term(field, schema, index_created_by_version, &value)?,
+            pdb::Query::TermSet { terms } => {
+                term_set(field, schema, index_created_by_version, terms)?
+            }
         };
 
         Ok(query)
@@ -699,12 +752,14 @@ impl InOutFuncs for pdb::Query {
 fn score_adjust_query<QueryParserCtor: Fn() -> QueryParser>(
     field: FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     parser: &QueryParserCtor,
     searcher: &Searcher,
     query: pdb::Query,
     score: ScoreAdjustStyle,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
-    let query = query.into_tantivy_query(field, schema, parser, searcher)?;
+    let query =
+        query.into_tantivy_query(field, schema, index_created_by_version, parser, searcher)?;
     match score {
         ScoreAdjustStyle::Boost(boost) => Ok(Box::new(BoostQuery::new(query, boost))),
         ScoreAdjustStyle::Const(score) => Ok(Box::new(ConstScoreQuery::new(query, score))),
@@ -734,6 +789,7 @@ fn proximity(
 fn term_set(
     field: FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     terms: Vec<PdbOwnedValue>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
@@ -753,8 +809,14 @@ fn term_set(
 
     Ok(Box::new(TermSetQuery::new(
         converted_terms.into_iter().map(|term| {
-            value_to_term(tantivy_field, &term, field_type, field.path().as_deref())
-                .expect("could not convert argument to search term")
+            value_to_term(
+                tantivy_field,
+                &term,
+                field_type,
+                field.path().as_deref(),
+                index_created_by_version,
+            )
+            .expect("could not convert argument to search term")
         }),
     )))
 }
@@ -762,6 +824,7 @@ fn term_set(
 fn term(
     field: FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     value: &PdbOwnedValue,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let record_option = IndexRecordOption::WithFreqsAndPositions;
@@ -779,6 +842,7 @@ fn term(
         &value,
         field_type,
         field.path().as_deref(),
+        index_created_by_version,
     )?;
 
     Ok(Box::new(TermQuery::new(term, record_option.into())))
@@ -826,6 +890,7 @@ fn regex(
 fn range_within(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     lower_bound: Bound<PdbOwnedValue>,
     upper_bound: Bound<PdbOwnedValue>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
@@ -846,9 +911,11 @@ fn range_within(
                 Occur::Must,
                 Box::new(BooleanQuery::new(vec![(
                     Occur::Must,
-                    Box::new(
-                        range_field.compare_lower_bound(lower, Comparison::GreaterThanOrEqual)?,
-                    ),
+                    Box::new(range_field.compare_lower_bound(
+                        lower,
+                        Comparison::GreaterThanOrEqual,
+                        index_created_by_version,
+                    )?),
                 )])),
             ));
         }
@@ -860,9 +927,11 @@ fn range_within(
                     Box::new(BooleanQuery::new(vec![
                         (
                             Occur::Must,
-                            Box::new(
-                                range_field.compare_lower_bound(lower, Comparison::GreaterThan)?,
-                            ),
+                            Box::new(range_field.compare_lower_bound(
+                                lower,
+                                Comparison::GreaterThan,
+                                index_created_by_version,
+                            )?),
                         ),
                         (
                             Occur::Must,
@@ -875,10 +944,11 @@ fn range_within(
                     Box::new(BooleanQuery::new(vec![
                         (
                             Occur::Must,
-                            Box::new(
-                                range_field
-                                    .compare_lower_bound(lower, Comparison::GreaterThanOrEqual)?,
-                            ),
+                            Box::new(range_field.compare_lower_bound(
+                                lower,
+                                Comparison::GreaterThanOrEqual,
+                                index_created_by_version,
+                            )?),
                         ),
                         (
                             Occur::Must,
@@ -897,7 +967,11 @@ fn range_within(
                 Occur::Must,
                 Box::new(BooleanQuery::new(vec![(
                     Occur::Must,
-                    Box::new(range_field.compare_upper_bound(upper, Comparison::LessThanOrEqual)?),
+                    Box::new(range_field.compare_upper_bound(
+                        upper,
+                        Comparison::LessThanOrEqual,
+                        index_created_by_version,
+                    )?),
                 )])),
             ));
         }
@@ -909,7 +983,11 @@ fn range_within(
                     Box::new(BooleanQuery::new(vec![
                         (
                             Occur::Must,
-                            Box::new(range_field.compare_upper_bound(upper, Comparison::LessThan)?),
+                            Box::new(range_field.compare_upper_bound(
+                                upper,
+                                Comparison::LessThan,
+                                index_created_by_version,
+                            )?),
                         ),
                         (
                             Occur::Must,
@@ -922,10 +1000,11 @@ fn range_within(
                     Box::new(BooleanQuery::new(vec![
                         (
                             Occur::Must,
-                            Box::new(
-                                range_field
-                                    .compare_upper_bound(upper, Comparison::LessThanOrEqual)?,
-                            ),
+                            Box::new(range_field.compare_upper_bound(
+                                upper,
+                                Comparison::LessThanOrEqual,
+                                index_created_by_version,
+                            )?),
                         ),
                         (
                             Occur::Must,
@@ -978,6 +1057,7 @@ fn range_within(
 fn range_term(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     value: &PdbOwnedValue,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
     let search_field = schema
@@ -1010,10 +1090,11 @@ fn range_term(
                         ),
                         (
                             Occur::Must,
-                            Box::new(
-                                range_field
-                                    .compare_lower_bound(&value, Comparison::GreaterThanOrEqual)?,
-                            ),
+                            Box::new(range_field.compare_lower_bound(
+                                &value,
+                                Comparison::GreaterThanOrEqual,
+                                index_created_by_version,
+                            )?),
                         ),
                     ])),
                 ),
@@ -1026,9 +1107,11 @@ fn range_term(
                         ),
                         (
                             Occur::Must,
-                            Box::new(
-                                range_field.compare_lower_bound(&value, Comparison::GreaterThan)?,
-                            ),
+                            Box::new(range_field.compare_lower_bound(
+                                &value,
+                                Comparison::GreaterThan,
+                                index_created_by_version,
+                            )?),
                         ),
                     ])),
                 ),
@@ -1053,10 +1136,11 @@ fn range_term(
                         ),
                         (
                             Occur::Must,
-                            Box::new(
-                                range_field
-                                    .compare_upper_bound(&value, Comparison::LessThanOrEqual)?,
-                            ),
+                            Box::new(range_field.compare_upper_bound(
+                                &value,
+                                Comparison::LessThanOrEqual,
+                                index_created_by_version,
+                            )?),
                         ),
                     ])),
                 ),
@@ -1069,9 +1153,11 @@ fn range_term(
                         ),
                         (
                             Occur::Must,
-                            Box::new(
-                                range_field.compare_upper_bound(&value, Comparison::LessThan)?,
-                            ),
+                            Box::new(range_field.compare_upper_bound(
+                                &value,
+                                Comparison::LessThan,
+                                index_created_by_version,
+                            )?),
                         ),
                     ])),
                 ),
@@ -1088,6 +1174,7 @@ fn range_term(
 fn range_intersects(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     lower_bound: Bound<PdbOwnedValue>,
     upper_bound: Bound<PdbOwnedValue>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
@@ -1108,7 +1195,11 @@ fn range_intersects(
                 Occur::Must,
                 Box::new(BooleanQuery::new(vec![(
                     Occur::Must,
-                    Box::new(range_field.compare_upper_bound(lower, Comparison::LessThan)?),
+                    Box::new(range_field.compare_upper_bound(
+                        lower,
+                        Comparison::LessThan,
+                        index_created_by_version,
+                    )?),
                 )])),
             ));
         }
@@ -1120,10 +1211,11 @@ fn range_intersects(
                     Box::new(BooleanQuery::new(vec![
                         (
                             Occur::Must,
-                            Box::new(
-                                range_field
-                                    .compare_upper_bound(lower, Comparison::LessThanOrEqual)?,
-                            ),
+                            Box::new(range_field.compare_upper_bound(
+                                lower,
+                                Comparison::LessThanOrEqual,
+                                index_created_by_version,
+                            )?),
                         ),
                         (
                             Occur::Must,
@@ -1136,7 +1228,11 @@ fn range_intersects(
                     Box::new(BooleanQuery::new(vec![
                         (
                             Occur::Must,
-                            Box::new(range_field.compare_upper_bound(lower, Comparison::LessThan)?),
+                            Box::new(range_field.compare_upper_bound(
+                                lower,
+                                Comparison::LessThan,
+                                index_created_by_version,
+                            )?),
                         ),
                         (
                             Occur::Must,
@@ -1157,7 +1253,11 @@ fn range_intersects(
                 Occur::Must,
                 Box::new(BooleanQuery::new(vec![(
                     Occur::Must,
-                    Box::new(range_field.compare_lower_bound(upper, Comparison::GreaterThan)?),
+                    Box::new(range_field.compare_lower_bound(
+                        upper,
+                        Comparison::GreaterThan,
+                        index_created_by_version,
+                    )?),
                 )])),
             ));
         }
@@ -1169,10 +1269,11 @@ fn range_intersects(
                     Box::new(BooleanQuery::new(vec![
                         (
                             Occur::Must,
-                            Box::new(
-                                range_field
-                                    .compare_lower_bound(upper, Comparison::GreaterThanOrEqual)?,
-                            ),
+                            Box::new(range_field.compare_lower_bound(
+                                upper,
+                                Comparison::GreaterThanOrEqual,
+                                index_created_by_version,
+                            )?),
                         ),
                         (
                             Occur::Must,
@@ -1185,9 +1286,11 @@ fn range_intersects(
                     Box::new(BooleanQuery::new(vec![
                         (
                             Occur::Must,
-                            Box::new(
-                                range_field.compare_lower_bound(upper, Comparison::GreaterThan)?,
-                            ),
+                            Box::new(range_field.compare_lower_bound(
+                                upper,
+                                Comparison::GreaterThan,
+                                index_created_by_version,
+                            )?),
                         ),
                         (
                             Occur::Must,
@@ -1243,6 +1346,7 @@ fn range_intersects(
 fn range_contains(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     lower_bound: Bound<PdbOwnedValue>,
     upper_bound: Bound<PdbOwnedValue>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
@@ -1262,7 +1366,11 @@ fn range_contains(
                 Occur::Must,
                 Box::new(BooleanQuery::new(vec![(
                     Occur::Must,
-                    Box::new(range_field.compare_lower_bound(&lower, Comparison::LessThanOrEqual)?),
+                    Box::new(range_field.compare_lower_bound(
+                        &lower,
+                        Comparison::LessThanOrEqual,
+                        index_created_by_version,
+                    )?),
                 )])),
             ));
         }
@@ -1274,9 +1382,11 @@ fn range_contains(
                     Box::new(BooleanQuery::new(vec![
                         (
                             Occur::Must,
-                            Box::new(
-                                range_field.compare_lower_bound(&lower, Comparison::LessThan)?,
-                            ),
+                            Box::new(range_field.compare_lower_bound(
+                                &lower,
+                                Comparison::LessThan,
+                                index_created_by_version,
+                            )?),
                         ),
                         (
                             Occur::Must,
@@ -1289,10 +1399,11 @@ fn range_contains(
                     Box::new(BooleanQuery::new(vec![
                         (
                             Occur::Must,
-                            Box::new(
-                                range_field
-                                    .compare_lower_bound(&lower, Comparison::LessThanOrEqual)?,
-                            ),
+                            Box::new(range_field.compare_lower_bound(
+                                &lower,
+                                Comparison::LessThanOrEqual,
+                                index_created_by_version,
+                            )?),
                         ),
                         (
                             Occur::Must,
@@ -1311,9 +1422,11 @@ fn range_contains(
                 Occur::Must,
                 Box::new(BooleanQuery::new(vec![(
                     Occur::Must,
-                    Box::new(
-                        range_field.compare_upper_bound(&upper, Comparison::GreaterThanOrEqual)?,
-                    ),
+                    Box::new(range_field.compare_upper_bound(
+                        &upper,
+                        Comparison::GreaterThanOrEqual,
+                        index_created_by_version,
+                    )?),
                 )])),
             ));
         }
@@ -1325,9 +1438,11 @@ fn range_contains(
                     Box::new(BooleanQuery::new(vec![
                         (
                             Occur::Must,
-                            Box::new(
-                                range_field.compare_upper_bound(&upper, Comparison::GreaterThan)?,
-                            ),
+                            Box::new(range_field.compare_upper_bound(
+                                &upper,
+                                Comparison::GreaterThan,
+                                index_created_by_version,
+                            )?),
                         ),
                         (
                             Occur::Must,
@@ -1340,10 +1455,11 @@ fn range_contains(
                     Box::new(BooleanQuery::new(vec![
                         (
                             Occur::Must,
-                            Box::new(
-                                range_field
-                                    .compare_upper_bound(&upper, Comparison::GreaterThanOrEqual)?,
-                            ),
+                            Box::new(range_field.compare_upper_bound(
+                                &upper,
+                                Comparison::GreaterThanOrEqual,
+                                index_created_by_version,
+                            )?),
                         ),
                         (
                             Occur::Must,
@@ -1400,6 +1516,7 @@ fn range_contains(
 fn range(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     lower_bound: Bound<PdbOwnedValue>,
     upper_bound: Bound<PdbOwnedValue>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
@@ -1460,12 +1577,14 @@ fn range(
             &value,
             field_type,
             field.path().as_deref(),
+            index_created_by_version,
         )?),
         Bound::Excluded(value) => Bound::Excluded(value_to_term(
             search_field.field(),
             &value,
             field_type,
             field.path().as_deref(),
+            index_created_by_version,
         )?),
         Bound::Unbounded => Bound::Unbounded,
     };
@@ -1476,12 +1595,14 @@ fn range(
             &value,
             field_type,
             field.path().as_deref(),
+            index_created_by_version,
         )?),
         Bound::Excluded(value) => Bound::Excluded(value_to_term(
             search_field.field(),
             &value,
             field_type,
             field.path().as_deref(),
+            index_created_by_version,
         )?),
         Bound::Unbounded => Bound::Unbounded,
     };
@@ -1510,6 +1631,7 @@ fn resolve_search_tokenizer(
 fn tokenized_phrase(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     searcher: &Searcher,
     phrase: &str,
     slop: Option<u32>,
@@ -1527,7 +1649,13 @@ fn tokenized_phrase(
     let mut tokens = Vec::new();
     while let Some(token) = stream.next() {
         let value = PdbOwnedValue::Str(token.text.clone());
-        let term = value_to_term(search_field.field(), &value, field_type, path.as_deref())?;
+        let term = value_to_term(
+            search_field.field(),
+            &value,
+            field_type,
+            path.as_deref(),
+            index_created_by_version,
+        )?;
         tokens.push(term);
     }
     Ok(if tokens.is_empty() {
@@ -1547,6 +1675,7 @@ fn tokenized_phrase(
 fn phrase_prefix(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     phrases: Vec<String>,
     max_expansions: Option<u32>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
@@ -1562,6 +1691,7 @@ fn phrase_prefix(
             &PdbOwnedValue::Str(phrase),
             field_type,
             field.path().as_deref(),
+            index_created_by_version,
         )
         .unwrap()
     });
@@ -1575,6 +1705,7 @@ fn phrase_prefix(
 fn phrase(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     searcher: &Searcher,
     phrases: Vec<String>,
     slop: Option<u32>,
@@ -1600,6 +1731,7 @@ fn phrase(
                 &PdbOwnedValue::Str(token),
                 field_type,
                 field.path().as_deref(),
+                index_created_by_version,
             )?;
 
             terms.push(term);
@@ -1628,6 +1760,7 @@ fn phrase(
 fn phrase_array(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     mut tokens: Vec<String>,
     slop: Option<u32>,
 ) -> anyhow::Result<Box<dyn TantivyQuery>> {
@@ -1645,6 +1778,7 @@ fn phrase_array(
             &PdbOwnedValue::Str(tokens.pop().unwrap()),
             field_type,
             field.path().as_deref(),
+            index_created_by_version,
         )?;
         Ok(Box::new(TermQuery::new(
             term,
@@ -1657,6 +1791,7 @@ fn phrase_array(
                 &PdbOwnedValue::Str(token),
                 field_type,
                 field.path().as_deref(),
+                index_created_by_version,
             )?;
 
             terms.push(term);
@@ -1694,10 +1829,12 @@ fn parse<QueryParserCtor: Fn() -> QueryParser>(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
     field: &FieldName,
     parser: &QueryParserCtor,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     query_string: String,
     lenient: Option<bool>,
     conjunction_mode: Option<bool>,
@@ -1723,6 +1860,7 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
                 &converted,
                 tantivy_field_type,
                 field.path().as_deref(),
+                index_created_by_version,
             )?;
             return Ok(Box::new(TermQuery::new(
                 term,
@@ -1773,6 +1911,7 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
 fn match_query(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     searcher: &Searcher,
     value: &str,
     tokenizer: Option<Value>,
@@ -1806,6 +1945,7 @@ fn match_query(
             &PdbOwnedValue::Str(token),
             field_type,
             field.path().as_deref(),
+            index_created_by_version,
         )?);
     }
 
@@ -1840,6 +1980,7 @@ fn match_query(
 fn match_array_query(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     tokens: Vec<String>,
     distance: Option<u8>,
     transposition_cost_one: Option<bool>,
@@ -1863,6 +2004,7 @@ fn match_array_query(
             &PdbOwnedValue::Str(token),
             field_type,
             field.path().as_deref(),
+            index_created_by_version,
         )?;
         let term_query: Box<dyn TantivyQuery> = match (distance, prefix) {
             (0, _) => Box::new(TermQuery::new(
@@ -1894,6 +2036,7 @@ fn match_array_query(
 fn fuzzy_term(
     field: &FieldName,
     schema: &SearchIndexSchema,
+    index_created_by_version: Option<Version>,
     value: String,
     distance: Option<u8>,
     transposition_cost_one: Option<bool>,
@@ -1908,6 +2051,7 @@ fn fuzzy_term(
         &PdbOwnedValue::Str(value),
         field_type,
         field.path().as_deref(),
+        index_created_by_version,
     )?;
     let distance = distance.unwrap_or(2);
     let transposition_cost_one = transposition_cost_one.unwrap_or(true);

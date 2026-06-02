@@ -105,6 +105,7 @@ fn build_query(query_json: serde_json::Value, indexrelid: u32) -> anyhow::Result
     let context = ExprContextGuard::new();
 
     let index = PgSearchRelation::with_lock(indexrelid, pg_sys::AccessShareLock as _);
+    let index_created_by_version = index.created_by_version();
     let schema = index.schema()?;
     let reader = SearchIndexReader::open_with_context(
         &index,
@@ -118,6 +119,7 @@ fn build_query(query_json: serde_json::Value, indexrelid: u32) -> anyhow::Result
 
     let tantivy_query = query.into_tantivy_query(
         &schema,
+        index_created_by_version,
         &|| {
             QueryParser::for_index(
                 reader.searcher().index(),

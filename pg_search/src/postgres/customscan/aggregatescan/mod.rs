@@ -24,6 +24,7 @@ pub mod exec;
 pub mod filterquery;
 pub mod groupby;
 pub mod join_targetlist;
+pub mod json_rewrite;
 pub mod limit_offset;
 pub mod mpp;
 pub mod orderby;
@@ -108,6 +109,20 @@ use std::ffi::CStr;
 
 #[derive(Default)]
 pub struct AggregateScan;
+
+/// A collection of index information that is necessary for making result-rewriting decisions
+pub struct AggIndexInfo {
+    pub created_by_version: Option<crate::api::version::Version>,
+    pub schema: crate::schema::SearchIndexSchema,
+}
+impl From<&crate::postgres::rel::PgSearchRelation> for AggIndexInfo {
+    fn from(value: &crate::postgres::rel::PgSearchRelation) -> Self {
+        Self {
+            created_by_version: value.created_by_version(),
+            schema: value.schema().expect("schema should be initialized by now"),
+        }
+    }
+}
 
 /// Why the DataFusion aggregate path declined to produce a custom path.
 ///
@@ -1320,7 +1335,13 @@ impl AggregateScan {
                 .expect("scan_slot should be initialized in begin_custom_scan");
             pg_sys::ExecClearTuple(slot);
 
-            fill_slot_from_row(slot, &tupdesc, &row, &state.custom_state().aggregate_clause);
+            fill_slot_from_row(
+                slot,
+                &tupdesc,
+                &row,
+                &state.custom_state().aggregate_clause,
+                &AggIndexInfo::from(state.custom_state().indexrel()),
+            );
 
             Self::project_wrapped_aggregates(state, slot, &row)
         }
@@ -1430,6 +1451,7 @@ impl AggregateScan {
                         (*const_node).consttype,
                         aggregate_clause,
                         next_aggregate,
+                        &AggIndexInfo::from(state.custom_state().indexrel()),
                     ) {
                         Some(datum) => (datum, false),
                         None => (pg_sys::Datum::null(), true),
@@ -1684,6 +1706,7 @@ unsafe fn aggregate_value_to_datum(
     target_typoid: pg_sys::Oid,
     aggregate_clause: &AggregateCSClause,
     next_aggregate: Option<AggregateResult>,
+    index_info: &AggIndexInfo,
 ) -> Option<pg_sys::Datum> {
     if row.is_empty() {
         return agg_type.nullish().value.and_then(|value| {
@@ -1699,7 +1722,7 @@ unsafe fn aggregate_value_to_datum(
             .ok()
             .flatten();
     }
-    exec::aggregate_result_to_datum(next_aggregate, agg_type, target_typoid)
+    exec::aggregate_result_to_datum(next_aggregate, agg_type, target_typoid, index_info)
 }
 
 /// Fill the scan slot's `tts_values` / `tts_isnull` arrays from a single
@@ -1718,6 +1741,7 @@ unsafe fn fill_slot_from_row(
     tupdesc: &PgTupleDesc<'_>,
     row: &AggregationResultsRow,
     aggregate_clause: &AggregateCSClause,
+    index_info: &AggIndexInfo,
 ) {
     let natts = (*(*slot).tts_tupleDescriptor).natts as usize;
     let datums = std::slice::from_raw_parts_mut((*slot).tts_values, natts);
@@ -1756,6 +1780,7 @@ unsafe fn fill_slot_from_row(
                     expected_typoid,
                     aggregate_clause,
                     next_aggregate,
+                    index_info,
                 )
             }
         };

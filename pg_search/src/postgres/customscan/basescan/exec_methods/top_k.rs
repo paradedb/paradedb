@@ -17,6 +17,7 @@
 
 use std::cell::RefCell;
 
+use crate::api::version::VersionInfo;
 use crate::api::{HashMap, OrderByInfo};
 use crate::gucs;
 use crate::index::fast_fields_helper::{resolve_ctid, FFType};
@@ -219,7 +220,7 @@ impl TopKScanExecState {
         // Convert aggregates to Tantivy Aggregations
         let mut aggregations: tantivy::aggregation::agg_req::Aggregations = Default::default();
         for (idx, agg_type) in combined_agg_types.iter().enumerate() {
-            let agg = if let AggregateType::Custom { agg_json, .. } = agg_type {
+            let mut agg = if let AggregateType::Custom { agg_json, .. } = agg_type {
                 // For Custom aggregates, Tantivy's deserializer handles nested "aggs" automatically
                 serde_json::from_value(agg_json.clone())
                     .unwrap_or_else(|e| panic!("Failed to deserialize custom aggregate: {}", e))
@@ -231,6 +232,18 @@ impl TopKScanExecState {
                     sub_aggregation: Default::default(),
                 }
             };
+            if state
+                .indexrel()
+                .created_by_version()
+                .stores_datetimes_in_i64()
+            {
+                // We need to rewrite date_histogram requests to regular histogram requests because
+                // we are no longer storing dates in tantivy's DateTime.
+                // We rewrite these here instead of at AggregateRequest construction time because we
+                // need the unmodified json later to decide how to rewrite the results.
+                crate::postgres::customscan::aggregatescan::json_rewrite::rewrite_date_histogram_to_histogram(&mut agg)
+                    .expect("a valid date_histogram should always be a valid histogram");
+            }
             aggregations.insert(idx.to_string(), agg);
         }
 
@@ -247,6 +260,7 @@ impl TopKScanExecState {
         aggregations: PreparedAggregations,
         agg_limits: AggregationLimitsGuard,
         intermediate_results: IntermediateAggregationResults,
+        index_info: &crate::postgres::customscan::aggregatescan::AggIndexInfo,
     ) -> HashMap<usize, pg_sys::Datum> {
         let final_result = intermediate_results
             .into_final_result(aggregations.aggregations, agg_limits)
@@ -255,8 +269,8 @@ impl TopKScanExecState {
         // For window functions (no GROUP BY), we expect a single ungrouped result
         // Convert to AggregationResults and extract Datums
         let agg_results_wrapper: AggregationResults = final_result.into();
-        let datum_vec =
-            agg_results_wrapper.flatten_ungrouped_to_datums(&aggregations.combined_agg_types);
+        let datum_vec = agg_results_wrapper
+            .flatten_ungrouped_to_datums(&aggregations.combined_agg_types, index_info);
 
         // Map aggregate results to target entry indices
         aggregations
@@ -442,8 +456,17 @@ impl ExecMethod for TopKScanExecState {
                     .expect("failed to run window aggregation query")
             };
 
-            let window_aggregate_results =
-                self.finalize_aggregates(aggregations, agg_limits, intermediate_results);
+            let search_reader = state.search_reader.as_ref().unwrap();
+            let index_info = crate::postgres::customscan::aggregatescan::AggIndexInfo {
+                created_by_version: search_reader.index_created_by_version(),
+                schema: search_reader.schema().clone(),
+            };
+            let window_aggregate_results = self.finalize_aggregates(
+                aggregations,
+                agg_limits,
+                intermediate_results,
+                &index_info,
+            );
 
             state.window_aggregate_results = Some(window_aggregate_results);
         }

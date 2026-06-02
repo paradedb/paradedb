@@ -25,7 +25,7 @@ use tantivy::schema::{Facet, OwnedValue};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::types::TantivyValueError;
 
-/// This is a "reimplimentation" of tantivy's OwnedValue. We need our own because we represent dates
+/// This is a "reimplementation" of tantivy's OwnedValue. We need our own because we represent dates
 /// differently (as microseconds from PgEpoch, wheraas tantivy uses nanoseconds from the unix epoch)
 /// Other than the Date variant, this is equivalent to Tantivy's OwnedValue
 #[derive(Clone, Debug, PartialEq)]
@@ -76,7 +76,7 @@ impl PdbOwnedValue {
         }
     }
 
-    /// This is intented only for use during deserialization to a PdbOwnedValue
+    /// This is intended only for use during deserialization to a PdbOwnedValue
     fn from_deserialized_tantivy_value(tv: OwnedValue) -> Self {
         match tv {
             OwnedValue::Date(_) => unreachable!(

@@ -739,7 +739,7 @@ fn check_range_bounds(
         ) => Bound::Included(PdbOwnedValue::Date(
             date.add_days(1).map_err(|e| anyhow::anyhow!("{e:?}"))?,
         )),
-        // String date needes parsed
+        // String date needs parsed
         (
             PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
             Bound::Included(PdbOwnedValue::Str(s)),
@@ -748,7 +748,7 @@ fn check_range_bounds(
                 .map_err(|e| anyhow::anyhow!("{e:?}"))?;
             Bound::Included(PdbOwnedValue::Date(date))
         }
-        // String date needes parsed and excluded date needs to be canonicalized
+        // String date needs parsed and excluded date needs to be canonicalized
         (
             PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
             Bound::Excluded(PdbOwnedValue::Str(s)),

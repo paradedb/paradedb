@@ -706,7 +706,7 @@ rails console
 </Accordion>
 
 <Accordion title="Entity Framework Core (C#)">
-To get started, create a .NET project with [EF Core](https://learn.microsoft.com/en-us/ef/core/), [Npgsql](https://www.npgsql.org/efcore/), and [ParadeDB.EntityFrameworkCore](https://www.nuget.org/packages/ParadeDB.EntityFrameworkCore) installed.
+To get started, create a .NET project with [EF Core](https://learn.microsoft.com/en-us/ef/core/), [Npgsql.EntityFrameworkCore.PostgreSQL](https://www.nuget.org/packages/npgsql.entityframeworkcore.postgresql), and [ParadeDB.EntityFrameworkCore](https://www.nuget.org/packages/ParadeDB.EntityFrameworkCore) installed.
 
 ```bash
 dotnet new console --framework net10.0
@@ -716,6 +716,23 @@ dotnet add package Microsoft.EntityFrameworkCore.Design
 dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL
 dotnet add package ParadeDB.EntityFrameworkCore --version 0.1.0
 ```
+
+<Note>
+  This console app uses `OnConfiguring` to keep the example self-contained. In
+  ASP.NET Core or another app with dependency injection, register ParadeDB
+  through `UseNpgsql` in `Program.cs`:
+
+```cs
+builder.Services.AddDbContextPool<AppDbContext>(opt =>
+{
+    opt.UseNpgsql(
+        builder.Configuration.GetConnectionString("AppDatabase"),
+        o => o.UseParadeDb()
+    );
+});
+```
+
+</Note>
 
 Replace `Program.cs` with a DbContext, model, and query scratchpad for ParadeDB's built-in test table:
 

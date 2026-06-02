@@ -18,7 +18,7 @@
 mod fixtures;
 
 use crate::fixtures::querygen::crossrelgen::arb_cross_rel_expr;
-use crate::fixtures::querygen::groupbygen::arb_group_by;
+use crate::fixtures::querygen::groupbygen::{arb_group_by, SelectItem};
 use crate::fixtures::querygen::joingen::{arb_joins, arb_semi_joins, JoinType};
 use crate::fixtures::querygen::numericgen::arb_numeric_expr;
 use crate::fixtures::querygen::pagegen::arb_paging_exprs;
@@ -353,7 +353,8 @@ async fn generated_single_relation(database: Db) {
 }
 
 ///
-/// Property test for GROUP BY aggregates - ensures equivalence between PostgreSQL and bm25 behavior
+/// Property test for GROUP BY aggregates with ORDER BY and LIMIT/OFFSET
+/// - ensures equivalence between PostgreSQL and bm25 behavior
 ///
 #[rstest]
 #[tokio::test]
@@ -391,10 +392,24 @@ async fn generated_group_by_aggregates(database: Db) {
             &columns_named(vec!["age", "price", "rating"]),
         ),
         group_by_expr in arb_group_by(grouping_columns.to_vec(), vec!["COUNT(*)", "SUM(price)", "AVG(price)", "MIN(rating)", "MAX(rating)", "SUM(age)", "AVG(age)"]),
+        limit in 5..21_usize,
+        offset in 0..4_usize,
         gucs in any::<PgGucs>(),
     )| {
         let select_list = group_by_expr.to_select_list();
         let group_by_clause = group_by_expr.to_sql();
+
+        // use every item in GROUP BY target list for ORDER BY sorting
+        // to ensure deterministic tie-breaking and prevent flaky tests
+        // if multiple targets are used in GROUP BY
+        let order_by_items: Vec<String> = group_by_expr.target_list
+            .iter()
+            .map(|item| match item {
+                SelectItem::Column(col) => format!("{col} ASC NULLS LAST"),
+                SelectItem::Aggregate(agg) => format!("{agg} ASC NULLS LAST"),
+            })
+            .collect();
+        let order_by_clause = format!("ORDER BY {}", order_by_items.join(", "));
 
         // Create combined WHERE clause for PostgreSQL using = operator
         let pg_where_clause = format!(
@@ -411,18 +426,18 @@ async fn generated_group_by_aggregates(database: Db) {
         );
 
         let pg_query = format!(
-            "SELECT {select_list} FROM {table_name} WHERE {pg_where_clause} {group_by_clause}",
+            "SELECT {select_list} FROM {table_name} WHERE {pg_where_clause} {group_by_clause} {order_by_clause} LIMIT {limit} OFFSET {offset}",
         );
 
         let bm25_query = format!(
-            "SELECT {select_list} FROM {table_name} WHERE {bm25_where_clause} {group_by_clause}",
+            "SELECT {select_list} FROM {table_name} WHERE {bm25_where_clause} {group_by_clause} {order_by_clause} LIMIT {limit} OFFSET {offset}",
         );
 
         // Custom result comparator for GROUP BY results
         let compare_results = |query: &str, conn: &mut PgConnection| -> Vec<String> {
             // Fetch all rows as dynamic results and convert to string representation
             let rows = query.fetch_dynamic(conn);
-            let mut string_rows: Vec<String> = rows
+            let string_rows: Vec<String> = rows
                 .into_iter()
                 .map(|row| {
                     // Convert entire row to a string representation for comparison
@@ -449,8 +464,6 @@ async fn generated_group_by_aggregates(database: Db) {
                 })
                 .collect();
 
-            // Sort for consistent comparison
-            string_rows.sort();
             string_rows
         };
 

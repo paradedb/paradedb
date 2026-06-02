@@ -232,7 +232,7 @@ impl ParallelWorker for BuildWorker<'_> {
         // communicate to the group that we've started
         self.coordination.inc_nstarted();
 
-        let (reltuples, nmerges) = self.do_build(worker_number)?;
+        let (reltuples, nmerges) = self.do_build(worker_number, false)?;
         Ok(mq_sender.send(serde_json::to_vec(&WorkerResponse { reltuples, nmerges })?)?)
     }
 }
@@ -253,7 +253,7 @@ impl<'a> BuildWorker<'a> {
         }
     }
 
-    fn do_build(&mut self, worker_number: i32) -> anyhow::Result<(f64, usize)> {
+    fn do_build(&mut self, worker_number: i32, is_leader: bool) -> anyhow::Result<(f64, usize)> {
         unsafe {
             let index_info = self.indexrel.index_info();
             (*index_info).ii_Concurrent = self.config.concurrent;
@@ -277,6 +277,7 @@ impl<'a> BuildWorker<'a> {
                 worker_segment_target.max(1),
                 self.coordination,
                 worker_number,
+                is_leader,
             )?;
 
             set_ps_display_suffix(INDEXING.as_ptr());
@@ -340,6 +341,7 @@ impl<'a> WorkerBuildState<'a> {
         worker_segment_target: usize,
         coordination: &'a mut WorkerCoordination,
         worker_number: i32,
+        is_leader: bool,
     ) -> anyhow::Result<Self> {
         // if we're making more than one segment, do an early cutoff based on doc count in case
         // the memory budget is so high that all the docs fit into one segment
@@ -359,8 +361,6 @@ impl<'a> WorkerBuildState<'a> {
         let writer = SerialIndexWriter::open(indexrel, config, worker_number)?;
         let schema = writer.schema();
         let categorized_fields = schema.categorized_fields().clone();
-        // we're making the assumption, based on the logic in the `build_index` function, that the leader (if participating) has the last worker number (equivalent to nlaunched)
-        let is_leader = worker_number == coordination.nlaunched as i32;
         Ok(Self {
             writer: Some(writer),
             categorized_fields,
@@ -659,8 +659,7 @@ pub(super) fn build_index(
 
             // directly instantiate a worker for the leader and have it do its build
             let mut worker = BuildWorker::new_parallel_worker(*process.state_manager());
-            // NOTE: this logic of setting the worker number of the leader as `nlaunched_plus_leader` is used to determine, in `build_callback`, if a certain worker is the leader
-            worker.do_build(nlaunched_plus_leader as i32)?
+            worker.do_build(nlaunched_plus_leader as i32, true)?
         } else {
             pgrx::debug1!("build_index: leader is not participating");
             (0.0, 0)
@@ -700,7 +699,7 @@ pub(super) fn build_index(
             &mut coordination,
         );
 
-        let (total_tuples, total_merges) = worker.do_build(1)?;
+        let (total_tuples, total_merges) = worker.do_build(1, true)?;
         pgrx::debug1!("build_index: total_tuples: {total_tuples}, total_merges: {total_merges}");
         total_tuples
     };

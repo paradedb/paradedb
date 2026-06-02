@@ -45,6 +45,13 @@ fn main() {
         .arg("-std=c++17")
         .arg("-O3")
         .arg("-DNDEBUG")
+        // This object is archived into a static lib that is linked into the
+        // pg_search `.so`, so it must be position-independent. Without `-fPIC`
+        // on Linux the `thread_local`s compile to the local-exec TLS model
+        // (`R_X86_64_TPOFF32`), which the linker rejects with `-shared`.
+        // (clang on macOS emits PIC by default, so this was latent there.)
+        .arg("-fPIC")
+        .arg("-ftls-model=global-dynamic")
         .arg("-c")
         .arg("cpp/superkmeans_bridge.cpp")
         .arg("-Ithird_party/superkmeans/include")

@@ -35,7 +35,6 @@ use crate::api::HashMap;
 use crate::postgres::customscan::explain::{format_for_explain, ExplainFormat};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
-use crate::postgres::pdb_owned_value::PDB_DATE_TAG;
 use crate::query::more_like_this::MoreLikeThisQuery;
 use crate::query::pdb_query::pdb;
 use crate::query::score::ScoreFilter;
@@ -53,7 +52,6 @@ use tantivy::query::{
     AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
     Query as TantivyQuery, QueryParser, TermSetQuery,
 };
-use tantivy::DateTime;
 use tantivy::{
     query_grammar::Occur,
     schema::{Field, FieldType, DATE_TIME_PRECISION_INDEXED},
@@ -205,8 +203,6 @@ where
                             .unwrap();
                     Ok((field, field_query_input))
                 } else {
-                    rewrite_is_datetime_values_to_tagged_dates(&mut value);
-
                     let mut reconstructed = serde_json::Map::new();
                     reconstructed.insert(key, value);
 
@@ -224,30 +220,6 @@ where
         }
     }
     deserializer.deserialize_map(Visitor)
-}
-
-/// For locations where legacy-style json queries could have uses `is_datetime` to denote that the
-/// provided value should be treated as a datetime, we "rewrite" those to use the new tagged format
-/// and remove the `is_datetime` field.
-fn rewrite_is_datetime_values_to_tagged_dates(value: &mut serde_json::Value) {
-    let is_datetime = value["is_datetime"].as_bool().unwrap_or(false);
-    if is_datetime {
-        value.as_object_mut().unwrap().remove("is_datetime");
-        if let Some(s) = value["value"].as_str() {
-            value["value"] = serde_json::json!({
-                PDB_DATE_TAG: s
-            });
-        }
-        for bound_key in ["lower_bound", "upper_bound"] {
-            for inclusion_key in ["included", "excluded", "Included", "Excluded"] {
-                if let Some(s) = value[bound_key][inclusion_key].as_str() {
-                    value[bound_key][inclusion_key] = serde_json::json!({
-                            PDB_DATE_TAG: s
-                    });
-                }
-            }
-        }
-    }
 }
 
 impl SearchQueryInput {
@@ -1314,7 +1286,6 @@ impl SearchQueryInput {
                             &value,
                             field_type,
                             field.path().as_deref(),
-                            search_field.is_datetime(),
                         )
                         .expect("could not convert argument to search term")
                     },
@@ -1440,17 +1411,11 @@ fn value_to_json_term(
     value: &PdbOwnedValue,
     path: Option<&str>,
     expand_dots: bool,
-    is_datetime: bool,
 ) -> Result<Term> {
     let mut term = Term::from_field_json_path(field, path.unwrap_or_default(), expand_dots);
     match value {
         PdbOwnedValue::Str(text) => {
-            if is_datetime {
-                let TantivyDateTime(date) = TantivyDateTime::try_from(text.as_str())?;
-                // https://github.com/quickwit-oss/tantivy/pull/2456
-                // It's a footgun that date needs to truncated when creating the Term
-                term.append_type_and_fast_value(date.truncate(DATE_TIME_PRECISION_INDEXED));
-            } else if let Ok(pgdt) = PostgresDateTime::try_from(text.as_str()) {
+            if let Ok(pgdt) = PostgresDateTime::try_from(text.as_str()) {
                 let dt: tantivy::DateTime = pgdt.try_into()?;
                 // https://github.com/quickwit-oss/tantivy/pull/2456
                 // It's a footgun that date needs to truncated when creating the Term
@@ -1477,6 +1442,8 @@ fn value_to_json_term(
         }
         PdbOwnedValue::Date(value) => {
             let dt: tantivy::DateTime = (*value).try_into()?;
+            // https://github.com/quickwit-oss/tantivy/pull/2456
+            // It's a footgun that date needs to truncated when creating the Term
             term.append_type_and_fast_value(dt.truncate(DATE_TIME_PRECISION_INDEXED));
         }
         unsupported => panic!(
@@ -1498,7 +1465,6 @@ pub fn value_to_term(
     value: &PdbOwnedValue,
     field_type: &FieldType,
     path: Option<&str>,
-    is_datetime: bool,
 ) -> Result<Term> {
     let json_options = match field_type {
         FieldType::JsonObject(ref options) => Some(options),
@@ -1506,25 +1472,7 @@ pub fn value_to_term(
     };
 
     if let Some(json_options) = json_options {
-        return value_to_json_term(
-            field,
-            value,
-            path,
-            json_options.is_expand_dots_enabled(),
-            is_datetime,
-        );
-    }
-
-    if is_datetime {
-        if let PdbOwnedValue::Str(text) = value {
-            let TantivyDateTime(date) = TantivyDateTime::try_from(text.as_str())?;
-            // https://github.com/quickwit-oss/tantivy/pull/2456
-            // It's a footgun that date needs to truncated when creating the Term
-            return Ok(Term::from_field_date(
-                field,
-                date.truncate(DATE_TIME_PRECISION_INDEXED),
-            ));
-        }
+        return value_to_json_term(field, value, path, json_options.is_expand_dots_enabled());
     }
 
     // For facet fields, convert string values to facet terms
@@ -1559,22 +1507,6 @@ pub fn value_to_term(
         PdbOwnedValue::IpAddr(ip) => Term::from_field_ip_addr(field, *ip),
         _ => panic!("Tantivy PdbOwnedValue type not supported"),
     })
-}
-
-struct TantivyDateTime(pub DateTime);
-impl TryFrom<&str> for TantivyDateTime {
-    type Error = QueryError;
-
-    fn try_from(text: &str) -> Result<Self, Self::Error> {
-        let datetime = match chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%SZ") {
-            Ok(dt) => dt,
-            Err(_) => chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.fZ")
-                .map_err(|_| QueryError::FieldTypeMismatch)?,
-        };
-        Ok(TantivyDateTime(DateTime::from_timestamp_micros(
-            datetime.and_utc().timestamp_micros(),
-        )))
-    }
 }
 
 #[allow(dead_code)]

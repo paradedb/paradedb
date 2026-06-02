@@ -1,0 +1,399 @@
+# workflows/publish-pg_search-postgresapp.yml
+#
+# Publish pg_search (Postgres.app)
+# Build and publish the pg_search extension for Postgres.app as a .pkg installer to
+# GitHub Releases, then open a PR to PostgresApp/PostgresApp updating the version
+# and download URL recorded in docs/_data/extensions/<pg>/pg_search.json (the source
+# for https://postgresapp.com/extensions/). Triggered on creation of a GitHub Tag,
+# but beta releases get filtered out by the `if` condition of the job.
+
+name: Publish pg_search (Postgres.app)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "The version to set for the pg_search release (e.g. 0.22.0). This publishes the latest commit of the chosen branch and uploads it to the pre-existing GitHub Release of the provided version."
+        required: true
+        default: ""
+
+concurrency:
+  group: publish-pg_search-postgresapp-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+# Used by actions/attest-build-provenance to sign the builds
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  publish-pg_search:
+    name: Publish pg_search for Postgres.app (PostgreSQL ${{ matrix.pg_version }}, arm64)
+    runs-on: macos-15
+    if: ${{ !contains(github.ref, '-rc.') }}
+    strategy:
+      matrix:
+        # Postgres.app only supports loadable extensions installed in Application Support
+        # starting with PostgreSQL 18. Earlier versions require extensions to be bundled,
+        # which is out of scope for this workflow.
+        pg_version: [18]
+
+    steps:
+      # We force reinstall git to make sure it is in PATH
+      - name: Install Dependencies
+        run: brew reinstall git
+
+      - name: Checkout Git Repository
+        uses: actions/checkout@v6
+
+      # Used to query/update the GitHub Release and open the PostgresApp/PostgresApp PR.
+      - name: Install GitHub CLI
+        run: |
+          brew reinstall gh
+          gh --version
+
+      - name: Retrieve GitHub Tag Version
+        id: version
+        run: |
+          # If no workflow_dispatch version is provided, we use workflow tag trigger version
+          if [ -z "${{ github.event.inputs.version }}" ]; then
+            if [[ $GITHUB_REF == refs/tags/v* ]]; then
+              VERSION=${GITHUB_REF#refs/tags/v}
+            else
+              # If there is no tag and no provided version, it's a test run and we set a default version
+              VERSION="0.0.0"
+            fi
+          else
+            VERSION=${{ github.event.inputs.version }}
+          fi
+          echo "GitHub Tag Version: $VERSION"
+          echo "tag_version=$VERSION" >> $GITHUB_OUTPUT
+          echo "commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      # Postgres.app ships its own PostgreSQL build. We install it into /Applications
+      # so that we can build pg_search against its pg_config and link against the
+      # exact libpq/server headers that ship with Postgres.app.
+      - name: Install Postgres.app
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ASSET=$(gh release view --repo PostgresApp/PostgresApp --json assets \
+            --jq '.assets[] | select(.name | test("Postgres-.*-${{ matrix.pg_version }}\\.dmg$")) | .name' | head -1)
+          if [ -z "$ASSET" ]; then
+            echo "Could not find a Postgres.app DMG for PostgreSQL ${{ matrix.pg_version }}"
+            exit 1
+          fi
+          echo "Downloading $ASSET"
+          gh release download --repo PostgresApp/PostgresApp --pattern "$ASSET" --output postgres.dmg
+          MOUNT=$(hdiutil attach -nobrowse -noverify -noautoopen postgres.dmg | tail -1 | awk '{print $3}')
+          cp -R "$MOUNT/Postgres.app" /Applications/Postgres.app
+          hdiutil detach "$MOUNT"
+          PG_BIN=/Applications/Postgres.app/Contents/Versions/${{ matrix.pg_version }}/bin
+          echo "$PG_BIN" >> $GITHUB_PATH
+          "$PG_BIN/pg_config" --version
+
+      # Pull the upstream Postgres.app build assets (Resources/, Scripts/, distribution.xml)
+      # so the produced pkg matches what PostgresApp/Extensions ships for other extensions.
+      # See https://github.com/PostgresApp/Extensions/tree/main/pg_search.
+      - name: Fetch Postgres.app Extensions Build Assets
+        run: |
+          git clone --depth=1 https://github.com/PostgresApp/Extensions.git /tmp/postgresapp-extensions
+          ls -la /tmp/postgresapp-extensions/pg_search
+
+      - name: Extract pgrx Version
+        id: pgrx
+        run: echo "version=$(sed -nE 's/^pgrx = "=?([^"]+)"$/\1/p' Cargo.toml)" >> $GITHUB_OUTPUT
+
+      - name: Cache pgrx binary
+        id: cache-pgrx
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/cargo-pgrx
+          key: cargo-pgrx-${{ steps.pgrx.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install pgrx
+        if: steps.cache-pgrx.outputs.cache-hit != 'true'
+        run: cargo install --locked cargo-pgrx --version ${{ steps.pgrx.outputs.version }} --debug
+
+      - name: Initialize pgrx environment
+        working-directory: pg_search/
+        run: |
+          PG_CONFIG=/Applications/Postgres.app/Contents/Versions/${{ matrix.pg_version }}/bin/pg_config
+          cargo pgrx init --pg${{ matrix.pg_version }}=$PG_CONFIG
+
+      - name: Package pg_search Extension with pgrx
+        working-directory: pg_search/
+        env:
+          COMMIT_SHA: ${{ steps.version.outputs.commit_sha }}
+          PARADEDB_VERSION: ${{ steps.version.outputs.tag_version }}
+        run: |
+          PG_CONFIG=/Applications/Postgres.app/Contents/Versions/${{ matrix.pg_version }}/bin/pg_config
+          # Workaround for inttypes.h not being found under the default sysroot
+          export BINDGEN_EXTRA_CLANG_ARGS="$(xcrun --show-sdk-path | xargs -I{} echo -isysroot {})"
+          cargo pgrx package --pg-config $PG_CONFIG
+
+      # Import the Developer ID Application + Installer certificates into a dedicated
+      # temporary keychain so codesign/pkgbuild/productbuild can sign with them. The
+      # keychain is the only one on the user search list for the rest of the job, so
+      # the partial "Developer ID Application"/"Developer ID Installer" identity
+      # strings used below match unambiguously. Mirrors GitHub's "Installing an Apple
+      # certificate on macOS runners" guide.
+      - name: Import Apple Developer ID Certificates
+        env:
+          APPLE_DEVELOPER_ID_APPLICATION_CERT: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERT }}
+          APPLE_DEVELOPER_ID_INSTALLER_CERT: ${{ secrets.APPLE_DEVELOPER_ID_INSTALLER_CERT }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+
+          # Create, configure, and unlock a throwaway keychain for the job.
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Decode and import both Developer ID certificates (.p12), then wipe the files.
+          echo "$APPLE_DEVELOPER_ID_APPLICATION_CERT" | base64 --decode > "$RUNNER_TEMP/application.p12"
+          echo "$APPLE_DEVELOPER_ID_INSTALLER_CERT" | base64 --decode > "$RUNNER_TEMP/installer.p12"
+          security import "$RUNNER_TEMP/application.p12" -P "$APPLE_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security import "$RUNNER_TEMP/installer.p12" -P "$APPLE_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          rm -f "$RUNNER_TEMP/application.p12" "$RUNNER_TEMP/installer.p12"
+
+          # Allow the signing tools to use the private keys without an interactive prompt,
+          # and make this the keychain that codesign/pkgbuild/productbuild search.
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+
+      - name: Build Postgres.app Installer Package
+        id: pkg
+        run: |
+          set -euo pipefail
+          EXTENSION_NAME=pg_search
+          EXTENSION_VERSION=${{ steps.version.outputs.tag_version }}
+          PG_MAJOR_VERSION=${{ matrix.pg_version }}
+          PREFIX=/Applications/Postgres.app/Contents/Versions/$PG_MAJOR_VERSION
+          INSTALL_ROOT="${GITHUB_WORKSPACE}/target/release/${EXTENSION_NAME}-pg${PG_MAJOR_VERSION}${PREFIX}"
+          UPSTREAM=/tmp/postgresapp-extensions/pg_search
+
+          if [ ! -d "$INSTALL_ROOT/lib/postgresql" ] || [ ! -d "$INSTALL_ROOT/share/postgresql/extension" ]; then
+            echo "Expected pgrx package layout not found under $INSTALL_ROOT"
+            ls -R "${GITHUB_WORKSPACE}/target/release" || true
+            exit 1
+          fi
+
+          # Sign the loadable library with the Developer ID Application identity before
+          # packaging, matching upstream build.zsh. Without this the notarized pkg would
+          # contain an unsigned dylib and fail notarization.
+          codesign --force --sign "Developer ID Application" --timestamp "$INSTALL_ROOT"/lib/postgresql/*.dylib
+
+          BUILD=$(mktemp -d)
+          mkdir -p "$BUILD/Resources" "$BUILD/Scripts"
+
+          # Substitute templated values into the upstream Resources and distribution.xml.
+          # Mirrors the sed pipeline in https://github.com/PostgresApp/Extensions/blob/main/pg_search/build.zsh.
+          for file in "$UPSTREAM"/Resources/*.html "$UPSTREAM"/distribution.xml; do
+            base=$(basename "$file")
+            case "$file" in
+              *.html) out="$BUILD/Resources/$base" ;;
+              *) out="$BUILD/$base" ;;
+            esac
+            sed -e "s|@EXTENSION_VERSION@|${EXTENSION_VERSION}|g" \
+                -e "s|@PG_MAJOR_VERSION@|${PG_MAJOR_VERSION}|g" \
+                -e "s|@EXTENSION_NAME@|${EXTENSION_NAME}|g" \
+                "$file" > "$out"
+          done
+
+          cp "$UPSTREAM"/Scripts/* "$BUILD/Scripts/"
+          chmod +x "$BUILD/Scripts/"*
+          cp "${GITHUB_WORKSPACE}/LICENSE" "$BUILD/Resources/license.txt"
+
+          COMPONENT_PKG="${EXTENSION_NAME}-${PG_MAJOR_VERSION}.pkg"
+          FINAL_PKG="${EXTENSION_NAME}-pg${PG_MAJOR_VERSION}-${EXTENSION_VERSION}.pkg"
+
+          cd "$BUILD"
+          pkgbuild \
+            --root "$INSTALL_ROOT" \
+            --install-location "/Library/Application Support/Postgres/Extensions/${PG_MAJOR_VERSION}/${EXTENSION_NAME}" \
+            --identifier "com.postgresapp.extension.${PG_MAJOR_VERSION}.${EXTENSION_NAME}" \
+            --version "${EXTENSION_VERSION}" \
+            --scripts Scripts \
+            --sign "Developer ID Installer" \
+            "${COMPONENT_PKG}"
+
+          productbuild \
+            --distribution distribution.xml \
+            --resources Resources \
+            --package-path . \
+            --sign "Developer ID Installer" \
+            "${FINAL_PKG}"
+
+          rm "${COMPONENT_PKG}"
+          mv "$BUILD/${FINAL_PKG}" "${GITHUB_WORKSPACE}/${FINAL_PKG}"
+          ls -lh "${GITHUB_WORKSPACE}/${FINAL_PKG}"
+          echo "pkg_path=${FINAL_PKG}" >> $GITHUB_OUTPUT
+          echo "pkg_name=${FINAL_PKG}" >> $GITHUB_OUTPUT
+
+      # Submit the signed pkg to Apple's notary service and staple the ticket onto it
+      # so Gatekeeper accepts the installer on first open, even offline. Authenticates
+      # with an App Store Connect API key (notarytool --key). Runs before attestation
+      # and upload so the artifact we attest and ship is the stapled one.
+      - name: Notarize and Staple Installer Package
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          echo "$APPLE_API_KEY_P8" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+          xcrun notarytool submit "${{ steps.pkg.outputs.pkg_path }}" \
+            --key "$RUNNER_TEMP/AuthKey.p8" \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER_ID" \
+            --wait
+          xcrun stapler staple "${{ steps.pkg.outputs.pkg_path }}"
+          rm -f "$RUNNER_TEMP/AuthKey.p8"
+
+      - name: Sign and Attest Build Provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: ./${{ steps.pkg.outputs.pkg_path }}
+
+      - name: Retrieve GitHub Release Upload URL
+        id: upload_url
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RESPONSE=$(gh api \
+            -H "Authorization: token $GH_TOKEN" \
+            /repos/paradedb/paradedb/releases/tags/v${{ steps.version.outputs.tag_version }})
+          UPLOAD_URL=$(echo "$RESPONSE" | jq -r '.upload_url' | sed 's/{.*}//')
+          echo "GitHub Release Upload URL is: $UPLOAD_URL"
+          echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
+
+      - name: Upload pg_search .pkg to GitHub Release
+        uses: shogo82148/actions-upload-release-asset@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          upload_url: ${{ steps.upload_url.outputs.upload_url }}
+          asset_path: ./${{ steps.pkg.outputs.pkg_path }}
+          asset_name: ${{ steps.pkg.outputs.pkg_name }}
+          overwrite: true
+
+      # Open a PR to PostgresApp/PostgresApp updating the pg_search download URL on
+      # https://postgresapp.com/extensions/. The page is generated from per-version
+      # JSON files at docs/_data/extensions/<pg>/pg_search.json. The PR is raised
+      # from the paradedb/PostgresApp fork; any previous open PR from the bot is
+      # closed first so that only one update is ever pending review upstream.
+      - name: Open PR to PostgresApp/PostgresApp
+        env:
+          # Classic PAT with `repo` scope — required because fine-grained PATs cannot
+          # invoke createPullRequest (or pr list/close) against repos outside their
+          # resource owner, and PostgresApp/PostgresApp lives outside the paradedb org.
+          # Reuses the existing enterprise-sync token, which already has `repo` scope.
+          GH_TOKEN: ${{ secrets.PARADEDB_BOT_ENTERPRISE_SYNC_GITHUB_TOKEN }}
+          TAG_VERSION: ${{ steps.version.outputs.tag_version }}
+          PG_MAJOR_VERSION: ${{ matrix.pg_version }}
+          PKG_NAME: ${{ steps.pkg.outputs.pkg_name }}
+        run: |
+          set -euo pipefail
+
+          UPSTREAM=PostgresApp/PostgresApp
+          FORK_OWNER=paradedb
+          FORK="${FORK_OWNER}/PostgresApp"
+          BOT_LOGIN=$(gh api user --jq .login)
+          BRANCH="update-pg_search-${TAG_VERSION}-pg${PG_MAJOR_VERSION}"
+          DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v${TAG_VERSION}/${PKG_NAME}"
+
+          # Close any existing open PRs from the bot so the new one supersedes them.
+          EXISTING_PRS=$(gh pr list --repo "$UPSTREAM" --author "$BOT_LOGIN" --state open --json number --jq '.[].number' || true)
+          for pr in $EXISTING_PRS; do
+            echo "Closing superseded PR #$pr in $UPSTREAM"
+            gh pr close "$pr" --repo "$UPSTREAM" \
+              --comment "Superseded by the pg_search v${TAG_VERSION} release. Closing in favour of the new PR." \
+              --delete-branch=true
+          done
+
+          # The fork at ${FORK} is pre-created and maintained as a one-time setup —
+          # fine-grained PATs cannot fork external repos into an org, so we don't try
+          # to create it from the workflow. Just verify it exists with a clear error.
+          if ! gh api "repos/${FORK}" >/dev/null 2>&1; then
+            echo "ERROR: Fork ${FORK} not found. Create it once via the GitHub UI by forking" >&2
+            echo "       ${UPSTREAM} into the ${FORK_OWNER} org." >&2
+            exit 1
+          fi
+
+          UPSTREAM_DEFAULT_BRANCH=$(gh api "repos/${UPSTREAM}" --jq .default_branch)
+
+          git config --global user.name "paradedb[bot]"
+          git config --global user.email "developers@paradedb.com"
+
+          WORK=$(mktemp -d)
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${FORK}.git" "$WORK"
+          cd "$WORK"
+          git remote add upstream "https://github.com/${UPSTREAM}.git"
+          git fetch upstream "$UPSTREAM_DEFAULT_BRANCH"
+          # Branch directly off upstream's tip — we don't need the fork's default
+          # branch to mirror upstream for a PR to work. This also avoids ambiguity
+          # when origin and upstream both have the same branch name.
+          git push origin --delete "$BRANCH" 2>/dev/null || true
+          git checkout -B "$BRANCH" "upstream/${UPSTREAM_DEFAULT_BRANCH}"
+
+          # Update only `version` and `download_url` in the per-PG-version JSON,
+          # preserving the rest of the file (title, description, info_url) and the
+          # existing 4-space indentation used upstream.
+          JSON_PATH="docs/_data/extensions/${PG_MAJOR_VERSION}/pg_search.json"
+          if [ ! -f "$JSON_PATH" ]; then
+            echo "Expected $JSON_PATH to exist upstream; aborting." >&2
+            exit 1
+          fi
+
+          JSON_PATH="$JSON_PATH" \
+          NEW_VERSION="$TAG_VERSION" \
+          NEW_URL="$DOWNLOAD_URL" \
+          python3 - <<'PY'
+          import json, os, pathlib
+          path = pathlib.Path(os.environ["JSON_PATH"])
+          data = json.loads(path.read_text())
+          data["version"] = os.environ["NEW_VERSION"]
+          data["download_url"] = os.environ["NEW_URL"]
+          path.write_text(json.dumps(data, indent=4) + "\n")
+          PY
+
+          if git diff --quiet; then
+            echo "No changes to ${JSON_PATH}; nothing to PR."
+            exit 0
+          fi
+
+          git add "$JSON_PATH"
+          git commit -m "Update pg_search to v${TAG_VERSION} for PostgreSQL ${PG_MAJOR_VERSION}"
+          git push origin "$BRANCH" --force
+
+          BODY=$(cat <<EOF
+          This PR updates the [pg_search](https://github.com/paradedb/paradedb) entry on https://postgresapp.com/extensions/ to point at the v${TAG_VERSION} release.
+
+          - **Version**: ${TAG_VERSION}
+          - **PostgreSQL**: ${PG_MAJOR_VERSION}
+          - **Installer**: <${DOWNLOAD_URL}>
+
+          Opened automatically by \`paradedb-bot\` from the [publish-pg_search-postgresapp](https://github.com/paradedb/paradedb/blob/main/.github/workflows/publish-pg_search-postgresapp.yml) workflow. See [PostgresApp/PostgresApp#799](https://github.com/PostgresApp/PostgresApp/issues/799) for context.
+          EOF
+          )
+
+          gh pr create \
+            --repo "$UPSTREAM" \
+            --base "$UPSTREAM_DEFAULT_BRANCH" \
+            --head "${FORK_OWNER}:${BRANCH}" \
+            --title "Update pg_search to ${TAG_VERSION} for PostgreSQL ${PG_MAJOR_VERSION}" \
+            --body "$BODY"
+
+      - name: Notify Slack on Failure
+        if: failure()
+        run: |
+          GITHUB_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          MESSAGE="<!here> \`publish-pg_search-postgresapp\` workflow failed in \`${{ github.repository }}\` on branch \`${{ github.ref_name }}\` -- investigate immediately! GitHub Action Logs: ${GITHUB_RUN_URL}"
+          curl -X POST -H 'Content-type: application/json' -d "{\"text\": \"${MESSAGE}\"}" ${{ secrets.SLACK_GITHUB_CHANNEL_WEBHOOK_URL }}

@@ -412,7 +412,7 @@ async fn generated_group_by_aggregates(database: Db) {
             .iter()
             .map(|item| {format!("{item} ASC NULLS LAST")})
             .collect()
-    };
+        };
         let order_by_clause = format!("ORDER BY {}", order_by_items.join(", "));
 
         // Create combined WHERE clause for PostgreSQL using = operator

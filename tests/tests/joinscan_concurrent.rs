@@ -60,6 +60,7 @@ async fn joinscan_visibility_under_concurrent_updates(database: Db) -> Result<()
 
     // Create tables and indexes
     r#"
+    CREATE EXTENSION IF NOT EXISTS vector;
     CREATE EXTENSION IF NOT EXISTS pg_search;
 
     -- Enable JoinScan
@@ -353,6 +354,7 @@ async fn joinscan_join_key_updates(database: Db) -> Result<()> {
     let mut setup_conn = database.connection().await;
 
     r#"
+    CREATE EXTENSION IF NOT EXISTS vector;
     CREATE EXTENSION IF NOT EXISTS pg_search;
     SET paradedb.enable_join_custom_scan = on;
 
@@ -431,6 +433,7 @@ async fn joinscan_rapid_updates_stress(database: Db) -> Result<()> {
     let mut setup_conn = database.connection().await;
 
     r#"
+    CREATE EXTENSION IF NOT EXISTS vector;
     CREATE EXTENSION IF NOT EXISTS pg_search;
     SET paradedb.enable_join_custom_scan = on;
 

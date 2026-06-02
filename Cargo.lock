@@ -5017,15 +5017,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "memoffset"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
-dependencies = [
- "autocfg",
-]
-
-[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5686,7 +5677,6 @@ dependencies = [
  "half 2.7.1",
  "lazy_static",
  "macros",
- "memoffset",
  "once_cell",
  "ordered-float 5.3.0",
  "parking_lot",

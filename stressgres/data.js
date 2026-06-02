@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780438582545,
+  "lastUpdate": 1780439228918,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22092,6 +22092,60 @@ window.BENCHMARK_DATA = {
             "value": 15.592043859291197,
             "unit": "median tps",
             "extra": "avg tps: 15.642061393730172, max tps: 19.97696168879417, count: 55574"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0ba79ed3982cfe5a9a05ca3199acef4c3d0a0995",
+          "message": "fix: Support modern emoji in unicode_words tokenizer (#5232)\n\n# Ticket(s) Closed\n\nWhile looking for dependencies to remove, I found the `emoji` crate. It\nwas only used in the `unicode_words` crate in one place. After looking\nmore closely I realized that this is a good dependency to keep as the\nlist of emojis is updated frequently and using a crate allows us to stay\nup to date with new versions. The `emoji` crate has not been updated in\nmany years so I'm replacing it with `emojis` instead which has the most\nrecent unicode and is actively maintained.\n\nBefore this change modern emojis would be removed from the tokenized\noutput (whether or not `remove_emojis` was set) because the crate did\nnot recognize them.\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-02T17:31:31-04:00",
+          "tree_id": "e8b720605ecf9e08815aacef7bf3ef870ad1224e",
+          "url": "https://github.com/paradedb/paradedb/commit/0ba79ed3982cfe5a9a05ca3199acef4c3d0a0995"
+        },
+        "date": 1780439197356,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 30.45243817802269,
+            "unit": "median tps",
+            "extra": "avg tps: 30.107189051300438, max tps: 32.0082149394579, count: 55572"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 244.77066007485502,
+            "unit": "median tps",
+            "extra": "avg tps: 271.5332814957001, max tps: 2626.7529378471418, count: 55572"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 566.0733262641863,
+            "unit": "median tps",
+            "extra": "avg tps: 547.0356113284676, max tps: 954.3146293446598, count: 55572"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 156.22331876862356,
+            "unit": "median tps",
+            "extra": "avg tps: 172.7333793400162, max tps: 755.6093218813656, count: 111144"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.446036146067133,
+            "unit": "median tps",
+            "extra": "avg tps: 15.262320367405747, max tps: 19.951702912759085, count: 55572"
           }
         ]
       }

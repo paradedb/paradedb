@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780419038637,
+  "lastUpdate": 1780419071970,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -19222,6 +19222,108 @@ window.BENCHMARK_DATA = {
             "value": 164.32421875,
             "unit": "median mem",
             "extra": "avg mem: 182.71377176339286, max mem: 222.75390625, count: 56000"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "71215065+junnjiee@users.noreply.github.com",
+            "name": "Jun Jie",
+            "username": "junnjiee"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d3dafbcc83ed925bc34e6121353496b6f6312ff0",
+          "message": "test: add `order by ... limit ...offset` coverage to `group by` (#5231)\n\n# Ticket(s) Closed\n\n- Closes #3156\n\n## What\n\nAdds test coverage for `GROUP BY...ORDER BY...LIMIT/OFFSET` in the\n`GROUP BY` prop tests.\n\n## Why\n\nCurrently missing test coverage for #3134 \n\n## How\n\nin `qgen.rs` -> `generated_group_by_aggregates()` test\n- added limit and offset ranges in the proptest params for random\ngeneration\n- removed manual result sorting in `compare_results`, as we now use\n`ORDER BY` for sorting\n- added building of `ORDER BY ... OFFSET` clause (details below)\n\nhow `ORDER BY ... OFFSET` clause is built within the proptest\n(`order_by_and_offset_clause`):\n\nA limitation to follow when testing `ORDER BY` here is that we can only\nuse fields in `group_by_expr.group_by_columns`, instead of generating\narbitrary `ORDER BY` queries\n\n`ORDER BY` uses all fields in `group_by_columns` to ensure no ties after\nsorting, since each group is unique\n\nIf `group_by_columns` is empty, we return a empty clause, since an\naggregate operation without `GROUP BY` returns only 1 row\n\n`OFFSET` is only added when `group_by_columns` is non-empty, since\noffsetting any >0 value over 1 row returns 0 rows (not sure if asserting\nempty outputs is relevant for this test)\n\n## Question\n\nDo we want to include coverage for ordering by aggregate? for example,\nthis would look like\n```\naggregate = [count, sum]\ngroup_by_columns = [name, age]\n\nquery = \"... ORDER BY COUNT, SUM, NAME, AGE ...\"\n```\n\ninstead of right now which looks like\n```\nquery = \"... ORDER BY NAME, AGE ...\"\n```",
+          "timestamp": "2026-06-02T12:06:05-04:00",
+          "tree_id": "5ac1eb3615d5a2cfe2759058eeb1522f424e4328",
+          "url": "https://github.com/paradedb/paradedb/commit/d3dafbcc83ed925bc34e6121353496b6f6312ff0"
+        },
+        "date": 1780419040689,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07564611449237012, max background_merging: 2.0, count: 56685"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.90376537776181, max cpu: 9.580839, count: 56685"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 30.25,
+            "unit": "median mem",
+            "extra": "avg mem: 30.18943489790068, max mem: 30.25390625, count: 56685"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.098465472751811, max cpu: 27.961164, count: 56685"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 171.72265625,
+            "unit": "median mem",
+            "extra": "avg mem: 175.06163777895387, max mem: 186.65234375, count: 56685"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51446,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51310.70914704067, max block_count: 51446.0, count: 56685"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.28628384934286, max segment_count: 56.0, count: 56685"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.669261,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.62375437792565, max cpu: 23.210833, count: 56685"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 143.40625,
+            "unit": "median mem",
+            "extra": "avg mem: 132.5570647410029, max mem: 161.55078125, count: 56685"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.77263006130996, max cpu: 28.042841, count: 56685"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 185.98828125,
+            "unit": "median mem",
+            "extra": "avg mem: 181.18362269284202, max mem: 186.17578125, count: 56685"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.73228754862299, max cpu: 33.366436, count: 56685"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 164.28515625,
+            "unit": "median mem",
+            "extra": "avg mem: 183.83547172697803, max mem: 222.765625, count: 56685"
           }
         ]
       }

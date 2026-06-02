@@ -11,9 +11,6 @@ on:
   push:
     tags:
       - "v*"
-    # TEMPORARY: enable branch push trigger to test this workflow on the PR. Revert before merge.
-    branches:
-      - add-publish-pg_search-postgresapp-workflow
   workflow_dispatch:
     inputs:
       version:

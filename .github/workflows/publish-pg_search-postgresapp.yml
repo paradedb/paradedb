@@ -18,6 +18,7 @@ on:
       version:
         description: "The version to set for the pg_search release (e.g. 0.22.0). This publishes the latest commit of the chosen branch and uploads it to the pre-existing GitHub Release of the provided version."
         required: true
+        default: ""
 
 concurrency:
   group: publish-pg_search-postgresapp-${{ github.head_ref || github.ref }}

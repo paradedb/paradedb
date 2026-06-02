@@ -50,8 +50,6 @@ use std::ffi::c_void;
 use std::mem::size_of;
 use std::time::Instant;
 
-use pgrx::pg_sys;
-
 use crate::postgres::customscan::mpp::dsm_mpsc_ring::{
     self, DsmMpscReceiver, DsmMpscRingHeader, DsmMpscSender,
 };
@@ -279,11 +277,9 @@ pub(super) fn peer_proc_for_index(this_proc: u32, peer_idx: u32) -> u32 {
 ///
 /// # Safety
 /// - `coordinate` must point to the start of a DSM region of size `>= layout.region_total`.
-/// - `seg` must be the leader's `dsm_segment*`.
 /// - The region must be uninitialized (the leader is the first writer).
 pub(super) unsafe fn leader_init(
     coordinate: *mut c_void,
-    seg: *mut pg_sys::dsm_segment,
     layout: &DsmLayout,
     plan_bytes: &[u8],
 ) -> Result<ProcAttach, String> {
@@ -358,11 +354,6 @@ pub(super) unsafe fn leader_init(
         );
     }
 
-    // `DsmMpscRing` releases its DSM mapping in `Drop`, so it doesn't need a
-    // `dsm_segment` handle the way `shm_mq_attach` does; kept on the signature for
-    // future use.
-    let _ = seg;
-
     Ok(attach)
 }
 
@@ -423,14 +414,10 @@ unsafe fn attach_proc(
 /// # Safety
 /// - `coordinate` must be the DSM region pointer the leader initialized.
 /// - `region_total` must match the DSM's attached size.
-/// - `seg` may be NULL. `initialize_worker_custom_scan` doesn't surface the segment pointer, and
-///   `shm_mq_attach` handles NULL by skipping its on-detach callback (cleanup falls back to
-///   process exit, safe for parallel-worker lifetimes).
 pub(super) unsafe fn worker_attach(
     coordinate: *mut c_void,
     region_total: u64,
     proc_idx: u32,
-    seg: *mut pg_sys::dsm_segment,
 ) -> Result<(MppDsmHeader, Vec<u8>, ProcAttach), String> {
     if coordinate.is_null() {
         return Err("mpp: worker_attach given null coordinate".into());
@@ -468,9 +455,6 @@ pub(super) unsafe fn worker_attach(
     let attach = unsafe {
         attach_proc(base, &header, proc_idx, /* attach_senders */ true)
     };
-    // `DsmMpscRing` releases its mapping in `Drop`; the `seg` handle stays on the
-    // signature to mirror `leader_init`.
-    let _ = seg;
     if trace_on {
         let attach_ms = t_attach.unwrap().elapsed().as_secs_f64() * 1000.0;
         // N attach calls per proc: 1 own-inbox receiver + N-1 peer-inbox senders.

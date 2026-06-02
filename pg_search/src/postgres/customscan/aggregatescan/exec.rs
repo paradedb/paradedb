@@ -25,6 +25,8 @@ use crate::customscan::aggregatescan::build::{
 use crate::postgres::customscan::aggregatescan::{AggregateScan, AggregateType};
 use crate::postgres::customscan::builders::custom_state::CustomScanStateWrapper;
 use crate::postgres::customscan::solve_expr::SolvePostgresExpressions;
+use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::{is_datetime_type, TantivyValue};
 use pgrx::{check_for_interrupts, pg_sys, IntoDatum, JsonB};
 
@@ -34,7 +36,6 @@ use tantivy::aggregation::agg_result::{
 };
 use tantivy::aggregation::metric::SingleMetricResult as TantivySingleMetricResult;
 use tantivy::aggregation::Key;
-use tantivy::schema::OwnedValue;
 
 /// Unified result type for aggregates
 /// Can hold either a standard metric (f64) or a custom aggregate (JSON)
@@ -126,8 +127,8 @@ pub struct AggregationResultsRow {
 impl AggregationResultsRow {
     pub fn doc_count(&self) -> TantivyValue {
         match self.doc_count {
-            Some(doc_count) => TantivyValue(OwnedValue::U64(doc_count)),
-            None => TantivyValue(OwnedValue::Null),
+            Some(doc_count) => TantivyValue(PdbOwnedValue::U64(doc_count)),
+            None => TantivyValue(PdbOwnedValue::Null),
         }
     }
 
@@ -200,13 +201,16 @@ pub fn aggregate_result_to_datum(
                 // expected PostgreSQL type.
                 metric.value.and_then(|value| unsafe {
                     let datetime = tantivy::DateTime::from_timestamp_nanos(value as i64);
-                    TantivyValue(OwnedValue::Date(datetime))
+                    let pgdt = PostgresDateTime::try_from(datetime).expect(
+                        "We should never see an invalid timestamp coming back from tantivy",
+                    );
+                    TantivyValue(PdbOwnedValue::Date(pgdt))
                         .try_into_datum(expected_typoid.into())
                         .unwrap()
                 })
             } else {
                 metric.value.and_then(|value| unsafe {
-                    TantivyValue(OwnedValue::F64(value))
+                    TantivyValue(PdbOwnedValue::F64(value))
                         .try_into_datum(expected_typoid.into())
                         .unwrap()
                 })
@@ -219,7 +223,7 @@ pub fn aggregate_result_to_datum(
                 JsonB(serde_json::Value::Null).into_datum()
             } else {
                 agg_type.nullish().value.and_then(|value| unsafe {
-                    TantivyValue(OwnedValue::F64(value))
+                    TantivyValue(PdbOwnedValue::F64(value))
                         .try_into_datum(expected_typoid.into())
                         .unwrap()
                 })
@@ -280,10 +284,10 @@ impl AggregationResults {
                 // extend the key path with this bucket's key
                 let mut new_keys = key_accumulator.clone();
                 let key_val = match &bucket_entry.key {
-                    Key::Str(s) => TantivyValue(OwnedValue::Str(s.clone())),
-                    Key::I64(i) => TantivyValue(OwnedValue::I64(*i)),
-                    Key::U64(u) => TantivyValue(OwnedValue::U64(*u)),
-                    Key::F64(f) => TantivyValue(OwnedValue::F64(*f)),
+                    Key::Str(s) => TantivyValue(PdbOwnedValue::Str(s.clone())),
+                    Key::I64(i) => TantivyValue(PdbOwnedValue::I64(*i)),
+                    Key::U64(u) => TantivyValue(PdbOwnedValue::U64(*u)),
+                    Key::F64(f) => TantivyValue(PdbOwnedValue::F64(*f)),
                 };
                 new_keys.push(key_val);
 
@@ -334,10 +338,10 @@ impl AggregationResults {
                 {
                     // find the bucket whose key matches this level
                     let maybe_bucket = buckets.iter().find(|b| match (&b.key, &key.0) {
-                        (Key::Str(s), OwnedValue::Str(v)) => s == v,
-                        (Key::I64(i), OwnedValue::I64(v)) => i == v,
-                        (Key::U64(i), OwnedValue::U64(v)) => i == v,
-                        (Key::F64(i), OwnedValue::F64(v)) => i == v,
+                        (Key::Str(s), PdbOwnedValue::Str(v)) => s == v,
+                        (Key::I64(i), PdbOwnedValue::I64(v)) => i == v,
+                        (Key::U64(i), PdbOwnedValue::U64(v)) => i == v,
+                        (Key::F64(i), PdbOwnedValue::F64(v)) => i == v,
                         _ => false,
                     });
 
@@ -507,10 +511,10 @@ impl AggregationResults {
                         })) = current.get(GroupedKey::NAME)
                         {
                             if let Some(bucket) = buckets.iter().find(|b| match (&b.key, &key.0) {
-                                (Key::Str(s), OwnedValue::Str(v)) => s == v,
-                                (Key::I64(i), OwnedValue::I64(v)) => i == v,
-                                (Key::U64(i), OwnedValue::U64(v)) => i == v,
-                                (Key::F64(i), OwnedValue::F64(v)) => i == v,
+                                (Key::Str(s), PdbOwnedValue::Str(v)) => s == v,
+                                (Key::I64(i), PdbOwnedValue::I64(v)) => i == v,
+                                (Key::U64(i), PdbOwnedValue::U64(v)) => i == v,
+                                (Key::F64(i), PdbOwnedValue::F64(v)) => i == v,
                                 _ => false,
                             }) {
                                 current = &bucket.sub_aggregation.0;

@@ -22,6 +22,8 @@ mod pdb {
     use std::collections::Bound;
 
     use crate::api::HashSet;
+    use crate::postgres::datetime::PostgresDateTime;
+    use crate::postgres::pdb_owned_value::PdbOwnedValue;
     use crate::postgres::types::TantivyValue;
     use crate::query::pdb_query::pdb;
     use crate::schema::AnyEnum;
@@ -30,7 +32,6 @@ mod pdb {
     use pgrx::aggregate::Aggregate;
     use pgrx::datum::RangeBound;
     use pgrx::{default, pg_extern, pg_sys, AnyElement, AnyNumeric, Internal, Range};
-    use tantivy::schema::{OwnedValue, Value};
 
     #[pg_extern(immutable, parallel_safe, name = "all")]
     pub fn pdb_all() -> pdb::Query {
@@ -204,13 +205,13 @@ mod pdb {
             Some((lower, upper)) => pdb::Query::Range {
                 lower_bound: match lower {
                     RangeBound::Infinite => Bound::Unbounded,
-                    RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n as i64)),
-                    RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n as i64)),
+                    RangeBound::Inclusive(n) => Bound::Included(PdbOwnedValue::I64(n as i64)),
+                    RangeBound::Exclusive(n) => Bound::Excluded(PdbOwnedValue::I64(n as i64)),
                 },
                 upper_bound: match upper {
                     RangeBound::Infinite => Bound::Unbounded,
-                    RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n as i64)),
-                    RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n as i64)),
+                    RangeBound::Inclusive(n) => Bound::Included(PdbOwnedValue::I64(n as i64)),
+                    RangeBound::Exclusive(n) => Bound::Excluded(PdbOwnedValue::I64(n as i64)),
                 },
             },
         }
@@ -225,13 +226,13 @@ mod pdb {
             Some((lower, upper)) => pdb::Query::Range {
                 lower_bound: match lower {
                     RangeBound::Infinite => Bound::Unbounded,
-                    RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n)),
-                    RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n)),
+                    RangeBound::Inclusive(n) => Bound::Included(PdbOwnedValue::I64(n)),
+                    RangeBound::Exclusive(n) => Bound::Excluded(PdbOwnedValue::I64(n)),
                 },
                 upper_bound: match upper {
                     RangeBound::Infinite => Bound::Unbounded,
-                    RangeBound::Inclusive(n) => Bound::Included(OwnedValue::I64(n)),
-                    RangeBound::Exclusive(n) => Bound::Excluded(OwnedValue::I64(n)),
+                    RangeBound::Inclusive(n) => Bound::Included(PdbOwnedValue::I64(n)),
+                    RangeBound::Exclusive(n) => Bound::Excluded(PdbOwnedValue::I64(n)),
                 },
             },
         }
@@ -249,19 +250,19 @@ mod pdb {
                 lower_bound: match lower {
                     RangeBound::Infinite => Bound::Unbounded,
                     RangeBound::Inclusive(n) => {
-                        Bound::Included(OwnedValue::Str(n.normalize().to_string()))
+                        Bound::Included(PdbOwnedValue::Str(n.normalize().to_string()))
                     }
                     RangeBound::Exclusive(n) => {
-                        Bound::Excluded(OwnedValue::Str(n.normalize().to_string()))
+                        Bound::Excluded(PdbOwnedValue::Str(n.normalize().to_string()))
                     }
                 },
                 upper_bound: match upper {
                     RangeBound::Infinite => Bound::Unbounded,
                     RangeBound::Inclusive(n) => {
-                        Bound::Included(OwnedValue::Str(n.normalize().to_string()))
+                        Bound::Included(PdbOwnedValue::Str(n.normalize().to_string()))
                     }
                     RangeBound::Exclusive(n) => {
-                        Bound::Excluded(OwnedValue::Str(n.normalize().to_string()))
+                        Bound::Excluded(PdbOwnedValue::Str(n.normalize().to_string()))
                     }
                 },
             },
@@ -280,39 +281,35 @@ mod pdb {
                         lower_bound: match lower {
                             RangeBound::Infinite => Bound::Unbounded,
                             RangeBound::Inclusive(n) => Bound::Included(
-                                (&TantivyValue::try_from(n)
+                                TantivyValue::try_from(n)
                                     .expect("n should be a valid TantivyValue representation")
-                                    .tantivy_schema_value())
                                     .as_datetime()
-                                    .expect("OwnedValue should be a valid datetime value")
-                                    .into(),
+                                    .expect("TantivyValue should be a valid datetime value")
+                                    .pdb_owned_value(),
                             ),
                             RangeBound::Exclusive(n) => Bound::Excluded(
-                                (&TantivyValue::try_from(n)
+                                TantivyValue::try_from(n)
                                     .expect("n should be a valid TantivyValue representation")
-                                    .tantivy_schema_value())
                                     .as_datetime()
-                                    .expect("OwnedValue should be a valid datetime value")
-                                    .into(),
+                                    .expect("TantivyValue should be a valid datetime value")
+                                    .pdb_owned_value(),
                             ),
                         },
                         upper_bound: match upper {
                             RangeBound::Infinite => Bound::Unbounded,
                             RangeBound::Inclusive(n) => Bound::Included(
-                                (&TantivyValue::try_from(n)
+                                TantivyValue::try_from(n)
                                     .expect("n should be a valid TantivyValue representation")
-                                    .tantivy_schema_value())
                                     .as_datetime()
-                                    .expect("OwnedValue should be a valid datetime value")
-                                    .into(),
+                                    .expect("TantivyValue should be a valid datetime value")
+                                    .pdb_owned_value(),
                             ),
                             RangeBound::Exclusive(n) => Bound::Excluded(
-                                (&TantivyValue::try_from(n)
+                                TantivyValue::try_from(n)
                                     .expect("n should be a valid TantivyValue representation")
-                                    .tantivy_schema_value())
                                     .as_datetime()
-                                    .expect("OwnedValue should be a valid datetime value")
-                                    .into(),
+                                    .expect("TantivyValue should be a valid datetime value")
+                                    .pdb_owned_value(),
                             ),
                         },
                     },
@@ -331,47 +328,27 @@ mod pdb {
     ) -> anyhow::Result<pdb::Query> {
         let query = match (lower, upper) {
             (Bound::Included(s), Bound::Included(e)) => pdb::Query::Range {
-                lower_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(
-                    s,
-                )?)),
-                upper_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(
-                    e,
-                )?)),
+                lower_bound: Bound::Included(TantivyValue::try_from_anyelement(s)?.0),
+                upper_bound: Bound::Included(TantivyValue::try_from_anyelement(e)?.0),
             },
             (Bound::Included(s), Bound::Excluded(e)) => pdb::Query::Range {
-                lower_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(
-                    s,
-                )?)),
-                upper_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(
-                    e,
-                )?)),
+                lower_bound: Bound::Included(TantivyValue::try_from_anyelement(s)?.0),
+                upper_bound: Bound::Included(TantivyValue::try_from_anyelement(e)?.0),
             },
             (Bound::Included(s), Bound::Unbounded) => pdb::Query::Range {
-                lower_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(
-                    s,
-                )?)),
+                lower_bound: Bound::Included(TantivyValue::try_from_anyelement(s)?.0),
                 upper_bound: Bound::Unbounded,
             },
             (Bound::Excluded(s), Bound::Excluded(e)) => pdb::Query::Range {
-                lower_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(
-                    s,
-                )?)),
-                upper_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(
-                    e,
-                )?)),
+                lower_bound: Bound::Excluded(TantivyValue::try_from_anyelement(s)?.0),
+                upper_bound: Bound::Excluded(TantivyValue::try_from_anyelement(e)?.0),
             },
             (Bound::Excluded(s), Bound::Included(e)) => pdb::Query::Range {
-                lower_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(
-                    s,
-                )?)),
-                upper_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(
-                    e,
-                )?)),
+                lower_bound: Bound::Excluded(TantivyValue::try_from_anyelement(s)?.0),
+                upper_bound: Bound::Included(TantivyValue::try_from_anyelement(e)?.0),
             },
             (Bound::Excluded(s), Bound::Unbounded) => pdb::Query::Range {
-                lower_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(
-                    s,
-                )?)),
+                lower_bound: Bound::Excluded(TantivyValue::try_from_anyelement(s)?.0),
                 upper_bound: Bound::Unbounded,
             },
             (Bound::Unbounded, Bound::Unbounded) => pdb::Query::Range {
@@ -380,15 +357,11 @@ mod pdb {
             },
             (Bound::Unbounded, Bound::Included(e)) => pdb::Query::Range {
                 lower_bound: Bound::Unbounded,
-                upper_bound: Bound::Included(OwnedValue::from(TantivyValue::try_from_anyelement(
-                    e,
-                )?)),
+                upper_bound: Bound::Included(TantivyValue::try_from_anyelement(e)?.0),
             },
             (Bound::Unbounded, Bound::Excluded(e)) => pdb::Query::Range {
                 lower_bound: Bound::Unbounded,
-                upper_bound: Bound::Excluded(OwnedValue::from(TantivyValue::try_from_anyelement(
-                    e,
-                )?)),
+                upper_bound: Bound::Excluded(TantivyValue::try_from_anyelement(e)?.0),
             },
         };
 
@@ -422,7 +395,7 @@ mod pdb {
             pub fn $func_name(value: $value_type) -> pdb::Query {
                 let tantivy_value = TantivyValue::try_from(value)
                     .expect("value should be a valid TantivyValue representation")
-                    .tantivy_schema_value();
+                    .0;
 
                 pdb::Query::Term {
                     value: tantivy_value,
@@ -460,7 +433,7 @@ mod pdb {
                     .map(|term| {
                         TantivyValue::try_from(term)
                             .expect("value should be a valid TantivyValue representation")
-                            .tantivy_schema_value()
+                            .0
                     })
                     .collect::<Vec<_>>();
                 pdb::Query::TermSet { terms }
@@ -498,7 +471,7 @@ mod pdb {
                 pdb::Query::RangeTerm {
                     value: TantivyValue::try_from(term)
                         .expect("term should be a valid TantivyValue representation")
-                        .tantivy_schema_value(),
+                        .0,
                 }
             }
         };
@@ -558,12 +531,12 @@ mod pdb {
                             RangeBound::Inclusive(n) => Bound::Included(
                                 TantivyValue::try_from(n)
                                     .expect("value should be a valid TantivyValue representation")
-                                    .tantivy_schema_value(),
+                                    .0,
                             ),
                             RangeBound::Exclusive(n) => Bound::Excluded(
                                 TantivyValue::try_from(n)
                                     .expect("value should be a valid TantivyValue representation")
-                                    .tantivy_schema_value(),
+                                    .0,
                             ),
                         };
 
@@ -572,12 +545,12 @@ mod pdb {
                             RangeBound::Inclusive(n) => Bound::Included(
                                 TantivyValue::try_from(n)
                                     .expect("value should be a valid TantivyValue representation")
-                                    .tantivy_schema_value(),
+                                    .0,
                             ),
                             RangeBound::Exclusive(n) => Bound::Excluded(
                                 TantivyValue::try_from(n)
                                     .expect("value should be a valid TantivyValue representation")
-                                    .tantivy_schema_value(),
+                                    .0,
                             ),
                         };
 
@@ -606,32 +579,32 @@ mod pdb {
     range_term_range_fn!(
         range_term_range_int4range,
         pgrx::Range<i32>,
-        OwnedValue::I64(0)
+        PdbOwnedValue::I64(0)
     );
     range_term_range_fn!(
         range_term_range_int8range,
         pgrx::Range<i64>,
-        OwnedValue::I64(0)
+        PdbOwnedValue::I64(0)
     );
     range_term_range_fn!(
         range_term_range_numrange,
         pgrx::Range<pgrx::AnyNumeric>,
-        OwnedValue::F64(0.0)
+        PdbOwnedValue::F64(0.0)
     );
     range_term_range_fn!(
         range_term_range_daterange,
         pgrx::Range<pgrx::datum::Date>,
-        OwnedValue::Date(tantivy::DateTime::from_timestamp_micros(0))
+        PdbOwnedValue::Date(PostgresDateTime::try_from_raw(0).unwrap())
     );
     range_term_range_fn!(
         range_term_range_tsrange,
         pgrx::Range<pgrx::datum::Timestamp>,
-        OwnedValue::Date(tantivy::DateTime::from_timestamp_micros(0))
+        PdbOwnedValue::Date(PostgresDateTime::try_from_raw(0).unwrap())
     );
     range_term_range_fn!(
         range_term_range_tstzrange,
         pgrx::Range<pgrx::datum::TimestampWithTimeZone>,
-        OwnedValue::Date(tantivy::DateTime::from_timestamp_micros(0))
+        PdbOwnedValue::Date(PostgresDateTime::try_from_raw(0).unwrap())
     );
 
     #[derive(pgrx::AggregateName, Default)]
@@ -680,7 +653,7 @@ mod pdb {
                 .set_hint("use `pdb.term_set` with an `array_agg`").report(pgrx::PgLogLevel::WARNING);
             let inner = unsafe { current.get_or_insert_default::<HashSet<i64>>() };
             pdb::Query::TermSet {
-                terms: inner.iter().cloned().map(OwnedValue::I64).collect(),
+                terms: inner.iter().cloned().map(PdbOwnedValue::I64).collect(),
             }
         }
     }

@@ -19,6 +19,7 @@ use std::convert::identity;
 use std::sync::{Arc, OnceLock};
 
 use crate::index::reader::index::SearchIndexReader;
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::types::TantivyValue;
 use crate::postgres::types_arrow::date_time_to_ts_nanos;
 use crate::scan::deferred_encode::unpack_doc_address;
@@ -35,7 +36,6 @@ use datafusion::error::DataFusionError;
 use serde::{Deserialize, Serialize};
 use tantivy::columnar::{BytesColumn, StrColumn};
 use tantivy::fastfield::{Column, FastFieldReaders};
-use tantivy::schema::OwnedValue;
 use tantivy::termdict::TermOrdinal;
 use tantivy::SegmentOrdinal;
 use tantivy::{DocAddress, DocId};
@@ -219,7 +219,7 @@ impl FFType {
     #[inline(always)]
     pub fn value(&self, doc: DocId) -> TantivyValue {
         let value = match self {
-            FFType::Junk => TantivyValue(OwnedValue::Null),
+            FFType::Junk => TantivyValue(PdbOwnedValue::Null),
             FFType::Text(ff) => {
                 let mut s = String::new();
                 let ord = ff
@@ -238,32 +238,32 @@ impl FFType {
                     .expect("term ord should be retrievable");
                 ff.ord_to_bytes(ord, &mut bytes)
                     .expect("bytes should be retrievable for term ord");
-                TantivyValue(OwnedValue::Bytes(bytes))
+                TantivyValue(PdbOwnedValue::Bytes(bytes))
             }
             FFType::I64(ff) => TantivyValue(
                 ff.first(doc)
                     .map(|first| first.into())
-                    .unwrap_or(OwnedValue::Null),
+                    .unwrap_or(PdbOwnedValue::Null),
             ),
             FFType::F64(ff) => TantivyValue(
                 ff.first(doc)
                     .map(|first| first.into())
-                    .unwrap_or(OwnedValue::Null),
+                    .unwrap_or(PdbOwnedValue::Null),
             ),
             FFType::U64(ff) => TantivyValue(
                 ff.first(doc)
                     .map(|first| first.into())
-                    .unwrap_or(OwnedValue::Null),
+                    .unwrap_or(PdbOwnedValue::Null),
             ),
             FFType::Bool(ff) => TantivyValue(
                 ff.first(doc)
                     .map(|first| first.into())
-                    .unwrap_or(OwnedValue::Null),
+                    .unwrap_or(PdbOwnedValue::Null),
             ),
             FFType::Date(ff) => TantivyValue(
                 ff.first(doc)
                     .map(|first| first.into())
-                    .unwrap_or(OwnedValue::Null),
+                    .unwrap_or(PdbOwnedValue::Null),
             ),
         };
 

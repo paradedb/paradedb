@@ -235,12 +235,10 @@ fn build_outbound_senders(
 /// # Safety
 /// - `coordinate` must be the DSM region pointer PG supplied to
 ///   `initialize_dsm_custom_scan`.
-/// - `seg` must be the leader's `dsm_segment*`.
 /// - `plan_bytes` must have the same length passed to [`estimate_dsm_size`]
 ///   so the leader doesn't overrun the DSM region PG allocated.
 pub unsafe fn leader_setup(
     coordinate: *mut c_void,
-    seg: *mut pg_sys::dsm_segment,
     pcxt: *mut pg_sys::ParallelContext,
     plan_bytes: Vec<u8>,
 ) -> Result<MppLeaderState, String> {
@@ -248,7 +246,7 @@ pub unsafe fn leader_setup(
     let layout = compute_dsm_layout(total_procs, mpp_queue_size(), plan_bytes.len())
         .map_err(|e| format!("mpp: leader_setup compute layout: {e}"))?;
 
-    let attach = unsafe { leader_init(coordinate, seg, &layout, &plan_bytes) }?;
+    let attach = unsafe { leader_init(coordinate, &layout, &plan_bytes) }?;
 
     // Wrap the leader's own-inbox in a DsmInboxReceiver and feed it to a single DrainHandle.
     // Channel buffers (keyed by (sender_proc, stage_id, partition)) are created lazily on
@@ -320,13 +318,10 @@ pub struct MppWorkerState {
 /// # Safety
 /// - `coordinate` must be the DSM region pointer PG supplied.
 /// - `region_total` must match the DSM's attached size.
-/// - `seg` may be NULL; PG's `initialize_worker_custom_scan` does not
-///   surface the segment pointer.
 pub unsafe fn worker_setup(
     coordinate: *mut c_void,
     region_total: u64,
     worker_number: i32,
-    seg: *mut pg_sys::dsm_segment,
 ) -> Result<MppWorkerState, String> {
     if worker_number < 0 {
         return Err("mpp: worker_number < 0".into());
@@ -336,7 +331,7 @@ pub unsafe fn worker_setup(
     let proc_idx = (worker_number as u32) + 1;
 
     let (header, plan_bytes, attach) =
-        unsafe { worker_attach(coordinate, region_total, proc_idx, seg) }?;
+        unsafe { worker_attach(coordinate, region_total, proc_idx) }?;
     let total_procs = header.n_procs;
 
     let mut outbound_senders =

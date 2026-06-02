@@ -671,7 +671,6 @@ impl ParallelQueryCapable for AggregateScan {
         let Some(plan_bytes) = df_state.mpp_plan_bytes.take() else {
             return;
         };
-        let seg = unsafe { (*pcxt).seg };
 
         // Capture manifests + size the ParallelScanState block.
         Self::ensure_source_manifests(state);
@@ -725,7 +724,7 @@ impl ParallelQueryCapable for AggregateScan {
         // Init the MPP region.
         let mpp_coordinate =
             unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut std::os::raw::c_void };
-        let leader = match unsafe { leader_setup(mpp_coordinate, seg, pcxt, plan_bytes) } {
+        let leader = match unsafe { leader_setup(mpp_coordinate, pcxt, plan_bytes) } {
             Ok(l) => l,
             Err(e) => {
                 pgrx::warning!("mpp: leader_setup failed: {e}; falling back to serial");
@@ -786,14 +785,7 @@ impl ParallelQueryCapable for AggregateScan {
             unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut std::os::raw::c_void };
         let region_total = unsafe { (*mpp_coordinate.cast::<MppDsmHeader>()).region_total };
         let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
-        let worker = match unsafe {
-            worker_setup(
-                mpp_coordinate,
-                region_total,
-                worker_number,
-                std::ptr::null_mut(),
-            )
-        } {
+        let worker = match unsafe { worker_setup(mpp_coordinate, region_total, worker_number) } {
             Ok(w) => w,
             Err(e) => {
                 pgrx::warning!("mpp: worker_setup failed: {e}; falling back to serial");

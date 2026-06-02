@@ -867,8 +867,7 @@ impl ParallelQueryCapable for JoinScan {
         };
 
         let mpp_coordinate = unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut c_void };
-        let seg = unsafe { (*pcxt).seg };
-        match unsafe { leader_setup(mpp_coordinate, seg, pcxt, plan_bytes) } {
+        match unsafe { leader_setup(mpp_coordinate, pcxt, plan_bytes) } {
             Ok(leader) => {
                 state.custom_state_mut().mpp = Some(MppExecState::Leader(leader));
             }
@@ -928,14 +927,7 @@ impl ParallelQueryCapable for JoinScan {
                 .region_total
         };
         let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
-        match unsafe {
-            worker_setup(
-                mpp_coordinate,
-                region_total,
-                worker_number,
-                std::ptr::null_mut(),
-            )
-        } {
+        match unsafe { worker_setup(mpp_coordinate, region_total, worker_number) } {
             Ok(worker) => {
                 state.custom_state_mut().mpp = Some(MppExecState::Worker(worker));
             }

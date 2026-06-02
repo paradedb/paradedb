@@ -399,16 +399,20 @@ async fn generated_group_by_aggregates(database: Db) {
         let select_list = group_by_expr.to_select_list();
         let group_by_clause = group_by_expr.to_sql();
 
-        // use every item in GROUP BY target list for ORDER BY sorting
-        // to ensure deterministic tie-breaking and prevent flaky tests
-        // if multiple targets are used in GROUP BY
-        let order_by_items: Vec<String> = group_by_expr.target_list
+        let order_by_items: Vec<String> = if group_by_expr.group_by_columns.is_empty() {
+            group_by_expr.target_list
             .iter()
             .map(|item| match item {
                 SelectItem::Column(col) => format!("{col} ASC NULLS LAST"),
                 SelectItem::Aggregate(agg) => format!("{agg} ASC NULLS LAST"),
             })
-            .collect();
+            .collect()
+        } else {
+            group_by_expr.group_by_columns
+            .iter()
+            .map(|item| {format!("{item} ASC NULLS LAST")})
+            .collect()
+    };
         let order_by_clause = format!("ORDER BY {}", order_by_items.join(", "));
 
         // Create combined WHERE clause for PostgreSQL using = operator

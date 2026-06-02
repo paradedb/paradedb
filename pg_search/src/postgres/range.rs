@@ -16,11 +16,10 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::types::{TantivyValue, TantivyValueError};
-use crate::query::numeric::{bytes_to_hex, hex_to_decimal};
+use crate::query::numeric::bytes_to_hex;
 use crate::schema::range::{TantivyRange, TantivyRangeBuilder};
 use decimal_bytes::Decimal;
 use pgrx::datum::{Date, RangeBound, Timestamp, TimestampWithTimeZone};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::str::FromStr;
 
 use super::pdb_owned_value::PdbOwnedValue;
@@ -52,31 +51,6 @@ impl TryFrom<SortableDecimal> for TantivyValue {
         // - Hex chars compare in the same order as byte values
         let hex_str = bytes_to_hex(value.0.as_bytes());
         Ok(TantivyValue(PdbOwnedValue::Str(hex_str)))
-    }
-}
-
-impl Serialize for SortableDecimal {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // Serialize as hex-encoded sortable bytes.
-        // Hex encoding preserves lexicographic ordering since:
-        // - Each byte maps to exactly 2 hex chars
-        // - Hex chars compare in the same order as byte values
-        serializer.serialize_str(&bytes_to_hex(self.0.as_bytes()))
-    }
-}
-
-impl<'de> Deserialize<'de> for SortableDecimal {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let hex_str = String::deserialize(deserializer)?;
-        let decimal = hex_to_decimal(&hex_str)
-            .ok_or_else(|| serde::de::Error::custom("invalid hex string"))?;
-        Ok(SortableDecimal(decimal))
     }
 }
 

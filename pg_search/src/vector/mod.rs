@@ -41,7 +41,7 @@ impl FromDatum for PgVector {
         let detoasted = pg_sys::pg_detoast_datum(ptr);
         let data = pgrx::varlena::vardata_any(detoasted);
         let dim = *(data as *const i16) as usize;
-        let floats_ptr = (data as *const u8).add(4) as *const f32;
+        let floats_ptr = data.add(4) as *const f32;
         let floats = std::slice::from_raw_parts(floats_ptr, dim).to_vec();
         if detoasted != ptr {
             pg_sys::pfree(detoasted as *mut std::ffi::c_void);

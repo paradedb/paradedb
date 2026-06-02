@@ -283,16 +283,14 @@ mod pdb {
                             RangeBound::Inclusive(n) => Bound::Included(
                                 TantivyValue::try_from(n)
                                     .expect("n should be a valid TantivyValue representation")
-                                    .as_datetime()
-                                    .expect("TantivyValue should be a valid datetime value")
-                                    .pdb_owned_value(),
+                                    .into_owned_datetime()
+                                    .expect("TantivyValue should be a valid datetime value"),
                             ),
                             RangeBound::Exclusive(n) => Bound::Excluded(
                                 TantivyValue::try_from(n)
                                     .expect("n should be a valid TantivyValue representation")
-                                    .as_datetime()
-                                    .expect("TantivyValue should be a valid datetime value")
-                                    .pdb_owned_value(),
+                                    .into_owned_datetime()
+                                    .expect("TantivyValue should be a valid datetime value"),
                             ),
                         },
                         upper_bound: match upper {
@@ -300,16 +298,14 @@ mod pdb {
                             RangeBound::Inclusive(n) => Bound::Included(
                                 TantivyValue::try_from(n)
                                     .expect("n should be a valid TantivyValue representation")
-                                    .as_datetime()
-                                    .expect("TantivyValue should be a valid datetime value")
-                                    .pdb_owned_value(),
+                                    .into_owned_datetime()
+                                    .expect("TantivyValue should be a valid datetime value"),
                             ),
                             RangeBound::Exclusive(n) => Bound::Excluded(
                                 TantivyValue::try_from(n)
                                     .expect("n should be a valid TantivyValue representation")
-                                    .as_datetime()
-                                    .expect("TantivyValue should be a valid datetime value")
-                                    .pdb_owned_value(),
+                                    .into_owned_datetime()
+                                    .expect("TantivyValue should be a valid datetime value"),
                             ),
                         },
                     },

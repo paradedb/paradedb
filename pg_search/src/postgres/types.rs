@@ -63,13 +63,9 @@ impl From<TantivyValue> for tantivy::schema::OwnedValue {
 }
 
 impl TantivyValue {
-    pub fn pdb_owned_value(&self) -> PdbOwnedValue {
-        self.0.clone()
-    }
-
-    pub fn as_datetime(&self) -> Option<&Self> {
+    pub fn into_owned_datetime(self) -> Option<PdbOwnedValue> {
         match self.0 {
-            PdbOwnedValue::Date(_) => Some(self),
+            PdbOwnedValue::Date(_) => Some(self.0),
             _ => None,
         }
     }

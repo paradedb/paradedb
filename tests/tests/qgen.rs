@@ -18,7 +18,7 @@
 mod fixtures;
 
 use crate::fixtures::querygen::crossrelgen::arb_cross_rel_expr;
-use crate::fixtures::querygen::groupbygen::{arb_group_by, SelectItem};
+use crate::fixtures::querygen::groupbygen::arb_group_by;
 use crate::fixtures::querygen::joingen::{arb_joins, arb_semi_joins, JoinType};
 use crate::fixtures::querygen::numericgen::arb_numeric_expr;
 use crate::fixtures::querygen::pagegen::arb_paging_exprs;
@@ -399,21 +399,15 @@ async fn generated_group_by_aggregates(database: Db) {
         let select_list = group_by_expr.to_select_list();
         let group_by_clause = group_by_expr.to_sql();
 
-        let order_by_items: Vec<String> = if group_by_expr.group_by_columns.is_empty() {
-            group_by_expr.target_list
-            .iter()
-            .map(|item| match item {
-                SelectItem::Column(col) => format!("{col} ASC NULLS LAST"),
-                SelectItem::Aggregate(agg) => format!("{agg} ASC NULLS LAST"),
-            })
-            .collect()
+        let order_by_and_offset_clause: String = if group_by_expr.group_by_columns.is_empty() {
+            String::new()
         } else {
-            group_by_expr.group_by_columns
-            .iter()
-            .map(|item| {format!("{item} ASC NULLS LAST")})
-            .collect()
+            let order_by_items: Vec<String> = group_by_expr.group_by_columns
+                .iter()
+                .map(|item| {format!("{item} ASC NULLS LAST")})
+                .collect();
+            format!("ORDER BY {} OFFSET {offset}", order_by_items.join(", "))
         };
-        let order_by_clause = format!("ORDER BY {}", order_by_items.join(", "));
 
         // Create combined WHERE clause for PostgreSQL using = operator
         let pg_where_clause = format!(
@@ -430,11 +424,11 @@ async fn generated_group_by_aggregates(database: Db) {
         );
 
         let pg_query = format!(
-            "SELECT {select_list} FROM {table_name} WHERE {pg_where_clause} {group_by_clause} {order_by_clause} LIMIT {limit} OFFSET {offset}",
+            "SELECT {select_list} FROM {table_name} WHERE {pg_where_clause} {group_by_clause} {order_by_and_offset_clause} LIMIT {limit}",
         );
 
         let bm25_query = format!(
-            "SELECT {select_list} FROM {table_name} WHERE {bm25_where_clause} {group_by_clause} {order_by_clause} LIMIT {limit} OFFSET {offset}",
+            "SELECT {select_list} FROM {table_name} WHERE {bm25_where_clause} {group_by_clause} {order_by_and_offset_clause} LIMIT {limit}",
         );
 
         // Custom result comparator for GROUP BY results

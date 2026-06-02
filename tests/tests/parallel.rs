@@ -39,8 +39,7 @@ async fn test_simultaneous_commits_with_bm25(database: Db) -> Result<()> {
     let mut conn1 = database.connection().await;
 
     // Create table once using any of the connections.
-    r#"CREATE EXTENSION IF NOT EXISTS vector;
-    CREATE EXTENSION IF NOT EXISTS pg_search;
+    r#"CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
 
     CREATE TABLE concurrent_items (
       id SERIAL PRIMARY KEY,
@@ -109,8 +108,7 @@ async fn test_statement_level_locking(database: Db) -> Result<()> {
     let mut conn = database.connection().await;
 
     // Create tables and indexes
-    r#"CREATE EXTENSION IF NOT EXISTS vector;
-    CREATE EXTENSION IF NOT EXISTS pg_search;
+    r#"CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
     CREATE TABLE index_a (
       id SERIAL PRIMARY KEY,
       content TEXT
@@ -221,8 +219,7 @@ async fn test_parallel_hash_join_race_condition(database: Db) -> Result<()> {
     let mut conn = database.connection().await;
 
     // Create extension and tables
-    r#"CREATE EXTENSION IF NOT EXISTS vector;
-    CREATE EXTENSION IF NOT EXISTS pg_search;
+    r#"CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
 
     DROP TABLE IF EXISTS document_text CASCADE;
     DROP TABLE IF EXISTS core CASCADE;
@@ -387,8 +384,7 @@ async fn test_parallel_scan_with_segments_exceeding_target(database: Db) -> Resu
 
     // Set target segment count to 1 to lower the threshold for triggering the overflow
     r#"
-    CREATE EXTENSION IF NOT EXISTS vector;
-    CREATE EXTENSION IF NOT EXISTS pg_search;
+    CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
 
     CREATE TABLE test (
         id SERIAL PRIMARY KEY,

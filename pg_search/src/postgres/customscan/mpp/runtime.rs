@@ -34,12 +34,12 @@
 use std::ops::Range;
 use std::sync::Arc;
 
+use datafusion::arrow::array::RecordBatch;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
 use datafusion::physical_expr_common::metrics::ExecutionPlanMetricsSet;
-use datafusion_distributed::{
-    RemoteStage, WorkerConnection, WorkerPartitionStream, WorkerTransport,
-};
+use datafusion_distributed::{RemoteStage, WorkerConnection, WorkerTransport};
+use futures::stream::BoxStream;
 
 use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, DrainHandle, DrainItem};
 
@@ -210,7 +210,7 @@ struct ShmMqWorkerConnection {
 }
 
 impl WorkerConnection for ShmMqWorkerConnection {
-    fn stream_partition(&self, partition: usize) -> Result<WorkerPartitionStream> {
+    fn execute(&self, partition: usize) -> Result<BoxStream<'static, Result<RecordBatch>>> {
         let partition_u32 = u32::try_from(partition).map_err(|_| {
             DataFusionError::Internal(format!(
                 "ShmMqWorkerConnection: partition={partition} > u32::MAX"
@@ -232,7 +232,7 @@ impl WorkerConnection for ShmMqWorkerConnection {
         // their own channel buffers, so this consumer only sees its slice.
         let buffer = drain.register_channel(self.stage_id, partition_u32);
         crate::mpp_log!(
-            "mpp transport::stream_partition this_proc={} sender_proc={} stage_id={} \
+            "mpp transport::execute this_proc={} sender_proc={} stage_id={} \
              partition={partition_u32} (register_channel)",
             self.mesh.this_proc,
             self.sender_proc,

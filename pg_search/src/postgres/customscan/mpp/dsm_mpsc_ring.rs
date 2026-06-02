@@ -140,7 +140,7 @@ const CACHE_LINE: usize = 64;
 
 /// Ring header. Laid out first in the DSM region; slot array follows immediately after.
 ///
-/// Cache-line padding around `head` and `tail` is load-bearing: under N=24 producer
+/// Cache-line padding around `head` and `tail` isn't optional: under N=24 producer
 /// contention the consumer's `head.store` and the producers' `tail.compare_exchange`
 /// race on the same line, MESI-ping-ponging on every drain/claim. That's exactly the
 /// false-sharing footgun Vyukov's MPMC writeups call out; the Disruptor literature

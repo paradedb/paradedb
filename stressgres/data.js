@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780420818451,
+  "lastUpdate": 1780437119063,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3090,6 +3090,78 @@ window.BENCHMARK_DATA = {
             "value": 33.193903705456826,
             "unit": "median tps",
             "extra": "avg tps: 43.04401417941942, max tps: 755.4741658054262, count: 55184"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0ba79ed3982cfe5a9a05ca3199acef4c3d0a0995",
+          "message": "fix: Support modern emoji in unicode_words tokenizer (#5232)\n\n# Ticket(s) Closed\n\nWhile looking for dependencies to remove, I found the `emoji` crate. It\nwas only used in the `unicode_words` crate in one place. After looking\nmore closely I realized that this is a good dependency to keep as the\nlist of emojis is updated frequently and using a crate allows us to stay\nup to date with new versions. The `emoji` crate has not been updated in\nmany years so I'm replacing it with `emojis` instead which has the most\nrecent unicode and is actively maintained.\n\nBefore this change modern emojis would be removed from the tokenized\noutput (whether or not `remove_emojis` was set) because the crate did\nnot recognize them.\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-02T17:31:31-04:00",
+          "tree_id": "e8b720605ecf9e08815aacef7bf3ef870ad1224e",
+          "url": "https://github.com/paradedb/paradedb/commit/0ba79ed3982cfe5a9a05ca3199acef4c3d0a0995"
+        },
+        "date": 1780437087707,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 137.29847115967985,
+            "unit": "median tps",
+            "extra": "avg tps: 137.14601959769922, max tps: 162.63450150492358, count: 55071"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 514.5197147013679,
+            "unit": "median tps",
+            "extra": "avg tps: 514.6685662100381, max tps: 661.5424963115905, count: 55071"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3310.293353633134,
+            "unit": "median tps",
+            "extra": "avg tps: 3299.168852802235, max tps: 3326.059560216101, count: 55071"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 419.78779436655014,
+            "unit": "median tps",
+            "extra": "avg tps: 421.2178984066725, max tps: 460.4510179113911, count: 55071"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2780.461657972345,
+            "unit": "median tps",
+            "extra": "avg tps: 2787.440565939808, max tps: 2875.1684289596014, count: 110142"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 502.2870826589041,
+            "unit": "median tps",
+            "extra": "avg tps: 502.7456720897892, max tps: 647.0937392325877, count: 55071"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 2000.4938772852822,
+            "unit": "median tps",
+            "extra": "avg tps: 1984.5924307441592, max tps: 2030.6632388538733, count: 55071"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 55.86322719721809,
+            "unit": "median tps",
+            "extra": "avg tps: 53.144875626386536, max tps: 206.81145950569578, count: 55071"
           }
         ]
       }

@@ -42,7 +42,7 @@ mod pdb {
         stopwords: default!(Option<Vec<String>>, "NULL"),
     ) -> SearchQueryInput {
         let document: HashMap<String, tantivy::schema::OwnedValue> =
-            json5::from_str(&document).expect("could not parse document_fields");
+            serde_json::from_str(&document).expect("could not parse document_fields");
 
         SearchQueryInput::MoreLikeThis {
             min_doc_frequency: min_doc_frequency.map(|n| n as u64),

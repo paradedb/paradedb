@@ -1413,64 +1413,6 @@ impl SearchQueryInput {
     }
 }
 
-fn serialize_date_aware_owned_value_date<S>(
-    value: &PostgresDateTime,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let ov = PdbOwnedValue::Date(*value);
-    ov.serialize(serializer)
-}
-fn deserialize_date_aware_owned_value_date<'de, D>(
-    deserializer: D,
-) -> Result<PostgresDateTime, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    match PdbOwnedValue::deserialize(deserializer)? {
-        PdbOwnedValue::Date(pgdt) => Ok(pgdt),
-        PdbOwnedValue::Str(s) => {
-            PostgresDateTime::try_from(s.as_str()).map_err(serde::de::Error::custom)
-        }
-        _ => Err(serde::de::Error::invalid_value(
-            serde::de::Unexpected::Other("a non-datetime value"),
-            &"a datetime value",
-        )),
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(untagged)]
-enum DateAwarePdbOwnedValue {
-    Date {
-        // serde through PdbOwnedValue so we get the same datetime serialization
-        #[serde(
-            serialize_with = "serialize_date_aware_owned_value_date",
-            deserialize_with = "deserialize_date_aware_owned_value_date"
-        )]
-        date: PostgresDateTime,
-    },
-    Other(PdbOwnedValue),
-}
-impl From<PdbOwnedValue> for DateAwarePdbOwnedValue {
-    fn from(value: PdbOwnedValue) -> Self {
-        match value {
-            PdbOwnedValue::Date(date) => Self::Date { date },
-            _ => Self::Other(value),
-        }
-    }
-}
-impl From<DateAwarePdbOwnedValue> for PdbOwnedValue {
-    fn from(value: DateAwarePdbOwnedValue) -> PdbOwnedValue {
-        match value {
-            DateAwarePdbOwnedValue::Date { date } => PdbOwnedValue::Date(date),
-            DateAwarePdbOwnedValue::Other(owned) => owned,
-        }
-    }
-}
-
 /// Convert a string-encoded numeric value to the appropriate type based on field type.
 /// Used for JSON field comparisons where NUMERIC constants need to match stored JSON numbers.
 fn convert_for_field_type(value: &PdbOwnedValue, field_type: &FieldType) -> PdbOwnedValue {

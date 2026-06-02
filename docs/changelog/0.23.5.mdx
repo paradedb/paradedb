@@ -1,0 +1,23 @@
+---
+title: 0.23.5
+noindex: true
+---
+
+## New Features 🎉
+
+- Aggregate-on-join pushdown now handles `IN (SELECT ...)`, `NOT IN (SELECT ...)`, `EXISTS`, and `NOT EXISTS` subqueries end-to-end, including null-aware semantics for `NOT IN` against NULL-bearing inner rows.
+
+## Stability Improvements 💪
+
+- Hold the header shared lock during `LinkedItemList` iteration to prevent an FSM race that could cause segfaults or index corruption under sustained write traffic.
+- Ignore segments with dead PIDs during merge so that segments from aborted merges are not permanently blocked from re-merging.
+- Quote the `key_field` identifier in `pdb.more_like_this`'s internal SPI lookup so that mixed-case key field columns (e.g. `"Id"`, `"DocumentId"`) work correctly.
+- Fix text casts and memory layout for tokenizer types so that they function as regular SQL types (writable to disk, reallocatable across memory contexts).
+- Turn off `paradedb.enable_columnar_sort` by default.
+
+## New Contributors 👋
+
+- [@SBALAVIGNESH123](https://github.com/SBALAVIGNESH123) made their first contribution in [#5067](https://github.com/paradedb/paradedb/pull/5067)
+- [@daniel3303](https://github.com/daniel3303) made their first contribution in [#5078](https://github.com/paradedb/paradedb/pull/5078)
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.23.5).

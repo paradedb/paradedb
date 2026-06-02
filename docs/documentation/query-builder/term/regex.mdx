@@ -54,6 +54,13 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.Regex(item.Description, "key.*"))
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ParadeDB supports all regex constructs of the Rust [regex](https://docs.rs/regex/latest/regex/) crate, with the following exceptions:

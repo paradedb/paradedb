@@ -12,7 +12,7 @@ on:
   # (community) the job-level `if` below short-circuits the schedule trigger. The cron
   # entry stays here so the same workflow file can be synced between the two repos.
   schedule:
-    - cron: "0 2 * * 2,4" # At 02:00 UTC on Tuesday and Thursday (Monday night and Wednesday night)
+    - cron: "0 2 * * 1,4" # At 02:00 UTC on Monday and Thursday (Sunday night and Wednesday night)
   pull_request:
     types: [labeled]
   workflow_dispatch:
@@ -255,7 +255,7 @@ jobs:
       - cpu=16
       - ram=64
       - image=ubuntu24-full-x64
-      - volume=80gb # default runner ships with 40GB — see https://runs-on.com/runners/linux/
+      - volume=80gb # default runner ships with 30GB — see https://runs-on.com/runners/linux/
       - extras=s3-cache
     strategy:
       fail-fast: false

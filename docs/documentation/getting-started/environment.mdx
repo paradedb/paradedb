@@ -59,7 +59,7 @@ You're all set! Try [running some queries](/documentation/getting-started/querie
 
 </Accordion>
 
-<Accordion title="Drizzle">
+<Accordion title="Drizzle (JavaScript)">
 To get started, create a TypeScript project with [Drizzle](https://orm.drizzle.team/), [postgres.js](https://github.com/porsager/postgres), and [@paradedb/drizzle-paradedb](https://www.npmjs.com/package/@paradedb/drizzle-paradedb) installed.
 
 ```bash
@@ -201,7 +201,7 @@ You're all set! Try [running some queries](/documentation/getting-started/querie
 
 </Accordion>
 
-<Accordion title="Django">
+<Accordion title="Django (Python)">
 To start you'll need a [Django](https://www.djangoproject.com/) project with [Psycopg](https://www.psycopg.org/) and [django-paradedb](https://pypi.org/project/django-paradedb/) installed. Run the following to create one:
 
 ```bash
@@ -319,7 +319,7 @@ You're all set! Try [running some queries](/documentation/getting-started/querie
 
 </Accordion>
 
-<Accordion title="SQLAlchemy">
+<Accordion title="SQLAlchemy (Python)">
 To get started, install [SQLAlchemy](https://www.sqlalchemy.org/), [Alembic](https://alembic.sqlalchemy.org/en/latest/), [Psycopg](https://www.psycopg.org/), and [sqlalchemy-paradedb](https://pypi.org/project/sqlalchemy-paradedb/).
 
 ```bash
@@ -572,7 +572,7 @@ You're all set! Try [running some queries](/documentation/getting-started/querie
 
 </Accordion>
 
-<Accordion title="Rails">
+<Accordion title="Rails (Ruby)">
 To get started, create a [Rails](https://rubyonrails.org/) app that uses PostgreSQL.
 
 ```bash
@@ -702,5 +702,187 @@ You're all set! Open the Rails console and [run some queries](/documentation/get
 ```bash
 rails console
 ```
+
+</Accordion>
+
+<Accordion title="Entity Framework Core (C#)">
+To get started, create a .NET project with [EF Core](https://learn.microsoft.com/en-us/ef/core/), [Npgsql.EntityFrameworkCore.PostgreSQL](https://www.nuget.org/packages/npgsql.entityframeworkcore.postgresql), and [ParadeDB.EntityFrameworkCore](https://www.nuget.org/packages/ParadeDB.EntityFrameworkCore) installed.
+
+```bash
+dotnet new console --framework net10.0
+dotnet new tool-manifest
+dotnet tool install dotnet-ef
+dotnet add package Microsoft.EntityFrameworkCore.Design
+dotnet add package Npgsql.EntityFrameworkCore.PostgreSQL
+dotnet add package ParadeDB.EntityFrameworkCore --version 0.1.0
+```
+
+<Note>
+  This console app uses `OnConfiguring` to keep the example self-contained. In
+  ASP.NET Core or another app with dependency injection, register ParadeDB
+  through `UseNpgsql` in `Program.cs`:
+
+```cs
+builder.Services.AddDbContextPool<AppDbContext>(opt =>
+{
+    opt.UseNpgsql(
+        builder.Configuration.GetConnectionString("AppDatabase"),
+        o => o.UseParadeDb()
+    );
+});
+```
+
+</Note>
+
+Replace `Program.cs` with a DbContext, model, and query scratchpad for ParadeDB's built-in test table:
+
+```cs Program.cs
+using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
+using NpgsqlTypes;
+using ParadeDB.EntityFrameworkCore.Extensions;
+
+await using var dbContext = new AppDbContext();
+
+// Replace this with the query you want to run.
+var results = await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAny(item.Description, "running shoes") && item.Rating > 2
+    )
+    .OrderBy(item => item.Rating)
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .Take(5)
+    .ToListAsync();
+
+PrintResults(results);
+
+static void PrintResults<T>(IReadOnlyList<T> rows)
+{
+  var properties = typeof(T).GetProperties();
+
+  foreach (var property in properties)
+  {
+      Console.Write($"{property.Name,-24}");
+  }
+
+  Console.WriteLine();
+  Console.WriteLine(new string('-', properties.Length * 24));
+
+  foreach (var row in rows)
+  {
+      foreach (var property in properties)
+      {
+          var value = property.GetValue(row)?.ToString() ?? "";
+          value = value.Length > 21 ? value[..21] + "..." : value;
+
+          Console.Write($"{value,-24}");
+      }
+
+      Console.WriteLine();
+  }
+}
+
+public sealed class AppDbContext : DbContext
+{
+    public DbSet<MockItem> MockItems => Set<MockItem>();
+
+    protected override void OnConfiguring(DbContextOptionsBuilder options) =>
+        options.UseNpgsql("Host=localhost;Port=5432;Database=mydatabase;Username=myuser;Password=mypassword", npgsql => npgsql.UseParadeDb());
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<MockItem>(entity =>
+        {
+            entity.ToTable("mock_items");
+            entity.HasKey(item => item.Id);
+
+            entity.Property(item => item.Id).HasColumnName("id");
+            entity.Property(item => item.Description).HasColumnName("description");
+            entity.Property(item => item.Rating).HasColumnName("rating");
+            entity.Property(item => item.Category).HasColumnName("category").HasColumnType("varchar(255)");
+            entity.Property(item => item.InStock).HasColumnName("in_stock");
+            entity.Property(item => item.Metadata).HasColumnName("metadata").HasColumnType("jsonb");
+            entity.Property(item => item.CreatedAt).HasColumnName("created_at").HasColumnType("timestamp");
+            entity.Property(item => item.LastUpdatedDate).HasColumnName("last_updated_date").HasColumnType("date");
+            entity.Property(item => item.LatestAvailableTime).HasColumnName("latest_available_time").HasColumnType("time");
+            entity.Property(item => item.WeightRange).HasColumnName("weight_range").HasColumnType("int4range");
+
+            entity
+                .HasBm25Index("search_idx", item => item.Id)
+                .HasField(item => item.Description)
+                .HasField(item => item.Category)
+                .HasField(item => item.Rating)
+                .HasField(item => item.InStock)
+                .HasField(item => item.Metadata)
+                .HasField(item => item.CreatedAt)
+                .HasField(item => item.LastUpdatedDate)
+                .HasField(item => item.LatestAvailableTime)
+                .HasField(item => item.WeightRange);
+        });
+    }
+}
+
+public sealed class MockItem
+{
+    public int Id { get; set; }
+    public string? Description { get; set; }
+    public int? Rating { get; set; }
+    public string? Category { get; set; }
+    public bool? InStock { get; set; }
+    public JsonDocument? Metadata { get; set; }
+    public DateTime? CreatedAt { get; set; }
+    public DateOnly? LastUpdatedDate { get; set; }
+    public TimeOnly? LatestAvailableTime { get; set; }
+    public NpgsqlRange<int>? WeightRange { get; set; }
+}
+```
+
+<Note>
+  As a general rule of thumb, any columns that you want to filter, `GROUP BY`,
+  `ORDER BY`, or aggregate as part of a full text query should be added to the
+  index for faster performance.
+</Note>
+
+<Note>
+  Note the mandatory `key_field` option. See [choosing a key
+  field](/documentation/indexing/create-index#choosing-a-key-field) for more
+  details.
+</Note>
+
+Create the EF Core migration:
+
+```bash
+dotnet ef migrations add CreateMockItems
+```
+
+Open the generated migration in `Migrations/*_CreateMockItems.cs` and add this seed step to the end of the `Up` method:
+
+```cs
+migrationBuilder.Sql("""
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name  => 'mock_items_tmp'
+    );
+
+    INSERT INTO public.mock_items
+    SELECT * FROM public.mock_items_tmp;
+
+    DROP TABLE public.mock_items_tmp;
+    """);
+```
+
+Then apply the migration:
+
+```bash
+dotnet ef database update
+```
+
+This creates `mock_items`, the BM25 index, and loads the mock data. Now, run the query included in `Program.cs`:
+
+```bash
+dotnet run
+```
+
+You're all set! Try [running some queries](/documentation/getting-started/queries) by adding them to `Program.cs`.
 
 </Accordion>

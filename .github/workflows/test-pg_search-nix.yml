@@ -54,10 +54,6 @@ jobs:
       - name: Install Determinate Nix
         uses: DeterminateSystems/determinate-nix-action@main
 
-      # This Action uses GitHub Actions' built-in cache to speed up Nix-related CI workflows
-      - name: Use Magic Nix Cache Action
-        uses: DeterminateSystems/magic-nix-cache-action@main
-
       # Build only cargo deps to surface cargoHash mismatches quickly, without
       # compiling pg_search for every Postgres variant. If the hash is stale,
       # compute the correct one and push a fix commit to the PR branch.

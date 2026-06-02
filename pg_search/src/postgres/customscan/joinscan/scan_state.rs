@@ -1054,10 +1054,15 @@ fn build_source_df<'a>(
         let mut provider =
             PgSearchTableProvider::new(scan_info.clone(), fields.clone(), is_parallel);
 
-        // Mark non-partitioning sources so execution can retrieve the correct
-        // canonical segment IDs during decode.
+        // Both MPP and PG-parallel hash join need the canonical-segment-id
+        // replication so every worker sees the full build side, hence the outer
+        // `set_non_partitioning_index`. The MPP per-source claim counter goes on
+        // top of that and PG-parallel doesn't want it.
         if let Some(idx) = np_idx {
             provider.set_non_partitioning_index(idx);
+            if crate::postgres::customscan::mpp::glue::mpp_is_active() {
+                provider.set_mpp_source_idx(plan_position);
+            }
         }
 
         if let Some(ref sort_order) = scan_info.sort_order {

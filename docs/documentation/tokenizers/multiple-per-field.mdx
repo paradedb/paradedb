@@ -116,6 +116,27 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```cs EF Core
+// Query against `description_simple`
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAny(
+            EF.Functions.Alias(item.Description, "description_simple"),
+            "Sleek running shoes"
+        )
+    )
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
+
+// Query against `description`
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAny(item.Description, "Sleek running shoes")
+    )
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 <Note>

@@ -34,7 +34,7 @@ pub unsafe extern "C-unwind" fn aminitparallelscan(target: *mut ::core::ffi::c_v
 pub unsafe extern "C-unwind" fn amparallelrescan(scan: pg_sys::IndexScanDesc) {
     // PostgreSQL calls this before a rescan to reset the parallel scan state.
     // Mark as uninitialized so workers wait for leader to re-populate.
-    if let Some(state) = get_bm25_scan_state(&mut (scan as *mut _)) {
+    if let Some(state) = get_bm25_scan_state(scan) {
         let _mutex = state.acquire_mutex();
         state.mark_uninitialized();
     }
@@ -104,7 +104,7 @@ unsafe fn bm25_shared_state(
 /// use ParallelWorker visibility to see the same segments.
 /// Segments are NOT claimed here - they're claimed lazily in amgettuple/amgetbitmap.
 pub unsafe fn maybe_init_parallel_scan(
-    mut scan: pg_sys::IndexScanDesc,
+    scan: pg_sys::IndexScanDesc,
     searcher: &SearchIndexReader,
 ) -> Option<i32> {
     if unsafe { (*scan).parallel_scan.is_null() } {
@@ -115,7 +115,7 @@ pub unsafe fn maybe_init_parallel_scan(
     // Read indexRelation before mutable borrow of scan
     let rel = (*scan).indexRelation;
 
-    let state = get_bm25_scan_state(&mut scan)?;
+    let state = get_bm25_scan_state(scan)?;
 
     let _mutex = state.acquire_mutex();
 
@@ -141,11 +141,11 @@ pub unsafe fn maybe_init_parallel_scan(
 /// Claim a segment from the shared pool.
 /// Both leader and workers use this to get work.
 /// All participants wait for initialization before attempting to claim.
-pub unsafe fn maybe_claim_segment(mut scan: pg_sys::IndexScanDesc) -> Option<SegmentId> {
-    get_bm25_scan_state(&mut scan)?.checkout_segment()
+pub unsafe fn maybe_claim_segment(scan: pg_sys::IndexScanDesc) -> Option<SegmentId> {
+    get_bm25_scan_state(scan)?.checkout_segment()
 }
 
-fn get_bm25_scan_state(scan: &mut pg_sys::IndexScanDesc) -> Option<&mut ParallelScanState> {
+pub fn get_bm25_scan_state<'a>(scan: pg_sys::IndexScanDesc) -> Option<&'a mut ParallelScanState> {
     unsafe {
         assert!(!scan.is_null());
         let scan = scan.as_mut().unwrap_unchecked();

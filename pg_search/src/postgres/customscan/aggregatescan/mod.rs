@@ -45,9 +45,8 @@ use datafusion_distributed::{display_plan_ascii, DistributedExec, DistributedTas
 
 use crate::postgres::customscan::mpp::dsm::MppDsmHeader;
 use crate::postgres::customscan::mpp::glue::{
-    estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, mpp_worker_count,
-    producer_worker_count, pscan_offset, read_custom_scan_header, worker_setup,
-    write_custom_scan_header, CustomScanMppHeader,
+    estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, producer_worker_count, pscan_offset,
+    read_custom_scan_header, worker_setup, write_custom_scan_header, CustomScanMppHeader,
 };
 use crate::postgres::customscan::mpp::runtime::MppMesh;
 
@@ -1001,7 +1000,10 @@ impl AggregateScan {
     /// Build the leader's distributed session context for this AggregateScan query. Thin
     /// wrapper over the shape-agnostic [`crate::postgres::customscan::mpp::exec_worker::
     /// build_mpp_session_context`] that seeds with `create_aggregate_session_context()`.
-    fn build_mpp_session_context(mesh: Arc<MppMesh>) -> datafusion::prelude::SessionContext {
+    /// `mesh = None` is the EXPLAIN-time path. See the shared helper's doc.
+    fn build_mpp_session_context(
+        mesh: Option<Arc<MppMesh>>,
+    ) -> datafusion::prelude::SessionContext {
         crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context(
             create_aggregate_session_context(),
             mesh,
@@ -1030,12 +1032,11 @@ impl AggregateScan {
         let custom_exprs = df_state.custom_exprs;
         let custom_scan_tlist = df_state.custom_scan_tlist;
         let ctx = if mpp_is_active() {
-            // Drain-less stub mesh. `with_distributed_planner` only needs `n_procs` for stage
-            // sizing, and `ShmMqWorkerTransport::open()` doesn't run during EXPLAIN. Going
-            // through the constructor is the only safe way to build an `MppMesh` outside
-            // `glue::leader_setup`.
-            let stub_mesh = Arc::new(MppMesh::new(0, mpp_worker_count(), Vec::new()));
-            Self::build_mpp_session_context(stub_mesh)
+            // EXPLAIN-time: skip the shm_mq transport install (no execution, no `open()` call).
+            // The shared session-context builder takes `mesh = None` and derives `n_workers`
+            // from `producer_worker_count()`, so the planner still emits a `DistributedExec`
+            // root with the right stage sizing for display.
+            Self::build_mpp_session_context(None)
         } else {
             create_aggregate_session_context()
         };
@@ -1266,9 +1267,7 @@ impl AggregateScan {
         // `Single Copy: true` Gather where the customscan never actually
         // runs in multiple workers.
         let builder = if mpp_is_active() {
-            let n_workers = mpp_worker_count();
-            let workers_to_launch = (n_workers.saturating_sub(1) as usize).max(1);
-            builder.set_parallel(workers_to_launch)
+            builder.set_parallel(producer_worker_count() as usize)
         } else {
             builder
         };
@@ -1498,7 +1497,7 @@ impl AggregateScan {
         // call, then return null forever. Workers emit zero rows back to
         // PG; the leader assembles the result via the consumer plan.
         if let Some(scan_state::MppExecState::Worker(_)) = &df_state.mpp {
-            return mpp::exec_mpp_worker(state);
+            return crate::postgres::customscan::mpp::host::exec_mpp_worker(state);
         }
 
         // First call: build and execute the DataFusion plan
@@ -1531,14 +1530,13 @@ impl AggregateScan {
                         if launched < expected {
                             pgrx::error!(
                                 "mpp aggregate: PG launched {launched} of {expected} requested \
-                                 parallel workers; missing slots would hang the query. Retry, or \
-                                 raise `max_parallel_workers` / `max_parallel_workers_per_gather` \
-                                 so PG can launch the full set. Long-term fix tracked in \
+                                 parallel workers because the machine is saturated; missing slots \
+                                 would hang the query. Please retry. Long-term fix tracked in \
                                  https://github.com/paradedb/paradedb/issues/5061."
                             );
                         }
                     }
-                    Self::build_mpp_session_context(Arc::clone(&leader.mesh))
+                    Self::build_mpp_session_context(Some(Arc::clone(&leader.mesh)))
                 }
                 _ => create_aggregate_session_context(),
             };

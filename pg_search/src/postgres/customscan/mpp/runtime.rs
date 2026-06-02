@@ -15,34 +15,31 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Runtime glue between the leader's DataFusion execution and the
-//! shm_mq mesh.
+//! Runtime glue between the leader's DataFusion execution and the shm_mq mesh.
 //!
-//! - [`MppMesh`] — runtime handle the leader builds at DSM-init time,
-//!   carrying one [`crate::postgres::customscan::mpp::transport::DrainHandle`]
-//!   per producer worker for each consumer partition. Installed on the
-//!   leader's `SessionConfig` extensions before plan execution.
-//! - [`ShmMqWorkerTransport`] — implements the DF-D fork's [`WorkerTransport`]
-//!   trait, consulted by `NetworkShuffleExec`/`NetworkCoalesceExec`/
-//!   `NetworkBroadcastExec` at execute time. `open(target_task=worker)`
-//!   returns a [`ShmMqWorkerConnection`] that yields one stream per
-//!   consumer partition from the corresponding [`DrainHandle`].
-//! - [`MppWorkerResolver`] — stub [`WorkerResolver`] returning N dummy
-//!   URLs. The DF-D fork's planner reads `get_urls().len()` to decide cluster
-//!   capacity; we don't have URLs (everything is in-process), so any
-//!   address satisfies the API.
+//! [`MppMesh`] is the runtime handle the leader builds at DSM-init time. It carries one
+//! [`crate::postgres::customscan::mpp::transport::DrainHandle`] per producer worker for
+//! each consumer partition and gets installed on the leader's `SessionConfig` extensions
+//! before plan execution.
+//!
+//! [`ShmMqWorkerTransport`] implements the fork's [`WorkerTransport`] trait, consulted by
+//! `NetworkShuffleExec`/`NetworkCoalesceExec`/`NetworkBroadcastExec` at execute time.
+//! `open(target_task=worker)` returns a [`ShmMqWorkerConnection`] that yields one stream
+//! per consumer partition from the matching [`DrainHandle`].
+//!
+//! No `WorkerResolver` impl. Under `in_process_mode = true` the fork makes the resolver
+//! optional and substitutes a placeholder URL internally; our embedding never resolves
+//! anything by URL.
 
 use std::ops::Range;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
 use datafusion::physical_expr_common::metrics::ExecutionPlanMetricsSet;
 use datafusion_distributed::{
-    RemoteStage, WorkerConnection, WorkerPartitionStream, WorkerResolver, WorkerTransport,
+    RemoteStage, WorkerConnection, WorkerPartitionStream, WorkerTransport,
 };
-use url::Url;
 
 use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, DrainHandle, DrainItem};
 
@@ -104,10 +101,23 @@ impl MppMesh {
             .and_then(|slot| slot.as_ref())
     }
 
-    /// Number of worker procs (= `n_procs - 1`, since the leader is proc 0).
-    /// Used as the modulus in [`proc_for_task`].
+    /// Number of worker procs (= `n_procs - 1`, since the leader is proc 0). Used as the
+    /// modulus in [`proc_for_task`].
+    ///
+    /// The `n_procs >= 3` invariant is enforced by
+    /// [`crate::postgres::customscan::mpp::glue::mpp_is_active`] via
+    /// `MIN_TOTAL_WORKER_COUNT`, so the subtraction is safe without a `saturating_sub` /
+    /// `max(1)` belt-and-braces: every code path that constructs an `MppMesh` (or reaches
+    /// this method) is gated on `mpp_is_active()` first. Asserted in debug builds so a
+    /// future misuse fails loudly.
     pub(super) fn n_workers(&self) -> u32 {
-        self.n_procs.saturating_sub(1).max(1)
+        debug_assert!(
+            self.n_procs >= 3,
+            "MppMesh::n_workers() called with n_procs={} (< 3); callers must gate on \
+             mpp_is_active()",
+            self.n_procs
+        );
+        self.n_procs - 1
     }
 
     /// Pull from every installed inbound drain. Called from
@@ -252,28 +262,5 @@ impl WorkerConnection for ShmMqWorkerConnection {
             }
         };
         Ok(Box::pin(stream))
-    }
-}
-
-/// Stub [`WorkerResolver`] for the DF-D fork's distributed planner. Workers in
-/// our embedded model are PG parallel workers in the same backend tree, not
-/// URL-addressed nodes; the planner only consults `get_urls().len()` for
-/// task-count sizing, so any URL satisfies it.
-#[derive(Clone)]
-pub struct MppWorkerResolver {
-    n_workers: usize,
-}
-
-impl MppWorkerResolver {
-    pub fn new(n_workers: usize) -> Self {
-        Self { n_workers }
-    }
-}
-
-#[async_trait]
-impl WorkerResolver for MppWorkerResolver {
-    fn get_urls(&self) -> Result<Vec<Url>, DataFusionError> {
-        let url = Url::parse("http://mpp.local/").expect("static URL parses");
-        Ok(vec![url; self.n_workers])
     }
 }

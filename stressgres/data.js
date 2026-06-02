@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780437824502,
+  "lastUpdate": 1780437859412,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13122,6 +13122,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.73627303659948, max segment_count: 128.0, count: 57897"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0ba79ed3982cfe5a9a05ca3199acef4c3d0a0995",
+          "message": "fix: Support modern emoji in unicode_words tokenizer (#5232)\n\n# Ticket(s) Closed\n\nWhile looking for dependencies to remove, I found the `emoji` crate. It\nwas only used in the `unicode_words` crate in one place. After looking\nmore closely I realized that this is a good dependency to keep as the\nlist of emojis is updated frequently and using a crate allows us to stay\nup to date with new versions. The `emoji` crate has not been updated in\nmany years so I'm replacing it with `emojis` instead which has the most\nrecent unicode and is actively maintained.\n\nBefore this change modern emojis would be removed from the tokenized\noutput (whether or not `remove_emojis` was set) because the crate did\nnot recognize them.\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-02T17:31:31-04:00",
+          "tree_id": "e8b720605ecf9e08815aacef7bf3ef870ad1224e",
+          "url": "https://github.com/paradedb/paradedb/commit/0ba79ed3982cfe5a9a05ca3199acef4c3d0a0995"
+        },
+        "date": 1780437826552,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.668047229452625, max cpu: 42.899704, count: 57759"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.21484375,
+            "unit": "median mem",
+            "extra": "avg mem: 235.05021295382537, max mem: 236.69921875, count: 57759"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.512686032595745, max cpu: 33.267326, count: 57759"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 176.8671875,
+            "unit": "median mem",
+            "extra": "avg mem: 176.81095221632125, max mem: 177.6015625, count: 57759"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34588,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33880.91616890874, max block_count: 36553.0, count: 57759"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.97494762720962, max segment_count: 131.0, count: 57759"
           }
         ]
       }

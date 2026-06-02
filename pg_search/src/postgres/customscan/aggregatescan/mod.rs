@@ -1815,10 +1815,6 @@ unsafe fn group_key_to_datum(
     // For datetime types, Tantivy's terms aggregation returns the date as
     // an ISO 8601 string (e.g., "2025-12-26T00:00:00Z"). We need to parse
     // this string and convert it to the appropriate PostgreSQL date type.
-    // For datetime types, Tantivy's terms aggregation returns the date as
-    // an ISO 8601 string (e.g., "2025-12-26T00:00:00Z"). For timestamp/timestamptz,
-    // we can convert this directly. For other time types, we need to parse this
-    // string and convert it to the appropriate PostgreSQL date type.
     match &key.0 {
         PdbOwnedValue::Str(date_str) => {
             let pgdt = match PostgresDateTime::try_from(date_str.as_str()) {
@@ -1829,11 +1825,10 @@ unsafe fn group_key_to_datum(
                 .try_into_datum(expected_typoid.into())
                 .expect("should be able to convert into datum")
         }
-        PdbOwnedValue::I64(pg_micros) => {
-            let pgdt = match PostgresDateTime::try_from_raw(*pg_micros) {
-                Ok(ts) => ts,
-                Err(e) => pgrx::error!("Invalid raw i64 value for datetime value: '{e}'"),
-            };
+        PdbOwnedValue::I64(nanos) => {
+            let datetime = tantivy::DateTime::from_timestamp_nanos(*nanos);
+            let pgdt = PostgresDateTime::try_from(datetime)
+                .expect("We should never see an invalid timestamp coming back from tantivy");
             TantivyValue(PdbOwnedValue::Date(pgdt))
                 .try_into_datum(expected_typoid.into())
                 .expect("should be able to convert into datum")

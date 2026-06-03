@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780504415027,
+  "lastUpdate": 1780504448956,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20872,6 +20872,108 @@ window.BENCHMARK_DATA = {
             "value": 163.234375,
             "unit": "median mem",
             "extra": "avg mem: 181.52092955494345, max mem: 221.765625, count: 56226"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0f4468150e37e7aff20705e7a89c22f60f856e43",
+          "message": "feat: Remove json5 (#5240)\n\n# Ticket(s) Closed\n\nRemoves the `json5` crate. Currently this is only used to parse the\ndocument for more like this queries. Removing this is a breaking change\nas now more_like_this only accepts normal json rather than json5. I\nthink this is the right change to make. The docs don't mention anything\nabout MLT supporting this and I don't see a reason that we need to\nsupport it. Looking at the commit history I see that json5 was added\noriginally to parse all json arguments and then was removed later down\nthe line. It seems best to be consistent and accept normal JSON\neverywhere.\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-03T08:46:58-07:00",
+          "tree_id": "2253b729aa66305612afc1fe39ffef865e80af5e",
+          "url": "https://github.com/paradedb/paradedb/commit/0f4468150e37e7aff20705e7a89c22f60f856e43"
+        },
+        "date": 1780504417288,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.07526267905881513, max background_merging: 2.0, count: 56057"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.748878168359537, max cpu: 9.866392, count: 56057"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.41015625,
+            "unit": "median mem",
+            "extra": "avg mem: 25.40493625628824, max mem: 25.4140625, count: 56057"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.983023406194719, max cpu: 28.57143, count: 56057"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 191.90625,
+            "unit": "median mem",
+            "extra": "avg mem: 189.3167866524252, max mem: 192.203125, count: 56057"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 51248,
+            "unit": "median block_count",
+            "extra": "avg block_count: 51121.21253367108, max block_count: 51248.0, count: 56057"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 46,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 43.12374904115454, max segment_count: 56.0, count: 56057"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.6201205435284525, max cpu: 18.640776, count: 56057"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 143.12890625,
+            "unit": "median mem",
+            "extra": "avg mem: 130.33137092880906, max mem: 156.16796875, count: 56057"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.802718799133134, max cpu: 28.458496, count: 56057"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 191.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 187.73768113538452, max mem: 191.59375, count: 56057"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.783018586227424, max cpu: 33.83686, count: 56057"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 162.9765625,
+            "unit": "median mem",
+            "extra": "avg mem: 181.88994488868474, max mem: 221.390625, count: 56057"
           }
         ]
       }

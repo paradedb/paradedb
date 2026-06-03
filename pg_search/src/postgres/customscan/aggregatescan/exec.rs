@@ -221,7 +221,7 @@ pub fn aggregate_result_to_datum(
                 JsonB(json_value).into_datum()
             } else if is_datetime_type(expected_typoid) {
                 if index_info.created_by_version.stores_datetimes_in_i64() {
-                    // v2 (>= TIMESTAMP_I64_STORAGE_VERSION): datetimes are stored as i64
+                    // v2 (>= DATETIME_I64_STORAGE_VERSION): datetimes are stored as i64
                     // microseconds from the postgres epoch.
                     metric.value.and_then(|value| unsafe {
                         let pgdt = PostgresDateTime::try_from_raw(value as i64).expect(

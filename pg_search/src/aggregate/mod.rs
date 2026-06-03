@@ -620,7 +620,7 @@ fn set_missing_on_terms(
                         // This matches standard SQL behavior where NULLs are typically excluded
                         // from aggregations unless explicitly handled.
                         //
-                        // As of v0.23.6(?) (TIMESTAMP_I64_STORAGE_VERSION), this is a legacy-only
+                        // As of v0.23.6(?) (DATETIME_I64_STORAGE_VERSION), this is a legacy-only
                         // codepath: new indexes store datetime values as i64 and so use the
                         // I64 sentinel arm above.
                         continue;

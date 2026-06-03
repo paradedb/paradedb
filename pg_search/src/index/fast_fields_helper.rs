@@ -245,7 +245,7 @@ impl FFType {
                 TantivyValue(PdbOwnedValue::Bytes(bytes))
             }
             FFType::I64(ff) => {
-                // versions >= TIMESTAMP_I64_STORAGE_VERSION store datetimes as I64
+                // versions >= DATETIME_I64_STORAGE_VERSION store datetimes as I64
                 if let Some(sft) = search_field_type {
                     if is_pgoid_datetime_type(sft.typeoid()) {
                         let value = ff.first(doc).map(|first| {

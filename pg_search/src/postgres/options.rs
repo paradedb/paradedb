@@ -311,14 +311,15 @@ pub unsafe extern "C-unwind" fn amoptions(
         pg_sys::relopt_parse_elt {
             optname: "centroid_ratio".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_REAL,
-            offset: offset_of!(BM25IndexOptionsData, centroid_ratio) as i32,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, centroid_ratio) as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },
         pg_sys::relopt_parse_elt {
             optname: "training_samples_per_centroid".as_pg_cstr(),
             opttype: pg_sys::relopt_type::RELOPT_TYPE_INT,
-            offset: offset_of!(BM25IndexOptionsData, training_samples_per_centroid) as i32,
+            offset: std::mem::offset_of!(BM25IndexOptionsData, training_samples_per_centroid)
+                as i32,
             #[cfg(feature = "pg18")]
             isset_offset: 0,
         },

@@ -220,12 +220,9 @@ fn datetime_shaped_string_term(mut conn: PgConnection) {
     INSERT INTO test_table (value) VALUES
         ('2023-04-15 13:27:09'), 
         ('2019-08-02 07:52:43.123');
-    "#
-    .execute(&mut conn);
 
-    r#"
     CREATE INDEX test_index ON test_table
-    USING bm25 (id, value) WITH (key_field='id');
+    USING bm25 (id, (value::pdb.literal)) WITH (key_field='id');
     "#
     .execute(&mut conn);
 

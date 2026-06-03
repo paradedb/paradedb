@@ -112,13 +112,7 @@ impl PdbOwnedValue {
             OwnedValue::F64(val) => PdbOwnedValue::F64(val),
             // User-supplied json can have timestamps as strings. We need to attempt to parse them
             // here so we can correctly convert them to PdbOwnedValue::Date
-            OwnedValue::Str(s) => {
-                if let Ok(pgdt) = PostgresDateTime::try_from(s.as_str()) {
-                    PdbOwnedValue::Date(pgdt)
-                } else {
-                    PdbOwnedValue::Str(s)
-                }
-            }
+            OwnedValue::Str(s) => PdbOwnedValue::Str(s),
             OwnedValue::Bool(val) => PdbOwnedValue::Bool(val),
             OwnedValue::Facet(val) => PdbOwnedValue::Facet(val),
             OwnedValue::Bytes(val) => PdbOwnedValue::Bytes(val),

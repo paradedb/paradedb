@@ -130,6 +130,7 @@ FROM authors a
 INNER JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'science' OR b.content @@@ 'technology')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
   author_name  |      book_title      | author_score | book_score 
 ---------------+----------------------+--------------+------------
  J.K. Rowling  | Harry Potter Magic   |            0 |    0.98641
@@ -149,6 +150,7 @@ FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'mystery' OR b.content @@@ 'romance')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: a, b)
    author_name   |     book_title      | author_score | book_score 
 -----------------+---------------------+--------------+------------
  Agatha Christie | Murder Mystery Case |    1.5552412 |          0
@@ -164,6 +166,7 @@ FROM authors a
 RIGHT JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'fiction' OR b.content @@@ 'magic')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: a, b)
  author_name  |      book_title      | author_score | book_score 
 --------------+----------------------+--------------+------------
  J.K. Rowling | Harry Potter Magic   |            0 |  1.3025584
@@ -184,6 +187,7 @@ FROM authors a
 INNER JOIN books b ON a.id = b.author_id AND a.birth_year < 2000
 WHERE (a.bio @@@ 'writer' OR b.content @@@ 'mystery')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- =============================================================================
 -- SECTION 2: Non-equi joins and problematic conditions
@@ -199,6 +203,7 @@ CROSS JOIN books b
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'mystery')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC
 LIMIT 10;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: a, b)
  author_name  |      book_title      | author_score | book_score 
 --------------+----------------------+--------------+------------
  J.K. Rowling | Harry Potter Horrors |   0.66167223 |          0
@@ -223,6 +228,7 @@ FROM authors a
 INNER JOIN books b ON a.birth_year < b.publication_year
 WHERE (a.bio @@@ 'fiction' OR b.content @@@ 'love')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: a, b)
  author_name  |      book_title      | author_score | book_score 
 --------------+----------------------+--------------+------------
  Stephen King | Harry Potter Magic   |   0.66167223 |          0
@@ -259,6 +265,7 @@ FROM authors a
 INNER JOIN books b ON a.birth_year + 50 > b.publication_year
 WHERE (a.bio @@@ 'writer' OR b.content @@@ 'programming')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: a, b)
    author_name   |     book_title      | author_score | book_score 
 -----------------+---------------------+--------------+------------
  Agatha Christie | Murder Mystery Case |    1.0395092 |          0
@@ -278,6 +285,7 @@ FROM authors a
 INNER JOIN books b ON b.price BETWEEN 20.00 AND 30.00 AND a.id = b.author_id
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'romance')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- =============================================================================
 -- SECTION 3: CROSS-TABLE OR TESTS
@@ -293,6 +301,7 @@ CROSS JOIN books b
 WHERE (a.bio @@@ 'smartphone' OR b.content @@@ 'performance')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC
 LIMIT 10;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: a, b)
    author_name   |                        book_content                         | author_score | book_score 
 -----------------+-------------------------------------------------------------+--------------+------------
  J.K. Rowling    | A horror story about supernatural terror events performance |            0 |  1.3702781
@@ -347,6 +356,7 @@ CROSS JOIN books b
 WHERE (a.bio @@@ 'smartphone' OR a.country @@@ 'British' OR b.content @@@ 'performance')
 ORDER BY a.id, b.id, author_score DESC, book_score DESC
 LIMIT 10;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: a, b)
    author_name   | author_country |                        book_content                         | author_score | book_score 
 -----------------+----------------+-------------------------------------------------------------+--------------+------------
  J.K. Rowling    | UK             | A horror story about supernatural terror events performance |            0 |  1.3702781
@@ -374,6 +384,7 @@ FROM authors a
 INNER JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'science' OR b.content @@@ 'mystery' OR b.price > 25.00)
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
    author_name   |      book_title      | author_score | book_score 
 -----------------+----------------------+--------------+------------
  J.K. Rowling    | Harry Potter Magic   |            0 |          0
@@ -396,6 +407,7 @@ INNER JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'smartphone' AND a.birth_year > 1950) 
    OR (b.content @@@ 'magic' AND b.publication_year > 1980)
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  author_name  |      book_title      | author_score | book_score 
 --------------+----------------------+--------------+------------
  J.K. Rowling | Harry Potter Magic   |            0 |  1.3025584
@@ -418,6 +430,7 @@ JOIN reviews r ON b.id = r.book_id
 WHERE (a.bio @@@ 'British' AND b.is_published = true) 
    OR (b.content @@@ 'horror' AND r.score >= 4)
 ORDER BY a.id, b.id, r.id, author_score DESC, book_score DESC, review_score DESC;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b, r)
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test 4.4: Intelligent partial salvage of AND expressions
 SELECT 
@@ -429,6 +442,7 @@ WHERE (a.bio @@@ 'laptop')
   AND (a.birth_year > 1000)
   AND (c.name @@@ 'Electronics')
 ORDER BY a.id, author_score DESC;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, c)
  author_name | author_score 
 -------------+--------------
 (0 rows)
@@ -446,6 +460,7 @@ FROM authors a1
 INNER JOIN authors a2 ON a1.birth_year = a2.birth_year AND a1.id != a2.id
 WHERE (a1.bio @@@ 'fiction' OR a2.bio @@@ 'mystery')
 ORDER BY a1.id, a2.id, author1_score DESC, author2_score DESC;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a1, a2)
  author1_name | author2_name | author1_score | author2_score 
 --------------+--------------+---------------+---------------
 (0 rows)
@@ -460,6 +475,7 @@ FROM authors a
 JOIN books b ON a.id = b.author_id
 WHERE a.bio @@@ 'author' AND b.category_id = 1
 ORDER BY a.id, b.id, author_score DESC, book_score DESC;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test 5.3: LEFT JOIN semantics test
 SELECT 
@@ -471,6 +487,7 @@ FROM authors a
 LEFT JOIN books b ON a.id = b.author_id
 WHERE a.bio @@@ 'author' OR b.content @@@ 'story'
 ORDER BY a.id, b.id;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: a, b)
    author_name   |      book_title      | author_score | book_score 
 -----------------+----------------------+--------------+------------
  J.K. Rowling    | Harry Potter Magic   |   0.66167223 | 0.27030534
@@ -547,6 +564,7 @@ FROM authors a
 JOIN books b ON a.id = b.author_id
 WHERE a.bio @@@ 'author'
 ORDER BY a.id, author_score DESC;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: a, b)
  author_name  | author_score 
 --------------+--------------
  J.K. Rowling |   0.66167223
@@ -566,6 +584,8 @@ FROM authors a
 JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'story')
   AND (a.is_active = true OR b.is_published = true);
+WARNING:  Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans (table: join)
+WARNING:  JoinScan not used: aggregates are not supported (tables: a, b)
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test 6.3: Unsafe conditions that cannot be pushed down
 SELECT 
@@ -578,6 +598,7 @@ CROSS JOIN books b
 WHERE (a.bio @@@ 'smartphone' OR a.birth_year = b.publication_year)
 ORDER BY a.id, b.id, author_score DESC, book_score DESC
 LIMIT 5;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: a, b)
  author_name |      book_title      | author_score | book_score 
 -------------+----------------------+--------------+------------
  John Smith  | Harry Potter Magic   |    1.6503524 |          0
@@ -623,6 +644,7 @@ JOIN categories c ON b.category_id = c.id
 WHERE (a.bio @@@ 'smartphone')    -- Safe condition on authors
    OR (c.description @@@ 'electronic')    -- External condition on categories
 ORDER BY a.id, c.id, author_score DESC, category_score DESC;
+WARNING:  JoinScan not used: at least one equi-join key (e.g., a.id = b.id) is required (tables: a, c)
  author_name | category_name | author_score | category_score 
 -------------+---------------+--------------+----------------
  John Smith  | Technology    |    1.6503524 |              0

@@ -37,16 +37,14 @@ INSERT INTO products (name, description, price) VALUES ('Gizmo', 'A fantastic gi
 -- Query on composite field - search by name
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('name:Widget');
-                                                           QUERY PLAN                                                            
----------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on products
-         Table: products
-         Index: idx_products
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Widget","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on products
+   Index: idx_products
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Widget","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('name:Widget');
  count 
@@ -57,16 +55,14 @@ SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('name:Widget');
 -- Query on composite field - search by description
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('description:amazing');
-                                                               QUERY PLAN                                                                
------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on products
-         Table: products
-         Index: idx_products
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:amazing","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on products
+   Index: idx_products
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:amazing","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM products WHERE id @@@ pdb.parse('description:amazing');
  count 
@@ -173,16 +169,14 @@ CREATE INDEX idx_large ON large_table USING bm25 (id, (ROW(
 INSERT INTO large_table (field_1, field_20, field_35) VALUES ('alpha', 'beta', 'gamma');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM large_table WHERE id @@@ pdb.parse('field_1:alpha');
-                                                            QUERY PLAN                                                             
------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on large_table
-         Table: large_table
-         Index: idx_large
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"field_1:alpha","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on large_table
+   Index: idx_large
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"field_1:alpha","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM large_table WHERE id @@@ pdb.parse('field_1:alpha');
  count 
@@ -192,16 +186,14 @@ SELECT COUNT(*) FROM large_table WHERE id @@@ pdb.parse('field_1:alpha');
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM large_table WHERE id @@@ pdb.parse('field_35:gamma');
-                                                             QUERY PLAN                                                             
-------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on large_table
-         Table: large_table
-         Index: idx_large
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"field_35:gamma","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on large_table
+   Index: idx_large
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"field_35:gamma","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM large_table WHERE id @@@ pdb.parse('field_35:gamma');
  count 
@@ -238,16 +230,14 @@ END $$;
 INSERT INTO huge_table (f001, f050, f100) VALUES ('first_field', 'middle_field', 'last_field');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f001:first_field');
-                                                              QUERY PLAN                                                              
---------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on huge_table
-         Table: huge_table
-         Index: idx_huge
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"f001:first_field","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on huge_table
+   Index: idx_huge
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"f001:first_field","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f001:first_field');
  count 
@@ -257,16 +247,14 @@ SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f001:first_field');
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f050:middle_field');
-                                                              QUERY PLAN                                                               
----------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on huge_table
-         Table: huge_table
-         Index: idx_huge
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"f050:middle_field","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                           QUERY PLAN                                                            
+---------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on huge_table
+   Index: idx_huge
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"f050:middle_field","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f050:middle_field');
  count 
@@ -276,16 +264,14 @@ SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f050:middle_field');
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f100:last_field');
-                                                             QUERY PLAN                                                              
--------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on huge_table
-         Table: huge_table
-         Index: idx_huge
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"f100:last_field","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                          QUERY PLAN                                                           
+-------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on huge_table
+   Index: idx_huge
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"f100:last_field","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM huge_table WHERE id @@@ pdb.parse('f100:last_field');
  count 
@@ -433,16 +419,14 @@ INSERT INTO nullable_test (name, description, price) VALUES ('Product C', 'Anoth
 -- Should find non-NULL fields
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM nullable_test WHERE id @@@ pdb.parse('name:"Product C"');
-                                                               QUERY PLAN                                                               
-----------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on nullable_test
-         Table: nullable_test
-         Index: idx_nullable
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:\"Product C\"","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                            QUERY PLAN                                                            
+----------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on nullable_test
+   Index: idx_nullable
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:\"Product C\"","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM nullable_test WHERE id @@@ pdb.parse('name:"Product C"');
  count 
@@ -469,16 +453,14 @@ REINDEX INDEX idx_reindex;
 -- Verify data is still searchable after REINDEX
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM reindex_test WHERE id @@@ pdb.parse('name:Widget');
-                                                           QUERY PLAN                                                            
----------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on reindex_test
-         Table: reindex_test
-         Index: idx_reindex
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Widget","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on reindex_test
+   Index: idx_reindex
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Widget","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM reindex_test WHERE id @@@ pdb.parse('name:Widget');
  count 
@@ -507,16 +489,14 @@ INSERT INTO large_val_test (title, content, metadata) VALUES (
 );
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM large_val_test WHERE id @@@ pdb.parse('title:Large');
-                                                           QUERY PLAN                                                            
----------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on large_val_test
-         Table: large_val_test
-         Index: idx_large_val
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:Large","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on large_val_test
+   Index: idx_large_val
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:Large","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM large_val_test WHERE id @@@ pdb.parse('title:Large');
  count 
@@ -553,16 +533,14 @@ INSERT INTO full_pipeline_test (name, description, category, tags) VALUES
 -- Test search on each field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('name:Laptop');
-                                                           QUERY PLAN                                                            
----------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on full_pipeline_test
-         Table: full_pipeline_test
-         Index: idx_full_pipeline
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Laptop","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on full_pipeline_test
+   Index: idx_full_pipeline
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Laptop","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('name:Laptop');
  count 
@@ -572,16 +550,14 @@ SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('name:Laptop');
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('description:Wireless');
-                                                                QUERY PLAN                                                                
-------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on full_pipeline_test
-         Table: full_pipeline_test
-         Index: idx_full_pipeline
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:Wireless","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on full_pipeline_test
+   Index: idx_full_pipeline
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:Wireless","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('description:Wireless');
  count 
@@ -591,16 +567,14 @@ SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('description:Wire
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:Electronics');
-                                                                QUERY PLAN                                                                
-------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on full_pipeline_test
-         Table: full_pipeline_test
-         Index: idx_full_pipeline
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on full_pipeline_test
+   Index: idx_full_pipeline
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:Electronics');
  count 
@@ -610,16 +584,14 @@ SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:Electro
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('tags:office');
-                                                           QUERY PLAN                                                            
----------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on full_pipeline_test
-         Table: full_pipeline_test
-         Index: idx_full_pipeline
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"tags:office","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on full_pipeline_test
+   Index: idx_full_pipeline
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"tags:office","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('tags:office');
  count 
@@ -630,16 +602,14 @@ SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('tags:office');
 -- Test complex queries with OR and AND using pdb.parse with tantivy syntax
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:books OR tags:computer');
-                                                                     QUERY PLAN                                                                      
------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on full_pipeline_test
-         Table: full_pipeline_test
-         Index: idx_full_pipeline
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:books OR tags:computer","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                                  QUERY PLAN                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on full_pipeline_test
+   Index: idx_full_pipeline
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:books OR tags:computer","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:books OR tags:computer');
  count 
@@ -649,16 +619,14 @@ SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:books O
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:electronics AND tags:accessories');
-                                                                          QUERY PLAN                                                                           
----------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on full_pipeline_test
-         Table: full_pipeline_test
-         Index: idx_full_pipeline
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:electronics AND tags:accessories","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                                       QUERY PLAN                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on full_pipeline_test
+   Index: idx_full_pipeline
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:electronics AND tags:accessories","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM full_pipeline_test WHERE id @@@ pdb.parse('category:electronics AND tags:accessories');
  count 
@@ -696,16 +664,14 @@ INSERT INTO multi_comp_test (title, body, author, category) VALUES
 -- Search works on fields from BOTH composites
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('title:PostgreSQL');
-                                                              QUERY PLAN                                                              
---------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on multi_comp_test
-         Table: multi_comp_test
-         Index: idx_multi_comp
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:PostgreSQL","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on multi_comp_test
+   Index: idx_multi_comp
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:PostgreSQL","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('title:PostgreSQL');
  count 
@@ -715,16 +681,14 @@ SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('title:PostgreSQL');
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('body:pasta');
-                                                           QUERY PLAN                                                           
---------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on multi_comp_test
-         Table: multi_comp_test
-         Index: idx_multi_comp
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"body:pasta","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on multi_comp_test
+   Index: idx_multi_comp
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"body:pasta","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('body:pasta');
  count 
@@ -734,16 +698,14 @@ SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('body:pasta');
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('author:Alice');
-                                                            QUERY PLAN                                                            
-----------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on multi_comp_test
-         Table: multi_comp_test
-         Index: idx_multi_comp
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"author:Alice","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                         QUERY PLAN                                                         
+----------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on multi_comp_test
+   Index: idx_multi_comp
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"author:Alice","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('author:Alice');
  count 
@@ -753,16 +715,14 @@ SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('author:Alice');
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('category:food');
-                                                            QUERY PLAN                                                             
------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on multi_comp_test
-         Table: multi_comp_test
-         Index: idx_multi_comp
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:food","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on multi_comp_test
+   Index: idx_multi_comp
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:food","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('category:food');
  count 
@@ -773,16 +733,14 @@ SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('category:food');
 -- Cross-composite search using pdb.parse with AND
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('title:guide AND author:alice');
-                                                                    QUERY PLAN                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on multi_comp_test
-         Table: multi_comp_test
-         Index: idx_multi_comp
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:guide AND author:alice","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on multi_comp_test
+   Index: idx_multi_comp
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:guide AND author:alice","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM multi_comp_test WHERE id @@@ pdb.parse('title:guide AND author:alice');
  count 
@@ -817,16 +775,14 @@ INSERT INTO hybrid_test (name, description, notes, category, tags, keywords) VAL
 -- Test regular column
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('name:Widget');
-                                                           QUERY PLAN                                                            
----------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on hybrid_test
-         Table: hybrid_test
-         Index: idx_hybrid
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Widget","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on hybrid_test
+   Index: idx_hybrid
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:Widget","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('name:Widget');
  count 
@@ -837,16 +793,14 @@ SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('name:Widget');
 -- Test first composite field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('description:amazing');
-                                                               QUERY PLAN                                                                
------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on hybrid_test
-         Table: hybrid_test
-         Index: idx_hybrid
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:amazing","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on hybrid_test
+   Index: idx_hybrid
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:amazing","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('description:amazing');
  count 
@@ -857,16 +811,14 @@ SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('description:amazing');
 -- Test second regular column
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('category:tools');
-                                                             QUERY PLAN                                                             
-------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on hybrid_test
-         Table: hybrid_test
-         Index: idx_hybrid
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:tools","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                          QUERY PLAN                                                          
+------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on hybrid_test
+   Index: idx_hybrid
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:tools","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('category:tools');
  count 
@@ -877,16 +829,14 @@ SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('category:tools');
 -- Test second composite field
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('tags:tech');
-                                                          QUERY PLAN                                                           
--------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on hybrid_test
-         Table: hybrid_test
-         Index: idx_hybrid
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"tags:tech","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                       QUERY PLAN                                                        
+-------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on hybrid_test
+   Index: idx_hybrid
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"tags:tech","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('tags:tech');
  count 
@@ -897,16 +847,14 @@ SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('tags:tech');
 -- Test cross-type query using pdb.parse with AND
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('name:widget AND description:useful');
-                                                                       QUERY PLAN                                                                       
---------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on hybrid_test
-         Table: hybrid_test
-         Index: idx_hybrid
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:widget AND description:useful","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on hybrid_test
+   Index: idx_hybrid
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"name:widget AND description:useful","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) FROM hybrid_test WHERE id @@@ pdb.parse('name:widget AND description:useful');
  count 
@@ -942,16 +890,14 @@ INSERT INTO articles (title, body, created_at) VALUES
 -- Search by title (simple column)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS title_search FROM articles WHERE id @@@ pdb.parse('title:First');
-                                                           QUERY PLAN                                                            
----------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on articles
-         Table: articles
-         Index: idx_articles
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:First","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on articles
+   Index: idx_articles
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:First","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS title_search FROM articles WHERE id @@@ pdb.parse('title:First');
  title_search 
@@ -962,16 +908,14 @@ SELECT COUNT(*) AS title_search FROM articles WHERE id @@@ pdb.parse('title:Firs
 -- Search by title_upper (expression result - uppercase)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS title_upper_search FROM articles WHERE id @@@ pdb.parse('title_upper:FIRST');
-                                                              QUERY PLAN                                                               
----------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on articles
-         Table: articles
-         Index: idx_articles
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title_upper:FIRST","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                           QUERY PLAN                                                            
+---------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on articles
+   Index: idx_articles
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title_upper:FIRST","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS title_upper_search FROM articles WHERE id @@@ pdb.parse('title_upper:FIRST');
  title_upper_search 
@@ -1012,16 +956,14 @@ SELECT COUNT(*) AS mixed_total FROM mixed_data;
 -- Verify searchable non-NULL values
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS found_medium FROM mixed_data WHERE id @@@ pdb.parse('medium:medium');
-                                                            QUERY PLAN                                                             
------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on mixed_data
-         Table: mixed_data
-         Index: idx_mixed
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"medium:medium","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on mixed_data
+   Index: idx_mixed
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"medium:medium","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS found_medium FROM mixed_data WHERE id @@@ pdb.parse('medium:medium');
  found_medium 
@@ -1031,16 +973,14 @@ SELECT COUNT(*) AS found_medium FROM mixed_data WHERE id @@@ pdb.parse('medium:m
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS found_tiny FROM mixed_data WHERE id @@@ pdb.parse('small:tiny');
-                                                           QUERY PLAN                                                           
---------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on mixed_data
-         Table: mixed_data
-         Index: idx_mixed
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"small:tiny","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                        QUERY PLAN                                                        
+--------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on mixed_data
+   Index: idx_mixed
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"small:tiny","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS found_tiny FROM mixed_data WHERE id @@@ pdb.parse('small:tiny');
  found_tiny 
@@ -1081,16 +1021,14 @@ SELECT EXISTS (SELECT 1 FROM paradedb.schema('verify_idx') WHERE name = 'second_
 INSERT INTO verify_table (first_field, second_field) VALUES ('hello', 'world');
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS first_field_search FROM verify_table WHERE id @@@ pdb.parse('first_field:hello');
-                                                              QUERY PLAN                                                               
----------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on verify_table
-         Table: verify_table
-         Index: verify_idx
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"first_field:hello","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                           QUERY PLAN                                                            
+---------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on verify_table
+   Index: verify_idx
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"first_field:hello","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS first_field_search FROM verify_table WHERE id @@@ pdb.parse('first_field:hello');
  first_field_search 
@@ -1100,16 +1038,14 @@ SELECT COUNT(*) AS first_field_search FROM verify_table WHERE id @@@ pdb.parse('
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS second_field_search FROM verify_table WHERE id @@@ pdb.parse('second_field:world');
-                                                               QUERY PLAN                                                               
-----------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on verify_table
-         Table: verify_table
-         Index: verify_idx
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"second_field:world","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                            QUERY PLAN                                                            
+----------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on verify_table
+   Index: verify_idx
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"second_field:world","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS second_field_search FROM verify_table WHERE id @@@ pdb.parse('second_field:world');
  second_field_search 
@@ -1158,16 +1094,14 @@ INSERT INTO products_schema (product_name, product_desc, product_price) VALUES (
 -- Search each field to prove it was indexed
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS name_search FROM products_schema WHERE id @@@ pdb.parse('product_name:TestProduct');
-                                                                  QUERY PLAN                                                                  
-----------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on products_schema
-         Table: products_schema
-         Index: idx_products_schema
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"product_name:TestProduct","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                               QUERY PLAN                                                               
+----------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on products_schema
+   Index: idx_products_schema
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"product_name:TestProduct","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS name_search FROM products_schema WHERE id @@@ pdb.parse('product_name:TestProduct');
  name_search 
@@ -1177,16 +1111,14 @@ SELECT COUNT(*) AS name_search FROM products_schema WHERE id @@@ pdb.parse('prod
 
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS desc_search FROM products_schema WHERE id @@@ pdb.parse('product_desc:TestDescription');
-                                                                    QUERY PLAN                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on products_schema
-         Table: products_schema
-         Index: idx_products_schema
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"product_desc:TestDescription","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on products_schema
+   Index: idx_products_schema
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"product_desc:TestDescription","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS desc_search FROM products_schema WHERE id @@@ pdb.parse('product_desc:TestDescription');
  desc_search 
@@ -1223,16 +1155,14 @@ INSERT INTO tokenized_test (title) VALUES ('Running and Jumping');
 -- Search on the simple tokenizer field (lowercased)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS simple_tokenizer_search FROM tokenized_test WHERE id @@@ pdb.parse('title_simple:running');
-                                                                QUERY PLAN                                                                
-------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on tokenized_test
-         Table: tokenized_test
-         Index: idx_tokenized
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title_simple:running","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on tokenized_test
+   Index: idx_tokenized
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title_simple:running","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS simple_tokenizer_search FROM tokenized_test WHERE id @@@ pdb.parse('title_simple:running');
  simple_tokenizer_search 
@@ -1243,16 +1173,14 @@ SELECT COUNT(*) AS simple_tokenizer_search FROM tokenized_test WHERE id @@@ pdb.
 -- Search on the default text field (should also find it)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS default_text_search FROM tokenized_test WHERE id @@@ pdb.parse('title:running');
-                                                            QUERY PLAN                                                             
------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on tokenized_test
-         Table: tokenized_test
-         Index: idx_tokenized
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:running","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on tokenized_test
+   Index: idx_tokenized
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"title:running","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS default_text_search FROM tokenized_test WHERE id @@@ pdb.parse('title:running');
  default_text_search 
@@ -1289,16 +1217,14 @@ INSERT INTO ngram_test (content) VALUES ('PostgreSQL database');
 -- Search with partial match via ngram - 'gres' should match 'PostgreSQL'
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS ngram_partial_search FROM ngram_test WHERE id @@@ pdb.parse('content_ngram:gres');
-                                                               QUERY PLAN                                                               
-----------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on ngram_test
-         Table: ngram_test
-         Index: idx_ngram
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content_ngram:gres","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                            QUERY PLAN                                                            
+----------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on ngram_test
+   Index: idx_ngram
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content_ngram:gres","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS ngram_partial_search FROM ngram_test WHERE id @@@ pdb.parse('content_ngram:gres');
  ngram_partial_search 
@@ -1309,16 +1235,14 @@ SELECT COUNT(*) AS ngram_partial_search FROM ngram_test WHERE id @@@ pdb.parse('
 -- Default text field should NOT match partial 'gres' (no ngram)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS default_no_partial FROM ngram_test WHERE id @@@ pdb.parse('content:gres');
-                                                            QUERY PLAN                                                            
-----------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on ngram_test
-         Table: ngram_test
-         Index: idx_ngram
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:gres","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                         QUERY PLAN                                                         
+----------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on ngram_test
+   Index: idx_ngram
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:gres","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS default_no_partial FROM ngram_test WHERE id @@@ pdb.parse('content:gres');
  default_no_partial 
@@ -1357,16 +1281,14 @@ INSERT INTO stemmer_test (content) VALUES
 -- Stemmed search: 'run' should match 'running' and 'runs' (both stem to 'run')
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS stemmer_search FROM stemmer_test WHERE id @@@ pdb.parse('content_stemmed:run');
-                                                               QUERY PLAN                                                                
------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on stemmer_test
-         Table: stemmer_test
-         Index: idx_stemmer
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content_stemmed:run","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                            QUERY PLAN                                                             
+-----------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on stemmer_test
+   Index: idx_stemmer
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content_stemmed:run","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS stemmer_search FROM stemmer_test WHERE id @@@ pdb.parse('content_stemmed:run');
  stemmer_search 
@@ -1377,16 +1299,14 @@ SELECT COUNT(*) AS stemmer_search FROM stemmer_test WHERE id @@@ pdb.parse('cont
 -- Default text field should NOT match 'run' (no stemming)
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) AS default_no_stem FROM stemmer_test WHERE id @@@ pdb.parse('content:run');
-                                                           QUERY PLAN                                                            
----------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on stemmer_test
-         Table: stemmer_test
-         Index: idx_stemmer
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:run","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                        QUERY PLAN                                                         
+---------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on stemmer_test
+   Index: idx_stemmer
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"content:run","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) AS default_no_stem FROM stemmer_test WHERE id @@@ pdb.parse('content:run');
  default_no_stem 
@@ -1705,16 +1625,14 @@ LIMIT 2;
 -- COUNT
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) as total FROM smoke_test WHERE id @@@ pdb.parse('category:Electronics');
-                                                                QUERY PLAN                                                                
-------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
-         Table: smoke_test
-         Index: smoke_idx
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on smoke_test
+   Index: smoke_idx
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) as total FROM smoke_test WHERE id @@@ pdb.parse('category:Electronics');
  total 
@@ -1725,17 +1643,14 @@ SELECT COUNT(*) as total FROM smoke_test WHERE id @@@ pdb.parse('category:Electr
 -- SUM
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT SUM(price) as total_price FROM smoke_test WHERE id @@@ pdb.parse('category:Electronics');
-                                                                QUERY PLAN                                                                
-------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
-         Table: smoke_test
-         Index: smoke_idx
-         Exec Method: ColumnarExecState
-         Fast Fields: price
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
-(8 rows)
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on smoke_test
+   Index: smoke_idx
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: SUM(price)
+     Aggregate Definition: {"0":{"sum":{"field":"price","missing":null}}}
+(5 rows)
 
 SELECT SUM(price) as total_price FROM smoke_test WHERE id @@@ pdb.parse('category:Electronics');
  total_price 
@@ -1746,17 +1661,14 @@ SELECT SUM(price) as total_price FROM smoke_test WHERE id @@@ pdb.parse('categor
 -- AVG
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT AVG(rating) as avg_rating FROM smoke_test WHERE id @@@ pdb.parse('description:shoes OR description:boots');
-                                                                         QUERY PLAN                                                                         
-------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
-         Table: smoke_test
-         Index: smoke_idx
-         Exec Method: ColumnarExecState
-         Fast Fields: rating
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:boots","lenient":null,"conjunction_mode":null}}}}
-(8 rows)
+                                                                      QUERY PLAN                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on smoke_test
+   Index: smoke_idx
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"description:shoes OR description:boots","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: AVG(rating)
+     Aggregate Definition: {"0":{"avg":{"field":"rating","missing":null}}}
+(5 rows)
 
 SELECT AVG(rating) as avg_rating FROM smoke_test WHERE id @@@ pdb.parse('description:shoes OR description:boots');
  avg_rating 
@@ -1769,24 +1681,21 @@ EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) as count, SUM(price) as total, AVG(rating) as avg_rating, MIN(price) as min_price, MAX(price) as max_price
 FROM smoke_test
 WHERE id @@@ pdb.parse('category:Electronics OR category:Footwear');
-                                                                          QUERY PLAN                                                                           
----------------------------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
-         Table: smoke_test
-         Index: smoke_idx
-         Exec Method: ColumnarExecState
-         Fast Fields: price, rating
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics OR category:Footwear","lenient":null,"conjunction_mode":null}}}}
-(8 rows)
+                                                                                                                              QUERY PLAN                                                                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on smoke_test
+   Index: smoke_idx
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics OR category:Footwear","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*), SUM(price), AVG(rating), MIN(price), MAX(price)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}},"1":{"sum":{"field":"price","missing":null}},"2":{"avg":{"field":"rating","missing":null}},"3":{"min":{"field":"price","missing":null}},"4":{"max":{"field":"price","missing":null}}}
+(5 rows)
 
 SELECT COUNT(*) as count, SUM(price) as total, AVG(rating) as avg_rating, MIN(price) as min_price, MAX(price) as max_price
 FROM smoke_test
 WHERE id @@@ pdb.parse('category:Electronics OR category:Footwear');
- count |       total        | avg_rating | min_price | max_price 
--------+--------------------+------------+-----------+-----------
-     5 | 399.95000000000005 |       4.48 |     39.99 |    129.99
+ count | total  |     avg_rating     | min_price | max_price 
+-------+--------+--------------------+-----------+-----------
+     5 | 399.95 | 4.4799999999999995 |     39.99 |    129.99
 (1 row)
 
 ------------------------------------------------------------
@@ -1801,20 +1710,17 @@ FROM smoke_test
 WHERE id @@@ pdb.all()
 GROUP BY category
 ORDER BY count DESC, category;
-                                  QUERY PLAN                                  
-------------------------------------------------------------------------------
+                                                                             QUERY PLAN                                                                              
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
-   Sort Key: (count(*)) DESC, category
-   ->  HashAggregate
-         Group Key: category
-         ->  Custom Scan (ParadeDB Base Scan) on smoke_test
-               Table: smoke_test
-               Index: smoke_idx
-               Exec Method: ColumnarExecState
-               Fast Fields: category, rating
-               Scores: false
-               Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
-(11 rows)
+   Sort Key: (pdb.agg_fn('COUNT(*)'::text)) DESC, category
+   ->  Custom Scan (ParadeDB Aggregate Scan) on smoke_test
+         Index: smoke_idx
+         Tantivy Query: {"with_index":{"query":{"all":{"field":"id"}}}}
+           Applies to Aggregates: COUNT(*), AVG(rating)
+           Group By: category
+           Aggregate Definition: {"grouped":{"aggs":{"0":{"avg":{"field":"rating","missing":null}}},"terms":{"field":"category","segment_size":65000,"size":65000}}}
+(8 rows)
 
 SELECT category, COUNT(*) as count, AVG(rating) as avg_rating
 FROM smoke_test
@@ -2258,16 +2164,14 @@ LIMIT 3;
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)
 SELECT COUNT(*) FROM smoke_test
 WHERE id @@@ pdb.parse('category:Electronics');
-                                                                QUERY PLAN                                                                
-------------------------------------------------------------------------------------------------------------------------------------------
- Aggregate
-   ->  Custom Scan (ParadeDB Base Scan) on smoke_test
-         Table: smoke_test
-         Index: smoke_idx
-         Exec Method: NormalScanExecState
-         Scores: false
-         Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
-(7 rows)
+                                                             QUERY PLAN                                                             
+------------------------------------------------------------------------------------------------------------------------------------
+ Custom Scan (ParadeDB Aggregate Scan) on smoke_test
+   Index: smoke_idx
+   Tantivy Query: {"with_index":{"query":{"parse":{"query_string":"category:Electronics","lenient":null,"conjunction_mode":null}}}}
+     Applies to Aggregates: COUNT(*)
+     Aggregate Definition: {"0":{"value_count":{"field":"ctid","missing":null}}}
+(5 rows)
 
 -- Verify Top K with pdb.agg window function
 EXPLAIN (FORMAT TEXT, COSTS OFF, TIMING OFF)

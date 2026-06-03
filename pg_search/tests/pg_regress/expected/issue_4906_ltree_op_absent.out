@@ -96,6 +96,7 @@ SELECT array_agg(id ORDER BY id) AS non_ltree_query_result_ids
 FROM issue_4906_without_ltree
 WHERE body @@@ 'document'
   AND rating > 1;
+WARNING:  Aggregate Scan not used: unsupported aggregate function OID: 2335. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_without_ltree)
  non_ltree_query_result_ids 
 ----------------------------
  {2,3}

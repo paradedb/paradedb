@@ -53,6 +53,7 @@ fn dont_do_parallel_index_scan(mut conn: PgConnection) {
 
     "VACUUM paradedb.bm25_search".execute(&mut conn);
     "set enable_indexscan to off;".execute(&mut conn);
+    "set paradedb.enable_aggregate_custom_scan to off;".execute(&mut conn);
     let (plan, ) = "EXPLAIN (ANALYZE, VERBOSE, FORMAT JSON) select count(*) from paradedb.bm25_search where description @@@ 'shoes';".fetch_one::<(Value,)>(&mut conn);
     eprintln!("{plan:#?}");
     let plan = plan

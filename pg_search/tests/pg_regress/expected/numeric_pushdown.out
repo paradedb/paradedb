@@ -1658,6 +1658,7 @@ FROM numeric_unbounded_agg_test
 WHERE id @@@ paradedb.all()
 GROUP BY category
 ORDER BY category;
+WARNING:  Aggregate Scan not used: grouping column category exists, but is not a fast field. To disable this warning: SET paradedb.check_aggregate_scan = false (table: numeric_unbounded_agg_test)
                                     QUERY PLAN                                     
 -----------------------------------------------------------------------------------
  GroupAggregate
@@ -1681,6 +1682,7 @@ FROM numeric_unbounded_agg_test
 WHERE id @@@ paradedb.all()
 GROUP BY category
 ORDER BY category;
+WARNING:  Aggregate Scan not used: grouping column category exists, but is not a fast field. To disable this warning: SET paradedb.check_aggregate_scan = false (table: numeric_unbounded_agg_test)
  category |               total                
 ----------+------------------------------------
  A        | 301.111111110111111111011111111100
@@ -1692,6 +1694,7 @@ SELECT category, SUM(amount) as total
 FROM numeric_unbounded_agg_test
 GROUP BY category
 ORDER BY category;
+WARNING:  Aggregate Scan not used: grouping column category exists, but is not a fast field. To disable this warning: SET paradedb.check_aggregate_scan = false (table: numeric_unbounded_agg_test)
  category |               total                
 ----------+------------------------------------
  A        | 301.111111110111111111011111111100
@@ -2142,6 +2145,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT SUM(val), AVG(val), MIN(val), MAX(val)
 FROM max_scale_test
 WHERE id @@@ paradedb.all();
+WARNING:  Aggregate Scan not used: field 'val' does not support aggregate pushdown. To disable this warning: SET paradedb.check_aggregate_scan = false (table: max_scale_test)
                            QUERY PLAN                            
 -----------------------------------------------------------------
  Aggregate
@@ -2160,6 +2164,7 @@ WHERE id @@@ paradedb.all();
 SELECT SUM(val), AVG(val), MIN(val), MAX(val)
 FROM max_scale_test
 WHERE id @@@ paradedb.all();
+WARNING:  Aggregate Scan not used: field 'val' does not support aggregate pushdown. To disable this warning: SET paradedb.check_aggregate_scan = false (table: max_scale_test)
          sum          |          avg           |          min          |         max          
 ----------------------+------------------------+-----------------------+----------------------
  0.623456789012345678 | 0.12469135780246913560 | -0.500000000000000000 | 0.999999999999999999
@@ -2265,6 +2270,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT SUM(val), AVG(val), MIN(val), MAX(val)
 FROM negative_scale_test
 WHERE id @@@ paradedb.all();
+WARNING:  Aggregate Scan not used: field 'val' does not support aggregate pushdown. To disable this warning: SET paradedb.check_aggregate_scan = false (table: negative_scale_test)
                               QUERY PLAN                              
 ----------------------------------------------------------------------
  Aggregate
@@ -2283,6 +2289,7 @@ WHERE id @@@ paradedb.all();
 SELECT SUM(val), AVG(val), MIN(val), MAX(val)
 FROM negative_scale_test
 WHERE id @@@ paradedb.all();
+WARNING:  Aggregate Scan not used: field 'val' does not support aggregate pushdown. To disable this warning: SET paradedb.check_aggregate_scan = false (table: negative_scale_test)
   sum   |        avg         |  min   |  max  
 --------+--------------------+--------+-------
  132000 | 22000.000000000000 | -12000 | 99000
@@ -3169,6 +3176,7 @@ EXPLAIN (COSTS OFF, VERBOSE, TIMING OFF)
 SELECT SUM(val_small), AVG(val_small), MIN(val_small), MAX(val_small)
 FROM numeric_precision_only_test
 WHERE id @@@ paradedb.all();
+WARNING:  Aggregate Scan not used: field 'val_small' does not support aggregate pushdown. To disable this warning: SET paradedb.check_aggregate_scan = false (table: numeric_precision_only_test)
                                   QUERY PLAN                                  
 ------------------------------------------------------------------------------
  Aggregate
@@ -3187,6 +3195,7 @@ WHERE id @@@ paradedb.all();
 SELECT SUM(val_small), AVG(val_small), MIN(val_small), MAX(val_small)
 FROM numeric_precision_only_test
 WHERE id @@@ paradedb.all();
+WARNING:  Aggregate Scan not used: field 'val_small' does not support aggregate pushdown. To disable this warning: SET paradedb.check_aggregate_scan = false (table: numeric_precision_only_test)
   sum  |          avg          | min  |  max  
 -------+-----------------------+------+-------
  12368 | 1766.8571428571428571 | -500 | 12345
@@ -3195,6 +3204,7 @@ WHERE id @@@ paradedb.all();
 SELECT SUM(val_large), AVG(val_large), MIN(val_large), MAX(val_large)
 FROM numeric_precision_only_test
 WHERE id @@@ paradedb.all();
+WARNING:  Aggregate Scan not used: field 'val_large' does not support aggregate pushdown. To disable this warning: SET paradedb.check_aggregate_scan = false (table: numeric_precision_only_test)
        sum       |         avg         |      min      |       max       
 -----------------+---------------------+---------------+-----------------
  126956789024690 | 18136684146384.2857 | -500000000000 | 123456789012345
@@ -3256,6 +3266,7 @@ ORDER BY id;
 SELECT SUM(implicit_scale), SUM(explicit_scale)
 FROM numeric_explicit_scale_zero
 WHERE id @@@ paradedb.all();
+WARNING:  Aggregate Scan not used: field 'implicit_scale' does not support aggregate pushdown. To disable this warning: SET paradedb.check_aggregate_scan = false (table: numeric_explicit_scale_zero)
   sum  |  sum  
 -------+-------
  69124 | 69124

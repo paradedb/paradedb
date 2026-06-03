@@ -115,6 +115,7 @@ JOIN files f ON d.id = f.documentId
 JOIN pages p ON p.fileId = f.id
 WHERE d.parents @@@ 'Factures' AND f.title @@@ 'Receipt' AND p.content @@@ 'Socienty'
 ORDER BY d.id, f.id, p.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: d, f, p)
                                                                               QUERY PLAN                                                                               
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -154,6 +155,7 @@ JOIN files f ON d.id = f.documentId
 JOIN pages p ON p.fileId = f.id
 WHERE d.parents @@@ 'Factures' AND f.title @@@ 'Receipt' AND p.content @@@ 'Socienty'
 ORDER BY d.id, f.id, p.id;
+WARNING:  JoinScan not used: LIMIT is required for top-level queries (tables: d, f, p)
   id  | parents  |  title  |     file_path      | fileid | page_number 
 ------+----------+---------+--------------------+--------+-------------
  doc2 | Factures | Receipt | /receipts/2023.pdf | file3  |           1
@@ -180,42 +182,27 @@ JOIN pages ON pages.fileId = files.id
 WHERE documents.parents @@@ 'Factures' AND files.title @@@ 'Receipt' AND pages.content @@@ 'Socienty'
 ORDER BY pages.fileId, pages.page_number
 LIMIT 10;
-                                                                                    QUERY PLAN                                                                                     
------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                 QUERY PLAN                                                                                                  
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
-   ->  Sort
-         Sort Key: pages.fileid, pages.page_number
-         ->  Hash Join
-               Hash Cond: (files.documentid = documents.id)
-               ->  Merge Join
-                     Merge Cond: (files.id = pages.fileid)
-                     ->  Sort
-                           Sort Key: files.id
-                           ->  Custom Scan (ParadeDB Base Scan) on files
-                                 Table: files
-                                 Index: files_search
-                                 Exec Method: ColumnarExecState
-                                 Fast Fields: documentid, id
-                                 Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
-                     ->  Sort
-                           Sort Key: pages.fileid
-                           ->  Custom Scan (ParadeDB Base Scan) on pages
-                                 Table: pages
-                                 Index: pages_search
-                                 Exec Method: ColumnarExecState
-                                 Fast Fields: content, fileid, page_number
-                                 Scores: false
-                                 Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
-               ->  Hash
-                     ->  Custom Scan (ParadeDB Base Scan) on documents
-                           Table: documents
-                           Index: documents_search
-                           Exec Method: ColumnarExecState
-                           Fast Fields: id
-                           Scores: false
-                           Tantivy Query: {"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
-(33 rows)
+   ->  Custom Scan (ParadeDB Join Scan)
+         Relation Tree: documents INNER (files INNER pages)
+         Join Cond: documents.id = files.documentid, files.id = pages.fileid
+         Limit: 10
+         Order By: pages.fileid asc, pages.page_number asc
+         DataFusion Physical Plan: 
+           : ProjectionExec: expr=[fileid@3 as col_1, page_number@4 as col_2, NULL as col_3, ctid_0@0 as ctid_0, ctid_1@1 as ctid_1, ctid_2@2 as ctid_2]
+           :   SortExec: TopK(fetch=10), expr=[fileid@3 ASC NULLS LAST, page_number@4 ASC NULLS LAST], preserve_partitioning=[false]
+           :     VisibilityFilterExec: tables=[documents, files, pages]
+           :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@2, fileid@1)], projection=[ctid_0@0, ctid_1@1, ctid_2@3, fileid@4, page_number@5]
+           :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(id@1, documentid@1)], projection=[ctid_0@0, ctid_1@2, id@4]
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, query={"with_index":{"query":{"parse_with_field":{"field":"parents","query_string":"Factures","lenient":null,"conjunction_mode":null}}}}
+           :           CooperativeExec
+           :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"parse_with_field":{"field":"title","query_string":"Receipt","lenient":null,"conjunction_mode":null}}}}
+           :         CooperativeExec
+           :           PgSearchScan: segments=1, dynamic_filters=2, query={"with_index":{"query":{"parse_with_field":{"field":"content","query_string":"Socienty","lenient":null,"conjunction_mode":null}}}}
+(18 rows)
 
 \i common/columnar_queries_cleanup.sql
 -- Cleanup for relational query tests (07-10)

@@ -55,6 +55,7 @@ SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
                                                                                     QUERY PLAN                                                                                    
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -74,6 +75,7 @@ SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  count 
 -------
      6
@@ -85,6 +87,7 @@ SELECT COUNT(*), SUM(p.price), AVG(p.rating)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
                                                                                     QUERY PLAN                                                                                    
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -104,6 +107,7 @@ SELECT COUNT(*), SUM(p.price), AVG(p.rating)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  count |        sum         | avg 
 -------+--------------------+-----
      6 | 5599.9400000000005 |   4
@@ -115,6 +119,7 @@ SELECT MIN(p.price), MAX(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
                                                                                     QUERY PLAN                                                                                    
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -134,6 +139,7 @@ SELECT MIN(p.price), MAX(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   min   |   max   
 --------+---------
  499.99 | 1299.99
@@ -144,6 +150,7 @@ SELECT COUNT(*), SUM(p.price), AVG(p.price), MIN(p.rating), MAX(p.rating)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  count |        sum         |        avg        | min | max 
 -------+--------------------+-------------------+-----+-----
      6 | 5599.9400000000005 | 933.3233333333334 |   2 |   5
@@ -157,6 +164,7 @@ SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'nonexistent_term_xyz';
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  count 
 -------
      0
@@ -167,6 +175,7 @@ SELECT SUM(p.price), AVG(p.rating)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'nonexistent_term_xyz';
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  sum | avg 
 -----+-----
      |    
@@ -177,6 +186,7 @@ SELECT MIN(p.price), MAX(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'nonexistent_term_xyz';
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  min | max 
 -----+-----
      |    
@@ -190,6 +200,7 @@ SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR toy';
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  count 
 -------
      9
@@ -200,6 +211,7 @@ SELECT COUNT(p.rating)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  count 
 -------
      6
@@ -210,6 +222,7 @@ SELECT COUNT(*), SUM(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop' AND p.price > 500;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  count |   sum   
 -------+---------
      4 | 4599.96
@@ -226,6 +239,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
                                                                                            QUERY PLAN                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -252,6 +266,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | count 
 -------------+-------
  Electronics |     4
@@ -266,6 +281,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | count |   sum   | avg |  min   |   max   
 -------------+-------+---------+-----+--------+---------
  Electronics |     4 | 4599.96 |   5 | 999.99 | 1299.99
@@ -280,6 +296,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category, t.tag_name
 ORDER BY p.category, t.tag_name;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | tag_name | count 
 -------------+----------+-------
  Electronics | computer |     1
@@ -299,6 +316,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     4 | 4599.96
@@ -313,6 +331,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     4 | 4599.96
@@ -332,6 +351,7 @@ SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR orphan';
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  count 
 -------
      6
@@ -342,6 +362,7 @@ SELECT SUM(p.price), AVG(p.rating)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR orphan';
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
         sum         | avg 
 --------------------+-----
  5599.9400000000005 |   4
@@ -360,6 +381,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
                                                                                            QUERY PLAN                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -384,6 +406,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | count 
 -------------+-------
  Electronics |     3
@@ -399,6 +422,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | count 
 -------------+-------
  Electronics |     3
@@ -415,6 +439,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
                                                                                            QUERY PLAN                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -439,6 +464,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  tag_name | count 
 ----------+-------
  computer |     1
@@ -457,6 +483,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  tag_name | count 
 ----------+-------
  computer |     1
@@ -478,6 +505,7 @@ FROM agg_join_products p
 LEFT JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
                                                                                         QUERY PLAN                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -499,6 +527,7 @@ FROM agg_join_products p
 LEFT JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
   category   | count 
 -------------+-------
  Electronics |     4
@@ -514,6 +543,7 @@ LEFT JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     4 | 4599.96
@@ -528,6 +558,7 @@ LEFT JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     4 | 4599.96
@@ -544,6 +575,7 @@ RIGHT JOIN agg_join_tags t ON p.id = t.product_id
 WHERE t.tag_name @@@ 'tech OR orphan_tag'
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
                                                                                            QUERY PLAN                                                                                            
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -568,6 +600,7 @@ RIGHT JOIN agg_join_tags t ON p.id = t.product_id
 WHERE t.tag_name @@@ 'tech OR orphan_tag'
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
   tag_name  | count 
 ------------+-------
  orphan_tag |     0
@@ -582,6 +615,7 @@ RIGHT JOIN agg_join_tags t ON p.id = t.product_id
 WHERE t.tag_name @@@ 'tech OR orphan_tag'
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
   tag_name  | count 
 ------------+-------
  orphan_tag |     0
@@ -595,6 +629,7 @@ RIGHT JOIN agg_join_tags t ON p.id = t.product_id
 WHERE t.tag_name @@@ 'tech OR orphan_tag'
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
   tag_name  | count 
 ------------+-------
  orphan_tag |     0
@@ -620,6 +655,7 @@ SELECT COUNT(*)
 FROM comp_a a
 JOIN comp_b b ON a.x = b.x AND a.y = b.y
 WHERE a.description @@@ 'laptop OR shoes';
+WARNING:  JoinScan not used: aggregates are not supported (tables: a, b)
                                                                                                   QUERY PLAN                                                                                                  
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -639,6 +675,7 @@ SELECT COUNT(*)
 FROM comp_a a
 JOIN comp_b b ON a.x = b.x AND a.y = b.y
 WHERE a.description @@@ 'laptop OR shoes';
+WARNING:  JoinScan not used: aggregates are not supported (tables: a, b)
  count 
 -------
      3
@@ -650,6 +687,7 @@ SELECT COUNT(*)
 FROM comp_a a
 JOIN comp_b b ON a.x = b.x AND a.y = b.y
 WHERE a.description @@@ 'laptop OR shoes';
+WARNING:  JoinScan not used: aggregates are not supported (tables: a, b)
  count 
 -------
      3
@@ -688,6 +726,7 @@ SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  count 
 -------
      6
@@ -697,6 +736,7 @@ SELECT COUNT(*), SUM(p.price), AVG(p.rating), MIN(p.price), MAX(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop';
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  count |   sum   |        avg         |  min   |   max   
 -------+---------+--------------------+--------+---------
      6 | 5599.94 | 4.0000000000000000 | 499.99 | 1299.99
@@ -712,6 +752,7 @@ SELECT STDDEV(p.price), VARIANCE(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes';
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
        stddev       |      variance      
 --------------------+--------------------
  495.71737339507706 | 245735.71428571426
@@ -724,6 +765,7 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | stddev_pop | var_pop 
 -------------+------------+---------
  Electronics |        150 |   22500
@@ -737,6 +779,7 @@ SELECT STDDEV(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes';
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
       stddev       
 -------------------
  495.7173733950771
@@ -747,6 +790,7 @@ SELECT STDDEV(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes';
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
        stddev       
 --------------------
  495.71737339507706
@@ -793,6 +837,7 @@ SELECT MIN(o.created_at), MAX(o.created_at)
 FROM ts_orders o
 JOIN ts_items i ON o.id = i.order_id
 WHERE o.description @@@ 'order';
+WARNING:  JoinScan not used: aggregates are not supported (tables: i, o)
            min            |           max            
 --------------------------+--------------------------
  Mon Jan 15 10:30:00 2024 | Mon Jun 10 08:15:00 2024
@@ -804,6 +849,7 @@ FROM ts_orders o
 JOIN ts_items i ON o.id = i.order_id
 WHERE o.description @@@ 'order'
 GROUP BY o.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: i, o)
   category   |           min            |           max            
 -------------+--------------------------+--------------------------
  Electronics | Mon Jan 15 10:30:00 2024 | Wed Mar 20 14:45:00 2024
@@ -817,6 +863,7 @@ FROM ts_orders o
 JOIN ts_items i ON o.id = i.order_id
 WHERE o.description @@@ 'order'
 GROUP BY o.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: i, o)
   category   |           min            |           max            
 -------------+--------------------------+--------------------------
  Electronics | Mon Jan 15 10:30:00 2024 | Wed Mar 20 14:45:00 2024
@@ -829,6 +876,7 @@ FROM ts_orders o
 JOIN ts_items i ON o.id = i.order_id
 WHERE o.description @@@ 'order'
 GROUP BY o.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: i, o)
   category   |           min            |           max            
 -------------+--------------------------+--------------------------
  Electronics | Mon Jan 15 10:30:00 2024 | Wed Mar 20 14:45:00 2024
@@ -880,6 +928,7 @@ SELECT MIN(o.created_at), MAX(o.created_at)
 FROM tstz_orders o
 JOIN tstz_items i ON o.id = i.order_id
 WHERE o.description @@@ 'order';
+WARNING:  JoinScan not used: aggregates are not supported (tables: i, o)
              min              |             max              
 ------------------------------+------------------------------
  Sun Jan 14 21:00:00 2024 PST | Tue Dec 24 07:00:00 2024 PST
@@ -891,6 +940,7 @@ FROM tstz_orders o
 JOIN tstz_items i ON o.id = i.order_id
 WHERE o.description @@@ 'order'
 GROUP BY o.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: i, o)
   category   |             min              |             max              
 -------------+------------------------------+------------------------------
  Electronics | Sun Jan 14 21:00:00 2024 PST | Thu Jul 04 09:00:00 2024 PDT
@@ -903,6 +953,7 @@ SELECT MIN(o.created_at), MAX(o.created_at)
 FROM tstz_orders o
 JOIN tstz_items i ON o.id = i.order_id
 WHERE o.description @@@ 'order';
+WARNING:  JoinScan not used: aggregates are not supported (tables: i, o)
              min              |             max              
 ------------------------------+------------------------------
  Sun Jan 14 21:00:00 2024 PST | Tue Dec 24 07:00:00 2024 PST
@@ -913,6 +964,7 @@ SELECT MIN(o.created_at), MAX(o.created_at)
 FROM tstz_orders o
 JOIN tstz_items i ON o.id = i.order_id
 WHERE o.description @@@ 'order';
+WARNING:  JoinScan not used: aggregates are not supported (tables: i, o)
              min              |             max              
 ------------------------------+------------------------------
  Sun Jan 14 21:00:00 2024 PST | Tue Dec 24 07:00:00 2024 PST
@@ -928,6 +980,7 @@ JOIN tstz_items i ON o.id = i.order_id
 WHERE o.description @@@ 'order'
 GROUP BY o.category
 ORDER BY o.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: i, o)
   category   |             min              |             max              
 -------------+------------------------------+------------------------------
  Electronics | Sun Jan 14 21:00:00 2024 PST | Thu Jul 04 09:00:00 2024 PDT
@@ -941,6 +994,7 @@ JOIN tstz_items i ON o.id = i.order_id
 WHERE o.description @@@ 'order'
 GROUP BY o.category
 ORDER BY o.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: i, o)
   category   |             min              |             max              
 -------------+------------------------------+------------------------------
  Electronics | Sun Jan 14 21:00:00 2024 PST | Thu Jul 04 09:00:00 2024 PDT
@@ -979,6 +1033,7 @@ WHERE p.description @@@ 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) DESC NULLS LAST
 LIMIT 2;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
  category  |  sum  
 -----------+-------
  NullSortB | 19804
@@ -994,6 +1049,7 @@ WHERE p.description @@@ 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) DESC NULLS LAST
 LIMIT 2;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
  category  |  sum  
 -----------+-------
  NullSortB | 19804
@@ -1009,6 +1065,7 @@ WHERE p.description @@@ 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) ASC NULLS FIRST
 LIMIT 2;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
  category  |  sum  
 -----------+-------
  NullSortA |      
@@ -1024,6 +1081,7 @@ WHERE p.description @@@ 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) ASC NULLS FIRST
 LIMIT 2;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
  category  |  sum  
 -----------+-------
  NullSortA |      
@@ -1040,6 +1098,7 @@ WHERE p.description @@@ 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) DESC
 LIMIT 2;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
  category  |  sum  
 -----------+-------
  NullSortA |      
@@ -1055,6 +1114,7 @@ WHERE p.description @@@ 'nullsort'
 GROUP BY p.category
 ORDER BY SUM(t.product_id) DESC
 LIMIT 2;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
  category  |  sum  
 -----------+-------
  NullSortA |      
@@ -1076,6 +1136,7 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
                                                                                         QUERY PLAN                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -1099,6 +1160,7 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
                                                                                         QUERY PLAN                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -1122,6 +1184,7 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
                                                                                         QUERY PLAN                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -1149,6 +1212,7 @@ SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE (t.id = 1 OR p.id = 1) AND p.description @@@ 'laptop';
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  count 
 -------
      2
@@ -1159,6 +1223,7 @@ SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE (t.id = 1 OR p.id = 1) AND p.description @@@ 'laptop';
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  count 
 -------
      2
@@ -1170,6 +1235,7 @@ SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE (t.id @@@ '1' OR p.id @@@ '1') AND p.description @@@ 'laptop';
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  count 
 -------
      2
@@ -1180,6 +1246,7 @@ SELECT COUNT(*)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE (t.id @@@ '1' OR p.id @@@ '1') AND p.description @@@ 'laptop';
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  count 
 -------
      2
@@ -1197,6 +1264,7 @@ SELECT COUNT(*), SUM(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop' AND p.price > 500;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
                                                                                                                                        QUERY PLAN                                                                                                                                        
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -1217,6 +1285,7 @@ SELECT COUNT(*), SUM(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop' AND p.price > 500;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  count |   sum   
 -------+---------
      4 | 4599.96
@@ -1228,6 +1297,7 @@ SELECT COUNT(*), SUM(p.price)
 FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop' AND p.price > 500;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  count |   sum   
 -------+---------
      4 | 4599.96
@@ -1245,6 +1315,7 @@ WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 HAVING COUNT(*) > 1
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | count 
 -------------+-------
  Electronics |     4
@@ -1261,6 +1332,7 @@ WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 HAVING COUNT(*) > 1
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | count 
 -------------+-------
  Electronics |     4
@@ -1277,6 +1349,7 @@ WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 HAVING SUM(p.price) > 100
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     4 | 4599.96
@@ -1293,6 +1366,7 @@ WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 HAVING SUM(p.price) > 100
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     4 | 4599.96
@@ -1324,6 +1398,7 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR toy'
 GROUP BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
                                                                                             QUERY PLAN                                                                                            
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -1347,6 +1422,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR toy'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | bool_and 
 -------------+----------
  Electronics | t
@@ -1361,6 +1437,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR toy'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | bool_or 
 -------------+---------
  Electronics | t
@@ -1375,6 +1452,7 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
                                                                                         QUERY PLAN                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -1398,6 +1476,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   |          string_agg          
 -------------+------------------------------
  Electronics | tech, computer, tech, gaming
@@ -1413,6 +1492,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR toy'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | bool_and | bool_or 
 -------------+----------+---------
  Electronics | t        | t
@@ -1427,6 +1507,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR toy'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | bool_and | bool_or 
 -------------+----------+---------
  Electronics | t        | t
@@ -1441,6 +1522,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   |          array_agg          
 -------------+-----------------------------
  Electronics | {tech,computer,tech,gaming}
@@ -1456,6 +1538,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   |          array_agg          
 -------------+-----------------------------
  Electronics | {tech,computer,tech,gaming}
@@ -1483,6 +1566,7 @@ SELECT COUNT(*), COUNT(p.category), COUNT(t.tag_name)
 FROM agg_join_products p
 FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes';
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
                                                                                         QUERY PLAN                                                                                         
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -1503,6 +1587,7 @@ SELECT COUNT(*), COUNT(p.category), COUNT(t.tag_name)
 FROM agg_join_products p
 FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes';
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
  count | count | count 
 -------+-------+-------
      8 |     8 |     8
@@ -1515,6 +1600,7 @@ FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     4 | 4599.96
@@ -1530,6 +1616,7 @@ FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     4 | 4599.96
@@ -1544,6 +1631,7 @@ FULL OUTER JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: only INNER, ANTI, and SEMI JOIN are currently supported (types: LEFT, RIGHT) (tables: p, t)
   category   | count |   sum   
 -------------+-------+---------
  Electronics |     4 | 4599.96
@@ -1561,6 +1649,7 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
                                                                                          QUERY PLAN                                                                                          
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -1585,6 +1674,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   |          string_agg          
 -------------+------------------------------
  Electronics | computer, gaming, tech, tech
@@ -1600,6 +1690,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   |          string_agg          
 -------------+------------------------------
  Electronics | computer, gaming, tech, tech
@@ -1615,6 +1706,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   |          string_agg          
 -------------+------------------------------
  Electronics | tech, tech, gaming, computer
@@ -1629,6 +1721,7 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
                                                                                          QUERY PLAN                                                                                          
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -1653,6 +1746,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   |          array_agg          
 -------------+-----------------------------
  Electronics | {computer,gaming,tech,tech}
@@ -1668,6 +1762,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   |          array_agg          
 -------------+-----------------------------
  Electronics | {computer,gaming,tech,tech}
@@ -1683,6 +1778,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   |          array_agg          
 -------------+-----------------------------
  Electronics | {tech,tech,gaming,computer}
@@ -1727,6 +1823,7 @@ FROM agg_json_items i
 JOIN agg_json_orders o ON i.id = o.item_id
 WHERE i.id @@@ paradedb.all()
 GROUP BY i.metadata->>'category';
+WARNING:  JoinScan not used: aggregates are not supported (tables: i, o)
                                                         QUERY PLAN                                                        
 --------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -1751,6 +1848,7 @@ JOIN agg_json_orders o ON i.id = o.item_id
 WHERE i.id @@@ paradedb.all()
 GROUP BY i.metadata->>'category'
 ORDER BY category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: i, o)
   category   | count | sum 
 -------------+-------+-----
  Electronics |     3 |  18
@@ -1765,6 +1863,7 @@ JOIN agg_json_orders o ON i.id = o.item_id
 WHERE i.id @@@ paradedb.all()
 GROUP BY i.metadata->>'category'
 ORDER BY category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: i, o)
   category   | count | sum 
 -------------+-------+-----
  Electronics |     3 |  18
@@ -1786,6 +1885,7 @@ FROM agg_join_products p
 JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
                                                                                              QUERY PLAN                                                                                              
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -1812,6 +1912,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | total | expensive 
 -------------+-------+-----------
  Clothing    |     1 |         1
@@ -1830,6 +1931,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | total | expensive 
 -------------+-------+-----------
  Clothing    |     1 |         1
@@ -1848,6 +1950,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | total_price | high_rated_price 
 -------------+-------------+------------------
  Clothing    |      129.99 |                 
@@ -1866,6 +1969,7 @@ JOIN agg_join_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
+WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | total_price | high_rated_price 
 -------------+-------------+------------------
  Clothing    |      129.99 |                 

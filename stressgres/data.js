@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780505041017,
+  "lastUpdate": 1780505077692,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -21226,6 +21226,108 @@ window.BENCHMARK_DATA = {
             "value": 162.9765625,
             "unit": "median mem",
             "extra": "avg mem: 181.88994488868474, max mem: 221.390625, count: 56057"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "71215065+junnjiee@users.noreply.github.com",
+            "name": "Jun Jie",
+            "username": "junnjiee"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8449a21db8d5cd7afdd4ed1c7bceddb31d70a3e9",
+          "message": "test: make limit and offset optional in group aggregate proptest (#5235)\n\n# Ticket(s) Closed\nNone\n\n## Why\n\nMentioned by @stuhood in #5231, we should continue test coverage for\ncases without `LIMIT`/`OFFSET`\n\n## What\n\nMakes `limit` and `offset` optional in proptest params, to ensure test\ncoverage for queries without the 2 operations\n\nWith this change, possible test cases are:\n1. `... GROUP BY ... ORDER BY ... OFFSET ... LIMIT ...`\n2. `... GROUP BY ... ORDER BY ... OFFSET ...` (new)\n3. `... GROUP BY ... ORDER BY ... LIMIT ...` (new)\n4. `... GROUP BY ... ORDER BY ...` (new)\n\n## How\n\n- Made limit and offset proptest params optional (holds `Option` enum)\n- if value is `Some`, format into `LIMIT`/`OFFSET` clause, empty string\nif `None`\n- Added comment to clarify why we only build `OFFSET` queries when there\nare grouping columns",
+          "timestamp": "2026-06-03T11:58:25-04:00",
+          "tree_id": "a2ddb9fc4872cb06f7232972a68bf61195bd1689",
+          "url": "https://github.com/paradedb/paradedb/commit/8449a21db8d5cd7afdd4ed1c7bceddb31d70a3e9"
+        },
+        "date": 1780505043862,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.0591645446172184, max background_merging: 2.0, count: 55371"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.663179399449318, max cpu: 9.552238, count: 55371"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 26.6328125,
+            "unit": "median mem",
+            "extra": "avg mem: 26.621617066582687, max mem: 26.6640625, count: 55371"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.981551134575369, max cpu: 28.458496, count: 55371"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 184.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 179.9248556046938, max mem: 192.28515625, count: 55371"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 54290,
+            "unit": "median block_count",
+            "extra": "avg block_count: 54146.453215582165, max block_count: 54290.0, count: 55371"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.317530837441986, max segment_count: 57.0, count: 55371"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.607820809989142, max cpu: 28.430405, count: 55371"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 141.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 132.79796572495079, max mem: 162.94921875, count: 55371"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.179657995518409, max cpu: 32.71665, count: 55371"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 199.8125,
+            "unit": "median mem",
+            "extra": "avg mem: 197.87900953059815, max mem: 231.57421875, count: 55371"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.58444162910051, max cpu: 33.432835, count: 55371"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 163,
+            "unit": "median mem",
+            "extra": "avg mem: 182.6946787070398, max mem: 221.36328125, count: 55371"
           }
         ]
       }

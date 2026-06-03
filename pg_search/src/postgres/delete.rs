@@ -135,17 +135,35 @@ pub unsafe extern "C-unwind" fn ambulkdelete(
     // take the MergeLock
     let merge_lock = metadata.acquire_merge_lock();
 
-    // garbage collecting the MergeList is necessary to remove any stale entries that may have
-    // been leftover from a cancelled merge or crash during merge
-    merge_lock
-        .merge_list()
-        .garbage_collect(pg_sys::ReadNextFullTransactionId());
+    // We hold the CLEANUP_LOCK exclusively (see above), so no merge is running for this index
+    // right now: a live merge holds the CLEANUP_LOCK shared for its whole duration and removes
+    // its MergeEntry before releasing it.
+    //
+    // `garbage_collect` reclaims entries whose backend has exited or whose transaction has
+    // ended. Any entry still present is therefore a stale leftover from a merge that errored or
+    // crashed after writing its MergeEntry but before removing it: a panic or ERROR on the merge
+    // path cannot reliably remove it mid-unwind. No live merge depends on these, so we remove
+    // them here (logging as we go) rather than failing VACUUM.
+    let mut merge_list = merge_lock.merge_list();
+    merge_list.garbage_collect(pg_sys::ReadNextFullTransactionId());
 
-    // and now we should not have any merges happening, and cannot
-    assert!(
-        merge_lock.merge_list().is_empty(),
-        "ambulkdelete cannot run concurrently with an active merge operation"
-    );
+    let stale_entries = merge_list.list();
+    if !stale_entries.is_empty() {
+        pgrx::log!(
+            "ambulkdelete: cleaning up {} stale merge list {} left behind by a cancelled or crashed merge",
+            stale_entries.len(),
+            if stale_entries.len() == 1 {
+                "entry"
+            } else {
+                "entries"
+            },
+        );
+        for entry in stale_entries {
+            merge_list
+                .remove_entry(entry)
+                .expect("should be able to remove a stale MergeEntry while holding the merge lock");
+        }
+    }
     drop(cleanup_lock);
 
     let reader = SearchIndexReader::empty(&index_relation, MvccSatisfies::Vacuum)

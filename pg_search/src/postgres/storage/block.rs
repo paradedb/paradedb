@@ -280,14 +280,26 @@ pub struct SegmentMetaEntryImmutable {
     pub store: Option<FileEntry>,
     pub temp_store: Option<FileEntry>,
     pub delete: Option<DeleteEntry>,
-    #[serde(default)]
     pub vecmeta: Option<FileEntry>,
-    #[serde(default)]
     pub flatvec: Option<FileEntry>,
-    #[serde(default)]
     pub assignments: Option<FileEntry>,
-    #[serde(default)]
     pub ivf_vec: Option<FileEntry>,
+}
+
+/// The pre-vector on-disk layout of [`SegmentMetaEntryImmutable`]. Indexes built before vector
+/// support serialized exactly these fields. bincode has no field framing, so trailing fields
+/// added later cannot be recovered via `#[serde(default)]`; the known prefix is decoded
+/// explicitly and any absent trailing vector entries are treated as `None`.
+#[derive(Deserialize)]
+struct SegmentMetaEntryImmutableV1 {
+    postings: Option<FileEntry>,
+    positions: Option<FileEntry>,
+    fast_fields: Option<FileEntry>,
+    field_norms: Option<FileEntry>,
+    terms: Option<FileEntry>,
+    store: Option<FileEntry>,
+    temp_store: Option<FileEntry>,
+    delete: Option<DeleteEntry>,
 }
 
 impl SegmentMetaEntryImmutable {
@@ -785,13 +797,43 @@ impl From<PgItem> for SegmentMetaEntry {
 
         let content = match header.tag {
             SegmentMetaEntryTag::Immutable => {
-                let (content, _): (SegmentMetaEntryImmutable, _) =
+                let content_bytes = &bytes[bytes_read..];
+                let (v1, v1_len): (SegmentMetaEntryImmutableV1, usize) =
+                    bincode::serde::decode_from_slice(content_bytes, bincode::config::legacy())
+                        .expect("expected to deserialize valid SegmentMetaEntryContent");
+
+                // Segments written before vector support lack the trailing vector file entries.
+                // bincode has no field framing, so decode them only when bytes remain.
+                let (vecmeta, flatvec, assignments, ivf_vec): (
+                    Option<FileEntry>,
+                    Option<FileEntry>,
+                    Option<FileEntry>,
+                    Option<FileEntry>,
+                ) = if content_bytes.len() > v1_len {
                     bincode::serde::decode_from_slice(
-                        &bytes[bytes_read..],
+                        &content_bytes[v1_len..],
                         bincode::config::legacy(),
                     )
-                    .expect("expected to deserialize valid SegmentMetaEntryContent");
-                SegmentMetaEntryContent::Immutable(content)
+                    .expect("expected to deserialize valid SegmentMetaEntry vector file entries")
+                    .0
+                } else {
+                    (None, None, None, None)
+                };
+
+                SegmentMetaEntryContent::Immutable(SegmentMetaEntryImmutable {
+                    postings: v1.postings,
+                    positions: v1.positions,
+                    fast_fields: v1.fast_fields,
+                    field_norms: v1.field_norms,
+                    terms: v1.terms,
+                    store: v1.store,
+                    temp_store: v1.temp_store,
+                    delete: v1.delete,
+                    vecmeta,
+                    flatvec,
+                    assignments,
+                    ivf_vec,
+                })
             }
             SegmentMetaEntryTag::Mutable => {
                 let (content, _): (SegmentMetaEntryMutable, _) = bincode::serde::decode_from_slice(

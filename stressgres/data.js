@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780454377923,
+  "lastUpdate": 1780455023592,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -22596,6 +22596,60 @@ window.BENCHMARK_DATA = {
             "value": 15.446036146067133,
             "unit": "median tps",
             "extra": "avg tps: 15.262320367405747, max tps: 19.951702912759085, count: 55572"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "89407a0a72afca9e2b1f9b29934cb72e77e84f83",
+          "message": "chore(mpp): bump datafusion-distributed to the rebased fork tip (#5229)\n\nThis PR bumps `datafusion-distributed` from `340ceb5` to `e5a498e`.\n\nThe fork's `main` was rebased onto current `upstream/main` (DF-D\n`14b3b56`) and the fork commits were restructured into two upstreamable\nones (a pluggable `WorkerTransport` and `in_process_mode`) plus a\nfork-only docs-delete. DataFusion stays at `53.0.0`, so there's no\nversion cascade into `pg_search`.\n\n## Code changes\n\nTwo DF-D API adaptations in the MPP module:\n\n- **`WorkerConnection` method rename.** Upstream PR #427 introduced the\n`WorkerConnection` trait with `fn execute(partition) -> BoxStream`,\nwhere our fork previously had `fn stream_partition(partition) ->\nWorkerPartitionStream`. The reconciled fork adopts the upstream\nsignature, so `ShmMqWorkerConnection` in `mpp/runtime.rs` renames its\nmethod to `execute` and returns `BoxStream<'static,\nResult<RecordBatch>>` (the type the old `WorkerPartitionStream` alias\nresolved to).\n\n- **Downcast instead of `kind()`.** The fork dropped the\n`NetworkBoundary::kind()` accessor and the `NetworkBoundaryKind` enum;\nconsumers classify boundaries by downcasting, like elsewhere in df-d and\nDataFusion. `worker_fragments::collect` now branches on\n`plan.as_any().is::<NetworkShuffleExec>()` / `NetworkBroadcastExec` /\n`NetworkCoalesceExec` instead of matching on `nb.kind()`, with a\nfail-loud arm for any unrecognized boundary type. The routing for each\n`(type, top_level)` case is unchanged.\n\nThe rest of what `pg_search` uses is unchanged: `WorkerTransport`,\n`in_process_mode`, `prepare_in_process_plan`, and\n`with_distributed_worker_transport`.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-02T18:55:07-07:00",
+          "tree_id": "0ac9c2df2b748f69a8b260ba427f2483119d3a98",
+          "url": "https://github.com/paradedb/paradedb/commit/89407a0a72afca9e2b1f9b29934cb72e77e84f83"
+        },
+        "date": 1780454992143,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 30.474239785156225,
+            "unit": "median tps",
+            "extra": "avg tps: 30.140722241311636, max tps: 31.083863093655292, count: 55582"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 244.57026119909455,
+            "unit": "median tps",
+            "extra": "avg tps: 276.88075478070465, max tps: 3203.057282586704, count: 55582"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 550.2304595741961,
+            "unit": "median tps",
+            "extra": "avg tps: 536.144514509431, max tps: 870.0263940652904, count: 55582"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 167.7523119157396,
+            "unit": "median tps",
+            "extra": "avg tps: 179.50442086046968, max tps: 878.2333987654332, count: 111164"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.711350395643672,
+            "unit": "median tps",
+            "extra": "avg tps: 15.565177940270479, max tps: 21.87298454118068, count: 55582"
           }
         ]
       }

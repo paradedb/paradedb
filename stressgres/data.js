@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780511177263,
+  "lastUpdate": 1780511876070,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16982,6 +16982,54 @@ window.BENCHMARK_DATA = {
             "value": 5.222788834694394,
             "unit": "median tps",
             "extra": "avg tps: 5.273582647570047, max tps: 7.438055557202258, count: 56347"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "stuhood@paradedb.com",
+            "name": "Stu Hood",
+            "username": "stuhood"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "67ee3931be188b482424ca4f4aceddc78907a00c",
+          "message": "chore: Prepare 0.24.0. (#5243)\n\nSigned-off-by: Stu Hood <stuhood@paradedb.com>\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-03T10:53:34-07:00",
+          "tree_id": "6a345d6a41e7bbac1d0a6838ca747681966951a9",
+          "url": "https://github.com/paradedb/paradedb/commit/67ee3931be188b482424ca4f4aceddc78907a00c"
+        },
+        "date": 1780511835716,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1086.9232550593174,
+            "unit": "median tps",
+            "extra": "avg tps: 1079.0307679002096, max tps: 1158.1076983620765, count: 56607"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1241.6827572317195,
+            "unit": "median tps",
+            "extra": "avg tps: 1224.7563541467414, max tps: 1255.119525049927, count: 56607"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1833.8255036180221,
+            "unit": "median tps",
+            "extra": "avg tps: 1774.0488566907168, max tps: 2022.9714162630942, count: 56607"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.57758336849401,
+            "unit": "median tps",
+            "extra": "avg tps: 5.560719012821638, max tps: 7.677315234263985, count: 56607"
           }
         ]
       }

@@ -34,7 +34,7 @@ use crate::postgres::utils::{
 use crate::postgres::IsLogicalWorker;
 use crate::schema::{CategorizedFieldData, SearchField};
 
-use pgrx::{pg_guard, pg_sys, PgMemoryContexts};
+use pgrx::{pg_guard, pg_sys, PgBuiltInOids, PgMemoryContexts, PgOid};
 use tantivy::index::SegmentId;
 use tantivy::TantivyDocument;
 
@@ -69,6 +69,7 @@ pub struct InsertModeMutable {
     key_field_name: FieldName,
     key_field_attno: usize,
     row_limit: usize,
+    datetime_field_attnos: Vec<usize>, // attnos of columns that are dates, so we can validate they're in range at insert-time instead of read-time
 }
 
 pub enum InsertMode {
@@ -114,11 +115,34 @@ impl InsertState {
                 })
                 .expect("No key field defined.");
 
+            let datetime_field_attnos = indexrel
+                .schema()?
+                .categorized_fields()
+                .iter()
+                .filter(|(_, field)| {
+                    matches!(
+                        field.base_oid,
+                        PgOid::BuiltIn(
+                            PgBuiltInOids::DATEOID
+                                | PgBuiltInOids::DATERANGEOID
+                                | PgBuiltInOids::TIMESTAMPOID
+                                | PgBuiltInOids::TSRANGEOID
+                                | PgBuiltInOids::TIMESTAMPTZOID
+                                | pg_sys::BuiltinOid::TSTZRANGEOID
+                                | PgBuiltInOids::TIMEOID
+                                | PgBuiltInOids::TIMETZOID
+                        )
+                    )
+                })
+                .map(|(_, field)| field.attno)
+                .collect();
+
             InsertMode::Mutable(InsertModeMutable {
                 ctids: Vec::new(),
                 key_field_name,
                 key_field_attno,
                 row_limit: row_limit.into(),
+                datetime_field_attnos,
             })
         } else {
             InsertMode::Immutable(InsertModeImmutable::new(indexrel)?)

@@ -102,6 +102,31 @@ pub fn rewrite_aggregate_result_json_timestamps(
         }
     }
 
+    // SINGLE-VALUE METRICS (min/max/sum/avg) on datetime fields
+    //
+    // Tantivy emits these as `{"value": <i64>}`. For datetime fields stored as i64 PG-micros,
+    // we attach a `key_as_string` alongside the raw value containing the ISO-formatted timestamp,
+    // mirroring the bucket `key_as_string` convention.
+    let single_metric_field_paths = ["/min/field", "/max/field", "/sum/field", "/avg/field"];
+    for path in single_metric_field_paths {
+        if let Some(field_name) = agg_json.pointer(path).and_then(|v| v.as_str()) {
+            if is_a_datetime_field(field_name, schema) {
+                if let Some(obj) = output_json.as_object_mut() {
+                    if let Some(v) = obj.get("value") {
+                        if let Some(key_as_str) = i64_value_to_timestamp_string(v) {
+                            obj.insert(
+                                "key_as_string".to_string(),
+                                serde_json::Value::String(key_as_str),
+                            );
+                        }
+                    }
+                }
+                // a given agg is only ever one of these variants — stop checking
+                break;
+            }
+        }
+    }
+
     // BUCKETS
     // (path, (rewrite key, add key as string))
     let path_and_rewrite_rules = [

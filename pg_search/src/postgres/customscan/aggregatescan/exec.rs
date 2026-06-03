@@ -204,9 +204,20 @@ pub fn aggregate_result_to_datum(
             // serialize the entire metric result to match Tantivy's JSON format
             if expected_typoid == pg_sys::JSONBOID {
                 // Serialize the SingleMetricResult to JSON
-                let json_value = serde_json::to_value(&metric).unwrap_or_else(|e| {
+                let mut json_value = serde_json::to_value(&metric).unwrap_or_else(|e| {
                     pgrx::error!("Failed to serialize metric result to JSON: {}", e)
                 });
+                // For v2 indexes, attach `key_as_string` for single-value metrics on datetime
+                // fields so consumers don't have to interpret raw i64 micros.
+                if index_info.created_by_version.stores_datetimes_in_i64() {
+                    if let Some(agg_json) = agg_type.custom_agg_json() {
+                        rewrite_aggregate_result_json_timestamps(
+                            &mut json_value,
+                            agg_json,
+                            &index_info.schema,
+                        );
+                    }
+                }
                 JsonB(json_value).into_datum()
             } else if is_datetime_type(expected_typoid) {
                 if index_info.created_by_version.stores_datetimes_in_i64() {

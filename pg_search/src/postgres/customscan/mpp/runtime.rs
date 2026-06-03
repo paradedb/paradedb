@@ -58,10 +58,10 @@ pub fn proc_for_task(n_workers: u32, task_idx: u32) -> u32 {
 /// Runtime handle the customscan populates at DSM-init time.
 ///
 /// Each process owns one MPSC inbox in DSM that receives frames from every peer.
-/// `inbound_drain` consolidates that inbox plus the in-proc self-loop channel (for
+/// `inbound_receiver` consolidates that inbox plus the in-proc self-loop channel (for
 /// producer-and-consumer-on-same-worker fragments) into a single [`DrainHandle`]. Frames
-/// carry `(sender_proc, stage_id, partition)` in their header so the drain's
-/// channel-buffer registry routes each frame to the matching consumer.
+/// carry `(sender_proc, stage_id, partition)` in their header so the routing registry
+/// inside the handle delivers each frame to the matching consumer.
 ///
 /// [`MppFrameHeader`]: crate::postgres::customscan::mpp::transport::MppFrameHeader
 pub struct MppMesh {
@@ -71,27 +71,27 @@ pub struct MppMesh {
     /// Total proc count. Bounds the producer/consumer proc lookups in
     /// [`ShmMqWorkerTransport::open`].
     pub n_procs: u32,
-    /// Single cooperative drain pulling every frame addressed to this proc. The DSM MPSC
-    /// inbox and an in-proc self-loop receiver both feed into this drain. Demux to
-    /// per-`(sender_proc, stage_id, partition)` channel buffers happens inside the drain
-    /// via `DrainHandle::register_channel`.
-    pub(super) inbound_drain: Arc<DrainHandle>,
+    /// Single cooperative inbound handle pulling every frame addressed to this proc. The
+    /// DSM MPSC inbox and an in-proc self-loop receiver both feed into this handle. Demux
+    /// to per-`(sender_proc, stage_id, partition)` channel buffers happens inside via
+    /// `DrainHandle::register_channel`.
+    pub(super) inbound_receiver: Arc<DrainHandle>,
 }
 
 impl MppMesh {
     /// Build a fresh mesh.
-    pub fn new(this_proc: u32, n_procs: u32, inbound_drain: Arc<DrainHandle>) -> Self {
+    pub fn new(this_proc: u32, n_procs: u32, inbound_receiver: Arc<DrainHandle>) -> Self {
         Self {
             this_proc,
             n_procs,
-            inbound_drain,
+            inbound_receiver,
         }
     }
 
-    /// The single cooperative drain that pulls frames from every peer (and the self-loop)
-    /// into per-`(sender_proc, stage_id, partition)` channel buffers.
-    pub(super) fn inbound_drain(&self) -> &Arc<DrainHandle> {
-        &self.inbound_drain
+    /// The single cooperative inbound handle that pulls frames from every peer (and the
+    /// self-loop) into per-`(sender_proc, stage_id, partition)` channel buffers.
+    pub(super) fn inbound_receiver(&self) -> &Arc<DrainHandle> {
+        &self.inbound_receiver
     }
 
     /// Number of worker procs (= `n_procs - 1`, since the leader is proc 0). Used as the
@@ -113,13 +113,13 @@ impl MppMesh {
         self.n_procs - 1
     }
 
-    /// Pull from the single inbound drain. Called from
+    /// Pull from the single inbound handle. Called from
     /// [`crate::postgres::customscan::mpp::transport::MppSender`]'s cooperative-send spin so a
-    /// producer stalled on a full outbound can drain inbound peer data inline. That's what
+    /// producer stalled on a full outbound can pull inbound peer data inline. That's what
     /// prevents the symmetric-send deadlock when every peer is simultaneously stalled waiting
     /// for space.
     pub(super) fn drain_all_inbound(&self) -> Result<(), DataFusionError> {
-        self.inbound_drain.try_drain_pass()
+        self.inbound_receiver.try_drain_pass()
     }
 }
 
@@ -206,7 +206,7 @@ impl WorkerConnection for ShmMqWorkerConnection {
         // registry keys by (sender_proc, stage_id, partition) so this consumer still
         // sees only its named sender's slice even though the underlying inbox is
         // shared with all peers.
-        let drain = Arc::clone(self.mesh.inbound_drain());
+        let drain = Arc::clone(self.mesh.inbound_receiver());
         let buffer = drain.register_channel(self.sender_proc, self.stage_id, partition_u32);
         crate::mpp_log!(
             "mpp transport::execute this_proc={} sender_proc={} stage_id={} \

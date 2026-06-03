@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780505230180,
+  "lastUpdate": 1780505266888,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -28664,6 +28664,114 @@ window.BENCHMARK_DATA = {
             "value": 173.8125,
             "unit": "median mem",
             "extra": "avg mem: 171.1531032556628, max mem: 174.46875, count: 55582"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0f4468150e37e7aff20705e7a89c22f60f856e43",
+          "message": "feat: Remove json5 (#5240)\n\n# Ticket(s) Closed\n\nRemoves the `json5` crate. Currently this is only used to parse the\ndocument for more like this queries. Removing this is a breaking change\nas now more_like_this only accepts normal json rather than json5. I\nthink this is the right change to make. The docs don't mention anything\nabout MLT supporting this and I don't see a reason that we need to\nsupport it. Looking at the commit history I see that json5 was added\noriginally to parse all json arguments and then was removed later down\nthe line. It seems best to be consistent and accept normal JSON\neverywhere.\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-03T08:46:58-07:00",
+          "tree_id": "2253b729aa66305612afc1fe39ffef865e80af5e",
+          "url": "https://github.com/paradedb/paradedb/commit/0f4468150e37e7aff20705e7a89c22f60f856e43"
+        },
+        "date": 1780505232927,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.640776,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.147348110849062, max cpu: 46.64723, count: 55661"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 178.94921875,
+            "unit": "median mem",
+            "extra": "avg mem: 176.82643866160777, max mem: 179.15625, count: 55661"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6647234,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.920567263039269, max cpu: 37.64706, count: 55661"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 120.328125,
+            "unit": "median mem",
+            "extra": "avg mem: 119.05030410094142, max mem: 120.4921875, count: 55661"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.500288805411944, max cpu: 18.916256, count: 55661"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 119.46875,
+            "unit": "median mem",
+            "extra": "avg mem: 130.4463478552083, max mem: 179.76953125, count: 55661"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 14624,
+            "unit": "median block_count",
+            "extra": "avg block_count: 15444.749303821347, max block_count: 29232.0, count: 55661"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.9091960318326944, max cpu: 4.7244096, count: 55661"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 77.671875,
+            "unit": "median mem",
+            "extra": "avg mem: 84.02763429230072, max mem: 128.69140625, count: 55661"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.590251702269093, max segment_count: 36.0, count: 55661"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.29332,
+            "unit": "median cpu",
+            "extra": "avg cpu: 10.84062191985334, max cpu: 37.64706, count: 111322"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 179.52734375,
+            "unit": "median mem",
+            "extra": "avg mem: 155.69784320063644, max mem: 183.12890625, count: 111322"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.913043,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.170017475497511, max cpu: 28.015566, count: 55661"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 173.83203125,
+            "unit": "median mem",
+            "extra": "avg mem: 170.96578043311294, max mem: 174.453125, count: 55661"
           }
         ]
       }

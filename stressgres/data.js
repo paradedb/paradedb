@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780503688921,
+  "lastUpdate": 1780504264453,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11230,6 +11230,42 @@ window.BENCHMARK_DATA = {
             "value": 5.48063550423082,
             "unit": "median tps",
             "extra": "avg tps: 4.925271119549824, max tps: 6.130614425645091, count: 57771"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "71215065+junnjiee@users.noreply.github.com",
+            "name": "Jun Jie",
+            "username": "junnjiee"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8449a21db8d5cd7afdd4ed1c7bceddb31d70a3e9",
+          "message": "test: make limit and offset optional in group aggregate proptest (#5235)\n\n# Ticket(s) Closed\nNone\n\n## Why\n\nMentioned by @stuhood in #5231, we should continue test coverage for\ncases without `LIMIT`/`OFFSET`\n\n## What\n\nMakes `limit` and `offset` optional in proptest params, to ensure test\ncoverage for queries without the 2 operations\n\nWith this change, possible test cases are:\n1. `... GROUP BY ... ORDER BY ... OFFSET ... LIMIT ...`\n2. `... GROUP BY ... ORDER BY ... OFFSET ...` (new)\n3. `... GROUP BY ... ORDER BY ... LIMIT ...` (new)\n4. `... GROUP BY ... ORDER BY ...` (new)\n\n## How\n\n- Made limit and offset proptest params optional (holds `Option` enum)\n- if value is `Some`, format into `LIMIT`/`OFFSET` clause, empty string\nif `None`\n- Added comment to clarify why we only build `OFFSET` queries when there\nare grouping columns",
+          "timestamp": "2026-06-03T11:58:25-04:00",
+          "tree_id": "a2ddb9fc4872cb06f7232972a68bf61195bd1689",
+          "url": "https://github.com/paradedb/paradedb/commit/8449a21db8d5cd7afdd4ed1c7bceddb31d70a3e9"
+        },
+        "date": 1780504229728,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.851613900674158,
+            "unit": "median tps",
+            "extra": "avg tps: 6.73626956471897, max tps: 10.227992614952353, count: 57473"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.408595502868161,
+            "unit": "median tps",
+            "extra": "avg tps: 4.857742332512063, max tps: 6.050737480695451, count: 57473"
           }
         ]
       }

@@ -180,9 +180,10 @@ fn collect(
     if let Some(nb) = plan.as_ref().as_network_boundary() {
         let stage = nb.input_stage();
         let stage_id = stage.num() as u32;
-        // Per-consumer-task partition count from upstream's `NetworkShuffleExec::execute`
-        // receive-side formula `off = P_c * task_index`.
-        let p_c = plan.properties().partitioning.partition_count();
+        // Per-consumer-task partition count, read from the boundary's own routing contract
+        // instead of re-deriving the receive-side formula. The crate owns `route_partition`
+        // now, so producer-side routing follows it automatically.
+        let p_c = nb.partitions_per_consumer_task();
         let plan_any = plan.as_ref().as_any();
 
         // Classify the boundary by downcasting to its concrete `Network*Exec` type, then pick a

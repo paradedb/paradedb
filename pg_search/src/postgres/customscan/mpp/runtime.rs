@@ -27,8 +27,10 @@
 //! time. `open(target_task=worker)` returns a [`ShmMqWorkerConnection`] that yields one
 //! stream per consumer partition from the shared `inbound_receiver`.
 //!
-//! No `WorkerResolver` impl: under `in_process_mode = true` the fork makes the resolver
-//! optional and substitutes a placeholder URL; nothing here resolves anything by URL.
+//! [`InProcessWorkerResolver`] hands the planner `n_workers` placeholder URLs. The transport
+//! routes by task index, not URL, so the URLs are never dialed; the resolver exists only because
+//! the planner sizes stages from the URL count. It replaces the placeholder URL the fork used to
+//! substitute internally under the old `in_process_mode` flag.
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -37,8 +39,12 @@ use datafusion::arrow::array::RecordBatch;
 use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::TaskContext;
 use datafusion::physical_expr_common::metrics::ExecutionPlanMetricsSet;
-use datafusion_distributed::{RemoteStage, WorkerConnection, WorkerTransport};
+use datafusion_distributed::{
+    ChannelKey, RemoteStage, WorkerConnection, WorkerDispatch, WorkerDispatchRequest,
+    WorkerResolver, WorkerSink, WorkerTransport,
+};
 use futures::stream::BoxStream;
+use url::Url;
 
 use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, DrainHandle, DrainItem};
 
@@ -183,6 +189,63 @@ impl WorkerTransport for ShmMqWorkerTransport {
             stage_id,
         }))
     }
+
+    /// The leader never pushes plans to workers: PG parallel workers self-plan from the DSM
+    /// logical plan and run their own fragments. By the time the leader's DataFusion plan reaches
+    /// dispatch, the workers are already producing, so dispatch is a no-op. This is what replaces
+    /// the old `in_process_mode` flag.
+    fn dispatch(&self) -> &dyn WorkerDispatch {
+        self
+    }
+
+    /// MPP produces inside `run_worker_fragment` on each PG worker, pushing through the shm_mq
+    /// senders, so there is no free-standing sink to hand back. Same shape as Flight, which
+    /// produces inside its gRPC worker service and also declines `sink()`.
+    fn sink(&self, _ctx: &Arc<TaskContext>) -> Result<Arc<dyn WorkerSink>> {
+        Err(DataFusionError::Internal(
+            "ShmMqWorkerTransport has no free-standing WorkerSink; MPP produces inside \
+             run_worker_fragment via shm_mq senders"
+                .to_string(),
+        ))
+    }
+}
+
+impl WorkerDispatch for ShmMqWorkerTransport {
+    /// No-op, see [`ShmMqWorkerTransport::dispatch`]. The workers already hold the plan (shipped
+    /// via DSM) and run their fragments, so there is nothing to deliver.
+    fn dispatch(&self, _request: WorkerDispatchRequest<'_>) -> Result<()> {
+        Ok(())
+    }
+}
+
+/// Placeholder worker resolver for the in-process MPP transport.
+///
+/// The shm_mq transport routes by `target_task` (proc index), never by URL, so these URLs are
+/// never dialed. The distributed planner still needs a resolver: it sizes stages and assigns
+/// tasks from the URL count. `n_workers` placeholder URLs is exactly what the planner needs. This
+/// replaces the placeholder URL the fork used to substitute internally under `in_process_mode`.
+pub struct InProcessWorkerResolver {
+    n_workers: usize,
+}
+
+impl InProcessWorkerResolver {
+    pub fn new(n_workers: usize) -> Self {
+        Self { n_workers }
+    }
+}
+
+impl WorkerResolver for InProcessWorkerResolver {
+    fn get_urls(&self) -> Result<Vec<Url>, DataFusionError> {
+        (0..self.n_workers.max(1))
+            .map(|i| {
+                Url::parse(&format!("inprocess://worker/{i}")).map_err(|e| {
+                    DataFusionError::Internal(format!(
+                        "InProcessWorkerResolver: invalid placeholder url: {e}"
+                    ))
+                })
+            })
+            .collect()
+    }
 }
 
 struct ShmMqWorkerConnection {
@@ -195,7 +258,8 @@ struct ShmMqWorkerConnection {
 }
 
 impl WorkerConnection for ShmMqWorkerConnection {
-    fn execute(&self, partition: usize) -> Result<BoxStream<'static, Result<RecordBatch>>> {
+    fn execute(&self, key: ChannelKey) -> Result<BoxStream<'static, Result<RecordBatch>>> {
+        let partition = key.partition;
         let partition_u32 = u32::try_from(partition).map_err(|_| {
             DataFusionError::Internal(format!(
                 "ShmMqWorkerConnection: partition={partition} > u32::MAX"

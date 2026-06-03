@@ -306,9 +306,9 @@ SELECT sort_agg_buckets(agg) FROM (
 
 -- Test 22: same key_as_string behavior via paradedb.aggregate() direct API
 SELECT * FROM paradedb.aggregate(index=>'mock_items_idx', query=>paradedb.all(), agg=>'{"first_seen": {"min": {"field": "created_at"}}}');
-                  aggregate                   
-----------------------------------------------
- {"first_seen": {"value": 757418400000000.0}}
+                                       aggregate                                       
+---------------------------------------------------------------------------------------
+ {"first_seen": {"value": 757418400000000.0, "key_as_string": "2024-01-01T10:00:00Z"}}
 (1 row)
 
 -- Cleanup

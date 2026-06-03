@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780505077692,
+  "lastUpdate": 1780505230180,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -23754,6 +23754,60 @@ window.BENCHMARK_DATA = {
             "value": 15.711350395643672,
             "unit": "median tps",
             "extra": "avg tps: 15.565177940270479, max tps: 21.87298454118068, count: 55582"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0f4468150e37e7aff20705e7a89c22f60f856e43",
+          "message": "feat: Remove json5 (#5240)\n\n# Ticket(s) Closed\n\nRemoves the `json5` crate. Currently this is only used to parse the\ndocument for more like this queries. Removing this is a breaking change\nas now more_like_this only accepts normal json rather than json5. I\nthink this is the right change to make. The docs don't mention anything\nabout MLT supporting this and I don't see a reason that we need to\nsupport it. Looking at the commit history I see that json5 was added\noriginally to parse all json arguments and then was removed later down\nthe line. It seems best to be consistent and accept normal JSON\neverywhere.\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-03T08:46:58-07:00",
+          "tree_id": "2253b729aa66305612afc1fe39ffef865e80af5e",
+          "url": "https://github.com/paradedb/paradedb/commit/0f4468150e37e7aff20705e7a89c22f60f856e43"
+        },
+        "date": 1780505063829,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 28.146182537947446,
+            "unit": "median tps",
+            "extra": "avg tps: 28.27398868293504, max tps: 30.792216970746225, count: 55661"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 75.77046523309886,
+            "unit": "median tps",
+            "extra": "avg tps: 126.82287057035725, max tps: 3023.526183211829, count: 55661"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 485.26556786707175,
+            "unit": "median tps",
+            "extra": "avg tps: 493.07858864510297, max tps: 785.366456666733, count: 55661"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 159.28690929136042,
+            "unit": "median tps",
+            "extra": "avg tps: 124.4344513335761, max tps: 823.3950839470978, count: 111322"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.351767561834885,
+            "unit": "median tps",
+            "extra": "avg tps: 15.408035567908936, max tps: 21.614965147057525, count: 55661"
           }
         ]
       }

@@ -137,18 +137,6 @@ extern "C-unwind" fn validate_datetime_fields(value: *const std::os::raw::c_char
 }
 
 #[pg_guard]
-extern "C-unwind" fn validate_fields(value: *const std::os::raw::c_char) {
-    let json_str = cstr_to_rust_str(value);
-    if json_str.is_empty() {
-        return;
-    }
-
-    // Just ensure the config can be deserialized as json.
-    let _: HashMap<String, serde_json::Value> = json5::from_str(&json_str)
-        .unwrap_or_else(|err| panic!("failed to deserialize field config: {err:?}"));
-}
-
-#[pg_guard]
 extern "C-unwind" fn validate_key_field(value: *const std::os::raw::c_char) {
     cstr_to_rust_str(value);
 }

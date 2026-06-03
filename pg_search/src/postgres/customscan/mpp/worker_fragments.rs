@@ -73,44 +73,32 @@ pub struct FragmentAssignment {
 #[derive(Clone, Debug)]
 pub enum FragmentRouting {
     /// All output partitions go to one destination proc (`NetworkCoalesceExec`
-    /// or the top-level gather case). Frame header carries
-    /// `(stage_id, partition)` directly; consumer reads
-    /// `execute(partition)`.
+    /// or the top-level gather case). Coalesce routes by producer task, not by
+    /// output partition, so the crate's `route_partition` does not describe it;
+    /// the dispatcher sends every partition to `dest_proc`.
     Coalesce {
-        /// Destination proc index. `0` for the leader (top-level gather),
-        /// or an `assignment.proc_for(parent_stage_id, 0)` lookup for a
-        /// nested coalesce that lands on a single consumer task.
+        /// Destination proc index. `0` for the leader (top-level gather), or a
+        /// `proc_for_task(n_workers, 0)` lookup for a nested coalesce that lands
+        /// on a single consumer task.
         dest_proc: u32,
     },
-    /// Hash-partitioned mesh ([`NetworkShuffleExec`]). Output partition `q`
-    /// goes to consumer task `q / partitions_per_consumer_task`, hosted on
-    /// `proc_for_task(n_workers, consumer_task_idx)`. Frame header is
-    /// `(stage_id, q)` so the consumer's
-    /// `execute(P_c * task_index + p_local)` finds it via the
-    /// per-`(stage_id, partition)` channel buffer registry.
+    /// Hash-partitioned mesh ([`NetworkShuffleExec`] / [`NetworkBroadcastExec`]). Output
+    /// partition `q` goes to the consumer task the crate's `route_partition(q)` selects,
+    /// hosted on `proc_for_task(n_workers, consumer_task)`. Precomputed per output partition:
+    /// the crate owns the receive-side formula, so the producer side reads it from
+    /// `route_partition` rather than re-deriving `q / P_c`.
     ///
     /// [`NetworkShuffleExec`]: datafusion_distributed::NetworkShuffleExec
-    Shuffle {
-        /// `B.properties().output_partitioning().partition_count()`. Equal to
-        /// `P_c` in the receive-side formula `off = P_c * task_index`.
-        partitions_per_consumer_task: usize,
-    },
-    /// Broadcast mesh ([`NetworkBroadcastExec`]). Wire-level math matches [`Self::Shuffle`]
-    /// (`q → q / P_c`).
-    ///
-    /// Delta from upstream: we cap the build subtree at `task_count = 1` via
-    /// [`BroadcastBuildSideOneTaskEstimator`], so the dispatcher only ever sees `task_idx == 0`
-    /// fragments here. The estimator relies on the AggregateScan all-gather step canonical-
-    /// replicating the build side; a future planner that emits `NetworkBroadcastExec` over a
-    /// sharded child would silently drop shards under this rule and needs a new routing variant.
-    ///
     /// [`NetworkBroadcastExec`]: datafusion_distributed::NetworkBroadcastExec
-    /// [`BroadcastBuildSideOneTaskEstimator`]: crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator
-    Broadcast {
-        /// `B.properties().output_partitioning().partition_count()`. Same
-        /// semantics as
-        /// [`Self::Shuffle::partitions_per_consumer_task`].
-        partitions_per_consumer_task: usize,
+    Hashed {
+        /// `route_partition(q).consumer_task` for each producer output partition `q`.
+        consumer_task: Vec<u32>,
+        /// `true` for broadcast. The build subtree is capped at `task_count = 1` via
+        /// [`BroadcastBuildSideOneTaskEstimator`], so the dispatcher only ever sees
+        /// `task_idx == 0` broadcast fragments; the cap is asserted at dispatch.
+        ///
+        /// [`BroadcastBuildSideOneTaskEstimator`]: crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator
+        broadcast: bool,
     },
 }
 
@@ -144,22 +132,13 @@ pub fn find_worker_assignments(
                     f.task_idx,
                     f.task_count,
                 ),
-                FragmentRouting::Shuffle {
-                    partitions_per_consumer_task,
+                FragmentRouting::Hashed {
+                    consumer_task,
+                    broadcast,
                 } => crate::mpp_log!(
                     "mpp worker_fragments fragment stage_id={} task_idx={} task_count={} \
-                     n_out={n_out} routing=Shuffle \
-                     partitions_per_consumer_task={partitions_per_consumer_task}",
-                    f.stage_id,
-                    f.task_idx,
-                    f.task_count,
-                ),
-                FragmentRouting::Broadcast {
-                    partitions_per_consumer_task,
-                } => crate::mpp_log!(
-                    "mpp worker_fragments fragment stage_id={} task_idx={} task_count={} \
-                     n_out={n_out} routing=Broadcast \
-                     partitions_per_consumer_task={partitions_per_consumer_task}",
+                     n_out={n_out} routing=Hashed broadcast={broadcast} \
+                     consumer_task={consumer_task:?}",
                     f.stage_id,
                     f.task_idx,
                     f.task_count,
@@ -180,10 +159,20 @@ fn collect(
     if let Some(nb) = plan.as_ref().as_network_boundary() {
         let stage = nb.input_stage();
         let stage_id = stage.num() as u32;
-        // Per-consumer-task partition count, read from the boundary's own routing contract
-        // instead of re-deriving the receive-side formula. The crate owns `route_partition`
-        // now, so producer-side routing follows it automatically.
+        // Per-consumer-task partition count, kept for the trace below. Routing itself reads the
+        // crate's `route_partition` so the producer side follows the receive-side formula the
+        // crate owns, rather than re-deriving `q / P_c`.
         let p_c = nb.partitions_per_consumer_task();
+        // `route_partition(q).consumer_task` for every producer output partition. Used by the
+        // hash-partitioned boundaries (Shuffle / Broadcast) only; Coalesce routes by task instead.
+        let route_consumer_tasks = || {
+            let n_out = stage
+                .local_plan()
+                .map_or(0, |p| p.properties().partitioning.partition_count());
+            (0..n_out)
+                .map(|q| nb.route_partition(q).consumer_task as u32)
+                .collect::<Vec<u32>>()
+        };
         let plan_any = plan.as_ref().as_any();
 
         // Classify the boundary by downcasting to its concrete `Network*Exec` type, then pick a
@@ -207,9 +196,10 @@ fn collect(
         } else if plan_any.is::<NetworkShuffleExec>() {
             if nested {
                 // Nested NetworkShuffleExec: hash-partitioned mesh. Each output partition q maps
-                // to consumer task q / p_c.
-                FragmentRouting::Shuffle {
-                    partitions_per_consumer_task: p_c,
+                // to the consumer task `route_partition(q)` selects.
+                FragmentRouting::Hashed {
+                    consumer_task: route_consumer_tasks(),
+                    broadcast: false,
                 }
             } else {
                 // Top-level NetworkShuffleExec isn't a shape our customscan plans produce.
@@ -225,11 +215,12 @@ fn collect(
             }
         } else if plan_any.is::<NetworkBroadcastExec>() {
             if nested {
-                // Nested NetworkBroadcastExec: same wire-level math as Shuffle, but the dispatcher
-                // only runs the producer plan on task 0 to avoid the canonical-replica duplication
-                // described on `FragmentRouting::Broadcast`.
-                FragmentRouting::Broadcast {
-                    partitions_per_consumer_task: p_c,
+                // Nested NetworkBroadcastExec: same receive-side routing as Shuffle (via
+                // `route_partition`), but the dispatcher only runs the producer plan on task 0 to
+                // avoid the canonical-replica duplication described on `FragmentRouting::Hashed`.
+                FragmentRouting::Hashed {
+                    consumer_task: route_consumer_tasks(),
+                    broadcast: true,
                 }
             } else {
                 // Top-level NetworkBroadcastExec isn't a shape the natural-shape AggregateScan
@@ -316,15 +307,20 @@ mod tests {
     }
 
     #[test]
-    fn routing_shuffle_carries_pc() {
-        let r = FragmentRouting::Shuffle {
-            partitions_per_consumer_task: 3,
+    fn routing_hashed_carries_consumer_tasks() {
+        let r = FragmentRouting::Hashed {
+            consumer_task: vec![0, 0, 1],
+            broadcast: false,
         };
         match r {
-            FragmentRouting::Shuffle {
-                partitions_per_consumer_task,
-            } => assert_eq!(partitions_per_consumer_task, 3),
-            _ => panic!("expected Shuffle"),
+            FragmentRouting::Hashed {
+                consumer_task,
+                broadcast,
+            } => {
+                assert_eq!(consumer_task, vec![0, 0, 1]);
+                assert!(!broadcast);
+            }
+            _ => panic!("expected Hashed"),
         }
     }
 }

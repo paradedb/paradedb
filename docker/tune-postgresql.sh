@@ -81,6 +81,7 @@ elif [ -f /sys/fs/cgroup/memory/memory.limit_in_bytes ]; then
   fi
 else
   # Fallback to host /proc/meminfo if cgroups are not available
+  # TODO: this awk command fails
   TOTAL_RAM_MB=$(grep MemTotal /proc/meminfo | awk '{printf "%.0f", $2 / 1024}')
 fi
 

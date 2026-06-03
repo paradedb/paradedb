@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780504652421,
+  "lastUpdate": 1780505041017,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16490,6 +16490,54 @@ window.BENCHMARK_DATA = {
             "value": 5.6064604394700375,
             "unit": "median tps",
             "extra": "avg tps: 5.611365724592055, max tps: 7.056312129813959, count: 56057"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "71215065+junnjiee@users.noreply.github.com",
+            "name": "Jun Jie",
+            "username": "junnjiee"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8449a21db8d5cd7afdd4ed1c7bceddb31d70a3e9",
+          "message": "test: make limit and offset optional in group aggregate proptest (#5235)\n\n# Ticket(s) Closed\nNone\n\n## Why\n\nMentioned by @stuhood in #5231, we should continue test coverage for\ncases without `LIMIT`/`OFFSET`\n\n## What\n\nMakes `limit` and `offset` optional in proptest params, to ensure test\ncoverage for queries without the 2 operations\n\nWith this change, possible test cases are:\n1. `... GROUP BY ... ORDER BY ... OFFSET ... LIMIT ...`\n2. `... GROUP BY ... ORDER BY ... OFFSET ...` (new)\n3. `... GROUP BY ... ORDER BY ... LIMIT ...` (new)\n4. `... GROUP BY ... ORDER BY ...` (new)\n\n## How\n\n- Made limit and offset proptest params optional (holds `Option` enum)\n- if value is `Some`, format into `LIMIT`/`OFFSET` clause, empty string\nif `None`\n- Added comment to clarify why we only build `OFFSET` queries when there\nare grouping columns",
+          "timestamp": "2026-06-03T11:58:25-04:00",
+          "tree_id": "a2ddb9fc4872cb06f7232972a68bf61195bd1689",
+          "url": "https://github.com/paradedb/paradedb/commit/8449a21db8d5cd7afdd4ed1c7bceddb31d70a3e9"
+        },
+        "date": 1780505008172,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1101.799854847594,
+            "unit": "median tps",
+            "extra": "avg tps: 1097.614771040187, max tps: 1180.6707998800696, count: 55371"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1221.5546689662413,
+            "unit": "median tps",
+            "extra": "avg tps: 1202.5473922841948, max tps: 1243.0435480976817, count: 55371"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1165.506295022074,
+            "unit": "median tps",
+            "extra": "avg tps: 1060.3961230751759, max tps: 1523.4758384481518, count: 55371"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.540610102826066,
+            "unit": "median tps",
+            "extra": "avg tps: 5.538542572030866, max tps: 6.669169606019805, count: 55371"
           }
         ]
       }

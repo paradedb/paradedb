@@ -725,7 +725,7 @@ struct ChannelBufferRegistry {
 /// with `Eof` — the drain can therefore never outlive its query, even on a panicked teardown.
 pub struct DrainHandle {
     /// Per-(stage_id, partition) channel buffer registry. Populated lazily on first frame for a
-    /// channel, or up-front by callers (e.g. `WorkerConnection::stream_partition`) that need a
+    /// channel, or up-front by callers (e.g. `WorkerConnection::execute`) that need a
     /// buffer to wait on before any frame arrives.
     channel_buffers: Mutex<ChannelBufferRegistry>,
     /// Receivers owned by the handle and polled inline from `DrainGatherStream::poll_next` via

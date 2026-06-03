@@ -79,6 +79,38 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      # The committed Dockerfiles install pg_search from a specific GitHub Release. In
+      # paradedb/paradedb this is always already published (the release workflow only commits
+      # the regenerated Dockerfiles *after* the .deb is uploaded — see PR #4967), so this gate
+      # is a no-op here. In the enterprise rebase, however, the regenerated Dockerfiles for a
+      # new version land on the enterprise-patch-* branch *before* that version's enterprise
+      # release and its .deb exist, so the image cannot build yet. Detect that pre-release
+      # window and skip the smoke test; it runs normally once the referenced release is out.
+      - name: Check whether the referenced pg_search release is published
+        id: release_gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          dockerfile="docker/Dockerfile.${{ matrix.flavor }}-${{ env.PG_VERSION }}"
+          # Matches both the community (releases/download/vX) and enterprise
+          # (api.github.com/repos/<owner>/<repo>/releases/tags/vX) URL forms.
+          url="$(grep -oE 'https://(api\.)?github\.com/[^"]*releases/(download|tags)/v[0-9][^"/]*' "$dockerfile" | head -1)"
+          if [[ -z "$url" ]]; then
+            echo "No pg_search release URL found in ${dockerfile}; running the smoke test."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          repo="$(sed -E 's#https://(api\.)?github\.com/(repos/)?([^/]+/[^/]+)/releases/.*#\3#' <<< "$url")"
+          tag="$(grep -oE 'v[0-9][^"/]*' <<< "$url" | head -1)"
+          echo "Dockerfile ${dockerfile} installs pg_search from ${repo}@${tag}"
+          if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
+            echo "Release ${repo}@${tag} is published — running the smoke test."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Release ${repo}@${tag} is not published yet — skipping the Docker smoke test. It will run once the release exists."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
       # Each matrix entry builds its own arch natively (via a runner on that arch) so `--load`
       # works and the `docker run` smoke tests below exercise the image natively. We tag the
       # image `latest` to match the tag used by the smoke tests, and skip pushing since this
@@ -88,6 +120,7 @@ jobs:
       # `extras=s3-cache` runner label above), so it works without configuring a separate
       # registry cache. Scoped per-arch so amd64 and arm64 don't evict each other.
       - name: Build the ParadeDB Docker Image
+        if: steps.release_gate.outputs.skip != 'true'
         run: |
           docker buildx build \
             --platform ${{ matrix.platform }} \
@@ -99,6 +132,7 @@ jobs:
             docker
 
       - name: Verify PGDG apt packages are available
+        if: steps.release_gate.outputs.skip != 'true'
         run: docker run --rm paradedb/paradedb:latest bash -c 'apt-get update && apt-get install -y --no-install-recommends postgresql-${{ env.PG_VERSION }}-partman'
 
       # Start the ParadeDB Docker image using `docker run` to test the standalone Docker image.
@@ -106,6 +140,7 @@ jobs:
       # The `docker run` command uses the local ParadeDB image that we just built and loaded
       # under the `paradedb/paradedb:latest` tag.
       - name: Start the ParadeDB Docker Image via Docker Run
+        if: steps.release_gate.outputs.skip != 'true'
         run: |
           docker run -d \
             --name paradedb \
@@ -117,6 +152,7 @@ jobs:
             paradedb/paradedb:latest
 
       - name: Wait for PostgreSQL to be ready
+        if: steps.release_gate.outputs.skip != 'true'
         run: |
           echo "Waiting for PostgreSQL to accept connections..."
           for i in $(seq 1 60); do
@@ -138,6 +174,7 @@ jobs:
           fi
 
       - name: Check for PostgreSQL errors in container logs
+        if: steps.release_gate.outputs.skip != 'true'
         run: |
           echo "Container logs:"
           docker logs paradedb
@@ -149,20 +186,23 @@ jobs:
           fi
 
       - name: Verify PostgreSQL accepts queries and extensions are available
+        if: steps.release_gate.outputs.skip != 'true'
         run: |
           docker exec paradedb psql -U myuser -d mydatabase -c "SELECT 1;"
           docker exec paradedb psql -U myuser -d mydatabase -c "CREATE EXTENSION IF NOT EXISTS pg_search;"
           docker exec paradedb psql -U myuser -d mydatabase -c "SELECT extname, extversion FROM pg_extension ORDER BY extname;"
 
       - name: Verify barman-cloud is functional
-        if: matrix.flavor == 'paradedb'
+        if: steps.release_gate.outputs.skip != 'true' && matrix.flavor == 'paradedb'
         run: docker exec paradedb barman-cloud-wal-archive --help
 
       # Useful for debugging discrepancies between local and remote ParadeDB Docker images
       - name: Print the ParadeDB Docker Image History
+        if: steps.release_gate.outputs.skip != 'true'
         run: docker history paradedb/paradedb:latest
 
       - name: Print the ParadeDB Docker Image Permissions
+        if: steps.release_gate.outputs.skip != 'true'
         run: |
           docker run --name temp-inspect-paradedb --entrypoint /bin/bash paradedb/paradedb:latest -c "ls -la /var/lib/postgresql"
           docker rm temp-inspect-paradedb

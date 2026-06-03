@@ -1850,9 +1850,9 @@ unsafe fn group_key_to_datum(
                 .try_into_datum(expected_typoid.into())
                 .expect("should be able to convert into datum")
         }
-        PdbOwnedValue::I64(nanos) => {
-            let datetime = tantivy::DateTime::from_timestamp_nanos(*nanos);
-            let pgdt = PostgresDateTime::try_from(datetime)
+        PdbOwnedValue::I64(pg_micros) => {
+            // v2 (i64-storage) indexes: bucket key is already PG-epoch micros.
+            let pgdt = PostgresDateTime::try_from_raw(*pg_micros)
                 .expect("We should never see an invalid timestamp coming back from tantivy");
             TantivyValue(PdbOwnedValue::Date(pgdt))
                 .try_into_datum(expected_typoid.into())

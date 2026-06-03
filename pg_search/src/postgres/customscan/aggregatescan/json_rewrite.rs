@@ -65,6 +65,8 @@ pub fn rewrite_aggregate_result_json_timestamps(
     agg_json: &serde_json::Value,
     schema: &SearchIndexSchema,
 ) {
+    println!("agg_json: {agg_json:?}");
+    println!("output_json: {output_json:?}");
     // top level keys are either variant names or "aggs"
     // "aggs" contains user-provided keys which hold more "agg" objects
 
@@ -184,6 +186,15 @@ pub fn rewrite_aggregate_result_json_timestamps(
             }
         }
     }
+
+    // // user-provided top-level keys:
+    // if let Some(obj) = agg_json.as_object() {
+    //     for (key, inner_agg) in obj.iter() {
+    //         if let Some(inner_output) = output_json.get_mut(key) {
+    //             rewrite_aggregate_result_json_timestamps(inner_output, inner_agg, schema);
+    //         }
+    //     }
+    // }
 }
 
 fn unix_millis_bounds_to_pg_micros(bounds: HistogramBounds) -> HistogramBounds {

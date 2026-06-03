@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780504448956,
+  "lastUpdate": 1780504617920,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3378,6 +3378,78 @@ window.BENCHMARK_DATA = {
             "value": 96.30296191098253,
             "unit": "median tps",
             "extra": "avg tps: 116.3811614151994, max tps: 770.4599491804618, count: 55090"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e86569b298d8db4c9efc657ace8b70bf8dbaee93",
+          "message": "chore: Remove memoffset and derive_more (#5241)\n\n# Ticket(s) Closed\n\nFound easy ways to remove both of these crates.\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-03T12:16:13-04:00",
+          "tree_id": "7aa23707e316654c6977b9cf482d3ca656058fc3",
+          "url": "https://github.com/paradedb/paradedb/commit/e86569b298d8db4c9efc657ace8b70bf8dbaee93"
+        },
+        "date": 1780504585902,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 134.19374591327602,
+            "unit": "median tps",
+            "extra": "avg tps: 134.14297200183003, max tps: 147.865277764416, count: 55169"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 498.5338320628081,
+            "unit": "median tps",
+            "extra": "avg tps: 498.05991026861597, max tps: 608.9541995651001, count: 55169"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3275.523174591774,
+            "unit": "median tps",
+            "extra": "avg tps: 3257.3744828412105, max tps: 3284.4451805929475, count: 55169"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 441.09023558421563,
+            "unit": "median tps",
+            "extra": "avg tps: 440.31696830394947, max tps: 493.56250537263355, count: 55169"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2810.700795688027,
+            "unit": "median tps",
+            "extra": "avg tps: 2801.1181162287357, max tps: 2886.171838105058, count: 110338"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 493.514403589204,
+            "unit": "median tps",
+            "extra": "avg tps: 493.21864613673785, max tps: 643.7166575661224, count: 55169"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1987.0666070427776,
+            "unit": "median tps",
+            "extra": "avg tps: 1975.4323813125386, max tps: 1991.9938837940226, count: 55169"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 39.12939254060032,
+            "unit": "median tps",
+            "extra": "avg tps: 67.7443388992841, max tps: 768.2969928855698, count: 55169"
           }
         ]
       }

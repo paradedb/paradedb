@@ -16,9 +16,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use crate::postgres::catalog::{facet_encoded_str_to_ltree_text, is_citext_oid, is_ltree_oid};
-use crate::postgres::datetime::{
-    pg_micros_to_unix_micros, PostgresDateTime, MICROSECONDS_IN_SECOND,
-};
+use crate::postgres::datetime::PostgresDateTime;
 
 use arrow_array::cast::AsArray;
 use arrow_array::Array;
@@ -26,7 +24,6 @@ use arrow_schema::DataType;
 use decimal_bytes::{Decimal, Decimal64NoScale};
 use pgrx::pg_sys;
 use pgrx::{datum, IntoDatum, PgBuiltInOids, PgOid};
-use tantivy::DateTime;
 
 /// Convert an Arrow array slice into a Postgres `Datum`.
 ///
@@ -257,10 +254,6 @@ pub fn arrow_array_to_datum(
                             .map_err(|e| format!("Failed to parse i64 as AnyNumeric: {e}"))?;
                         numeric.into_datum()
                     }
-                }
-                PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID) => pg_micros_to_timestamp_datum(val)?,
-                PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID) => {
-                    pg_micros_to_timestamptz_datum(val)?
                 }
                 _ => {
                     if let Some(res) = try_convert_timestamp_pg_micros_to_datum(val, &oid) {
@@ -501,57 +494,54 @@ fn arrow_array_to_datum_list(
     }
 }
 
-/// In the case of TIMESTAMP and TIMESTAMPTZ, this should only be used for legacy
-/// indexes, as new ones store those as raw i64, instead of converting to nanos.
 pub(crate) fn try_convert_timestamp_pg_micros_to_datum(
     pg_micros: i64,
     oid: &PgOid,
 ) -> Option<Result<Option<pg_sys::Datum>, String>> {
     match &oid {
         PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID) => {
-            let res = pg_micros_to_timestamp_datum(pg_micros);
+            let res = PostgresDateTime::try_from_raw(pg_micros)
+                .map_err(|err| format!("Arrow->timestamptz conversion failed: {err}"))
+                .map(|pgdt| {
+                    let ts = pgrx::datum::TimestampWithTimeZone::from(pgdt);
+                    ts.into_datum()
+                });
             Some(res)
         }
         PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID) => {
-            let res = pg_micros_to_timestamp_datum(pg_micros);
+            let res = PostgresDateTime::try_from_raw(pg_micros)
+                .map_err(|err| format!("Arrow->timestamp conversion failed: {err}"))
+                .map(|pgdt| {
+                    let ts = pgrx::datum::Timestamp::from(pgdt);
+                    ts.into_datum()
+                });
             Some(res)
         }
         PgOid::BuiltIn(PgBuiltInOids::DATEOID) => {
-            let dt = DateTime::from_timestamp_micros(pg_micros_to_unix_micros(pg_micros));
-            let prim_dt = dt.into_primitive();
-
-            let res = datum::Date::new(prim_dt.year(), prim_dt.month().into(), prim_dt.day())
-                .map_err(|e| format!("Failed to convert timestamp: {e}"))
-                .map(|d| d.into_datum());
+            let res = PostgresDateTime::try_from_raw(pg_micros)
+                .map_err(|err| format!("Arrow->date conversion failed: {err}"))
+                .map(|pgdt| {
+                    let ts = pgrx::datum::Date::from(pgdt);
+                    ts.into_datum()
+                });
             Some(res)
         }
         PgOid::BuiltIn(PgBuiltInOids::TIMEOID) => {
-            let dt = DateTime::from_timestamp_micros(pg_micros_to_unix_micros(pg_micros));
-            let prim_dt = dt.into_primitive();
-
-            let (h, m, s, micro) = prim_dt.as_hms_micro();
-            let res = datum::Time::new(
-                h,
-                m,
-                s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
-            )
-            .map_err(|e| format!("Failed to convert timestamp: {e}"))
-            .map(|d| d.into_datum());
+            let res = PostgresDateTime::try_from_raw(pg_micros)
+                .map_err(|err| format!("Arrow->time conversion failed: {err}"))
+                .map(|pgdt| {
+                    let ts = pgrx::datum::Time::from(pgdt);
+                    ts.into_datum()
+                });
             Some(res)
         }
         PgOid::BuiltIn(PgBuiltInOids::TIMETZOID) => {
-            let dt = DateTime::from_timestamp_micros(pg_micros_to_unix_micros(pg_micros));
-            let prim_dt = dt.into_primitive();
-
-            let (h, m, s, micro) = prim_dt.as_hms_micro();
-            let res = datum::TimeWithTimeZone::with_timezone(
-                h,
-                m,
-                s as f64 + ((micro as f64) / (MICROSECONDS_IN_SECOND as f64)),
-                "UTC",
-            )
-            .map_err(|e| format!("Failed to convert timestamp: {e}"))
-            .map(|d| d.into_datum());
+            let res = PostgresDateTime::try_from_raw(pg_micros)
+                .map_err(|err| format!("Arrow->timetz conversion failed: {err}"))
+                .map(|pgdt| {
+                    let ts = pgrx::datum::TimeWithTimeZone::from(pgdt);
+                    ts.into_datum()
+                });
             Some(res)
         }
         _ => None,
@@ -563,20 +553,6 @@ pub fn datetime_to_pg_micros(datetime: tantivy::DateTime) -> i64 {
     let pg_dt = PostgresDateTime::try_from(datetime)
         .expect("tantivy datetime to postgres datetime should always work");
     pg_dt.into_inner()
-}
-
-pub fn pg_micros_to_timestamp_datum(pg_micros: i64) -> Result<Option<pg_sys::Datum>, String> {
-    let pg_dt = PostgresDateTime::try_from_raw(pg_micros)
-        .map_err(|err| format!("Arrow->timestamp conversion failed: {err}"))?;
-    let ts = pgrx::datum::Timestamp::from(pg_dt);
-    Ok(ts.into_datum())
-}
-
-pub fn pg_micros_to_timestamptz_datum(pg_micros: i64) -> Result<Option<pg_sys::Datum>, String> {
-    let pg_dt = PostgresDateTime::try_from_raw(pg_micros)
-        .map_err(|err| format!("Arrow->timestamp conversion failed: {err}"))?;
-    let ts = pgrx::datum::TimestampWithTimeZone::from(pg_dt);
-    Ok(ts.into_datum())
 }
 
 // ---------------------------------------------------------------------------
@@ -716,8 +692,8 @@ mod tests {
             }
         });
     }
-    /// include_non_migrated_types is a temporary filter while we migrate timestamp representations
-    fn do_test_arrow_int64_as_timestamp_to_datum(pg_micros: i64, include_non_migrated_types: bool) {
+
+    fn do_test_arrow_int64_as_timestamp_to_datum(pg_micros: i64) {
         let create_ts_array = |v: i64| {
             let mut builder = Int64Builder::with_capacity(1);
             builder.append_value(v);
@@ -725,7 +701,6 @@ mod tests {
         };
 
         let pg_dt = PostgresDateTime::try_from_raw(pg_micros).unwrap();
-        let ts: Timestamp = pg_dt.into();
 
         // Test TIMESTAMPTZOID
         let oid_timestamptz = PgOid::from(PgBuiltInOids::TIMESTAMPTZOID.value());
@@ -739,50 +714,39 @@ mod tests {
             Timestamp::from(pg_dt)
         });
 
-        if include_non_migrated_types {
-            // Test DATEOID
-            let oid_date = PgOid::from(PgBuiltInOids::DATEOID.value());
-            test_conversion_roundtrip(pg_micros, create_ts_array, oid_date, |_| {
-                Date::new(ts.year(), ts.month(), ts.day()).unwrap()
-            });
+        // Test DATEOID
+        let oid_date = PgOid::from(PgBuiltInOids::DATEOID.value());
+        test_conversion_roundtrip(pg_micros, create_ts_array, oid_date, |_| Date::from(pg_dt));
 
-            // Test TIMEOID
-            let oid_time = PgOid::from(PgBuiltInOids::TIMEOID.value());
-            test_conversion_roundtrip(pg_micros, create_ts_array, oid_time, |_| {
-                Time::new(ts.hour(), ts.minute(), ts.second()).unwrap()
-            });
+        // Test TIMEOID
+        let oid_time = PgOid::from(PgBuiltInOids::TIMEOID.value());
+        test_conversion_roundtrip(pg_micros, create_ts_array, oid_time, |_| Time::from(pg_dt));
 
-            // Test TIMETZOID
-            let oid_timetz = PgOid::from(PgBuiltInOids::TIMETZOID.value());
-            test_conversion_roundtrip(pg_micros, create_ts_array, oid_timetz, |_| {
-                TimeWithTimeZone::with_timezone(ts.hour(), ts.minute(), ts.second(), "UTC").unwrap()
-            });
-        }
+        // Test TIMETZOID
+        let oid_timetz = PgOid::from(PgBuiltInOids::TIMETZOID.value());
+        test_conversion_roundtrip(pg_micros, create_ts_array, oid_timetz, |_| {
+            TimeWithTimeZone::from(pg_dt)
+        });
     }
 
     #[pg_test]
     fn test_arrow_int64_as_timestamp_to_datum_bounds() {
         // test safe bounds for tantivy DateTime representations
-        do_test_arrow_int64_as_timestamp_to_datum(
-            unix_micros_to_pg_micros(MIN_SAFE_TANTIVY_UNIX_MICROS),
-            true,
-        );
-        do_test_arrow_int64_as_timestamp_to_datum(
-            unix_micros_to_pg_micros(MAX_SAFE_TANTIVY_UNIX_MICROS),
-            true,
-        );
+        do_test_arrow_int64_as_timestamp_to_datum(unix_micros_to_pg_micros(
+            MIN_SAFE_TANTIVY_UNIX_MICROS,
+        ));
+        do_test_arrow_int64_as_timestamp_to_datum(unix_micros_to_pg_micros(
+            MAX_SAFE_TANTIVY_UNIX_MICROS,
+        ));
         // Test postgres valid microsecond bounds
-        do_test_arrow_int64_as_timestamp_to_datum(MIN_PG_MICROS, false);
-        do_test_arrow_int64_as_timestamp_to_datum(MAX_PG_MICROS, false);
+        do_test_arrow_int64_as_timestamp_to_datum(MIN_PG_MICROS);
+        do_test_arrow_int64_as_timestamp_to_datum(MAX_PG_MICROS);
     }
 
     #[pg_test]
     fn test_arrow_int64_as_timestamp_to_datum() {
-        let safe_tantivy_range: std::ops::RangeInclusive<i64> =
-            unix_micros_to_pg_micros(MIN_SAFE_TANTIVY_UNIX_MICROS)
-                ..=unix_micros_to_pg_micros(MAX_SAFE_TANTIVY_UNIX_MICROS);
         proptest!(|(pg_micros in MIN_PG_MICROS..=MAX_PG_MICROS)| {
-            do_test_arrow_int64_as_timestamp_to_datum(pg_micros, safe_tantivy_range.contains(&pg_micros));
+            do_test_arrow_int64_as_timestamp_to_datum(pg_micros);
         });
     }
 
@@ -919,7 +883,6 @@ mod tests {
         };
 
         let pg_dt = PostgresDateTime::try_from_raw(pg_micros).unwrap();
-        let ts: Timestamp = pg_dt.into();
 
         // Test TIMESTAMPTZOID
         let oid_timestamptz = PgOid::from(PgBuiltInOids::TIMESTAMPTZOID.value());
@@ -935,20 +898,16 @@ mod tests {
 
         // Test DATEOID
         let oid_date = PgOid::from(PgBuiltInOids::DATEOID.value());
-        test_conversion_roundtrip(pg_micros, create_ts_array, oid_date, |_| {
-            Date::new(ts.year(), ts.month(), ts.day()).unwrap()
-        });
+        test_conversion_roundtrip(pg_micros, create_ts_array, oid_date, |_| Date::from(pg_dt));
 
         // Test TIMEOID
         let oid_time = PgOid::from(PgBuiltInOids::TIMEOID.value());
-        test_conversion_roundtrip(pg_micros, create_ts_array, oid_time, |_| {
-            Time::new(ts.hour(), ts.minute(), ts.second()).unwrap()
-        });
+        test_conversion_roundtrip(pg_micros, create_ts_array, oid_time, |_| Time::from(pg_dt));
 
         // Test TIMETZOID
         let oid_timetz = PgOid::from(PgBuiltInOids::TIMETZOID.value());
         test_conversion_roundtrip(pg_micros, create_ts_array, oid_timetz, |_| {
-            TimeWithTimeZone::with_timezone(ts.hour(), ts.minute(), ts.second(), "UTC").unwrap()
+            TimeWithTimeZone::from(pg_dt)
         });
     }
 

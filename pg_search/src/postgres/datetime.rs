@@ -30,6 +30,7 @@ pub static MICROSECONDS_IN_SECOND: u32 = 1_000_000;
 /// This is the difference between them in microseconds.
 pub static PG_EPOCH_DIFF_FROM_UNIX_EPHOCH_MICROS: i64 = 946_684_800 * MICROSECONDS_IN_SECOND as i64;
 
+#[cfg(any(test, feature = "pg_test"))]
 pub fn pg_micros_to_unix_micros(pg_micros: i64) -> i64 {
     pg_micros
         .checked_add(PG_EPOCH_DIFF_FROM_UNIX_EPHOCH_MICROS)

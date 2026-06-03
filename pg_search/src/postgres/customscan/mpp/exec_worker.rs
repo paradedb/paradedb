@@ -47,7 +47,9 @@ use tantivy::index::SegmentId;
 use crate::api::HashSet;
 use crate::postgres::customscan::datafusion::memory::create_memory_pool;
 use crate::postgres::customscan::mpp::glue::producer_worker_count;
-use crate::postgres::customscan::mpp::runtime::{proc_for_task, MppMesh, ShmMqWorkerTransport};
+use crate::postgres::customscan::mpp::runtime::{
+    proc_for_task, InProcessWorkerResolver, MppMesh, ShmMqWorkerTransport,
+};
 use crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator;
 use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, MppFrameHeader, MppSender};
 use crate::postgres::customscan::mpp::worker::run_worker_fragment;
@@ -103,15 +105,16 @@ pub(crate) fn build_mpp_session_context(
         Some(m) => m.n_workers() as usize,
         None => producer_worker_count() as usize,
     };
-    // Four knobs that have to be set for the planner to actually emit `NetworkShuffleExec`:
+    // Three knobs that have to be set for the planner to actually emit `NetworkShuffleExec`:
     //   1. target_partitions(N): without it, EnforceDistribution skips every
     //      RepartitionExec so the annotator never sees a Shuffle.
     //   2. distributed_task_estimator(N): without it, leaves default to Maximum(1) and
     //      `_distribute_plan` elides every shuffle.
     //   3. distributed_broadcast_joins(true): otherwise CollectLeft HashJoins cap their
     //      stage at Maximum(1) and propagate the cap upward, eliding shuffles above the join.
-    //   4. distributed_in_process_mode(true): skips the gRPC plan-send / metrics /
-    //      work-unit-feed tasks. Workers re-plan from the logical plan in DSM.
+    // The old `in_process_mode` knob is gone: the registered `ShmMqWorkerTransport` carries a
+    // no-op `dispatch()`, so there is no gRPC plan-send / metrics / work-unit-feed to skip.
+    // Workers still re-plan from the logical plan in DSM.
     let cfg = seed
         .copied_config()
         .with_target_partitions(n_workers.max(2));
@@ -146,12 +149,12 @@ pub(crate) fn build_mpp_session_context(
         // now optional (EXPLAIN passes mesh = None) we install the extension explicitly
         // so order doesn't matter.
         .with_distributed_option_extension(DistributedConfig::default())
-        // No `with_distributed_worker_resolver(...)`: under `in_process_mode = true`, the
-        // fork gates the resolver lookup and substitutes a single placeholder URL. Our
-        // "workers" are PG parallel workers in the same backend tree, not URL-addressed
-        // nodes, so we have nothing meaningful to resolve.
-        .with_distributed_in_process_mode(true)
-        .expect("with_distributed_in_process_mode");
+        // Placeholder resolver. Our "workers" are PG parallel workers in the same backend tree,
+        // not URL-addressed nodes, so the shm_mq transport routes by task index and never dials a
+        // URL; the planner only needs `n_workers` of them to size stages. There is no
+        // `in_process_mode` flag anymore: the transport's no-op `dispatch()` is what skips the
+        // wire plan-send / metrics / work-unit-feed (see `ShmMqWorkerTransport::dispatch`).
+        .with_distributed_worker_resolver(InProcessWorkerResolver::new(n_workers));
     // Install the shm_mq transport only when running for actual execution (mesh = Some).
     // EXPLAIN passes mesh = None and the fork's default (FlightWorkerTransport) sits
     // unused. The planner never calls WorkerConnection::open() outside streaming, so the
@@ -168,12 +171,11 @@ pub(crate) fn build_mpp_session_context(
         .with_distributed_task_estimator(n_workers)
         .with_distributed_broadcast_joins(true)
         .expect("with_distributed_broadcast_joins")
-        // No `with_distributed_user_codec(...)`: under `in_process_mode = true`, the fork
-        // skips constructing `CoordinatorToWorkerTaskSpawner`, so its eager codec encode
-        // never runs. Workers re-plan from the logical plan we ship via DSM and never
-        // decode a physical subplan over the wire. If `in_process_mode = false` ever gets
-        // exercised, restore a codec here for our custom execs or `try_encode` will reject
-        // the first one it meets.
+        // No `with_distributed_user_codec(...)`: the transport's no-op `dispatch()` never
+        // constructs the gRPC task spawner, so its eager codec encode never runs. Workers
+        // re-plan from the logical plan we ship via DSM and never decode a physical subplan over
+        // the wire. A transport whose `dispatch()` did ship plans would need a codec here for our
+        // custom execs, or `try_encode` would reject the first one it meets.
         .with_distributed_planner();
     SessionContext::new_with_state(state_builder.build())
 }

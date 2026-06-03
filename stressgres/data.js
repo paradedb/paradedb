@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780505322722,
+  "lastUpdate": 1780505357483,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14322,6 +14322,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.80782280375132, max segment_count: 133.0, count: 57473"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e86569b298d8db4c9efc657ace8b70bf8dbaee93",
+          "message": "chore: Remove memoffset and derive_more (#5241)\n\n# Ticket(s) Closed\n\nFound easy ways to remove both of these crates.\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-03T12:16:13-04:00",
+          "tree_id": "7aa23707e316654c6977b9cf482d3ca656058fc3",
+          "url": "https://github.com/paradedb/paradedb/commit/e86569b298d8db4c9efc657ace8b70bf8dbaee93"
+        },
+        "date": 1780505324889,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.233301,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.444900952581122, max cpu: 42.899704, count: 57547"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 236.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 236.26342638951638, max mem: 238.265625, count: 57547"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.53450151053664, max cpu: 33.432835, count: 57547"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 177.3203125,
+            "unit": "median mem",
+            "extra": "avg mem: 177.19050739232713, max mem: 178.0078125, count: 57547"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34697,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33958.473126314144, max block_count: 36665.0, count: 57547"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 82.50589952560516, max segment_count: 129.0, count: 57547"
           }
         ]
       }

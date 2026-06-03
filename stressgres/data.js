@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780505955131,
+  "lastUpdate": 1780506048880,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16634,6 +16634,54 @@ window.BENCHMARK_DATA = {
             "value": 5.540610102826066,
             "unit": "median tps",
             "extra": "avg tps: 5.538542572030866, max tps: 6.669169606019805, count: 55371"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e86569b298d8db4c9efc657ace8b70bf8dbaee93",
+          "message": "chore: Remove memoffset and derive_more (#5241)\n\n# Ticket(s) Closed\n\nFound easy ways to remove both of these crates.\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-03T12:16:13-04:00",
+          "tree_id": "7aa23707e316654c6977b9cf482d3ca656058fc3",
+          "url": "https://github.com/paradedb/paradedb/commit/e86569b298d8db4c9efc657ace8b70bf8dbaee93"
+        },
+        "date": 1780506015623,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1098.106034515437,
+            "unit": "median tps",
+            "extra": "avg tps: 1088.815167708732, max tps: 1148.5031357417377, count: 56347"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1243.3395488799713,
+            "unit": "median tps",
+            "extra": "avg tps: 1226.6740743637133, max tps: 1268.3842785378927, count: 56347"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1757.1485441036189,
+            "unit": "median tps",
+            "extra": "avg tps: 1703.7128835234075, max tps: 1927.1520949300486, count: 56347"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.222788834694394,
+            "unit": "median tps",
+            "extra": "avg tps: 5.273582647570047, max tps: 7.438055557202258, count: 56347"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780505266888,
+  "lastUpdate": 1780505322722,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11470,6 +11470,42 @@ window.BENCHMARK_DATA = {
             "value": 5.408595502868161,
             "unit": "median tps",
             "extra": "avg tps: 4.857742332512063, max tps: 6.050737480695451, count: 57473"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e86569b298d8db4c9efc657ace8b70bf8dbaee93",
+          "message": "chore: Remove memoffset and derive_more (#5241)\n\n# Ticket(s) Closed\n\nFound easy ways to remove both of these crates.\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-03T12:16:13-04:00",
+          "tree_id": "7aa23707e316654c6977b9cf482d3ca656058fc3",
+          "url": "https://github.com/paradedb/paradedb/commit/e86569b298d8db4c9efc657ace8b70bf8dbaee93"
+        },
+        "date": 1780505291227,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.091190744579785,
+            "unit": "median tps",
+            "extra": "avg tps: 6.933449283702165, max tps: 10.517436607439143, count: 57547"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.274626978542923,
+            "unit": "median tps",
+            "extra": "avg tps: 4.752458220589916, max tps: 5.909861273172273, count: 57547"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780502918090,
+  "lastUpdate": 1780503557554,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3306,6 +3306,78 @@ window.BENCHMARK_DATA = {
             "value": 52.64257291197174,
             "unit": "median tps",
             "extra": "avg tps: 54.62358787113462, max tps: 780.104221924049, count: 55117"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "71215065+junnjiee@users.noreply.github.com",
+            "name": "Jun Jie",
+            "username": "junnjiee"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8449a21db8d5cd7afdd4ed1c7bceddb31d70a3e9",
+          "message": "test: make limit and offset optional in group aggregate proptest (#5235)\n\n# Ticket(s) Closed\nNone\n\n## Why\n\nMentioned by @stuhood in #5231, we should continue test coverage for\ncases without `LIMIT`/`OFFSET`\n\n## What\n\nMakes `limit` and `offset` optional in proptest params, to ensure test\ncoverage for queries without the 2 operations\n\nWith this change, possible test cases are:\n1. `... GROUP BY ... ORDER BY ... OFFSET ... LIMIT ...`\n2. `... GROUP BY ... ORDER BY ... OFFSET ...` (new)\n3. `... GROUP BY ... ORDER BY ... LIMIT ...` (new)\n4. `... GROUP BY ... ORDER BY ...` (new)\n\n## How\n\n- Made limit and offset proptest params optional (holds `Option` enum)\n- if value is `Some`, format into `LIMIT`/`OFFSET` clause, empty string\nif `None`\n- Added comment to clarify why we only build `OFFSET` queries when there\nare grouping columns",
+          "timestamp": "2026-06-03T11:58:25-04:00",
+          "tree_id": "a2ddb9fc4872cb06f7232972a68bf61195bd1689",
+          "url": "https://github.com/paradedb/paradedb/commit/8449a21db8d5cd7afdd4ed1c7bceddb31d70a3e9"
+        },
+        "date": 1780503522933,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 135.161882231609,
+            "unit": "median tps",
+            "extra": "avg tps: 135.23771995264124, max tps: 150.6297459952503, count: 55090"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 492.2544235536566,
+            "unit": "median tps",
+            "extra": "avg tps: 492.5740720722101, max tps: 606.2781313052926, count: 55090"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3436.892527326926,
+            "unit": "median tps",
+            "extra": "avg tps: 3426.163493014817, max tps: 3450.57632137079, count: 55090"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 436.85561161864604,
+            "unit": "median tps",
+            "extra": "avg tps: 438.46559071288465, max tps: 515.9906801763346, count: 55090"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2806.8669652066674,
+            "unit": "median tps",
+            "extra": "avg tps: 2832.7173425991305, max tps: 2893.7504544205112, count: 110180"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 492.6054214052071,
+            "unit": "median tps",
+            "extra": "avg tps: 492.7108941224592, max tps: 610.5083386468325, count: 55090"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1965.2632366156633,
+            "unit": "median tps",
+            "extra": "avg tps: 1961.013253497601, max tps: 1998.9935352863588, count: 55090"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 96.30296191098253,
+            "unit": "median tps",
+            "extra": "avg tps: 116.3811614151994, max tps: 770.4599491804618, count: 55090"
           }
         ]
       }

@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780502882111,
+  "lastUpdate": 1780502918090,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -9242,6 +9242,138 @@ window.BENCHMARK_DATA = {
             "value": 57,
             "unit": "median mem",
             "extra": "avg mem: 56.69657411030212, max mem: 69.6484375, count: 55110"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0f4468150e37e7aff20705e7a89c22f60f856e43",
+          "message": "feat: Remove json5 (#5240)\n\n# Ticket(s) Closed\n\nRemoves the `json5` crate. Currently this is only used to parse the\ndocument for more like this queries. Removing this is a breaking change\nas now more_like_this only accepts normal json rather than json5. I\nthink this is the right change to make. The docs don't mention anything\nabout MLT supporting this and I don't see a reason that we need to\nsupport it. Looking at the commit history I see that json5 was added\noriginally to parse all json arguments and then was removed later down\nthe line. It seems best to be consistent and accept normal JSON\neverywhere.\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-03T08:46:58-07:00",
+          "tree_id": "2253b729aa66305612afc1fe39ffef865e80af5e",
+          "url": "https://github.com/paradedb/paradedb/commit/0f4468150e37e7aff20705e7a89c22f60f856e43"
+        },
+        "date": 1780502884449,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.230769,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.464067663058982, max cpu: 27.480915, count: 55117"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 65.875,
+            "unit": "median mem",
+            "extra": "avg mem: 65.72654173451475, max mem: 76.8125, count: 55117"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.705463529828005, max cpu: 18.842003, count: 55117"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 64.84375,
+            "unit": "median mem",
+            "extra": "avg mem: 64.65569159980133, max mem: 75.64453125, count: 55117"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6332045,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.568977607656058, max cpu: 9.393347, count: 55117"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 35.12383791241813, max mem: 37.26171875, count: 55117"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.624277,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.629408022559287, max cpu: 9.411765, count: 55117"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 63.25390625,
+            "unit": "median mem",
+            "extra": "avg mem: 62.54839598320391, max mem: 74.16015625, count: 55117"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.604738470482626, max cpu: 9.542743, count: 110234"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 62.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 60.859449167509574, max mem: 73.3203125, count: 110234"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1783,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1770.9719687210843, max block_count: 3093.0, count: 55117"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 13,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 13.619899486546801, max segment_count: 30.0, count: 55117"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.812252924374169, max cpu: 19.32886, count: 55117"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 64.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 64.56650050971116, max mem: 75.56640625, count: 55117"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.624725573648113, max cpu: 9.257474, count: 55117"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 54.078125,
+            "unit": "median mem",
+            "extra": "avg mem: 57.45095270345356, max mem: 72.71875, count: 55117"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.7197638,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.455296557872428, max cpu: 9.275363, count: 55117"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 57.08203125,
+            "unit": "median mem",
+            "extra": "avg mem: 56.02971696856233, max mem: 69.046875, count: 55117"
           }
         ]
       }

@@ -93,14 +93,11 @@ impl DsmInboxSender {
 
 impl BatchChannelSender for DsmInboxSender {
     fn send_bytes(&self, bytes: &[u8]) -> Result<(), DataFusionError> {
-        // NOT a real block. This adapter is the no-cooperative-drain fallback path;
-        // production wires `MppSender::with_cooperative_drain(..)` which calls
-        // `try_send_bytes` directly through the cooperative spin (`transport.rs`). If
-        // you reach this function in production it usually means a fragment was
-        // constructed without `with_cooperative_drain`; fix that rather than relying on
-        // the spin. The `yield_now` keeps the consumer running on the same OS thread;
-        // under a slow consumer this still burns a backend core, so it's strictly a
-        // debug aid.
+        // Fallback for callers that didn't wire `with_cooperative_drain`. The real send
+        // path drives `try_send_bytes` through the cooperative spin in `transport.rs`;
+        // this loop just spins on `yield_now` and burns the backend core under a slow
+        // consumer. Hitting it in production means a missing `with_cooperative_drain`
+        // on the fragment, not a real backpressure path.
         loop {
             match self.inner.try_send(bytes) {
                 Ok(()) => return Ok(()),

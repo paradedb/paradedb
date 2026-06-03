@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780506083392,
+  "lastUpdate": 1780506408419,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -31384,6 +31384,54 @@ window.BENCHMARK_DATA = {
             "value": 268.8298619873259,
             "unit": "median tps",
             "extra": "avg tps: 263.3106235942788, max tps: 553.1181149946269, count: 107732"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "71215065+junnjiee@users.noreply.github.com",
+            "name": "Jun Jie",
+            "username": "junnjiee"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8449a21db8d5cd7afdd4ed1c7bceddb31d70a3e9",
+          "message": "test: make limit and offset optional in group aggregate proptest (#5235)\n\n# Ticket(s) Closed\nNone\n\n## Why\n\nMentioned by @stuhood in #5231, we should continue test coverage for\ncases without `LIMIT`/`OFFSET`\n\n## What\n\nMakes `limit` and `offset` optional in proptest params, to ensure test\ncoverage for queries without the 2 operations\n\nWith this change, possible test cases are:\n1. `... GROUP BY ... ORDER BY ... OFFSET ... LIMIT ...`\n2. `... GROUP BY ... ORDER BY ... OFFSET ...` (new)\n3. `... GROUP BY ... ORDER BY ... LIMIT ...` (new)\n4. `... GROUP BY ... ORDER BY ...` (new)\n\n## How\n\n- Made limit and offset proptest params optional (holds `Option` enum)\n- if value is `Some`, format into `LIMIT`/`OFFSET` clause, empty string\nif `None`\n- Added comment to clarify why we only build `OFFSET` queries when there\nare grouping columns",
+          "timestamp": "2026-06-03T11:58:25-04:00",
+          "tree_id": "a2ddb9fc4872cb06f7232972a68bf61195bd1689",
+          "url": "https://github.com/paradedb/paradedb/commit/8449a21db8d5cd7afdd4ed1c7bceddb31d70a3e9"
+        },
+        "date": 1780506376568,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 578.4292098179019,
+            "unit": "median tps",
+            "extra": "avg tps: 582.3073307842392, max tps: 678.584044478809, count: 53849"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 605.4585816673157,
+            "unit": "median tps",
+            "extra": "avg tps: 611.231718539067, max tps: 740.5284216428132, count: 53849"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 90.02080645642265,
+            "unit": "median tps",
+            "extra": "avg tps: 90.18979352875306, max tps: 97.59480434930465, count: 53849"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 269.3758625710189,
+            "unit": "median tps",
+            "extra": "avg tps: 263.7077811081947, max tps: 519.4331047116275, count: 107698"
           }
         ]
       }

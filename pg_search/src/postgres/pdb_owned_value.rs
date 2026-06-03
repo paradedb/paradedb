@@ -25,6 +25,8 @@ use tantivy::schema::{Facet, OwnedValue};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::types::TantivyValueError;
 
+pub const PDB_DATE_TAG: &str = "$__pdb_date__";
+
 /// This is a "reimplementation" of tantivy's OwnedValue. We need our own because we represent dates
 /// differently (as microseconds from PgEpoch, wheraas tantivy uses nanoseconds from the unix epoch)
 /// Other than the Date variant, this is equivalent to Tantivy's OwnedValue
@@ -91,7 +93,8 @@ impl PdbOwnedValue {
             OwnedValue::Object(object) => {
                 // serialized Date's end up as objects, so we'll need to look for their shape here.
                 if object.len() == 1 {
-                    if let ("date", OwnedValue::Str(s)) = (object[0].0.as_str(), &object[0].1) {
+                    if let (PDB_DATE_TAG, OwnedValue::Str(s)) = (object[0].0.as_str(), &object[0].1)
+                    {
                         // Strings that parse as a datetime must be assumed to be datetimes
                         if let Ok(pgdt) = PostgresDateTime::try_from(s.as_str()) {
                             return PdbOwnedValue::Date(pgdt);
@@ -133,7 +136,7 @@ impl serde::Serialize for PdbOwnedValue {
             // tag dates so that we can identify them when deserializing
             PdbOwnedValue::Date(date) => {
                 let mut map = serializer.serialize_map(Some(1))?;
-                map.serialize_entry("date", &date)?;
+                map.serialize_entry(PDB_DATE_TAG, &date)?;
                 map.end()
             }
             PdbOwnedValue::Object(ref obj) => {

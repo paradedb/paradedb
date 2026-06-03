@@ -35,6 +35,7 @@ use crate::api::HashMap;
 use crate::postgres::customscan::explain::{format_for_explain, ExplainFormat};
 use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::postgres::pdb_owned_value::PDB_DATE_TAG;
 use crate::query::more_like_this::MoreLikeThisQuery;
 use crate::query::pdb_query::pdb;
 use crate::query::score::ScoreFilter;
@@ -234,14 +235,14 @@ fn rewrite_is_datetime_values_to_tagged_dates(value: &mut serde_json::Value) {
         value.as_object_mut().unwrap().remove("is_datetime");
         if let Some(s) = value["value"].as_str() {
             value["value"] = serde_json::json!({
-                "date": s
+                PDB_DATE_TAG: s
             });
         }
         for bound_key in ["lower_bound", "upper_bound"] {
             for inclusion_key in ["included", "excluded", "Included", "Excluded"] {
                 if let Some(s) = value[bound_key][inclusion_key].as_str() {
                     value[bound_key][inclusion_key] = serde_json::json!({
-                            "date": s
+                            PDB_DATE_TAG: s
                     });
                 }
             }

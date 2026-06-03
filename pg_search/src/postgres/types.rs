@@ -145,6 +145,35 @@ impl TantivyValue {
         }
     }
 
+    fn auto_promote_str_to_date(value: &mut PdbOwnedValue) {
+        match value {
+            PdbOwnedValue::Str(s) => {
+                if let Ok(pgdt) = PostgresDateTime::try_from(s.as_str()) {
+                    *value = PdbOwnedValue::Date(pgdt);
+                }
+            }
+            PdbOwnedValue::Array(vals) => {
+                for v in vals.iter_mut() {
+                    Self::auto_promote_str_to_date(v)
+                }
+            }
+            PdbOwnedValue::Object(kvs) => {
+                for (_, v) in kvs.iter_mut() {
+                    Self::auto_promote_str_to_date(v)
+                }
+            }
+            _ => (),
+        }
+    }
+
+    fn try_single_json_value_to_tantivy_value(
+        value: Value,
+    ) -> Result<TantivyValue, TantivyValueError> {
+        let mut pdb_val = PdbOwnedValue::try_from(value)?;
+        Self::auto_promote_str_to_date(&mut pdb_val);
+        Ok(TantivyValue(pdb_val))
+    }
+
     fn try_json_value_to_tantivy_value(
         value: Value,
     ) -> Result<Vec<TantivyValue>, TantivyValueError> {
@@ -153,9 +182,9 @@ impl TantivyValue {
             // separate values out of each entry.
             Value::Array(value_vec) => value_vec
                 .into_iter()
-                .map(|value| Ok(TantivyValue(PdbOwnedValue::try_from(value)?)))
+                .map(Self::try_single_json_value_to_tantivy_value)
                 .collect(),
-            _ => Ok(vec![TantivyValue(PdbOwnedValue::try_from(value)?)]),
+            _ => Ok(vec![Self::try_single_json_value_to_tantivy_value(value)?]),
         }
     }
 

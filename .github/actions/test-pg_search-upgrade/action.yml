@@ -141,10 +141,15 @@ runs:
       run: |
         set -euo pipefail
         VERSION=$(grep "^version" ../Cargo.toml | head -1 | awk -F '"' '{print $2}')
+        # The current pg_search control file requires the `vector` extension.
+        # Create it before ALTER so the dependency check and the vector
+        # opclass migration succeed.
+        psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} postgres -c "CREATE EXTENSION IF NOT EXISTS vector;"
         psql -h localhost -p 288${{ inputs.pg_version }} postgres -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
         for case_dir in "$UPGRADE_SQL_DIR"/*; do
           db="$(basename "$case_dir")"
           echo "Creating database $db"
+          psql -v ON_ERROR_STOP=1 -h localhost -p 288${{ inputs.pg_version }} "$db" -c "CREATE EXTENSION IF NOT EXISTS vector;"
           psql -h localhost -p 288${{ inputs.pg_version }} "$db" -c "ALTER EXTENSION pg_search UPDATE TO '$VERSION';"
         done
 

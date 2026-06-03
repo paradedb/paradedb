@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780505724194,
+  "lastUpdate": 1780505758362,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -28922,6 +28922,114 @@ window.BENCHMARK_DATA = {
             "value": 173.83203125,
             "unit": "median mem",
             "extra": "avg mem: 170.96578043311294, max mem: 174.453125, count: 55661"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "71215065+junnjiee@users.noreply.github.com",
+            "name": "Jun Jie",
+            "username": "junnjiee"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8449a21db8d5cd7afdd4ed1c7bceddb31d70a3e9",
+          "message": "test: make limit and offset optional in group aggregate proptest (#5235)\n\n# Ticket(s) Closed\nNone\n\n## Why\n\nMentioned by @stuhood in #5231, we should continue test coverage for\ncases without `LIMIT`/`OFFSET`\n\n## What\n\nMakes `limit` and `offset` optional in proptest params, to ensure test\ncoverage for queries without the 2 operations\n\nWith this change, possible test cases are:\n1. `... GROUP BY ... ORDER BY ... OFFSET ... LIMIT ...`\n2. `... GROUP BY ... ORDER BY ... OFFSET ...` (new)\n3. `... GROUP BY ... ORDER BY ... LIMIT ...` (new)\n4. `... GROUP BY ... ORDER BY ...` (new)\n\n## How\n\n- Made limit and offset proptest params optional (holds `Option` enum)\n- if value is `Some`, format into `LIMIT`/`OFFSET` clause, empty string\nif `None`\n- Added comment to clarify why we only build `OFFSET` queries when there\nare grouping columns",
+          "timestamp": "2026-06-03T11:58:25-04:00",
+          "tree_id": "a2ddb9fc4872cb06f7232972a68bf61195bd1689",
+          "url": "https://github.com/paradedb/paradedb/commit/8449a21db8d5cd7afdd4ed1c7bceddb31d70a3e9"
+        },
+        "date": 1780505726239,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.60465,
+            "unit": "median cpu",
+            "extra": "avg cpu: 19.907486699288597, max cpu: 46.55674, count: 55545"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 176.69921875,
+            "unit": "median mem",
+            "extra": "avg mem: 161.14587144995048, max mem: 179.12890625, count: 55545"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.651532972824848, max cpu: 28.09756, count: 55545"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 119.76953125,
+            "unit": "median mem",
+            "extra": "avg mem: 118.65321986958772, max mem: 120.0234375, count: 55545"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.205675746368281, max cpu: 18.640776, count: 55545"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 176.9296875,
+            "unit": "median mem",
+            "extra": "avg mem: 147.8509435620893, max mem: 179.859375, count: 55545"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16471,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16913.25705284004, max block_count: 31625.0, count: 55545"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.189368941574461, max cpu: 4.669261, count: 55545"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 112.73046875,
+            "unit": "median mem",
+            "extra": "avg mem: 97.06955923969304, max mem: 137.05859375, count: 55545"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 25,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 24.741578899990998, max segment_count: 47.0, count: 55545"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.257474,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.353713887107945, max cpu: 32.526623, count: 111090"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 180.9765625,
+            "unit": "median mem",
+            "extra": "avg mem: 163.62163279773156, max mem: 182.125, count: 111090"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.899614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 13.603246598143938, max cpu: 28.070175, count: 55545"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 173.24609375,
+            "unit": "median mem",
+            "extra": "avg mem: 170.51628521919164, max mem: 174.32421875, count: 55545"
           }
         ]
       }

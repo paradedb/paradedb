@@ -325,8 +325,8 @@ fn strategy_name(strategy: tantivy::query::StrategyTag) -> &'static str {
         StrategyTag::Gallop => "gallop",
         StrategyTag::Linear => "linear",
         StrategyTag::Bitset => "bitset_from_postings",
-        StrategyTag::Posting => "posting",
-        StrategyTag::Hash => "hash",
+        StrategyTag::Automaton => "automaton",
+        StrategyTag::Empty => "empty",
     }
 }
 
@@ -344,7 +344,7 @@ impl DisplayAs for PgSearchScanPlan {
             // Render a single token. `TermSetWeight` writes the chosen
             // `StrategyTag` to the sink on every dispatch, so the value
             // is the strategy name (`gallop` / `linear` /
-            // `bitset_from_postings` / `posting` / `hash`). Falls
+            // `bitset_from_postings` / `automaton` / `empty`). Falls
             // back to `true` only when pushdown was indicated but no
             // `TermSetWeight` ran to record a tag — e.g., the dynamic
             // filter handled a non-TermSet shape, or the scan

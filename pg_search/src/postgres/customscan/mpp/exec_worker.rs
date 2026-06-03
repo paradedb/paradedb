@@ -282,14 +282,11 @@ pub(crate) fn run_mpp_worker(
             for q in 0..n_out {
                 let dest_proc = match &fragment.routing {
                     FragmentRouting::Coalesce { dest_proc } => *dest_proc,
-                    FragmentRouting::Shuffle {
-                        partitions_per_consumer_task,
-                    }
-                    | FragmentRouting::Broadcast {
-                        partitions_per_consumer_task,
-                    } => {
-                        let t_c = (q / partitions_per_consumer_task) as u32;
-                        proc_for_task(n_workers, t_c)
+                    // Output partition q routes to the consumer task the crate's
+                    // `route_partition` picked (precomputed in `worker_fragments`), hosted on
+                    // `proc_for_task`.
+                    FragmentRouting::Hashed { consumer_task, .. } => {
+                        proc_for_task(n_workers, consumer_task[q])
                     }
                 };
                 let base = match outbound_senders
@@ -340,7 +337,10 @@ pub(crate) fn run_mpp_worker(
             // wasn't installed, the chain order is wrong, or a future planner pass re-expanded
             // the build subtree. We surface this as a hard error rather than silently
             // EOF-only-ing the fragment.
-            if matches!(fragment.routing, FragmentRouting::Broadcast { .. }) {
+            if matches!(
+                fragment.routing,
+                FragmentRouting::Hashed { broadcast: true, .. }
+            ) {
                 debug_assert!(
                     fragment.task_idx == 0,
                     "mpp dispatcher: Broadcast fragment with task_idx={} but \

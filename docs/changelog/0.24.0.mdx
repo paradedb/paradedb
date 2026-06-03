@@ -1,0 +1,38 @@
+---
+title: 0.24.0
+noindex: true
+---
+
+## New Features 🎉
+
+- Add support for indexing the Postgres `ltree` column type.
+
+## Stability Improvements 💪
+
+- Significantly improved test coverage via concurrent property testing.
+- `pg_search` will now write WAL entries for its buffers, allowing for crash recovery.
+- Many fixes for planning of joins to allow the custom scan to trigger in more cases.
+- Significant test coverage improvements for joins.
+- Fix for `ORDER BY` on duplicated column names atop joins.
+- Fix for detoasting issue exposed during Antithesis runs.
+- Added an error when mixing incompatible proximity operators.
+- Remove minimum CPU requirements, as they did not show a performance benefit.
+
+## Performance Improvements 🚀
+
+- Improved the performance of large term set queries, and some types of hash join.
+- Introduce a first version of a MPP plan partitioning mode, to improve parallelism and remove redundant work during joins.
+- Improved performance of Top-K queries on `pdb.score`.
+
+## New Contributors 👋
+
+- Daniel Oliveira
+- Joshua Lockerman
+- Jun Jie
+- Nihal Pandey
+- Ritik Kumar
+- S Bala Vignesh
+- Saad Tajwar
+- Yerkebulan Tulibergenov
+
+The full changelog is available [on the GitHub Release](https://github.com/paradedb/paradedb/releases/tag/v0.24.0).

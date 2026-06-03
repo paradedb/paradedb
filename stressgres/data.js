@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780506442534,
+  "lastUpdate": 1780506730618,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -24108,6 +24108,60 @@ window.BENCHMARK_DATA = {
             "value": 15.020926903925295,
             "unit": "median tps",
             "extra": "avg tps: 15.003393713201298, max tps: 20.197294443146657, count: 55545"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e86569b298d8db4c9efc657ace8b70bf8dbaee93",
+          "message": "chore: Remove memoffset and derive_more (#5241)\n\n# Ticket(s) Closed\n\nFound easy ways to remove both of these crates.\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-03T12:16:13-04:00",
+          "tree_id": "7aa23707e316654c6977b9cf482d3ca656058fc3",
+          "url": "https://github.com/paradedb/paradedb/commit/e86569b298d8db4c9efc657ace8b70bf8dbaee93"
+        },
+        "date": 1780506698463,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 30.007607487177545,
+            "unit": "median tps",
+            "extra": "avg tps: 29.658881269237494, max tps: 30.788223787652882, count: 55506"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 243.4286777796187,
+            "unit": "median tps",
+            "extra": "avg tps: 272.1261299298463, max tps: 2822.5684765466467, count: 55506"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 576.0572368725664,
+            "unit": "median tps",
+            "extra": "avg tps: 560.5334008091593, max tps: 851.6736063445187, count: 55506"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 158.1265040110012,
+            "unit": "median tps",
+            "extra": "avg tps: 175.75055725257562, max tps: 1077.1368026632604, count: 111012"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 15.209745122221385,
+            "unit": "median tps",
+            "extra": "avg tps: 15.199189387575396, max tps: 19.988614218826097, count: 55506"
           }
         ]
       }

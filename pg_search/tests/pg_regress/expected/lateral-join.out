@@ -97,8 +97,7 @@ CREATE INDEX articles_bm25_idx ON articles USING bm25 (id, title, content, creat
     text_fields = '{
         "title": { "fast": true, "tokenizer": {"type": "default"} },
         "content": { "tokenizer": {"type": "default"} }
-    }',
-    datetime_fields = '{"created_at": {"fast": true}}'
+    }'
 );
 CREATE INDEX comments_bm25_idx ON comments USING bm25 (id, content) WITH (key_field = 'id');
 CREATE INDEX authors_bm25_idx ON authors USING bm25 (id, name, bio, expertise) WITH (key_field = 'id');

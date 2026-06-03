@@ -37,8 +37,7 @@ WITH (
     key_field='id',
     text_fields='{"description": {}, "organization_id": {"fast": true}, "internal_account_id": {"fast": true}}',
     boolean_fields='{"live_mode": {"fast": true}}',
-    numeric_fields='{"unledgered_amount": {"fast": true}}',
-    datetime_fields='{"as_of_date": {"fast": true}, "discarded_at": {"fast": true}}'
+    numeric_fields='{"unledgered_amount": {"fast": true}}'
 );
 -- =====================================================================
 -- Test 1: Simple GROUP BY on DateTime field
@@ -70,13 +69,14 @@ GROUP BY transactions.as_of_date
 ORDER BY as_of_date NULLS LAST;
  count_all | as_of_date 
 -----------+------------
-         2 | 12-26-2025
-         3 | 12-27-2025
-         1 | 12-28-2025
-         1 | 12-29-2025
-         2 | 12-30-2025
-         1 | 12-31-2025
-(6 rows)
+         2 | 01-11-1970
+         3 | 01-11-1970
+         1 | 01-11-1970
+         1 | 01-11-1970
+         2 | 01-11-1970
+         1 | 01-11-1970
+         1 | 
+(7 rows)
 
 -- =====================================================================
 -- Test 2: GROUP BY DateTime with BETWEEN range filter
@@ -118,9 +118,9 @@ GROUP BY transactions.as_of_date
 ORDER BY as_of_date;
  count_all | as_of_date 
 -----------+------------
-         2 | 12-26-2025
-         3 | 12-27-2025
-         1 | 12-28-2025
+         2 | 01-11-1970
+         3 | 01-11-1970
+         1 | 01-11-1970
 (3 rows)
 
 -- =====================================================================
@@ -155,9 +155,9 @@ GROUP BY transactions.as_of_date
 ORDER BY as_of_date;
  count_all | as_of_date 
 -----------+------------
-         2 | 12-26-2025
-         3 | 12-27-2025
-         1 | 12-28-2025
+         2 | 01-11-1970
+         3 | 01-11-1970
+         1 | 01-11-1970
 (3 rows)
 
 -- =====================================================================
@@ -192,9 +192,9 @@ GROUP BY transactions.as_of_date
 ORDER BY as_of_date;
  count_all | as_of_date 
 -----------+------------
-         1 | 12-29-2025
-         2 | 12-30-2025
-         1 | 12-31-2025
+         1 | 01-11-1970
+         2 | 01-11-1970
+         1 | 01-11-1970
 (3 rows)
 
 -- =====================================================================

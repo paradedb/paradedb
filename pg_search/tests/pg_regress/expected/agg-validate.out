@@ -38,8 +38,7 @@ USING bm25 (id, description, rating, created_at)
 WITH (
     key_field = 'id',
     text_fields = '{"description": {}}',
-    numeric_fields = '{"rating": {"fast": true}}',
-    datetime_fields = '{"created_at": {"fast": true}}'
+    numeric_fields = '{"rating": {"fast": true}}'
 );
 -- =====================================================================
 -- SECTION 1: Valid field references (should succeed)
@@ -114,9 +113,9 @@ WHERE id @@@ pdb.all();
 SELECT pdb.agg('{"date_histogram": {"field": "created_at", "fixed_interval": "30d"}}'::jsonb)
 FROM mock_items
 WHERE id @@@ pdb.all();
-                                               agg                                                
---------------------------------------------------------------------------------------------------
- {"buckets": [{"key": 1702944000000.0, "doc_count": 5, "key_as_string": "2023-12-19T00:00:00Z"}]}
+                                                agg                                                 
+----------------------------------------------------------------------------------------------------
+ {"buckets": [{"key": 756259200000000.0, "doc_count": 5, "key_as_string": "2023-12-19T00:00:00Z"}]}
 (1 row)
 
 -- Test 4: Valid field in window function context

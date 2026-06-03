@@ -15,75 +15,56 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! DSM-backed multi-producer single-consumer ring for MPP mesh inboxes.
+//! DSM-backed MPSC ring for MPP mesh inboxes.
 //!
-//! PostgreSQL's `shm_mq` is hard-wired single-sender, single-reader (asserted in
-//! `shm_mq_set_sender`), so we can't share one inbox across N-1 peers without forking
-//! `shm_mq`. This primitive is the replacement: a fixed-size byte-message ring laid out
-//! in a contiguous chunk of `dsm_segment` memory, with multi-producer correctness via
+//! PG's `shm_mq` is hard-wired SPSC (asserted in `shm_mq_set_sender`), so one inbox
+//! can't be shared across N-1 peers without forking PG. This ring is the replacement:
+//! a fixed-size byte-message ring sitting in a `dsm_segment`, MPSC-correct via
 //! Vyukov-style per-slot sequence counters.
 //!
 //! Layout (contiguous bytes, `repr(C)`):
 //!
 //! ```text
 //! +- DsmMpscRingHeader -----------------------+
-//! |  magic, version       (u32 each)          |
-//! |  ring_size, slot_cap  (u32 each)          |
-//! |  sender_count:        AtomicU32           |
-//! |  detached:            AtomicBool          |
-//! |  receiver_packed:     AtomicU64           |
-//! |  (pad up to cache line)                   |
-//! |  head:                AtomicU64           |
-//! |  (pad up to cache line)                   |
-//! |  tail:                AtomicU64           |
-//! |  (pad up to cache line)                   |
+//! |  magic, version, ring_size, slot_capacity |
+//! |  sender_count, detached, receiver_packed  |
+//! |  (cache-line padding around head/tail)    |
+//! |  head, tail (each on its own line)        |
 //! +-------------------------------------------+
 //! | Slot[0] | Slot[1] | ... | Slot[N-1]       |
 //! +-------------------------------------------+
 //!
 //! Slot {
-//!     seq:  AtomicU64,    // Vyukov sequence: encodes phase of this slot
+//!     seq:  AtomicU64,    // Vyukov phase counter
 //!     len:  AtomicU32,
 //!     data: [u8; slot_capacity - SLOT_HEADER_SIZE]
 //! }
 //! ```
 //!
-//! Slot lifecycle (Vyukov MPMC reduced to MPSC):
+//! Slot phase encoding (Vyukov MPMC reduced to MPSC):
 //!
 //! ```text
-//! slot[i] phases:
-//!   empty in round k:  seq = k * ring_size + i
-//!   ready in round k:  seq = k * ring_size + i + 1
+//! slot[i] in round k:  seq = k * ring_size + i      // empty
+//!                      seq = k * ring_size + i + 1  // ready
 //! ```
 //!
-//! Producer claim path for `tail = T`:
-//! 1. Inspect `slot[T mod ring_size].seq`. Three cases:
-//!    - `seq == T`: slot is empty in our round. Try `tail.CAS(T, T+1)`. Winner owns the slot.
-//!    - `seq <  T`: ring is full (consumer hasn't reached this round). Return `Full`.
-//!    - `seq >  T`: another producer already claimed `T`; re-read `tail` and retry.
-//! 2. Winner writes `len`, copies payload, stores `seq = T + 1` (Release) to publish.
-//! 3. Winner `SetLatch`es the receiver to break the consumer out of any wait.
+//! Producer claim at `tail = T`: read `slot[T % ring_size].seq`. `seq == T` then CAS
+//! `tail: T → T+1`, winner copies payload and stores `seq = T + 1` (Release). `seq < T`
+//! means ring full. `seq > T` means another producer took `T`, retry. Winner
+//! `SetLatch`es the receiver.
 //!
-//! Consumer take path for `head = H`:
-//! 1. `slot[H mod ring_size].seq == H + 1` ⇒ slot ready. Read payload.
-//! 2. Store `seq = H + ring_size` (the next round's empty marker for this slot).
-//! 3. Store `head = H + 1`.
+//! Consumer take at `head = H`: `slot[H % ring_size].seq == H + 1` means ready. Read
+//! payload, store `seq = H + ring_size` (next round's empty marker), then `head = H+1`.
+//! The single consumer owns `head` without CAS; producers contend only on `tail`.
 //!
-//! The single-consumer invariant means the consumer doesn't CAS `head`; it just owns it.
-//! Producers CAS `tail`, which is the only point of contention.
+//! **Safety**: public methods on `DsmMpscSender` / `DsmMpscReceiver` are type-safe once
+//! constructed. The constructors are `unsafe` because the DSM region must be correctly
+//! sized and not aliased (one process calls `create_at`, everyone else `attach_at`).
 //!
-//! **Safety**: every public function on `DsmMpscSender` / `DsmMpscReceiver` is safe at the
-//! Rust type level once construction has happened. The constructors are `unsafe` because
-//! the caller has to guarantee the DSM region is correctly sized and not aliased by
-//! conflicting writers (mainly: only one process gets to call `create_at`; everyone else
-//! calls `attach_at`).
-//!
-//! **Counter wraparound**: `head` and `tail` are `u64` and incremented by one per
-//! operation. At 100M ops/sec, wraparound takes ~5800 years. We treat that as physically
-//! impossible and don't handle it; the Vyukov seq math would break under wrap because
-//! pre-wrap seq values would be larger than post-wrap tail values and producers would
-//! spin-retry indefinitely. If this primitive ever ships in a context where wrap is
-//! conceivable, add a `tail < u64::MAX - margin` check and reset the ring.
+//! **Counter wraparound**: head/tail are `u64`, incremented by one per op. At 100M
+//! ops/sec that's ~5800 years, so we ignore wrap. The seq math would break under wrap
+//! (pre-wrap `seq` would exceed post-wrap `tail` and producers would spin forever); if
+//! that ever matters, add a `tail < u64::MAX - margin` check and reset the ring.
 
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -140,20 +121,18 @@ const CACHE_LINE: usize = 64;
 
 /// Ring header. Laid out first in the DSM region; slot array follows immediately after.
 ///
-/// Cache-line padding around `head` and `tail` isn't optional: under N=24 producer
+/// Cache-line padding around `head` and `tail` isn't optional: at N=24 producer
 /// contention the consumer's `head.store` and the producers' `tail.compare_exchange`
-/// race on the same line, MESI-ping-ponging on every drain/claim. That's exactly the
-/// false-sharing footgun Vyukov's MPMC writeups call out; the Disruptor literature
-/// shows 5-10x throughput loss from this on x86. Padding keeps each hot field on its
-/// own line.
-/// Note: NOT `#[repr(C, align(64))]`. PG `dsm_segment` base addresses are only guaranteed
-/// MAXALIGN (8-byte) aligned in practice (on macOS, the user-data offset within an mmap
-/// region can land on a 16-aligned but not 64-aligned address). Forcing align(64) on the
-/// struct would mandate a 64-aligned destination in `create_at` / `attach_at`, which we
-/// can't guarantee from the DSM region. False-sharing protection still holds: the
-/// `_pad_*` fields below put `head`, `tail`, and the first slot on separate 64-byte
-/// regions in absolute address space (the *distance* between hot fields is what matters,
-/// not their absolute alignment).
+/// race on the same line, MESI-ping-ponging every claim. That's the false-sharing
+/// footgun Vyukov's writeups call out; the Disruptor literature shows 5-10x throughput
+/// loss from it on x86. Padding puts each hot field on its own line.
+///
+/// NOT `#[repr(C, align(64))]`: PG `dsm_segment` base addresses are only
+/// MAXALIGN-aligned in practice (on macOS the user-data offset can land 16-aligned
+/// but not 64-aligned). Forcing `align(64)` would impose a 64-aligned destination on
+/// `create_at` / `attach_at` we can't guarantee. The `_pad_*` fields below still
+/// put `head`, `tail`, and the first slot on separate 64-byte regions; it's the
+/// *distance* between hot fields that matters, not their absolute alignment.
 #[repr(C)]
 pub(super) struct DsmMpscRingHeader {
     /// Magic constant; equals `MPSC_RING_MAGIC` for a valid ring. Checked in `attach_at`.
@@ -214,32 +193,26 @@ impl DsmMpscRingHeader {
 
 /// Wake the receiver if one is registered. Resolves the latch from
 /// `ProcGlobal->allProcs[receiver_pgprocno]` per call (so PGPROC reuse after a receiver
-/// process exit can't dangle a cached pointer) and validates `proc->pid` against the
-/// stored `receiver_pid` to skip wakes targeted at a reused slot's new tenant.
+/// exit can't dangle a cached pointer) and checks `proc->pid` against the stored pid
+/// so a wake targeted at a reused slot's new tenant gets skipped.
 ///
-/// Returns silently when:
-/// - No receiver is registered (`receiver_pgprocno == NO_RECEIVER`).
-/// - `ProcGlobal` is null (called outside a PG backend; tests).
-/// - The PID check fails (PGPROC was reused; the prior receiver is gone).
-///
-/// `SetLatch` is documented safe on any valid `Latch*`. The pid guard narrows the
-/// wrong-backend risk from "any reused slot" to "a reused slot whose new PID happens
-/// to match the old one", which is negligible in practice.
+/// Silently returns when no receiver is registered, `ProcGlobal` is null (tests), or
+/// the pid check fails. The pid guard narrows the wrong-backend risk from "any reused
+/// slot" to "a reused slot whose new pid happens to match the old one", which is
+/// negligible.
 ///
 /// # Safety
-/// Caller must guarantee the ring is still mapped (no dangling `header` reference).
+/// Caller must guarantee the ring is still mapped.
 ///
-/// # Threading note
+/// # Threading
 /// `pg_sys::SetLatch` is wrapped by pgrx with `check_active_thread()`, which panics
-/// when called off the backend thread. Producer wakes fire from the producer's own
-/// backend main thread (the producer plan-node poll), so this passes. PG's `SetLatch`
-/// is itself cross-thread safe; the constraint lives entirely in the pgrx wrapper.
+/// off the backend thread. Producer wakes fire from the producer's own backend main
+/// thread (the plan-node poll), so this passes. PG's `SetLatch` is itself cross-thread
+/// safe; the constraint lives in the pgrx wrapper.
 ///
-/// `pgprocno + pid` is used instead of `BackendPidGetProc(pid)` because the latter
-/// scans the proc array (O(MaxBackends), takes ProcArrayLock). The pgprocno + pid
-/// check is O(1) lock-free and behaviorally equivalent for slot-reuse: if PG recycles
-/// a PID into a different slot, both approaches miss the wake (no slot at the
-/// expected PID).
+/// `pgprocno + pid` instead of `BackendPidGetProc(pid)` because the latter scans the
+/// proc array under `ProcArrayLock`. The packed check is O(1) lock-free; both approaches
+/// miss-wake the same way if PG recycles a PID into a different slot.
 unsafe fn wake_receiver(header: &DsmMpscRingHeader) {
     let (pgprocno, expected_pid) = unpack_receiver(header.receiver_packed.load(Ordering::Acquire));
     if pgprocno < 0 {
@@ -472,14 +445,14 @@ impl DsmMpscReceiver {
         Self { ring }
     }
 
-    /// Register this process as the receiver. Producers' subsequent wakeups resolve
-    /// the latch from `ProcGlobal->allProcs[pgprocno]` and check `proc->pid == pid`
-    /// to defend against PGPROC slot reuse if the receiver process exits.
+    /// Register this process as the receiver. Producers' wakeups resolve the latch
+    /// from `ProcGlobal->allProcs[pgprocno]` and check `proc->pid == pid` to defend
+    /// against PGPROC slot reuse after the receiver exits.
     ///
-    /// Caller passes the LOCAL process's pgprocno and pid (in PG's parlance:
-    /// `MyProcNumber` and `MyProc->pid`). The pair is packed into one `AtomicU64`
-    /// and stored Release; producers Acquire-load the pair on every wake, so they
-    /// can never observe a torn (mismatched-by-update) `(pgprocno, pid)` pair.
+    /// Caller passes the local process's pgprocno and pid (PG calls these
+    /// `MyProcNumber` and `MyProc->pid`). They get packed into one `AtomicU64`,
+    /// stored Release; producers Acquire-load the pair so they never see a torn
+    /// `(pgprocno, pid)`.
     pub(super) fn set_receiver(&self, pgprocno: i32, pid: i32) {
         let header = unsafe { self.ring.as_ref() };
         header
@@ -487,17 +460,17 @@ impl DsmMpscReceiver {
             .store(pack_receiver(pgprocno, pid), Ordering::Release);
     }
 
-    /// Try to read one frame into `out`. On `Bytes`, `out` holds the payload. On
-    /// `Empty`, the caller should yield and retry. On `Detached`, the ring is drained
-    /// and all producers have detached; no more frames will arrive.
+    /// Try to read one frame into `out`. `Bytes`: `out` holds the payload. `Empty`:
+    /// caller should yield and retry. `Detached`: ring drained, all producers gone,
+    /// no more frames coming.
     ///
-    /// Known wedge: if a producer CAS-advances `tail` and then exits or crashes before
-    /// publishing the slot's `seq`, the consumer sees `tail > head`, the slot's `seq`
-    /// stuck at the prior-round empty marker, and `detached && tail <= head` never
-    /// becomes true. The drain loop will return `Empty` indefinitely. In production
-    /// this is bounded by PG's parallel-worker death handling (worker exit fires
-    /// leader ERROR, which tears DSM down), but a later revision should add an
-    /// explicit liveness check against `PGPROC`s to force-detach on producer death.
+    /// Known wedge: if a producer CAS-advances `tail` then exits/crashes before
+    /// publishing `seq`, the consumer sees `tail > head`, the slot's `seq` stuck at
+    /// the prior-round empty marker, and `detached && tail <= head` never becomes
+    /// true. The drain returns `Empty` forever. In production PG's parallel-worker
+    /// death handling bounds this (worker exit fires leader ERROR, DSM tears down),
+    /// but a future pass should add an explicit `PGPROC` liveness check to
+    /// force-detach on producer death.
     pub(super) fn try_recv(&self, out: &mut Vec<u8>) -> RecvOutcome {
         let header = unsafe { self.ring.as_ref() };
         let head = header.head.load(Ordering::Relaxed);

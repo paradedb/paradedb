@@ -17,21 +17,14 @@
 
 //! Transport layer for MPP shuffle.
 //!
-//! Layout:
-//! - [`MppFrameHeader`] is a fixed 16-byte prefix every wire message carries. It tags the
-//!   payload with `(stage_id, partition)`, so one underlying queue can carry frames for many
-//!   logical channels at once. That's what the multi-stage natural-shape path needs.
-//! - [`encode_frame_into`] / [`decode_frame`] serialize a `RecordBatch` with a header prefix via
-//!   Arrow IPC. They're the only codec entry points; tests round-trip through the same path so
-//!   the wire format under test always matches production.
-//! - [`DrainBuffer`] is the local per-proc queue that the drain thread writes into and
-//!   the DataFusion consumer reads from. It decouples consumer-side backpressure from
-//!   producer-side backpressure: the drain thread always makes forward progress on the
-//!   inbound rings, so a stalled consumer cannot propagate backpressure to remote
-//!   producers and cause a peer-mesh stall cycle.
-//!
-//! The DSM-backed sender/receiver and drain spawn logic build on top of these
-//! primitives.
+//! - [`MppFrameHeader`]: fixed 16-byte prefix tagging each wire message with
+//!   `(stage_id, partition)`, so one queue carries frames for many logical channels.
+//! - [`encode_frame_into`] / [`decode_frame`]: Arrow IPC serialize/deserialize with
+//!   header prefix. Only codec entry points; tests round-trip through the same path.
+//! - [`DrainBuffer`]: per-proc queue the drain writes into and the DataFusion consumer
+//!   reads from. Decouples consumer-side from producer-side backpressure: the drain
+//!   always makes forward progress on the inbound rings, so a stalled consumer can't
+//!   propagate backpressure to remote producers and cause a peer-mesh stall.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};

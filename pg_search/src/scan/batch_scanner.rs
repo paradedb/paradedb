@@ -280,16 +280,13 @@ impl Scanner {
         // to keep them aligned with `ids`.
         let mut memoized_columns: Vec<Option<ArrayRef>> = vec![None; self.which_fast_fields.len()];
 
-        if self
-            .which_fast_fields
-            .iter()
-            .any(|f| matches!(f, WhichFastField::Score))
-        {
-            let score_array = Arc::new(Float32Array::from(scores)) as ArrayRef;
-            for (idx, ff) in self.which_fast_fields.iter().enumerate() {
-                if matches!(ff, WhichFastField::Score) {
-                    memoized_columns[idx] = Some(score_array.clone());
-                }
+        let mut lazy_score_array: Option<ArrayRef> = None;
+        for (idx, ff) in self.which_fast_fields.iter().enumerate() {
+            if matches!(ff, WhichFastField::Score) {
+                let score_array = lazy_score_array.get_or_insert_with(|| {
+                    Arc::new(Float32Array::from(scores.clone())) as ArrayRef
+                });
+                memoized_columns[idx] = Some(score_array.clone());
             }
         }
 

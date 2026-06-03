@@ -1123,7 +1123,7 @@ impl CustomScan for JoinScan {
                 root,
                 best_path as *mut pg_sys::Path,
                 &mut tlist,
-                crate::postgres::customscan::score_funcoids(),
+                &crate::postgres::customscan::score_funcoids(),
             );
 
             // Update node.scan.plan.targetlist so parent nodes can reference the outputs.
@@ -1675,7 +1675,7 @@ unsafe fn compute_output_columns(
     let original_entries = PgList::<pg_sys::TargetEntry>::from_pg(original_tlist);
 
     for te in original_entries.iter_ptr() {
-        let check_expr = planning::strip_wrappers((*te).expr.cast());
+        let check_expr = crate::postgres::utils::strip_wrappers((*te).expr.cast());
         if (*check_expr).type_ == pg_sys::NodeTag::T_Var {
             let var = check_expr as *mut pg_sys::Var;
             let rti = (*var).varno as pg_sys::Index;

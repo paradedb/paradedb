@@ -19,7 +19,11 @@ ANALYZE issue_join_pre_filter_posts;
 SET max_parallel_workers_per_gather = 2;
 SET paradedb.enable_join_custom_scan TO on;
 SET work_mem TO '4GB';
-EXPLAIN SELECT
+-- Note: This test reliably reproduces the pre-filter "Column 0 not fetched" panic.
+-- It may or may not exercise the second fix (ensuring pdb.score is projected
+-- when a parent Result node needs it) depending on whether the planner
+-- chooses a plan shape with a Result node above the Custom Scan.
+EXPLAIN (COSTS OFF, TIMING OFF) SELECT
     p.id,
     p.title,
     pdb.score(p.id) as relevance
@@ -32,12 +36,12 @@ WHERE
 ORDER BY
     relevance DESC
 LIMIT 10;
-                                                                                                                                  QUERY PLAN                                                                                                                                  
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=1010.01..1011.14 rows=10 width=29)
-   ->  Gather Merge  (cost=1010.01..2136.01 rows=10000 width=29)
+                                                                                                                                 QUERY PLAN                                                                                                                                 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit
+   ->  Gather Merge
          Workers Planned: 1
-         ->  Parallel Custom Scan (ParadeDB Join Scan)  (cost=10.00..11.00 rows=5 width=29)
+         ->  Parallel Custom Scan (ParadeDB Join Scan)
                Relation Tree: u INNER p
                Join Cond: p.owner_user_id = u.id
                Limit: 10
@@ -46,14 +50,13 @@ LIMIT 10;
                  : ProjectionExec: expr=[NULL as col_1, NULL as col_2, score@1 as col_3, ctid_0@0 as ctid_0, ctid_1@2 as ctid_1]
                  :   SortExec: TopK(fetch=10), expr=[score@1 DESC], preserve_partitioning=[false]
                  :     VisibilityFilterExec: tables=[u, p]
-                 :       ProjectionExec: expr=[ctid_0@2 as ctid_0, score@0 as score, ctid_1@1 as ctid_1]
-                 :         HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(owner_user_id@2, id@1)], projection=[score@0, ctid_1@1, ctid_0@3]
-                 :           ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, owner_user_id@2 as owner_user_id]
-                 :             CooperativeExec
-                 :               PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"how using get create","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                 :       HashJoinExec: mode=CollectLeft, join_type=Inner, on=[(owner_user_id@2, id@1)], projection=[ctid_0@3, score@0, ctid_1@1]
+                 :         ProjectionExec: expr=[pdb.score()@0 as score, ctid_1@1 as ctid_1, owner_user_id@2 as owner_user_id]
                  :           CooperativeExec
-                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"reputation","lower_bound":{"excluded":100},"upper_bound":null,"is_datetime":false}}]}}
-(19 rows)
+                 :             PgSearchScan: segments=1, dynamic_filters=1, query={"with_index":{"query":{"match":{"field":"title","value":"how using get create","tokenizer":null,"distance":null,"transposition_cost_one":null,"prefix":null,"conjunction_mode":false}}}}
+                 :         CooperativeExec
+                 :           PgSearchScan: segments=1, dynamic_filters=1, query={"boolean":{"must":[{"with_index":{"query":{"all":{"field":"id"}}}},{"range":{"field":"reputation","lower_bound":{"excluded":100},"upper_bound":null}}]}}
+(18 rows)
 
 -- Reproduce the bug
 SELECT

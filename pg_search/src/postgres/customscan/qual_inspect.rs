@@ -1156,8 +1156,8 @@ unsafe fn opexpr(
             attempt_pushdown,
         ),
 
-        pg_sys::NodeTag::T_FuncExpr | pg_sys::NodeTag::T_PlaceHolderVar => {
-            if crate::postgres::utils::unwrap_search_operator(lhs, &score_funcoids()).is_some() {
+        pg_sys::NodeTag::T_FuncExpr => {
+            if crate::postgres::utils::is_search_operator(lhs, &score_funcoids()) {
                 state.uses_our_operator = true;
 
                 if is_complex(rhs) {
@@ -1170,33 +1170,45 @@ unsafe fn opexpr(
                 });
             }
 
-            // Not a score function - fall through to node_opexpr for FuncExpr or pushdown
-            if (*lhs).type_ == pg_sys::NodeTag::T_FuncExpr {
-                node_opexpr(
+            node_opexpr(
+                context,
+                rti,
+                ri_type,
+                indexrel,
+                state,
+                opexpr,
+                lhs,
+                rhs,
+                convert_external_to_special_qual,
+                attempt_pushdown,
+            )
+        }
+
+        pg_sys::NodeTag::T_PlaceHolderVar => {
+            if crate::postgres::utils::is_search_operator(lhs, &score_funcoids()) {
+                state.uses_our_operator = true;
+
+                if is_complex(rhs) {
+                    return None;
+                }
+
+                return Some(Qual::ScoreExpr {
+                    opoid: opexpr.opno(),
+                    value: rhs,
+                });
+            }
+
+            if attempt_pushdown {
+                try_pushdown(
                     context,
                     rti,
-                    ri_type,
+                    opexpr,
                     indexrel,
                     state,
-                    opexpr,
-                    lhs,
-                    rhs,
                     convert_external_to_special_qual,
-                    attempt_pushdown,
                 )
             } else {
-                if attempt_pushdown {
-                    try_pushdown(
-                        context,
-                        rti,
-                        opexpr,
-                        indexrel,
-                        state,
-                        convert_external_to_special_qual,
-                    )
-                } else {
-                    None
-                }
+                None
             }
         }
         pg_sys::NodeTag::T_OpExpr => node_opexpr(

@@ -1363,29 +1363,41 @@ pub unsafe fn add_vars_to_tlist(expr: *mut pg_sys::Node, tlist: &mut PgList<pg_s
     }
 }
 
+/// Recursively peels `RelabelType` and `PlaceHolderVar` wrappers to get the underlying node.
+pub unsafe fn strip_wrappers(mut node: *mut pg_sys::Node) -> *mut pg_sys::Node {
+    loop {
+        if node.is_null() {
+            return node;
+        }
+        match (*node).type_ {
+            pg_sys::NodeTag::T_RelabelType => {
+                node = (*(node as *mut pg_sys::RelabelType)).arg.cast();
+            }
+            pg_sys::NodeTag::T_PlaceHolderVar => {
+                node = (*(node as *mut pg_sys::PlaceHolderVar)).phexpr.cast();
+            }
+            _ => break,
+        }
+    }
+    node
+}
+
 /// Unwraps `PlaceHolderVar` nodes (if any) and checks if the underlying node is a `FuncExpr`
-/// whose OID is present in `funcoids`. Returns the `FuncExpr` if it matches.
-pub unsafe fn unwrap_search_operator(
-    node: *mut pg_sys::Node,
-    funcoids: &[pg_sys::Oid],
-) -> Option<*mut pg_sys::FuncExpr> {
+/// whose OID is present in `funcoids`. Returns true if it matches.
+pub unsafe fn is_search_operator(node: *mut pg_sys::Node, funcoids: &[pg_sys::Oid]) -> bool {
     if node.is_null() {
-        return None;
+        return false;
     }
 
-    let mut check_node = node;
-    if (*check_node).type_ == pg_sys::NodeTag::T_PlaceHolderVar {
-        let phv = check_node as *mut pg_sys::PlaceHolderVar;
-        check_node = (*phv).phexpr as *mut pg_sys::Node;
-    }
+    let check_node = strip_wrappers(node);
 
     if (*check_node).type_ == pg_sys::NodeTag::T_FuncExpr {
         let funcexpr = check_node as *mut pg_sys::FuncExpr;
         if funcoids.contains(&(*funcexpr).funcid) {
-            return Some(funcexpr);
+            return true;
         }
     }
-    None
+    false
 }
 
 /// Helper function to inspect the parent plan's requirements (`processed_tlist`
@@ -1399,16 +1411,20 @@ pub unsafe fn add_missing_search_operators_to_tlist(
     root: *mut pg_sys::PlannerInfo,
     best_path: *mut pg_sys::Path,
     tlist: &mut PgList<pg_sys::TargetEntry>,
-    search_operator_funcoids: [pg_sys::Oid; 2],
+    search_operator_funcoids: &[pg_sys::Oid],
 ) {
     let mut add_missing_func = |expr: *mut pg_sys::Node| {
-        if unwrap_search_operator(expr, &search_operator_funcoids).is_none() {
+        if !is_search_operator(expr, search_operator_funcoids) {
             return;
         }
 
-        let already_present = tlist
-            .iter_ptr()
-            .any(|te| pg_sys::equal((*te).expr.cast(), expr.cast()));
+        let unwrapped_expr = strip_wrappers(expr.cast());
+        let already_present = tlist.iter_ptr().any(|te| {
+            pg_sys::equal(
+                strip_wrappers((*te).expr.cast()).cast(),
+                unwrapped_expr.cast(),
+            )
+        });
 
         if !already_present {
             let resno = tlist.len() as pg_sys::AttrNumber + 1;

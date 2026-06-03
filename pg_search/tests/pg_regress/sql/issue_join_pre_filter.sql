@@ -25,7 +25,11 @@ SET max_parallel_workers_per_gather = 2;
 SET paradedb.enable_join_custom_scan TO on;
 SET work_mem TO '4GB';
 
-EXPLAIN SELECT
+-- Note: This test reliably reproduces the pre-filter "Column 0 not fetched" panic.
+-- It may or may not exercise the second fix (ensuring pdb.score is projected
+-- when a parent Result node needs it) depending on whether the planner
+-- chooses a plan shape with a Result node above the Custom Scan.
+EXPLAIN (COSTS OFF, TIMING OFF) SELECT
     p.id,
     p.title,
     pdb.score(p.id) as relevance

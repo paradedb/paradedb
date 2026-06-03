@@ -258,9 +258,9 @@ pub unsafe fn leader_setup(
         register_self_as_receiver(&inbox);
     }
     let mpp_recv = MppReceiver::new(Box::new(inbox));
-    let inbound_drain = Arc::new(DrainHandle::cooperative(vec![mpp_recv]));
+    let inbound_receiver = Arc::new(DrainHandle::cooperative(vec![mpp_recv]));
 
-    let mesh = Arc::new(MppMesh::new(0, total_procs, inbound_drain));
+    let mesh = Arc::new(MppMesh::new(0, total_procs, inbound_receiver));
 
     // Drop the leader's own outbound senders. The leader is consumer-only and never hosts a
     // producer fragment.
@@ -305,9 +305,9 @@ pub struct MppWorkerState {
     /// Worker fragment plan bytes, copied out of DSM. Caller deserializes via the
     /// `PgSearchExtensionCodec` to get an `Arc<dyn ExecutionPlan>`.
     pub plan_bytes: Vec<u8>,
-    /// Worker's MppMesh. The single `inbound_drain` pulls frames addressed to this proc
-    /// from both the DSM MPSC inbox and the in-proc self-loop channel; demux by
-    /// `(sender_proc, stage_id, partition)` happens inside the drain's channel-buffer
+    /// Worker's MppMesh. The single `inbound_receiver` pulls frames addressed to this
+    /// proc from both the DSM MPSC inbox and the in-proc self-loop channel; demux by
+    /// `(sender_proc, stage_id, partition)` happens inside the handle's channel-buffer
     /// registry. Read by the multi-fragment dispatcher driven by [`mpp::host::exec_mpp_worker`].
     pub mesh: Arc<MppMesh>,
 }
@@ -366,9 +366,9 @@ pub unsafe fn worker_setup(
     }
     let inbox_recv = MppReceiver::new(Box::new(inbox));
     let self_recv = MppReceiver::new(Box::new(self_rx));
-    let inbound_drain = Arc::new(DrainHandle::cooperative(vec![inbox_recv, self_recv]));
+    let inbound_receiver = Arc::new(DrainHandle::cooperative(vec![inbox_recv, self_recv]));
 
-    let mesh = Arc::new(MppMesh::new(proc_idx, total_procs, inbound_drain));
+    let mesh = Arc::new(MppMesh::new(proc_idx, total_procs, inbound_receiver));
 
     Ok(MppWorkerState {
         outbound_senders,

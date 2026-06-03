@@ -47,17 +47,14 @@ pub(super) fn align_up_maxalign_checked(n: usize) -> Option<usize> {
     n.checked_add(mask).map(|x| x & !mask)
 }
 
-/// DSM-MPSC-ring-backed `BatchChannelSender`. Multiple producer processes hold their
-/// own `DsmInboxSender` clones targeting the same receiver inbox; the underlying ring
-/// serializes them via Vyukov-style CAS on `tail`.
+/// DSM MPSC ring as a `BatchChannelSender`. Multiple producer processes hold their own
+/// `DsmInboxSender` clones targeting the same receiver inbox; the ring serializes them
+/// via Vyukov CAS on `tail`. Because the ring's atomics are the synchronization point,
+/// the `send_bytes` / `try_send_bytes` paths don't need an attach-thread `debug_assert!`.
 ///
-/// The ring's atomic operations are the synchronization point, so the
-/// `send_bytes` / `try_send_bytes` paths don't `debug_assert!` an attach-thread
-/// invariant.
-///
-/// Detach-on-drop: the inner `DsmMpscSender::Drop` decrements the ring's
-/// `sender_count`; the last drop flips `detached` and wakes the receiver, mirroring
-/// shm_mq's "drop the last sender, receiver sees detach" structural guarantee.
+/// Detach-on-drop: `DsmMpscSender::Drop` decrements `sender_count`; the last drop flips
+/// `detached` and wakes the receiver, mirroring shm_mq's "drop the last sender, receiver
+/// sees detach" guarantee.
 pub(super) struct DsmInboxSender {
     inner: DsmMpscSender,
     send_lock: tokio::sync::Mutex<()>,
@@ -120,14 +117,14 @@ impl BatchChannelSender for DsmInboxSender {
     }
 }
 
-/// DSM-MPSC-ring-backed `BatchChannelReceiver`. The scratch `Vec<u8>` lives behind a
-/// `parking_lot::Mutex` so a `&self` `try_recv` can hand the populated buffer to the
-/// caller via `mem::take` without `RefCell`-style runtime borrow tracking.
+/// DSM MPSC ring as a `BatchChannelReceiver`. The scratch `Vec<u8>` lives behind a
+/// `parking_lot::Mutex` so a `&self` `try_recv` can hand the populated buffer back via
+/// `mem::take` without `RefCell` runtime borrow tracking.
 ///
-/// The single-consumer invariant comes from the call pattern: one `DsmInboxReceiver`
-/// per process, owned by `DrainHandle::cooperative_receivers`, polled inline from the
-/// drain's `try_drain_pass`. No two threads ever race on the same receiver; the mutex
-/// is interior-mutability boilerplate, uncontended in production.
+/// Single-consumer comes from the call pattern: one `DsmInboxReceiver` per process,
+/// owned by `DrainHandle::cooperative_receivers`, polled inline from `try_drain_pass`.
+/// No two threads ever race on the same receiver; the mutex is just interior-mutability
+/// boilerplate, uncontended in production.
 pub(super) struct DsmInboxReceiver {
     inner: DsmMpscReceiver,
     /// Scratch the inner primitive's `try_recv` reuses across calls (via reserve+set_len).

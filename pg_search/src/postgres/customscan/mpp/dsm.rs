@@ -17,7 +17,7 @@
 
 //! Mesh-multiplexed DSM layout: one MPSC inbox per receiver process.
 //!
-//! Each MPP query allocates a single DSM region containing:
+//! Each MPP query allocates a single DSM region:
 //!
 //! ```text
 //!   +--- MppDsmHeader (repr C, MAXALIGN-padded) -------------+
@@ -34,17 +34,14 @@
 //!   +-------------------------------------------------------+
 //! ```
 //!
-//! - `n_procs` is the total proc count (1 leader + N parallel workers).
-//!   Leader is `proc_idx = 0`; workers are `proc_idx = ParallelWorkerNumber + 1`.
-//! - Each process attaches as **receiver** to its own inbox (one MPSC ring) and as
-//!   **sender** to each of N-1 peer inboxes. Total queues per mesh is `n_procs`; total
-//!   attach calls per proc is `1 + (N-1) = N`. Senders stamp
-//!   `MppFrameHeader::sender_proc` on every frame so the receiver demultiplexes by
-//!   source on read.
-//! - Self-loop frames (proc → itself) use an in-proc channel installed in `glue.rs`,
-//!   not a DSM slot. MPSC ring semantics + the way `DsmMpscReceiver` is used (one
-//!   handle owned by the receiver process) means there is no DSM slot for the
-//!   self-loop pair in this layout.
+//! - `n_procs` = 1 leader + N parallel workers. Leader is `proc_idx = 0`; workers are
+//!   `proc_idx = ParallelWorkerNumber + 1`.
+//! - Each process attaches as receiver to its own inbox (one MPSC ring) and as sender
+//!   to each of N-1 peer inboxes. Senders stamp `MppFrameHeader::sender_proc` on every
+//!   frame so the receiver demuxes by source.
+//! - Self-loop frames (proc → itself) ride an in-proc channel installed in `glue.rs`,
+//!   not a DSM slot: each `DsmMpscReceiver` is owned by a single receiver process, so
+//!   there is no DSM slot for the self-loop pair.
 
 use std::ffi::c_void;
 use std::mem::size_of;
@@ -361,16 +358,15 @@ pub(super) unsafe fn leader_init(
 /// parallel workers). Attach as receiver to this proc's own MPSC inbox, and (if
 /// `attach_senders` is true) as sender to every peer's inbox.
 ///
-/// `attach_senders = false` is for the leader: it's consumer-only. A consumer-only proc
-/// that attached as sender would increment every peer inbox's `sender_count`, and its
-/// `Drop` would decrement them all back; if it dropped before any worker incremented,
-/// the 1 → 0 transition would flip `detached` on every peer inbox and every later
-/// worker send would fail with `SendError::Detached`. Skipping the attach keeps
-/// `sender_count` accurate (only producers ever increment).
+/// `attach_senders = false` is for the leader (consumer-only). If the leader attached
+/// as sender it would bump every peer inbox's `sender_count` and decrement it on `Drop`;
+/// if it dropped before any worker bumped, the 1 → 0 transition would flip `detached`
+/// on every peer inbox and every later worker send would fail `SendError::Detached`.
+/// Skipping keeps `sender_count` honest (only producers ever increment).
 ///
 /// # Safety
 /// - `base` must point to a DSM region whose header has been validated.
-/// - `header.inbox_offset(r)` must already point at a ring initialized by
+/// - `header.inbox_offset(r)` must point at a ring already initialized by
 ///   `DsmMpscRing::create_at` (the leader does this in `leader_init`).
 unsafe fn attach_proc(
     base: *mut u8,

@@ -15,21 +15,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Runtime glue between the leader's DataFusion execution and the shm_mq mesh.
+//! Runtime glue between the leader's DataFusion execution and the DSM MPSC mesh.
 //!
-//! [`MppMesh`] is the runtime handle the leader builds at DSM-init time. It carries one
-//! [`crate::postgres::customscan::mpp::transport::DrainHandle`] per producer worker for
-//! each consumer partition and gets installed on the leader's `SessionConfig` extensions
-//! before plan execution.
+//! [`MppMesh`] is the runtime handle the leader builds at DSM-init time. It holds the
+//! single [`crate::postgres::customscan::mpp::transport::DrainHandle`] (the
+//! `inbound_receiver`) that consolidates this proc's DSM inbox and self-loop, and gets
+//! installed on the leader's `SessionConfig` extensions before plan execution.
 //!
-//! [`ShmMqWorkerTransport`] implements the fork's [`WorkerTransport`] trait, consulted by
-//! `NetworkShuffleExec`/`NetworkCoalesceExec`/`NetworkBroadcastExec` at execute time.
-//! `open(target_task=worker)` returns a [`ShmMqWorkerConnection`] that yields one stream
-//! per consumer partition from the matching [`DrainHandle`].
+//! [`ShmMqWorkerTransport`] implements the fork's [`WorkerTransport`] trait, consulted
+//! by `NetworkShuffleExec` / `NetworkCoalesceExec` / `NetworkBroadcastExec` at execute
+//! time. `open(target_task=worker)` returns a [`ShmMqWorkerConnection`] that yields one
+//! stream per consumer partition from the shared `inbound_receiver`.
 //!
-//! No `WorkerResolver` impl. Under `in_process_mode = true` the fork makes the resolver
-//! optional and substitutes a placeholder URL internally; our embedding never resolves
-//! anything by URL.
+//! No `WorkerResolver` impl: under `in_process_mode = true` the fork makes the resolver
+//! optional and substitutes a placeholder URL; nothing here resolves anything by URL.
 
 use std::ops::Range;
 use std::sync::Arc;

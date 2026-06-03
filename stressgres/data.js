@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780506767455,
+  "lastUpdate": 1780507417063,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -31594,6 +31594,54 @@ window.BENCHMARK_DATA = {
             "value": 269.3758625710189,
             "unit": "median tps",
             "extra": "avg tps: 263.7077811081947, max tps: 519.4331047116275, count: 107698"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "isaacjvandoren@gmail.com",
+            "name": "Isaac Van Doren",
+            "username": "isaacvando"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e86569b298d8db4c9efc657ace8b70bf8dbaee93",
+          "message": "chore: Remove memoffset and derive_more (#5241)\n\n# Ticket(s) Closed\n\nFound easy ways to remove both of these crates.\n\n## What\n\n## Why\n\n## How\n\n## Tests\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-03T12:16:13-04:00",
+          "tree_id": "7aa23707e316654c6977b9cf482d3ca656058fc3",
+          "url": "https://github.com/paradedb/paradedb/commit/e86569b298d8db4c9efc657ace8b70bf8dbaee93"
+        },
+        "date": 1780507385395,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 551.5805969996437,
+            "unit": "median tps",
+            "extra": "avg tps: 554.4009593653786, max tps: 710.5320524008863, count: 53832"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 579.5241896665407,
+            "unit": "median tps",
+            "extra": "avg tps: 584.5970247947776, max tps: 777.98359938998, count: 53832"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 89.25042523985539,
+            "unit": "median tps",
+            "extra": "avg tps: 89.37331613978029, max tps: 93.89376262883945, count: 53832"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 257.979440807833,
+            "unit": "median tps",
+            "extra": "avg tps: 252.79538398250745, max tps: 529.3458462559408, count: 107664"
           }
         ]
       }

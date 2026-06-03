@@ -335,9 +335,11 @@ jobs:
           private-key: ${{ secrets.PARADEDB_GITHUB_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: |
+            drizzle-paradedb
             django-paradedb
-            rails-paradedb
             sqlalchemy-paradedb
+            rails-paradedb
+            efcore-paradedb
 
       - name: Notify ORM Repos of New Release
         env:

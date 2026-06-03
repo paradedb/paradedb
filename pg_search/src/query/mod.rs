@@ -1562,6 +1562,11 @@ pub enum QueryError {
     #[error("could not build regex with pattern '{1}': {0}")]
     RegexError(#[source] tantivy::TantivyError, String),
     #[error(
+        r#"could not parse query string '{0}'.
+           make sure to use column:term pairs, and to capitalize AND/OR."#
+    )]
+    GrammarParseError(String),
+    #[error(
         r#"could not parse query string '{1}'.
            make sure to use column:term pairs, and to capitalize AND/OR."#
     )]

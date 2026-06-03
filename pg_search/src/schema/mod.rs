@@ -23,9 +23,10 @@ use crate::api::version::{Version, VersionInfo};
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::catalog::is_citext_oid;
+use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::options::{BM25IndexOptions, SortByDirection, SortByField};
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
-use crate::postgres::types::is_datetime_type;
+use crate::postgres::types::{is_datetime_type, is_pgoid_datetime_type};
 pub use crate::postgres::utils::{convert_pg_date_string, FieldSource};
 use crate::postgres::utils::{resolve_base_type, ExtractedFieldAttribute};
 pub use anyenum::AnyEnum;
@@ -807,6 +808,22 @@ impl SearchField {
                 };
                 let datetime = convert_pg_date_string(typeoid, &s);
                 *value = PdbOwnedValue::Date(datetime);
+                Ok(())
+            }
+            (FieldType::I64(_), PdbOwnedValue::Str(s))
+                if is_pgoid_datetime_type(self.field_type.typeoid()) =>
+            {
+                match self.field_type.typeoid() {
+                    PgOid::BuiltIn(pg_sys::BuiltinOid::TIMESTAMPOID) => {
+                        let pg_dt = PostgresDateTime::try_from_timestamp_str(&s)?;
+                        *value = PdbOwnedValue::I64(pg_dt.into_inner());
+                    }
+                    PgOid::BuiltIn(pg_sys::BuiltinOid::TIMESTAMPTZOID) => {
+                        let pg_dt = PostgresDateTime::try_from_timestamptz_str(&s)?;
+                        *value = PdbOwnedValue::I64(pg_dt.into_inner());
+                    }
+                    _ => unreachable!(),
+                }
                 Ok(())
             }
             (FieldType::U64(_), PdbOwnedValue::I64(v)) => {

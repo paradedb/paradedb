@@ -142,8 +142,7 @@ fn test_index_fields(mut conn: PgConnection) {
             numeric_fields='{"price": {}}',
             boolean_fields='{"in_stock": {}}',
             json_fields='{"metadata": {}}',
-            range_fields='{"price_range": {}}',
-            datetime_fields='{"created_at": {}}'
+            range_fields='{"price_range": {}}'
         );
     "#
     .execute(&mut conn);
@@ -229,19 +228,6 @@ fn test_index_fields(mut conn: PgConnection) {
     );
 
     assert!(fields.contains_key("price_range"));
-
-    // Check datetime field (created_at)
-    assert!(fields.contains_key("created_at"));
-    let date_config = fields
-        .get("created_at")
-        .unwrap()
-        .as_object()
-        .unwrap()
-        .get("Date")
-        .unwrap()
-        .as_object()
-        .unwrap();
-    assert_eq!(date_config.get("indexed").unwrap().as_bool().unwrap(), true);
 
     // Cleanup
     r#"DROP TABLE test_fields CASCADE;"#.execute(&mut conn);

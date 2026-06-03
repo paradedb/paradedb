@@ -15,9 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-use crate::api::version::Version;
+use crate::api::version::{Version, VersionInfo};
 use crate::api::FieldName;
+use crate::postgres::datetime::PostgresDateTime;
 use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::postgres::types::is_pgoid_datetime_type;
 use crate::query::numeric::{
     convert_value_for_field, convert_value_for_range_field, map_bound, numeric_bound_to_bytes,
     scale_numeric_bound, string_to_f64, string_to_i64, string_to_json_numeric, string_to_u64,
@@ -30,6 +32,8 @@ use crate::query::{
     check_range_bounds, coerce_bound_to_field_type, value_to_term, QueryError, SearchQueryInput,
 };
 use crate::schema::{IndexRecordOption, SearchField, SearchFieldType, SearchIndexSchema};
+use pgrx::pg_sys::BuiltinOid;
+use pgrx::PgOid;
 use pgrx::{pg_extern, pg_schema, InOutFuncs, StringInfo};
 use serde_json::Value;
 use std::collections::Bound;
@@ -40,6 +44,7 @@ use tantivy::query::{
     Query as TantivyQuery, Query, QueryParser, RangeQuery, RegexPhraseQuery, RegexQuery, TermQuery,
     TermSetQuery,
 };
+use tantivy::query_grammar::{self, UserInputAst, UserInputBound, UserInputLeaf};
 use tantivy::schema::FieldType;
 use tantivy::{Searcher, Term};
 use tokenizers::SearchTokenizer;
@@ -1879,7 +1884,6 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
     }
 
     let mut parser = parser();
-    let query_string = format!("{field}:({query_string})");
     if let Some(true) = conjunction_mode {
         parser.set_conjunction_by_default();
     }
@@ -1894,17 +1898,26 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
         );
     }
 
+    let query_string = format!("{field}:({query_string})");
     let lenient = lenient.unwrap_or(false);
-    Ok(if lenient {
-        let (parsed_query, _) = parser.parse_query_lenient(&query_string);
-        Box::new(parsed_query)
+    if lenient {
+        let (mut ast, _) = query_grammar::parse_query_lenient(&query_string);
+        if index_created_by_version.stores_datetimes_in_i64() {
+            rewrite_timestamp_literals(&mut ast, schema);
+        }
+        let (parsed_query, _) = parser.build_query_from_user_input_ast_lenient(ast);
+        Ok(Box::new(parsed_query))
     } else {
-        Box::new(
-            parser
-                .parse_query(&query_string)
-                .map_err(|err| QueryError::ParseError(err, query_string))?,
-        )
-    })
+        let mut ast = query_grammar::parse_query(&query_string)
+            .map_err(|_| QueryError::GrammarParseError(query_string.clone()))?;
+        if index_created_by_version.stores_datetimes_in_i64() {
+            rewrite_timestamp_literals(&mut ast, schema);
+        }
+        let parsed_query = parser
+            .build_query_from_user_input_ast(ast)
+            .map_err(|err| QueryError::ParseError(err, query_string))?;
+        Ok(Box::new(parsed_query))
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2097,6 +2110,121 @@ fn exists(field: FieldName, searcher: &Searcher) -> Box<ExistsQuery> {
         .field_type()
         .is_json();
     Box::new(ExistsQuery::new(field.into_inner(), is_json))
+}
+
+/// Walks the parsed user query AST and rewrites date/timestamp-string phrases as i64s.
+/// Best-effort: phrases that fail to parse as datetimes are left untouched, which
+/// preserves the original tantivy error path for genuinely malformed input.
+fn rewrite_timestamp_literals(ast: &mut UserInputAst, schema: &SearchIndexSchema) {
+    match ast {
+        UserInputAst::Clause(children) => {
+            for (_, child) in children {
+                rewrite_timestamp_literals(child, schema);
+            }
+        }
+        UserInputAst::Boost(inner, _) => rewrite_timestamp_literals(inner, schema),
+        UserInputAst::Leaf(leaf) => rewrite_leaf(leaf, schema),
+    }
+}
+
+fn rewrite_leaf(leaf: &mut UserInputLeaf, schema: &SearchIndexSchema) {
+    match leaf {
+        UserInputLeaf::Literal(lit) => {
+            if let Some(field_name) = &lit.field_name {
+                if let Some(oid) = oid_might_require_timestamp_rewriting(schema, field_name) {
+                    if let Some(replacement) = phrase_to_pg_micros_string(&lit.phrase, oid) {
+                        lit.phrase = replacement;
+                    }
+                }
+            }
+        }
+        UserInputLeaf::Range {
+            field: Some(name),
+            lower,
+            upper,
+        } => {
+            if let Some(oid) = oid_might_require_timestamp_rewriting(schema, name) {
+                rewrite_bound(lower, oid);
+                rewrite_bound(upper, oid);
+            }
+        }
+        UserInputLeaf::Set {
+            field: Some(name),
+            elements,
+        } => {
+            if let Some(oid) = oid_might_require_timestamp_rewriting(schema, name) {
+                for element in elements.iter_mut() {
+                    if let Some(replacement) = phrase_to_pg_micros_string(element, oid) {
+                        *element = replacement;
+                    }
+                }
+            }
+        }
+        // All, Exists, Regex carry no date phrase.
+        // Range/Set without an explicit field can't be resolved here; leave them alone.
+        _ => (),
+    }
+}
+
+fn rewrite_bound(bound: &mut UserInputBound, oid: PgOid) {
+    match bound {
+        UserInputBound::Inclusive(phrase) | UserInputBound::Exclusive(phrase) => {
+            if let Some(replacement) = phrase_to_pg_micros_string(phrase, oid) {
+                *phrase = replacement;
+            }
+        }
+        UserInputBound::Unbounded => (),
+    }
+}
+
+fn oid_might_require_timestamp_rewriting(
+    schema: &SearchIndexSchema,
+    field_name: &str,
+) -> Option<PgOid> {
+    let oid = schema.search_field(field_name)?.field_type().typeoid();
+    if let PgOid::BuiltIn(built_in) = oid {
+        match built_in {
+            BuiltinOid::JSONOID | BuiltinOid::JSONBOID => Some(oid),
+            _ if is_pgoid_datetime_type(oid) => Some(oid),
+            _ => None,
+        }
+    } else {
+        None
+    }
+}
+
+/// Parse `phrase` as a postgres date string and return the corresponding
+/// PG-epoch microseconds formatted as a decimal i64 string. Returns `None`
+/// if the phrase can't be parsed — caller leaves the phrase untouched.
+fn phrase_to_pg_micros_string(phrase: &str, oid: PgOid) -> Option<String> {
+    match oid {
+        PgOid::BuiltIn(BuiltinOid::TIMESTAMPOID) => {
+            let micros = PostgresDateTime::try_from_timestamp_str(phrase)
+                .ok()?
+                .into_inner();
+            Some(micros.to_string())
+        }
+        PgOid::BuiltIn(BuiltinOid::TIMESTAMPTZOID) => {
+            let micros = PostgresDateTime::try_from_timestamptz_str(phrase)
+                .ok()?
+                .into_inner();
+            Some(micros.to_string())
+        }
+        PgOid::BuiltIn(BuiltinOid::DATEOID) => {
+            let micros = PostgresDateTime::try_from_date_str(phrase)
+                .ok()?
+                .into_inner();
+            Some(micros.to_string())
+        }
+        PgOid::BuiltIn(BuiltinOid::JSONOID) | PgOid::BuiltIn(BuiltinOid::JSONBOID) => {
+            // Best-effort: if the phrase parses as a timestamp, rewrite to i64 micros.
+            // Otherwise leave alone — could be any non-datetime JSON value.
+            PostgresDateTime::try_from(phrase)
+                .ok()
+                .map(|dt| dt.into_inner().to_string())
+        }
+        _ => None,
+    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]

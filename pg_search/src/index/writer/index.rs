@@ -143,14 +143,20 @@ impl SerialIndexWriter {
     ) -> Result<Self> {
         let schema = index_relation.schema()?;
         let has_vector_field = schema.has_vector_field();
+        // The IVF backend needs a doc-count ceiling, so vector indexes cap at
+        // `DEFAULT_MAX_DOCS_PER_SEGMENT`. Non-vector indexes honor the caller's
+        // value verbatim (the parallel-build planner sets it to hit
+        // `target_segment_count`).
         let max_docs_per_segment = if has_vector_field {
             Some(
                 config
                     .max_docs_per_segment
-                    .unwrap_or(DEFAULT_MAX_DOCS_PER_SEGMENT),
+                    .map_or(DEFAULT_MAX_DOCS_PER_SEGMENT, |n| {
+                        n.min(DEFAULT_MAX_DOCS_PER_SEGMENT)
+                    }),
             )
         } else {
-            None
+            config.max_docs_per_segment
         };
         let config = IndexWriterConfig {
             max_docs_per_segment,
@@ -588,11 +594,8 @@ mod tests {
     #[pg_test]
     fn test_index_writer_max_docs_per_segment_requires_vector_field() {
         let relation_oid = get_relation_oid();
-        let config = IndexWriterConfig {
-            memory_budget: NonZeroUsize::new(15 * 1024 * 1024).unwrap(),
-            max_docs_per_segment: Some(1000),
-        };
-        let segment_ids = simulate_index_writer(config, relation_oid, 5000);
-        assert_eq!(segment_ids.len(), 1);
+        let config = IndexWriterConfig::new(NonZeroUsize::new(15 * 1024 * 1024).unwrap());
+        let segment_ids = simulate_index_writer(config, relation_oid, 25000);
+        assert_eq!(segment_ids.len(), 2);
     }
 }

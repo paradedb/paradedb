@@ -20,8 +20,6 @@
 
 use pgrx::pg_sys;
 
-#[cfg(test)]
-use crate::postgres::customscan::mpp::dsm_mpsc_ring::{self, DsmMpscRingHeader};
 use crate::postgres::customscan::mpp::dsm_mpsc_ring::{
     DsmMpscReceiver, DsmMpscSender, RecvOutcome as MpscRecvOutcome, SendError as MpscSendError,
 };
@@ -179,56 +177,53 @@ impl BatchChannelReceiver for DsmInboxReceiver {
     }
 }
 
-/// Allocate a fresh ring (heap, aligned) and return (sender, receiver, owning region).
-/// Test-only helper that pairs `DsmInboxSender` + `DsmInboxReceiver` over a heap-allocated
-/// ring matching the alignment contract `create_at` requires. Production allocates the
-/// region inside a `dsm_segment`; this helper exists so the BatchChannel trait impls can
-/// be exercised in unit tests without a PG backend.
-#[cfg(test)]
-pub(super) fn test_dsm_inbox_pair(
-    ring_size: u32,
-    slot_capacity: u32,
-) -> (DsmInboxSender, DsmInboxReceiver, AlignedTestRegion) {
-    let bytes = DsmMpscRingHeader::region_bytes(ring_size, slot_capacity);
-    let region = AlignedTestRegion::new(bytes);
-    let header_ptr =
-        unsafe { dsm_mpsc_ring::create_at(region.as_mut_ptr(), ring_size, slot_capacity) };
-    let nn = std::ptr::NonNull::new(header_ptr).expect("create_at returned null");
-    let sender = DsmInboxSender::new(unsafe { DsmMpscSender::new(nn) });
-    let receiver = DsmInboxReceiver::new(unsafe { DsmMpscReceiver::new(nn) });
-    (sender, receiver, region)
-}
-
-#[cfg(test)]
-pub(super) struct AlignedTestRegion {
-    ptr: *mut u8,
-    layout: std::alloc::Layout,
-}
-
-#[cfg(test)]
-impl AlignedTestRegion {
-    fn new(bytes: usize) -> Self {
-        let align = std::mem::align_of::<DsmMpscRingHeader>();
-        let layout = std::alloc::Layout::from_size_align(bytes, align).expect("layout");
-        let ptr = unsafe { std::alloc::alloc_zeroed(layout) };
-        assert!(!ptr.is_null());
-        Self { ptr, layout }
-    }
-    fn as_mut_ptr(&self) -> *mut u8 {
-        self.ptr
-    }
-}
-
-#[cfg(test)]
-impl Drop for AlignedTestRegion {
-    fn drop(&mut self) {
-        unsafe { std::alloc::dealloc(self.ptr, self.layout) };
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::postgres::customscan::mpp::dsm_mpsc_ring::{self, DsmMpscRingHeader};
+
+    /// Allocate a fresh ring (heap, aligned) and return (sender, receiver, owning region).
+    /// Pairs `DsmInboxSender` + `DsmInboxReceiver` over a heap-allocated ring matching the
+    /// alignment contract `create_at` requires. Production allocates the region inside a
+    /// `dsm_segment`; this helper exists so the BatchChannel trait impls can be exercised
+    /// without a PG backend.
+    fn test_dsm_inbox_pair(
+        ring_size: u32,
+        slot_capacity: u32,
+    ) -> (DsmInboxSender, DsmInboxReceiver, AlignedTestRegion) {
+        let bytes = DsmMpscRingHeader::region_bytes(ring_size, slot_capacity);
+        let region = AlignedTestRegion::new(bytes);
+        let header_ptr =
+            unsafe { dsm_mpsc_ring::create_at(region.as_mut_ptr(), ring_size, slot_capacity) };
+        let nn = std::ptr::NonNull::new(header_ptr).expect("create_at returned null");
+        let sender = DsmInboxSender::new(unsafe { DsmMpscSender::new(nn) });
+        let receiver = DsmInboxReceiver::new(unsafe { DsmMpscReceiver::new(nn) });
+        (sender, receiver, region)
+    }
+
+    struct AlignedTestRegion {
+        ptr: *mut u8,
+        layout: std::alloc::Layout,
+    }
+
+    impl AlignedTestRegion {
+        fn new(bytes: usize) -> Self {
+            let align = std::mem::align_of::<DsmMpscRingHeader>();
+            let layout = std::alloc::Layout::from_size_align(bytes, align).expect("layout");
+            let ptr = unsafe { std::alloc::alloc_zeroed(layout) };
+            assert!(!ptr.is_null());
+            Self { ptr, layout }
+        }
+        fn as_mut_ptr(&self) -> *mut u8 {
+            self.ptr
+        }
+    }
+
+    impl Drop for AlignedTestRegion {
+        fn drop(&mut self) {
+            unsafe { std::alloc::dealloc(self.ptr, self.layout) };
+        }
+    }
 
     #[test]
     fn aligned_queue_bytes_rounds_down_to_maxalign() {

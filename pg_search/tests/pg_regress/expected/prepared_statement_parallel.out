@@ -56,7 +56,6 @@ WHERE dt.dwf_doid @@@ paradedb.parse_with_field('full_text', $1)
 -- All executions should return consistent results
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
 WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
-WARNING:  JoinScan not used: aggregates are not supported (tables: c, dt)
  count 
 -------
    122
@@ -64,7 +63,6 @@ WARNING:  JoinScan not used: aggregates are not supported (tables: c, dt)
 
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
 WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
-WARNING:  JoinScan not used: aggregates are not supported (tables: c, dt)
  count 
 -------
    122
@@ -72,7 +70,6 @@ WARNING:  JoinScan not used: aggregates are not supported (tables: c, dt)
 
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
 WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
-WARNING:  JoinScan not used: aggregates are not supported (tables: c, dt)
  count 
 -------
    122
@@ -80,7 +77,6 @@ WARNING:  JoinScan not used: aggregates are not supported (tables: c, dt)
 
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
 WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
-WARNING:  JoinScan not used: aggregates are not supported (tables: c, dt)
  count 
 -------
    122
@@ -88,7 +84,6 @@ WARNING:  JoinScan not used: aggregates are not supported (tables: c, dt)
 
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
 WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
-WARNING:  JoinScan not used: aggregates are not supported (tables: c, dt)
  count 
 -------
    122
@@ -97,7 +92,6 @@ WARNING:  JoinScan not used: aggregates are not supported (tables: c, dt)
 -- 6th execution should use generic plan and return same result
 EXECUTE test_parallel_join('ea', '2024-01-01', '2025-01-01');
 WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
-WARNING:  JoinScan not used: aggregates are not supported (tables: c, dt)
  count 
 -------
    122
@@ -124,7 +118,6 @@ WHERE dt.dwf_doid @@@ paradedb.parse_with_field('full_text', $1)
 -- These should all return consistent results
 EXECUTE test_parallel_join_generic('ea', '2024-01-01', '2025-01-01');
 WARNING:  Aggregate Scan (DataFusion) not used: cross-table predicate in WHERE clause cannot be pushed into the aggregate scan (table: join)
-WARNING:  JoinScan not used: aggregates are not supported (tables: c, dt)
  count 
 -------
    122

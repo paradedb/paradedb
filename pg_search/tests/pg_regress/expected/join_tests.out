@@ -585,7 +585,6 @@ JOIN books b ON a.id = b.author_id
 WHERE (a.bio @@@ 'author' OR b.content @@@ 'story')
   AND (a.is_active = true OR b.is_published = true);
 WARNING:  Aggregate Scan (DataFusion) not used: join has non-equi quals that cannot be pushed to individual table scans (table: join)
-WARNING:  JoinScan not used: aggregates are not supported (tables: a, b)
 ERROR:  Unsupported query shape. Please report at https://github.com/paradedb/paradedb/issues/new/choose
 -- Test 6.3: Unsafe conditions that cannot be pushed down
 SELECT 

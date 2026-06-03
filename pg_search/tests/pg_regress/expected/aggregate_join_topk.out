@@ -66,7 +66,6 @@ FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
 GROUP BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
                                                                                                                 QUERY PLAN                                                                                                                 
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -89,7 +88,6 @@ FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
 GROUP BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | count 
 -------------+-------
  Electronics |     4
@@ -110,7 +108,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
                                                                                                                        QUERY PLAN                                                                                                                        
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -141,7 +138,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | count 
 -------------+-------
  Sports      |     4
@@ -160,7 +156,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY SUM(p.price) DESC
 LIMIT 2;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
                                                                                                                        QUERY PLAN                                                                                                                        
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -191,7 +186,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY SUM(p.price) DESC
 LIMIT 2;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   |   sum   
 -------------+---------
  Electronics | 4599.96
@@ -208,7 +202,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY COUNT(*) ASC
 LIMIT 2;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  category | count 
 ----------+-------
  Books    |     1
@@ -225,7 +218,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY SUM(p.price) DESC
 LIMIT 3;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | count |   sum   | min | max 
 -------------+-------+---------+-----+-----
  Electronics |     4 | 4599.96 |   5 |   5
@@ -243,7 +235,7 @@ JOIN topk_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR cookbook'
 GROUP BY p.category
 ORDER BY COUNT(*) DESC;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   category   | count |        sum         
 -------------+-------+--------------------
  Electronics |     4 |            4599.96
@@ -261,7 +253,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | count |   sum   
 -------------+-------+---------
  Sports      |     4 |  419.96
@@ -276,7 +267,6 @@ SELECT COUNT(*), SUM(p.price), AVG(p.rating)
 FROM topk_products p
 JOIN topk_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes';
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  count |  sum   | avg 
 -------+--------+-----
     10 | 6019.9 | 3.8
@@ -293,7 +283,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 1;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
                                                                                                                        QUERY PLAN                                                                                                                        
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -324,7 +313,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 1;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | count 
 -------------+-------
  Electronics |     4
@@ -340,7 +328,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 100;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | count 
 -------------+-------
  Sports      |     4
@@ -360,7 +347,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 2 OFFSET 1;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | count 
 -------------+-------
  Electronics |     4
@@ -378,7 +364,7 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   category   | count 
 -------------+-------
  Electronics |     4
@@ -394,7 +380,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY COUNT(*) DESC
 LIMIT 3;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | count 
 -------------+-------
  Sports      |     4
@@ -412,7 +397,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY SUM(p.price) ASC
 LIMIT 2;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  category |        sum         
 ----------+--------------------
  Books    |              24.99
@@ -432,7 +416,6 @@ JOIN topk_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR mouse'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | count 
 -------------+-------
  Electronics |     6
@@ -448,7 +431,6 @@ JOIN topk_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR mouse'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | count 
 -------------+-------
  Electronics |     4
@@ -476,7 +458,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY p.category
 LIMIT 3;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
                                                                                                                                  QUERY PLAN                                                                                                                                 
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -504,7 +485,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY p.category
 LIMIT 3;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | count 
 -------------+-------
  Books       |     1
@@ -521,7 +501,7 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY p.category
 LIMIT 3;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   category   | count 
 -------------+-------
  Books       |     1
@@ -540,7 +520,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY p.category DESC
 LIMIT 2;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  category | count 
 ----------+-------
  Toys     |     4
@@ -556,7 +535,7 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY p.category DESC
 LIMIT 2;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
  category | count 
 ----------+-------
  Toys     |     4
@@ -581,7 +560,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY MIN(p.price) ASC
 LIMIT 3;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
                                                                                                                        QUERY PLAN                                                                                                                        
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Limit
@@ -609,7 +587,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY MIN(p.price) ASC
 LIMIT 3;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
  category |  min  |  max   
 ----------+-------+--------
  Toys     | 19.99 | 499.99
@@ -626,7 +603,7 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket OR dress OR toy OR puzzle OR 
 GROUP BY p.category
 ORDER BY MIN(p.price) ASC
 LIMIT 3;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
  category |  min  |  max   
 ----------+-------+--------
  Toys     | 19.99 | 499.99

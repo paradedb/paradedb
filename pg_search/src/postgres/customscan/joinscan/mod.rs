@@ -229,29 +229,53 @@ enum JoinPathDecline {
 /// Specific reason a `JoinPathDecline::Warn` was raised. Wraps a specific
 /// warning message and any optional details (e.g., unsupported join types)
 /// to be emitted as a planner warning.
-pub struct JoinDeclineReason {
-    message: String,
-    details: Option<Vec<String>>,
+pub enum JoinDeclineReason {
+    ContainsAggregate,
+    Message {
+        message: String,
+        details: Option<Vec<String>>,
+    },
 }
 
 impl JoinDeclineReason {
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
+        Self::Message {
             message: message.into(),
             details: None,
         }
     }
 
-    pub fn with_details(mut self, details: Vec<String>) -> Self {
-        self.details = Some(details);
-        self
+    pub fn with_details(self, new_details: Vec<String>) -> Self {
+        match self {
+            Self::ContainsAggregate => self,
+            Self::Message {
+                message,
+                details: _,
+            } => Self::Message {
+                message,
+                details: Some(new_details),
+            },
+        }
     }
 
     fn emit(&self, aliases: &[String]) {
-        if let Some(details) = &self.details {
-            JoinScan::add_detailed_planner_warning(&self.message, aliases, details.clone());
-        } else {
-            JoinScan::add_planner_warning(&self.message, aliases);
+        match self {
+            Self::ContainsAggregate => {
+                if crate::gucs::enable_aggregate_custom_scan() {
+                    return;
+                }
+                JoinScan::add_planner_warning(
+                    "JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query.",
+                    aliases,
+                );
+            }
+            Self::Message { message, details } => {
+                if let Some(details) = details {
+                    JoinScan::add_detailed_planner_warning(message, aliases, details.clone());
+                } else {
+                    JoinScan::add_planner_warning(message, aliases);
+                }
+            }
         }
     }
 }
@@ -513,9 +537,7 @@ impl JoinScan {
         }
 
         if (*(*root).parse).hasAggs {
-            return Err(JoinDeclineReason::new(
-                "JoinScan not used: aggregates are not supported",
-            ));
+            return Err(JoinDeclineReason::ContainsAggregate);
         }
 
         // Require LIMIT for top-level queries (without it, JoinScan's TopK

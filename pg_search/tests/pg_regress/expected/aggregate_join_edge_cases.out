@@ -79,7 +79,6 @@ SELECT COUNT(*)
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket';
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, r)
                                                                                                         QUERY PLAN                                                                                                        
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -100,7 +99,6 @@ SELECT COUNT(*)
 FROM ec_products p
 JOIN ec_reviews r ON p.category = r.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket';
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, r)
  count 
 -------
     12
@@ -114,7 +112,6 @@ JOIN ec_reviews r ON p.category = r.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, r)
                                                                                                            QUERY PLAN                                                                                                           
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -141,7 +138,6 @@ JOIN ec_reviews r ON p.category = r.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, r)
   category   | count | sum | avg 
 -------------+-------+-----+-----
  Clothing    |     2 |   7 | 3.5
@@ -157,7 +153,7 @@ JOIN ec_reviews r ON p.category = r.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, r)
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, r)
   category   | count | sum |        avg         
 -------------+-------+-----+--------------------
  Clothing    |     2 |   7 | 3.5000000000000000
@@ -173,7 +169,6 @@ JOIN ec_reviews r ON p.category = r.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, r)
   category   | min | max |  min   |  max   
 -------------+-----+-----+--------+--------
  Clothing    |   3 |   4 | 129.99 | 129.99
@@ -260,7 +255,6 @@ JOIN ec_suppliers s ON p.category = s.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, r, s)
                                                                                                             QUERY PLAN                                                                                                            
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
@@ -289,7 +283,6 @@ JOIN ec_suppliers s ON p.category = s.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, r, s)
   category   | count | sum 
 -------------+-------+-----
  Clothing    |     4 |  14
@@ -306,7 +299,7 @@ JOIN ec_suppliers s ON p.category = s.category
 WHERE p.description @@@ 'laptop OR shoes OR jacket OR monitor OR racket'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, r, s)
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, r, s)
   category   | count | sum 
 -------------+-------+-----
  Clothing    |     4 |  14

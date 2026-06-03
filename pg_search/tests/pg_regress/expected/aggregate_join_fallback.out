@@ -60,7 +60,6 @@ FROM fb_products p
 JOIN fb_tags t ON p.id = t.product_id
 JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop';
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, r, t)
                                                                                      QUERY PLAN                                                                                     
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -85,7 +84,6 @@ FROM fb_products p
 JOIN fb_tags t ON p.id = t.product_id
 JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop';
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, r, t)
  count 
 -------
      2
@@ -99,7 +97,6 @@ JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, r, t)
   category   | count | sum 
 -------------+-------+-----
  Clothing    |     1 |   4
@@ -116,7 +113,7 @@ JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, r, t)
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, r, t)
   category   | count | sum 
 -------------+-------+-----
  Clothing    |     1 |   4
@@ -133,7 +130,6 @@ JOIN fb_tags t ON p.id = t.product_id
 JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, r, t)
                                                                                               QUERY PLAN                                                                                               
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -161,7 +157,6 @@ JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, r, t)
   category   | count | sum | avg | min | max 
 -------------+-------+-----+-----+-----+-----
  Clothing    |     1 |   4 |   4 |   4 |   4
@@ -175,7 +170,6 @@ FROM fb_products p
 JOIN fb_tags t ON p.id = t.product_id
 JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop';
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, r, t)
  count 
 -------
      2
@@ -191,7 +185,6 @@ JOIN fb_reviews r ON p.id = r.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY t.tag_name
 ORDER BY t.tag_name;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, r, t)
  tag_name | count | sum 
 ----------+-------+-----
  fitness  |     1 |   3
@@ -286,7 +279,6 @@ JOIN fb_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 HAVING COUNT(*) > 0;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
                                                                                               QUERY PLAN                                                                                               
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Custom Scan (ParadeDB Aggregate Scan)
@@ -311,7 +303,6 @@ JOIN fb_tags t ON p.id = t.product_id
 WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 HAVING COUNT(*) > 0;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | count 
 -------------+-------
  Electronics |     1
@@ -328,7 +319,7 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 HAVING COUNT(*) > 0
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
+WARNING:  JoinScan not used: aggregates are not supported. Enable paradedb.enable_aggregate_custom_scan to optimize this query. (tables: p, t)
   category   | count 
 -------------+-------
  Clothing    |     1
@@ -344,7 +335,6 @@ WHERE p.description @@@ 'laptop OR shoes OR jacket'
 GROUP BY p.category
 HAVING COUNT(*) > 0
 ORDER BY p.category;
-WARNING:  JoinScan not used: aggregates are not supported (tables: p, t)
   category   | count 
 -------------+-------
  Clothing    |     1

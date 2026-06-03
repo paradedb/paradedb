@@ -65,3 +65,29 @@ fn simple_jsonb_string_array_crash(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 }
+
+#[rstest]
+fn json_date_query_with_date_in_path(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE json_date_collapse_test (
+        id SERIAL PRIMARY KEY,
+        metadata JSONB
+    );
+
+    INSERT INTO json_date_collapse_test (metadata) VALUES
+        ('{"a": {"date": "2023-05-01T09:12:34Z"}}');
+
+    CREATE INDEX json_date_collapse_test_idx ON json_date_collapse_test
+        USING bm25 (id, metadata)
+        WITH (key_field = 'id');
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> = r#"
+        SELECT id FROM json_date_collapse_test
+        WHERE id @@@ paradedb.term('metadata.a.date', '2023-05-01T09:12:34Z'::timestamptz)
+        ORDER BY id;
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows.len(), 1);
+}

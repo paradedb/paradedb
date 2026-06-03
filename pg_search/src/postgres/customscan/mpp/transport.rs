@@ -761,7 +761,7 @@ struct ChannelBufferRegistry {
     /// Keyed by `(sender_proc, stage_id, partition)`. The unified inbox carries frames
     /// from every peer, so each `(stage, partition)` consumer gets its own per-sender
     /// buffer. This preserves the implicit "one stream per sender" semantics that
-    /// `WorkerConnection::stream_partition` consumers rely on.
+    /// `WorkerConnection::execute` consumers rely on.
     map: HashMap<(u32, u32, u32), Arc<DrainBuffer>>,
 }
 

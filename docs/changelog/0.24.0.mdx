@@ -14,7 +14,7 @@ noindex: true
 - Many fixes for planning of joins to allow the custom scan to trigger in more cases.
 - Significant test coverage improvements for joins.
 - Fix for `ORDER BY` on duplicated column names atop joins.
-- Fix for detoasting issue exposed during Antithesis runs.
+- Fix for race condition in detoasting during VACUUM.
 - Added an error when mixing incompatible proximity operators.
 - Remove minimum CPU requirements, as they did not show a performance benefit.
 

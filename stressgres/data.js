@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780454343994,
+  "lastUpdate": 1780454377923,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -20122,6 +20122,108 @@ window.BENCHMARK_DATA = {
             "value": 163.15625,
             "unit": "median mem",
             "extra": "avg mem: 181.8968398555808, max mem: 221.50390625, count: 56130"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mdashti@gmail.com",
+            "name": "Moe",
+            "username": "mdashti"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "89407a0a72afca9e2b1f9b29934cb72e77e84f83",
+          "message": "chore(mpp): bump datafusion-distributed to the rebased fork tip (#5229)\n\nThis PR bumps `datafusion-distributed` from `340ceb5` to `e5a498e`.\n\nThe fork's `main` was rebased onto current `upstream/main` (DF-D\n`14b3b56`) and the fork commits were restructured into two upstreamable\nones (a pluggable `WorkerTransport` and `in_process_mode`) plus a\nfork-only docs-delete. DataFusion stays at `53.0.0`, so there's no\nversion cascade into `pg_search`.\n\n## Code changes\n\nTwo DF-D API adaptations in the MPP module:\n\n- **`WorkerConnection` method rename.** Upstream PR #427 introduced the\n`WorkerConnection` trait with `fn execute(partition) -> BoxStream`,\nwhere our fork previously had `fn stream_partition(partition) ->\nWorkerPartitionStream`. The reconciled fork adopts the upstream\nsignature, so `ShmMqWorkerConnection` in `mpp/runtime.rs` renames its\nmethod to `execute` and returns `BoxStream<'static,\nResult<RecordBatch>>` (the type the old `WorkerPartitionStream` alias\nresolved to).\n\n- **Downcast instead of `kind()`.** The fork dropped the\n`NetworkBoundary::kind()` accessor and the `NetworkBoundaryKind` enum;\nconsumers classify boundaries by downcasting, like elsewhere in df-d and\nDataFusion. `worker_fragments::collect` now branches on\n`plan.as_any().is::<NetworkShuffleExec>()` / `NetworkBroadcastExec` /\n`NetworkCoalesceExec` instead of matching on `nb.kind()`, with a\nfail-loud arm for any unrecognized boundary type. The routing for each\n`(type, top_level)` case is unchanged.\n\nThe rest of what `pg_search` uses is unchanged: `WorkerTransport`,\n`in_process_mode`, `prepare_in_process_plan`, and\n`with_distributed_worker_transport`.\n\n---------\n\nCo-authored-by: paradedb-github-app[bot] <282009505+paradedb-github-app[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-02T18:55:07-07:00",
+          "tree_id": "0ac9c2df2b748f69a8b260ba427f2483119d3a98",
+          "url": "https://github.com/paradedb/paradedb/commit/89407a0a72afca9e2b1f9b29934cb72e77e84f83"
+        },
+        "date": 1780454346306,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Background Merger - Primary - background_merging",
+            "value": 0,
+            "unit": "median background_merging",
+            "extra": "avg background_merging: 0.0580514352790524, max background_merging: 2.0, count: 56226"
+          },
+          {
+            "name": "Background Merger - Primary - cpu",
+            "value": 4.655674,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.67595099199175, max cpu: 9.638554, count: 56226"
+          },
+          {
+            "name": "Background Merger - Primary - mem",
+            "value": 25.640625,
+            "unit": "median mem",
+            "extra": "avg mem: 25.629335738804112, max mem: 25.64453125, count: 56226"
+          },
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.016522921952771, max cpu: 28.125, count: 56226"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 191.1953125,
+            "unit": "median mem",
+            "extra": "avg mem: 185.02121981767777, max mem: 191.3359375, count: 56226"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 60419,
+            "unit": "median block_count",
+            "extra": "avg block_count: 60179.51746522961, max block_count: 60419.0, count: 56226"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 45,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 42.23583395582115, max segment_count: 57.0, count: 56226"
+          },
+          {
+            "name": "Single Insert - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.697239268232269, max cpu: 28.070175, count: 56226"
+          },
+          {
+            "name": "Single Insert - Primary - mem",
+            "value": 151.171875,
+            "unit": "median mem",
+            "extra": "avg mem: 136.20775322470922, max mem: 161.33984375, count: 56226"
+          },
+          {
+            "name": "Single Update - Primary - cpu",
+            "value": 4.660194,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.149816739575124, max cpu: 32.65306, count: 56226"
+          },
+          {
+            "name": "Single Update - Primary - mem",
+            "value": 223.9140625,
+            "unit": "median mem",
+            "extra": "avg mem: 222.20741189852114, max mem: 224.05859375, count: 56226"
+          },
+          {
+            "name": "Top K - Primary - cpu",
+            "value": 23.346306,
+            "unit": "median cpu",
+            "extra": "avg cpu: 23.80254933955986, max cpu: 33.802814, count: 56226"
+          },
+          {
+            "name": "Top K - Primary - mem",
+            "value": 163.234375,
+            "unit": "median mem",
+            "extra": "avg mem: 181.52092955494345, max mem: 221.765625, count: 56226"
           }
         ]
       }

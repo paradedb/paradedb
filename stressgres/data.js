@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780606172355,
+  "lastUpdate": 1780606626919,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -28440,6 +28440,60 @@ window.BENCHMARK_DATA = {
             "value": 16.030258797768973,
             "unit": "median tps",
             "extra": "avg tps: 15.841872545716695, max tps: 21.313594330515706, count: 55498"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fd532a552e030d55f2336722b41cea46ef7c357a",
+          "message": "chore: Revert \"test: handle nullable where clauses in querygen tests\" (#5262)\n\nReverts paradedb/paradedb#5253",
+          "timestamp": "2026-06-04T16:00:51-04:00",
+          "tree_id": "404ec194bb569ed081a39ddffa94816845b3db10",
+          "url": "https://github.com/paradedb/paradedb/commit/fd532a552e030d55f2336722b41cea46ef7c357a"
+        },
+        "date": 1780606594492,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - tps",
+            "value": 27.63369263342817,
+            "unit": "median tps",
+            "extra": "avg tps: 27.80586278537119, max tps: 32.68705806807179, count: 55400"
+          },
+          {
+            "name": "Delete value - Primary - tps",
+            "value": 30.60117541114729,
+            "unit": "median tps",
+            "extra": "avg tps: 72.98349528502997, max tps: 2866.033601408637, count: 55400"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 498.8431997538373,
+            "unit": "median tps",
+            "extra": "avg tps: 505.58731837959067, max tps: 666.7625567855579, count: 55400"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 162.35424110764498,
+            "unit": "median tps",
+            "extra": "avg tps: 106.4054059253555, max tps: 940.4665253166379, count: 110800"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 14.941014389412109,
+            "unit": "median tps",
+            "extra": "avg tps: 15.213969299977443, max tps: 21.82742378753081, count: 55400"
           }
         ]
       }

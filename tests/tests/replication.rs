@@ -220,6 +220,8 @@ async fn test_logical_replication() -> Result<()> {
     }
 
     // Create pg_search extension on both source and target databases
+    "CREATE EXTENSION IF NOT EXISTS vector".execute(&mut source_conn);
+    "CREATE EXTENSION IF NOT EXISTS vector".execute(&mut target_conn);
     "CREATE EXTENSION IF NOT EXISTS pg_search".execute(&mut source_conn);
     "CREATE EXTENSION IF NOT EXISTS pg_search".execute(&mut target_conn);
 
@@ -414,6 +416,7 @@ async fn test_ephemeral_postgres_with_pg_basebackup() -> Result<()> {
         .execute(&mut source_conn);
 
     // Create pg_search extension and bm25 index
+    "CREATE EXTENSION IF NOT EXISTS vector".execute(&mut source_conn);
     "CREATE EXTENSION IF NOT EXISTS pg_search".execute(&mut source_conn);
 
     "
@@ -507,6 +510,7 @@ async fn test_physical_streaming_replication() -> Result<()> {
     // Create a replication user and test table on primary
     "CREATE USER replicator WITH REPLICATION ENCRYPTED PASSWORD 'replicator_pass';"
         .execute(&mut primary_conn);
+    "CREATE EXTENSION IF NOT EXISTS vector;".execute(&mut primary_conn);
     "CREATE EXTENSION IF NOT EXISTS pg_search;".execute(&mut primary_conn);
     "CREATE TABLE test_data (id SERIAL PRIMARY KEY, info TEXT);".execute(&mut primary_conn);
 
@@ -645,6 +649,7 @@ async fn test_wal_streaming_replication_with_pg_search() -> Result<()> {
     "SELECT pg_create_physical_replication_slot('wal_receiver_1');".execute(&mut source_conn);
 
     // Install pg_search on primary and create a test table
+    "CREATE EXTENSION IF NOT EXISTS vector".execute(&mut source_conn);
     "CREATE EXTENSION IF NOT EXISTS pg_search".execute(&mut source_conn);
     "CREATE TABLE items (
         id SERIAL PRIMARY KEY,

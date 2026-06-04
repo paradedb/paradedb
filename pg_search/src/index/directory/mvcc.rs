@@ -77,6 +77,7 @@ impl MvccSatisfies {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 enum LoadedSegmentMetaEntry {
     Persisted {
         meta: SegmentMetaEntry,

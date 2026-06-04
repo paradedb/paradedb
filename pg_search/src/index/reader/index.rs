@@ -47,6 +47,7 @@ use tantivy::collector::{Collector, SegmentCollector, SortKeyComputer, TopDocs};
 use tantivy::index::{Index, Order, SegmentId};
 use tantivy::query::{EnableScoring, QueryClone, QueryParser, Weight};
 use tantivy::snippet::SnippetGenerator;
+use tantivy::vector::ivf::AdaptiveProbeParams;
 use tantivy::{
     query::Query, schema::OwnedValue, DateTime, DocAddress, DocId, DocSet, Executor, IndexReader,
     ReloadPolicy, Score, Searcher, SegmentOrdinal, SegmentReader, TantivyDocument,
@@ -906,6 +907,35 @@ impl SearchIndexReader {
                 feature: OrderByFeature::NullTest { .. },
                 ..
             } => unreachable!("NullTest ORDER BY is only used in JoinScan"),
+            OrderByInfo {
+                feature:
+                    OrderByFeature::VectorDistance {
+                        name, query_vector, ..
+                    },
+                ..
+            } => {
+                let only_score_feature =
+                    erased_features.len() == 1 && erased_features.score_index() == Some(0);
+                if !(erased_features.is_empty() || only_score_feature) {
+                    panic!("secondary ORDER BY fields are not supported for vector distance");
+                }
+                let field = self
+                    .schema
+                    .search_field(name)
+                    .expect("vector field should exist in index schema");
+                let tantivy_field = field.field();
+                let collector = TopDocs::with_limit(n)
+                    .and_offset(offset)
+                    .order_by_similarity(tantivy_field, query_vector.clone())
+                    .with_adaptive_params(AdaptiveProbeParams {
+                        max_probe_fanout: crate::gucs::vector_cluster_probe_fanout(),
+                        epsilon: crate::gucs::vector_cluster_probe_epsilon(),
+                        ..Default::default()
+                    });
+                let (top_docs, aggregation_results) =
+                    self.collect_maybe_auxiliary(segment_ids, collector, aux_collector);
+                TopKSearchResults::new_for_score(top_docs, aggregation_results)
+            }
         }
     }
 
@@ -1385,6 +1415,13 @@ impl SearchIndexReader {
                     feature: OrderByFeature::NullTest { .. },
                     ..
                 } => unreachable!("NullTest ORDER BY is only used in JoinScan"),
+                OrderByInfo {
+                    feature: OrderByFeature::VectorDistance { .. },
+                    ..
+                } => {
+                    // Vector distance cannot be a secondary sort key
+                    unimplemented!("Vector distance ORDER BY can only be the primary sort key")
+                }
             }
         }
 

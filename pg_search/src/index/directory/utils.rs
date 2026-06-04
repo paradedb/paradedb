@@ -20,7 +20,8 @@ use crate::index::mvcc::{MvccSatisfies, PinCushion};
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::storage::block::{
     DeleteEntry, FileEntry, LinkedList, MVCCEntry, PgItem, SegmentFileDetails, SegmentMetaEntry,
-    SegmentMetaEntryImmutable,
+    SegmentMetaEntryImmutable, VECTOR_ASSIGNMENTS_EXT, VECTOR_FLAT_EXT, VECTOR_IVF_EXT,
+    VECTOR_META_EXT,
 };
 use crate::postgres::storage::metadata::MetaPage;
 use anyhow::Result;
@@ -151,6 +152,20 @@ pub unsafe fn save_new_metas(
                             file_entry,
                             num_deleted_docs: created_segment.num_deleted_docs(),
                         }),
+                    vecmeta: files
+                        .remove(&SegmentComponent::Custom(VECTOR_META_EXT.to_string()))
+                        .map(|e| e.0),
+                    flatvec: files
+                        .remove(&SegmentComponent::Custom(VECTOR_FLAT_EXT.to_string()))
+                        .map(|e| e.0),
+                    assignments: files
+                        .remove(&SegmentComponent::Custom(
+                            VECTOR_ASSIGNMENTS_EXT.to_string(),
+                        ))
+                        .map(|e| e.0),
+                    ivf_vec: files
+                        .remove(&SegmentComponent::Custom(VECTOR_IVF_EXT.to_string()))
+                        .map(|e| e.0),
                 },
             );
 

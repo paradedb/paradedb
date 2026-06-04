@@ -99,6 +99,48 @@ pub fn is_citext_oid(oid: pg_sys::Oid) -> bool {
     cid != pg_sys::Oid::INVALID && oid == cid
 }
 
+pub fn is_pgvector_oid(oid: pg_sys::Oid) -> bool {
+    static VECTOR_OID: OnceLock<pg_sys::Oid> = OnceLock::new();
+    let vid = *VECTOR_OID
+        .get_or_init(|| lookup_typoid(c"public", c"vector").unwrap_or(pg_sys::Oid::INVALID));
+    vid != pg_sys::Oid::INVALID && oid == vid
+}
+
+/// Lookup a `pg_opfamily.opfname` by OID. Returns the opfamily name
+/// (e.g. `"vector_l2_ops"`) or `None` if the cache lookup fails.
+///
+/// We name our opfamilies the same as their opclasses (CREATE OPERATOR
+/// CLASS without an explicit FAMILY clause), and the relation cache
+/// exposes opfamily OIDs per index attribute via `rd_opfamily[]`, so
+/// looking up by opfamily OID is the simplest way to resolve a column's
+/// metric without going through the variable-length `pg_index.indclass`
+/// vector.
+pub fn lookup_opfamily_name(opfamily_oid: pg_sys::Oid) -> Option<String> {
+    if opfamily_oid == pg_sys::InvalidOid {
+        return None;
+    }
+    unsafe {
+        let entry = pg_sys::SearchSysCache1(
+            pg_sys::SysCacheIdentifier::OPFAMILYOID as _,
+            opfamily_oid.into_datum().unwrap(),
+        );
+        if entry.is_null() {
+            return None;
+        }
+        let mut is_null = false;
+        let name_datum = pg_sys::SysCacheGetAttr(
+            pg_sys::SysCacheIdentifier::OPFAMILYOID as _,
+            entry,
+            pg_sys::Anum_pg_opfamily_opfname as _,
+            &mut is_null,
+        );
+        let name =
+            <&CStr>::from_datum(name_datum, is_null).map(|s| s.to_string_lossy().into_owned());
+        pg_sys::ReleaseSysCache(entry);
+        name
+    }
+}
+
 /// Helper function to lookup a function's [`pg_sys::Oid`] by name, argument types, and namespace
 pub fn lookup_procoid(
     namespace: &CStr,

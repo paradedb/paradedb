@@ -33,6 +33,11 @@ use serde::{Deserialize, Serialize};
 use tantivy::index::{SegmentComponent, SegmentId};
 use tantivy::Opstamp;
 
+pub(crate) const VECTOR_ASSIGNMENTS_EXT: &str = "assignments";
+pub(crate) const VECTOR_FLAT_EXT: &str = "flatvec";
+pub(crate) const VECTOR_IVF_EXT: &str = "vec";
+pub(crate) const VECTOR_META_EXT: &str = "vecmeta";
+
 // ---------------------------------------------------------
 // BM25 page special data
 // ---------------------------------------------------------
@@ -275,18 +280,38 @@ pub struct SegmentMetaEntryImmutable {
     pub store: Option<FileEntry>,
     pub temp_store: Option<FileEntry>,
     pub delete: Option<DeleteEntry>,
+    pub vecmeta: Option<FileEntry>,
+    pub flatvec: Option<FileEntry>,
+    pub assignments: Option<FileEntry>,
+    pub ivf_vec: Option<FileEntry>,
+}
+
+/// The pre-vector on-disk layout of [`SegmentMetaEntryImmutable`]. Indexes built before vector
+/// support serialized exactly these fields. bincode has no field framing, so trailing fields
+/// added later cannot be recovered via `#[serde(default)]`; the known prefix is decoded
+/// explicitly and any absent trailing vector entries are treated as `None`.
+#[derive(Deserialize)]
+struct SegmentMetaEntryImmutableV1 {
+    postings: Option<FileEntry>,
+    positions: Option<FileEntry>,
+    fast_fields: Option<FileEntry>,
+    field_norms: Option<FileEntry>,
+    terms: Option<FileEntry>,
+    store: Option<FileEntry>,
+    temp_store: Option<FileEntry>,
+    delete: Option<DeleteEntry>,
 }
 
 impl SegmentMetaEntryImmutable {
     pub fn path(uuid: &str, component: SegmentComponent) -> PathBuf {
-        if matches!(component, SegmentComponent::Delete) {
-            PathBuf::from(format!(
+        match component {
+            SegmentComponent::Delete => PathBuf::from(format!(
                 "{}.0.{}", // we can hardcode zero as the opstamp component of the path as it's not used by anyone
                 uuid,
                 SegmentComponent::Delete
-            ))
-        } else {
-            PathBuf::from(format!("{uuid}.{component}"))
+            )),
+            SegmentComponent::Custom(ref ext) => PathBuf::from(format!("{uuid}.{ext}")),
+            _ => PathBuf::from(format!("{uuid}.{component}")),
         }
     }
 
@@ -331,10 +356,32 @@ impl SegmentMetaEntryImmutable {
                     .as_ref()
                     .map(|d| (&d.file_entry, SegmentComponent::Delete)),
             )
+            .chain(
+                self.vecmeta
+                    .iter()
+                    .map(|fe| (fe, SegmentComponent::Custom(VECTOR_META_EXT.to_string()))),
+            )
+            .chain(
+                self.flatvec
+                    .iter()
+                    .map(|fe| (fe, SegmentComponent::Custom(VECTOR_FLAT_EXT.to_string()))),
+            )
+            .chain(self.assignments.iter().map(|fe| {
+                (
+                    fe,
+                    SegmentComponent::Custom(VECTOR_ASSIGNMENTS_EXT.to_string()),
+                )
+            }))
+            .chain(
+                self.ivf_vec
+                    .iter()
+                    .map(|fe| (fe, SegmentComponent::Custom(VECTOR_IVF_EXT.to_string()))),
+            )
     }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum SegmentMetaEntryContent {
     Immutable(SegmentMetaEntryImmutable),
     Mutable(SegmentMetaEntryMutable),
@@ -644,6 +691,26 @@ impl SegmentMetaEntry {
             .as_ref()
             .map(|entry| entry.file_entry.total_bytes as u64)
             .unwrap_or(0);
+        size += content
+            .vecmeta
+            .as_ref()
+            .map(|entry| entry.total_bytes as u64)
+            .unwrap_or(0);
+        size += content
+            .flatvec
+            .as_ref()
+            .map(|entry| entry.total_bytes as u64)
+            .unwrap_or(0);
+        size += content
+            .assignments
+            .as_ref()
+            .map(|entry| entry.total_bytes as u64)
+            .unwrap_or(0);
+        size += content
+            .ivf_vec
+            .as_ref()
+            .map(|entry| entry.total_bytes as u64)
+            .unwrap_or(0);
         size
     }
 
@@ -730,13 +797,43 @@ impl From<PgItem> for SegmentMetaEntry {
 
         let content = match header.tag {
             SegmentMetaEntryTag::Immutable => {
-                let (content, _): (SegmentMetaEntryImmutable, _) =
+                let content_bytes = &bytes[bytes_read..];
+                let (v1, v1_len): (SegmentMetaEntryImmutableV1, usize) =
+                    bincode::serde::decode_from_slice(content_bytes, bincode::config::legacy())
+                        .expect("expected to deserialize valid SegmentMetaEntryContent");
+
+                // Segments written before vector support lack the trailing vector file entries.
+                // bincode has no field framing, so decode them only when bytes remain.
+                let (vecmeta, flatvec, assignments, ivf_vec): (
+                    Option<FileEntry>,
+                    Option<FileEntry>,
+                    Option<FileEntry>,
+                    Option<FileEntry>,
+                ) = if content_bytes.len() > v1_len {
                     bincode::serde::decode_from_slice(
-                        &bytes[bytes_read..],
+                        &content_bytes[v1_len..],
                         bincode::config::legacy(),
                     )
-                    .expect("expected to deserialize valid SegmentMetaEntryContent");
-                SegmentMetaEntryContent::Immutable(content)
+                    .expect("expected to deserialize valid SegmentMetaEntry vector file entries")
+                    .0
+                } else {
+                    (None, None, None, None)
+                };
+
+                SegmentMetaEntryContent::Immutable(SegmentMetaEntryImmutable {
+                    postings: v1.postings,
+                    positions: v1.positions,
+                    fast_fields: v1.fast_fields,
+                    field_norms: v1.field_norms,
+                    terms: v1.terms,
+                    store: v1.store,
+                    temp_store: v1.temp_store,
+                    delete: v1.delete,
+                    vecmeta,
+                    flatvec,
+                    assignments,
+                    ivf_vec,
+                })
             }
             SegmentMetaEntryTag::Mutable => {
                 let (content, _): (SegmentMetaEntryMutable, _) = bincode::serde::decode_from_slice(

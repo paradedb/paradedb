@@ -218,6 +218,30 @@ static TERM_SET_BITSET_MAX_DENSITY_UNIQUE: GucSetting<f64> = GucSetting::<f64>::
 /// `tantivy::query::TermSetStrategyConfig::default()`.
 static TERM_SET_BITSET_MAX_DENSITY_MULTI: GucSetting<f64> = GucSetting::<f64>::new(1.0 / 200.0);
 
+/// Per-segment IVF cluster fanout cap for vector search. `0.1` means
+/// probe at most 10% of a segment's IVF clusters, rounded up; `1.0`
+/// means no cap beyond the segment's cluster count.
+static VECTOR_CLUSTER_PROBE_FANOUT: GucSetting<f64> = GucSetting::<f64>::new(0.1);
+
+pub fn vector_cluster_probe_fanout() -> f32 {
+    VECTOR_CLUSTER_PROBE_FANOUT.get() as f32
+}
+
+/// SPANN-style query-time pruning factor (ε₂) used by tantivy's
+/// `AdaptiveProbeParams`. A cluster `c` is probed iff
+/// `dist(q, c) <= (1 + epsilon) * dist(q, c_best)`. Higher values
+/// widen the probe radius (better recall, more latency); `0` makes
+/// the algorithm stop as soon as `min_probe_fanout` / `min_candidates`
+/// floors are met. Default `1.0` is chosen to saturate the
+/// `vector_cluster_probe_fanout` cap on Cohere-like 768d workloads;
+/// tantivy's upstream default is 0.3, and the SPANN paper uses 0.6
+/// for recall@1 and 7.0 for recall@10.
+static VECTOR_CLUSTER_PROBE_EPSILON: GucSetting<f64> = GucSetting::<f64>::new(1.0);
+
+pub fn vector_cluster_probe_epsilon() -> f32 {
+    VECTOR_CLUSTER_PROBE_EPSILON.get() as f32
+}
+
 pub fn init() {
     // Note that Postgres is very specific about the naming convention of variables.
     // They must be namespaced... we use 'paradedb.<variable>' below.
@@ -408,6 +432,28 @@ pub fn init() {
         c"Enable recursive estimates in EXPLAIN VERBOSE",
         c"Shows estimated document counts for nested query components. Expensive operation, use for debugging only.",
         &EXPLAIN_RECURSIVE_ESTIMATES,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_cluster_probe_fanout",
+        c"IVF cluster probe fanout cap for vector ORDER BY queries",
+        c"Caps the fraction of IVF clusters per segment whose docs may be scored on a vector ORDER BY query. 0.1 probes at most 10% of clusters, rounded up; 1.0 allows all clusters. Lower values reduce latency at the cost of recall.",
+        &VECTOR_CLUSTER_PROBE_FANOUT,
+        0.000001,
+        1.0,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
+    GucRegistry::define_float_guc(
+        c"paradedb.vector_cluster_probe_epsilon",
+        c"SPANN-style pruning factor (ε₂) for vector ORDER BY queries",
+        c"Geometric widening factor that controls how far past the best centroid the IVF probe loop is allowed to continue. A cluster c is probed iff dist(q, c) <= (1 + epsilon) * dist(q, c_best). 0 stops as soon as the candidate floor is met; larger values widen the probe radius for better recall at higher latency. Bounded by paradedb.vector_cluster_probe_fanout.",
+        &VECTOR_CLUSTER_PROBE_EPSILON,
+        0.0,
+        100.0,
         GucContext::Userset,
         GucFlags::default(),
     );

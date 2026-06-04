@@ -27,6 +27,7 @@ use crate::schema::{SearchFieldConfig, SearchFieldType, SearchIndexSchema};
 use anyhow::Result;
 use pgrx::*;
 use tantivy::schema::Schema;
+use tantivy::vector::VectorOptions;
 use tantivy::{Index, IndexSettings};
 use tokenizers::SearchTokenizer;
 
@@ -310,6 +311,9 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
             SearchFieldType::NumericBytes(..) => {
                 builder.add_bytes_field(name.as_ref(), config.clone())
             }
+            SearchFieldType::Vector(_, dims, metric) => {
+                builder.add_vector_field(name.as_ref(), VectorOptions::new(dims, metric.into()))
+            }
         };
     }
 
@@ -342,7 +346,9 @@ fn create_index(index_relation: &PgSearchRelation) -> Result<()> {
         ],
         ..IndexSettings::default()
     };
-    let _ = Index::create(directory, schema, settings)?;
+
+    let _index = Index::create(directory, schema.clone(), settings)?;
+
     Ok(())
 }
 

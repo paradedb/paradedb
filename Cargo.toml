@@ -4,13 +4,14 @@ members = [
   "pg_search",
   "tests",
   "tokenizers",
+  "superkmeans",
   "benchmarks",
   "macros",
   "stressgres",
 ]
 
 [workspace.package]
-version = "0.24.0"
+version = "0.25.0"
 edition = "2021"
 license = "AGPL-3.0"
 
@@ -31,7 +32,7 @@ inherits = "release"
 debug = true
 
 [workspace.dependencies]
-tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "301c0e79dc88e9b44cfa4547f9dbb0f486ff1273", features = [
+tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "6a777cf17a74574f86abcc1e8ca7e21d62ce67eb", features = [
   "columnar-zstd-compression",
   "lz4-compression",
   "paradedb",
@@ -44,4 +45,4 @@ pgrx-tests = "=0.18.1"
 tantivy-jieba = "0.18.0"
 
 [patch.crates-io]
-tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "301c0e79dc88e9b44cfa4547f9dbb0f486ff1273" }
+tantivy-tokenizer-api = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy-tokenizer-api", rev = "6a777cf17a74574f86abcc1e8ca7e21d62ce67eb" }

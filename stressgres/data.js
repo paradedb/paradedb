@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780605293665,
+  "lastUpdate": 1780605328581,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -11486,6 +11486,138 @@ window.BENCHMARK_DATA = {
             "value": 57.2109375,
             "unit": "median mem",
             "extra": "avg mem: 56.28598929581525, max mem: 69.60546875, count: 55069"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "59696464+saadtajwar@users.noreply.github.com",
+            "name": "Saad Tajwar",
+            "username": "saadtajwar"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "86792b28af291493e57c1db571117108e8d5496b",
+          "message": "feat: tuples done progress monitoring (#4973)\n\n# Ticket(s) Closed\n\n- Closes #3826 \n\n## What\n\nAdds `tuples_done` progress reporting to the\n`pg_stat_progress_create_index` view during BM25 index creation.\n\n## Why\n\nPreviously, when creating a BM25 index, the `tuples_done` column in\n`pg_stat_progress_create_index` was always empty. This made it\nimpossible for users to estimate how long a `CREATE INDEX` would take on\nlarge tables. With this change, users can monitor index creation\nprogress using standard PostgreSQL tooling.\n\n## How\n\n- Added `ntuples_done` to the `WorkerCoordination` shared memory struct\nso all workers can contribute to a global tuple count.\n- Each worker maintains a local count and flushes it to the shared\ncounter in batches (currently every 5 tuples, happy to change this if\nneeded or removing batching altogether) to reduce spinlock contention.\n- When the leader participates in the build, it reports progress\ndirectly from `build_callback`.\n- When the leader does **not** participate, it reports progress via an\noptional callback on `ParallelProcessMessageQueue` that fires while\npolling for worker messages.\n- Added a `CoordinationPtr` newtype to safely pass the shared memory\npointer into the callback closure.\n- `tuples_total` is also now set before the build starts using the heap\ntuple estimate.\n- The `is_leader` check is computed once at worker initialization and\ncached in `WorkerBuildState` to avoid acquiring the spinlock on every\ntuple.\n- The `ParallelProcessMessageQueue` in `builder.rs` now supports an\noptional `still_processing_callback` that is invoked when no messages\nare available from workers. Existing consumers via `into_iter()` are\nunaffected.\n\n## Tests\nManually verified across both `parallel_leader_participation = true` and\n`parallel_leader_participation = false` modes by monitoring\n`pg_stat_progress_create_index` from a second session during index\ncreation on a 100k row table.\n<img width=\"557\" height=\"277\" alt=\"Screenshot 2026-05-03 at 7 50 26 PM\"\nsrc=\"https://github.com/user-attachments/assets/7cddebe7-80f6-478c-9051-6da8e436a72f\"\n/>",
+          "timestamp": "2026-06-04T13:14:05-07:00",
+          "tree_id": "7e000daaf23bcbb6ffd5f4a1d896349ff3b7c156",
+          "url": "https://github.com/paradedb/paradedb/commit/86792b28af291493e57c1db571117108e8d5496b"
+        },
+        "date": 1780605296166,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.266409,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.711227235244094, max cpu: 24.048098, count: 55245"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 65.61328125,
+            "unit": "median mem",
+            "extra": "avg mem: 65.27709316171146, max mem: 76.40625, count: 55245"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.856222545712026, max cpu: 18.768328, count: 55245"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 64.28125,
+            "unit": "median mem",
+            "extra": "avg mem: 63.973890171056205, max mem: 75.08984375, count: 55245"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.667856314244254, max cpu: 9.329447, count: 55245"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 36.17578125,
+            "unit": "median mem",
+            "extra": "avg mem: 35.938386392433706, max mem: 38.1953125, count: 55245"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.636916873253643, max cpu: 9.29332, count: 55245"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 62.6328125,
+            "unit": "median mem",
+            "extra": "avg mem: 61.86949759310797, max mem: 73.56640625, count: 55245"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.613628958152883, max cpu: 9.4395275, count: 110490"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 62.20703125,
+            "unit": "median mem",
+            "extra": "avg mem: 61.14371563603041, max mem: 73.47265625, count: 110490"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1783,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1777.1371707846863, max block_count: 3136.0, count: 55245"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 21,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 19.185881075210425, max segment_count: 31.0, count: 55245"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.6139687493574275, max cpu: 14.285715, count: 55245"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 64.25,
+            "unit": "median mem",
+            "extra": "avg mem: 63.94627101434519, max mem: 75.08203125, count: 55245"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.522096367530002, max cpu: 4.7666335, count: 55245"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 62.17578125,
+            "unit": "median mem",
+            "extra": "avg mem: 58.98924513813467, max mem: 72.6328125, count: 55245"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.575520770705765, max cpu: 9.311348, count: 55245"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 57.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 56.15909634073219, max mem: 68.72265625, count: 55245"
           }
         ]
       }

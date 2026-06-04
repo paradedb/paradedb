@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780608136090,
+  "lastUpdate": 1780608170362,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -47658,6 +47658,186 @@ window.BENCHMARK_DATA = {
             "value": 30.4921875,
             "unit": "median mem",
             "extra": "avg mem: 29.78341608300667, max mem: 30.5234375, count: 53827"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "59696464+saadtajwar@users.noreply.github.com",
+            "name": "Saad Tajwar",
+            "username": "saadtajwar"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "86792b28af291493e57c1db571117108e8d5496b",
+          "message": "feat: tuples done progress monitoring (#4973)\n\n# Ticket(s) Closed\n\n- Closes #3826 \n\n## What\n\nAdds `tuples_done` progress reporting to the\n`pg_stat_progress_create_index` view during BM25 index creation.\n\n## Why\n\nPreviously, when creating a BM25 index, the `tuples_done` column in\n`pg_stat_progress_create_index` was always empty. This made it\nimpossible for users to estimate how long a `CREATE INDEX` would take on\nlarge tables. With this change, users can monitor index creation\nprogress using standard PostgreSQL tooling.\n\n## How\n\n- Added `ntuples_done` to the `WorkerCoordination` shared memory struct\nso all workers can contribute to a global tuple count.\n- Each worker maintains a local count and flushes it to the shared\ncounter in batches (currently every 5 tuples, happy to change this if\nneeded or removing batching altogether) to reduce spinlock contention.\n- When the leader participates in the build, it reports progress\ndirectly from `build_callback`.\n- When the leader does **not** participate, it reports progress via an\noptional callback on `ParallelProcessMessageQueue` that fires while\npolling for worker messages.\n- Added a `CoordinationPtr` newtype to safely pass the shared memory\npointer into the callback closure.\n- `tuples_total` is also now set before the build starts using the heap\ntuple estimate.\n- The `is_leader` check is computed once at worker initialization and\ncached in `WorkerBuildState` to avoid acquiring the spinlock on every\ntuple.\n- The `ParallelProcessMessageQueue` in `builder.rs` now supports an\noptional `still_processing_callback` that is invoked when no messages\nare available from workers. Existing consumers via `into_iter()` are\nunaffected.\n\n## Tests\nManually verified across both `parallel_leader_participation = true` and\n`parallel_leader_participation = false` modes by monitoring\n`pg_stat_progress_create_index` from a second session during index\ncreation on a 100k row table.\n<img width=\"557\" height=\"277\" alt=\"Screenshot 2026-05-03 at 7 50 26 PM\"\nsrc=\"https://github.com/user-attachments/assets/7cddebe7-80f6-478c-9051-6da8e436a72f\"\n/>",
+          "timestamp": "2026-06-04T13:14:05-07:00",
+          "tree_id": "7e000daaf23bcbb6ffd5f4a1d896349ff3b7c156",
+          "url": "https://github.com/paradedb/paradedb/commit/86792b28af291493e57c1db571117108e8d5496b"
+        },
+        "date": 1780608138012,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.111364737958478, max cpu: 13.675215, count: 53871"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 51.765625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.78921267066232, max mem: 57.56640625, count: 53871"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.549763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.51755269161, max cpu: 4.567079, count: 53871"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 29.5703125,
+            "unit": "median mem",
+            "extra": "avg mem: 28.87025494062204, max mem: 29.953125, count: 53871"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.099526,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.082928515937061, max cpu: 18.373205, count: 53871"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 55.27734375,
+            "unit": "median mem",
+            "extra": "avg mem: 55.01395281958289, max mem: 61.0625, count: 53871"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.063318048753747, max cpu: 9.257474, count: 53871"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 51.0703125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.07412564563958, max mem: 56.8515625, count: 53871"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.567079,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.628832479708547, max cpu: 9.204219, count: 53871"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 33.34765625,
+            "unit": "median mem",
+            "extra": "avg mem: 33.36680181301164, max mem: 38.47265625, count: 53871"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1096,
+            "unit": "median pages",
+            "extra": "avg pages: 1098.805238439977, max pages: 1819.0, count: 53871"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.5625,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.584416360379425, max relation_size:MB: 14.2109375, count: 53871"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 7,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 7.555159547808654, max segment_count: 14.0, count: 53871"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.333276613257059, max cpu: 4.5933013, count: 53871"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 28.74609375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.03441656341074, max mem: 29.09375, count: 53871"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.7259870663498007, max cpu: 4.610951, count: 53871"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 28.875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.171942072845315, max mem: 29.25390625, count: 53871"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.348272250741963, max cpu: 27.42857, count: 53871"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 50.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.09746235509365, max mem: 55.85546875, count: 53871"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000027015514529210987, max replication_lag:MB: 0.31940460205078125, count: 53871"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.294586349213063, max cpu: 13.793103, count: 107742"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 50.25,
+            "unit": "median mem",
+            "extra": "avg mem: 50.29912168652893, max mem: 56.2109375, count: 107742"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.923341289328105, max cpu: 4.5845275, count: 53871"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 30.30078125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.61146876044161, max mem: 30.68359375, count: 53871"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5584044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.149414373582555, max cpu: 4.58891, count: 53871"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 30.45703125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.746108832326296, max mem: 30.515625, count: 53871"
           }
         ]
       }

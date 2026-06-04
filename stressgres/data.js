@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780602223585,
+  "lastUpdate": 1780602985187,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -35554,6 +35554,54 @@ window.BENCHMARK_DATA = {
             "value": 281.5369574123122,
             "unit": "median tps",
             "extra": "avg tps: 272.22226601936944, max tps: 527.0546281745715, count: 107640"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f1240d6d5514bcf2c6f616b8c411a75e1ae6f0a",
+          "message": "feat: Support all postgres datetimes (3/4) - Remove date-awareness (#5234)\n\n## What\nWith #5233 in place, we no longer need to do any of remaining\n`is_datetime` checks. All fields that might be datetimes are in\n`PdbOwnedValue::Date` by that point.\n\n## Why\nIt's simpler!\n\n## How\nDelete, delete, delete\n\n## Tests\nAll existing unit, integration, and regression tests pass.",
+          "timestamp": "2026-06-04T12:47:20-06:00",
+          "tree_id": "5e132590dc60db210f2d4bec10ee88b0016fb500",
+          "url": "https://github.com/paradedb/paradedb/commit/4f1240d6d5514bcf2c6f616b8c411a75e1ae6f0a"
+        },
+        "date": 1780602841388,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 569.8194685663942,
+            "unit": "median tps",
+            "extra": "avg tps: 571.4673093253366, max tps: 701.0663741274292, count: 53858"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 606.5515161046386,
+            "unit": "median tps",
+            "extra": "avg tps: 607.2734546106979, max tps: 774.839853267981, count: 53858"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 88.85554823091024,
+            "unit": "median tps",
+            "extra": "avg tps: 89.15445053564379, max tps: 96.71609275960505, count: 53858"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 275.28693482962547,
+            "unit": "median tps",
+            "extra": "avg tps: 265.2659862997883, max tps: 564.1031526835657, count: 107716"
           }
         ]
       }

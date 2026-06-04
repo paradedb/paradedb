@@ -355,7 +355,6 @@ pub fn convert_value_for_range_field(
             // Use numeric_value_to_hex_string for JSON storage
             numeric_value_to_hex_string(value.clone()).unwrap_or(value)
         }
-        // Date/time ranges are handled by the is_datetime flag
         _ => value,
     }
 }

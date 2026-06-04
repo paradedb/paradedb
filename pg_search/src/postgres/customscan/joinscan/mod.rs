@@ -187,7 +187,8 @@ use crate::postgres::customscan::mpp::glue::{
     estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, producer_worker_count, pscan_offset,
     read_custom_scan_header, worker_setup, write_custom_scan_header, CustomScanMppHeader,
 };
-use crate::postgres::customscan::mpp::runtime::MppMesh;
+use datafusion_distributed::embedded::{region_total, MppMesh};
+
 use crate::postgres::customscan::parallel::compute_nworkers;
 use crate::postgres::customscan::parameterized_value::ParameterizedValue;
 use crate::postgres::customscan::{CustomScan, JoinPathlistHookArgs};
@@ -967,12 +968,9 @@ impl ParallelQueryCapable for JoinScan {
         state.custom_state_mut().mpp_partitioning_source_idx =
             Some(header.partitioning_source_idx as usize);
         let mpp_coordinate = unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut c_void };
-        let region_total = unsafe {
-            (*mpp_coordinate.cast::<crate::postgres::customscan::mpp::dsm::MppDsmHeader>())
-                .region_total
-        };
+        let region_bytes = unsafe { region_total(mpp_coordinate) };
         let worker_number = unsafe { pg_sys::ParallelWorkerNumber };
-        match unsafe { worker_setup(mpp_coordinate, region_total, worker_number) } {
+        match unsafe { worker_setup(mpp_coordinate, region_bytes, worker_number) } {
             Ok(worker) => {
                 state.custom_state_mut().mpp = Some(MppExecState::Worker(worker));
             }

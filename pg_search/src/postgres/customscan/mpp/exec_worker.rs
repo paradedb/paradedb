@@ -45,14 +45,14 @@ use tantivy::index::SegmentId;
 
 use crate::api::HashSet;
 use crate::postgres::customscan::datafusion::memory::create_memory_pool;
+use datafusion_distributed::embedded::{
+    proc_for_task, run_worker_fragment, CooperativeDrainSet, InProcessWorkerResolver,
+    MppFrameHeader, MppMesh, MppSender, ShmMqWorkerTransport,
+};
+
 use crate::postgres::customscan::mpp::dispatch::fragments_for_worker;
 use crate::postgres::customscan::mpp::glue::producer_worker_count;
-use crate::postgres::customscan::mpp::runtime::{
-    proc_for_task, InProcessWorkerResolver, MppMesh, ShmMqWorkerTransport,
-};
 use crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator;
-use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, MppFrameHeader, MppSender};
-use crate::postgres::customscan::mpp::worker::run_worker_fragment;
 use crate::postgres::customscan::mpp::worker_fragments::FragmentRouting;
 use crate::postgres::customscan::parallel::list_segment_ids;
 use crate::postgres::ParallelScanState;

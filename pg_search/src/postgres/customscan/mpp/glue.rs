@@ -36,29 +36,12 @@ use std::sync::Arc;
 
 use pgrx::pg_sys;
 
+use datafusion_distributed::embedded::{self, Interrupt, MppMesh, MppSender, Wakeup};
+
 use crate::gucs::{
     enable_mpp, mpp_queue_size as gucs_mpp_queue_size, mpp_worker_count as gucs_mpp_worker_count,
 };
-use crate::postgres::customscan::mpp::dsm::{
-    compute_dsm_layout, leader_init, peer_proc_for_index, worker_attach,
-};
-use crate::postgres::customscan::mpp::dsm_mpsc_ring::DsmMpscSender;
-use crate::postgres::customscan::mpp::mesh::{DsmInboxReceiver, DsmInboxSender};
-use crate::postgres::customscan::mpp::runtime::MppMesh;
-use crate::postgres::customscan::mpp::transport::{
-    in_proc_channel, BatchChannelSender, DrainHandle, MppFrameHeader, MppReceiver, MppSender,
-    SELF_LOOP_CAPACITY,
-};
-
-/// Default stage id stamped on outbound sender headers before the per-fragment dispatcher
-/// rewrites them. Worker senders get `clone_with_header` immediately after `worker_setup`, so
-/// this placeholder is never observed on the wire.
-const NATURAL_GATHER_STAGE_ID: u32 = 0;
-
-/// Consumer-side partition stamped on natural-shape gather frames. The natural plan emits
-/// `NetworkCoalesceExec(consumer_tc=1, input_tc=N)` at the top, so there is exactly one consumer
-/// partition on the leader.
-const NATURAL_GATHER_PARTITION: u32 = 0;
+use crate::postgres::customscan::mpp::pg_seams::{pack_receiver, PgInterrupt, PgWakeup};
 
 /// Minimum total procs for MPP: leader (consumer-only) plus at least 2 producers. Single
 /// source of truth so [`mpp_is_active`] and [`mpp_worker_count`] don't drift on the
@@ -167,9 +150,7 @@ pub(super) fn mpp_queue_size() -> usize {
 /// for the header, the worker plan, and one MPSC inbox per process. `n_procs` is the
 /// total proc count (leader + `producer_worker_count()` parallel workers).
 pub fn estimate_dsm_size(plan_bytes_len: usize) -> Result<usize, String> {
-    let layout = compute_dsm_layout(mpp_worker_count(), mpp_queue_size(), plan_bytes_len)
-        .map_err(|e| format!("mpp: estimate_dsm_size: {e}"))?;
-    Ok(layout.region_total)
+    embedded::dsm_region_bytes(mpp_worker_count(), mpp_queue_size(), plan_bytes_len)
 }
 
 /// Number of producer workers PG should launch as `parallel_workers`.
@@ -200,33 +181,18 @@ pub struct MppLeaderState {
     pub pcxt: *mut pg_sys::ParallelContext,
 }
 
-/// Wrap each peer-indexed `DsmMpscSender` into an outbound `MppSender` keyed by `target_proc`.
-/// The per-fragment dispatcher driven by [`mpp::host::exec_mpp_worker`] immediately
-/// `clone_with_header`s these to the right `(stage_id, partition)`, so the default placeholder
-/// header is never observed on the wire. Slot at index `this_proc` is `None`; the worker's
-/// self-loop install fills it in afterward.
-///
-/// Placeholder header is stamped with `sender_proc = this_proc` so a stray frame that escapes
-/// the dispatcher's `clone_with_header` overwrite still identifies its origin correctly on the
-/// drain side. Downstream `clone_with_header` callers MUST keep using `this_proc` as the
-/// `sender_proc` argument.
-fn build_outbound_senders(
-    this_proc: u32,
-    total_procs: u32,
-    peer_senders: Vec<DsmMpscSender>,
-) -> Vec<Option<MppSender>> {
-    let mut senders: Vec<Option<MppSender>> = (0..total_procs).map(|_| None).collect();
-    for (peer_idx, dsm_send) in peer_senders.into_iter().enumerate() {
-        let target_proc = peer_proc_for_index(this_proc, peer_idx as u32);
-        debug_assert!(target_proc != this_proc);
-        debug_assert!(target_proc < total_procs);
-        let shared: Arc<dyn BatchChannelSender> = Arc::new(DsmInboxSender::new(dsm_send));
-        senders[target_proc as usize] = Some(MppSender::with_header(
-            shared,
-            MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION, this_proc),
-        ));
-    }
-    senders
+/// The `(pgprocno, pid)` of this backend, packed into the receiver token the transport stores so a
+/// producer's [`PgWakeup`] can `SetLatch` us. Read on the backend thread (both setup paths run
+/// synchronously from PG's custom-scan init hooks before any tokio runtime spins up).
+unsafe fn self_receiver_token() -> u64 {
+    // `pg_sys::MyProcNumber` is the PG17+ global; PG15/16 carry the same value on
+    // `MyProc->pgprocno` (it moved to a process-global plus a field rename in PG17).
+    #[cfg(any(feature = "pg15", feature = "pg16"))]
+    let my_pgprocno: i32 = unsafe { (*pg_sys::MyProc).pgprocno };
+    #[cfg(not(any(feature = "pg15", feature = "pg16")))]
+    let my_pgprocno: i32 = unsafe { pg_sys::MyProcNumber };
+    let my_pid: i32 = unsafe { (*pg_sys::MyProc).pid };
+    pack_receiver(my_pgprocno, my_pid)
 }
 
 /// Body of `initialize_dsm_custom_scan`. Allocates the queue mesh, populates
@@ -242,51 +208,22 @@ pub unsafe fn leader_setup(
     pcxt: *mut pg_sys::ParallelContext,
     plan_bytes: Vec<u8>,
 ) -> Result<MppLeaderState, String> {
-    let total_procs = mpp_worker_count();
-    let layout = compute_dsm_layout(total_procs, mpp_queue_size(), plan_bytes.len())
-        .map_err(|e| format!("mpp: leader_setup compute layout: {e}"))?;
-
-    let attach = unsafe { leader_init(coordinate, &layout, &plan_bytes) }?;
-
-    // Wrap the leader's own-inbox in a DsmInboxReceiver and feed it to a single DrainHandle.
-    // Channel buffers (keyed by (sender_proc, stage_id, partition)) are created lazily on
-    // first frame, or up-front by `WorkerConnection::execute`.
-    let inbox = DsmInboxReceiver::new(attach.inbound_receiver);
-    // Register the leader as the receiver so producers' wakeups resolve to this process's
-    // procLatch via pgprocno + pid_guard. See dsm_mpsc_ring::wake_receiver.
-    unsafe {
-        register_self_as_receiver(&inbox);
-    }
-    let mpp_recv = MppReceiver::new(Box::new(inbox));
-    let inbound_receiver = Arc::new(DrainHandle::cooperative(vec![mpp_recv]));
-
-    let mesh = Arc::new(MppMesh::new(0, total_procs, inbound_receiver));
-
-    // Drop the leader's own outbound senders. The leader is consumer-only and never hosts a
-    // producer fragment.
-    drop(attach.outbound_senders);
-
+    let wakeup: Arc<dyn Wakeup> = Arc::new(PgWakeup);
+    let interrupt: Arc<dyn Interrupt> = Arc::new(PgInterrupt);
+    // Register the leader as receiver so producers' wakeups resolve to this backend's procLatch.
+    let token = unsafe { self_receiver_token() };
+    let mesh = unsafe {
+        embedded::leader_setup(
+            coordinate,
+            mpp_worker_count(),
+            mpp_queue_size(),
+            &plan_bytes,
+            wakeup,
+            token,
+            interrupt,
+        )
+    }?;
     Ok(MppLeaderState { mesh, pcxt })
-}
-
-/// Register the current backend as the receiver on `inbox`'s underlying ring so producers
-/// can wake it via SetLatch resolved through `pgprocno + pid_guard`. Called by both
-/// leader_setup and worker_setup right after building the DsmInboxReceiver.
-///
-/// # Safety
-/// Must run on the backend thread (reads MyProcNumber + MyProc->pid via pgrx, both
-/// require an attached PGPROC). Both setup paths are called synchronously from PG's
-/// custom-scan init hooks on the backend before any tokio runtime spins up.
-unsafe fn register_self_as_receiver(inbox: &DsmInboxReceiver) {
-    // `pg_sys::MyProcNumber` is the PG17+ global. PG15/16 carry the same value on
-    // `MyProc->pgprocno` (it moved to a process-global plus a field rename in PG17).
-    // Gate by feature so the build picks the right one on every supported PG.
-    #[cfg(any(feature = "pg15", feature = "pg16"))]
-    let my_pgprocno: i32 = unsafe { (*pg_sys::MyProc).pgprocno };
-    #[cfg(not(any(feature = "pg15", feature = "pg16")))]
-    let my_pgprocno: i32 = unsafe { pg_sys::MyProcNumber };
-    let my_pid: i32 = unsafe { (*pg_sys::MyProc).pid };
-    inbox.set_receiver(my_pgprocno, my_pid);
 }
 
 /// Returned to a worker from [`worker_setup`]. The customscan reads the plan bytes, runs the
@@ -330,49 +267,17 @@ pub unsafe fn worker_setup(
     // `ParallelWorkerNumber = N` to `proc_idx = N + 1`.
     let proc_idx = (worker_number as u32) + 1;
 
-    let (header, plan_bytes, attach) =
-        unsafe { worker_attach(coordinate, region_total, proc_idx) }?;
-    let total_procs = header.n_procs;
-
-    let mut outbound_senders =
-        build_outbound_senders(proc_idx, total_procs, attach.outbound_senders);
-    debug_assert_eq!(
-        outbound_senders.iter().filter(|s| s.is_some()).count(),
-        (total_procs as usize).saturating_sub(1),
-        "worker outbound senders: expected {} non-self-loop entries before self-loop install",
-        total_procs.saturating_sub(1)
-    );
-
-    // Install a self-loop in-proc channel. Peer-mesh hash routing can land producer-side
-    // and consumer-side tasks for the same (stage, partition) on the same worker. With
-    // MPSC inboxes you can't be your own sender (only the owner attaches as receiver), so
-    // self-loops bypass DSM entirely and ride an in-proc channel. The unified drain pulls
-    // from BOTH receivers (own-inbox MPSC + self-loop in-proc) so the channel-buffer
-    // registry sees a single demux stream. Self-loop frames carry sender_proc=this_proc
-    // and route to the matching per-sender buffer.
-    let (self_tx, self_rx) = in_proc_channel(SELF_LOOP_CAPACITY);
-    let self_tx_arc: Arc<dyn BatchChannelSender> = Arc::new(self_tx);
-    outbound_senders[proc_idx as usize] = Some(MppSender::with_header(
-        self_tx_arc,
-        MppFrameHeader::batch(NATURAL_GATHER_STAGE_ID, NATURAL_GATHER_PARTITION, proc_idx),
-    ));
-
-    // Build the unified drain: own-inbox MPSC + self-loop in-proc, both feeding the same
-    // DrainHandle. Register the worker as receiver before the drain starts polling so
-    // any producer that races ahead of us sees a valid pgprocno + pid.
-    let inbox = DsmInboxReceiver::new(attach.inbound_receiver);
-    unsafe {
-        register_self_as_receiver(&inbox);
-    }
-    let inbox_recv = MppReceiver::new(Box::new(inbox));
-    let self_recv = MppReceiver::new(Box::new(self_rx));
-    let inbound_receiver = Arc::new(DrainHandle::cooperative(vec![inbox_recv, self_recv]));
-
-    let mesh = Arc::new(MppMesh::new(proc_idx, total_procs, inbound_receiver));
+    let wakeup: Arc<dyn Wakeup> = Arc::new(PgWakeup);
+    let interrupt: Arc<dyn Interrupt> = Arc::new(PgInterrupt);
+    // Register before the transport starts polling, so a producer racing ahead sees a valid token.
+    let token = unsafe { self_receiver_token() };
+    let attach = unsafe {
+        embedded::worker_setup(coordinate, region_total, proc_idx, wakeup, token, interrupt)
+    }?;
 
     Ok(MppWorkerState {
-        outbound_senders,
-        plan_bytes,
-        mesh,
+        outbound_senders: attach.outbound_senders,
+        plan_bytes: attach.plan_bytes,
+        mesh: attach.mesh,
     })
 }

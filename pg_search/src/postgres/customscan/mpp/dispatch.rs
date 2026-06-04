@@ -37,7 +37,9 @@ use crate::postgres::customscan::mpp::worker_fragments::{
 };
 use crate::postgres::ParallelScanState;
 use crate::scan::codec::deserialize_logical_plan_with_runtime;
-use crate::scan::physical_codec::{deserialize_physical_plan_with_runtime, serialize_physical_plan};
+use crate::scan::physical_codec::{
+    deserialize_physical_plan_with_runtime, serialize_physical_plan,
+};
 
 /// One stage of the dispatch blob: a serialized producer subplan plus the metadata a worker needs
 /// to run and route it. Shared by all workers; each selects the `task_idx` slots it owns.

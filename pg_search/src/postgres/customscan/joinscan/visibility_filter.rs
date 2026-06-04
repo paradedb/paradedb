@@ -791,7 +791,9 @@ impl VisibilityFilterExec {
     ) -> Result<Arc<dyn ExecutionPlan>> {
         let (plan_pos_oids, table_names): (Vec<(usize, pg_sys::Oid)>, Vec<String>) =
             serde_json::from_slice(buf).map_err(|e| {
-                DataFusionError::Internal(format!("VisibilityFilterExec dispatch: deserialize: {e}"))
+                DataFusionError::Internal(format!(
+                    "VisibilityFilterExec dispatch: deserialize: {e}"
+                ))
             })?;
         let exec = VisibilityFilterExec::new(input, plan_pos_oids, table_names)?;
         for (plan_pos, ffhelper) in ctid_resolvers {

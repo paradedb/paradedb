@@ -330,7 +330,10 @@ pub(crate) fn run_mpp_worker(
             // EOF-only-ing the fragment.
             if matches!(
                 fragment.routing,
-                FragmentRouting::Hashed { broadcast: true, .. }
+                FragmentRouting::Hashed {
+                    broadcast: true,
+                    ..
+                }
             ) {
                 debug_assert!(
                     fragment.task_idx == 0,

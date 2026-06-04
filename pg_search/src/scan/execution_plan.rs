@@ -384,11 +384,14 @@ impl PgSearchScanPlan {
                 MvccSatisfies::ParallelWorker(unsafe { (*ps).segment_ids_for_source(idx) })
             }
             (Some(idx), None) => {
-                let ids = non_partitioning_segment_ids.get(idx).cloned().ok_or_else(|| {
-                    DataFusionError::Internal(format!(
-                        "PgSearchScan dispatch: missing canonical segment ids for source {idx}"
-                    ))
-                })?;
+                let ids = non_partitioning_segment_ids
+                    .get(idx)
+                    .cloned()
+                    .ok_or_else(|| {
+                        DataFusionError::Internal(format!(
+                            "PgSearchScan dispatch: missing canonical segment ids for source {idx}"
+                        ))
+                    })?;
                 MvccSatisfies::ParallelWorker(ids)
             }
             (None, None) => MvccSatisfies::Snapshot,
@@ -409,7 +412,10 @@ impl PgSearchScanPlan {
             DataFusionError::Internal(format!("PgSearchScan dispatch: open reader: {e}"))
         })?;
 
-        let ffhelper = Arc::new(FFHelper::with_fields(&reader, &descriptor.which_fast_fields));
+        let ffhelper = Arc::new(FFHelper::with_fields(
+            &reader,
+            &descriptor.which_fast_fields,
+        ));
         let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
         let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
 

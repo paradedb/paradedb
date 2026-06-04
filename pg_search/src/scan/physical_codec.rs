@@ -207,7 +207,9 @@ impl PhysicalExtensionCodec for PgSearchPhysicalExtensionCodec {
                 .inner()
                 .as_any()
                 .downcast_ref::<SearchPredicateUDF>()
-                .ok_or_else(|| DataFusionError::Internal("UDF is not a SearchPredicateUDF".into()))?;
+                .ok_or_else(|| {
+                    DataFusionError::Internal("UDF is not a SearchPredicateUDF".into())
+                })?;
             let bytes = serde_json::to_vec(udf).map_err(|e| {
                 DataFusionError::Internal(format!("Failed to serialize SearchPredicateUDF: {e}"))
             })?;

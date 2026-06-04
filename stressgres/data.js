@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780513279702,
+  "lastUpdate": 1780586839737,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3522,6 +3522,78 @@ window.BENCHMARK_DATA = {
             "value": 60.71716098044811,
             "unit": "median tps",
             "extra": "avg tps: 94.66236102886307, max tps: 395.60347397871993, count: 55053"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "71215065+junnjiee@users.noreply.github.com",
+            "name": "Jun Jie",
+            "username": "junnjiee"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d674f27a7a5ff8e331130504f6442a05c51fcb45",
+          "message": "test: handle nullable where clauses in querygen tests (#5253)\n\n# Ticket(s) Closed\n\n- Closes #3111\n\n## What\n\n**Root cause**: Negated (`NOT`) `@@@` predicates are not equivalent to\nnegated PostgreSQL `=` predicates on nullable columns, causing\nmismatches/failures in `tests/qgen.rs`\n\n## Why\n\n- @@@ returns `TRUE` for rows found by the search index, and `FALSE` for\nall other rows\n- postgres `=` evaluates per row using 3-valued logic so it is `NULL`\naware\n\nThis behaviour works as intended normally. But for negation, the\nbehaviour drifts. When using `@@@`, we get a result of all row ids that\nmatch the query. This becomes `TRUE`/`FALSE` per row, information on\n`NULL` rows are lost\n\nMeanwhile, postgres evaluates per row using 3-valued logic, so nullable\ncolumns can produce `NULL`\n\nexample:\n| id  | age | color | = blue | @@@ blue |\n| --- | --- | ----- |---|---|\n| 1   | 20  | blue  | TRUE | TRUE |\n| 2   | 30  | red   | FALSE | FALSE |\n| 3   | 30  | NULL  | NULL | FALSE |\n\nthis PR treats this behaviour as expected and modifies the tests.\n\n## How\n\n### TLDR\nuse \n```\nCASE\n        WHEN table.id IS NOT NULL THEN COALESCE(table.<field> = <value>, false)\n        ELSE table.<field> = <value>\nEND\n```\n\nfor testing `@@@` behaviour on nullable columns as this query captures\nhow it works in both single table and joined tables\n\n### Single table queries\n\nFor single table queries, we use `COALESCE(color = blue, false)` instead\nof `color = blue`, this returns all non-matching values as `FALSE`,\nwhich is what the `@@@` operator does\n\nexample:\n| id  | age | color | = blue | @@@ blue | IS NOT DISTINCT FROM blue |\n| --- | --- | ----- |---|---|---|\n| 1   | 20  | blue  | TRUE | TRUE | TRUE |\n| 2   | 30  | red   | FALSE | FALSE | FALSE |\n| 3   | 30  | NULL  | NULL | FALSE | FALSE |\n\n### Joined table queries\n\nFor outer joins (`LEFT`/`RIGHT`/`FULL`), null-supplying side can produce\nnull extended rows\n\nexample: `products RIGHT JOIN orders ON products.age = orders.age`\n\n| products.id | products.age | products.color | orders.id | orders.age |\n| ----------- | ------------ | -------------- | --------- | ---------- |\n| 1           | 20           | blue           | 20        | 20         |\n| NULL        | NULL         | NULL           | 11        | 99         |\n| 2        | 90         | NULL           | 12        | 90         |\n\nin this case, left table `products` might have `NULL` ids\n\n\nif we perform `WHERE products.color {op} blue` on the table above, we\nget\n\n| products.id | products.age | products.color | @@@ blue | = blue |\n| ----------- | ------------ | -------------- | --------- |---|\n| 1           | 20           | blue           | TRUE        | TRUE |\n| NULL | NULL | NULL | NULL (as products.id is null) | NULL |\n| 2        | 90         | NULL           | FALSE        | NULL         |\n\nthus\n- if `id` is not null, we continue using `COALESCE(color = blue, false)`\n- if `id` is null, `@@@` operator returns `NULL` for that row, which\nmatches normal postgres behaviour\n\n## Tests\n\nTests in `qgen.rs` now pass with `whereable(true)`",
+          "timestamp": "2026-06-04T08:06:22-07:00",
+          "tree_id": "c0530cdcbbe06754d6c2dac721248f647a0fd0e3",
+          "url": "https://github.com/paradedb/paradedb/commit/d674f27a7a5ff8e331130504f6442a05c51fcb45"
+        },
+        "date": 1780586807758,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 125.37423223273186,
+            "unit": "median tps",
+            "extra": "avg tps: 125.72708825494308, max tps: 141.67312410280834, count: 55197"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 482.2320084918511,
+            "unit": "median tps",
+            "extra": "avg tps: 481.8858171170205, max tps: 586.5094854172597, count: 55197"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3422.6719332923813,
+            "unit": "median tps",
+            "extra": "avg tps: 3399.1197038967807, max tps: 3429.8634192174177, count: 55197"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 378.7190007837657,
+            "unit": "median tps",
+            "extra": "avg tps: 379.8528875635048, max tps: 525.1496348240727, count: 55197"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2746.568946955368,
+            "unit": "median tps",
+            "extra": "avg tps: 2808.870198644306, max tps: 2934.5508182937992, count: 110394"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 463.4896596591738,
+            "unit": "median tps",
+            "extra": "avg tps: 463.68913703800655, max tps: 580.5033726023836, count: 55197"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1855.84744500675,
+            "unit": "median tps",
+            "extra": "avg tps: 1847.8915876052554, max tps: 1859.5535213586575, count: 55197"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 38.461746814965736,
+            "unit": "median tps",
+            "extra": "avg tps: 38.99779987660244, max tps: 195.03212227811952, count: 55197"
           }
         ]
       }

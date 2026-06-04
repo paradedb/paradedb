@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780597080113,
+  "lastUpdate": 1780597476349,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -18230,6 +18230,54 @@ window.BENCHMARK_DATA = {
             "value": 5.187602196395284,
             "unit": "median tps",
             "extra": "avg tps: 5.228055495622168, max tps: 6.806211749047431, count: 56154"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mvanhorn@users.noreply.github.com",
+            "name": "Matt Van Horn",
+            "username": "mvanhorn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "36c0933d3ded611c10c49dfeb7c04c62e6f5b294",
+          "message": "feat: support array::fuzzy::boost cast chain in &&& operator (#5158)\n\n## Summary\n\nfeat: support array::fuzzy::boost cast chain in &&& operator\n\nCloses #5079\n\n---\nAI was used for assistance.\n\n---------\n\nCo-authored-by: Matt Van Horn <455140+mvanhorn@users.noreply.github.com>\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-06-04T13:40:07-04:00",
+          "tree_id": "a78407fc2921c8c3cfee0468dfe194e249f54db9",
+          "url": "https://github.com/paradedb/paradedb/commit/36c0933d3ded611c10c49dfeb7c04c62e6f5b294"
+        },
+        "date": 1780597444489,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 1093.1858690995641,
+            "unit": "median tps",
+            "extra": "avg tps: 1089.4069869500174, max tps: 1172.164354321543, count: 55506"
+          },
+          {
+            "name": "Single Insert - Primary - tps",
+            "value": 1216.9614180256292,
+            "unit": "median tps",
+            "extra": "avg tps: 1205.7125973366115, max tps: 1231.0501943714373, count: 55506"
+          },
+          {
+            "name": "Single Update - Primary - tps",
+            "value": 1817.4420697949163,
+            "unit": "median tps",
+            "extra": "avg tps: 1764.9692758722426, max tps: 2005.710396827924, count: 55506"
+          },
+          {
+            "name": "Top K - Primary - tps",
+            "value": 5.301683836507607,
+            "unit": "median tps",
+            "extra": "avg tps: 5.312951867889091, max tps: 6.219905445356792, count: 55506"
           }
         ]
       }

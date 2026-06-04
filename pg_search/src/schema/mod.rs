@@ -42,7 +42,6 @@ use crate::postgres::utils::extract_numeric_precision_scale;
 use crate::query::QueryError;
 use anyhow::Result;
 use decimal_bytes::MAX_DECIMAL64_NO_SCALE_PRECISION;
-use derive_more::Into;
 use pgrx::{pg_sys, PgBuiltInOids, PgOid};
 use serde::{Deserialize, Serialize};
 use tantivy::schema::{Field, FieldEntry, FieldType, Schema};
@@ -349,12 +348,17 @@ pub struct CategorizedFieldData {
     pub is_json: bool,
 }
 
-#[derive(Clone, Into)]
+#[derive(Clone)]
 pub struct SearchIndexSchema {
-    #[into]
     schema: Schema,
     bm25_options: BM25IndexOptions,
     categorized: Rc<RefCell<Vec<(SearchField, CategorizedFieldData)>>>,
+}
+
+impl From<SearchIndexSchema> for Schema {
+    fn from(search_index_schema: SearchIndexSchema) -> Self {
+        search_index_schema.schema
+    }
 }
 
 impl SearchIndexSchema {

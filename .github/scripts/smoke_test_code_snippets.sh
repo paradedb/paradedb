@@ -4,7 +4,7 @@ set -euo pipefail
 
 # If you don't want check the snippets for all languages at once, pass in the list you'd like to check:
 # scripts/smoke_test_code_snippets.sh sql rails
-LANGUAGES=${*:-'sql django sqlalchemy rails drizzle'}
+ORMS=${*:-'sql django sqlalchemy rails drizzle efcore'}
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 VERIFY_DIR="${SCRIPT_DIR}/verify"
@@ -12,6 +12,7 @@ SQL_DIR="${VERIFY_DIR}/sql"
 DJANGO_DIR="${VERIFY_DIR}/django"
 RAILS_DIR="${VERIFY_DIR}/rails"
 SQLALCHEMY_DIR="${VERIFY_DIR}/sqlalchemy"
+EFCORE_DIR="${VERIFY_DIR}/efcore"
 PARADEDB_HOST="${PARADEDB_HOST:-localhost}"
 PARADEDB_PORT="${PARADEDB_PORT:-28818}"
 PARADEDB_DATABASE="${PARADEDB_DATABASE:-postgres}"
@@ -20,12 +21,14 @@ PARADEDB_PASSWORD="${PARADEDB_PASSWORD:-}"
 PYTHON_ENV_DIR="$(mktemp -d -t paradedb-docs-python.XXXXXX)"
 PYTHON_BIN="$PYTHON_ENV_DIR/bin/python"
 RUBY_GEM_HOME="$(mktemp -d -t paradedb-docs-ruby.XXXXXX)"
-DRIZZLE_ENV_DIR="$(mktemp -d -t paradedb-docs-drizzle.XXXXXX)"
+JAVASCRIPT_ENV_DIR="$(mktemp -d -t paradedb-docs-javascript.XXXXXX)"
+CSHARP_ENV_DIR="$(mktemp -d -t paradedb-docs-csharp.XXXXXX)"
 
 cleanup() {
   rm -rf "$PYTHON_ENV_DIR"
   rm -rf "$RUBY_GEM_HOME"
-  rm -rf "$DRIZZLE_ENV_DIR"
+  rm -rf "$JAVASCRIPT_ENV_DIR"
+  rm -rf "$CSHARP_ENV_DIR"
 }
 
 trap cleanup EXIT
@@ -90,7 +93,7 @@ python3 "${SCRIPT_DIR}/extract_code_snippets.py" >/dev/null
 
 sql_pass_count=0
 sql_fail_count=0
-if [[ $LANGUAGES =~ "sql" ]]; then
+if [[ $ORMS =~ "sql" ]]; then
   run_psql_file "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql"
 
 
@@ -115,7 +118,7 @@ fi
 
 django_pass_count=0
 django_fail_count=0
-if [[ $LANGUAGES =~ "django" ]]; then
+if [[ $ORMS =~ "django" ]]; then
   if [[ ! -x "$PYTHON_BIN" ]]; then
     echo "Creating temporary Python environment for Python snippet verification..."
     python3 -m venv "$PYTHON_ENV_DIR"
@@ -156,7 +159,7 @@ fi
 
 rails_pass_count=0
 rails_fail_count=0
-if [[ $LANGUAGES =~ "rails" ]]; then
+if [[ $ORMS =~ "rails" ]]; then
   echo "Installing rails-paradedb from RubyGems..."
   GEM_HOME="$RUBY_GEM_HOME" GEM_PATH="$RUBY_GEM_HOME" \
     gem install --silent --no-document --install-dir "$RUBY_GEM_HOME" \
@@ -196,7 +199,7 @@ fi
 
 sqlalchemy_pass_count=0
 sqlalchemy_fail_count=0
-if [[ $LANGUAGES =~ "sqlalchemy" ]]; then
+if [[ $ORMS =~ "sqlalchemy" ]]; then
   if [[ ! -x "$PYTHON_BIN" ]]; then
     echo "Creating temporary Python environment for Python snippet verification..."
     python3 -m venv "$PYTHON_ENV_DIR"
@@ -236,9 +239,9 @@ fi
 
 drizzle_pass_count=0
 drizzle_fail_count=0
-if [[ $LANGUAGES =~ "drizzle" ]]; then
+if [[ $ORMS =~ "drizzle" ]]; then
   echo "Installing @paradedb/drizzle-paradedb from npm..."
-  npm --prefix "$DRIZZLE_ENV_DIR" install --silent \
+  npm --prefix "$JAVASCRIPT_ENV_DIR" install --silent \
     "@paradedb/drizzle-paradedb@0.1.0" \
     "drizzle-orm" \
     "postgres" \
@@ -264,7 +267,7 @@ TS
 
 await client.end();
 TS
-    } | (cd "$DRIZZLE_ENV_DIR" && npm exec -- tsx -) >/dev/null; then
+    } | (cd "$JAVASCRIPT_ENV_DIR" && npm exec -- tsx -) >/dev/null; then
       echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
       drizzle_pass_count=$((drizzle_pass_count + 1))
     else
@@ -275,12 +278,59 @@ TS
   done < <(find "${VERIFY_DIR}/drizzle" -type f -name '*.ts' | LC_ALL=C sort)
 fi
 
+efcore_pass_count=0
+efcore_fail_count=0
+if [[ $ORMS =~ "efcore" ]]; then
+  echo "Installing ParadeDB.EntityFrameworkCore from NuGet..."
+  dotnet new console --framework net10.0 --output "$CSHARP_ENV_DIR" >/dev/null
+  dotnet add "$CSHARP_ENV_DIR" package ParadeDB.EntityFrameworkCore \
+    --version 0.1.0 \
+    >/dev/null
+  dotnet restore "$CSHARP_ENV_DIR" -p:NuGetAudit=false >/dev/null
+
+  while IFS= read -r snippet_file; do
+    rel_snippet="${snippet_file#"$REPO_ROOT"/}"
+
+    run_psql_file "${SCRIPT_DIR}/bootstrap_code_snippet_tables.sql"
+    drop_snippet_indexes
+    if ! grep -Fq 'CREATE INDEX' "$snippet_file"; then
+      create_snippet_indexes
+    fi
+
+    while IFS= read -r harness_line; do
+      if [[ $harness_line == "// __PARADEDB_SNIPPET__" ]]; then
+        if ! grep -Fq 'modelBuilder.' "$snippet_file"; then
+          printf '// Source: %s\n' "$rel_snippet"
+          cat "$snippet_file"
+        fi
+      elif [[ $harness_line == "        // __PARADEDB_MODEL_SNIPPET__" ]]; then
+        if grep -Fq 'modelBuilder.' "$snippet_file"; then
+          printf '        // Source: %s\n' "$rel_snippet"
+          sed 's/^/        /' "$snippet_file"
+        fi
+      else
+        printf '%s\n' "$harness_line"
+      fi
+    done <"${SCRIPT_DIR}/efcore_snippet_harness.cs" >"${CSHARP_ENV_DIR}/Program.cs"
+
+    if dotnet run --no-restore --project "$CSHARP_ENV_DIR"; then
+      echo "${GREEN}[SUCCESS]${RESET} $rel_snippet" >&2
+      efcore_pass_count=$((efcore_pass_count + 1))
+    else
+      exit_if_interrupted "$?"
+      echo "${RED}[FAIL]${RESET} $rel_snippet" >&2
+      efcore_fail_count=$((efcore_fail_count + 1))
+    fi
+  done < <(find "$EFCORE_DIR" -type f -name '*.cs' | LC_ALL=C sort)
+fi
+
 echo "SQL passed: $sql_pass_count failed: $sql_fail_count"
 echo "Django passed: $django_pass_count failed: $django_fail_count"
 echo "Rails passed: $rails_pass_count failed: $rails_fail_count"
 echo "SQLAlchemy passed: $sqlalchemy_pass_count failed: $sqlalchemy_fail_count"
 echo "Drizzle passed: $drizzle_pass_count failed: $drizzle_fail_count"
+echo "EF Core passed: $efcore_pass_count failed: $efcore_fail_count"
 
-if [[ $sql_fail_count -gt 0 || $django_fail_count -gt 0 || $rails_fail_count -gt 0 || $sqlalchemy_fail_count -gt 0 || $drizzle_fail_count -gt 0 ]]; then
+if [[ $sql_fail_count -gt 0 || $django_fail_count -gt 0 || $rails_fail_count -gt 0 || $sqlalchemy_fail_count -gt 0 || $drizzle_fail_count -gt 0 || $efcore_fail_count -gt 0 ]]; then
   exit 1
 fi

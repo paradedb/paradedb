@@ -56,6 +56,13 @@ MockItem.search(:category)
         .facets_agg(agg: ParadeDB::Aggregations.value_count(:id))
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.Term(item.Category, "electronics"))
+    .Select(item => EF.Functions.Agg(new { value_count = new { field = "id" } }))
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -128,6 +135,20 @@ MockItem.search(:category)
         )
         .order(:rating)
         .limit(5)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.Term(item.Category, "electronics"))
+    .GroupBy(item => item.Rating)
+    .Select(group => new
+    {
+        Rating = group.Key,
+        Agg = EF.Functions.Agg(new { value_count = new { field = "id" } })
+    })
+    .OrderBy(result => result.Rating)
+    .Take(5)
+    .ToListAsync();
 ```
 
 </CodeGroup>
@@ -204,6 +225,17 @@ MockItem.search(:category)
         )
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.Term(item.Category, "electronics"))
+    .Select(item => new
+    {
+        AvgRating = EF.Functions.Agg(new { avg = new { field = "rating" } }),
+        Count = EF.Functions.Agg(new { value_count = new { field = "id" } })
+    })
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ```ini Expected Response
@@ -268,6 +300,13 @@ MockItem.search(:description)
         .facets_agg(exact: false, agg: ParadeDB::Aggregations.value_count(:id))
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, "running shoes"))
+    .Select(item => EF.Functions.Agg(new { value_count = new { field = "id" } }, false))
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 Disabling this check can improve query times by 2-4x in some cases (at the expense of correctness).
@@ -325,6 +364,13 @@ with Session(engine) as session:
 MockItem.search(:id)
         .match_all
         .facets_agg(agg: ParadeDB::Aggregations.terms("metadata.color"))
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.All(item.Id))
+    .Select(item => EF.Functions.Agg(new { terms = new { field = "metadata.color" } }))
+    .ToListAsync();
 ```
 
 </CodeGroup>

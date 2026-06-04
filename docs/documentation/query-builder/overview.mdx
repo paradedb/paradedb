@@ -60,6 +60,13 @@ MockItem.search(:description)
         .select(:description, :rating, :category)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.Regex(item.Description, "key.*rd"))
+    .Select(item => new { item.Description, item.Rating, item.Category })
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ```ini Expected Response

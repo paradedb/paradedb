@@ -266,7 +266,7 @@ pub unsafe fn leader_setup(
 
     // Each `DrainHandle` owns a per-`(stage_id, partition)` channel buffer registry, so one shm_mq
     // queue can carry frames from many logical channels. Channel buffers are created lazily on first
-    // frame, or up-front by `WorkerConnection::stream_partition`.
+    // frame, or up-front by `WorkerConnection::execute`.
     let inbound_receivers = build_inbound_receivers(0, total_procs, attach.inbound_receivers);
 
     let mesh = Arc::new(MppMesh::new(0, total_procs, inbound_receivers));

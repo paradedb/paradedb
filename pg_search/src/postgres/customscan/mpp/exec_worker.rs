@@ -404,7 +404,7 @@ pub(crate) fn run_mpp_worker(
         // Drop the original outbound_senders so the only remaining Arcs to each shm_mq queue /
         // in-proc channel are the per-partition clones owned by the spawned fragments. Without
         // this, the originals would outlive the futures, the consumer-side drains would never
-        // observe `Detached`, and `stream_partition`'s pull loop would spin forever.
+        // observe `Detached`, and `execute`'s pull loop would spin forever.
         drop(outbound_senders);
         crate::mpp_log!(
             "mpp worker dispatch this_proc={this_proc} starting join_all on {} fragments",

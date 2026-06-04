@@ -57,6 +57,13 @@ MockItem.search(:id)
         .facets_agg(agg: ParadeDB::Aggregations.histogram(:rating, interval: 1))
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.All(item.Id))
+    .Select(item => EF.Functions.Agg(new { histogram = new { field = "rating", interval = "1" } }))
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ```ini Expected Response

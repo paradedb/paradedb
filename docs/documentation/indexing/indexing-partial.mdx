@@ -81,6 +81,14 @@ ActiveRecord::Base.connection.add_bm25_index(
 )
 ```
 
+```cs EF Core
+modelBuilder.Entity<MockItem>()
+    .HasBm25Index("search_idx", e => e.Id)
+    .HasField(e => e.Description)
+    .HasField(e => e.Category)
+    .HasFilter("description IS NOT NULL");
+```
+
 </CodeGroup>
 
 An important note: if the BM25 index has a `WHERE` condition, queries **must have the same `WHERE` condition** in order for the index to be used.

@@ -56,11 +56,9 @@ const COLUMNS: &[Column] = &[
         ),
     Column::new("color", "VARCHAR", "'blue'")
         .whereable({
-            // TODO: A variety of tests fail due to the NULL here. The column exists in order to
-            // provide coverage for ORDER BY on a column containing NULL.
-            // https://github.com/paradedb/paradedb/issues/3111
-            false
+            true
         })
+        .nullable(true)
         .bm25_text_field(r#""color": { "tokenizer": { "type": "keyword" }, "fast": true }"#)
         .random_generator_sql(
             "(ARRAY ['red', 'green', 'blue', 'orange', 'purple', 'pink', 'yellow', NULL]::text[])[(floor(random() * 8) + 1)::int]"
@@ -70,11 +68,9 @@ const COLUMNS: &[Column] = &[
         .random_generator_sql("(floor(random() * 100) + 1)"),
     Column::new("quantity", "INTEGER", "'7'")
         .whereable({
-            // TODO: A variety of tests fail due to the NULL here. The column exists in order to
-            // provide coverage for ORDER BY on a column containing NULL.
-            // https://github.com/paradedb/paradedb/issues/3111
-            false
+            true
         })
+        .nullable(true)
         .bm25_numeric_field(r#""quantity": { "fast": true }"#)
         .random_generator_sql("CASE WHEN random() < 0.1 THEN NULL ELSE (floor(random() * 100) + 1)::int END"),
     Column::new("price", "NUMERIC(10,2)", "'99.99'")
@@ -353,7 +349,8 @@ async fn generated_single_relation(database: Db) {
 }
 
 ///
-/// Property test for GROUP BY aggregates - ensures equivalence between PostgreSQL and bm25 behavior
+/// Property test for GROUP BY aggregates with ORDER BY and LIMIT/OFFSET
+/// - ensures equivalence between PostgreSQL and bm25 behavior
 ///
 #[rstest]
 #[tokio::test]
@@ -391,10 +388,32 @@ async fn generated_group_by_aggregates(database: Db) {
             &columns_named(vec!["age", "price", "rating"]),
         ),
         group_by_expr in arb_group_by(grouping_columns.to_vec(), vec!["COUNT(*)", "SUM(price)", "AVG(price)", "MIN(rating)", "MAX(rating)", "SUM(age)", "AVG(age)"]),
+        limit in prop::option::of(5..21_usize),
+        offset in prop::option::of(0..4_usize),
         gucs in any::<PgGucs>(),
     )| {
         let select_list = group_by_expr.to_select_list();
         let group_by_clause = group_by_expr.to_sql();
+
+        let order_by_and_offset_clause: String = if group_by_expr.group_by_columns.is_empty() {
+            String::new()
+        } else {
+            let order_by_items: Vec<String> = group_by_expr.group_by_columns
+                .iter()
+                .map(|item| {format!("{item} ASC NULLS LAST")})
+                .collect();
+            // only apply OFFSET when there are grouping columns, otherwise
+            // we'd offset the single aggregate row
+            let offset_clause = offset
+                .map(|value| format!(" OFFSET {value}"))
+                .unwrap_or_default();
+
+            format!("ORDER BY {}{offset_clause}", order_by_items.join(", "))
+        };
+
+        let limit_clause = limit
+            .map(|value| format!(" LIMIT {value}"))
+            .unwrap_or_default();
 
         // Create combined WHERE clause for PostgreSQL using = operator
         let pg_where_clause = format!(
@@ -411,18 +430,18 @@ async fn generated_group_by_aggregates(database: Db) {
         );
 
         let pg_query = format!(
-            "SELECT {select_list} FROM {table_name} WHERE {pg_where_clause} {group_by_clause}",
+            "SELECT {select_list} FROM {table_name} WHERE {pg_where_clause} {group_by_clause} {order_by_and_offset_clause}{limit_clause}",
         );
 
         let bm25_query = format!(
-            "SELECT {select_list} FROM {table_name} WHERE {bm25_where_clause} {group_by_clause}",
+            "SELECT {select_list} FROM {table_name} WHERE {bm25_where_clause} {group_by_clause} {order_by_and_offset_clause}{limit_clause}",
         );
 
         // Custom result comparator for GROUP BY results
         let compare_results = |query: &str, conn: &mut PgConnection| -> Vec<String> {
             // Fetch all rows as dynamic results and convert to string representation
             let rows = query.fetch_dynamic(conn);
-            let mut string_rows: Vec<String> = rows
+            let string_rows: Vec<String> = rows
                 .into_iter()
                 .map(|row| {
                     // Convert entire row to a string representation for comparison
@@ -449,8 +468,6 @@ async fn generated_group_by_aggregates(database: Db) {
                 })
                 .collect();
 
-            // Sort for consistent comparison
-            string_rows.sort();
             string_rows
         };
 

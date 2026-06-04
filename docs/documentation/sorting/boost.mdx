@@ -90,6 +90,24 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAny(item.Description, Pdb.Boost("shoes", 2))
+        || EF.Functions.MatchAny(item.Category, "footwear")
+    )
+    .Select(item => new
+    {
+        item.Id,
+        Score = EF.Functions.Score(item.Id),
+        item.Description,
+        item.Category
+    })
+    .OrderByDescending(item => item.Score)
+    .Take(5)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 `boost` takes a numeric value, which is the multiplicative boost factor. It can be any floating point number between `-2048` and `2048`.
@@ -160,6 +178,23 @@ MockItem.search(:description)
         .select(:id, :description, :category)
         .order(search_score: :desc)
         .limit(5)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        Pdb.Boost(EF.Functions.Regex(item.Description, "key.*"), 2)
+    )
+    .Select(item => new
+    {
+        item.Id,
+        item.Description,
+        item.Category,
+        Score = EF.Functions.Score(item.Id)
+    })
+    .OrderByDescending(item => item.Score)
+    .Take(5)
+    .ToListAsync();
 ```
 
 </CodeGroup>
@@ -237,6 +272,23 @@ MockItem.search(:description)
         .limit(5)
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item =>
+        EF.Functions.MatchAny(item.Description, Pdb.Boost(Pdb.Fuzzy("shose", 2), 2))
+    )
+    .Select(item => new
+    {
+        item.Id,
+        item.Description,
+        item.Category,
+        Score = EF.Functions.Score(item.Id)
+    })
+    .OrderByDescending(item => item.Score)
+    .Take(5)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ## Constant Scoring
@@ -310,6 +362,21 @@ MockItem.search(:description)
         .select(:id, :description, :category)
         .order(search_score: :desc)
         .limit(5)
+```
+
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.MatchAny(item.Description, Pdb.Const("shoes", 1)))
+    .Select(item => new
+    {
+        item.Id,
+        Score = EF.Functions.Score(item.Id),
+        item.Description,
+        item.Category
+    })
+    .OrderByDescending(item => item.Score)
+    .Take(5)
+    .ToListAsync();
 ```
 
 </CodeGroup>

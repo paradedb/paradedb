@@ -94,6 +94,21 @@ rows = relation.to_a
 aggregates = relation.aggregates
 ```
 
+```cs EF Core
+await dbContext
+    .MockItems.Where(item => EF.Functions.Term(item.Category, "electronics"))
+    .OrderByDescending(item => item.Rating)
+    .Select(item => new
+    {
+        item.Id,
+        item.Description,
+        item.Rating,
+        Agg = EF.Functions.AggOver(new { value_count = new { field = "id" } })
+    })
+    .Take(3)
+    .ToListAsync();
+```
+
 </CodeGroup>
 
 ```ini Expected Response

@@ -33,7 +33,7 @@ use crate::api::HashSet;
 use crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context;
 use crate::postgres::customscan::mpp::runtime::{proc_for_task, MppMesh};
 use crate::postgres::customscan::mpp::worker_fragments::{
-    collect_dispatched_stages, FragmentAssignment, FragmentRouting, StageEntry,
+    collect_dispatched_stages, FragmentAssignment, FragmentRouting,
 };
 use crate::postgres::ParallelScanState;
 use crate::scan::codec::deserialize_logical_plan_with_runtime;
@@ -50,10 +50,9 @@ struct DispatchedStage {
     plan_proto: Vec<u8>,
 }
 
-/// First byte of the DSM plan region: a re-planned worker reads a logical plan (Tier 1, join);
-/// a dispatched worker reads the framed per-stage blob (Tier 2, aggregate). The customscans opt
-/// in per scan, so the shared worker path branches on this.
-pub const TAG_LOGICAL: u8 = 0;
+/// First byte of the DSM plan region. Only the dispatch blob is shipped today (every MPP
+/// customscan dispatches); the tag is kept so a future re-plan fallback can be distinguished
+/// without a wire-format change.
 pub const TAG_BLOB: u8 = 1;
 
 /// bincode config for the dispatch blob. Pinned so leader and worker agree.
@@ -69,11 +68,6 @@ fn blob_config() -> impl bincode::config::Config {
 /// `initialize_dsm` MUST call this with the same `logical_len` so the DSM layout matches.
 pub fn dispatch_plan_capacity(logical_len: usize) -> usize {
     1 + 8 + logical_len.saturating_mul(64).max(1 << 20)
-}
-
-/// DSM plan-region size for a re-planned (logical) worker: the logical plan behind the mode tag.
-pub fn logical_plan_capacity(logical_len: usize) -> usize {
-    1 + logical_len
 }
 
 /// Frame the blob into a fixed-capacity dispatch payload:
@@ -92,14 +86,6 @@ pub fn frame_dispatch_payload(blob: &[u8], capacity: usize) -> Result<Vec<u8>> {
     payload.extend_from_slice(blob);
     payload.resize(capacity, 0);
     Ok(payload)
-}
-
-/// Frame a logical plan into the re-plan payload: `[TAG_LOGICAL][logical plan bytes]`.
-pub fn frame_logical_payload(logical_bytes: Vec<u8>) -> Vec<u8> {
-    let mut payload = Vec::with_capacity(1 + logical_bytes.len());
-    payload.push(TAG_LOGICAL);
-    payload.extend_from_slice(&logical_bytes);
-    payload
 }
 
 /// Extract the blob from a framed dispatch payload body (the bytes after the mode tag).
@@ -230,31 +216,9 @@ fn expand_to_assignments(
     Ok(out)
 }
 
-/// Re-plan path (Tier 1): expand in-memory stages from a freshly built physical plan.
-fn assignments_from_stages(
-    stages: Vec<StageEntry>,
-    this_proc: u32,
-    n_workers: u32,
-) -> Vec<FragmentAssignment> {
-    let mut out = Vec::new();
-    for stage in stages {
-        push_owned_tasks(
-            &mut out,
-            stage.stage_num,
-            stage.task_count,
-            &stage.routing,
-            &stage.plan,
-            this_proc,
-            n_workers,
-        );
-    }
-    out
-}
-
-/// Build this worker's fragment assignments from the DSM plan payload, branching on the mode tag:
-/// a dispatched blob runs the leader's sliced subplans directly (Tier 2); a logical plan is
-/// re-planned and walked locally (Tier 1, for customscans whose execs aren't dispatchable yet).
-/// Returns the distributed session context too, since the caller needs it to run the fragments.
+/// Build this worker's fragment assignments from the DSM dispatch payload: run the leader's
+/// sliced per-stage subplans directly, without re-planning. Returns the distributed session
+/// context too, since the caller needs it to run the fragments.
 #[allow(clippy::too_many_arguments)]
 pub fn fragments_for_worker(
     plan_bytes: &[u8],
@@ -265,48 +229,28 @@ pub fn fragments_for_worker(
     parallel_state: Option<*mut ParallelScanState>,
     non_partitioning_segments: &[HashSet<SegmentId>],
     index_segment_ids: &[HashSet<SegmentId>],
-    runtime: &tokio::runtime::Runtime,
 ) -> Result<(Vec<FragmentAssignment>, SessionContext)> {
     let Some((&tag, body)) = plan_bytes.split_first() else {
         return Err(DataFusionError::Internal(
             "mpp dispatch: empty worker plan bytes".into(),
         ));
     };
-    match tag {
-        TAG_BLOB => {
-            let session = build_mpp_session_context(seed, Some(mesh));
-            // Decode against the full session task context so functions resolve through the
-            // registry (the composed physical codec can shadow UDF/UDAF decode at position 0).
-            let fragments = expand_to_assignments(
-                body,
-                this_proc,
-                n_workers,
-                &session.task_ctx(),
-                parallel_state,
-                non_partitioning_segments,
-                index_segment_ids,
-            )?;
-            Ok((fragments, session))
-        }
-        TAG_LOGICAL => {
-            let logical = deserialize_logical_plan_with_runtime(
-                body,
-                &seed.task_ctx(),
-                parallel_state,
-                None, // expr_context: bm25 search predicates don't need runtime params
-                None, // planstate: same
-                non_partitioning_segments.to_vec(),
-                index_segment_ids.to_vec(),
-            )?;
-            let session = build_mpp_session_context(seed, Some(mesh));
-            let physical =
-                runtime.block_on(async { session.state().create_physical_plan(&logical).await })?;
-            let fragments =
-                assignments_from_stages(collect_dispatched_stages(&physical, n_workers), this_proc, n_workers);
-            Ok((fragments, session))
-        }
-        other => Err(DataFusionError::Internal(format!(
-            "mpp dispatch: unknown worker plan tag {other}"
-        ))),
+    if tag != TAG_BLOB {
+        return Err(DataFusionError::Internal(format!(
+            "mpp dispatch: unexpected worker plan tag {tag}"
+        )));
     }
+    let session = build_mpp_session_context(seed, Some(mesh));
+    // Decode against the full session task context so functions resolve through the registry
+    // (the composed physical codec can shadow UDF/UDAF decode at position 0 otherwise).
+    let fragments = expand_to_assignments(
+        body,
+        this_proc,
+        n_workers,
+        &session.task_ctx(),
+        parallel_state,
+        non_partitioning_segments,
+        index_segment_ids,
+    )?;
+    Ok((fragments, session))
 }

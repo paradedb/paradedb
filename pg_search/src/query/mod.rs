@@ -1427,10 +1427,14 @@ fn value_to_json_term(
     match value {
         PdbOwnedValue::Str(text) => {
             if let Ok(pgdt) = PostgresDateTime::try_from(text.as_str()) {
-                let dt: tantivy::DateTime = pgdt.try_into()?;
-                // https://github.com/quickwit-oss/tantivy/pull/2456
-                // It's a footgun that date needs to truncated when creating the Term
-                term.append_type_and_fast_value(dt.truncate(DATE_TIME_PRECISION_INDEXED));
+                if index_created_by_version.stores_datetimes_in_i64() {
+                    term.append_type_and_fast_value(pgdt.into_inner());
+                } else {
+                    let dt: tantivy::DateTime = pgdt.try_into()?;
+                    // https://github.com/quickwit-oss/tantivy/pull/2456
+                    // It's a footgun that date needs to truncated when creating the Term
+                    term.append_type_and_fast_value(dt.truncate(DATE_TIME_PRECISION_INDEXED));
+                }
             } else {
                 term.append_type_and_str(text);
             }

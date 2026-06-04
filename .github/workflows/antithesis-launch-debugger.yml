@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Antithesis Multiverse Debugger Session
-        uses: antithesishq/antithesis-trigger-action@v0.10
+        uses: antithesishq/antithesis-trigger-action@v0.11
         with:
           notebook_name: debugging
           tenant: paradedb

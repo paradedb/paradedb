@@ -1,4 +1,4 @@
-\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.23.6'" to load this file. \quit
+\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.24.0'" to load this file. \quit
 
 DROP FUNCTION IF EXISTS field(name text, indexed bool, stored bool, fast bool, fieldnorms bool, record text, expand_dots bool, tokenizer jsonb, normalizer text);
 CREATE OR REPLACE FUNCTION field(name text, indexed bool DEFAULT NULL, stored bool DEFAULT NULL, fast bool DEFAULT NULL, fieldnorms bool DEFAULT NULL, record text DEFAULT NULL, expand_dots bool DEFAULT NULL, tokenizer jsonb DEFAULT NULL, normalizer text DEFAULT NULL, alias text DEFAULT NULL) RETURNS jsonb AS 'MODULE_PATHNAME', 'field_wrapper' IMMUTABLE LANGUAGE c PARALLEL SAFE;

@@ -392,8 +392,8 @@ async fn generated_group_by_aggregates(database: Db) {
             &columns_named(vec!["age", "price", "rating"]),
         ),
         group_by_expr in arb_group_by(grouping_columns.to_vec(), vec!["COUNT(*)", "SUM(price)", "AVG(price)", "MIN(rating)", "MAX(rating)", "SUM(age)", "AVG(age)"]),
-        limit in 5..21_usize,
-        offset in 0..4_usize,
+        limit in prop::option::of(5..21_usize),
+        offset in prop::option::of(0..4_usize),
         gucs in any::<PgGucs>(),
     )| {
         let select_list = group_by_expr.to_select_list();
@@ -406,8 +406,18 @@ async fn generated_group_by_aggregates(database: Db) {
                 .iter()
                 .map(|item| {format!("{item} ASC NULLS LAST")})
                 .collect();
-            format!("ORDER BY {} OFFSET {offset}", order_by_items.join(", "))
+            // only apply OFFSET when there are grouping columns, otherwise
+            // we'd offset the single aggregate row
+            let offset_clause = offset
+                .map(|value| format!(" OFFSET {value}"))
+                .unwrap_or_default();
+
+            format!("ORDER BY {}{offset_clause}", order_by_items.join(", "))
         };
+
+        let limit_clause = limit
+            .map(|value| format!(" LIMIT {value}"))
+            .unwrap_or_default();
 
         // Create combined WHERE clause for PostgreSQL using = operator
         let pg_where_clause = format!(
@@ -424,11 +434,11 @@ async fn generated_group_by_aggregates(database: Db) {
         );
 
         let pg_query = format!(
-            "SELECT {select_list} FROM {table_name} WHERE {pg_where_clause} {group_by_clause} {order_by_and_offset_clause} LIMIT {limit}",
+            "SELECT {select_list} FROM {table_name} WHERE {pg_where_clause} {group_by_clause} {order_by_and_offset_clause}{limit_clause}",
         );
 
         let bm25_query = format!(
-            "SELECT {select_list} FROM {table_name} WHERE {bm25_where_clause} {group_by_clause} {order_by_and_offset_clause} LIMIT {limit}",
+            "SELECT {select_list} FROM {table_name} WHERE {bm25_where_clause} {group_by_clause} {order_by_and_offset_clause}{limit_clause}",
         );
 
         // Custom result comparator for GROUP BY results

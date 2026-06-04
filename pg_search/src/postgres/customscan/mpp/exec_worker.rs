@@ -222,6 +222,11 @@ pub(crate) fn run_mpp_worker(
         }
     }
 
+    // Clones for the Tier 2 round-trip probe; the originals are consumed by the logical
+    // deserialize below. Drop these once leader-side physical dispatch replaces the probe.
+    let np_segments_probe = non_partitioning_segments.clone();
+    let index_segment_ids_probe = index_segment_ids.clone();
+
     let logical = match deserialize_logical_plan_with_runtime(
         &plan_bytes,
         &seed_ctx.task_ctx(),
@@ -389,8 +394,58 @@ pub(crate) fn run_mpp_worker(
             // `NetworkBroadcastExec` hitting `LocalStage::execute` errors when its task count
             // exceeds 1; with the conversion, those boundaries dispatch through
             // `ShmMqWorkerTransport` exactly like outer boundaries.
+            // Tier 2 round-trip probe: serialize this fragment's subplan through the physical
+            // codec and run the decoded copy, exercising coordinator-dispatch serialization on
+            // the real plan before the slice step moves to the leader. Any codec gap falls back
+            // to the original plan so it surfaces as a warning, not a failed query.
+            let probe_plan =
+                match crate::scan::physical_codec::serialize_physical_plan(Arc::clone(
+                    &fragment.plan,
+                )) {
+                    Ok(bytes) => {
+                        // Decode against the full session task context so built-in aggregates
+                        // (count/sum/...) and any custom UDFs resolve via the function registry.
+                        // datafusion-proto consults the registry before the codec, which sidesteps
+                        // the composed codec shadowing UDAF decode at position 0.
+                        let decode_ctx = session_arc.task_ctx();
+                        match crate::scan::physical_codec::deserialize_physical_plan_with_runtime(
+                            &bytes,
+                            &decode_ctx,
+                            parallel_state,
+                            np_segments_probe.clone(),
+                            index_segment_ids_probe.clone(),
+                        ) {
+                            Ok(p) => {
+                                crate::mpp_log!(
+                                    "tier2 probe (proc={this_proc}) stage_id={} round-tripped OK \
+                                     ({} bytes)",
+                                    fragment.stage_id,
+                                    bytes.len()
+                                );
+                                p
+                            }
+                            Err(e) => {
+                                pgrx::warning!(
+                                    "tier2 probe (proc={this_proc}) stage_id={} decode failed: \
+                                     {e}; using original",
+                                    fragment.stage_id
+                                );
+                                Arc::clone(&fragment.plan)
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        pgrx::warning!(
+                            "tier2 probe (proc={this_proc}) stage_id={} encode failed: {e}; using \
+                             original",
+                            fragment.stage_id
+                        );
+                        Arc::clone(&fragment.plan)
+                    }
+                };
+
             let plan = {
-                let dist = Arc::new(DistributedExec::new(Arc::clone(&fragment.plan)));
+                let dist = Arc::new(DistributedExec::new(probe_plan));
                 match dist.prepare_in_process_plan(&task_ctx) {
                     Ok(p) => p,
                     Err(e) => {

@@ -57,17 +57,22 @@ use datafusion::physical_plan::{
 use futures::Stream;
 use tantivy::index::SegmentId;
 
+use crate::api::HashSet;
 use crate::index::fast_fields_helper::FFHelper;
 use crate::index::fast_fields_helper::WhichFastField;
+use crate::index::mvcc::MvccSatisfies;
 use crate::index::reader::index::SearchIndexReader;
 use crate::postgres::customscan::explain::ExplainFormat;
+use crate::postgres::customscan::parallel::list_segment_ids;
 use crate::postgres::heap::VisibilityChecker;
 use crate::postgres::options::{SortByDirection, SortByField};
+use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::ParallelScanState;
 use crate::query::SearchQueryInput;
 use crate::scan::late_materialization::DeferredField;
 use crate::scan::pre_filter::{collect_filters, try_dynamic_filter_pushdown, PreFilter};
 use crate::scan::Scanner;
+use pgrx::pg_sys;
 
 /// A wrapper that implements Send + Sync unconditionally.
 /// UNSAFE: Only use this when you guarantee single-threaded access or manual synchronization.
@@ -278,6 +283,193 @@ impl PgSearchScanPlan {
     pub fn deferred_ctid_plan_position(&self) -> Option<usize> {
         self.deferred_ctid_plan_position
     }
+
+    /// Serialize this scan into a transport-neutral descriptor for coordinator dispatch.
+    ///
+    /// Only the recipe and the reader-rebuild inputs travel; the live `ScanState` (tantivy
+    /// readers, visibility checkers) is process-local and gets rebuilt on the receiving worker
+    /// from its own `ParallelScanState`. `query_for_display` is the filter-combined,
+    /// param-solved query the reader was opened with, so the receiver needs no `ExprContext`.
+    pub(crate) fn encode_for_dispatch(&self) -> Result<Vec<u8>> {
+        let states = self
+            .states
+            .lock()
+            .map_err(|e| DataFusionError::Internal(format!("lock PgSearchScanPlan states: {e}")))?;
+        // The dispatch path only ships the single-partition lazy scan (the MPP natural-shape
+        // leaf). Sorted/eager multi-partition scans aren't dispatched yet.
+        if states.len() != 1 {
+            return Err(DataFusionError::NotImplemented(format!(
+                "PgSearchScan dispatch: expected 1 partition, found {}",
+                states.len()
+            )));
+        }
+        let state = states[0].as_ref().ok_or_else(|| {
+            DataFusionError::Internal("PgSearchScan dispatch: partition already consumed".into())
+        })?;
+        let (source_idx, planner_estimated_rows, scanner_config) = match &state.0.recipe {
+            ScanRecipe::Lazy {
+                source_idx,
+                planner_estimated_rows,
+                scanner_config,
+                ..
+            } => (*source_idx, *planner_estimated_rows, scanner_config.clone()),
+            _ => {
+                return Err(DataFusionError::NotImplemented(
+                    "PgSearchScan dispatch: only the lazy single-partition recipe is supported"
+                        .into(),
+                ))
+            }
+        };
+
+        let schema = self.properties.eq_properties.schema().clone();
+        let schema_proto: datafusion_proto::protobuf::Schema =
+            schema.as_ref().try_into().map_err(|e| {
+                DataFusionError::Internal(format!("PgSearchScan dispatch: schema encode: {e}"))
+            })?;
+
+        let descriptor = ScanDispatchDescriptor {
+            schema_proto: prost::Message::encode_to_vec(&schema_proto),
+            query: self.query_for_display.clone(),
+            // Scored scans aren't on the aggregate dispatch path yet; thread this through when
+            // the topk/scored paths land.
+            score_needed: false,
+            sort_order: self.sort_order.clone(),
+            indexrelid: self.indexrelid,
+            deferred_fields: self.deferred_fields.clone(),
+            deferred_ctid_plan_position: self.deferred_ctid_plan_position,
+            which_fast_fields: scanner_config.which_fast_fields,
+            heap_relid: scanner_config.heap_relid,
+            batch_size_hint: scanner_config.batch_size_hint,
+            source_idx,
+            planner_estimated_rows,
+        };
+        serde_json::to_vec(&descriptor).map_err(|e| {
+            DataFusionError::Internal(format!("PgSearchScan dispatch: serialize: {e}"))
+        })
+    }
+
+    /// Rebuild a scan from a dispatch descriptor, injecting the receiving worker's runtime
+    /// state. Mirrors the tail of `PgSearchTableProvider::scan_inner`: open the index reader
+    /// under the worker's MVCC view, build the fast-field helper + visibility checker, and wrap
+    /// a single lazy partition that claims segments at runtime from `parallel_state`.
+    pub(crate) fn decode_for_dispatch(
+        buf: &[u8],
+        parallel_state: Option<*mut ParallelScanState>,
+        non_partitioning_segment_ids: &[HashSet<SegmentId>],
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        let descriptor: ScanDispatchDescriptor = serde_json::from_slice(buf).map_err(|e| {
+            DataFusionError::Internal(format!("PgSearchScan dispatch: deserialize: {e}"))
+        })?;
+
+        let schema_proto = <datafusion_proto::protobuf::Schema as prost::Message>::decode(
+            descriptor.schema_proto.as_slice(),
+        )
+        .map_err(|e| {
+            DataFusionError::Internal(format!("PgSearchScan dispatch: schema decode: {e}"))
+        })?;
+        let schema: SchemaRef = Arc::new((&schema_proto).try_into().map_err(|e| {
+            DataFusionError::Internal(format!("PgSearchScan dispatch: schema parse: {e}"))
+        })?);
+
+        let index_rel = PgSearchRelation::open(pg_sys::Oid::from(descriptor.indexrelid));
+        let heap_rel = PgSearchRelation::open(pg_sys::Oid::from(descriptor.heap_relid));
+
+        // MVCC view: the partitioning source (source_idx None) reads the worker's full segment
+        // list from `ParallelScanState`; a non-partitioning source reads its frozen per-source
+        // set. Mirrors the MVCC dispatch in `scan_inner`.
+        let mvcc = match (descriptor.source_idx, parallel_state) {
+            (None, Some(ps)) => MvccSatisfies::ParallelWorker(unsafe { list_segment_ids(ps) }),
+            (Some(idx), Some(ps)) => {
+                MvccSatisfies::ParallelWorker(unsafe { (*ps).segment_ids_for_source(idx) })
+            }
+            (Some(idx), None) => {
+                let ids = non_partitioning_segment_ids.get(idx).cloned().ok_or_else(|| {
+                    DataFusionError::Internal(format!(
+                        "PgSearchScan dispatch: missing canonical segment ids for source {idx}"
+                    ))
+                })?;
+                MvccSatisfies::ParallelWorker(ids)
+            }
+            (None, None) => MvccSatisfies::Snapshot,
+        };
+
+        let query = descriptor.query;
+        let needs_tokenizer = query.needs_tokenizer();
+        let reader = SearchIndexReader::open_with_context(
+            &index_rel,
+            query.clone(),
+            descriptor.score_needed,
+            mvcc,
+            None, // expr_context: the query ships pre-solved
+            None, // planstate: same
+            needs_tokenizer,
+        )
+        .map_err(|e| {
+            DataFusionError::Internal(format!("PgSearchScan dispatch: open reader: {e}"))
+        })?;
+
+        let ffhelper = Arc::new(FFHelper::with_fields(&reader, &descriptor.which_fast_fields));
+        let snapshot = unsafe { pg_sys::GetActiveSnapshot() };
+        let visibility = VisibilityChecker::with_rel_and_snap(&heap_rel, snapshot);
+
+        let scanner_config = ScannerConfig {
+            which_fast_fields: descriptor.which_fast_fields,
+            heap_relid: descriptor.heap_relid,
+            batch_size_hint: descriptor.batch_size_hint,
+        };
+        let state = ScanState {
+            recipe: ScanRecipe::Lazy {
+                parallel_state,
+                source_idx: descriptor.source_idx,
+                planner_estimated_rows: descriptor.planner_estimated_rows,
+                scanner_config,
+            },
+            ffhelper: Arc::clone(&ffhelper),
+            visibility: Box::new(visibility) as Box<VisibilityChecker>,
+            reader,
+        };
+
+        let deferred = descriptor.deferred_fields;
+        let deferred_ctid_plan_position = descriptor.deferred_ctid_plan_position;
+        let ffhelper_arg = if deferred.is_empty() && deferred_ctid_plan_position.is_none() {
+            None
+        } else {
+            Some(ffhelper)
+        };
+
+        Ok(Arc::new(PgSearchScanPlan::new(
+            vec![state],
+            schema,
+            query,
+            descriptor.sort_order.as_ref(),
+            deferred,
+            ffhelper_arg,
+            descriptor.indexrelid,
+            deferred_ctid_plan_position,
+        )))
+    }
+}
+
+/// Transport-neutral description of a `PgSearchScanPlan` for coordinator dispatch. Carries the
+/// recipe plus the inputs needed to re-open the reader on the receiving worker; the live tantivy
+/// state is rebuilt there from the worker's own `ParallelScanState`.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ScanDispatchDescriptor {
+    /// Arrow schema, `datafusion_proto::protobuf::Schema`-encoded (arrow schema isn't serde).
+    schema_proto: Vec<u8>,
+    query: SearchQueryInput,
+    score_needed: bool,
+    sort_order: Option<SortByField>,
+    indexrelid: u32,
+    deferred_fields: Vec<DeferredField>,
+    deferred_ctid_plan_position: Option<usize>,
+    which_fast_fields: Vec<WhichFastField>,
+    heap_relid: u32,
+    batch_size_hint: Option<usize>,
+    /// `Some(i)` for an MPP non-partitioning source (claims from source `i`'s pool); `None` for
+    /// the partitioning source / single-counter checkout.
+    source_idx: Option<usize>,
+    planner_estimated_rows: u64,
 }
 
 /// Build `EquivalenceProperties` with the specified sort ordering.

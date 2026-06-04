@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780597754412,
+  "lastUpdate": 1780597790620,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15822,6 +15822,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 82.33585981503373, max segment_count: 131.0, count: 57524"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fdc6d2d43cf464b18d10f347f69790709b9ab96b",
+          "message": "feat: Support all postgres datetimes (2/4) - Centralize all date handling via a new version of OwnedValue (#5233)\n\n## What\nThis is a step towards handling all postgres datetimes. This PR\nintroduces two new types, `PostgresDateTime` and `PdbOwnedValue`, which\nare analogues of Tantivy's `DateTime` and `OwnedValue` respectively. It\nreplaces all use of `OwnedValue` with `PdbOwnedValue`. This PR looks\nmassive, but 75% of it is effectively `sed/OwnedValue/PdbOwnedValue`.\n\n## Why\n`PdbOwnedValue::Date` wraps a `PostgresDateTime`. `PostgresDateTime` can\nhold all valid postgres timestamps. By changing our internal type for\ndatetimes to one that can represent all postgres-supported datetimes\ninstead of just tantivy-supported datetimes, we can by and large keep\nour internal logic as-is. This will be very convenient for the final PR\nof this series, as it allows us to keep the \"is this a datetime\"\nquestion at the construction and deconstruction of `PdbOwnedValue`s,\nminus a few json-related caveats. If we were to instead just store\ndatetimes as `OwnedValue::I64` going forward, we then have _a lot_ more\nplaces to put decisions (Is this an i64 a number or a datetime? Do I\nneed to handle it differently?) and would have to maintain two versions\nof any datetime handling code, one for the `tantivy::DateTime` legacy\nversion and one for the `i64` new version. Not to mention the footguns\nof passing around unlabeled i64 timestamps.\n\n## How\n- `PostgresDateTime` holds a postgres `Timestamp`, which itself is just\nan i64 representing microseconds from the pg epoch. It comes with a\nbunch of conversion functions.\n- (nearly mechanically) Replace all uses of `OwnedValue` with\n`PdbOwnedValue` and make accompanying minor modifications as necessary\n- Simplify `RangeToTantivyValue` to 1) Use `PdbOwnedValue`, and 2)\nConstruct the final value directly instead of relying on round-tripping\nthrough JSON.\n- `PdbOwnedValue` serialization is basically `OwnedValue`'s\nserialization, with a couple caveats:\n- `PdbOwnedValue::Date` get's tagged with `date`. We serialize the\ndatetime as an rfc3339-compliant string, so we need an easy way to\nidentify datetimes later. This replaces the current date-tagging\nbehavior of `DateAwareOwnedValue`.\n- During deserialization, we will try to parse `PdbOwnedValue::Str` as\nrfc3999-compliant datetime strings. This mirrors what tantivy does for\njson values, and allows us to no longer require an \"is_datetime\" flag.\nAll locations that require \"looser than rfc3339\" parsing remain as\nstrings, and get parsed using looser variants later when we can pair the\nstring value with the target typoid.\n- Generally cleanup all datetime parsing by routing through\n`PostgresDateTime`\n\n## Tests\n- All existing unit, integration, and regression tests pass untouched.",
+          "timestamp": "2026-06-04T11:56:48-06:00",
+          "tree_id": "c9dedd0f2ca4ed967ca67614883fd76927754b05",
+          "url": "https://github.com/paradedb/paradedb/commit/fdc6d2d43cf464b18d10f347f69790709b9ab96b"
+        },
+        "date": 1780597756568,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.6888245887932, max cpu: 42.899704, count: 57727"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.6875,
+            "unit": "median mem",
+            "extra": "avg mem: 235.48061978417812, max mem: 237.17578125, count: 57727"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.348967532648555, max cpu: 33.333336, count: 57727"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 177.73828125,
+            "unit": "median mem",
+            "extra": "avg mem: 177.3896863144629, max mem: 177.87109375, count: 57727"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34624,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33723.59552722296, max block_count: 36167.0, count: 57727"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.565697160774, max segment_count: 131.0, count: 57727"
           }
         ]
       }

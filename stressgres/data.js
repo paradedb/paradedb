@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780605254022,
+  "lastUpdate": 1780605293665,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -4026,6 +4026,78 @@ window.BENCHMARK_DATA = {
             "value": 73.4122430522065,
             "unit": "median tps",
             "extra": "avg tps: 169.0556880613465, max tps: 351.38001573011206, count: 55069"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "59696464+saadtajwar@users.noreply.github.com",
+            "name": "Saad Tajwar",
+            "username": "saadtajwar"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "86792b28af291493e57c1db571117108e8d5496b",
+          "message": "feat: tuples done progress monitoring (#4973)\n\n# Ticket(s) Closed\n\n- Closes #3826 \n\n## What\n\nAdds `tuples_done` progress reporting to the\n`pg_stat_progress_create_index` view during BM25 index creation.\n\n## Why\n\nPreviously, when creating a BM25 index, the `tuples_done` column in\n`pg_stat_progress_create_index` was always empty. This made it\nimpossible for users to estimate how long a `CREATE INDEX` would take on\nlarge tables. With this change, users can monitor index creation\nprogress using standard PostgreSQL tooling.\n\n## How\n\n- Added `ntuples_done` to the `WorkerCoordination` shared memory struct\nso all workers can contribute to a global tuple count.\n- Each worker maintains a local count and flushes it to the shared\ncounter in batches (currently every 5 tuples, happy to change this if\nneeded or removing batching altogether) to reduce spinlock contention.\n- When the leader participates in the build, it reports progress\ndirectly from `build_callback`.\n- When the leader does **not** participate, it reports progress via an\noptional callback on `ParallelProcessMessageQueue` that fires while\npolling for worker messages.\n- Added a `CoordinationPtr` newtype to safely pass the shared memory\npointer into the callback closure.\n- `tuples_total` is also now set before the build starts using the heap\ntuple estimate.\n- The `is_leader` check is computed once at worker initialization and\ncached in `WorkerBuildState` to avoid acquiring the spinlock on every\ntuple.\n- The `ParallelProcessMessageQueue` in `builder.rs` now supports an\noptional `still_processing_callback` that is invoked when no messages\nare available from workers. Existing consumers via `into_iter()` are\nunaffected.\n\n## Tests\nManually verified across both `parallel_leader_participation = true` and\n`parallel_leader_participation = false` modes by monitoring\n`pg_stat_progress_create_index` from a second session during index\ncreation on a 100k row table.\n<img width=\"557\" height=\"277\" alt=\"Screenshot 2026-05-03 at 7 50 26 PM\"\nsrc=\"https://github.com/user-attachments/assets/7cddebe7-80f6-478c-9051-6da8e436a72f\"\n/>",
+          "timestamp": "2026-06-04T13:14:05-07:00",
+          "tree_id": "7e000daaf23bcbb6ffd5f4a1d896349ff3b7c156",
+          "url": "https://github.com/paradedb/paradedb/commit/86792b28af291493e57c1db571117108e8d5496b"
+        },
+        "date": 1780605261544,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 123.93702917428111,
+            "unit": "median tps",
+            "extra": "avg tps: 124.87036870891768, max tps: 146.69306402920796, count: 55245"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 428.15617762113067,
+            "unit": "median tps",
+            "extra": "avg tps: 436.1737643726943, max tps: 558.4555895778076, count: 55245"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3457.894544356134,
+            "unit": "median tps",
+            "extra": "avg tps: 3435.6489967037746, max tps: 3471.268522627029, count: 55245"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 389.0661552371927,
+            "unit": "median tps",
+            "extra": "avg tps: 396.6063302204768, max tps: 480.18262305520034, count: 55245"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2891.0032242221096,
+            "unit": "median tps",
+            "extra": "avg tps: 2870.953735171042, max tps: 2922.7156117489003, count: 110490"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 473.56334702847766,
+            "unit": "median tps",
+            "extra": "avg tps: 477.43024209917996, max tps: 565.1256071250358, count: 55245"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1920.0238533746028,
+            "unit": "median tps",
+            "extra": "avg tps: 1907.4153002440096, max tps: 1933.3578053547424, count: 55245"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 30.11147012443389,
+            "unit": "median tps",
+            "extra": "avg tps: 61.54882421079923, max tps: 738.6653646458506, count: 55245"
           }
         ]
       }

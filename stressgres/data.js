@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780599883882,
+  "lastUpdate": 1780600079731,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3810,6 +3810,78 @@ window.BENCHMARK_DATA = {
             "value": 47.656613184418966,
             "unit": "median tps",
             "extra": "avg tps: 56.57788948795518, max tps: 226.92556554011236, count: 54894"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f1240d6d5514bcf2c6f616b8c411a75e1ae6f0a",
+          "message": "feat: Support all postgres datetimes (3/4) - Remove date-awareness (#5234)\n\n## What\nWith #5233 in place, we no longer need to do any of remaining\n`is_datetime` checks. All fields that might be datetimes are in\n`PdbOwnedValue::Date` by that point.\n\n## Why\nIt's simpler!\n\n## How\nDelete, delete, delete\n\n## Tests\nAll existing unit, integration, and regression tests pass.",
+          "timestamp": "2026-06-04T12:47:20-06:00",
+          "tree_id": "5e132590dc60db210f2d4bec10ee88b0016fb500",
+          "url": "https://github.com/paradedb/paradedb/commit/4f1240d6d5514bcf2c6f616b8c411a75e1ae6f0a"
+        },
+        "date": 1780600047633,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 135.54143621529158,
+            "unit": "median tps",
+            "extra": "avg tps: 135.4171124157053, max tps: 142.0349600551243, count: 55024"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 485.9527158162523,
+            "unit": "median tps",
+            "extra": "avg tps: 485.07481083364223, max tps: 647.5220165712349, count: 55024"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3444.3876324197677,
+            "unit": "median tps",
+            "extra": "avg tps: 3435.1237469619473, max tps: 3461.6842132468673, count: 55024"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 441.40031936011064,
+            "unit": "median tps",
+            "extra": "avg tps: 440.74711327471516, max tps: 478.8314597057341, count: 55024"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2827.362903294993,
+            "unit": "median tps",
+            "extra": "avg tps: 2855.651558249699, max tps: 3023.43039130675, count: 110048"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 489.8812603354372,
+            "unit": "median tps",
+            "extra": "avg tps: 489.6208482944743, max tps: 610.6906868813142, count: 55024"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1991.2386663022862,
+            "unit": "median tps",
+            "extra": "avg tps: 1987.4447132416647, max tps: 2038.6697022019164, count: 55024"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 72.54234133354633,
+            "unit": "median tps",
+            "extra": "avg tps: 72.17022115975163, max tps: 139.31272851641, count: 55024"
           }
         ]
       }

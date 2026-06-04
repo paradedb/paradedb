@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780600079731,
+  "lastUpdate": 1780600115488,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -10874,6 +10874,138 @@ window.BENCHMARK_DATA = {
             "value": 57.37890625,
             "unit": "median mem",
             "extra": "avg mem: 56.55804524970853, max mem: 68.9296875, count: 54894"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f1240d6d5514bcf2c6f616b8c411a75e1ae6f0a",
+          "message": "feat: Support all postgres datetimes (3/4) - Remove date-awareness (#5234)\n\n## What\nWith #5233 in place, we no longer need to do any of remaining\n`is_datetime` checks. All fields that might be datetimes are in\n`PdbOwnedValue::Date` by that point.\n\n## Why\nIt's simpler!\n\n## How\nDelete, delete, delete\n\n## Tests\nAll existing unit, integration, and regression tests pass.",
+          "timestamp": "2026-06-04T12:47:20-06:00",
+          "tree_id": "5e132590dc60db210f2d4bec10ee88b0016fb500",
+          "url": "https://github.com/paradedb/paradedb/commit/4f1240d6d5514bcf2c6f616b8c411a75e1ae6f0a"
+        },
+        "date": 1780600081800,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.192869861922333, max cpu: 23.143684, count: 55024"
+          },
+          {
+            "name": "Aggregate Custom Scan - Primary - mem",
+            "value": 65.23046875,
+            "unit": "median mem",
+            "extra": "avg mem: 65.0377517793372, max mem: 76.11328125, count: 55024"
+          },
+          {
+            "name": "Columnar Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.626114251167705, max cpu: 18.82353, count: 55024"
+          },
+          {
+            "name": "Columnar Scan - Primary - mem",
+            "value": 63.8203125,
+            "unit": "median mem",
+            "extra": "avg mem: 63.55434638464579, max mem: 74.54296875, count: 55024"
+          },
+          {
+            "name": "Delete values - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.660308686813589, max cpu: 9.284333, count: 55024"
+          },
+          {
+            "name": "Delete values - Primary - mem",
+            "value": 35.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 35.33560966010286, max mem: 37.765625, count: 55024"
+          },
+          {
+            "name": "Index Scan - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.565683725260921, max cpu: 9.266409, count: 55024"
+          },
+          {
+            "name": "Index Scan - Primary - mem",
+            "value": 62.421875,
+            "unit": "median mem",
+            "extra": "avg mem: 61.81360874913674, max mem: 73.3515625, count: 55024"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6376815,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.640143449683719, max cpu: 9.430255, count: 110048"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 50.69921875,
+            "unit": "median mem",
+            "extra": "avg mem: 53.546576302215854, max mem: 71.5625, count: 110048"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 1778,
+            "unit": "median block_count",
+            "extra": "avg block_count: 1768.3030314044781, max block_count: 3127.0, count: 55024"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 8,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 8.796488804885142, max segment_count: 20.0, count: 55024"
+          },
+          {
+            "name": "Normal Scan - Primary - cpu",
+            "value": 4.64666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.581725910932646, max cpu: 18.86051, count: 55024"
+          },
+          {
+            "name": "Normal Scan - Primary - mem",
+            "value": 63.8359375,
+            "unit": "median mem",
+            "extra": "avg mem: 63.56164632421761, max mem: 74.59375, count: 55024"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.577928387193537, max cpu: 4.7571855, count: 55024"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 53.578125,
+            "unit": "median mem",
+            "extra": "avg mem: 53.18426632583055, max mem: 64.11328125, count: 55024"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 0.6212009400297857, max cpu: 4.660194, count: 55024"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 56.58203125,
+            "unit": "median mem",
+            "extra": "avg mem: 55.71699771065808, max mem: 68.83984375, count: 55024"
           }
         ]
       }

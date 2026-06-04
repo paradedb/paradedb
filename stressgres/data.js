@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780598518186,
+  "lastUpdate": 1780598846032,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -34684,6 +34684,54 @@ window.BENCHMARK_DATA = {
             "value": 274.1321102706614,
             "unit": "median tps",
             "extra": "avg tps: 266.2628023814144, max tps: 599.9142572547819, count: 107700"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mvanhorn@users.noreply.github.com",
+            "name": "Matt Van Horn",
+            "username": "mvanhorn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "36c0933d3ded611c10c49dfeb7c04c62e6f5b294",
+          "message": "feat: support array::fuzzy::boost cast chain in &&& operator (#5158)\n\n## Summary\n\nfeat: support array::fuzzy::boost cast chain in &&& operator\n\nCloses #5079\n\n---\nAI was used for assistance.\n\n---------\n\nCo-authored-by: Matt Van Horn <455140+mvanhorn@users.noreply.github.com>\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-06-04T13:40:07-04:00",
+          "tree_id": "a78407fc2921c8c3cfee0468dfe194e249f54db9",
+          "url": "https://github.com/paradedb/paradedb/commit/36c0933d3ded611c10c49dfeb7c04c62e6f5b294"
+        },
+        "date": 1780598811903,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - tps",
+            "value": 580.8495357340751,
+            "unit": "median tps",
+            "extra": "avg tps: 580.0102006472885, max tps: 751.1333375723824, count: 53858"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - tps",
+            "value": 621.9736454493585,
+            "unit": "median tps",
+            "extra": "avg tps: 621.2812695876672, max tps: 751.2936337255712, count: 53858"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - tps",
+            "value": 92.82997877149839,
+            "unit": "median tps",
+            "extra": "avg tps: 92.9392195408643, max tps: 100.33335725582648, count: 53858"
+          },
+          {
+            "name": "Top K - Subscriber - tps",
+            "value": 269.2211455906765,
+            "unit": "median tps",
+            "extra": "avg tps: 264.59042446640944, max tps: 542.7984801642556, count: 107716"
           }
         ]
       }

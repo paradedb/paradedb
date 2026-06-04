@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780606928902,
+  "lastUpdate": 1780607037212,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -47040,6 +47040,186 @@ window.BENCHMARK_DATA = {
             "value": 30.48046875,
             "unit": "median mem",
             "extra": "avg mem: 29.76147113706413, max mem: 30.61328125, count: 53858"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "adc7762ccc767901044b3bf11a175340d0f0a17e",
+          "message": "fix: ensure active snapshot for mutable segment materialization (#5255)\n\n## Summary\n\nFix logical replication apply-worker failures when pg_search\nmaterializes mutable segments containing TOASTed values.\n\n`index_memory_segment` now ensures an active PostgreSQL snapshot exists\nwhile it fetches heap tuples, detoasts varlena values, evaluates\nexpressions, and builds the in-memory Tantivy segment.\n\n## RCA\n\nAntithesis surfaced this PostgreSQL `ERROR` from the logical replication\napply worker:\n\n```text\nERROR: cannot fetch toast data without an active snapshot\nCONTEXT: processing remote data for replication origin ... during message type \"COMMIT\"\nLOG: background worker \"logical replication apply worker\" ... exited with exit code 1\n```\n\nThis is not a postmaster or container crash. The postmaster remains\nalive, but the logical replication apply worker exits and replication\nprogress can fail/retry.\n\nThis started appearing after `d453f45b157fe9286838cba35678d294100dbce7`\n(`fix: eager detoast in index_memory_segment to prevent TOAST race with\nVACUUM`).\n\nThat commit was correct. It fixed a real VACUUM/TOAST race by making\n`index_memory_segment` detoast varlena values eagerly while the selected\nheap tuple is still protected. Before that change, pg_search could\nfetch/deform a heap tuple, keep only a lazy TOAST pointer, and detoast\nlater during document conversion. If VACUUM removed the old heap tuple\nand deleted its TOAST chunks in that gap, lazy detoast could fail with\nmissing TOAST chunks.\n\nThe new failure exposed a separate missing invariant: PostgreSQL\nrequires a registered or active snapshot before fetching out-of-line\nTOAST chunks.\n\nPostgreSQL enforces that in `get_toast_snapshot()`:\n\n```c\nif (!HaveRegisteredOrActiveSnapshot())\n    elog(ERROR, \"cannot fetch toast data without an active snapshot\");\n```\n\nIn normal query/DML paths, a snapshot is already active. In the logical\nreplication apply worker, PostgreSQL pushes an active snapshot while\napplying each replicated INSERT/UPDATE/DELETE message, then pops it\nafter that apply step.\n\npg_search's mutable segment path records CTIDs during those apply steps,\nbut it does not necessarily read the full heap row or TOAST bytes\nimmediately. During logical replication, pg_search keeps the insert\nstate open until transaction commit and finalizes it from a `PRE_COMMIT`\ntransaction callback.\n\nThat callback still runs inside the transaction, but it is not inside\nPostgreSQL's per-row replication-step wrapper that pushes an active\nsnapshot. So the transaction is active, but there may be no active\nsnapshot on the snapshot stack.\n\nWhen the pre-commit cleanup creates or merges a mutable segment,\n`index_memory_segment` fetches the heap tuple by CTID and, after\n`d453f45b`, eagerly calls `pg_detoast_datum`. Because no active snapshot\nis present in that callback context, PostgreSQL raises the observed\nERROR.\n\n## Reproduction\n\nRun this against a build before this fix.\n\n1. Install `pg_search` into PostgreSQL 18.\n\n```sh\ncargo pgrx install --package pg_search \\\n  --pg-config /opt/homebrew/opt/postgresql@18/bin/pg_config\n```\n\n2. Start two fresh PostgreSQL 18 clusters.\n\nPublisher config:\n\n```conf\nwal_level = logical\nmax_replication_slots = 10\nmax_wal_senders = 10\n```\n\nSubscriber config:\n\n```conf\nwal_level = logical\nshared_preload_libraries = 'pg_search'\nmax_replication_slots = 10\nmax_wal_senders = 10\n```\n\n3. On the publisher:\n\n```sql\nCREATE TABLE test (\n  id bigserial PRIMARY KEY,\n  message text\n);\n\nCREATE PUBLICATION stressgres_pub FOR TABLE test;\n```\n\n4. On the subscriber:\n\n```sql\nCREATE EXTENSION pg_search;\n\nCREATE TABLE test (\n  id bigint PRIMARY KEY,\n  message text\n);\n\nCREATE INDEX idxtest ON test USING bm25 (id, message)\nWITH (\n  key_field = 'id',\n  mutable_segment_rows = 1,\n  target_segment_count = 1,\n  background_layer_sizes = '0',\n  layer_sizes = '1kb'\n);\n\nCREATE SUBSCRIPTION stressgres_sub\nCONNECTION 'host=localhost port=<publisher_port> dbname=postgres user=<user>'\nPUBLICATION stressgres_pub\nWITH (copy_data = false, streaming = parallel);\n```\n\n5. Insert TOASTed rows on the publisher, each as its own transaction:\n\n```sql\nINSERT INTO test(message) VALUES (repeat('BigData_ ', 200000) || ' row_1');\nINSERT INTO test(message) VALUES (repeat('BigData_ ', 200000) || ' row_2');\nINSERT INTO test(message) VALUES (repeat('BigData_ ', 200000) || ' row_3');\n```\n\n6. Check the subscriber log.\n\nExpected failure before this fix:\n\n```text\nERROR: cannot fetch toast data without an active snapshot\nCONTEXT: processing remote data for replication origin ... during message type \"COMMIT\"\nLOG: background worker \"logical replication apply worker\" ... exited with exit code 1\n```\n\nThe failure requires: logical replication apply worker, `bm25` index on\nthe subscriber, mutable segment materialization, and out-of-line TOASTed\nindexed text.\n\n## Fix\n\nMake `index_memory_segment` self-sufficient: if the caller has not\nalready pushed an active snapshot, push the current transaction snapshot\nbefore any heap tuple or TOAST pointer is fetched.\n\nThe guard is established at the top of `index_memory_segment`, before:\n\n- reading mutable segment CTIDs,\n- fetching heap tuples,\n- deforming heap tuples into Datums / possible TOAST pointers,\n- calling `pg_detoast_datum`.\n\nThe guard remains active through heap fetch, eager detoast, expression\nevaluation, and document materialization. It is popped on normal return.\n\nThis does not change row visibility semantics:\n\n- Heap tuple selection still uses `table_index_fetch_tuple(...\nSnapshotAny ...)`.\n- Tuple liveness is still filtered by `HeapTupleSatisfiesVacuum`.\n- The pushed transaction snapshot is not used to choose a heap row or\nrow version.\n- It only satisfies PostgreSQL's TOAST active/registered snapshot\nrequirement while detoasting the already-selected tuple's value.\n\nIf a caller already has an active snapshot, the guard is a no-op.\n\n## Verification\n\nThe deterministic publisher/subscriber repro passes after this patch:\nall 3 rows replicate to the subscriber, `apply_error_count` remains `0`,\nand the subscriber log no longer reports `cannot fetch toast data\nwithout an active snapshot`.",
+          "timestamp": "2026-06-04T15:52:26-04:00",
+          "tree_id": "10dfb72577b798f632363a449bd84532ef897bde",
+          "url": "https://github.com/paradedb/paradedb/commit/adc7762ccc767901044b3bf11a175340d0f0a17e"
+        },
+        "date": 1780606930943,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.069150107583139, max cpu: 9.29332, count: 53845"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 51.953125,
+            "unit": "median mem",
+            "extra": "avg mem: 51.973098201434674, max mem: 57.76171875, count: 53845"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5584044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.112390692315705, max cpu: 4.58891, count: 53845"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 29.6875,
+            "unit": "median mem",
+            "extra": "avg mem: 28.96158076713251, max mem: 30.0078125, count: 53845"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.125476,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.114882234013203, max cpu: 18.443804, count: 53845"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 55.27734375,
+            "unit": "median mem",
+            "extra": "avg mem: 54.971406351564674, max mem: 61.03515625, count: 53845"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5757866,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.079603243558646, max cpu: 9.29332, count: 53845"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 51.19140625,
+            "unit": "median mem",
+            "extra": "avg mem: 51.21304126717894, max mem: 57.06640625, count: 53845"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5714283,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.601094924060656, max cpu: 9.204219, count: 53845"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 33.52734375,
+            "unit": "median mem",
+            "extra": "avg mem: 33.53685832888383, max mem: 38.51953125, count: 53845"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1103,
+            "unit": "median pages",
+            "extra": "avg pages: 1101.924004085802, max pages: 1820.0, count: 53845"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.6171875,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.608781427012723, max relation_size:MB: 14.21875, count: 53845"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 9.238072244405238, max segment_count: 20.0, count: 53845"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 4.549763,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.141713007910661, max cpu: 4.6021094, count: 53845"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 28.84765625,
+            "unit": "median mem",
+            "extra": "avg mem: 28.134765733819297, max mem: 29.21484375, count: 53845"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5454545,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.9614137434586363, max cpu: 4.610951, count: 53845"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 28.9453125,
+            "unit": "median mem",
+            "extra": "avg mem: 28.216226262884206, max mem: 29.30859375, count: 53845"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.5933013,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.3770777564177585, max cpu: 23.010548, count: 53845"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 50.09375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.11013223720865, max mem: 55.875, count: 53845"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000022474443561597525, max replication_lag:MB: 0.21314239501953125, count: 53845"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.312543051017653, max cpu: 13.779904, count: 107690"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 50.375,
+            "unit": "median mem",
+            "extra": "avg mem: 50.405509049412665, max mem: 56.30078125, count: 107690"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5411544,
+            "unit": "median cpu",
+            "extra": "avg cpu: 3.774132436731023, max cpu: 4.5411544, count: 53845"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 30.4921875,
+            "unit": "median mem",
+            "extra": "avg mem: 29.785126288420464, max mem: 30.8125, count: 53845"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5584044,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.455144925017568, max cpu: 4.597701, count: 53845"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 30.5078125,
+            "unit": "median mem",
+            "extra": "avg mem: 29.772541481915685, max mem: 30.58984375, count: 53845"
           }
         ]
       }

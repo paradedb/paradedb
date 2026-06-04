@@ -2129,29 +2129,18 @@ unsafe fn make_placeholder_func_expr_internal(
 
 /// Get a human-readable name for the aggregate function
 unsafe fn get_aggregate_name(aggref: *mut pg_sys::Aggref) -> String {
-    // Try to get the function name from the catalog
     let funcid = (*aggref).aggfnoid;
     if funcid == agg_funcoid() {
         return "pdb.agg".to_string();
     }
-    let proc_tuple =
-        pg_sys::SearchSysCache1(pg_sys::SysCacheIdentifier::PROCOID as _, funcid.into());
 
-    if !proc_tuple.is_null() {
-        let proc_form = pg_sys::GETSTRUCT(proc_tuple) as *mut pg_sys::FormData_pg_proc;
-        let name_data = &(*proc_form).proname;
+    let name_str =
+        crate::postgres::catalog::lookup_func_name(funcid).unwrap_or_else(|| "UNKNOWN".to_string());
 
-        let name_str = pgrx::name_data_to_str(name_data);
-
-        pg_sys::ReleaseSysCache(proc_tuple);
-
-        // Add (*) for COUNT(*) or star aggregates
-        if (*aggref).aggstar {
-            format!("{}(*)", name_str.to_uppercase())
-        } else {
-            name_str.to_uppercase()
-        }
+    // Add (*) for COUNT(*) or star aggregates
+    if (*aggref).aggstar {
+        format!("{}(*)", name_str.to_uppercase())
     } else {
-        "UNKNOWN".to_string()
+        name_str.to_uppercase()
     }
 }

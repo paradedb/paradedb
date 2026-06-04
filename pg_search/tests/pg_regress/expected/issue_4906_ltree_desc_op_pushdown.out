@@ -165,7 +165,7 @@ SELECT array_agg(id ORDER BY id) AS descendant_ids_top_science
 FROM issue_4906_ltree
 WHERE category <@ 'Top.Science'::ltree
   AND id @@@ pdb.all();
-WARNING:  Aggregate Scan not used: unsupported aggregate function OID: 2335. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree)
+WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree)
  descendant_ids_top_science 
 ----------------------------
  {2,3,4,5,6,14,15,16,17,18}
@@ -184,7 +184,7 @@ SELECT
         FROM issue_4906_ltree
         WHERE category ^<@ 'Top.Science'::ltree
     ) AS pushed_matches_ltree_noindex_semantics_top_science;
-WARNING:  Aggregate Scan not used: unsupported aggregate function OID: 2335. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree)
+WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree)
  pushed_matches_ltree_noindex_semantics_top_science 
 ----------------------------------------------------
  t
@@ -204,7 +204,7 @@ SELECT
         FROM issue_4906_ltree
         WHERE category @@@ 'Top.Science'
     ) AS ltree_descendant_pushdown_matches_facet_query_top_science;
-WARNING:  Aggregate Scan not used: unsupported aggregate function OID: 2335. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree)
+WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree)
  ltree_descendant_pushdown_matches_facet_query_top_science 
 -----------------------------------------------------------
  t
@@ -217,7 +217,7 @@ SELECT array_agg(id ORDER BY id) AS descendant_ids_top_science_astronomy
 FROM issue_4906_ltree
 WHERE category <@ 'Top.Science.Astronomy'::ltree
   AND id @@@ pdb.all();
-WARNING:  Aggregate Scan not used: unsupported aggregate function OID: 2335. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree)
+WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree)
  descendant_ids_top_science_astronomy 
 --------------------------------------
  {3,4,5,15,16,17}
@@ -234,7 +234,7 @@ SELECT
         FROM issue_4906_ltree
         WHERE category ^<@ 'Top.Science.Astronomy'::ltree
     ) AS pushed_matches_ltree_noindex_semantics_top_science_astronomy;
-WARNING:  Aggregate Scan not used: unsupported aggregate function OID: 2335. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree)
+WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree)
  pushed_matches_ltree_noindex_semantics_top_science_astronomy 
 --------------------------------------------------------------
  t
@@ -251,7 +251,7 @@ SELECT
         FROM issue_4906_ltree
         WHERE category @@@ 'Top.Science.Astronomy'
     ) AS ltree_desc_pushdown_matches_facet_query_top_science_astron;
-WARNING:  Aggregate Scan not used: unsupported aggregate function OID: 2335. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree)
+WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree)
  ltree_desc_pushdown_matches_facet_query_top_science_astron 
 ------------------------------------------------------------
  t
@@ -264,7 +264,7 @@ FROM issue_4906_ltree
 WHERE category <@ 'Top.Science'::ltree
   AND category = 'Top.Science'::ltree
   AND id @@@ pdb.all();
-WARNING:  Aggregate Scan not used: unsupported aggregate function OID: 2335. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree)
+WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree)
  equality_is_included 
 ----------------------
  {2}
@@ -289,7 +289,7 @@ SELECT array_agg(id ORDER BY id) AS descendant_ids_top
 FROM issue_4906_ltree
 WHERE category <@ 'Top'::ltree
   AND id @@@ pdb.all();
-WARNING:  Aggregate Scan not used: unsupported aggregate function OID: 2335. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree)
+WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree)
             descendant_ids_top            
 ------------------------------------------
  {1,2,3,4,5,6,7,8,9,10,11,14,15,16,17,18}
@@ -306,7 +306,7 @@ SELECT
         FROM issue_4906_ltree
         WHERE category ^<@ 'Top'::ltree
     ) AS pushed_matches_ltree_noindex_semantics_top;
-WARNING:  Aggregate Scan not used: unsupported aggregate function OID: 2335. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree)
+WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree)
  pushed_matches_ltree_noindex_semantics_top 
 --------------------------------------------
  t
@@ -318,7 +318,7 @@ SELECT coalesce(array_agg(id ORDER BY id), ARRAY[]::bigint[]) AS no_match_ids
 FROM issue_4906_ltree
 WHERE category <@ 'Top.Science.Astronomy.Deep'::ltree
   AND id @@@ pdb.all();
-WARNING:  Aggregate Scan not used: unsupported aggregate function OID: 2335. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree)
+WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree)
  no_match_ids 
 --------------
  {}
@@ -336,7 +336,7 @@ FROM issue_4906_ltree
 WHERE category <@ 'Top.Science'::ltree
   AND (id + 0) >= 15
   AND id @@@ pdb.all();
-WARNING:  Aggregate Scan not used: unsupported aggregate function OID: 2335. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree)
+WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree)
  combined_predicate_ids 
 ------------------------
  {15,16,17,18}
@@ -446,7 +446,7 @@ FROM issue_4906_ltree_partial
 WHERE is_indexed
   AND category <@ 'Top.Science'::ltree
   AND id @@@ pdb.all();
-WARNING:  Aggregate Scan not used: unsupported aggregate function OID: 2335. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree_partial)
+WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree_partial)
  partial_index_descendant_ids 
 ------------------------------
  {1,2,3,4}
@@ -468,7 +468,7 @@ SELECT
         WHERE is_indexed
           AND category ^<@ 'Top.Science'::ltree
     ) AS partial_index_matches_ltree_noindex_semantics;
-WARNING:  Aggregate Scan not used: unsupported aggregate function OID: 2335. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree_partial)
+WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree_partial)
  partial_index_matches_ltree_noindex_semantics 
 -----------------------------------------------
  t
@@ -556,7 +556,7 @@ WHERE p.is_indexed
         ),
         false
       );
-WARNING:  Aggregate Scan not used: unsupported aggregate function OID: 2335. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree_partial)
+WARNING:  Aggregate Scan not used: unsupported aggregate function: array_agg. To disable this warning: SET paradedb.check_aggregate_scan = false (table: issue_4906_ltree_partial)
  partial_qual_subplan_ids 
 --------------------------
  {1,3,4}

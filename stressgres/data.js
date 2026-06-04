@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780603128679,
+  "lastUpdate": 1780603985501,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3882,6 +3882,78 @@ window.BENCHMARK_DATA = {
             "value": 72.54234133354633,
             "unit": "median tps",
             "extra": "avg tps: 72.17022115975163, max tps: 139.31272851641, count: 55024"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mithun.cy@gmail.com",
+            "name": "Mithun Chicklore Yogendra",
+            "username": "mithuncy"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "adc7762ccc767901044b3bf11a175340d0f0a17e",
+          "message": "fix: ensure active snapshot for mutable segment materialization (#5255)\n\n## Summary\n\nFix logical replication apply-worker failures when pg_search\nmaterializes mutable segments containing TOASTed values.\n\n`index_memory_segment` now ensures an active PostgreSQL snapshot exists\nwhile it fetches heap tuples, detoasts varlena values, evaluates\nexpressions, and builds the in-memory Tantivy segment.\n\n## RCA\n\nAntithesis surfaced this PostgreSQL `ERROR` from the logical replication\napply worker:\n\n```text\nERROR: cannot fetch toast data without an active snapshot\nCONTEXT: processing remote data for replication origin ... during message type \"COMMIT\"\nLOG: background worker \"logical replication apply worker\" ... exited with exit code 1\n```\n\nThis is not a postmaster or container crash. The postmaster remains\nalive, but the logical replication apply worker exits and replication\nprogress can fail/retry.\n\nThis started appearing after `d453f45b157fe9286838cba35678d294100dbce7`\n(`fix: eager detoast in index_memory_segment to prevent TOAST race with\nVACUUM`).\n\nThat commit was correct. It fixed a real VACUUM/TOAST race by making\n`index_memory_segment` detoast varlena values eagerly while the selected\nheap tuple is still protected. Before that change, pg_search could\nfetch/deform a heap tuple, keep only a lazy TOAST pointer, and detoast\nlater during document conversion. If VACUUM removed the old heap tuple\nand deleted its TOAST chunks in that gap, lazy detoast could fail with\nmissing TOAST chunks.\n\nThe new failure exposed a separate missing invariant: PostgreSQL\nrequires a registered or active snapshot before fetching out-of-line\nTOAST chunks.\n\nPostgreSQL enforces that in `get_toast_snapshot()`:\n\n```c\nif (!HaveRegisteredOrActiveSnapshot())\n    elog(ERROR, \"cannot fetch toast data without an active snapshot\");\n```\n\nIn normal query/DML paths, a snapshot is already active. In the logical\nreplication apply worker, PostgreSQL pushes an active snapshot while\napplying each replicated INSERT/UPDATE/DELETE message, then pops it\nafter that apply step.\n\npg_search's mutable segment path records CTIDs during those apply steps,\nbut it does not necessarily read the full heap row or TOAST bytes\nimmediately. During logical replication, pg_search keeps the insert\nstate open until transaction commit and finalizes it from a `PRE_COMMIT`\ntransaction callback.\n\nThat callback still runs inside the transaction, but it is not inside\nPostgreSQL's per-row replication-step wrapper that pushes an active\nsnapshot. So the transaction is active, but there may be no active\nsnapshot on the snapshot stack.\n\nWhen the pre-commit cleanup creates or merges a mutable segment,\n`index_memory_segment` fetches the heap tuple by CTID and, after\n`d453f45b`, eagerly calls `pg_detoast_datum`. Because no active snapshot\nis present in that callback context, PostgreSQL raises the observed\nERROR.\n\n## Reproduction\n\nRun this against a build before this fix.\n\n1. Install `pg_search` into PostgreSQL 18.\n\n```sh\ncargo pgrx install --package pg_search \\\n  --pg-config /opt/homebrew/opt/postgresql@18/bin/pg_config\n```\n\n2. Start two fresh PostgreSQL 18 clusters.\n\nPublisher config:\n\n```conf\nwal_level = logical\nmax_replication_slots = 10\nmax_wal_senders = 10\n```\n\nSubscriber config:\n\n```conf\nwal_level = logical\nshared_preload_libraries = 'pg_search'\nmax_replication_slots = 10\nmax_wal_senders = 10\n```\n\n3. On the publisher:\n\n```sql\nCREATE TABLE test (\n  id bigserial PRIMARY KEY,\n  message text\n);\n\nCREATE PUBLICATION stressgres_pub FOR TABLE test;\n```\n\n4. On the subscriber:\n\n```sql\nCREATE EXTENSION pg_search;\n\nCREATE TABLE test (\n  id bigint PRIMARY KEY,\n  message text\n);\n\nCREATE INDEX idxtest ON test USING bm25 (id, message)\nWITH (\n  key_field = 'id',\n  mutable_segment_rows = 1,\n  target_segment_count = 1,\n  background_layer_sizes = '0',\n  layer_sizes = '1kb'\n);\n\nCREATE SUBSCRIPTION stressgres_sub\nCONNECTION 'host=localhost port=<publisher_port> dbname=postgres user=<user>'\nPUBLICATION stressgres_pub\nWITH (copy_data = false, streaming = parallel);\n```\n\n5. Insert TOASTed rows on the publisher, each as its own transaction:\n\n```sql\nINSERT INTO test(message) VALUES (repeat('BigData_ ', 200000) || ' row_1');\nINSERT INTO test(message) VALUES (repeat('BigData_ ', 200000) || ' row_2');\nINSERT INTO test(message) VALUES (repeat('BigData_ ', 200000) || ' row_3');\n```\n\n6. Check the subscriber log.\n\nExpected failure before this fix:\n\n```text\nERROR: cannot fetch toast data without an active snapshot\nCONTEXT: processing remote data for replication origin ... during message type \"COMMIT\"\nLOG: background worker \"logical replication apply worker\" ... exited with exit code 1\n```\n\nThe failure requires: logical replication apply worker, `bm25` index on\nthe subscriber, mutable segment materialization, and out-of-line TOASTed\nindexed text.\n\n## Fix\n\nMake `index_memory_segment` self-sufficient: if the caller has not\nalready pushed an active snapshot, push the current transaction snapshot\nbefore any heap tuple or TOAST pointer is fetched.\n\nThe guard is established at the top of `index_memory_segment`, before:\n\n- reading mutable segment CTIDs,\n- fetching heap tuples,\n- deforming heap tuples into Datums / possible TOAST pointers,\n- calling `pg_detoast_datum`.\n\nThe guard remains active through heap fetch, eager detoast, expression\nevaluation, and document materialization. It is popped on normal return.\n\nThis does not change row visibility semantics:\n\n- Heap tuple selection still uses `table_index_fetch_tuple(...\nSnapshotAny ...)`.\n- Tuple liveness is still filtered by `HeapTupleSatisfiesVacuum`.\n- The pushed transaction snapshot is not used to choose a heap row or\nrow version.\n- It only satisfies PostgreSQL's TOAST active/registered snapshot\nrequirement while detoasting the already-selected tuple's value.\n\nIf a caller already has an active snapshot, the guard is a no-op.\n\n## Verification\n\nThe deterministic publisher/subscriber repro passes after this patch:\nall 3 rows replicate to the subscriber, `apply_error_count` remains `0`,\nand the subscriber log no longer reports `cannot fetch toast data\nwithout an active snapshot`.",
+          "timestamp": "2026-06-04T15:52:26-04:00",
+          "tree_id": "10dfb72577b798f632363a449bd84532ef897bde",
+          "url": "https://github.com/paradedb/paradedb/commit/adc7762ccc767901044b3bf11a175340d0f0a17e"
+        },
+        "date": 1780603951670,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 133.21960004916994,
+            "unit": "median tps",
+            "extra": "avg tps: 133.62428081124074, max tps: 144.34476598452383, count: 55163"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 486.1523663787639,
+            "unit": "median tps",
+            "extra": "avg tps: 486.55741805022626, max tps: 593.2476682235609, count: 55163"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3315.0792178652086,
+            "unit": "median tps",
+            "extra": "avg tps: 3300.6960818385637, max tps: 3326.334359923388, count: 55163"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 429.7874257929349,
+            "unit": "median tps",
+            "extra": "avg tps: 430.943696248185, max tps: 481.53915322624005, count: 55163"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2880.23051821109,
+            "unit": "median tps",
+            "extra": "avg tps: 2867.702059173214, max tps: 2938.0956721426683, count: 110326"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 497.96031583642406,
+            "unit": "median tps",
+            "extra": "avg tps: 498.5357978066545, max tps: 594.8831362741789, count: 55163"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1992.8676203551654,
+            "unit": "median tps",
+            "extra": "avg tps: 1983.881814121071, max tps: 1999.8479846976634, count: 55163"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 33.12418073405301,
+            "unit": "median tps",
+            "extra": "avg tps: 36.97489173398952, max tps: 324.6187271894478, count: 55163"
           }
         ]
       }

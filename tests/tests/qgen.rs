@@ -233,6 +233,7 @@ async fn generated_joins_small(database: Db) {
         gucs in any::<PgGucs>(),
     )| {
         let join_clause = join.to_sql();
+
         let from = format!("SELECT COUNT(*) {join_clause} ");
 
         compare(

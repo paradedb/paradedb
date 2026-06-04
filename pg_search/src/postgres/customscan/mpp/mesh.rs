@@ -176,15 +176,21 @@ mod tests {
     use super::*;
     use crate::postgres::customscan::mpp::dsm_mpsc_ring::{self, DsmMpscRingHeader};
 
-    /// Allocate a fresh ring (heap, aligned) and return (sender, receiver, owning region).
+    /// Allocate a fresh ring (heap, aligned) and return `(owning region, sender, receiver)`.
     /// Pairs `DsmInboxSender` + `DsmInboxReceiver` over a heap-allocated ring matching the
     /// alignment contract `create_at` requires. Production allocates the region inside a
     /// `dsm_segment`; this helper exists so the BatchChannel trait impls can be exercised
     /// without a PG backend.
+    ///
+    /// The region is returned FIRST so callers bind it first. Rust drops locals in reverse
+    /// declaration order, so the region (bound first) drops LAST, after the sender/receiver whose
+    /// `Drop` touches the ring memory (`DsmMpscSender::drop` does `sender_count.fetch_sub`).
+    /// Returning the region last instead frees the bytes before those `Drop`s run, a
+    /// use-after-free that corrupts the heap shared with parallel tests.
     fn test_dsm_inbox_pair(
         ring_size: u32,
         slot_capacity: u32,
-    ) -> (DsmInboxSender, DsmInboxReceiver, AlignedTestRegion) {
+    ) -> (AlignedTestRegion, DsmInboxSender, DsmInboxReceiver) {
         let bytes = DsmMpscRingHeader::region_bytes(ring_size, slot_capacity);
         let region = AlignedTestRegion::new(bytes);
         let header_ptr =
@@ -192,7 +198,7 @@ mod tests {
         let nn = std::ptr::NonNull::new(header_ptr).expect("create_at returned null");
         let sender = DsmInboxSender::new(unsafe { DsmMpscSender::new(nn) });
         let receiver = DsmInboxReceiver::new(unsafe { DsmMpscReceiver::new(nn) });
-        (sender, receiver, region)
+        (region, sender, receiver)
     }
 
     struct AlignedTestRegion {
@@ -244,7 +250,7 @@ mod tests {
 
     #[test]
     fn dsm_inbox_batch_channel_round_trip() {
-        let (tx, rx, _region) = test_dsm_inbox_pair(4, 64);
+        let (_region, tx, rx) = test_dsm_inbox_pair(4, 64);
         // Sanity: try_send_bytes succeeds, try_recv hands back the bytes, send_lock
         // returns a usable Mutex.
         assert!(tx.try_send_bytes(b"hello").unwrap());
@@ -264,7 +270,7 @@ mod tests {
 
     #[test]
     fn dsm_inbox_try_send_returns_false_when_full() {
-        let (tx, rx, _region) = test_dsm_inbox_pair(2, 64);
+        let (_region, tx, rx) = test_dsm_inbox_pair(2, 64);
         assert!(tx.try_send_bytes(b"a").unwrap());
         assert!(tx.try_send_bytes(b"b").unwrap());
         // Third send should hit Full (returns Ok(false), not Err).
@@ -279,7 +285,7 @@ mod tests {
         use std::sync::Arc;
         // Build a real Arc<dyn BatchChannelSender> shared across threads to confirm
         // dyn dispatch + Send/Sync impls compile and behave.
-        let (tx, rx, _region) = test_dsm_inbox_pair(64, 32);
+        let (_region, tx, rx) = test_dsm_inbox_pair(64, 32);
         let tx: Arc<dyn BatchChannelSender> = Arc::new(tx);
         let mut handles = Vec::new();
         const K: usize = 4;
@@ -327,7 +333,7 @@ mod tests {
     /// keeps the drain loop from wedging on a clean shutdown.
     #[test]
     fn dropping_last_sender_triggers_detach() {
-        let (tx, rx, _region) = test_dsm_inbox_pair(4, 64);
+        let (_region, tx, rx) = test_dsm_inbox_pair(4, 64);
         tx.try_send_bytes(b"final").unwrap();
         drop(tx);
         // The queued frame is still readable.
@@ -341,7 +347,7 @@ mod tests {
 
     #[test]
     fn try_send_bytes_rejects_oversize_payload() {
-        let (tx, _rx, _region) = test_dsm_inbox_pair(2, 32);
+        let (_region, tx, _rx) = test_dsm_inbox_pair(2, 32);
         // Any payload at or above slot_capacity is unconditionally too large (slot
         // capacity includes the slot header). 64 bytes on a 32-byte slot fits.
         let oversize = vec![0u8; 64];

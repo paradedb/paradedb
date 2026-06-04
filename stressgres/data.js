@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780596618313,
+  "lastUpdate": 1780596752201,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -12430,6 +12430,42 @@ window.BENCHMARK_DATA = {
             "value": 5.299610804992802,
             "unit": "median tps",
             "extra": "avg tps: 4.765928390715521, max tps: 5.92891141931893, count: 57797"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mvanhorn@users.noreply.github.com",
+            "name": "Matt Van Horn",
+            "username": "mvanhorn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "36c0933d3ded611c10c49dfeb7c04c62e6f5b294",
+          "message": "feat: support array::fuzzy::boost cast chain in &&& operator (#5158)\n\n## Summary\n\nfeat: support array::fuzzy::boost cast chain in &&& operator\n\nCloses #5079\n\n---\nAI was used for assistance.\n\n---------\n\nCo-authored-by: Matt Van Horn <455140+mvanhorn@users.noreply.github.com>\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-06-04T13:40:07-04:00",
+          "tree_id": "a78407fc2921c8c3cfee0468dfe194e249f54db9",
+          "url": "https://github.com/paradedb/paradedb/commit/36c0933d3ded611c10c49dfeb7c04c62e6f5b294"
+        },
+        "date": 1780596719889,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 8.021523651886138,
+            "unit": "median tps",
+            "extra": "avg tps: 6.870477401712717, max tps: 10.464464929625533, count: 57524"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.375724140824161,
+            "unit": "median tps",
+            "extra": "avg tps: 4.829475136584982, max tps: 6.005470379366905, count: 57524"
           }
         ]
       }

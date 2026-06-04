@@ -204,10 +204,16 @@ mod typedef {
 #[pg_extern(immutable, parallel_safe)]
 pub fn query_to_boost(input: pdb::Query, typmod: i32, _is_explicit: bool) -> BoostType {
     let boost = deserialize_i32_to_f32(typmod);
-    BoostType(pdb::Query::ScoreAdjusted {
-        query: Box::new(input),
-        score: Some(ScoreAdjustStyle::Boost(boost)),
-    })
+    let mut query = input;
+    if let pdb::Query::ScoreAdjusted { score, .. } = &mut query {
+        *score = Some(ScoreAdjustStyle::Boost(boost));
+        BoostType(query)
+    } else {
+        BoostType(pdb::Query::ScoreAdjusted {
+            query: Box::new(query),
+            score: Some(ScoreAdjustStyle::Boost(boost)),
+        })
+    }
 }
 
 #[pg_extern(immutable, parallel_safe)]

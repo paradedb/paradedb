@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780587545168,
+  "lastUpdate": 1780587582053,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -14922,6 +14922,66 @@ window.BENCHMARK_DATA = {
             "value": 78,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.19284644064253, max segment_count: 128.0, count: 57398"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "71215065+junnjiee@users.noreply.github.com",
+            "name": "Jun Jie",
+            "username": "junnjiee"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d674f27a7a5ff8e331130504f6442a05c51fcb45",
+          "message": "test: handle nullable where clauses in querygen tests (#5253)\n\n# Ticket(s) Closed\n\n- Closes #3111\n\n## What\n\n**Root cause**: Negated (`NOT`) `@@@` predicates are not equivalent to\nnegated PostgreSQL `=` predicates on nullable columns, causing\nmismatches/failures in `tests/qgen.rs`\n\n## Why\n\n- @@@ returns `TRUE` for rows found by the search index, and `FALSE` for\nall other rows\n- postgres `=` evaluates per row using 3-valued logic so it is `NULL`\naware\n\nThis behaviour works as intended normally. But for negation, the\nbehaviour drifts. When using `@@@`, we get a result of all row ids that\nmatch the query. This becomes `TRUE`/`FALSE` per row, information on\n`NULL` rows are lost\n\nMeanwhile, postgres evaluates per row using 3-valued logic, so nullable\ncolumns can produce `NULL`\n\nexample:\n| id  | age | color | = blue | @@@ blue |\n| --- | --- | ----- |---|---|\n| 1   | 20  | blue  | TRUE | TRUE |\n| 2   | 30  | red   | FALSE | FALSE |\n| 3   | 30  | NULL  | NULL | FALSE |\n\nthis PR treats this behaviour as expected and modifies the tests.\n\n## How\n\n### TLDR\nuse \n```\nCASE\n        WHEN table.id IS NOT NULL THEN COALESCE(table.<field> = <value>, false)\n        ELSE table.<field> = <value>\nEND\n```\n\nfor testing `@@@` behaviour on nullable columns as this query captures\nhow it works in both single table and joined tables\n\n### Single table queries\n\nFor single table queries, we use `COALESCE(color = blue, false)` instead\nof `color = blue`, this returns all non-matching values as `FALSE`,\nwhich is what the `@@@` operator does\n\nexample:\n| id  | age | color | = blue | @@@ blue | IS NOT DISTINCT FROM blue |\n| --- | --- | ----- |---|---|---|\n| 1   | 20  | blue  | TRUE | TRUE | TRUE |\n| 2   | 30  | red   | FALSE | FALSE | FALSE |\n| 3   | 30  | NULL  | NULL | FALSE | FALSE |\n\n### Joined table queries\n\nFor outer joins (`LEFT`/`RIGHT`/`FULL`), null-supplying side can produce\nnull extended rows\n\nexample: `products RIGHT JOIN orders ON products.age = orders.age`\n\n| products.id | products.age | products.color | orders.id | orders.age |\n| ----------- | ------------ | -------------- | --------- | ---------- |\n| 1           | 20           | blue           | 20        | 20         |\n| NULL        | NULL         | NULL           | 11        | 99         |\n| 2        | 90         | NULL           | 12        | 90         |\n\nin this case, left table `products` might have `NULL` ids\n\n\nif we perform `WHERE products.color {op} blue` on the table above, we\nget\n\n| products.id | products.age | products.color | @@@ blue | = blue |\n| ----------- | ------------ | -------------- | --------- |---|\n| 1           | 20           | blue           | TRUE        | TRUE |\n| NULL | NULL | NULL | NULL (as products.id is null) | NULL |\n| 2        | 90         | NULL           | FALSE        | NULL         |\n\nthus\n- if `id` is not null, we continue using `COALESCE(color = blue, false)`\n- if `id` is null, `@@@` operator returns `NULL` for that row, which\nmatches normal postgres behaviour\n\n## Tests\n\nTests in `qgen.rs` now pass with `whereable(true)`",
+          "timestamp": "2026-06-04T08:06:22-07:00",
+          "tree_id": "c0530cdcbbe06754d6c2dac721248f647a0fd0e3",
+          "url": "https://github.com/paradedb/paradedb/commit/d674f27a7a5ff8e331130504f6442a05c51fcb45"
+        },
+        "date": 1780587547310,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.255816,
+            "unit": "median cpu",
+            "extra": "avg cpu: 21.05489175000275, max cpu: 42.899704, count: 57355"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.94921875,
+            "unit": "median mem",
+            "extra": "avg mem: 235.76807663074274, max mem: 237.60546875, count: 57355"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.391813,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.43782625323955, max cpu: 33.300297, count: 57355"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 177.3671875,
+            "unit": "median mem",
+            "extra": "avg mem: 177.18946970893992, max mem: 178.09375, count: 57355"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34851,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33822.3300671258, max block_count: 36540.0, count: 57355"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.84395431958853, max segment_count: 131.0, count: 57355"
           }
         ]
       }

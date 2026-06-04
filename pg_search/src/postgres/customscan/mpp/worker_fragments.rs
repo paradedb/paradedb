@@ -15,25 +15,23 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-//! Worker-side fragment discovery for the multi-fragment runner.
+//! Leader-side producer-stage discovery for coordinator dispatch.
 //!
-//! [`find_worker_assignments`] walks a worker's physical plan, visits every
-//! [`datafusion_distributed::NetworkBoundary`], and collects the
-//! `(input_stage.num, task_idx, plan, routing)` tuples assigned to a given
-//! `this_proc`. The dispatcher driven by [`mpp::host::exec_mpp_worker`] runs one
-//! fragment per returned [`FragmentAssignment`].
+//! [`collect_dispatched_stages`] walks the distributed physical plan, visits every
+//! [`datafusion_distributed::NetworkBoundary`], and collects one [`StageEntry`]
+//! (`input_stage.num`, `task_count`, `routing`, `plan`) per boundary. The leader serializes each
+//! stage's plan and ships it; each worker later expands a stage into one [`FragmentAssignment`]
+//! per `task_idx` it owns under `proc_for_task`.
 //!
-//! The walker tracks a `ParentContext` per recursion level so nested
-//! boundaries know which OUTER stage's tasks consume their output. The
-//! routing math (which proc to send partition `q` to) depends on this:
+//! Routing classification (which proc an output partition `q` is sent to) depends on the
+//! boundary's position:
 //!
-//! - **Top-level boundary** (`parent = None`): the consumer is the leader at
+//! - **Top-level boundary** (`nested = false`): the consumer is the leader at
 //!   proc 0. Every output partition goes there.
-//! - **Nested boundary inside outer stage `S_outer.plan`**: the consumer is
-//!   one of `S_outer`'s tasks. For [`NetworkShuffleExec`] the routing is
-//!   hash-partitioned (partition `q` → consumer task `q / P_c` where `P_c`
-//!   is the per-consumer-task output count); for [`NetworkCoalesceExec`]
-//!   the routing collapses to a single consumer task.
+//! - **Nested boundary inside an outer stage**: the consumer is one of that stage's
+//!   tasks. For [`NetworkShuffleExec`] the routing is hash-partitioned (partition `q` →
+//!   the consumer task `route_partition(q)` picks); for [`NetworkCoalesceExec`] the
+//!   routing collapses to a single consumer task.
 //!
 //! [`NetworkShuffleExec`]: datafusion_distributed::NetworkShuffleExec
 //! [`NetworkCoalesceExec`]: datafusion_distributed::NetworkCoalesceExec

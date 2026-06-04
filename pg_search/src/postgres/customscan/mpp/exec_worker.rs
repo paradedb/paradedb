@@ -220,9 +220,8 @@ pub(crate) fn run_mpp_worker(
         }
     }
 
-    // Build this worker's fragment assignments from the DSM plan payload. The aggregate path
-    // runs the leader's dispatched per-stage subplans directly; the join path still re-plans
-    // locally (its custom execs aren't dispatchable yet). Both land at the same dispatcher loop.
+    // Build this worker's fragment assignments by decoding the leader's dispatched per-stage
+    // subplans from the DSM payload (no re-planning), then run them on the dispatcher loop below.
     // `worker_mesh.n_procs >= 3` is guaranteed by `mpp_is_active()` (callers gate before reaching
     // this), so `n_workers() = n_procs - 1` is safe.
     let n_workers = worker_mesh.n_workers();

@@ -922,9 +922,6 @@ impl ParallelQueryCapable for JoinScan {
                 &plan_bytes,
                 create_datafusion_session_context(SessionContextProfile::Join),
                 producer_worker_count(),
-                Some(pscan_state),
-                Vec::new(),
-                Vec::new(),
                 &runtime,
             ) {
                 Ok(b) => b,

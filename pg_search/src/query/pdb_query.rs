@@ -763,14 +763,8 @@ fn term_set(
 
     Ok(Box::new(TermSetQuery::new(
         converted_terms.into_iter().map(|term| {
-            value_to_term(
-                tantivy_field,
-                &term,
-                field_type,
-                field.path().as_deref(),
-                search_field.is_datetime(),
-            )
-            .expect("could not convert argument to search term")
+            value_to_term(tantivy_field, &term, field_type, field.path().as_deref())
+                .expect("could not convert argument to search term")
         }),
     )))
 }
@@ -795,7 +789,6 @@ fn term(
         &value,
         field_type,
         field.path().as_deref(),
-        search_field.is_datetime(),
     )?;
 
     Ok(Box::new(TermQuery::new(term, record_option.into())))
@@ -852,7 +845,7 @@ fn range_within(
     let typeoid = search_field.field_type().typeoid();
     let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
 
-    let range_field = RangeField::new(search_field.field(), search_field.is_datetime());
+    let range_field = RangeField::new(search_field.field());
 
     let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
     let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
@@ -1008,7 +1001,7 @@ fn range_term(
     // - Date/time ranges: handling is determined by examining the schema
     let value = convert_value_for_range_field(value.clone(), &search_field.field_type());
 
-    let range_field = RangeField::new(search_field.field(), search_field.is_datetime());
+    let range_field = RangeField::new(search_field.field());
 
     let satisfies_lower_bound = BooleanQuery::new(vec![
         (
@@ -1114,7 +1107,7 @@ fn range_intersects(
     let typeoid = search_field.field_type().typeoid();
 
     let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
-    let range_field = RangeField::new(search_field.field(), search_field.is_datetime());
+    let range_field = RangeField::new(search_field.field());
 
     let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
     let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
@@ -1268,7 +1261,7 @@ fn range_contains(
         .ok_or(QueryError::NonIndexedField(field.clone()))?;
     let typeoid = search_field.field_type().typeoid();
     let (lower_bound, upper_bound) = check_range_bounds(typeoid, lower_bound, upper_bound)?;
-    let range_field = RangeField::new(search_field.field(), search_field.is_datetime());
+    let range_field = RangeField::new(search_field.field());
 
     let mut satisfies_lower_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
     let mut satisfies_upper_bound: Vec<(Occur, Box<dyn TantivyQuery>)> = vec![];
@@ -1477,14 +1470,12 @@ fn range(
             &value,
             field_type,
             field.path().as_deref(),
-            search_field.is_datetime(),
         )?),
         Bound::Excluded(value) => Bound::Excluded(value_to_term(
             search_field.field(),
             &value,
             field_type,
             field.path().as_deref(),
-            search_field.is_datetime(),
         )?),
         Bound::Unbounded => Bound::Unbounded,
     };
@@ -1495,14 +1486,12 @@ fn range(
             &value,
             field_type,
             field.path().as_deref(),
-            search_field.is_datetime(),
         )?),
         Bound::Excluded(value) => Bound::Excluded(value_to_term(
             search_field.field(),
             &value,
             field_type,
             field.path().as_deref(),
-            search_field.is_datetime(),
         )?),
         Bound::Unbounded => Bound::Unbounded,
     };
@@ -1548,13 +1537,7 @@ fn tokenized_phrase(
     let mut tokens = Vec::new();
     while let Some(token) = stream.next() {
         let value = PdbOwnedValue::Str(token.text.clone());
-        let term = value_to_term(
-            search_field.field(),
-            &value,
-            field_type,
-            path.as_deref(),
-            false,
-        )?;
+        let term = value_to_term(search_field.field(), &value, field_type, path.as_deref())?;
         tokens.push(term);
     }
     Ok(if tokens.is_empty() {
@@ -1589,7 +1572,6 @@ fn phrase_prefix(
             &PdbOwnedValue::Str(phrase),
             field_type,
             field.path().as_deref(),
-            false,
         )
         .unwrap()
     });
@@ -1628,7 +1610,6 @@ fn phrase(
                 &PdbOwnedValue::Str(token),
                 field_type,
                 field.path().as_deref(),
-                false,
             )?;
 
             terms.push(term);
@@ -1674,7 +1655,6 @@ fn phrase_array(
             &PdbOwnedValue::Str(tokens.pop().unwrap()),
             field_type,
             field.path().as_deref(),
-            false,
         )?;
         Ok(Box::new(TermQuery::new(
             term,
@@ -1687,7 +1667,6 @@ fn phrase_array(
                 &PdbOwnedValue::Str(token),
                 field_type,
                 field.path().as_deref(),
-                false,
             )?;
 
             terms.push(term);
@@ -1754,7 +1733,6 @@ fn parse_with_field<QueryParserCtor: Fn() -> QueryParser>(
                 &converted,
                 tantivy_field_type,
                 field.path().as_deref(),
-                false,
             )?;
             return Ok(Box::new(TermQuery::new(
                 term,
@@ -1838,7 +1816,6 @@ fn match_query(
             &PdbOwnedValue::Str(token),
             field_type,
             field.path().as_deref(),
-            false,
         )?);
     }
 
@@ -1896,7 +1873,6 @@ fn match_array_query(
             &PdbOwnedValue::Str(token),
             field_type,
             field.path().as_deref(),
-            false,
         )?;
         let term_query: Box<dyn TantivyQuery> = match (distance, prefix) {
             (0, _) => Box::new(TermQuery::new(
@@ -1942,7 +1918,6 @@ fn fuzzy_term(
         &PdbOwnedValue::Str(value),
         field_type,
         field.path().as_deref(),
-        false,
     )?;
     let distance = distance.unwrap_or(2);
     let transposition_cost_one = transposition_cost_one.unwrap_or(true);

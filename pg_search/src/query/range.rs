@@ -43,7 +43,6 @@ const RECORD: IndexRecordOption = IndexRecordOption::WithFreqsAndPositions;
 #[derive(Clone, Debug)]
 pub struct RangeField {
     field: Field,
-    is_datetime: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -55,8 +54,8 @@ pub enum Comparison {
 }
 
 impl RangeField {
-    pub fn new(field: Field, is_datetime: bool) -> Self {
-        Self { field, is_datetime }
+    pub fn new(field: Field) -> Self {
+        Self { field }
     }
 
     pub fn exists(&self) -> Result<RegexQuery> {
@@ -143,7 +142,7 @@ impl RangeField {
     }
 
     fn as_range_term(&self, value: &PdbOwnedValue, path: Option<&str>) -> Result<Term> {
-        value_to_json_term(self.field, value, path, EXPAND_DOTS, self.is_datetime)
+        value_to_json_term(self.field, value, path, EXPAND_DOTS)
     }
 }
 

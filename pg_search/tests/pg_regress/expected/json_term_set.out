@@ -30,8 +30,8 @@ WHERE id @@@ paradedb.term_set(terms => ARRAY[
     paradedb.term('metadata.attributes.tstz', '2023-05-01T10:12:34Z'::timestamptz)
 ])
 ORDER BY id;
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                                      QUERY PLAN                                                                                                                      
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_term_set_test
@@ -40,7 +40,7 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Fast Fields: id
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"term_set":{"terms":[{"field":"metadata.attributes.tstz","value":{"date":"2023-05-01T09:12:34Z"}},{"field":"metadata.attributes.tstz","value":{"date":"2023-05-01T10:12:34Z"}}]}}}}
+         Tantivy Query: {"with_index":{"query":{"term_set":{"terms":[{"field":"metadata.attributes.tstz","value":{"$__pdb_date__":"2023-05-01T09:12:34Z"}},{"field":"metadata.attributes.tstz","value":{"$__pdb_date__":"2023-05-01T10:12:34Z"}}]}}}}
 (9 rows)
 
 SELECT id FROM json_term_set_test
@@ -69,8 +69,8 @@ WHERE id @@@ '{
     }
 }'::jsonb
 ORDER BY id;
-                                                                                                             QUERY PLAN                                                                                                             
-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
  Sort
    Sort Key: id
    ->  Custom Scan (ParadeDB Base Scan) on json_term_set_test
@@ -79,7 +79,7 @@ ORDER BY id;
          Exec Method: ColumnarExecState
          Fast Fields: id
          Scores: false
-         Tantivy Query: {"with_index":{"query":{"term_set":{"terms":[{"field":"metadata.attributes.tstz","value":{"date":"2023-05-01T09:12:34Z"}},{"field":"metadata.attributes.tstz","value":{"date":"2023-05-01T10:12:34Z"}}]}}}}
+         Tantivy Query: {"with_index":{"query":{"term_set":{"terms":[{"field":"metadata.attributes.tstz","value":"2023-05-01T09:12:34Z"},{"field":"metadata.attributes.tstz","value":"2023-05-01T10:12:34Z"}]}}}}
 (9 rows)
 
 SELECT id FROM json_term_set_test

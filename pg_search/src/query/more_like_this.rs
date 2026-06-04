@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
 use crate::postgres::rel::PgSearchRelation;
 use crate::postgres::types::TantivyValue;
 use pgrx::spi::SpiError;
@@ -42,7 +43,7 @@ impl MoreLikeThis {
 #[derive(Debug, Clone)]
 pub struct MoreLikeThisQuery {
     mlt: MoreLikeThis,
-    doc_fields: Vec<(Field, Vec<OwnedValue>)>,
+    doc_fields: Vec<(Field, Vec<PdbOwnedValue>)>,
 }
 
 impl MoreLikeThisQuery {
@@ -64,11 +65,23 @@ impl Query for MoreLikeThisQuery {
         let values = self
             .doc_fields
             .iter()
+            .map(|(field, values)| {
+                (
+                    *field,
+                    values
+                        .iter()
+                        .map(|v| v.clone().into_tantivy_value())
+                        .collect::<Vec<OwnedValue>>(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let value_refs = values
+            .iter()
             .map(|(field, values)| (*field, values.iter().collect::<Vec<&OwnedValue>>()))
             .collect::<Vec<_>>();
 
         self.mlt
-            .query_with_document_fields(searcher, &values)?
+            .query_with_document_fields(searcher, &value_refs)?
             .weight(enable_scoring)
     }
 }
@@ -129,7 +142,7 @@ impl MoreLikeThisQueryBuilder {
 
     pub fn with_key_value(
         self,
-        key_value: OwnedValue,
+        key_value: PdbOwnedValue,
         fields: Option<Vec<String>>,
         index_oid: pgrx::pg_sys::Oid,
     ) -> Option<MoreLikeThisQuery> {
@@ -143,8 +156,8 @@ impl MoreLikeThisQueryBuilder {
         let (key_field_name, key_field_type) = (schema.key_field_name(), schema.key_field_type());
         let categorized_fields = schema.categorized_fields();
 
-        let maybe_doc_fields: Result<Vec<(Field, Vec<OwnedValue>)>, SpiError> = pgrx::Spi::connect(
-            |client| {
+        let maybe_doc_fields: Result<Vec<(Field, Vec<PdbOwnedValue>)>, SpiError> =
+            pgrx::Spi::connect(|client| {
                 let mut doc_fields = Vec::new();
                 let result =
                     client
@@ -192,7 +205,7 @@ impl MoreLikeThisQueryBuilder {
                                 TantivyValue::try_from_datum_array(datum, categorized.base_oid)
                                 .expect("more_like_this: should be able to convert array to tantivy value")
                                 .into_iter()
-                                .map(|v| v.into())
+                                .map(|v| v.0)
                                 .collect::<Vec<_>>()
                             };
                             doc_fields.push((search_field.field(), values));
@@ -201,14 +214,13 @@ impl MoreLikeThisQueryBuilder {
                                 TantivyValue::try_from_datum(datum, categorized.base_oid)
                                 .expect("more_like_this: should be able to convert datum to tantivy value")
                             };
-                            doc_fields.push((search_field.field(), vec![value.into()]));
+                            doc_fields.push((search_field.field(), vec![value.0]));
                         }
                     }
                 }
 
                 Ok::<_, SpiError>(doc_fields)
-            },
-        );
+            });
 
         match maybe_doc_fields {
             Ok(doc_fields) => Some(MoreLikeThisQuery {
@@ -219,7 +231,7 @@ impl MoreLikeThisQueryBuilder {
         }
     }
 
-    pub fn with_document(self, doc_fields: Vec<(Field, Vec<OwnedValue>)>) -> MoreLikeThisQuery {
+    pub fn with_document(self, doc_fields: Vec<(Field, Vec<PdbOwnedValue>)>) -> MoreLikeThisQuery {
         MoreLikeThisQuery {
             mlt: self.mlt,
             doc_fields,

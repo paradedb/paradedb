@@ -9,3 +9,6 @@ SET paradedb.enable_aggregate_custom_scan TO on; SELECT COUNT(ctid) FROM stackov
 
 -- pdb.agg without GROUP BY (mvcc disabled)
 SELECT pdb.agg('{"value_count": {"field": "ctid"}}', false) FROM stackoverflow_posts WHERE id @@@ pdb.all();
+
+-- pdb.agg without GROUP BY (mvcc enabled)
+SELECT pdb.agg('{"value_count": {"field": "ctid"}}', true) FROM stackoverflow_posts WHERE id @@@ pdb.all();

@@ -31,9 +31,9 @@ use tantivy::index::SegmentId;
 
 use crate::api::HashSet;
 use crate::postgres::customscan::mpp::exec_worker::build_mpp_session_context;
-use crate::postgres::customscan::mpp::runtime::proc_for_task;
+use crate::postgres::customscan::mpp::runtime::{proc_for_task, MppMesh};
 use crate::postgres::customscan::mpp::worker_fragments::{
-    collect_dispatched_stages, FragmentAssignment, FragmentRouting,
+    collect_dispatched_stages, FragmentAssignment, FragmentRouting, StageEntry,
 };
 use crate::postgres::ParallelScanState;
 use crate::scan::codec::deserialize_logical_plan_with_runtime;
@@ -50,47 +50,68 @@ struct DispatchedStage {
     plan_proto: Vec<u8>,
 }
 
+/// First byte of the DSM plan region: a re-planned worker reads a logical plan (Tier 1, join);
+/// a dispatched worker reads the framed per-stage blob (Tier 2, aggregate). The customscans opt
+/// in per scan, so the shared worker path branches on this.
+pub const TAG_LOGICAL: u8 = 0;
+pub const TAG_BLOB: u8 = 1;
+
 /// bincode config for the dispatch blob. Pinned so leader and worker agree.
 fn blob_config() -> impl bincode::config::Config {
     bincode::config::standard()
 }
 
-/// DSM plan-region capacity for the dispatch payload, including the 8-byte length prefix.
+/// DSM plan-region capacity for the dispatch payload (`[tag][u64 len][blob][pad]`).
 ///
 /// The region is sized at `estimate_dsm` time, before the physical plan (and so the real blob
 /// size) can be known, because `ParallelScanState` doesn't exist yet. Size generously from the
 /// logical-plan length; an overflowing blob falls back to serial. `estimate_dsm` and
 /// `initialize_dsm` MUST call this with the same `logical_len` so the DSM layout matches.
 pub fn dispatch_plan_capacity(logical_len: usize) -> usize {
-    8 + logical_len.saturating_mul(64).max(1 << 20)
+    1 + 8 + logical_len.saturating_mul(64).max(1 << 20)
 }
 
-/// Frame the blob into a fixed-capacity DSM payload: `[u64 len LE][blob][zero pad to capacity]`.
-/// Errors if the blob plus prefix exceeds `capacity` so the caller can fall back to serial.
+/// DSM plan-region size for a re-planned (logical) worker: the logical plan behind the mode tag.
+pub fn logical_plan_capacity(logical_len: usize) -> usize {
+    1 + logical_len
+}
+
+/// Frame the blob into a fixed-capacity dispatch payload:
+/// `[TAG_BLOB][u64 len LE][blob][zero pad to capacity]`. Errors if it doesn't fit `capacity` so
+/// the caller can fall back to serial.
 pub fn frame_dispatch_payload(blob: &[u8], capacity: usize) -> Result<Vec<u8>> {
-    let needed = 8 + blob.len();
+    let needed = 1 + 8 + blob.len();
     if needed > capacity {
         return Err(DataFusionError::Internal(format!(
             "mpp dispatch: blob {needed} bytes exceeds DSM plan capacity {capacity}"
         )));
     }
     let mut payload = Vec::with_capacity(capacity);
+    payload.push(TAG_BLOB);
     payload.extend_from_slice(&(blob.len() as u64).to_le_bytes());
     payload.extend_from_slice(blob);
     payload.resize(capacity, 0);
     Ok(payload)
 }
 
-/// Extract the blob from a framed DSM payload (inverse of [`frame_dispatch_payload`]).
-fn unframe_dispatch_payload(payload: &[u8]) -> Result<&[u8]> {
-    let len_bytes = payload.get(0..8).ok_or_else(|| {
+/// Frame a logical plan into the re-plan payload: `[TAG_LOGICAL][logical plan bytes]`.
+pub fn frame_logical_payload(logical_bytes: Vec<u8>) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(1 + logical_bytes.len());
+    payload.push(TAG_LOGICAL);
+    payload.extend_from_slice(&logical_bytes);
+    payload
+}
+
+/// Extract the blob from a framed dispatch payload body (the bytes after the mode tag).
+fn unframe_dispatch_payload(body: &[u8]) -> Result<&[u8]> {
+    let len_bytes = body.get(0..8).ok_or_else(|| {
         DataFusionError::Internal("mpp dispatch: payload too short for length prefix".into())
     })?;
     let len = u64::from_le_bytes(len_bytes.try_into().unwrap()) as usize;
-    payload.get(8..8 + len).ok_or_else(|| {
+    body.get(8..8 + len).ok_or_else(|| {
         DataFusionError::Internal(format!(
             "mpp dispatch: payload length prefix {len} exceeds payload {}",
-            payload.len()
+            body.len()
         ))
     })
 }
@@ -149,12 +170,36 @@ fn read_dispatch_blob(payload: &[u8]) -> Result<Vec<DispatchedStage>> {
     Ok(stages)
 }
 
-/// Expand the dispatch blob into this worker's fragment assignments. Each stage's subplan is
+/// Fan a stage out to the `task_idx` slots `this_proc` owns under `proc_for_task`. Shared by the
+/// dispatch (decoded) and re-plan (in-memory) paths.
+fn push_owned_tasks(
+    out: &mut Vec<FragmentAssignment>,
+    stage_num: u32,
+    task_count: usize,
+    routing: &FragmentRouting,
+    plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+    this_proc: u32,
+    n_workers: u32,
+) {
+    for task_idx in 0..task_count {
+        if proc_for_task(n_workers, task_idx as u32) == this_proc {
+            out.push(FragmentAssignment {
+                stage_id: stage_num,
+                task_idx,
+                task_count,
+                plan: Arc::clone(plan),
+                routing: routing.clone(),
+            });
+        }
+    }
+}
+
+/// Expand the dispatch blob body into this worker's fragment assignments. Each stage's subplan is
 /// decoded once (injecting the worker's runtime context) and fanned out to the `task_idx` slots
-/// this proc owns. Mirrors what the worker re-plan + `find_worker_assignments` produced before.
+/// this proc owns.
 #[allow(clippy::too_many_arguments)]
-pub fn expand_to_assignments(
-    payload: &[u8],
+fn expand_to_assignments(
+    body: &[u8],
     this_proc: u32,
     n_workers: u32,
     decode_ctx: &TaskContext,
@@ -162,7 +207,7 @@ pub fn expand_to_assignments(
     non_partitioning_segments: &[HashSet<SegmentId>],
     index_segment_ids: &[HashSet<SegmentId>],
 ) -> Result<Vec<FragmentAssignment>> {
-    let stages = read_dispatch_blob(payload)?;
+    let stages = read_dispatch_blob(body)?;
     let mut out = Vec::new();
     for stage in stages {
         let plan = deserialize_physical_plan_with_runtime(
@@ -172,17 +217,96 @@ pub fn expand_to_assignments(
             non_partitioning_segments.to_vec(),
             index_segment_ids.to_vec(),
         )?;
-        for task_idx in 0..stage.task_count {
-            if proc_for_task(n_workers, task_idx as u32) == this_proc {
-                out.push(FragmentAssignment {
-                    stage_id: stage.stage_num,
-                    task_idx,
-                    task_count: stage.task_count,
-                    plan: Arc::clone(&plan),
-                    routing: stage.routing.clone(),
-                });
-            }
-        }
+        push_owned_tasks(
+            &mut out,
+            stage.stage_num,
+            stage.task_count,
+            &stage.routing,
+            &plan,
+            this_proc,
+            n_workers,
+        );
     }
     Ok(out)
+}
+
+/// Re-plan path (Tier 1): expand in-memory stages from a freshly built physical plan.
+fn assignments_from_stages(
+    stages: Vec<StageEntry>,
+    this_proc: u32,
+    n_workers: u32,
+) -> Vec<FragmentAssignment> {
+    let mut out = Vec::new();
+    for stage in stages {
+        push_owned_tasks(
+            &mut out,
+            stage.stage_num,
+            stage.task_count,
+            &stage.routing,
+            &stage.plan,
+            this_proc,
+            n_workers,
+        );
+    }
+    out
+}
+
+/// Build this worker's fragment assignments from the DSM plan payload, branching on the mode tag:
+/// a dispatched blob runs the leader's sliced subplans directly (Tier 2); a logical plan is
+/// re-planned and walked locally (Tier 1, for customscans whose execs aren't dispatchable yet).
+/// Returns the distributed session context too, since the caller needs it to run the fragments.
+#[allow(clippy::too_many_arguments)]
+pub fn fragments_for_worker(
+    plan_bytes: &[u8],
+    seed: SessionContext,
+    mesh: Arc<MppMesh>,
+    this_proc: u32,
+    n_workers: u32,
+    parallel_state: Option<*mut ParallelScanState>,
+    non_partitioning_segments: &[HashSet<SegmentId>],
+    index_segment_ids: &[HashSet<SegmentId>],
+    runtime: &tokio::runtime::Runtime,
+) -> Result<(Vec<FragmentAssignment>, SessionContext)> {
+    let Some((&tag, body)) = plan_bytes.split_first() else {
+        return Err(DataFusionError::Internal(
+            "mpp dispatch: empty worker plan bytes".into(),
+        ));
+    };
+    match tag {
+        TAG_BLOB => {
+            let session = build_mpp_session_context(seed, Some(mesh));
+            // Decode against the full session task context so functions resolve through the
+            // registry (the composed physical codec can shadow UDF/UDAF decode at position 0).
+            let fragments = expand_to_assignments(
+                body,
+                this_proc,
+                n_workers,
+                &session.task_ctx(),
+                parallel_state,
+                non_partitioning_segments,
+                index_segment_ids,
+            )?;
+            Ok((fragments, session))
+        }
+        TAG_LOGICAL => {
+            let logical = deserialize_logical_plan_with_runtime(
+                body,
+                &seed.task_ctx(),
+                parallel_state,
+                None, // expr_context: bm25 search predicates don't need runtime params
+                None, // planstate: same
+                non_partitioning_segments.to_vec(),
+                index_segment_ids.to_vec(),
+            )?;
+            let session = build_mpp_session_context(seed, Some(mesh));
+            let physical =
+                runtime.block_on(async { session.state().create_physical_plan(&logical).await })?;
+            let fragments =
+                assignments_from_stages(collect_dispatched_stages(&physical, n_workers), this_proc, n_workers);
+            Ok((fragments, session))
+        }
+        other => Err(DataFusionError::Internal(format!(
+            "mpp dispatch: unknown worker plan tag {other}"
+        ))),
+    }
 }

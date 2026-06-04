@@ -45,7 +45,7 @@ use tantivy::index::SegmentId;
 
 use crate::api::HashSet;
 use crate::postgres::customscan::datafusion::memory::create_memory_pool;
-use crate::postgres::customscan::mpp::dispatch::expand_to_assignments;
+use crate::postgres::customscan::mpp::dispatch::fragments_for_worker;
 use crate::postgres::customscan::mpp::glue::producer_worker_count;
 use crate::postgres::customscan::mpp::runtime::{
     proc_for_task, InProcessWorkerResolver, MppMesh, ShmMqWorkerTransport,
@@ -220,27 +220,25 @@ pub(crate) fn run_mpp_worker(
         }
     }
 
-    let session = build_mpp_session_context(seed_ctx, Some(Arc::clone(&worker_mesh)));
-
-    // Decode the leader's dispatched per-stage subplans into this proc's fragment assignments,
-    // instead of re-planning from a logical plan. The decode runs against the full session task
-    // context so functions resolve through the registry (the composed physical codec can shadow
-    // UDF/UDAF decode at position 0 otherwise). The dispatcher then runs each fragment exactly as
-    // before. `worker_mesh.n_procs >= 3` is guaranteed by `mpp_is_active()` (callers gate before
-    // reaching this), so `n_workers() = n_procs - 1` is safe.
+    // Build this worker's fragment assignments from the DSM plan payload. The aggregate path
+    // runs the leader's dispatched per-stage subplans directly; the join path still re-plans
+    // locally (its custom execs aren't dispatchable yet). Both land at the same dispatcher loop.
+    // `worker_mesh.n_procs >= 3` is guaranteed by `mpp_is_active()` (callers gate before reaching
+    // this), so `n_workers() = n_procs - 1` is safe.
     let n_workers = worker_mesh.n_workers();
-    let decode_ctx = session.task_ctx();
-    let fragments = match expand_to_assignments(
+    let (fragments, session) = match fragments_for_worker(
         &plan_bytes,
+        seed_ctx,
+        Arc::clone(&worker_mesh),
         this_proc,
         n_workers,
-        &decode_ctx,
         parallel_state,
         &non_partitioning_segments,
         &index_segment_ids,
+        runtime,
     ) {
-        Ok(f) => f,
-        Err(e) => pgrx::error!("mpp worker: expand dispatch blob failed: {e}"),
+        Ok(v) => v,
+        Err(e) => pgrx::error!("mpp worker: build fragment assignments failed: {e}"),
     };
     if fragments.is_empty() {
         pgrx::warning!(

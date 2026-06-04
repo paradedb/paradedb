@@ -271,7 +271,11 @@ extension_sql!(
         CREATE CAST (text[] AS pdb.fuzzy) WITH FUNCTION text_array_to_fuzzy(text[], integer, boolean) AS ASSIGNMENT;
         CREATE CAST (pdb.query AS pdb.fuzzy) WITH FUNCTION query_to_fuzzy(pdb.query, integer, boolean) AS ASSIGNMENT;
         CREATE CAST (pdb.fuzzy AS pdb.boost) WITH FUNCTION fuzzy_to_boost(pdb.fuzzy, integer, boolean) AS IMPLICIT;
-        CREATE CAST (pdb.boost AS pdb.fuzzy) WITH FUNCTION boost_to_fuzzy(pdb.boost, integer, boolean) AS IMPLICIT;
+        -- ASSIGNMENT (not IMPLICIT) on purpose: fuzzy -> boost is already IMPLICIT, and a
+        -- second IMPLICIT cast in the reverse direction would make the implicit-cast graph
+        -- cyclic, risking ambiguous operator/function resolution. Explicit `::pdb.fuzzy`
+        -- casts (the array::boost::fuzzy chain in #5079) work fine in assignment context.
+        CREATE CAST (pdb.boost AS pdb.fuzzy) WITH FUNCTION boost_to_fuzzy(pdb.boost, integer, boolean) AS ASSIGNMENT;
         CREATE CAST (pdb.fuzzy AS pdb.const) WITH FUNCTION fuzzy_to_const(pdb.fuzzy, integer, boolean) AS IMPLICIT;
         CREATE CAST (pdb.fuzzy AS pdb.fuzzy) WITH FUNCTION fuzzy_to_fuzzy(pdb.fuzzy, integer, boolean) AS IMPLICIT;
     "#,

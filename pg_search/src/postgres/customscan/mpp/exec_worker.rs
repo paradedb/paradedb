@@ -17,9 +17,9 @@
 
 //! Shape-agnostic MPP worker exec dispatcher.
 //!
-//! The natural-shape MPP path is the same flow for every customscan that opts in: deserialize
-//! the leader's logical plan from DSM, build a distributed physical plan with the same session
-//! config the leader ran, walk it to find this proc's fragments, and dispatch them via
+//! The natural-shape MPP path is the same flow for every customscan that opts in: read the
+//! leader's dispatch blob from DSM, decode this proc's per-stage physical subplans (the leader
+//! built and sliced the plan once, so workers don't re-plan), and run each fragment via
 //! [`run_worker_fragment`] + `join_all`. The only customscan-specific pieces are the seed
 //! `SessionContext` (different `SessionContextProfile`) and where the inputs come from in
 //! per-scan state.
@@ -35,7 +35,6 @@ use std::sync::Arc;
 
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::{SessionStateBuilder, TaskContext};
-use datafusion::physical_plan::ExecutionPlanProperties;
 use datafusion::prelude::SessionContext;
 use datafusion_distributed::{
     DistributedConfig, DistributedExec, DistributedExt, DistributedTaskContext,
@@ -46,6 +45,7 @@ use tantivy::index::SegmentId;
 
 use crate::api::HashSet;
 use crate::postgres::customscan::datafusion::memory::create_memory_pool;
+use crate::postgres::customscan::mpp::dispatch::expand_to_assignments;
 use crate::postgres::customscan::mpp::glue::producer_worker_count;
 use crate::postgres::customscan::mpp::runtime::{
     proc_for_task, InProcessWorkerResolver, MppMesh, ShmMqWorkerTransport,
@@ -53,12 +53,9 @@ use crate::postgres::customscan::mpp::runtime::{
 use crate::postgres::customscan::mpp::task_estimator::BroadcastBuildSideOneTaskEstimator;
 use crate::postgres::customscan::mpp::transport::{CooperativeDrainSet, MppFrameHeader, MppSender};
 use crate::postgres::customscan::mpp::worker::run_worker_fragment;
-use crate::postgres::customscan::mpp::worker_fragments::{
-    find_worker_assignments, FragmentRouting,
-};
+use crate::postgres::customscan::mpp::worker_fragments::FragmentRouting;
 use crate::postgres::customscan::parallel::list_segment_ids;
 use crate::postgres::ParallelScanState;
-use crate::scan::codec::deserialize_logical_plan_with_runtime;
 
 /// Bundle of inputs the worker dispatcher needs. Per-scan
 /// [`crate::postgres::customscan::mpp::host::MppWorkerHost`] impls populate this from their
@@ -72,7 +69,8 @@ pub(crate) struct MppWorkerInputs {
     pub partitioning_source_idx: usize,
     /// Total number of sources in the plan. Used to size the codec's per-source segment-ID Vec.
     pub plan_sources_count: usize,
-    /// Leader's serialized logical plan, copied out of DSM during `worker_setup`.
+    /// Leader's dispatch payload (framed per-stage physical subplans), copied out of DSM during
+    /// `worker_setup`.
     pub plan_bytes: Vec<u8>,
     /// This worker's `MppMesh` handle.
     pub worker_mesh: Arc<MppMesh>,
@@ -81,10 +79,11 @@ pub(crate) struct MppWorkerInputs {
     pub outbound_senders: Vec<Option<MppSender>>,
 }
 
-/// Build the worker/leader distributed session context. Same builder both procs run so they
-/// agree on stage shape, task estimator chain, target_partitions, and codec. Without that,
-/// `find_worker_assignments` returns no fragments because the worker's plan numbers stages
-/// differently from the leader's.
+/// Build the distributed session context. The leader runs this (mesh = None) to build and slice
+/// the plan for dispatch, and again at exec (mesh = Some) for its consumer side; workers run it
+/// (mesh = Some) to host the decoded fragments. Both procs must agree on stage shape, task
+/// estimator chain, and target_partitions so the dispatched stage numbers line up with the
+/// leader's consumer plan.
 ///
 /// `seed` is the customscan's serial session context (`create_aggregate_session_context()` for
 /// AggregateScan, `create_datafusion_session_context(SessionContextProfile::Join)` for JoinScan).
@@ -113,8 +112,8 @@ pub(crate) fn build_mpp_session_context(
     //   3. distributed_broadcast_joins(true): otherwise CollectLeft HashJoins cap their
     //      stage at Maximum(1) and propagate the cap upward, eliding shuffles above the join.
     // The old `in_process_mode` knob is gone: the registered `ShmMqWorkerTransport` carries a
-    // no-op `dispatch()`, so there is no gRPC plan-send / metrics / work-unit-feed to skip.
-    // Workers still re-plan from the logical plan in DSM.
+    // no-op `dispatch()` (coordinator dispatch rides DSM, not gRPC), so there is no gRPC
+    // plan-send / metrics / work-unit-feed to skip.
     let cfg = seed
         .copied_config()
         .with_target_partitions(n_workers.max(2));
@@ -155,10 +154,9 @@ pub(crate) fn build_mpp_session_context(
         // `in_process_mode` flag anymore: the transport's no-op `dispatch()` is what skips the
         // wire plan-send / metrics / work-unit-feed (see `ShmMqWorkerTransport::dispatch`).
         .with_distributed_worker_resolver(InProcessWorkerResolver::new(n_workers));
-    // Install the shm_mq transport only when running for actual execution (mesh = Some).
-    // EXPLAIN passes mesh = None and the fork's default (FlightWorkerTransport) sits
-    // unused. The planner never calls WorkerConnection::open() outside streaming, so the
-    // default is fine for read-only plan introspection.
+    // Install the shm_mq transport only for actual execution (mesh = Some). mesh = None is the
+    // structure-only path: EXPLAIN, and the leader serializing the plan for dispatch. Neither
+    // opens a WorkerConnection, so the fork's default transport sits unused.
     if let Some(mesh) = mesh {
         state_builder =
             state_builder.with_distributed_worker_transport(ShmMqWorkerTransport::new(mesh));
@@ -171,11 +169,11 @@ pub(crate) fn build_mpp_session_context(
         .with_distributed_task_estimator(n_workers)
         .with_distributed_broadcast_joins(true)
         .expect("with_distributed_broadcast_joins")
-        // No `with_distributed_user_codec(...)`: the transport's no-op `dispatch()` never
-        // constructs the gRPC task spawner, so its eager codec encode never runs. Workers
-        // re-plan from the logical plan we ship via DSM and never decode a physical subplan over
-        // the wire. A transport whose `dispatch()` did ship plans would need a codec here for our
-        // custom execs, or `try_encode` would reject the first one it meets.
+        // No `with_distributed_user_codec(...)`: the leader serializes per-stage subplans through
+        // a combined codec built explicitly in `scan::physical_codec` (the fork's `DistributedCodec`
+        // plus the pg_search codec), and each worker decodes the same way. Nothing drives the
+        // session's user-codec slot, and the transport's `dispatch()` stays a no-op since
+        // coordinator dispatch rides DSM, not the wire.
         .with_distributed_planner();
     SessionContext::new_with_state(state_builder.build())
 }
@@ -222,40 +220,28 @@ pub(crate) fn run_mpp_worker(
         }
     }
 
-    // Clones for the Tier 2 round-trip probe; the originals are consumed by the logical
-    // deserialize below. Drop these once leader-side physical dispatch replaces the probe.
-    let np_segments_probe = non_partitioning_segments.clone();
-    let index_segment_ids_probe = index_segment_ids.clone();
-
-    let logical = match deserialize_logical_plan_with_runtime(
-        &plan_bytes,
-        &seed_ctx.task_ctx(),
-        parallel_state,
-        None, // expr_context: bm25 search predicates don't need runtime params
-        None, // planstate: same
-        non_partitioning_segments,
-        index_segment_ids,
-    ) {
-        Ok(lp) => lp,
-        Err(e) => pgrx::error!("mpp worker: deserialize_logical_plan failed: {e}"),
-    };
-
     let session = build_mpp_session_context(seed_ctx, Some(Arc::clone(&worker_mesh)));
 
-    let physical_plan =
-        runtime.block_on(async { session.state().create_physical_plan(&logical).await });
-    let physical_plan = match physical_plan {
-        Ok(p) => p,
-        Err(e) => pgrx::error!("mpp worker: create_physical_plan failed: {e}"),
-    };
-
-    // Walk the plan and collect every `(stage_id, task_idx)` slot owned by this proc under
-    // the `proc_for_task` round-robin policy. The dispatcher spawns one async task per
-    // fragment; together they form the worker's complete contribution to the distributed
-    // plan. `worker_mesh.n_procs >= 3` is guaranteed by `mpp_is_active()` (callers gate
-    // before reaching this), so `n_workers() = n_procs - 1` is safe.
+    // Decode the leader's dispatched per-stage subplans into this proc's fragment assignments,
+    // instead of re-planning from a logical plan. The decode runs against the full session task
+    // context so functions resolve through the registry (the composed physical codec can shadow
+    // UDF/UDAF decode at position 0 otherwise). The dispatcher then runs each fragment exactly as
+    // before. `worker_mesh.n_procs >= 3` is guaranteed by `mpp_is_active()` (callers gate before
+    // reaching this), so `n_workers() = n_procs - 1` is safe.
     let n_workers = worker_mesh.n_workers();
-    let fragments = find_worker_assignments(&physical_plan, this_proc, n_workers);
+    let decode_ctx = session.task_ctx();
+    let fragments = match expand_to_assignments(
+        &plan_bytes,
+        this_proc,
+        n_workers,
+        &decode_ctx,
+        parallel_state,
+        &non_partitioning_segments,
+        &index_segment_ids,
+    ) {
+        Ok(f) => f,
+        Err(e) => pgrx::error!("mpp worker: expand dispatch blob failed: {e}"),
+    };
     if fragments.is_empty() {
         pgrx::warning!(
             "mpp worker (proc={this_proc}): no fragments assigned; skipping (worker emits zero rows)"
@@ -279,7 +265,11 @@ pub(crate) fn run_mpp_worker(
     let result = runtime.block_on(async move {
         let mut futures: Vec<FragmentFuture> = Vec::with_capacity(fragments.len());
         for fragment in &fragments {
-            let n_out = fragment.plan.output_partitioning().partition_count();
+            let n_out = fragment
+                .plan
+                .properties()
+                .output_partitioning()
+                .partition_count();
             // Build per-output-partition senders. For each partition `q` emitted by this
             // fragment, look up the destination proc via `fragment.routing` and clone the right
             // outbound sender.
@@ -394,58 +384,8 @@ pub(crate) fn run_mpp_worker(
             // `NetworkBroadcastExec` hitting `LocalStage::execute` errors when its task count
             // exceeds 1; with the conversion, those boundaries dispatch through
             // `ShmMqWorkerTransport` exactly like outer boundaries.
-            // Tier 2 round-trip probe: serialize this fragment's subplan through the physical
-            // codec and run the decoded copy, exercising coordinator-dispatch serialization on
-            // the real plan before the slice step moves to the leader. Any codec gap falls back
-            // to the original plan so it surfaces as a warning, not a failed query.
-            let probe_plan =
-                match crate::scan::physical_codec::serialize_physical_plan(Arc::clone(
-                    &fragment.plan,
-                )) {
-                    Ok(bytes) => {
-                        // Decode against the full session task context so built-in aggregates
-                        // (count/sum/...) and any custom UDFs resolve via the function registry.
-                        // datafusion-proto consults the registry before the codec, which sidesteps
-                        // the composed codec shadowing UDAF decode at position 0.
-                        let decode_ctx = session_arc.task_ctx();
-                        match crate::scan::physical_codec::deserialize_physical_plan_with_runtime(
-                            &bytes,
-                            &decode_ctx,
-                            parallel_state,
-                            np_segments_probe.clone(),
-                            index_segment_ids_probe.clone(),
-                        ) {
-                            Ok(p) => {
-                                crate::mpp_log!(
-                                    "tier2 probe (proc={this_proc}) stage_id={} round-tripped OK \
-                                     ({} bytes)",
-                                    fragment.stage_id,
-                                    bytes.len()
-                                );
-                                p
-                            }
-                            Err(e) => {
-                                pgrx::warning!(
-                                    "tier2 probe (proc={this_proc}) stage_id={} decode failed: \
-                                     {e}; using original",
-                                    fragment.stage_id
-                                );
-                                Arc::clone(&fragment.plan)
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        pgrx::warning!(
-                            "tier2 probe (proc={this_proc}) stage_id={} encode failed: {e}; using \
-                             original",
-                            fragment.stage_id
-                        );
-                        Arc::clone(&fragment.plan)
-                    }
-                };
-
             let plan = {
-                let dist = Arc::new(DistributedExec::new(probe_plan));
+                let dist = Arc::new(DistributedExec::new(Arc::clone(&fragment.plan)));
                 match dist.prepare_in_process_plan(&task_ctx) {
                     Ok(p) => p,
                     Err(e) => {

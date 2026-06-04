@@ -43,6 +43,9 @@ use datafusion::execution::TaskContext;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_distributed::{display_plan_ascii, DistributedExec, DistributedTaskContext};
 
+use crate::postgres::customscan::mpp::dispatch::{
+    build_dispatch_blob, dispatch_plan_capacity, frame_dispatch_payload,
+};
 use crate::postgres::customscan::mpp::dsm::MppDsmHeader;
 use crate::postgres::customscan::mpp::glue::{
     estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, producer_worker_count, pscan_offset,
@@ -649,7 +652,12 @@ impl ParallelQueryCapable for AggregateScan {
         let pscan_size = ParallelScanState::size_of(&all_nsegments, partitioning_idx, &[], false);
         let mpp_offset = mpp_align(pscan_offset() + pscan_size);
 
-        let mpp_size = match estimate_dsm_size(plan_bytes_len) {
+        // Size the plan region for the worst-case dispatch payload: the physical plan (and so
+        // the real blob size) can't be built until `ParallelScanState` exists at init time, so
+        // size generously here from the logical-plan length. `initialize_dsm` uses the same
+        // `dispatch_plan_capacity(plan_bytes_len)` so the DSM layout matches; an oversized blob
+        // falls back to serial there.
+        let mpp_size = match estimate_dsm_size(dispatch_plan_capacity(plan_bytes_len)) {
             Ok(sz) => sz,
             Err(e) => {
                 pgrx::warning!("mpp: estimate_dsm failed: {e}; falling back to serial");
@@ -721,10 +729,53 @@ impl ParallelQueryCapable for AggregateScan {
         state.custom_state_mut().non_partitioning_segments = non_partitioning_segments;
         state.custom_state_mut().mpp_partitioning_source_idx = Some(partitioning_idx);
 
+        // Build the coordinator dispatch payload. The leader serializes the distributed physical
+        // plan once so workers run their fragments without re-planning. The region was sized
+        // generously at estimate time; the payload is the blob behind a length prefix, padded to
+        // capacity. Any failure (build error, or blob over capacity) falls back to serial, which
+        // is correct, just slower.
+        let capacity = dispatch_plan_capacity(plan_bytes.len());
+        let payload = {
+            let runtime = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(rt) => rt,
+                Err(e) => {
+                    pgrx::warning!("mpp: dispatch runtime build failed: {e}; falling back to serial");
+                    return;
+                }
+            };
+            let blob = match build_dispatch_blob(
+                &plan_bytes,
+                create_aggregate_session_context(),
+                producer_worker_count(),
+                Some(pscan_state),
+                // The leader build is structure-only; the per-source segment sets are injected on
+                // the workers at decode, so empty here.
+                Vec::new(),
+                Vec::new(),
+                &runtime,
+            ) {
+                Ok(b) => b,
+                Err(e) => {
+                    pgrx::warning!("mpp: build_dispatch_blob failed: {e}; falling back to serial");
+                    return;
+                }
+            };
+            match frame_dispatch_payload(&blob, capacity) {
+                Ok(p) => p,
+                Err(e) => {
+                    pgrx::warning!("mpp: {e}; falling back to serial");
+                    return;
+                }
+            }
+        };
+
         // Init the MPP region.
         let mpp_coordinate =
             unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut std::os::raw::c_void };
-        let leader = match unsafe { leader_setup(mpp_coordinate, pcxt, plan_bytes) } {
+        let leader = match unsafe { leader_setup(mpp_coordinate, pcxt, payload) } {
             Ok(l) => l,
             Err(e) => {
                 pgrx::warning!("mpp: leader_setup failed: {e}; falling back to serial");

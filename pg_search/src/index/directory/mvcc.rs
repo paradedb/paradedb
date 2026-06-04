@@ -621,6 +621,44 @@ pub fn index_memory_segment(
         PgTupleDesc,
     };
 
+    /// RAII guard that guarantees an active snapshot for the duration of the heap reads and
+    /// detoasting performed while materializing a mutable segment.
+    ///
+    /// Most callers of [`index_memory_segment`] (ordinary DML, queries, VACUUM, background merge
+    /// workers) already run with an active snapshot. The logical-replication apply worker, however,
+    /// applies remote changes without pushing one, and `pg_detoast_datum` on an out-of-line TOAST
+    /// value requires a snapshot (`get_toast_snapshot` errors otherwise). This guard pushes the
+    /// transaction snapshot only when the caller lacks one, and pops it on normal scope exit.
+    ///
+    /// On a panic / PostgreSQL ERROR the surrounding transaction aborts, which itself resets the
+    /// active-snapshot stack; popping again here would underflow it, so the drop implementation
+    /// uses `impl_safe_drop!` to skip cleanup while unwinding.
+    struct ActiveSnapshotGuard {
+        pushed: bool,
+    }
+
+    impl ActiveSnapshotGuard {
+        unsafe fn ensure() -> Self {
+            let pushed = !pg_sys::ActiveSnapshotSet();
+            if pushed {
+                pg_sys::PushActiveSnapshot(pg_sys::GetTransactionSnapshot());
+            }
+            Self { pushed }
+        }
+    }
+
+    crate::impl_safe_drop!(ActiveSnapshotGuard, |self| {
+        if self.pushed {
+            unsafe {
+                pg_sys::PopActiveSnapshot();
+            }
+        }
+    });
+
+    // Ensure an active snapshot for the heap fetches, detoasting, and expression evaluation
+    // below. Held until this function returns so it covers the entire materialization loop.
+    let _snapshot_guard = unsafe { ActiveSnapshotGuard::ensure() };
+
     let directory = RamDirectory::create();
     let ctids = segment
         .mutable_snapshot(indexrel)

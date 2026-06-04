@@ -134,7 +134,9 @@ fn collect_stages(
         let stage_id = stage.num() as u32;
         // Per-consumer-task partition count, kept for the trace below. Routing itself reads the
         // crate's `route_partition` so the producer side follows the receive-side formula the
-        // crate owns, rather than re-deriving `q / P_c`.
+        // crate owns, rather than re-deriving `q / P_c`. Only the `mpp_log!` trace reads it, so it
+        // is gated to non-test builds to avoid an unused-variable warning under the test cfg.
+        #[cfg(not(test))]
         let p_c = nb.partitions_per_consumer_task();
         // `route_partition(q).consumer_task` for every producer output partition. Used by the
         // hash-partitioned boundaries (Shuffle / Broadcast) only; Coalesce routes by task instead.

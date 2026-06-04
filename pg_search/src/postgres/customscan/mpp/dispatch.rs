@@ -102,32 +102,29 @@ fn unframe_dispatch_payload(body: &[u8]) -> Result<&[u8]> {
     })
 }
 
-/// Build the dispatch blob on the leader at DSM-init, after `ParallelScanState` is populated:
-/// deserialize the leader's logical plan, build the distributed physical plan once, and serialize
-/// each producer stage's subplan.
+/// Build the dispatch blob on the leader at DSM-init: deserialize the leader's logical plan, build
+/// the distributed physical plan once, and serialize each producer stage's subplan.
 ///
-/// The runtime state (`parallel_state` + per-source segment sets) is only needed to deserialize
-/// the logical plan; serialization ships source indices, and each worker injects its own segments
-/// on decode. `mesh = None` keeps the build structure-only -- the leader never opens a
-/// `WorkerConnection` here, and the stage numbering matches the consumer plan it builds at exec.
-#[allow(clippy::too_many_arguments)]
+/// This is a structure-only build: no `parallel_state` is injected, so the leader never claims
+/// segments while planning (a throttled sorted scan would otherwise checkout the workers' segments
+/// against the shared state here; with no state it falls to an eager scan that the codec declines,
+/// dropping the query to serial with the real state intact). Lazy scans ship source indices, and
+/// each worker injects its own `ParallelScanState` + segments on decode. `mesh = None` keeps the
+/// build off the transport; the stage numbering matches the consumer plan the leader builds at exec.
 pub fn build_dispatch_blob(
     logical_bytes: &[u8],
     seed: SessionContext,
     n_workers: u32,
-    parallel_state: Option<*mut ParallelScanState>,
-    non_partitioning_segments: Vec<HashSet<SegmentId>>,
-    index_segment_ids: Vec<HashSet<SegmentId>>,
     runtime: &tokio::runtime::Runtime,
 ) -> Result<Vec<u8>> {
     let logical = deserialize_logical_plan_with_runtime(
         logical_bytes,
         &seed.task_ctx(),
-        parallel_state,
         None,
         None,
-        non_partitioning_segments,
-        index_segment_ids,
+        None,
+        Vec::new(),
+        Vec::new(),
     )?;
     let session = build_mpp_session_context(seed, None);
     let physical =

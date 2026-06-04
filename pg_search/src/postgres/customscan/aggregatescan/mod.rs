@@ -750,11 +750,6 @@ impl ParallelQueryCapable for AggregateScan {
                 &plan_bytes,
                 create_aggregate_session_context(),
                 producer_worker_count(),
-                Some(pscan_state),
-                // The leader build is structure-only; the per-source segment sets are injected on
-                // the workers at decode, so empty here.
-                Vec::new(),
-                Vec::new(),
                 &runtime,
             ) {
                 Ok(b) => b,

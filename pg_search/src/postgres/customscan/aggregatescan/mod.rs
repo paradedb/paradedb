@@ -742,7 +742,9 @@ impl ParallelQueryCapable for AggregateScan {
             {
                 Ok(rt) => rt,
                 Err(e) => {
-                    pgrx::warning!("mpp: dispatch runtime build failed: {e}; falling back to serial");
+                    pgrx::warning!(
+                        "mpp: dispatch runtime build failed: {e}; falling back to serial"
+                    );
                     return;
                 }
             };

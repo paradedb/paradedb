@@ -896,7 +896,9 @@ impl ParallelQueryCapable for JoinScan {
             ) {
                 Ok(b) => b,
                 Err(e) => {
-                    pgrx::warning!("mpp join: build_dispatch_blob failed: {e}; falling back to serial");
+                    pgrx::warning!(
+                        "mpp join: build_dispatch_blob failed: {e}; falling back to serial"
+                    );
                     return;
                 }
             };

@@ -101,55 +101,45 @@ fn fuzzy_term(mut conn: PgConnection) {
     assert_eq!(columns.id, vec![1, 2], "incorrect defaults");
 }
 
-#[rstest]
-fn match_conjunction_array_fuzzy_boost_cast_chain(mut conn: PgConnection) {
-    SimpleProductsTable::setup().execute(&mut conn);
+/// Shared assertions for the `<field> <op> ARRAY[...]::pdb.fuzzy(2)[::pdb.boost(2)]`
+/// cast chain (issue #5079). Runs the predicate three ways — fuzzy only,
+/// fuzzy-then-boost, and boost-then-fuzzy — and verifies that:
+///   * the two cast orders are commutative (identical rows and scores),
+///   * boosting never changes which rows match, and
+///   * `boost(2)` scales each score by ~2x.
+///
+/// The fix lives in the type-level casts (`boost_to_fuzzy` plus `apply_fuzzy_data`
+/// learning to recurse through `ScoreAdjusted` and rewrite `MatchArray`), so it
+/// must hold for every operator that accepts the `pdb.fuzzy`/`pdb.boost` casts —
+/// not just `&&&`.
+fn assert_fuzzy_boost_cast_chain_commutes(conn: &mut PgConnection, op: &str) {
+    let query = |casts: &str| {
+        format!(
+            "SELECT id, pdb.score(id) FROM paradedb.bm25_search \
+             WHERE description {op} ARRAY['running', 'shoes']{casts} ORDER BY id"
+        )
+    };
 
-    let fuzzy_only: Vec<(i32, f32)> = r#"
-        SELECT id, pdb.score(id)
-        FROM paradedb.bm25_search
-        WHERE description &&& ARRAY['running', 'shoes']::pdb.fuzzy(2)
-        ORDER BY id
-    "#
-    .fetch(&mut conn);
+    let fuzzy_only: Vec<(i32, f32)> = query("::pdb.fuzzy(2)").fetch(conn);
     assert!(
         !fuzzy_only.is_empty(),
-        "test query should match at least one product"
+        "`{op}` fuzzy query should match at least one product"
     );
 
-    let fuzzy_then_boost: Vec<(i32, f32)> = r#"
-        SELECT id, pdb.score(id)
-        FROM paradedb.bm25_search
-        WHERE description &&& ARRAY['running', 'shoes']::pdb.fuzzy(2)::pdb.boost(2)
-        ORDER BY id
-    "#
-    .fetch(&mut conn);
-
-    let boost_then_fuzzy: Vec<(i32, f32)> = r#"
-        SELECT id, pdb.score(id)
-        FROM paradedb.bm25_search
-        WHERE description &&& ARRAY['running', 'shoes']::pdb.boost(2)::pdb.fuzzy(2)
-        ORDER BY id
-    "#
-    .fetch(&mut conn);
+    let fuzzy_then_boost: Vec<(i32, f32)> = query("::pdb.fuzzy(2)::pdb.boost(2)").fetch(conn);
+    let boost_then_fuzzy: Vec<(i32, f32)> = query("::pdb.boost(2)::pdb.fuzzy(2)").fetch(conn);
 
     assert_eq!(
-        fuzzy_then_boost.len(),
-        boost_then_fuzzy.len(),
-        "cast order should produce the same number of rows"
-    );
-    assert_eq!(fuzzy_then_boost, boost_then_fuzzy);
-    assert_eq!(
-        fuzzy_only.len(),
-        fuzzy_then_boost.len(),
-        "boost should not change which rows match"
+        fuzzy_then_boost, boost_then_fuzzy,
+        "`{op}`: fuzzy::boost and boost::fuzzy cast orders should be equivalent"
     );
     assert_eq!(
-        fuzzy_only.iter().map(|(id, _)| id).collect::<Vec<_>>(),
+        fuzzy_only.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
         fuzzy_then_boost
             .iter()
-            .map(|(id, _)| id)
-            .collect::<Vec<_>>()
+            .map(|(id, _)| *id)
+            .collect::<Vec<_>>(),
+        "`{op}`: boost should not change which rows match"
     );
 
     // Boost scales per-term scores, and BM25 doc scores aggregate via Tantivy's
@@ -159,15 +149,37 @@ fn match_conjunction_array_fuzzy_boost_cast_chain(mut conn: PgConnection) {
     for ((id, fuzzy_score), (_, boosted_score)) in fuzzy_only.iter().zip(&fuzzy_then_boost) {
         assert!(
             *boosted_score >= *fuzzy_score,
-            "boosted score for id {id} ({boosted_score}) should be >= unboosted ({fuzzy_score})"
+            "`{op}`: boosted score for id {id} ({boosted_score}) should be >= unboosted ({fuzzy_score})"
         );
         let tolerance = (fuzzy_score.abs() * 2.0).max(1.0) * 1e-3;
         assert!(
             (boosted_score - fuzzy_score * 2.0).abs() < tolerance,
-            "boosted score for id {id} ({boosted_score}) should be within {tolerance} of 2x fuzzy_score ({})",
+            "`{op}`: boosted score for id {id} ({boosted_score}) should be within {tolerance} of 2x fuzzy_score ({})",
             fuzzy_score * 2.0
         );
     }
+}
+
+#[rstest]
+fn match_conjunction_array_fuzzy_boost_cast_chain(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+    // `&&&` builds a conjunction `MatchArray`.
+    assert_fuzzy_boost_cast_chain_commutes(&mut conn, "&&&");
+}
+
+#[rstest]
+fn match_disjunction_array_fuzzy_boost_cast_chain(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+    // `|||` builds a disjunction `MatchArray` — same cast machinery as `&&&`.
+    assert_fuzzy_boost_cast_chain_commutes(&mut conn, "|||");
+}
+
+#[rstest]
+fn term_set_array_fuzzy_boost_cast_chain(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+    // `===` builds a `TermSet` that `apply_fuzzy_data` rewrites into a `MatchArray`,
+    // exercising the cast chain through the term operator's support function.
+    assert_fuzzy_boost_cast_chain_commutes(&mut conn, "===");
 }
 
 #[rstest]

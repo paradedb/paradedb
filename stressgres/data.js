@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780589641911,
+  "lastUpdate": 1780589676021,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -41778,6 +41778,186 @@ window.BENCHMARK_DATA = {
             "value": 30.6171875,
             "unit": "median mem",
             "extra": "avg mem: 29.846812941677655, max mem: 30.6484375, count: 53843"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "71215065+junnjiee@users.noreply.github.com",
+            "name": "Jun Jie",
+            "username": "junnjiee"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d674f27a7a5ff8e331130504f6442a05c51fcb45",
+          "message": "test: handle nullable where clauses in querygen tests (#5253)\n\n# Ticket(s) Closed\n\n- Closes #3111\n\n## What\n\n**Root cause**: Negated (`NOT`) `@@@` predicates are not equivalent to\nnegated PostgreSQL `=` predicates on nullable columns, causing\nmismatches/failures in `tests/qgen.rs`\n\n## Why\n\n- @@@ returns `TRUE` for rows found by the search index, and `FALSE` for\nall other rows\n- postgres `=` evaluates per row using 3-valued logic so it is `NULL`\naware\n\nThis behaviour works as intended normally. But for negation, the\nbehaviour drifts. When using `@@@`, we get a result of all row ids that\nmatch the query. This becomes `TRUE`/`FALSE` per row, information on\n`NULL` rows are lost\n\nMeanwhile, postgres evaluates per row using 3-valued logic, so nullable\ncolumns can produce `NULL`\n\nexample:\n| id  | age | color | = blue | @@@ blue |\n| --- | --- | ----- |---|---|\n| 1   | 20  | blue  | TRUE | TRUE |\n| 2   | 30  | red   | FALSE | FALSE |\n| 3   | 30  | NULL  | NULL | FALSE |\n\nthis PR treats this behaviour as expected and modifies the tests.\n\n## How\n\n### TLDR\nuse \n```\nCASE\n        WHEN table.id IS NOT NULL THEN COALESCE(table.<field> = <value>, false)\n        ELSE table.<field> = <value>\nEND\n```\n\nfor testing `@@@` behaviour on nullable columns as this query captures\nhow it works in both single table and joined tables\n\n### Single table queries\n\nFor single table queries, we use `COALESCE(color = blue, false)` instead\nof `color = blue`, this returns all non-matching values as `FALSE`,\nwhich is what the `@@@` operator does\n\nexample:\n| id  | age | color | = blue | @@@ blue | IS NOT DISTINCT FROM blue |\n| --- | --- | ----- |---|---|---|\n| 1   | 20  | blue  | TRUE | TRUE | TRUE |\n| 2   | 30  | red   | FALSE | FALSE | FALSE |\n| 3   | 30  | NULL  | NULL | FALSE | FALSE |\n\n### Joined table queries\n\nFor outer joins (`LEFT`/`RIGHT`/`FULL`), null-supplying side can produce\nnull extended rows\n\nexample: `products RIGHT JOIN orders ON products.age = orders.age`\n\n| products.id | products.age | products.color | orders.id | orders.age |\n| ----------- | ------------ | -------------- | --------- | ---------- |\n| 1           | 20           | blue           | 20        | 20         |\n| NULL        | NULL         | NULL           | 11        | 99         |\n| 2        | 90         | NULL           | 12        | 90         |\n\nin this case, left table `products` might have `NULL` ids\n\n\nif we perform `WHERE products.color {op} blue` on the table above, we\nget\n\n| products.id | products.age | products.color | @@@ blue | = blue |\n| ----------- | ------------ | -------------- | --------- |---|\n| 1           | 20           | blue           | TRUE        | TRUE |\n| NULL | NULL | NULL | NULL (as products.id is null) | NULL |\n| 2        | 90         | NULL           | FALSE        | NULL         |\n\nthus\n- if `id` is not null, we continue using `COALESCE(color = blue, false)`\n- if `id` is null, `@@@` operator returns `NULL` for that row, which\nmatches normal postgres behaviour\n\n## Tests\n\nTests in `qgen.rs` now pass with `whereable(true)`",
+          "timestamp": "2026-06-04T08:06:22-07:00",
+          "tree_id": "c0530cdcbbe06754d6c2dac721248f647a0fd0e3",
+          "url": "https://github.com/paradedb/paradedb/commit/d674f27a7a5ff8e331130504f6442a05c51fcb45"
+        },
+        "date": 1780589643962,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom Scan - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.084344708751176, max cpu: 9.284333, count: 53840"
+          },
+          {
+            "name": "Custom Scan - Subscriber - mem",
+            "value": 51.984375,
+            "unit": "median mem",
+            "extra": "avg mem: 52.07613821043834, max mem: 58.04296875, count: 53840"
+          },
+          {
+            "name": "Delete values - Publisher - cpu",
+            "value": 4.5540795,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.5549311214156862, max cpu: 4.5845275, count: 53840"
+          },
+          {
+            "name": "Delete values - Publisher - mem",
+            "value": 29.7890625,
+            "unit": "median mem",
+            "extra": "avg mem: 29.070557801471953, max mem: 30.09765625, count: 53840"
+          },
+          {
+            "name": "Find by ctid - Subscriber - cpu",
+            "value": 9.151573,
+            "unit": "median cpu",
+            "extra": "avg cpu: 8.83182643263643, max cpu: 18.532818, count: 53840"
+          },
+          {
+            "name": "Find by ctid - Subscriber - mem",
+            "value": 55.32421875,
+            "unit": "median mem",
+            "extra": "avg mem: 55.09120651177099, max mem: 61.296875, count: 53840"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.065384290532331, max cpu: 9.284333, count: 53840"
+          },
+          {
+            "name": "Index Only Scan - Subscriber - mem",
+            "value": 51.421875,
+            "unit": "median mem",
+            "extra": "avg mem: 51.525224116015046, max mem: 57.50390625, count: 53840"
+          },
+          {
+            "name": "Index Size Info - Subscriber - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.603586158215197, max cpu: 9.213051, count: 53840"
+          },
+          {
+            "name": "Index Size Info - Subscriber - mem",
+            "value": 33.08984375,
+            "unit": "median mem",
+            "extra": "avg mem: 33.13805756930256, max mem: 38.21875, count: 53840"
+          },
+          {
+            "name": "Index Size Info - Subscriber - pages",
+            "value": 1087,
+            "unit": "median pages",
+            "extra": "avg pages: 1096.2659546805348, max pages: 1833.0, count: 53840"
+          },
+          {
+            "name": "Index Size Info - Subscriber - relation_size:MB",
+            "value": 8.4921875,
+            "unit": "median relation_size:MB",
+            "extra": "avg relation_size:MB: 8.564578206259286, max relation_size:MB: 14.3203125, count: 53840"
+          },
+          {
+            "name": "Index Size Info - Subscriber - segment_count",
+            "value": 9,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 10.402693164933135, max segment_count: 21.0, count: 53840"
+          },
+          {
+            "name": "Insert value A - Publisher - cpu",
+            "value": 0,
+            "unit": "median cpu",
+            "extra": "avg cpu: 2.081558411128787, max cpu: 4.6065254, count: 53840"
+          },
+          {
+            "name": "Insert value A - Publisher - mem",
+            "value": 28.859375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.112525828844724, max mem: 29.2265625, count: 53840"
+          },
+          {
+            "name": "Insert value B - Publisher - cpu",
+            "value": 4.5411544,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.101370158584401, max cpu: 9.065156, count: 53840"
+          },
+          {
+            "name": "Insert value B - Publisher - mem",
+            "value": 28.80859375,
+            "unit": "median mem",
+            "extra": "avg mem: 28.077254364784547, max mem: 29.16015625, count: 53840"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - cpu",
+            "value": 4.597701,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.289280903386329, max cpu: 27.480915, count: 53840"
+          },
+          {
+            "name": "Parallel Custom Scan - Subscriber - mem",
+            "value": 49.87109375,
+            "unit": "median mem",
+            "extra": "avg mem: 49.992260560805164, max mem: 55.921875, count: 53840"
+          },
+          {
+            "name": "SELECT\n  pid,\n  pg_wal_lsn_diff(sent_lsn, replay_lsn) AS replication_lag,\n  application_name::text,\n  state::text\nFROM pg_stat_replication; - Publisher - replication_lag:MB",
+            "value": 0,
+            "unit": "median replication_lag:MB",
+            "extra": "avg replication_lag:MB: 0.000021573303358693002, max replication_lag:MB: 0.25904083251953125, count: 53840"
+          },
+          {
+            "name": "Top K - Subscriber - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 5.331083951853919, max cpu: 13.859479, count: 107680"
+          },
+          {
+            "name": "Top K - Subscriber - mem",
+            "value": 50.67578125,
+            "unit": "median mem",
+            "extra": "avg mem: 50.77386226115574, max mem: 57.1796875, count: 107680"
+          },
+          {
+            "name": "Update 1..9 - Publisher - cpu",
+            "value": 4.5801525,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.191604539219464, max cpu: 4.5933013, count: 53840"
+          },
+          {
+            "name": "Update 1..9 - Publisher - mem",
+            "value": 30.6015625,
+            "unit": "median mem",
+            "extra": "avg mem: 29.81971292254829, max mem: 30.90234375, count: 53840"
+          },
+          {
+            "name": "Update 10,11 - Publisher - cpu",
+            "value": 4.5845275,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.534037916809546, max cpu: 4.6021094, count: 53840"
+          },
+          {
+            "name": "Update 10,11 - Publisher - mem",
+            "value": 30.546875,
+            "unit": "median mem",
+            "extra": "avg mem: 29.786134626323367, max mem: 30.578125, count: 53840"
           }
         ]
       }

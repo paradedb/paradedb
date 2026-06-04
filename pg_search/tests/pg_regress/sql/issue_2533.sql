@@ -1,5 +1,8 @@
 CREATE EXTENSION IF NOT EXISTS pg_search;
 
+-- TODO: See https://github.com/paradedb/paradedb/issues/5266.
+SET paradedb.enable_aggregate_custom_scan TO off;
+
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS products;
 DROP TABLE IF EXISTS orders;

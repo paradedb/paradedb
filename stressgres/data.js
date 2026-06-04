@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780600785569,
+  "lastUpdate": 1780600819406,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -16122,6 +16122,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.565697160774, max segment_count: 131.0, count: 57727"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4f1240d6d5514bcf2c6f616b8c411a75e1ae6f0a",
+          "message": "feat: Support all postgres datetimes (3/4) - Remove date-awareness (#5234)\n\n## What\nWith #5233 in place, we no longer need to do any of remaining\n`is_datetime` checks. All fields that might be datetimes are in\n`PdbOwnedValue::Date` by that point.\n\n## Why\nIt's simpler!\n\n## How\nDelete, delete, delete\n\n## Tests\nAll existing unit, integration, and regression tests pass.",
+          "timestamp": "2026-06-04T12:47:20-06:00",
+          "tree_id": "5e132590dc60db210f2d4bec10ee88b0016fb500",
+          "url": "https://github.com/paradedb/paradedb/commit/4f1240d6d5514bcf2c6f616b8c411a75e1ae6f0a"
+        },
+        "date": 1780600787608,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.860002699179894, max cpu: 42.72997, count: 57878"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 234.93359375,
+            "unit": "median mem",
+            "extra": "avg mem: 234.7588657661374, max mem: 236.46484375, count: 57878"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.428622973618527, max cpu: 33.3996, count: 57878"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 176.828125,
+            "unit": "median mem",
+            "extra": "avg mem: 176.7419591101109, max mem: 177.52734375, count: 57878"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34534,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33859.93633159404, max block_count: 36744.0, count: 57878"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 81.918639206607, max segment_count: 131.0, count: 57878"
           }
         ]
       }

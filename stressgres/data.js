@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780604725229,
+  "lastUpdate": 1780605219522,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -13390,6 +13390,42 @@ window.BENCHMARK_DATA = {
             "value": 5.426127651489096,
             "unit": "median tps",
             "extra": "avg tps: 4.883523114309936, max tps: 6.055921037687438, count: 57523"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "21990816+philippemnoel@users.noreply.github.com",
+            "name": "Philippe Noël",
+            "username": "philippemnoel"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fd532a552e030d55f2336722b41cea46ef7c357a",
+          "message": "chore: Revert \"test: handle nullable where clauses in querygen tests\" (#5262)\n\nReverts paradedb/paradedb#5253",
+          "timestamp": "2026-06-04T16:00:51-04:00",
+          "tree_id": "404ec194bb569ed081a39ddffa94816845b3db10",
+          "url": "https://github.com/paradedb/paradedb/commit/fd532a552e030d55f2336722b41cea46ef7c357a"
+        },
+        "date": 1780605185622,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - tps",
+            "value": 7.745099296698099,
+            "unit": "median tps",
+            "extra": "avg tps: 6.656158748568232, max tps: 10.08370973779706, count: 57575"
+          },
+          {
+            "name": "Count Query - Primary - tps",
+            "value": 5.45032605830213,
+            "unit": "median tps",
+            "extra": "avg tps: 4.899543151734958, max tps: 6.139395666993726, count: 57575"
           }
         ]
       }

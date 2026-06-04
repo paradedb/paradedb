@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780596752201,
+  "lastUpdate": 1780596786229,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15522,6 +15522,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 82.31285360831878, max segment_count: 131.0, count: 57797"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mvanhorn@users.noreply.github.com",
+            "name": "Matt Van Horn",
+            "username": "mvanhorn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "36c0933d3ded611c10c49dfeb7c04c62e6f5b294",
+          "message": "feat: support array::fuzzy::boost cast chain in &&& operator (#5158)\n\n## Summary\n\nfeat: support array::fuzzy::boost cast chain in &&& operator\n\nCloses #5079\n\n---\nAI was used for assistance.\n\n---------\n\nCo-authored-by: Matt Van Horn <455140+mvanhorn@users.noreply.github.com>\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-06-04T13:40:07-04:00",
+          "tree_id": "a78407fc2921c8c3cfee0468dfe194e249f54db9",
+          "url": "https://github.com/paradedb/paradedb/commit/36c0933d3ded611c10c49dfeb7c04c62e6f5b294"
+        },
+        "date": 1780596754294,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.210833,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.497705275612056, max cpu: 42.814667, count: 57524"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.48046875,
+            "unit": "median mem",
+            "extra": "avg mem: 235.26646805844084, max mem: 236.953125, count: 57524"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.369036,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.533789915714056, max cpu: 33.300297, count: 57524"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 177.0078125,
+            "unit": "median mem",
+            "extra": "avg mem: 177.0091947355669, max mem: 177.69921875, count: 57524"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34779,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33925.70899102983, max block_count: 36872.0, count: 57524"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 82.33585981503373, max segment_count: 131.0, count: 57524"
           }
         ]
       }

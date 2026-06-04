@@ -41,8 +41,6 @@
 use std::sync::Arc;
 
 use datafusion::physical_plan::ExecutionPlan;
-#[cfg(not(test))]
-use datafusion::physical_plan::ExecutionPlanProperties;
 use datafusion_distributed::{
     NetworkBoundaryExt, NetworkBroadcastExec, NetworkCoalesceExec, NetworkShuffleExec,
 };
@@ -70,7 +68,7 @@ pub struct FragmentAssignment {
 }
 
 /// Routing rule for a fragment's output partitions.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum FragmentRouting {
     /// All output partitions go to one destination proc (`NetworkCoalesceExec`
     /// or the top-level gather case). Coalesce routes by producer task, not by
@@ -102,59 +100,36 @@ pub enum FragmentRouting {
     },
 }
 
-/// Walk `root` (the worker's physical plan) and collect every fragment
-/// assigned to `this_proc` under the `proc_for_task` round-robin policy.
-/// Returns one [`FragmentAssignment`] per `(stage_id, task_idx)` pair
-/// hosted by this proc; the dispatcher spawns one async task per entry.
-pub fn find_worker_assignments(
-    root: &Arc<dyn ExecutionPlan>,
-    this_proc: u32,
-    n_workers: u32,
-) -> Vec<FragmentAssignment> {
+/// One producer stage to dispatch. The leader serializes `plan` once per stage and ships it with
+/// its `task_count` and `routing`; each worker expands a stage into one [`FragmentAssignment`] per
+/// `task_idx` it owns under `proc_for_task`.
+pub struct StageEntry {
+    /// `input_stage.num` of the boundary whose producer side this stage belongs to.
+    pub stage_num: u32,
+    /// Total task count for the stage (= `input_stage.tasks.len()`).
+    pub task_count: usize,
+    /// How to route each output partition to a destination proc.
+    pub routing: FragmentRouting,
+    /// The stage's `input_stage.plan` (nested boundaries left `Local`; the worker converts them
+    /// at run time via `prepare_in_process_plan`, same as before).
+    pub plan: Arc<dyn ExecutionPlan>,
+}
+
+/// Walk the distributed physical plan and collect every producer stage, once per boundary. The
+/// leader runs this (replacing the worker-side re-plan): it classifies routing from the boundary
+/// type and captures each stage's `local_plan` for serialization. Not filtered by proc; the blob
+/// is shared and each worker selects its own `(stage, task)` slots.
+pub fn collect_dispatched_stages(root: &Arc<dyn ExecutionPlan>, n_workers: u32) -> Vec<StageEntry> {
     let mut out = Vec::new();
-    collect(
-        root, this_proc, n_workers, /* nested = */ false, &mut out,
-    );
-    #[cfg(not(test))]
-    {
-        crate::mpp_log!(
-            "mpp worker_fragments::find_worker_assignments this_proc={} fragments={}",
-            this_proc,
-            out.len()
-        );
-        for f in &out {
-            let n_out = f.plan.output_partitioning().partition_count();
-            match &f.routing {
-                FragmentRouting::Coalesce { dest_proc } => crate::mpp_log!(
-                    "mpp worker_fragments fragment stage_id={} task_idx={} task_count={} \
-                     n_out={n_out} routing=Coalesce dest_proc={dest_proc}",
-                    f.stage_id,
-                    f.task_idx,
-                    f.task_count,
-                ),
-                FragmentRouting::Hashed {
-                    consumer_task,
-                    broadcast,
-                } => crate::mpp_log!(
-                    "mpp worker_fragments fragment stage_id={} task_idx={} task_count={} \
-                     n_out={n_out} routing=Hashed broadcast={broadcast} \
-                     consumer_task={consumer_task:?}",
-                    f.stage_id,
-                    f.task_idx,
-                    f.task_count,
-                ),
-            }
-        }
-    }
+    collect_stages(root, n_workers, /* nested = */ false, &mut out);
     out
 }
 
-fn collect(
+fn collect_stages(
     plan: &Arc<dyn ExecutionPlan>,
-    this_proc: u32,
     n_workers: u32,
     nested: bool,
-    out: &mut Vec<FragmentAssignment>,
+    out: &mut Vec<StageEntry>,
 ) {
     if let Some(nb) = plan.as_ref().as_network_boundary() {
         let stage = nb.input_stage();
@@ -248,7 +223,7 @@ fn collect(
         #[cfg(not(test))]
         {
             crate::mpp_log!(
-                "mpp worker_fragments::collect boundary={} stage_id={stage_id} \
+                "mpp worker_fragments::collect_stages boundary={} stage_id={stage_id} \
                  p_c={p_c} nested={nested}",
                 plan.name()
             );
@@ -256,28 +231,22 @@ fn collect(
 
         let task_count = stage.task_count();
         if let Some(stage_plan) = stage.local_plan() {
-            for task_idx in 0..task_count {
-                let owner = proc_for_task(n_workers, task_idx as u32);
-                if owner == this_proc {
-                    out.push(FragmentAssignment {
-                        stage_id,
-                        task_idx,
-                        task_count,
-                        plan: Arc::clone(stage_plan),
-                        routing: routing.clone(),
-                    });
-                }
-            }
+            out.push(StageEntry {
+                stage_num: stage_id,
+                task_count,
+                routing,
+                plan: Arc::clone(stage_plan),
+            });
             // Recurse into the stage's plan with `nested = true`. The boundary's `children()`
             // returns `[stage.plan]`, so descending through it would double-process every nested
-            // fragment. Return here to keep visit counts exact.
-            collect(stage_plan, this_proc, n_workers, true, out);
+            // stage. Return here to keep visit counts exact.
+            collect_stages(stage_plan, n_workers, true, out);
         }
         return;
     }
     // Non-boundary nodes recurse through plan children.
     for child in plan.children() {
-        collect(child, this_proc, n_workers, nested, out);
+        collect_stages(child, n_workers, nested, out);
     }
 }
 
@@ -288,10 +257,10 @@ mod tests {
     use datafusion::physical_plan::empty::EmptyExec;
 
     #[test]
-    fn boundary_free_plan_returns_no_assignments() {
+    fn boundary_free_plan_yields_no_stages() {
         let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int32, false)]));
         let plan: Arc<dyn ExecutionPlan> = Arc::new(EmptyExec::new(schema));
-        let out = find_worker_assignments(&plan, 1, 3);
+        let out = collect_dispatched_stages(&plan, 3);
         assert!(out.is_empty());
     }
 

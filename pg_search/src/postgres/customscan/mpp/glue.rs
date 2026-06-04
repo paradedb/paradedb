@@ -302,8 +302,8 @@ pub struct MppWorkerState {
     /// `Arc<dyn BatchChannelSender>` so callers can `clone_with_header` to multiplex
     /// `(stage_id, partition)` channels onto one inbox.
     pub outbound_senders: Vec<Option<MppSender>>,
-    /// Worker fragment plan bytes, copied out of DSM. Caller deserializes via the
-    /// `PgSearchExtensionCodec` to get an `Arc<dyn ExecutionPlan>`.
+    /// Leader's dispatch payload (framed per-stage physical subplans), copied out of DSM. The
+    /// worker decodes it into its fragment assignments via `mpp::dispatch::expand_to_assignments`.
     pub plan_bytes: Vec<u8>,
     /// Worker's MppMesh. The single `inbound_receiver` pulls frames addressed to this
     /// proc from both the DSM MPSC inbox and the in-proc self-loop channel; demux by

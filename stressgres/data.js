@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780594492510,
+  "lastUpdate": 1780594526347,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -15222,6 +15222,66 @@ window.BENCHMARK_DATA = {
             "value": 79,
             "unit": "median segment_count",
             "extra": "avg segment_count: 81.84395431958853, max segment_count: 131.0, count: 57355"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "rjhallsted@gmail.com",
+            "name": "RJ Barman",
+            "username": "barbarj"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "180c2cf155ddc27911b2493c418a7a0561ad1f42",
+          "message": "feat: Store the `pg_search` version used to create the index in the MetaPage data (#5119)\n\n## What\nStores the version of pg_search used to create the index in the MetaPage\ndata\n\n## Why\nHaving access to this enables us to make decisions that we otherwise\nlack the information for. The motivating example for this is deciding\nhow to encode timestamps in JSON fields and queries against them.\nBecause the schema just indicates it's a json field, and because json\ncan potentially store different types of data under the same key, it's\ncurrently impossible to know if I want to store/read a timestamp as a\ntantivy DateTime or an i64. If I can know what version the index was\ncreated with, I can know if this index was created before or after the\nchange to use i64 was introduced and act accordingly.\n\n## How\nExtend the MetaPageData with major, minor, and patch version info. At\ncompile time, populate the fields in the `init` function with the values\nfrom Cargo.\n\nThis change is backwards-compatible. It appends to `MetaPageData`, so\nthose bytes will be zeroes in old indexes.\n`MetaPage::created_by_version` checks for all zeroes and returns `None`\nin that case.\n\n## Tests\n- Unit tests added for:\n- show that `Version` is lexicographically orderable by its components.\n- Show that `created_by_version_major`, etc. are populated with the\ncurrent version specified by Cargo.\n- All existing tests pass",
+          "timestamp": "2026-06-04T11:02:10-06:00",
+          "tree_id": "a54059e66ae24abd084a8bec491154b77d3f8078",
+          "url": "https://github.com/paradedb/paradedb/commit/180c2cf155ddc27911b2493c418a7a0561ad1f42"
+        },
+        "date": 1780594494603,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Bulk Update - Primary - cpu",
+            "value": 23.188406,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.72089848671127, max cpu: 42.814667, count: 57797"
+          },
+          {
+            "name": "Bulk Update - Primary - mem",
+            "value": 235.703125,
+            "unit": "median mem",
+            "extra": "avg mem: 235.5211973723766, max mem: 237.19140625, count: 57797"
+          },
+          {
+            "name": "Count Query - Primary - cpu",
+            "value": 23.323614,
+            "unit": "median cpu",
+            "extra": "avg cpu: 22.55006215879703, max cpu: 33.300297, count: 57797"
+          },
+          {
+            "name": "Count Query - Primary - mem",
+            "value": 177.2421875,
+            "unit": "median mem",
+            "extra": "avg mem: 177.07622469321504, max mem: 177.9296875, count: 57797"
+          },
+          {
+            "name": "Monitor Index Size - Primary - block_count",
+            "value": 34463,
+            "unit": "median block_count",
+            "extra": "avg block_count: 33830.54456113639, max block_count: 36379.0, count: 57797"
+          },
+          {
+            "name": "Monitor Index Size - Primary - segment_count",
+            "value": 79,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 82.31285360831878, max segment_count: 131.0, count: 57797"
           }
         ]
       }

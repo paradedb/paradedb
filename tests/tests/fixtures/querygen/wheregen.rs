@@ -24,11 +24,9 @@ use crate::fixtures::querygen::Column;
 #[derive(Clone, Debug)]
 pub enum Expr {
     Atom {
-        table: String,
         name: String,
         value: String,
         is_indexed: bool,
-        is_nullable: bool,
     },
     Not(Box<Expr>),
     And(Box<Expr>, Box<Expr>),
@@ -39,24 +37,12 @@ impl Expr {
     pub fn to_sql(&self, indexed_op: &str) -> String {
         match self {
             Expr::Atom {
-                table,
                 name,
                 value,
                 is_indexed,
-                is_nullable,
             } => {
                 let op = if *is_indexed { indexed_op } else { " = " };
-
-                // Match `@@@` behaviour for nullable indexed columns:
-                // - real rows with NULL values are non-matches (FALSE)
-                // - null-extended rows in outer joins preserve SQL NULL semantics
-                if *is_indexed && *is_nullable && indexed_op == " = " {
-                    format!(
-                        "CASE WHEN {table}.id IS NOT NULL THEN COALESCE({name} = {value}, false) ELSE {name} = {value} END"
-                    )
-                } else {
-                    format!("{name} {op} {value}")
-                }
+                format!("{name} {op} {value}")
             }
             Expr::Not(e) => {
                 format!("NOT ({})", e.to_sql(indexed_op))
@@ -79,14 +65,7 @@ pub fn arb_wheres(tables: Vec<impl AsRef<str>>, columns: &[Column]) -> impl Stra
     let columns = columns
         .iter()
         .filter(|c| c.is_whereable)
-        .map(|c| {
-            (
-                c.name.to_owned(),
-                c.sample_value.to_owned(),
-                c.is_indexed,
-                c.is_nullable,
-            )
-        })
+        .map(|c| (c.name.to_owned(), c.sample_value.to_owned(), c.is_indexed))
         .collect::<Vec<_>>();
 
     // leaves: the atomic predicate. select a table, and a column.
@@ -94,12 +73,10 @@ pub fn arb_wheres(tables: Vec<impl AsRef<str>>, columns: &[Column]) -> impl Stra
         proptest::sample::select::<Expr>(
             columns
                 .iter()
-                .map(|(col, val, is_indexed, is_nullable)| Expr::Atom {
-                    table: table.clone(),
+                .map(|(col, val, is_indexed)| Expr::Atom {
                     name: format!("{table}.{col}"),
                     value: val.clone(),
                     is_indexed: *is_indexed,
-                    is_nullable: *is_nullable,
                 })
                 .collect::<Vec<_>>(),
         )

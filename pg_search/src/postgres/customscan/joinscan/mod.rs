@@ -180,6 +180,7 @@ use crate::postgres::customscan::explainer::Explainer;
 use crate::postgres::customscan::joinscan::planning::distinct_columns_are_fast_fields;
 use crate::postgres::customscan::joinscan::scan_state::MppExecState;
 use crate::postgres::customscan::limit_offset::LimitOffset;
+use crate::postgres::customscan::mpp::dispatch::{frame_logical_payload, logical_plan_capacity};
 use crate::postgres::customscan::mpp::glue::{
     estimate_dsm_size, leader_setup, mpp_align, mpp_is_active, producer_worker_count, pscan_offset,
     read_custom_scan_header, worker_setup, write_custom_scan_header, CustomScanMppHeader,
@@ -819,7 +820,9 @@ impl ParallelQueryCapable for JoinScan {
             return pscan_size as pg_sys::Size;
         };
         let mpp_offset = mpp_align(pscan_offset() + pscan_size);
-        let mpp_size = match estimate_dsm_size(plan_bytes_len) {
+        // The join path re-plans on the workers (Tier 1), so the DSM ships the logical plan behind
+        // the mode tag, not a dispatch blob.
+        let mpp_size = match estimate_dsm_size(logical_plan_capacity(plan_bytes_len)) {
             Ok(sz) => sz,
             Err(e) => {
                 pgrx::warning!("mpp join: estimate_dsm failed: {e}; falling back to serial");
@@ -897,7 +900,7 @@ impl ParallelQueryCapable for JoinScan {
         };
 
         let mpp_coordinate = unsafe { (coordinate as *mut u8).add(mpp_offset) as *mut c_void };
-        match unsafe { leader_setup(mpp_coordinate, pcxt, plan_bytes) } {
+        match unsafe { leader_setup(mpp_coordinate, pcxt, frame_logical_payload(plan_bytes)) } {
             Ok(leader) => {
                 state.custom_state_mut().mpp = Some(MppExecState::Leader(leader));
             }

@@ -33,7 +33,9 @@ use crate::api::operator::searchqueryinput_typoid;
 use crate::api::FieldName;
 use crate::api::HashMap;
 use crate::postgres::customscan::explain::{format_for_explain, ExplainFormat};
-use crate::postgres::utils::convert_pg_date_string;
+use crate::postgres::datetime::PostgresDateTime;
+use crate::postgres::pdb_owned_value::PdbOwnedValue;
+use crate::postgres::pdb_owned_value::PDB_DATE_TAG;
 use crate::query::more_like_this::MoreLikeThisQuery;
 use crate::query::pdb_query::pdb;
 use crate::query::score::ScoreFilter;
@@ -54,7 +56,7 @@ use tantivy::query::{
 use tantivy::DateTime;
 use tantivy::{
     query_grammar::Occur,
-    schema::{Field, FieldType, OwnedValue, DATE_TIME_PRECISION_INDEXED},
+    schema::{Field, FieldType, DATE_TIME_PRECISION_INDEXED},
     Searcher, Term,
 };
 use thiserror::Error;
@@ -104,8 +106,8 @@ pub enum SearchQueryInput {
         max_word_length: Option<usize>,
         boost_factor: Option<f32>,
         stopwords: Option<Vec<String>>,
-        document: Option<Vec<(String, OwnedValue)>>,
-        key_value: Option<OwnedValue>,
+        document: Option<Vec<(String, PdbOwnedValue)>>,
+        key_value: Option<PdbOwnedValue>,
         fields: Option<Vec<String>>,
     },
     Parse {
@@ -233,14 +235,14 @@ fn rewrite_is_datetime_values_to_tagged_dates(value: &mut serde_json::Value) {
         value.as_object_mut().unwrap().remove("is_datetime");
         if let Some(s) = value["value"].as_str() {
             value["value"] = serde_json::json!({
-                "date": s
+                PDB_DATE_TAG: s
             });
         }
         for bound_key in ["lower_bound", "upper_bound"] {
             for inclusion_key in ["included", "excluded", "Included", "Excluded"] {
                 if let Some(s) = value[bound_key][inclusion_key].as_str() {
                     value[bound_key][inclusion_key] = serde_json::json!({
-                            "date": s
+                            PDB_DATE_TAG: s
                     });
                 }
             }
@@ -669,40 +671,31 @@ impl SearchQueryInput {
     }
 }
 
-/// TermInputWire needs to exist in order to support the correct handling of is_datetime from the
-/// legacy api. We deserialize TermInput as TermInputWire, the try to convert it to TermInput.
-/// Serialization does not require special handling
+/// Legacy wire format for [`TermInput`] kept around so that JSON inputs in the
+/// 3-element positional form `[field, value, is_datetime]` still deserialize.
+/// `is_datetime` no longer affects parsing — `PdbOwnedValue::Date` carries the
+/// datetime intent now — but the slot must exist for serde's positional
+/// (array) deserialization to accept the 3-element shape.
 #[derive(Deserialize)]
 struct TermInputWire {
     field: FieldName,
-    #[serde(deserialize_with = "deserialize_as_date_aware_owned_value")]
-    value: OwnedValue,
-    /// When true, `value` will be interpreted as a Date instead of as a String
+    value: PdbOwnedValue,
     #[serde(default)]
+    #[allow(dead_code)]
     is_datetime: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(try_from = "TermInputWire")]
+#[serde(from = "TermInputWire")]
 pub struct TermInput {
     pub field: FieldName,
-    #[serde(serialize_with = "serialize_as_date_aware_owned_value")]
-    pub value: OwnedValue,
+    pub value: PdbOwnedValue,
 }
-impl TryFrom<TermInputWire> for TermInput {
-    type Error = anyhow::Error;
-
-    fn try_from(value: TermInputWire) -> std::result::Result<Self, Self::Error> {
-        let field = value.field;
-        match (value.value, value.is_datetime) {
-            (OwnedValue::Str(s), true) => {
-                let dt = TantivyDateTime::try_from(s.as_str())?;
-                Ok(TermInput {
-                    field,
-                    value: OwnedValue::Date(dt.0),
-                })
-            }
-            (value, _) => Ok(TermInput { field, value }),
+impl From<TermInputWire> for TermInput {
+    fn from(wire: TermInputWire) -> Self {
+        TermInput {
+            field: wire.field,
+            value: wire.value,
         }
     }
 }
@@ -727,11 +720,9 @@ impl From<SearchQueryInput> for *mut pg_sys::Const {
 
 fn check_range_bounds(
     typeoid: PgOid,
-    lower_bound: Bound<OwnedValue>,
-    upper_bound: Bound<OwnedValue>,
-) -> Result<(Bound<OwnedValue>, Bound<OwnedValue>), QueryError> {
-    let one_day_nanos: i64 = 86_400_000_000_000;
-
+    lower_bound: Bound<PdbOwnedValue>,
+    upper_bound: Bound<PdbOwnedValue>,
+) -> Result<(Bound<PdbOwnedValue>, Bound<PdbOwnedValue>), QueryError> {
     // For NUMRANGEOID, convert numeric values to hex-encoded sortable bytes
     // to match the indexed format (see SortableDecimal in range.rs)
     let lower_bound = convert_numrange_bound(typeoid, lower_bound);
@@ -739,90 +730,124 @@ fn check_range_bounds(
 
     let lower_bound = match (typeoid, lower_bound.clone()) {
         // Excluded U64 needs to be canonicalized
-        (_, Bound::Excluded(OwnedValue::U64(n))) => Bound::Included(OwnedValue::U64(n + 1)),
+        (_, Bound::Excluded(PdbOwnedValue::U64(n))) => Bound::Included(PdbOwnedValue::U64(n + 1)),
         // Excluded I64 needs to be canonicalized
-        (_, Bound::Excluded(OwnedValue::I64(n))) => Bound::Included(OwnedValue::I64(n + 1)),
-        // Excluded Date needs to be canonicalized
+        (_, Bound::Excluded(PdbOwnedValue::I64(n))) => Bound::Included(PdbOwnedValue::I64(n + 1)),
+        // Excluded date needs to be canonicalized
         (
-            PgOid::BuiltIn(PgBuiltInOids::DATEOID | PgBuiltInOids::DATERANGEOID),
-            Bound::Excluded(OwnedValue::Str(date_string)),
+            PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
+            Bound::Excluded(PdbOwnedValue::Date(date)),
+        ) => Bound::Included(PdbOwnedValue::Date(
+            date.add_days(1).map_err(|e| anyhow::anyhow!("{e:?}"))?,
+        )),
+        // String date needs parsed
+        (
+            PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
+            Bound::Included(PdbOwnedValue::Str(s)),
         ) => {
-            let datetime = convert_pg_date_string(typeoid, &date_string);
-            let nanos = datetime.into_timestamp_nanos();
-            Bound::Included(OwnedValue::Date(DateTime::from_timestamp_nanos(
-                nanos + one_day_nanos,
-            )))
+            let date = PostgresDateTime::try_from_date_str(s.as_str())
+                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            Bound::Included(PdbOwnedValue::Date(date))
         }
+        // String date needs parsed and excluded date needs to be canonicalized
         (
-            PgOid::BuiltIn(
-                PgBuiltInOids::TIMESTAMPOID
-                | PgBuiltInOids::TSRANGEOID
-                | PgBuiltInOids::TIMESTAMPTZOID
-                | pg_sys::BuiltinOid::TSTZRANGEOID,
-            ),
-            Bound::Excluded(OwnedValue::Str(date_string)),
+            PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
+            Bound::Excluded(PdbOwnedValue::Str(s)),
         ) => {
-            let datetime = convert_pg_date_string(typeoid, &date_string);
-            Bound::Excluded(OwnedValue::Date(datetime))
+            let date = PostgresDateTime::try_from_date_str(s.as_str())
+                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            Bound::Included(PdbOwnedValue::Date(
+                date.add_days(1).map_err(|e| anyhow::anyhow!("{e:?}"))?,
+            ))
         }
+        // String timestamp needs to be parsed
         (
-            PgOid::BuiltIn(
-                PgBuiltInOids::DATEOID
-                | PgBuiltInOids::DATERANGEOID
-                | PgBuiltInOids::TIMESTAMPOID
-                | PgBuiltInOids::TSRANGEOID
-                | PgBuiltInOids::TIMESTAMPTZOID
-                | pg_sys::BuiltinOid::TSTZRANGEOID,
-            ),
-            Bound::Included(OwnedValue::Str(date_string)),
+            PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID)
+            | PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID)
+            | PgOid::BuiltIn(PgBuiltInOids::TSRANGEOID)
+            | PgOid::BuiltIn(PgBuiltInOids::TSTZRANGEOID),
+            Bound::Included(PdbOwnedValue::Str(s)) | Bound::Excluded(PdbOwnedValue::Str(s)),
         ) => {
-            let datetime = convert_pg_date_string(typeoid, &date_string);
-            Bound::Included(OwnedValue::Date(datetime))
+            let date = match typeoid {
+                PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID)
+                | PgOid::BuiltIn(PgBuiltInOids::TSRANGEOID) => {
+                    PostgresDateTime::try_from_timestamp_str(s.as_str())
+                        .map_err(|e| anyhow::anyhow!("{e:?}"))?
+                }
+                PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID)
+                | PgOid::BuiltIn(PgBuiltInOids::TSTZRANGEOID) => {
+                    PostgresDateTime::try_from_timestamptz_str(s.as_str())
+                        .map_err(|e| anyhow::anyhow!("{e:?}"))?
+                }
+                _ => unreachable!(),
+            };
+            match lower_bound {
+                Bound::Included(_) => Bound::Included(PdbOwnedValue::Date(date)),
+                Bound::Excluded(_) => Bound::Excluded(PdbOwnedValue::Date(date)),
+                Bound::Unbounded => unreachable!(),
+            }
         }
         _ => lower_bound,
     };
 
     let upper_bound = match (typeoid, upper_bound.clone()) {
         // Included U64 needs to be canonicalized
-        (_, Bound::Included(OwnedValue::U64(n))) => Bound::Excluded(OwnedValue::U64(n + 1)),
+        (_, Bound::Included(PdbOwnedValue::U64(n))) => Bound::Excluded(PdbOwnedValue::U64(n + 1)),
         // Included I64 needs to be canonicalized
-        (_, Bound::Included(OwnedValue::I64(n))) => Bound::Excluded(OwnedValue::I64(n + 1)),
+        (_, Bound::Included(PdbOwnedValue::I64(n))) => Bound::Excluded(PdbOwnedValue::I64(n + 1)),
         // Included Date needs to be canonicalized
         (
-            PgOid::BuiltIn(PgBuiltInOids::DATEOID | PgBuiltInOids::DATERANGEOID),
-            Bound::Included(OwnedValue::Str(date_string)),
-        ) => {
-            let datetime = convert_pg_date_string(typeoid, &date_string);
-            let nanos = datetime.into_timestamp_nanos();
-            Bound::Excluded(OwnedValue::Date(DateTime::from_timestamp_nanos(
-                nanos + one_day_nanos,
-            )))
-        }
+            PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
+            Bound::Included(PdbOwnedValue::Date(date)),
+        ) => Bound::Excluded(PdbOwnedValue::Date(
+            date.add_days(1).map_err(|e| anyhow::anyhow!("{e:?}"))?,
+        )),
+        // String date needs parsed and Included Date needs to be canonicalized
         (
-            PgOid::BuiltIn(
-                PgBuiltInOids::TIMESTAMPOID
-                | PgBuiltInOids::TSRANGEOID
-                | PgBuiltInOids::TIMESTAMPTZOID
-                | pg_sys::BuiltinOid::TSTZRANGEOID,
-            ),
-            Bound::Included(OwnedValue::Str(date_string)),
+            PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
+            Bound::Included(PdbOwnedValue::Str(s)),
         ) => {
-            let datetime = convert_pg_date_string(typeoid, &date_string);
-            Bound::Included(OwnedValue::Date(datetime))
+            let date = PostgresDateTime::try_from_date_str(s.as_str())
+                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            Bound::Excluded(PdbOwnedValue::Date(
+                date.add_days(1).map_err(|e| anyhow::anyhow!("{e:?}"))?,
+            ))
         }
+        // String date needs parsed
         (
-            PgOid::BuiltIn(
-                PgBuiltInOids::DATEOID
-                | PgBuiltInOids::DATERANGEOID
-                | PgBuiltInOids::TIMESTAMPOID
-                | PgBuiltInOids::TSRANGEOID
-                | PgBuiltInOids::TIMESTAMPTZOID
-                | pg_sys::BuiltinOid::TSTZRANGEOID,
-            ),
-            Bound::Excluded(OwnedValue::Str(date_string)),
+            PgOid::BuiltIn(PgBuiltInOids::DATEOID) | PgOid::BuiltIn(PgBuiltInOids::DATERANGEOID),
+            Bound::Excluded(PdbOwnedValue::Str(s)),
         ) => {
-            let datetime = convert_pg_date_string(typeoid, &date_string);
-            Bound::Excluded(OwnedValue::Date(datetime))
+            let date = PostgresDateTime::try_from_date_str(s.as_str())
+                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            Bound::Excluded(PdbOwnedValue::Date(date))
+        }
+        // String timestamp needs to be parsed
+        (
+            PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID)
+            | PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID)
+            | PgOid::BuiltIn(PgBuiltInOids::TSRANGEOID)
+            | PgOid::BuiltIn(PgBuiltInOids::TSTZRANGEOID),
+            Bound::Included(PdbOwnedValue::Str(s)) | Bound::Excluded(PdbOwnedValue::Str(s)),
+        ) => {
+            let date = match typeoid {
+                PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPOID)
+                | PgOid::BuiltIn(PgBuiltInOids::TSRANGEOID) => {
+                    PostgresDateTime::try_from_timestamp_str(s.as_str())
+                        .map_err(|e| anyhow::anyhow!("{e:?}"))?
+                }
+                PgOid::BuiltIn(PgBuiltInOids::TIMESTAMPTZOID)
+                | PgOid::BuiltIn(PgBuiltInOids::TSTZRANGEOID) => {
+                    PostgresDateTime::try_from_timestamptz_str(s.as_str())
+                        .map_err(|e| anyhow::anyhow!("{e:?}"))?
+                }
+                _ => unreachable!(),
+            };
+            match upper_bound {
+                Bound::Included(_) => Bound::Included(PdbOwnedValue::Date(date)),
+                Bound::Excluded(_) => Bound::Excluded(PdbOwnedValue::Date(date)),
+                Bound::Unbounded => unreachable!(),
+            }
         }
         _ => upper_bound,
     };
@@ -831,7 +856,7 @@ fn check_range_bounds(
 
 /// Convert numeric values in NUMRANGEOID bounds to hex-encoded sortable bytes.
 /// This matches the format used for indexing (see SortableDecimal in range.rs).
-fn convert_numrange_bound(typeoid: PgOid, bound: Bound<OwnedValue>) -> Bound<OwnedValue> {
+fn convert_numrange_bound(typeoid: PgOid, bound: Bound<PdbOwnedValue>) -> Bound<PdbOwnedValue> {
     use decimal_bytes::Decimal;
     use std::str::FromStr;
 
@@ -841,18 +866,18 @@ fn convert_numrange_bound(typeoid: PgOid, bound: Bound<OwnedValue>) -> Bound<Own
     }
 
     // Helper to convert a numeric value to hex-encoded bytes
-    let convert_to_hex = |value: &OwnedValue| -> Option<OwnedValue> {
+    let convert_to_hex = |value: &PdbOwnedValue| -> Option<PdbOwnedValue> {
         let numeric_str = match value {
-            OwnedValue::Str(s) => s.clone(),
-            OwnedValue::F64(f) => f.to_string(),
-            OwnedValue::I64(i) => i.to_string(),
-            OwnedValue::U64(u) => u.to_string(),
+            PdbOwnedValue::Str(s) => s.clone(),
+            PdbOwnedValue::F64(f) => f.to_string(),
+            PdbOwnedValue::I64(i) => i.to_string(),
+            PdbOwnedValue::U64(u) => u.to_string(),
             _ => return None,
         };
 
         Decimal::from_str(&numeric_str)
             .ok()
-            .map(|dec| OwnedValue::Str(numeric::bytes_to_hex(dec.as_bytes())))
+            .map(|dec| PdbOwnedValue::Str(numeric::bytes_to_hex(dec.as_bytes())))
     };
 
     match bound {
@@ -875,21 +900,21 @@ fn convert_numrange_bound(typeoid: PgOid, bound: Bound<OwnedValue>) -> Bound<Own
 }
 
 fn coerce_bound_to_field_type(
-    bound: Bound<OwnedValue>,
+    bound: Bound<PdbOwnedValue>,
     field_type: &FieldType,
-) -> Bound<OwnedValue> {
+) -> Bound<PdbOwnedValue> {
     match bound {
-        Bound::Included(OwnedValue::U64(n)) if matches!(field_type, FieldType::F64(_)) => {
-            Bound::Included(OwnedValue::F64(n as f64))
+        Bound::Included(PdbOwnedValue::U64(n)) if matches!(field_type, FieldType::F64(_)) => {
+            Bound::Included(PdbOwnedValue::F64(n as f64))
         }
-        Bound::Included(OwnedValue::I64(n)) if matches!(field_type, FieldType::F64(_)) => {
-            Bound::Included(OwnedValue::F64(n as f64))
+        Bound::Included(PdbOwnedValue::I64(n)) if matches!(field_type, FieldType::F64(_)) => {
+            Bound::Included(PdbOwnedValue::F64(n as f64))
         }
-        Bound::Excluded(OwnedValue::U64(n)) if matches!(field_type, FieldType::F64(_)) => {
-            Bound::Excluded(OwnedValue::F64(n as f64))
+        Bound::Excluded(PdbOwnedValue::U64(n)) if matches!(field_type, FieldType::F64(_)) => {
+            Bound::Excluded(PdbOwnedValue::F64(n as f64))
         }
-        Bound::Excluded(OwnedValue::I64(n)) if matches!(field_type, FieldType::F64(_)) => {
-            Bound::Excluded(OwnedValue::F64(n as f64))
+        Bound::Excluded(PdbOwnedValue::I64(n)) if matches!(field_type, FieldType::F64(_)) => {
+            Bound::Excluded(PdbOwnedValue::F64(n as f64))
         }
         bound => bound,
     }
@@ -1389,94 +1414,15 @@ impl SearchQueryInput {
     }
 }
 
-fn serialize_date_aware_owned_value_date<S>(
-    value: &tantivy::DateTime,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let ov = OwnedValue::Date(*value);
-    ov.serialize(serializer)
-}
-fn deserialize_date_aware_owned_value_date<'de, D>(
-    deserializer: D,
-) -> Result<tantivy::DateTime, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    match OwnedValue::deserialize(deserializer)? {
-        OwnedValue::Date(dt) => Ok(dt),
-        OwnedValue::Str(s) => TantivyDateTime::try_from(s.as_str())
-            .map(|t| t.0)
-            .map_err(serde::de::Error::custom),
-        _ => Err(serde::de::Error::invalid_value(
-            serde::de::Unexpected::Other("a non-datetime value"),
-            &"a datetime value",
-        )),
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(untagged)]
-enum DateAwareOwnedValue {
-    Date {
-        // serde through OwnedValue so we get the same datetime serialization
-        #[serde(
-            serialize_with = "serialize_date_aware_owned_value_date",
-            deserialize_with = "deserialize_date_aware_owned_value_date"
-        )]
-        date: tantivy::DateTime,
-    },
-    Other(OwnedValue),
-}
-impl From<OwnedValue> for DateAwareOwnedValue {
-    fn from(value: OwnedValue) -> Self {
-        match value {
-            OwnedValue::Date(date) => Self::Date { date },
-            _ => Self::Other(value),
-        }
-    }
-}
-impl From<DateAwareOwnedValue> for OwnedValue {
-    fn from(value: DateAwareOwnedValue) -> OwnedValue {
-        match value {
-            DateAwareOwnedValue::Date { date } => OwnedValue::Date(date),
-            DateAwareOwnedValue::Other(owned) => owned,
-        }
-    }
-}
-
-pub(crate) fn serialize_as_date_aware_owned_value<S>(
-    value: &OwnedValue,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let date_aware = DateAwareOwnedValue::from(value.clone());
-    date_aware.serialize(serializer)
-}
-
-pub(crate) fn deserialize_as_date_aware_owned_value<'de, D>(
-    deserializer: D,
-) -> Result<OwnedValue, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let date_aware = DateAwareOwnedValue::deserialize(deserializer)?;
-    Ok(OwnedValue::from(date_aware))
-}
-
 /// Convert a string-encoded numeric value to the appropriate type based on field type.
 /// Used for JSON field comparisons where NUMERIC constants need to match stored JSON numbers.
-fn convert_for_field_type(value: &OwnedValue, field_type: &FieldType) -> OwnedValue {
+fn convert_for_field_type(value: &PdbOwnedValue, field_type: &FieldType) -> PdbOwnedValue {
     use crate::query::numeric::{
         string_to_f64, string_to_i64, string_to_json_numeric, string_to_u64,
     };
 
     // Only convert string values - other types pass through unchanged
-    if !matches!(value, OwnedValue::Str(_)) {
+    if !matches!(value, PdbOwnedValue::Str(_)) {
         return value.clone();
     }
 
@@ -1491,44 +1437,50 @@ fn convert_for_field_type(value: &OwnedValue, field_type: &FieldType) -> OwnedVa
 
 fn value_to_json_term(
     field: Field,
-    value: &OwnedValue,
+    value: &PdbOwnedValue,
     path: Option<&str>,
     expand_dots: bool,
     is_datetime: bool,
 ) -> Result<Term> {
     let mut term = Term::from_field_json_path(field, path.unwrap_or_default(), expand_dots);
     match value {
-        OwnedValue::Str(text) => {
+        PdbOwnedValue::Str(text) => {
             if is_datetime {
                 let TantivyDateTime(date) = TantivyDateTime::try_from(text.as_str())?;
                 // https://github.com/quickwit-oss/tantivy/pull/2456
                 // It's a footgun that date needs to truncated when creating the Term
                 term.append_type_and_fast_value(date.truncate(DATE_TIME_PRECISION_INDEXED));
+            } else if let Ok(pgdt) = PostgresDateTime::try_from(text.as_str()) {
+                let dt: tantivy::DateTime = pgdt.try_into()?;
+                // https://github.com/quickwit-oss/tantivy/pull/2456
+                // It's a footgun that date needs to truncated when creating the Term
+                term.append_type_and_fast_value(dt.truncate(DATE_TIME_PRECISION_INDEXED));
             } else {
                 term.append_type_and_str(text);
             }
         }
-        OwnedValue::U64(value) => {
+        PdbOwnedValue::U64(value) => {
             if let Ok(i64_val) = (*value).try_into() {
                 term.append_type_and_fast_value::<i64>(i64_val);
             } else {
                 term.append_type_and_fast_value(*value);
             }
         }
-        OwnedValue::I64(value) => {
+        PdbOwnedValue::I64(value) => {
             term.append_type_and_fast_value(*value);
         }
-        OwnedValue::F64(value) => {
+        PdbOwnedValue::F64(value) => {
             term.append_type_and_fast_value(*value);
         }
-        OwnedValue::Bool(value) => {
+        PdbOwnedValue::Bool(value) => {
             term.append_type_and_fast_value(*value);
         }
-        OwnedValue::Date(value) => {
-            term.append_type_and_fast_value(*value);
+        PdbOwnedValue::Date(value) => {
+            let dt: tantivy::DateTime = (*value).try_into()?;
+            term.append_type_and_fast_value(dt.truncate(DATE_TIME_PRECISION_INDEXED));
         }
         unsupported => panic!(
-            "Tantivy OwnedValue type {:?} not supported for JSON term",
+            "Tantivy PdbOwnedValue type {:?} not supported for JSON term",
             unsupported
         ),
     };
@@ -1543,7 +1495,7 @@ pub(super) fn dot_path_to_facet(text: &str) -> tantivy::schema::Facet {
 
 pub fn value_to_term(
     field: Field,
-    value: &OwnedValue,
+    value: &PdbOwnedValue,
     field_type: &FieldType,
     path: Option<&str>,
     is_datetime: bool,
@@ -1564,7 +1516,7 @@ pub fn value_to_term(
     }
 
     if is_datetime {
-        if let OwnedValue::Str(text) = value {
+        if let PdbOwnedValue::Str(text) = value {
             let TantivyDateTime(date) = TantivyDateTime::try_from(text.as_str())?;
             // https://github.com/quickwit-oss/tantivy/pull/2456
             // It's a footgun that date needs to truncated when creating the Term
@@ -1577,15 +1529,15 @@ pub fn value_to_term(
 
     // For facet fields, convert string values to facet terms
     if matches!(field_type, FieldType::Facet(_)) {
-        if let OwnedValue::Str(text) = value {
+        if let PdbOwnedValue::Str(text) = value {
             return Ok(Term::from_facet(field, &dot_path_to_facet(text)));
         }
     }
 
     Ok(match value {
-        OwnedValue::Str(text) => Term::from_field_text(field, text),
-        OwnedValue::PreTokStr(_) => panic!("pre-tokenized text cannot be converted to term"),
-        OwnedValue::U64(u64) => {
+        PdbOwnedValue::Str(text) => Term::from_field_text(field, text),
+        PdbOwnedValue::PreTokStr(_) => panic!("pre-tokenized text cannot be converted to term"),
+        PdbOwnedValue::U64(u64) => {
             // Positive numbers seem to be automatically turned into u64s even if they are i64s,
             // so we should use the field type to assign the term type
             match field_type {
@@ -1594,17 +1546,18 @@ pub fn value_to_term(
                 _ => panic!("invalid field type for u64 value"),
             }
         }
-        OwnedValue::I64(i64) => Term::from_field_i64(field, *i64),
-        OwnedValue::F64(f64) => Term::from_field_f64(field, *f64),
-        OwnedValue::Bool(bool) => Term::from_field_bool(field, *bool),
-        OwnedValue::Date(date) => {
-            Term::from_field_date(field, date.truncate(DATE_TIME_PRECISION_INDEXED))
+        PdbOwnedValue::I64(i64) => Term::from_field_i64(field, *i64),
+        PdbOwnedValue::F64(f64) => Term::from_field_f64(field, *f64),
+        PdbOwnedValue::Bool(bool) => Term::from_field_bool(field, *bool),
+        PdbOwnedValue::Date(date) => {
+            let tantivy_date = tantivy::DateTime::try_from(*date)?;
+            Term::from_field_date(field, tantivy_date.truncate(DATE_TIME_PRECISION_INDEXED))
         }
-        OwnedValue::Facet(facet) => Term::from_facet(field, facet),
-        OwnedValue::Bytes(bytes) => Term::from_field_bytes(field, bytes),
-        OwnedValue::Object(_) => panic!("json cannot be converted to term"),
-        OwnedValue::IpAddr(ip) => Term::from_field_ip_addr(field, *ip),
-        _ => panic!("Tantivy OwnedValue type not supported"),
+        PdbOwnedValue::Facet(facet) => Term::from_facet(field, facet),
+        PdbOwnedValue::Bytes(bytes) => Term::from_field_bytes(field, bytes),
+        PdbOwnedValue::Object(_) => panic!("json cannot be converted to term"),
+        PdbOwnedValue::IpAddr(ip) => Term::from_field_ip_addr(field, *ip),
+        _ => panic!("Tantivy PdbOwnedValue type not supported"),
     })
 }
 
@@ -1792,16 +1745,16 @@ impl PostgresExpression {
 #[pgrx::pg_schema]
 mod tests {
     use super::{SearchQueryInput, TermInput};
+    use crate::postgres::pdb_owned_value::PdbOwnedValue;
     use crate::query::pdb_query::pdb;
 
     use pgrx::prelude::*;
-    use tantivy::schema::OwnedValue;
 
     fn create_term_query() -> SearchQueryInput {
         SearchQueryInput::TermSet {
             terms: vec![TermInput {
                 field: "test".into(),
-                value: OwnedValue::Str("value".to_string()),
+                value: PdbOwnedValue::Str("value".to_string()),
             }],
         }
     }

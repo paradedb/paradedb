@@ -203,7 +203,7 @@ pub unsafe fn terms_with_operator(
 
                 Ok(TermInput {
                     field: field.clone(),
-                    value: value.into(),
+                    value: value.0,
                 })
             })
             .collect::<Result<Vec<_>, TantivyValueError>>()?;

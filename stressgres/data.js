@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780588955579,
+  "lastUpdate": 1780588989691,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -30458,6 +30458,114 @@ window.BENCHMARK_DATA = {
             "value": 173.32421875,
             "unit": "median mem",
             "extra": "avg mem: 170.69597890123092, max mem: 174.14453125, count: 55569"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "71215065+junnjiee@users.noreply.github.com",
+            "name": "Jun Jie",
+            "username": "junnjiee"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d674f27a7a5ff8e331130504f6442a05c51fcb45",
+          "message": "test: handle nullable where clauses in querygen tests (#5253)\n\n# Ticket(s) Closed\n\n- Closes #3111\n\n## What\n\n**Root cause**: Negated (`NOT`) `@@@` predicates are not equivalent to\nnegated PostgreSQL `=` predicates on nullable columns, causing\nmismatches/failures in `tests/qgen.rs`\n\n## Why\n\n- @@@ returns `TRUE` for rows found by the search index, and `FALSE` for\nall other rows\n- postgres `=` evaluates per row using 3-valued logic so it is `NULL`\naware\n\nThis behaviour works as intended normally. But for negation, the\nbehaviour drifts. When using `@@@`, we get a result of all row ids that\nmatch the query. This becomes `TRUE`/`FALSE` per row, information on\n`NULL` rows are lost\n\nMeanwhile, postgres evaluates per row using 3-valued logic, so nullable\ncolumns can produce `NULL`\n\nexample:\n| id  | age | color | = blue | @@@ blue |\n| --- | --- | ----- |---|---|\n| 1   | 20  | blue  | TRUE | TRUE |\n| 2   | 30  | red   | FALSE | FALSE |\n| 3   | 30  | NULL  | NULL | FALSE |\n\nthis PR treats this behaviour as expected and modifies the tests.\n\n## How\n\n### TLDR\nuse \n```\nCASE\n        WHEN table.id IS NOT NULL THEN COALESCE(table.<field> = <value>, false)\n        ELSE table.<field> = <value>\nEND\n```\n\nfor testing `@@@` behaviour on nullable columns as this query captures\nhow it works in both single table and joined tables\n\n### Single table queries\n\nFor single table queries, we use `COALESCE(color = blue, false)` instead\nof `color = blue`, this returns all non-matching values as `FALSE`,\nwhich is what the `@@@` operator does\n\nexample:\n| id  | age | color | = blue | @@@ blue | IS NOT DISTINCT FROM blue |\n| --- | --- | ----- |---|---|---|\n| 1   | 20  | blue  | TRUE | TRUE | TRUE |\n| 2   | 30  | red   | FALSE | FALSE | FALSE |\n| 3   | 30  | NULL  | NULL | FALSE | FALSE |\n\n### Joined table queries\n\nFor outer joins (`LEFT`/`RIGHT`/`FULL`), null-supplying side can produce\nnull extended rows\n\nexample: `products RIGHT JOIN orders ON products.age = orders.age`\n\n| products.id | products.age | products.color | orders.id | orders.age |\n| ----------- | ------------ | -------------- | --------- | ---------- |\n| 1           | 20           | blue           | 20        | 20         |\n| NULL        | NULL         | NULL           | 11        | 99         |\n| 2        | 90         | NULL           | 12        | 90         |\n\nin this case, left table `products` might have `NULL` ids\n\n\nif we perform `WHERE products.color {op} blue` on the table above, we\nget\n\n| products.id | products.age | products.color | @@@ blue | = blue |\n| ----------- | ------------ | -------------- | --------- |---|\n| 1           | 20           | blue           | TRUE        | TRUE |\n| NULL | NULL | NULL | NULL (as products.id is null) | NULL |\n| 2        | 90         | NULL           | FALSE        | NULL         |\n\nthus\n- if `id` is not null, we continue using `COALESCE(color = blue, false)`\n- if `id` is null, `@@@` operator returns `NULL` for that row, which\nmatches normal postgres behaviour\n\n## Tests\n\nTests in `qgen.rs` now pass with `whereable(true)`",
+          "timestamp": "2026-06-04T08:06:22-07:00",
+          "tree_id": "c0530cdcbbe06754d6c2dac721248f647a0fd0e3",
+          "url": "https://github.com/paradedb/paradedb/commit/d674f27a7a5ff8e331130504f6442a05c51fcb45"
+        },
+        "date": 1780588957734,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Custom scan - Primary - cpu",
+            "value": 18.622696,
+            "unit": "median cpu",
+            "extra": "avg cpu: 20.227625194270217, max cpu: 51.81551, count: 55581"
+          },
+          {
+            "name": "Custom scan - Primary - mem",
+            "value": 164.77734375,
+            "unit": "median mem",
+            "extra": "avg mem: 145.00163612565444, max mem: 178.89453125, count: 55581"
+          },
+          {
+            "name": "Delete value - Primary - cpu",
+            "value": 4.6421666,
+            "unit": "median cpu",
+            "extra": "avg cpu: 7.690843528670796, max cpu: 28.015566, count: 55581"
+          },
+          {
+            "name": "Delete value - Primary - mem",
+            "value": 120.8984375,
+            "unit": "median mem",
+            "extra": "avg mem: 119.7249866045726, max mem: 121.046875, count: 55581"
+          },
+          {
+            "name": "Insert value - Primary - cpu",
+            "value": 4.6511626,
+            "unit": "median cpu",
+            "extra": "avg cpu: 6.244415545135472, max cpu: 23.188406, count: 55581"
+          },
+          {
+            "name": "Insert value - Primary - mem",
+            "value": 165.765625,
+            "unit": "median mem",
+            "extra": "avg mem: 145.44982604217267, max mem: 180.109375, count: 55581"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - block_count",
+            "value": 16766,
+            "unit": "median block_count",
+            "extra": "avg block_count: 16838.4060740181, max block_count: 31302.0, count: 55581"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - cpu",
+            "value": 4.628737,
+            "unit": "median cpu",
+            "extra": "avg cpu: 4.538039494036648, max cpu: 4.7197638, count: 55581"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - mem",
+            "value": 105.515625,
+            "unit": "median mem",
+            "extra": "avg mem: 95.54878051008887, max mem: 137.59375, count: 55581"
+          },
+          {
+            "name": "Monitor Segment Count - Primary - segment_count",
+            "value": 26,
+            "unit": "median segment_count",
+            "extra": "avg segment_count: 25.712581637609976, max segment_count: 40.0, count: 55581"
+          },
+          {
+            "name": "Update random values - Primary - cpu",
+            "value": 9.248554,
+            "unit": "median cpu",
+            "extra": "avg cpu: 9.21500996651722, max cpu: 27.988338, count: 111162"
+          },
+          {
+            "name": "Update random values - Primary - mem",
+            "value": 181.734375,
+            "unit": "median mem",
+            "extra": "avg mem: 163.05910026020584, max mem: 182.6953125, count: 111162"
+          },
+          {
+            "name": "Vacuum - Primary - cpu",
+            "value": 13.872832,
+            "unit": "median cpu",
+            "extra": "avg cpu: 12.666788732570604, max cpu: 27.612656, count: 55581"
+          },
+          {
+            "name": "Vacuum - Primary - mem",
+            "value": 173.453125,
+            "unit": "median mem",
+            "extra": "avg mem: 170.64796254565408, max mem: 174.015625, count: 55581"
           }
         ]
       }

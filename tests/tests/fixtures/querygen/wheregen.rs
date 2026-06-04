@@ -51,8 +51,8 @@ impl Expr {
                 // We test for expected behaviour where `@@@` operation returns
                 // only TRUE/FALSE instead of following three-valued logic
                 //
-                // However, for null extended rows in table joins, behaviour is same as normal Postgres,
-                // NULL is returned if primary key is NULL
+                // However, for null extended rows in table joins, `@@@` operator can return
+                // NULL if primary key (id) is NULL
                 if *is_indexed && *is_nullable && indexed_op == " = " {
                     if null_extended_tables
                         .is_some_and(|nullable_tables| nullable_tables.contains(table.as_str()))

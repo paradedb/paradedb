@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780595933728,
+  "lastUpdate": 1780596046387,
   "repoUrl": "https://github.com/paradedb/paradedb",
   "entries": {
     "pg_search single-server.toml Performance - TPS": [
@@ -3666,6 +3666,78 @@ window.BENCHMARK_DATA = {
             "value": 122.60232257022527,
             "unit": "median tps",
             "extra": "avg tps: 159.027485500633, max tps: 285.49558250306063, count: 55209"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "mvanhorn@users.noreply.github.com",
+            "name": "Matt Van Horn",
+            "username": "mvanhorn"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "36c0933d3ded611c10c49dfeb7c04c62e6f5b294",
+          "message": "feat: support array::fuzzy::boost cast chain in &&& operator (#5158)\n\n## Summary\n\nfeat: support array::fuzzy::boost cast chain in &&& operator\n\nCloses #5079\n\n---\nAI was used for assistance.\n\n---------\n\nCo-authored-by: Matt Van Horn <455140+mvanhorn@users.noreply.github.com>\nCo-authored-by: Philippe Noël <philippemnoel@gmail.com>",
+          "timestamp": "2026-06-04T13:40:07-04:00",
+          "tree_id": "a78407fc2921c8c3cfee0468dfe194e249f54db9",
+          "url": "https://github.com/paradedb/paradedb/commit/36c0933d3ded611c10c49dfeb7c04c62e6f5b294"
+        },
+        "date": 1780596012081,
+        "tool": "customBiggerIsBetter",
+        "benches": [
+          {
+            "name": "Aggregate Custom Scan - Primary - tps",
+            "value": 129.20038438757274,
+            "unit": "median tps",
+            "extra": "avg tps: 129.71966613473788, max tps: 143.71933328146736, count: 55055"
+          },
+          {
+            "name": "Columnar Scan - Primary - tps",
+            "value": 483.05906930042505,
+            "unit": "median tps",
+            "extra": "avg tps: 483.2526054103807, max tps: 618.0603553792105, count: 55055"
+          },
+          {
+            "name": "Delete values - Primary - tps",
+            "value": 3229.3671214316532,
+            "unit": "median tps",
+            "extra": "avg tps: 3206.1569554175444, max tps: 3240.7175326511474, count: 55055"
+          },
+          {
+            "name": "Index Scan - Primary - tps",
+            "value": 398.7127036839794,
+            "unit": "median tps",
+            "extra": "avg tps: 400.2409818484733, max tps: 484.77403530875927, count: 55055"
+          },
+          {
+            "name": "Insert value - Primary - tps",
+            "value": 2740.257524604953,
+            "unit": "median tps",
+            "extra": "avg tps: 2761.060850148508, max tps: 2823.887185392826, count: 110110"
+          },
+          {
+            "name": "Normal Scan - Primary - tps",
+            "value": 493.37119416332604,
+            "unit": "median tps",
+            "extra": "avg tps: 492.91493230383793, max tps: 580.4354992502547, count: 55055"
+          },
+          {
+            "name": "Update random values - Primary - tps",
+            "value": 1982.2459695517346,
+            "unit": "median tps",
+            "extra": "avg tps: 1971.8807963741447, max tps: 1989.2772839056827, count: 55055"
+          },
+          {
+            "name": "Vacuum - Primary - tps",
+            "value": 37.28540317747534,
+            "unit": "median tps",
+            "extra": "avg tps: 71.18545993821932, max tps: 340.10395919931517, count: 55055"
           }
         ]
       }

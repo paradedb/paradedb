@@ -5671,7 +5671,6 @@ dependencies = [
  "tokenizers",
  "tokio",
  "typetag",
- "url",
  "uuid",
 ]
 

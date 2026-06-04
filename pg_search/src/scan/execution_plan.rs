@@ -89,6 +89,9 @@ pub struct ScannerConfig {
     pub which_fast_fields: Vec<WhichFastField>,
     pub heap_relid: u32,
     pub batch_size_hint: Option<usize>,
+    /// `need_scores` the index reader was opened with. Carried so a coordinator-dispatched worker
+    /// re-opens its reader with the same scoring behavior (the reader itself can't travel).
+    pub score_needed: bool,
 }
 
 /// Recipe for a scan partition.
@@ -330,9 +333,7 @@ impl PgSearchScanPlan {
         let descriptor = ScanDispatchDescriptor {
             schema_proto: prost::Message::encode_to_vec(&schema_proto),
             query: self.query_for_display.clone(),
-            // Scored scans aren't on the aggregate dispatch path yet; thread this through when
-            // the topk/scored paths land.
-            score_needed: false,
+            score_needed: scanner_config.score_needed,
             sort_order: self.sort_order.clone(),
             indexrelid: self.indexrelid,
             deferred_fields: self.deferred_fields.clone(),
@@ -416,6 +417,7 @@ impl PgSearchScanPlan {
             which_fast_fields: descriptor.which_fast_fields,
             heap_relid: descriptor.heap_relid,
             batch_size_hint: descriptor.batch_size_hint,
+            score_needed: descriptor.score_needed,
         };
         let state = ScanState {
             recipe: ScanRecipe::Lazy {

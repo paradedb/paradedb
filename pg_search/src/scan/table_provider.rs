@@ -593,6 +593,7 @@ impl PgSearchTableProvider {
             which_fast_fields: which_fast_fields.clone(),
             heap_relid: heap_relid.into(),
             batch_size_hint: None,
+            score_needed: self.scan_info.score_needed,
         };
         let segments: Vec<ScanState> = reader
             .segment_readers()
@@ -645,6 +646,7 @@ impl PgSearchTableProvider {
             which_fast_fields: which_fast_fields.clone(),
             heap_relid: heap_relid.into(),
             batch_size_hint: None,
+            score_needed: self.scan_info.score_needed,
         };
         let recipe = crate::scan::execution_plan::ScanRecipe::Lazy {
             parallel_state,

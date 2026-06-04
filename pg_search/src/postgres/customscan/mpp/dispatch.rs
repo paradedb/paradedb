@@ -153,8 +153,7 @@ fn read_dispatch_blob(payload: &[u8]) -> Result<Vec<DispatchedStage>> {
     Ok(stages)
 }
 
-/// Fan a stage out to the `task_idx` slots `this_proc` owns under `proc_for_task`. Shared by the
-/// dispatch (decoded) and re-plan (in-memory) paths.
+/// Fan a stage out to the `task_idx` slots `this_proc` owns under `proc_for_task`.
 fn push_owned_tasks(
     out: &mut Vec<FragmentAssignment>,
     stage_num: u32,
